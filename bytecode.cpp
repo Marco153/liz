@@ -843,7 +843,7 @@ void FromByteCodeToX64(lang_state *lang_stat, own_std::vector<func_byte_code *> 
 				}
 				else if (bc->rel.type == rel_type::REL_DATA)
 				{
-					char *data_sym_name = (char *)__lang_globals.alloc(__lang_globals.data, 16, 0);
+					char* data_sym_name = (char*)AllocMiscData(lang_stat, 16);
 					snprintf(data_sym_name, 16, "$%d", ret.generated_data_symbols++);
 					
 					ret.symbols.emplace_back(machine_sym(lang_stat, machine_sym_type::SYM_DATA, bc->rel.offset, data_sym_name));

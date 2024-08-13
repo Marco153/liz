@@ -224,9 +224,9 @@ void NewTypeDataSymbol(lang_state *lang_stat, int offset, char* name)
 
 char* AllocMiscData(lang_state *lang_stat, int sz)
 {
-	ASSERT((lang_stat->cur_misc + sz + 4) < lang_stat->max_misc);
+	//ASSERT((lang_stat->cur_misc + sz + 4) < lang_stat->max_misc);
 	//auto ret = (char *)__lang_globals.alloc(__lang_globals.data, sz + 16, 0);
-	auto ret = (char *)__lang_globals.alloc(__lang_globals.data, sz + 16, 0);
+	auto ret = (char*)__lang_globals.alloc(__lang_globals.data, sz + 16);
 	memset(ret, 0, sz);
 	//auto ret = lang_stat->misc_arena + lang_stat->cur_misc;
 	//lang_stat->cur_misc += sz;
@@ -290,7 +290,7 @@ void InsertIntoDataSect(lang_state *lang_stat, void* src, int size)
 node* new_node(lang_state *lang_stat, node* src)
 {
 	//ASSERT((lang_stat->cur_nd + 1) < lang_stat->max_nd);
-	auto cur_node = (node *)__lang_globals.alloc(__lang_globals.data, sizeof(node) * 2, 0);
+	auto cur_node = (node*)AllocMiscData(lang_stat, sizeof(node) * 2);
 	cur_node->t = src->t;
 	memcpy(cur_node, src, sizeof(node));
 	return cur_node;
@@ -299,7 +299,7 @@ node* new_node(lang_state *lang_stat, token2 *t)
 {
 	//ASSERT((lang_stat->cur_nd + 1) < lang_stat->max_nd);
 	//auto cur_node = lang_stat->node_arena + lang_stat->cur_nd++;
-	auto cur_node = (node *)__lang_globals.alloc(__lang_globals.data, sizeof(node) * 2, 0);
+	auto cur_node = (node*)AllocMiscData(lang_stat, sizeof(node) * 2);
 	memset(cur_node, 0, sizeof(node));
 	ASSERT(t);
 	cur_node->t = t;
@@ -907,7 +907,7 @@ node* node_iter::parse_str(std::string& str, int* i)
 	*i = end;
 
 	int sz_tkns = sizeof(own_std::vector<token2>);
-	auto new_tkns = (own_std::vector<token2> *) __lang_globals.alloc(__lang_globals.data, sz_tkns, 0);
+	auto new_tkns = (own_std::vector<token2> *) __lang_globals.alloc(__lang_globals.data, sz_tkns);
 	memset(new_tkns, 0, sz_tkns);
 
 	Tokenize2((char*)std_str_to_heap(lang_stat, &new_str), new_str.size(), new_tkns);

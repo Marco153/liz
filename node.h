@@ -248,7 +248,7 @@ struct node
 		if(this->r)
 			this->r->FreeTree();
 
-		__lang_globals.free(__lang_globals.data, this, 0);
+		__lang_globals.free(__lang_globals.data, this);
 		
 	}
 };

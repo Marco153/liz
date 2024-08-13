@@ -30,6 +30,9 @@ enum ast_type
 
 struct ast_rep;
 struct ir_rep;
+struct dbg_state;
+
+typedef  void(*OutsiderFuncType)(dbg_state*);
 
 struct ast_stats
 {
@@ -234,7 +237,12 @@ struct ir_rep
         }complx;
         struct
         {
-            func_decl *fdecl;
+			union
+			{
+				func_decl* fdecl;
+				OutsiderFuncType outsider;
+			};
+			bool is_outsider;
 			int i;
         }call;
         struct

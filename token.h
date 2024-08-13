@@ -442,7 +442,7 @@ struct func_decl
 	*/
 	func_decl *new_func()
 	{
-		auto ret = (func_decl *)__lang_globals.alloc(__lang_globals.data, sizeof(func_decl), 0);
+		auto ret = (func_decl*)__lang_globals.alloc(__lang_globals.data, sizeof(func_decl));
 		memset(ret, 0, sizeof(func_decl));
 		//memcpy(ret, this, sizeof(func_decl));
 		//ret->args.assign(args.begin(), args.end());

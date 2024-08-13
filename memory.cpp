@@ -166,12 +166,13 @@ void heap_insert_unallocated(mem_alloc* alloc, mem_chunk *a)
 		}
 	}
 }
-void heap_free(mem_alloc *alloc, char *ptr, heap_free_ret_info *ret = nullptr)
+void heap_free(mem_alloc *alloc, char *ptr)//, heap_free_ret_info *ret = nullptr)
 {
+	heap_free_ret_info* ret = nullptr;
 	//free(ptr);
 	//return;
-	if(ret)
-		*ret = {};
+	//if(ret)
+		//*ret = {};
     mem_chunk *chunk_to_free = (mem_chunk *)alloc->in_use.Get(ptr);
     alloc->in_use.Remove(ptr);
     auto cur = alloc->head_free;
@@ -275,7 +276,7 @@ void heap_free(mem_alloc *alloc, char *ptr, heap_free_ret_info *ret = nullptr)
 	//memset(chunk_to_free->addr, 'x', chunk_to_free->size * BYTES_PER_CHUNK);
 
 }
-char *heap_alloc(mem_alloc *alloc, int size, mem_chunk **out = nullptr)
+char *heap_alloc(mem_alloc *alloc, int size)//, mem_chunk **out = nullptr)
 {
 	//return (char *)malloc(size);
     mem_chunk *cur = alloc->head_free;
@@ -345,8 +346,34 @@ char *heap_alloc(mem_alloc *alloc, int size, mem_chunk **out = nullptr)
 	cur->size = min_alloc_size / BYTES_PER_CHUNK;
 
 	ASSERT(cur->next != cur);
-	if (out)
-		*out = cur;
+	//if (out)
+		//*out = cur;
 	heap_assert_next_not_equal_to_cur(alloc);
     return cur->addr;
+}
+
+void InitMemAlloc(mem_alloc *alloc)
+{
+    int all_chunks_sz = CHUNKS_CAP * sizeof(mem_chunk);
+    alloc->all = (mem_chunk *)malloc(all_chunks_sz);
+    memset(alloc->all, 0, all_chunks_sz);
+
+	int unallocated_sz = UNALLOCATED_BUFFER_ITEMS * 8;
+	alloc->probable_unallocated = (mem_chunk **)malloc(unallocated_sz);
+    memset(alloc->probable_unallocated, 0, unallocated_sz);
+
+    int total_size = CHUNKS_CAP * BYTES_PER_CHUNK;
+	alloc->buffer = (char *)VirtualAlloc(0, total_size, MEM_COMMIT, PAGE_READWRITE);
+	
+	int in_use_hash_sz = HASH_TABLE_SIZE * sizeof(heap_hash::inner);
+	alloc->in_use.data = (heap_hash::inner *)VirtualAlloc(0, in_use_hash_sz, MEM_COMMIT, PAGE_READWRITE);
+	memset(alloc->in_use.data, 0, in_use_hash_sz);
+    mem_chunk *free = GetUnallocatedChunk(alloc);
+	//alloc->in_use.reserve(HASH_TABLE_SIZE);
+
+	free->size = total_size / BYTES_PER_CHUNK;
+    free->addr = alloc->buffer;
+
+
+	alloc->head_free = free;
 }

@@ -15,7 +15,7 @@ bool NameFindingGetType(lang_state* lang_stat, node* n, scope* scp, type2& ret_t
 
 ast_rep *NewAst()
 {
-    auto ret = (ast_rep *)__lang_globals.alloc(__lang_globals.data, sizeof(ast_rep), 0);
+	auto ret = (ast_rep*)__lang_globals.alloc(__lang_globals.data, sizeof(ast_rep));
     memset(ret, 0, sizeof(ast_rep));
     return ret;
 
@@ -137,7 +137,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
         {
 		case T_POINT:
 		{
-			auto new_ar = (own_std::vector<ast_point> *) __lang_globals.alloc(__lang_globals.data, sizeof(own_std::vector<ast_point>), 0);
+			auto new_ar = (own_std::vector<ast_point> *) AllocMiscData(lang_stat, sizeof(own_std::vector<ast_point>));
 			memset(new_ar, 0, sizeof(*new_ar));
 			ast_point aux;
 			node *first_node = *(node_stack.begin() + last_idx);
@@ -683,6 +683,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			int cur_biggest = e->call.in_func->biggest_call_args;
 			e->call.in_func->biggest_call_args = max(cur_biggest, e->call.fdecl->args.size());
 
+
 			if (e->call.args.size() > 0)
 			{
 				for (int i = e->call.args.size() - 1; i >= 0; i--)
@@ -701,10 +702,13 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				}
 			}
 			
+			ir.type = IR_CALL;
 			if(e->call.indirect)
 				ir.type = IR_INDIRECT_CALL;
-			else
-				ir.type = IR_CALL;
+
+			ir.call.is_outsider = false;
+			if (IS_FLAG_ON(e->call.fdecl->flags, FUNC_DECL_IS_OUTSIDER))
+				ir.call.is_outsider = true;
 
 			ir.call.fdecl = e->call.fdecl;
 			out->emplace_back(ir);

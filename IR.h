@@ -3,6 +3,8 @@
 
 enum ast_type
 {
+    AST_EMPTY,
+    AST_BREAK,
     AST_STATS,
     AST_FUNC,
     AST_INT,
@@ -134,29 +136,31 @@ struct ast_rep
 
 enum ir_type
 {
-    IR_NONE,
-    IR_NOP,
+	IR_NONE,
+	IR_NOP,
 
-    IR_ASSIGNMENT,
-    IR_RET,
-    IR_CMP_EQ,
-    IR_CMP_NE,
-    IR_CMP_LT,
-    IR_CMP_GE,
-    IR_BREAK_IF,
+	IR_ASSIGNMENT,
+	IR_RET,
+	IR_CMP_EQ,
+	IR_CMP_NE,
+	IR_CMP_LT,
+	IR_CMP_GE,
+	IR_BREAK_IF,
 
-    IR_SPILL_REG,
-    IR_UNSPILL_REG,
+	IR_SPILL_REG,
+	IR_UNSPILL_REG,
 
 	IR_SKIPABLE,
 
-    IR_BEGIN_CALL,
-    IR_END_CALL,
+	IR_BEGIN_CALL,
+	IR_END_CALL,
 
-    IR_STACK_BEGIN,
-    IR_STACK_END,
-    IR_DECLARE_LOCAL,
-    IR_DECLARE_ARG,
+	IR_STACK_BEGIN,
+	IR_STACK_END,
+	IR_DECLARE_LOCAL,
+	IR_DECLARE_ARG,
+
+	IR_BREAK,
 
     IR_BEGIN_LOOP_BLOCK,
     IR_END_LOOP_BLOCK,

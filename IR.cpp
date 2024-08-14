@@ -3,6 +3,7 @@
 bool IsAstSimple(lang_state *lang_stat, ast_rep *ast);
 decl2* PointLogic(lang_state* lang_stat, node* n, scope* scp, type2* ret_tp);
 bool NameFindingGetType(lang_state* lang_stat, node* n, scope* scp, type2& ret_type);
+void GenStackThenIR(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val* dst_val);
 
 
 #define STACK_PTR_REG 8
@@ -91,11 +92,14 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
         ret->cond.scope = AstFromNode(lang_stat, n->l->r, scp);
         node *cur = n->r;
-        while(cur->type == N_ELSE_IF || cur->type == N_ELSE)
-        {
-            ret->cond.elses.emplace_back(AstFromNode(lang_stat, cur, scp));
-			cur = cur->r;
-        }
+		if (cur)
+		{
+			while (cur->type == N_ELSE_IF || cur->type == N_ELSE)
+			{
+				ret->cond.elses.emplace_back(AstFromNode(lang_stat, cur, scp));
+				cur = cur->r;
+			}
+		}
     }break;
 	case node_type::N_BINOP:
     {
@@ -151,11 +155,18 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			for(int i = 1; i < ret->expr.size(); i++)
 			{
 				rhs = *(ret->expr.begin() + i);
-				rhs->decl = strct->type.strct->FindDecl(rhs->str);
-				aux.decl_strct = strct->type.strct->FindDecl(rhs->str);
+				aux.decl_strct = rhs->decl;
 				aux.exp = rhs;
+				decl2* is_struct = strct->type.strct->FindDecl(rhs->str);
+				if (is_struct)
+				{
+					rhs->decl = is_struct;
+					aux.decl_strct = is_struct;
+
+					strct = aux.decl_strct;
+				}
+
 				new_ar->emplace_back(aux);
-				strct = aux.decl_strct;
 			}
 			ret->points = *new_ar;
 
@@ -168,6 +179,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		case T_PLUS_EQUAL:
 		case T_COND_EQ:
 		case T_LESSER_THAN:
+		case T_PERCENT:
 		{
 		}break;
         case T_EQUAL:
@@ -201,11 +213,33 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
     {
         switch(n->kw)
         {
+        case KW_BREAK:
+        {
+            ret->type = AST_BREAK;
+        }break;
+        case KW_USING:
+        {
+            ret->type = AST_EMPTY;
+        }break;
+        case KW_TRUE:
+        {
+            ret->type = AST_INT;
+			ret->num = 1;
+        }break;
+        case KW_NIL:
+        case KW_FALSE:
+        {
+            ret->type = AST_INT;
+			ret->num = 0;
+        }break;
         case KW_RETURN:
         {
             ret->type = AST_RET;
-            ret->ast = AstFromNode(lang_stat, n->r, scp);
+			if(n->r)
+				ret->ast = AstFromNode(lang_stat, n->r, scp);
         }break;
+		default:
+			ASSERT(0);
         }
     }break;
 	case node_type::N_SCOPE:
@@ -465,38 +499,70 @@ ir_type FromTokenOpToIRType(tkn_type2 op)
 		ASSERT(0)
 	}
 }
-
+#define REG_FREE_FLAG 0x100
+#define REG_SPILLED 0x200
+void FreeReg(lang_state* lang_stat, char reg_idx)
+{
+	lang_stat->regs[reg_idx] &= ~REG_FREE_FLAG;
+}
+void FreeAllRegs(lang_state* lang_stat)
+{
+	memset(lang_stat->regs, 0, sizeof(lang_stat->regs));
+	//lang_stat->regs[reg_idx] &= ~REG_FREE_FLAG;
+}
+void AllocSpecificReg(lang_state* lang_stat, char idx)
+{
+	ASSERT(IS_FLAG_OFF(lang_stat->regs[idx], REG_FREE_FLAG));
+	lang_stat->regs[idx] |= REG_FREE_FLAG;
+}
+char AllocReg(lang_state* lang_stat)
+{
+	for (int i = 0; i < 7; i++)
+	{
+		if (IS_FLAG_OFF(lang_stat->regs[i], REG_FREE_FLAG))
+		{
+			lang_stat->regs[i] |= REG_FREE_FLAG;
+			return i;
+		}
+	}
+	ASSERT(0);
+}
 void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *out, ir_type type, void *data = nullptr)
 {
 	ir_rep ir;
 	memset(&ir, 0, sizeof(ir_rep));
-	if (IsAstSimple(lang_stat, ast_bin->expr[0]) && IsAstSimple(lang_stat, ast_bin->expr[1]))
-	{
-		GetIRVal(lang_stat, ast_bin->expr[0], &ir.bin.lhs);
-		GetIRVal(lang_stat, ast_bin->expr[1], &ir.bin.rhs);
+	ir.assign.to_assign.type = IR_TYPE_REG;
+	ir.assign.to_assign.reg = AllocReg(lang_stat);
 
-		ir.type = type;
-		ir.bin.op = ast_bin->op;
-		switch (type)
-		{
-		case IR_CMP_NE:
-		case IR_CMP_EQ:
-		case IR_CMP_GE:
-		{
-			ir.bin.it_is_jmp_if_true = (bool)data;
-		}break;
-		default:
-			ASSERT(0);
-		}
-		out->emplace_back(ir);
+
+	ir.bin.lhs.type = IR_TYPE_REG;
+	ir.bin.lhs.reg_sz = 4;
+	ir.bin.lhs.reg = AllocReg(lang_stat);
+
+	ir.bin.rhs.type = IR_TYPE_REG;
+	ir.bin.rhs.reg_sz = 4;
+	ir.bin.rhs.reg = AllocReg(lang_stat);
+	GenStackThenIR(lang_stat, ast_bin->expr[0], out, &ir.bin.lhs);
+	GenStackThenIR(lang_stat, ast_bin->expr[0], out, &ir.bin.rhs);
+
+	ir.type = type;
+	ir.bin.op = ast_bin->op;
+	switch (type)
+	{
+	case IR_CMP_NE:
+	case IR_CMP_EQ:
+	case IR_CMP_GE:
+	{
+		ir.bin.it_is_jmp_if_true = (bool)data;
+	}break;
+	default:
+		ASSERT(0);
+	}
+	out->emplace_back(ir);
 
 
 
 		//ir.type = IR_CMP;
-		
-	}
-	else
-		ASSERT(0);
 
 
 }
@@ -607,34 +673,7 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 	}
 }
 
-#define REG_FREE_FLAG 0x100
-#define REG_SPILLED 0x200
-void FreeReg(lang_state* lang_stat, char reg_idx)
-{
-	lang_stat->regs[reg_idx] &= ~REG_FREE_FLAG;
-}
-void FreeAllRegs(lang_state* lang_stat)
-{
-	memset(lang_stat->regs, 0, sizeof(lang_stat->regs));
-	//lang_stat->regs[reg_idx] &= ~REG_FREE_FLAG;
-}
-void AllocSpecificReg(lang_state* lang_stat, char idx)
-{
-	ASSERT(IS_FLAG_OFF(lang_stat->regs[idx], REG_FREE_FLAG));
-	lang_stat->regs[idx] |= REG_FREE_FLAG;
-}
-char AllocReg(lang_state* lang_stat)
-{
-	for (int i = 0; i < 7; i++)
-	{
-		if (IS_FLAG_OFF(lang_stat->regs[i], REG_FREE_FLAG))
-		{
-			lang_stat->regs[i] |= REG_FREE_FLAG;
-			return i;
-		}
-	}
-	ASSERT(0);
-}
+
 
 void GenIRComplex(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val *dst_val)
 {
@@ -790,8 +829,11 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			if (e->deref.times == 0) break;
 
 			ir.type = IR_ASSIGNMENT;
+			ir.assign.to_assign.type = IR_TYPE_REG;
 			if (top->type == IR_TYPE_REG)
-				ir.assign.to_assign.reg = top->reg;
+			{
+				ir.assign.to_assign = *top;
+			}
 			else
 				ir.assign.to_assign.reg = AllocReg(lang_stat);
 
@@ -879,6 +921,7 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 		}
 		exps.emplace_back(ast);
 	}break;
+	case AST_CAST:
 	case AST_ADDRESS_OF:
 	case AST_DEREF:
 	{
@@ -886,14 +929,7 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	}break;
 	case AST_BINOP:
 	{
-		PushAstsInOrder(lang_stat, ast->expr[0], &exps);
-		for (int i = 1; i < ast->expr.size(); i++)
-		{
-			ast_rep* cur = ast->expr[i];
-			PushAstsInOrder(lang_stat, ast->expr[i], &exps);
-			exps.emplace_back(ast);
-
-		}
+		PushAstsInOrder(lang_stat, ast, &exps);
 	}break;
 	case AST_FLOAT:
 	case AST_INT:
@@ -1069,7 +1105,7 @@ int GetAstTypeSize(lang_state* lang_stat, ast_rep* ast)
 	{
 		int prev = ast->cast.type.ptr;
 
-		ast->cast.type.ptr = max(0, prev - 1);
+		//ast->cast.type.ptr = max(0, prev - 1);
 
 		int sz = GetTypeSize(&ast->cast.type);
 		ast->cast.type.ptr = prev;
@@ -1257,6 +1293,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 	{
 		ir.type = IR_ASSIGNMENT;
 		ast_rep *rhs_ast = ast->ast;
+		if (!rhs_ast)
+			return;
 		ir.assign.to_assign.type = IR_TYPE_RET_REG;
 		ir.assign.to_assign.reg = RET_1_REG;
 		ir.assign.to_assign.reg_sz = 4;
@@ -1299,6 +1337,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		{
 			FreeAllRegs(lang_stat);
 			ast_rep* s = *st;
+			if (s->type == AST_EMPTY)
+				continue;
 
 			ASSERT(!lang_stat->ir_in_stmnt)
 
@@ -1361,6 +1401,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			{
 			case AST_CALL:
 			case AST_BINOP:
+			case AST_CAST:
 			case AST_DEREF: 
 			{
 				ir.assign.lhs.type = IR_TYPE_REG;
@@ -1390,6 +1431,9 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 					ir.assign.to_assign.is_float = true;
 				//ir.assign.rhs.ptr++////;
 			}
+			ASSERT(ir.assign.lhs.reg_sz <= 8);
+			ASSERT(ir.assign.rhs.reg_sz <= 8);
+			ASSERT(ir.assign.to_assign.reg_sz <= 8);
 			out->emplace_back(ir);
 			FreeAllRegs(lang_stat);
         }break;
@@ -1484,6 +1528,11 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		IRCreateEndBlock(lang_stat, loop_idx, out, IR_END_LOOP_BLOCK);
 		IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_IF_BLOCK);
     }break;
+	case AST_BREAK:
+	{
+		ir.type = IR_BREAK;
+		out->emplace_back(ir);
+	}break;
 	case AST_IF:
     {
         int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);

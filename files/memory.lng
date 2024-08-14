@@ -1,0 +1,122 @@
+CHUNK_FREE : const s32 = 1;
+CHUNK_ALLOCATED : const s32= 4;
+
+heap_hash : struct
+{
+	inner :struct
+	{
+		key : *u8,
+		value : *u8,
+	}
+	data : *inner,
+}
+
+mem_chunk : struct
+{
+    next : *mem_chunk,
+    prev : *mem_chunk,
+    size : u32,
+    flags: u32,
+    addr : *u8,
+}
+
+CHUNKS_CAP :const s32=  (1024 * 1024 * 8);
+BYTES_PER_CHUNK : const s32= 8;
+HASH_TABLE_SIZE : const s32=  (1024 * 1024);
+UNALLOCATED_BUFFER_ITEMS : const s32=  8;
+
+ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
+{
+	cast(*type)(cast(u64)ptr + (offset) * sizeof(type))
+}
+memset :: fn(dst : *u8, val : u8, sz : u64) ! void
+{
+	i :u64= 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u8) = val;
+	}
+}
+Clear :: fn(self : *heap_hash) ! void
+{
+	using self;
+	memset(cast(*u8)data, 0, sizeof(inner) * HASH_TABLE_SIZE);
+}
+Get :: fn (self: *heap_hash, key : *u8) ! *void 
+{
+	using self;
+	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == key
+		return cur.value;
+
+	put:bool = false;
+	i:u64=0;
+	while i < HASH_TABLE_SIZE
+	{
+		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
+		cur= ptr_offset(data, mod, inner);
+
+		if cur.key == key
+			return cur.value;
+		i++;
+	}
+	return nil;
+}
+Remove :: fn (self: *heap_hash, key : *u8)
+{
+	using self;
+	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == key
+	{
+		cur.value = nil;
+		return;
+	}
+	removed:bool = false;
+	i:u64=0;
+	while i < HASH_TABLE_SIZE
+	{
+		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
+		cur= ptr_offset(data, mod, inner);
+
+		if (cur.key == key)
+		{
+			cur.key = nil;
+			removed = true;
+			break;
+		}
+		i++;
+	}
+}
+Store :: fn (self: *heap_hash, key : *u8, value : *u8)
+{
+	using self;
+	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == nil
+	{
+		cur.key = key;
+		cur.value = value;
+		return;
+	}
+	put:bool = false;
+	i:u64=0;
+	while i < HASH_TABLE_SIZE
+	{
+		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
+		cur= ptr_offset(data, mod, inner);
+
+		if cur.key == nil
+		{
+			cur.key = key;
+			cur.value = value;
+			put = true;
+			break;
+		}
+		i++;
+	}
+}

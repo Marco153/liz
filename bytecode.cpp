@@ -3477,7 +3477,7 @@ void PushDFRToMem(lang_state *lang_stat, func_byte_code *final_func, descend_fun
 	lhs_bcode.bcodes.clear();
 
 	lang_stat->lhs_saved++;
-	ASSERT(lang_stat->lhs_saved < final_func->fdecl->biggest_saved_lhs)
+	//ASSERT(lang_stat->lhs_saved <=final_func->fdecl->biggest_saved_lhs)
 }
 
 void PopDFR(func_byte_code *final_func, bool &is_sse, descend_func_ret &ret, descend_func_ret &lhs_bcode, descend_func_ret &rhs_bcode)

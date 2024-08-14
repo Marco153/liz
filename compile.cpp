@@ -547,10 +547,13 @@ enum wasm_bc_enum
 	WASM_INST_I32_STORE,
 	WASM_INST_I32_STORE8,
 	WASM_INST_I32_SUB,
+	WASM_INST_I32_REMAINDER_U,
+	WASM_INST_I32_REMAINDER_S,
 	WASM_INST_I32_ADD,
 	WASM_INST_I32_MUL,
 	WASM_INST_I32_GE_U,
 	WASM_INST_I32_GE_S,
+	WASM_INST_I32_NE,
 	WASM_INST_BLOCK,
 	WASM_INST_END,
 	WASM_INST_LOOP,
@@ -1538,6 +1541,16 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 		{
 			code_sect.emplace_back(0x6a);
 		}break;
+		case T_PERCENT:
+		{
+			// unsigned
+			if (is_unsigned)
+				code_sect.emplace_back(0x70);
+			// signed
+			else
+				code_sect.emplace_back(0x6f);
+
+		}break;
 		default:
 			ASSERT(0);
 		}
@@ -2088,7 +2101,21 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		*stack_size += to_sum <= 4 ? 4 : to_sum;
 		*/
 	}break;
+	case IR_BREAK:
+	{
+		int depth = 0;
 
+		block_linked *aux = *cur;
+		while (aux->parent)
+		{
+			if (aux->ir->type == IR_BEGIN_LOOP_BLOCK)
+                break;
+			depth++;
+			aux = aux->parent;
+		}
+		code_sect.emplace_back(0xc);
+		WasmPushImm(depth, &code_sect);
+	}break;
 	case IR_BEGIN_COMPLEX:
 	{
 		WasmPushIRAddress(gen_state, &cur_ir->complx.dst, code_sect);
@@ -3419,7 +3446,7 @@ var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state*
 {
 	auto var_ser = (var_dbg*)(ser_state->vars_sect.begin() + var_idx);
 	memset(var_ser, 0, sizeof(var_dbg));
-	if (var->type.type == TYPE_STRUCT || var->type.type == TYPE_STRUCT_TYPE)
+	if (var->type.type == TYPE_STRUCT )
 	{
 		type_struct2* strct = var->type.strct;
 		ASSERT(IS_FLAG_ON(strct->flags, TP_STRCT_STRUCT_SERIALIZED));
@@ -3435,9 +3462,16 @@ var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state*
 void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state *ser_state, type_struct2* strct)
 {
 	
+	int type_offset = ser_state->types_sect.size();
+	int var_offset = ser_state->vars_sect.size();
+
+	/*
 	FOR_VEC(decl, strct->vars)
 	{
 		decl2* d = *decl;
+		// self
+		if (d->type.strct == strct)
+			continue;
 		switch (d->type.type)
 		{
 		case TYPE_STRUCT:
@@ -3448,16 +3482,15 @@ void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state *se
 		}break;
 		}
 	}
+	*/
 
-	int type_offset = ser_state->types_sect.size();
-	int var_offset = ser_state->vars_sect.size();
 
 	strct->serialized_type_idx = type_offset;
 
-	ser_state->vars_sect.make_count(ser_state->vars_sect.size() + strct->vars.size() * sizeof(var_dbg));
+	//ser_state->vars_sect.make_count(ser_state->vars_sect.size() + strct->vars.size() * sizeof(var_dbg));
 	ser_state->types_sect.make_count(ser_state->types_sect.size() + sizeof(type_dbg));
 
-	auto type = (type_dbg*)ser_state->types_sect.begin() + type_offset;
+	auto type = (type_dbg*)(ser_state->types_sect.begin() + type_offset);
 	type->num_of_vars = strct->vars.size();
 	type->vars_offset = var_offset;
 	WasmSerializePushString(ser_state, &strct->name, &type->name);
@@ -3508,7 +3541,9 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 	FOR_VEC(decl, scp->vars)
 	{
 		decl2* d = *decl;
-		var_dbg * vdbg = WasmSerializeSimpleVar(wasm_state, ser_state, d, vars_offset + i * sizeof (var_dbg));
+		var_dbg* vdbg = nullptr;
+		vdbg = WasmSerializeSimpleVar(wasm_state, ser_state, d, vars_offset + i * sizeof (var_dbg));
+
 		switch (d->type.type)
 		{
 		case TYPE_FUNC_EXTERN:
@@ -3543,6 +3578,10 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 			f->flags |= FUNC_DECL_SERIALIZED;
 
 		}break;
+		case TYPE_MACRO_EXPR:
+		{
+
+		}break;
 		case TYPE_STRUCT_TYPE:
 		{
 			d->type.strct->scp->type = SCP_TYPE_STRUCT;
@@ -3552,6 +3591,17 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		{
 
 		}break;
+		case TYPE_STRUCT:
+		{
+			ASSERT(IS_FLAG_ON(d->type.strct->flags, TP_STRCT_STRUCT_SERIALIZED));
+			if (IS_FLAG_ON(d->type.flags, TYPE_SELF_REF))
+			{
+				vdbg->type_idx = d->type.strct->serialized_type_idx;
+			}
+		}break;
+		case TYPE_BOOL:
+		case TYPE_INT:
+		case TYPE_U8:
 		case TYPE_S32:
 		case TYPE_U32:
 		case TYPE_S64:
@@ -3579,6 +3629,8 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 	s->line_end = scp->line_end;
 	s->vars_offset  = vars_offset;
 	s->type = SCP_DBG_TP_UNDEFINED;
+
+
 
 
 	switch(scp->type)
@@ -3723,7 +3775,7 @@ decl2 *WasmInterpBuildSimplaVar(unsigned char* data, unsigned int len, lang_stat
 	return ret;
 
 }
-decl2 *WasmInterpBuildStruct(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize* file, struct_dbg *dstrct)
+decl2 *WasmInterpBuildStruct(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize* file, type_dbg *dstrct)
 {
 	unsigned char* string_sect = data + file->string_sect;
 	auto cur_var = (var_dbg *)(data + file->vars_sect + dstrct->vars_offset);
@@ -3781,6 +3833,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 	for (int i = 0; i < scp_pre->num_of_vars; i++)
 	{
 		type2 tp = {};
+		std::string name = std::string((const char *)string_sect + cur_var->name.name_on_string_sect, cur_var->name.name_len);
 		switch (cur_var->type)
 		{
 		case TYPE_FUNC_EXTERN:
@@ -3803,12 +3856,17 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_FUNC:
 		case TYPE_FUNC_PTR:
 		case TYPE_AUTO:
+		case TYPE_BOOL:
+		case TYPE_INT:
+		case TYPE_MACRO_EXPR:
 		{
 			int a = 0;
 		}break;
+		case TYPE_U8:
 		case TYPE_S32:
 		case TYPE_U32:
 		case TYPE_S64:
+		case TYPE_STRUCT_TYPE:
 		case TYPE_U64:
 			break;
 		default:
@@ -3816,7 +3874,6 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		}
 		tp.type = cur_var->type;
 
-		std::string name = std::string((const char *)string_sect + cur_var->name.name_on_string_sect, cur_var->name.name_len);
 		decl2 *d = FindIdentifier(name, scp_final, &tp);
 		if (!d)
 		{
@@ -3851,6 +3908,19 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 	auto cur_scp = (scope_dbg*)(data + child_offset);
 	for (int i = 0; i < scp_pre->children_len; i++)
 	{
+		decl2* d = nullptr;
+		if (cur_scp->type == SCP_DBG_TP_STRUCT)
+		{
+			auto dstrct = (type_dbg*)(data + file->types_sect + cur_scp->type_idx);
+
+			d = WasmInterpBuildStruct(data, len, lang_stat, file, dstrct);
+
+			//d->type.strct->scp = child_scp;
+
+			ret_scp->vars.emplace_back(d);
+
+			//WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file* file, scope_dbg *scp_pre, scope *scp_final)
+		}
 		//scope* new_scp = NewScope(lang_stat, ret_scp);
 		scope *child_scp = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, ret_scp, cur_scp);
 
@@ -3864,9 +3934,9 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 		}
 		if (cur_scp->type == SCP_DBG_TP_STRUCT)
 		{
-			auto dstrct = (struct_dbg*)(data + file->types_sect + cur_scp->type_idx);
+			//auto dstrct = (struct_dbg*)(data + file->types_sect + cur_scp->type_idx);
 
-			decl2 *d = WasmInterpBuildStruct(data, len, lang_stat, file, dstrct);
+			//decl2 *d = WasmInterpBuildStruct(data, len, lang_stat, file, dstrct);
 
 			d->type.strct->scp = child_scp;
 
@@ -4410,6 +4480,10 @@ void WasmInterpInit(wasm_interp *winterp, unsigned char *data, unsigned int len,
 			{
 				bc.type = WASM_INST_I32_MUL;
 			}break;
+			case 0x47:
+			{
+				bc.type = WASM_INST_I32_NE;
+			}break;
 			case 0x4e:
 			{
 				bc.type = WASM_INST_I32_GE_S;
@@ -4462,6 +4536,14 @@ void WasmInterpInit(wasm_interp *winterp, unsigned char *data, unsigned int len,
 			case 0x6a:
 			{
 				bc.type = WASM_INST_I32_ADD;
+			}break;
+			case 0x6f:
+			{
+				bc.type = WASM_INST_I32_REMAINDER_S;
+			}break;
+			case 0x70:
+			{
+				bc.type = WASM_INST_I32_REMAINDER_U;
 			}break;
 			case 0x6b:
 			{
@@ -5442,8 +5524,8 @@ void GenWasm(web_assembly_state* wasm_state)
 	table_sect.emplace_back(1);
 	table_sect.emplace_back(0x70);
 	table_sect.emplace_back(0x1);
-	table_sect.emplace_back(0x0);
-	table_sect.emplace_back(0x1);
+	table_sect.emplace_back(0x16);
+	table_sect.emplace_back(0x16);
 
 	// ******
 	// memory sect
@@ -5583,7 +5665,7 @@ async function start(){\n\
 
 	//WasmInterp(final_code_sect, buffer, mem_size, "wasm_test_func_ptr", wasm_state, args, 3);
 
-	WriteFileLang("../../wabt/test.html", (void*)page.data(), page.size());
+	//WriteFileLang("../../wabt/test.html", (void*)page.data(), page.size());
 	//void FromIRToAsm()
 }
 

@@ -3310,6 +3310,10 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 
 			switch (ret_type.type)
 			{
+			case enum_type2::TYPE_INT:
+			{
+				REPORT_ERROR(n->t->line, n->t->line_offset, VAR_ARGS("Can't make type out a ptr number, try u32, s32 or something like that"));
+			}break;
 			case enum_type2::TYPE_FUNC_DECL:
 			case enum_type2::TYPE_STRUCT_DECL:
 				ASSERT(false)
@@ -4003,7 +4007,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				{
 					if (!comp_val)
 					{
-						REPORT_ERROR(t->n->t->line, t->n->t->line_offset, VAR_ARGS("Argument %d type mismatch. Expected %s, received %s\n\n",
+						REPORT_ERROR(t->n->t->line, t->n->t->line_offset, VAR_ARGS("On call to '%s', argument %d type mismatch. Expected %s, received %s\n\n", fdecl->name.c_str(),
 							i + 1, TypeToString(f_arg->type).c_str(), TypeToString(t->tp).c_str()))
 							ExitProcess(1);
 					}
@@ -7434,6 +7438,15 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		auto decl = FindIdentifier(n->t->str, scp, &ret_type);
 		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl)
 			ReportUndeclaredIdentifier(lang_stat, n->t);
+
+		if (decl->type.type == TYPE_INT)
+		{
+			n->type = N_INT;
+			n->t->i = decl->type.i;
+			ret_type.type = TYPE_INT;
+			ret_type.i = decl->type.i;
+
+		}
 
 	}break;
 	case node_type::N_LAMBDA:

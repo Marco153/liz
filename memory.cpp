@@ -278,6 +278,8 @@ void heap_free(mem_alloc *alloc, char *ptr)//, heap_free_ret_info *ret = nullptr
 }
 char *heap_alloc(mem_alloc *alloc, int size)//, mem_chunk **out = nullptr)
 {
+	if (size == 0)
+		return nullptr;
 	//return (char *)malloc(size);
     mem_chunk *cur = alloc->head_free;
 

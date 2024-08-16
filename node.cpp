@@ -1510,8 +1510,8 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		int cur_prec = 0;
 
 		// breaking when inside if, while for it found a word in head of the node
-		if ((peek_tkn()->type == tkn_type2::T_WORD ||
-			peek_tkn()->type == tkn_type2::T_MUL) &&
+		if ((peek_tkn()->type == tkn_type2::T_WORD 
+			) &&
 			IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD))
 		{
 			return cur_node->l;
@@ -4706,7 +4706,9 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 
 	case enum_type2::TYPE_STRUCT_TYPE:
 	{
-		ReportMessageOne(lang_stat, n->r->t, "struct type '%s' is not a variable that can be indexed:", (void*)n->l->t->str.c_str());
+		return FindIdentifier(n->r->t->str, lhs->type.strct->scp, ret_tp);
+
+		//ReportMessageOne(lang_stat, n->r->t, "struct type '%s' is not a variable that can be indexed:", (void*)n->l->t->str.c_str());
 	}break;
 	case enum_type2::TYPE_STRUCT:
 	{
@@ -6035,6 +6037,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					// type inference 
 					if (lhs->type.type == enum_type2::TYPE_AUTO)
 					{
+						bool was_const = lhs->type.is_const;
 						if (NameFindingGetType(lang_stat, n->r, scp, lhs->type))
 						{
 							if (lhs->type.type == enum_type2::TYPE_STRUCT_TYPE)
@@ -6048,7 +6051,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							}
 							n->l->r = CreateNodeFromType(lang_stat, &lhs->type, n->t);
 
-
+							lhs->type.is_const = was_const;
 						}
 						else
 							return false;

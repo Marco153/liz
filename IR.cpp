@@ -44,6 +44,11 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			ret->type = AST_OPPOSITE;
 			ret->ast = AstFromNode(lang_stat, n->r, scp);
 		}break;
+		case  T_TILDE:
+		{
+			ret->type = AST_NEGATE;
+			ret->ast = AstFromNode(lang_stat, n->r, scp);
+		}break;
 		case  T_MINUS:
 		{
 			ret->type = AST_NEGATIVE;
@@ -102,13 +107,10 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
         ret->cond.scope = AstFromNode(lang_stat, n->l->r, scp);
         node *cur = n->r;
-		if (cur)
+		while (cur && (cur->type == N_ELSE_IF || cur->type == N_ELSE))
 		{
-			while (cur->type == N_ELSE_IF || cur->type == N_ELSE)
-			{
-				ret->cond.elses.emplace_back(AstFromNode(lang_stat, cur, scp));
-				cur = cur->r;
-			}
+			ret->cond.elses.emplace_back(AstFromNode(lang_stat, cur, scp));
+			cur = cur->r;
 		}
     }break;
 	case node_type::N_BINOP:
@@ -192,6 +194,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		case T_AMPERSAND:
 		case T_LESSER_THAN:
 		case T_GREATER_THAN:
+		case T_MINUS:
+		case T_DIV:
 		case T_PERCENT:
 		{
 		}break;
@@ -506,6 +510,8 @@ ir_type FromTokenOpToIRType(tkn_type2 op)
 		return IR_CMP_GE;
 	case T_LESSER_THAN:
 		return IR_CMP_LT;
+	case T_LESSER_EQ:
+		return IR_CMP_LE;
 	case T_COND_NE:
 		return IR_CMP_NE;
 	default:
@@ -563,6 +569,7 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 	switch (type)
 	{
 	case IR_CMP_NE:
+	case IR_CMP_LE:
 	case IR_CMP_EQ:
 	case IR_CMP_GE:
 	{
@@ -583,7 +590,7 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 void GetIRFromAst(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out);
 void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out)
 {
-	if (ast->type == AST_BINOP && (ast->op != T_OR && ast->op != T_AND))
+	if (ast->type == AST_BINOP && (ast->op != T_OR && ast->op != T_AND && ast->op != T_POINT))
 	{
 		tkn_type2 opposite = OppositeCondCmp(ast->op);
 		ast->op = opposite;
@@ -600,6 +607,7 @@ void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 		ir.bin.rhs.type = IR_TYPE_INT;
 		ir.bin.rhs.i = 0;
 		GenStackThenIR(lang_stat, ast, out, &ir.bin.lhs);
+		ir.bin.rhs.is_unsigned = ir.bin.lhs.is_unsigned;;
 		out->emplace_back(ir);
 
 
@@ -650,6 +658,7 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 	{
 		out->emplace_back(ast);
 	}break;
+	case AST_NEGATE:
 	case AST_NEGATIVE:
 	case AST_OPPOSITE:
 	{
@@ -928,6 +937,28 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
             IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
 
 		}break;
+		case AST_NEGATE:
+		{
+			ir_val* top = &stack[stack.size() - 1];
+			ir.type = IR_ASSIGNMENT;
+			ir.assign.op = T_MINUS;
+
+			if (top->type == IR_TYPE_REG)
+				ir.assign.to_assign = *top;
+			else
+			{
+				ir.assign.to_assign.type = IR_TYPE_REG;
+				ir.assign.to_assign.reg_sz = 4;
+				ir.assign.to_assign.reg = AllocReg(lang_stat);
+			}
+			ir.assign.rhs = *top;
+			ir.assign.lhs.type = IR_TYPE_INT;
+			ir.assign.lhs.i = 0;
+			ir.assign.lhs.is_unsigned = top->is_unsigned;
+			ir.assign.only_lhs = false;
+			out->emplace_back(ir);
+			//top->reg_sz = e->cast.type;
+		}break;
 		case AST_NEGATIVE:
 		{
 			ir_val* top = &stack[stack.size() - 1];
@@ -1190,6 +1221,10 @@ int GetAstTypeSize(lang_state* lang_stat, ast_rep* ast)
 {
 	switch (ast->type)
 	{
+	case AST_INT:
+	{
+		return 4;
+	}break;
 	case AST_CALL:
 	{
 		return GetTypeSize(&ast->call.fdecl->ret_type);
@@ -1437,7 +1472,6 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			if (s->type == AST_EMPTY)
 				continue;
 
-			ASSERT(!lang_stat->ir_in_stmnt)
 
 
 			if (s->type == AST_WHILE || s->type == AST_IF)
@@ -1446,6 +1480,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			}
 			else
 			{
+				ASSERT(!lang_stat->ir_in_stmnt)
 				lang_stat->ir_in_stmnt = true;
 
 				bool can_emplace_stmnt = s->type != AST_IDENT;

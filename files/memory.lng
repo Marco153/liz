@@ -33,6 +33,25 @@ BYTES_PER_CHUNK : const s32= 8;
 HASH_TABLE_SIZE : const s32=  (1024 * 1024);
 UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 
+GetMem::fn outsider(sz:u64) ! *void;
+heap_insert_unallocated :: fn(alloc : *mem_alloc, a : *mem_chunk)
+{
+	if a < alloc.all || a > (ptr_offset(alloc.all, CHUNKS_CAP, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
+		return;
+
+	i:u64= 0;
+
+	while i < UNALLOCATED_BUFFER_ITEMS
+	{
+		cur := cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
+		if *cur == nil
+		{
+			*cur = a;
+			break;
+		}
+		i++;
+	}
+}
 ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 {
 	cast(*type)(cast(u64)ptr + (offset) * sizeof(type))
@@ -44,6 +63,14 @@ is_flag_off::fn macro(val : _expr, flag : _expr)
 is_flag_on::fn macro(val : _expr, flag : _expr)
 {
 	((val & flag) != 0)
+}
+_own_memset :: fn(dst : *u8, val : u8, sz : u64) ! void
+{
+	i :u64= 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u8) = val;
+	}
 }
 memset :: fn(dst : *u8, val : u8, sz : u64) ! void
 {
@@ -87,7 +114,7 @@ GetUnallocatedChunk :: fn(alloc : *mem_alloc) ! *mem_chunk
 	ret.prev = nil;
     return ret;
 }
-Store :: fn (self: *heap_hash, key : *u8, value : *u8)
+HHashStore :: fn (self: *heap_hash, key : *u8, value : *u8)
 {
 	using self;
 	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
@@ -116,12 +143,12 @@ Store :: fn (self: *heap_hash, key : *u8, value : *u8)
 		i++;
 	}
 }
-Clear :: fn(self : *heap_hash) ! void
+HHashClear :: fn(self : *heap_hash) ! void
 {
 	using self;
 	memset(cast(*u8)data, 0, sizeof(inner) * HASH_TABLE_SIZE);
 }
-Get :: fn (self: *heap_hash, key : *u8) ! *void 
+HHashGet :: fn (self: *heap_hash, key : *u8) ! *mem_chunk 
 {
 	using self;
 	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
@@ -143,7 +170,7 @@ Get :: fn (self: *heap_hash, key : *u8) ! *void
 	}
 	return nil;
 }
-Remove :: fn (self: *heap_hash, key : *u8)
+HHashRemove :: fn (self: *heap_hash, key : *u8)
 {
 	using self;
 	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
@@ -189,21 +216,225 @@ heap_get_unallocated_cache :: fn(alloc : *mem_alloc) ! *mem_chunk
 	}
 	return nil;
 }
-heap_insert_unallocated :: fn(alloc : *mem_alloc, a : *mem_chunk)
+maybe_join_to_right::fn(prev : *mem_chunk, cur : *mem_chunk, next : *mem_chunk)
 {
-	if a < alloc.all || a > (ptr_offset(alloc.all, CHUNKS_CAP, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
-		return;
-
-	i:u64= 0;
-
-	while i < UNALLOCATED_BUFFER_ITEMS
+	contiguous_with_cur_next := (cast(u64)cur.addr + cur.size * BYTES_PER_CHUNK) == cast(u64)next.addr;
+	if contiguous_with_cur_next
 	{
-		cur := cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
-		if *cur == nil
-		{
-			*cur = a;
-			break;
-		}
-		i++;
+		cur.size += next.size;
+		next_aux :*mem_chunk= next;
+
+		next.flags = next.flags & ~CHUNK_ALLOCATED;
+
+		cur.next = next.next;
+		cur.prev = prev;
+		if next.next
+			next.next.prev = cur;
+		if prev
+			prev.next = cur;
 	}
+}
+heap_clear::fn(alloc : *mem_alloc)
+{
+	HHashClear(&alloc.in_use);
+	total_size :u32= CHUNKS_CAP * BYTES_PER_CHUNK;
+	memset(cast(*u8)alloc.all, 0, cast(u64)total_size);
+
+    free:*mem_chunk = GetUnallocatedChunk(alloc);
+
+	free.size = total_size / BYTES_PER_CHUNK;
+    free.addr = alloc.buffer;
+
+	alloc.head_free = free;
+}
+heap_free::fn(alloc : *mem_alloc, ptr : *u8)
+{
+    chunk_to_free:*mem_chunk= HHashGet(&alloc.in_use, ptr);
+	HHashRemove(&alloc.in_use, ptr);
+    cur :*mem_chunk= alloc.head_free;
+	
+	
+	// in case the chunk to free is in a higher address want
+	// we want to find in front of which chunk are we in
+	// and increment its size
+	if (chunk_to_free.addr > cur.addr)
+	{
+		while (cur.next != nil && cur.next.addr < chunk_to_free.addr)
+		{
+			cur = cur.next;
+		}
+
+		//ASSERT(cur && cur.next.addr >= chunk_to_free.addr);
+		
+		//TODO: create a var put these two vals in each bit, and create a swich statetement so that we 
+		// wont need if and elses
+		contiguous_with_cur:bool = (cast(u64)cur.addr + cur.size * BYTES_PER_CHUNK) == cast(u64)chunk_to_free.addr;
+		contiguous_with_cur_next:bool = (cast(u64)chunk_to_free.addr + chunk_to_free.size * BYTES_PER_CHUNK) == cast(u64)cur.next.addr;
+
+
+		// to join with cur, the chunk_free and cur needs to be contiguous
+		if (contiguous_with_cur && !contiguous_with_cur_next)
+		{
+			cur.size += chunk_to_free.size;
+			chunk_to_free.flags = chunk_to_free.flags & ~CHUNK_ALLOCATED;
+			heap_insert_unallocated(alloc, chunk_to_free);
+		}
+		// we migth also want also to join with the cur.next
+		else if (contiguous_with_cur_next && !contiguous_with_cur)
+		{
+			maybe_join_to_right(cur, chunk_to_free, cur.next);
+
+
+		}
+		// if we're contiguous with both
+		else if (contiguous_with_cur_next && contiguous_with_cur)
+		{
+			cur.size += chunk_to_free.size + cur.next.size;
+
+			cur.next.flags = cur.next.flags & ~CHUNK_ALLOCATED;
+			chunk_to_free.flags = chunk_to_free.flags & ~CHUNK_ALLOCATED;
+			heap_insert_unallocated(alloc, cur);
+			heap_insert_unallocated(alloc, chunk_to_free);
+
+
+
+			if (cur.next.next)
+			{
+				next_next:*mem_chunk = cur.next.next;
+				cur.next = cur.next.next;
+				next_next.prev = cur;
+			}
+			else
+				cur.next = nil;
+
+		}
+		// if we're not contiguos with anything
+		else if(!contiguous_with_cur_next && !contiguous_with_cur)
+		{
+			next_aux:*mem_chunk = cur.next;
+
+			cur.next = chunk_to_free;
+			chunk_to_free.prev = cur;
+			chunk_to_free.next = next_aux;
+			next_aux.prev = chunk_to_free;
+			//chunk_to_free.flags &= ~CHUNK_IN_USE;
+		}
+	}
+	else
+	{
+		chunk_to_free.prev = nil;
+		// making the chunk to be the head
+		chunk_to_free.next = cur;
+		cur.prev = chunk_to_free;
+		alloc.head_free = chunk_to_free;
+
+		maybe_join_to_right(nil, chunk_to_free, cur);
+	}
+	//memset(chunk_to_free.addr, 'x', chunk_to_free.size * BYTES_PER_CHUNK);
+
+}
+heap_alloc::fn(alloc : *mem_alloc, size : u32)
+{
+	//return (char *)malloc(size);
+    cur:*mem_chunk= alloc.head_free;
+
+    while cur != nil && (cur.size * BYTES_PER_CHUNK) < size
+    {
+        cur = cur.next;
+    }
+    //ASSERT(cur && (cur.size * BYTES_PER_CHUNK) >= size);
+
+	got_all_bytes_from_chunk:bool= ((cur.size * BYTES_PER_CHUNK) - size) == 0;
+	
+	min_alloc_size:= size;
+
+	if(min_alloc_size  == 0)
+		min_alloc_size = 1 * BYTES_PER_CHUNK;
+
+	if (got_all_bytes_from_chunk)
+	{
+		if (cur.prev)
+			cur.prev.next = cur.next;
+		if (cur.next)
+			cur.next.prev = cur.prev;
+
+		if (alloc.head_free == cur)
+			alloc.head_free = cur.next;
+		//cur.flags &= ~CHUNK_ALLOCATED;
+		alloc.head_free = cur.next;
+	}
+	else
+	{
+		// fragmenting the original chunk
+		other_chunk:*mem_chunk= GetUnallocatedChunk(alloc);
+		//ASSERT(other_chunk != cur)
+		
+
+		align_to_bytes_per_chunk:= (min_alloc_size % BYTES_PER_CHUNK);
+		// if we're not aligned yet
+		if (align_to_bytes_per_chunk != 0)
+			align_to_bytes_per_chunk = BYTES_PER_CHUNK - align_to_bytes_per_chunk;
+
+		min_alloc_size += align_to_bytes_per_chunk;
+
+		other_chunk.addr = ptr_offset(cur.addr, min_alloc_size, u8);
+		other_chunk.size = cur.size - min_alloc_size / BYTES_PER_CHUNK;
+		if (cur.prev)
+		{
+			prev:= cur.prev;
+			prev.next = other_chunk;
+			other_chunk.prev = prev;
+
+		}
+		if (cur.next)
+		{
+			next := cur.next;
+			next.prev = other_chunk;
+			other_chunk.next = next;
+		}
+
+		if(cur == alloc.head_free)
+			alloc.head_free = other_chunk;
+	}
+
+
+    //cur.flags |= CHUNK_IN_USE;
+	HHashStore(&alloc.in_use, cur.addr, cast(*u8)cur);
+	cur.size = min_alloc_size / BYTES_PER_CHUNK;
+
+	//ASSERT(cur.next != cur);
+	//if (out)
+		//*out = cur;
+    return cur.addr;
+}
+InitMemAlloc::fn(alloc : *mem_alloc)
+{
+    all_chunks_sz:u64= CHUNKS_CAP * sizeof(mem_chunk);
+    alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
+    memset(cast(*u8)alloc.all, 0, all_chunks_sz);
+
+	unallocated_sz:u64 = UNALLOCATED_BUFFER_ITEMS * 8;
+	alloc.probable_unallocated = cast(**mem_chunk)GetMem(cast(u64)unallocated_sz);
+    memset(cast(*u8)alloc.probable_unallocated, 0, unallocated_sz);
+
+    total_size:u64= CHUNKS_CAP * BYTES_PER_CHUNK;
+	alloc.buffer = cast(*u8)GetMem(total_size);
+	
+	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
+	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
+	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
+    free:*mem_chunk= GetUnallocatedChunk(alloc);
+	//alloc.in_use.reserve(HASH_TABLE_SIZE);
+
+	free.size = cast(u32)(total_size / BYTES_PER_CHUNK);
+    free.addr = alloc.buffer;
+
+
+	alloc.head_free = free;
+}
+
+main :: fn()
+{
+	alloc :mem_alloc;
+	InitMemAlloc(&alloc);
 }

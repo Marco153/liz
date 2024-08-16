@@ -28,6 +28,7 @@ enum ast_type
 
     AST_TYPE,
     AST_NEGATIVE,
+    AST_NEGATE,
     AST_OPPOSITE,
 
 };
@@ -152,6 +153,7 @@ enum ir_type
 	IR_CMP_EQ,
 	IR_CMP_NE,
 	IR_CMP_LT,
+	IR_CMP_LE,
 	IR_CMP_GE,
 	IR_BREAK_OUT_IF_BLOCK,
 

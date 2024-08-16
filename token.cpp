@@ -175,6 +175,10 @@ std::string TypeToString(type2 &tp)
 
 	switch(tp.type)
 	{
+	case enum_type2::TYPE_MACRO_EXPR:
+	{
+		ret += "macro expr";
+	}break;
 	case enum_type2::TYPE_ENUM_IDX_32:
 	{
 		ret += "enum idx ";

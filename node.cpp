@@ -95,6 +95,7 @@ char* std_str_to_heap(lang_state *, std::string* str);
 
 std::string scope::Print(int indent)
 {
+	indent += 1;
 	char buffer[512];
 
 	char tabs[32];
@@ -104,7 +105,17 @@ std::string scope::Print(int indent)
 	memset(tabs, ' ', indent);
 	tabs[indent] = 0;
 
-	snprintf(buffer, 512, "%s{\n", tabs);
+	std::string type_name = "";
+	if (type == SCP_TYPE_FUNC)
+	{
+		type_name = std::string("func, name ") + fdecl->name.c_str();
+	}
+	if (type == SCP_TYPE_STRUCT)
+	{
+		type_name = std::string("struct, name ") + tstrct->name.c_str();
+	}
+
+	snprintf(buffer, 512, "%s{%s\n", tabs, type_name.c_str());
 
 
 	memset(tabs, ' ', indent + 1);
@@ -771,7 +782,7 @@ node* node_iter::parse_func_like()
 	else if (IsTknWordStr(peek_tkn(), "macro"))
 	{
 		get_tkn();
-		n->flags |= NODE_FLAGS_FUNC_INTERNAL | NODE_FLAGS_FUNC_MACRO;
+		n->flags |= NODE_FLAGS_FUNC_MACRO;
 	}
 	else if (IsTknWordStr(peek_tkn(), "link_name"))
 	{
@@ -4242,6 +4253,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	//	child_scp = scp;
 	//else
 	child_scp = GetScopeFromParent(lang_stat, fnode->r, scp);
+	child_scp->type = SCP_TYPE_FUNC;
 
 	if (fnode->fdecl == nullptr)
 	{
@@ -4280,6 +4292,8 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_COMP) ? FUNC_DECL_COMP : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_TEST) ? FUNC_DECL_TEST : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_ALIGN_STACK_WHEN_CALL) ? FUNC_DECL_ALIGN_STACK_WHEN_CALL : 0;
+
+	fdecl->from_file = lang_stat->cur_file;
 
 	bool is_link_name = IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_LINK_NAME);
 	if (is_link_name)
@@ -6843,6 +6857,21 @@ void ModifyFuncDeclToName(lang_state *lang_stat, func_decl *fdecl, node *n, scop
 	memcpy(n, NewIdentNode(lang_stat, buffer, n->t), sizeof(node));
 	//lang_stat->roo.emplace_back(fdecl);
 }
+void ModifyNodeIntOrFloat(type2 &ret_type, node *n)
+{
+	if (ret_type.type == enum_type2::TYPE_INT)
+	{
+		n->type = N_INT;
+		n->t->i = ret_type.i;
+		//ret_type.i *= -1;
+	}
+	else if (ret_type.type == enum_type2::TYPE_F32)
+	{
+		n->type = N_FLOAT;
+		//ret_type.f = -1;
+		n->t->f = ret_type.f;
+	}
+}
 // $DescendNode
 type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 {
@@ -7181,10 +7210,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case tkn_type2::T_MINUS:
 		{
 			ret_type = DescendNode(lang_stat, n->r, scp);
-			if (ret_type.type == enum_type2::TYPE_INT)
-				ret_type.i *= -1;
-			else if (ret_type.type == enum_type2::TYPE_F32)
-				ret_type.f *= -1;
+			ModifyNodeIntOrFloat(ret_type, n);
+			ret_type.i *= -1;
+			n->t->i *= -1;
 		}break;
 		case tkn_type2::T_AMPERSAND:
 		{
@@ -7843,6 +7871,11 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
 
+			if (ltp.type == TYPE_INT)
+			{
+
+			}
+
 			if (ltp.type == TYPE_STRUCT && rtp.ptr == 0 || ltp.type == TYPE_STRUCT && ltp.ptr == 0)
 			{
 				own_std::vector<type2> tp_ar;
@@ -7929,6 +7962,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			type2 ltp = DescendNode(lang_stat, n->l, scp);
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
+
+			ModifyNodeIntOrFloat(ltp, n->l);
+			ModifyNodeIntOrFloat(rtp, n->r);
 
 			// cannot perform this op on ptr
 			if (ltp.ptr > 0 || rtp.ptr > 0)

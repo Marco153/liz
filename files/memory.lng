@@ -19,6 +19,14 @@ mem_chunk : struct
     flags: u32,
     addr : *u8,
 }
+mem_alloc : struct
+{
+    buffer : *u8,
+    head_free : *mem_chunk,
+    in_use : heap_hash,
+    all : *mem_chunk,
+    probable_unallocated : **mem_chunk,
+}
 
 CHUNKS_CAP :const s32=  (1024 * 1024 * 8);
 BYTES_PER_CHUNK : const s32= 8;
@@ -29,12 +37,83 @@ ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 {
 	cast(*type)(cast(u64)ptr + (offset) * sizeof(type))
 }
+is_flag_off::fn macro(val : _expr, flag : _expr)
+{
+	((val & flag) == 0)
+}
+is_flag_on::fn macro(val : _expr, flag : _expr)
+{
+	((val & flag) != 0)
+}
 memset :: fn(dst : *u8, val : u8, sz : u64) ! void
 {
 	i :u64= 0;
 	while i < sz
 	{
 		*ptr_offset(dst, i, u8) = val;
+	}
+}
+GetUnallocatedChunk :: fn(alloc : *mem_alloc) ! *mem_chunk
+{
+	ret:*mem_chunk= heap_get_unallocated_cache(alloc);
+
+	if ret
+	{
+
+		heap_insert_unallocated(alloc, ptr_offset(ret, 1, mem_chunk));
+		heap_insert_unallocated(alloc, ptr_offset(ret, -1, mem_chunk));
+		return ret;
+	}
+	if !ret
+	{
+		i :u64=0;
+		while i < CHUNKS_CAP
+		{
+			cur0 :*mem_chunk = ptr_offset(alloc.probable_unallocated, i, mem_chunk);
+
+			if is_flag_off(cur0.flags, CHUNK_ALLOCATED)
+			{
+				ret = cur0;
+
+				heap_insert_unallocated(alloc, cast(*mem_chunk)(cast(u64)ptr_offset(alloc.all, i, mem_chunk) % CHUNKS_CAP));
+				break;
+			}
+		}
+	}
+
+	ret.flags = ret.flags | CHUNK_ALLOCATED;
+
+	ret.next = nil;
+	ret.prev = nil;
+    return ret;
+}
+Store :: fn (self: *heap_hash, key : *u8, value : *u8)
+{
+	using self;
+	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == nil
+	{
+		cur.key = key;
+		cur.value = value;
+		return;
+	}
+	put:bool = false;
+	i:u64=0;
+	while i < HASH_TABLE_SIZE
+	{
+		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
+		cur= ptr_offset(data, mod, inner);
+
+		if cur.key == nil
+		{
+			cur.key = key;
+			cur.value = value;
+			put = true;
+			break;
+		}
+		i++;
 	}
 }
 Clear :: fn(self : *heap_hash) ! void
@@ -91,30 +170,38 @@ Remove :: fn (self: *heap_hash, key : *u8)
 		i++;
 	}
 }
-Store :: fn (self: *heap_hash, key : *u8, value : *u8)
+heap_get_unallocated_cache :: fn(alloc : *mem_alloc) ! *mem_chunk
 {
-	using self;
-	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
-	cur:= ptr_offset(data, idx, inner);
-
-	if cur.key == nil
+	i:u64= 0;
+	while i < UNALLOCATED_BUFFER_ITEMS
 	{
-		cur.key = key;
-		cur.value = value;
-		return;
-	}
-	put:bool = false;
-	i:u64=0;
-	while i < HASH_TABLE_SIZE
-	{
-		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
-		cur= ptr_offset(data, mod, inner);
-
-		if cur.key == nil
+		cur := cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
+		if *cur
 		{
-			cur.key = key;
-			cur.value = value;
-			put = true;
+			ret :*mem_chunk = *cur;
+			cur.flags = cur.flags | CHUNK_ALLOCATED;
+			*cur = nil;
+			ret.next = nil;
+			ret.prev = nil;
+			return ret;
+		}
+		i++;
+	}
+	return nil;
+}
+heap_insert_unallocated :: fn(alloc : *mem_alloc, a : *mem_chunk)
+{
+	if a < alloc.all || a > (ptr_offset(alloc.all, CHUNKS_CAP, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
+		return;
+
+	i:u64= 0;
+
+	while i < UNALLOCATED_BUFFER_ITEMS
+	{
+		cur := cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
+		if *cur == nil
+		{
+			*cur = a;
 			break;
 		}
 		i++;

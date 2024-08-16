@@ -119,5 +119,3 @@ struct mem_alloc
     mem_chunk *all;
     mem_chunk **probable_unallocated;
 };
-
-

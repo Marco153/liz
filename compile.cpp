@@ -1514,6 +1514,32 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 	{
 		switch (op)
 		{
+		case T_AMPERSAND:
+		{
+			code_sect.emplace_back(0x71);
+		}break;
+		case T_OR:
+		{
+			code_sect.emplace_back(0x72);
+		}break;
+		case T_GREATER_THAN:
+		{
+			// unsigned
+			if (is_unsigned)
+				code_sect.emplace_back(0x4b);
+			// signed
+			else
+				code_sect.emplace_back(0x4a);
+		}break;
+		case T_LESSER_THAN:
+		{
+			// unsigned
+			if (is_unsigned)
+				code_sect.emplace_back(0x49);
+			// signed
+			else
+				code_sect.emplace_back(0x48);
+		}break;
 		case T_GREATER_EQ:
 		{
 
@@ -1523,6 +1549,10 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 			// signed
 			else
 				code_sect.emplace_back(0x4e);
+		}break;
+		case T_PIPE:
+		{
+			code_sect.emplace_back(0x72);
 		}break;
 		case T_MUL:
 		{
@@ -1605,7 +1635,7 @@ void WasmPushMultiple(wasm_gen_state* gen_state, bool only_lhs, ir_val& lhs, ir_
 		bool is_decl = lhs.type == IR_TYPE_DECL;
 		bool is_struct = is_decl && lhs.decl->type.IsStrct(nullptr);
 		bool is_float = is_decl && lhs.decl->type.type == TYPE_F32;
-		ASSERT(lhs.is_unsigned == rhs.is_unsigned || is_struct || is_float);
+		ASSERT( lhs.is_unsigned == rhs.is_unsigned || is_struct || is_float);
 
 	}
 }
@@ -1828,7 +1858,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
         code_sect.emplace_back(0xf);
 	}break;
-	case IR_BREAK_IF:
+	case IR_BREAK_OUT_IF_BLOCK:
     {
 		int depth = 0;
 
@@ -3358,35 +3388,38 @@ struct var_dbg
 	int offset;
 	char ptr;
 };
+#define TYPE_DBG_CREATED_TYPE_STRUCT 1
 struct type_dbg
 {
-	str_dbg name;
+	union
+	{
+		str_dbg name;
+		type_struct2 *strct;
+	};
 	int vars_offset;
 	int num_of_vars;
-};
-enum scp_dbg_type
-{
-	SCP_DBG_TP_UNDEFINED,
-	SCP_DBG_TP_FUNC,
-	SCP_DBG_TP_STRUCT,
+	int flags;
 };
 struct scope_dbg
 {
 	int vars_offset;
 	int num_of_vars;
 	unsigned int parent;
+	unsigned int next_sibling;
 	int children;
 	int children_len;
 
 	int line_start;
 	int line_end;
 
-	scp_dbg_type type;
+	scp_type type;
 	union
 	{
 		int type_idx;
 		int func_idx;
 	};
+	bool created;
+	scope* scp;
 };
 struct file_dbg
 {
@@ -3394,7 +3427,11 @@ struct file_dbg
 };
 struct func_dbg
 {
-	str_dbg name;
+	union
+	{
+		str_dbg name;
+		decl2* decl;
+	}; 
 	int scope;
 	int code_start;
 
@@ -3407,6 +3444,7 @@ struct func_dbg
 	int file_idx;
 
 	int flags;
+	bool created;
 
 };
 struct serialize_state
@@ -3459,9 +3497,11 @@ var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state*
 	WasmSerializePushString(ser_state, &var->name, &var_ser->name);
 	return var_ser;
 }
-void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state *ser_state, type_struct2* strct)
+void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state* ser_state, type_struct2* strct)
 {
-	
+	if (IS_FLAG_ON(strct->flags, TP_STRCT_STRUCT_SERIALIZED))
+		return;
+
 	int type_offset = ser_state->types_sect.size();
 	int var_offset = ser_state->vars_sect.size();
 
@@ -3491,6 +3531,7 @@ void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state *se
 	ser_state->types_sect.make_count(ser_state->types_sect.size() + sizeof(type_dbg));
 
 	auto type = (type_dbg*)(ser_state->types_sect.begin() + type_offset);
+	memset(type, 0, sizeof(type_dbg));
 	type->num_of_vars = strct->vars.size();
 	type->vars_offset = var_offset;
 	WasmSerializePushString(ser_state, &strct->name, &type->name);
@@ -3525,16 +3566,20 @@ void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 	unsigned char* end = (unsigned char *)ir_ar->end();
 	ser_state->ir_sect.insert(ser_state->ir_sect.begin(), start, end);
 }
-void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_state, scope *scp, unsigned int parent)
+void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_state, scope *scp, unsigned int parent, unsigned int scp_offset)
 {
-	int scp_offset = ser_state->scopes_sect.size();
 	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_STRUCT))
 	{
 		int a = 0;
 	}
 
 	int vars_offset = ser_state->vars_sect.size();
-	ser_state->scopes_sect.make_count(ser_state->scopes_sect.size() + sizeof(scope_dbg));
+	int children_offset = ser_state->scopes_sect.size();
+
+	//ser_state->scopes_sect.make_count(ser_state->scopes_sect.size() + sizeof(scope_dbg));
+	int size_children = scp->children.size() * sizeof(scope_dbg);
+	ser_state->scopes_sect.make_count(ser_state->scopes_sect.size() + size_children);
+	memset(ser_state->scopes_sect.begin() + children_offset, 0, size_children);
 	ser_state->vars_sect.make_count(ser_state->vars_sect.size() + scp->vars.size() * sizeof(var_dbg));
 
 	int i = 0;
@@ -3566,6 +3611,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 				ser_state->stmnts_sect.insert(ser_state->stmnts_sect.end(), (unsigned char*)f->wasm_stmnts.begin(), (unsigned char*)f->wasm_stmnts.end());
 
 			auto fdbg = (func_dbg*)(ser_state->func_sect.begin() + func_offset);
+			memset(fdbg, 0, sizeof(func_dbg));
 			fdbg->scope = f->scp->serialized_offset;
 			fdbg->code_start = f->wasm_code_sect_idx;
 			fdbg->stmnts_offset = stmnt_offset;
@@ -3586,6 +3632,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		{
 			d->type.strct->scp->type = SCP_TYPE_STRUCT;
 			WasmSerializeStructType(wasm_state, ser_state, d->type.strct);
+			vdbg->type_idx = d->type.strct->serialized_type_idx;
 		}break;
 		case TYPE_FUNC_PTR:
 		{
@@ -3615,20 +3662,27 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		i++;
 
 	}
+	i = 0;
 	FOR_VEC(ch, scp->children)
 	{
 		scope* c = *ch;
-		WasmSerializeScope(wasm_state, ser_state, c, scp_offset);
+		int offset = children_offset + sizeof(scope_dbg) * i;
+		WasmSerializeScope(wasm_state, ser_state, c, scp_offset, offset );
+		auto cur = (scope_dbg*)(ser_state->scopes_sect.begin() + scp_offset);
+		auto s = (scope_dbg*)(ser_state->scopes_sect.begin() + offset);
+		s->next_sibling = ser_state->scopes_sect.size();
+		i++;
 	}
 
 	auto s = (scope_dbg*)(ser_state->scopes_sect.begin() + scp_offset);
-	s->children = scp_offset + sizeof(scope_dbg);
+	memset(s, 0, sizeof(scope_dbg));
+	s->children = children_offset;
 	s->children_len = scp->children.size();
 	s->num_of_vars  = scp->vars.size();
 	s->line_start = scp->line_start;
 	s->line_end = scp->line_end;
 	s->vars_offset  = vars_offset;
-	s->type = SCP_DBG_TP_UNDEFINED;
+	s->type = SCP_TYPE_UNDEFINED;
 
 
 
@@ -3638,13 +3692,13 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 	case SCP_TYPE_FUNC:
 	{
 		ASSERT(IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_SERIALIZED));
-		s->type = SCP_DBG_TP_FUNC;
+		s->type = SCP_TYPE_FUNC;
 		s->func_idx = scp->fdecl->func_dbg_idx;
 	}break;
 	case SCP_TYPE_STRUCT:
 	{
 		ASSERT(IS_FLAG_ON(scp->tstrct->flags, TP_STRCT_STRUCT_SERIALIZED));
-		s->type = SCP_DBG_TP_STRUCT;
+		s->type = SCP_TYPE_STRUCT;
 		s->type_idx = scp->tstrct->serialized_type_idx;
 	}break;
 	}
@@ -3663,7 +3717,8 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	serialize_state ser_state;
 	//printf("\nscop1: \n%s\n", wasm_state->lang_stat->root->Print(0).c_str());
 	
-	WasmSerializeScope(wasm_state, &ser_state, wasm_state->lang_stat->root, -1);
+	ser_state.scopes_sect.make_count(ser_state.scopes_sect.size() + sizeof(scope_dbg));
+	WasmSerializeScope(wasm_state, &ser_state, wasm_state->lang_stat->root, -1, 0);
 
 	//printf("\nscop2: \n%s\n", wasm_state->lang_stat->root->Print(0).c_str());
 
@@ -3777,6 +3832,9 @@ decl2 *WasmInterpBuildSimplaVar(unsigned char* data, unsigned int len, lang_stat
 }
 decl2 *WasmInterpBuildStruct(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize* file, type_dbg *dstrct)
 {
+	if (IS_FLAG_ON(dstrct->flags, TYPE_DBG_CREATED_TYPE_STRUCT))
+		return dstrct->strct->this_decl;
+
 	unsigned char* string_sect = data + file->string_sect;
 	auto cur_var = (var_dbg *)(data + file->vars_sect + dstrct->vars_offset);
 
@@ -3785,31 +3843,36 @@ decl2 *WasmInterpBuildStruct(unsigned char* data, unsigned int len, lang_state* 
 	tp.type = TYPE_STRUCT_TYPE;
 	tp.strct = final_struct;
 	std::string name = WasmInterpNameFromOffsetAndLen(data, file, &dstrct->name);
+	dstrct->strct = final_struct;
+	final_struct->name = std::string(name);
+	dstrct->flags = TYPE_DBG_CREATED_TYPE_STRUCT;
 
 	decl2* d = NewDecl(lang_stat, name, tp);
+	final_struct->this_decl = d;
 	return d;
 
 }
 unit_file* WasmInterpSearchFile(lang_state* lang_stat, std::string* name);
-void WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state *lang_stat, dbg_file_seriealize *file, func_dbg *fdbg, scope *ret_scp)
+decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state *lang_stat, dbg_file_seriealize *file, func_dbg *fdbg)
 {
+	if (fdbg->created)
+		return fdbg->decl;
 	auto fdecl = (func_decl* )AllocMiscData(lang_stat, sizeof(func_decl));
 	fdecl->code_start_idx = fdbg->code_start;
 	fdecl->flags = fdbg->flags;
 
 	std::string fname = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
-	fdecl->scp = ret_scp;
 	fdecl->name = std::string(fname);
 	type2 tp;
 	tp.type = TYPE_FUNC;
 	tp.fdecl = fdecl;
 	decl2* d = NewDecl(lang_stat, fname, tp);
 
-	ret_scp->vars.emplace_back(d);
+	//ret_scp->vars.emplace_back(d);
 
 	winterp->funcs.emplace_back(fdecl);
 
-	if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_IS_OUTSIDER))
+	if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_MACRO| FUNC_DECL_IS_OUTSIDER))
 	{
 		own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) & fdecl->ir;
 		auto start_ir = (ir_rep*)(data + file->ir_sect + fdbg->ir_offset);
@@ -3819,11 +3882,18 @@ void WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state *
 		fdecl->wasm_stmnts.insert(fdecl->wasm_stmnts.begin(), start_st, start_st + fdbg->stmnts_len);
 	}
 
-	auto fl_dbg = (file_dbg*)(data + file->files_sect + fdbg->file_idx);
-	std::string file_name = WasmInterpNameFromOffsetAndLen(data, file, &fl_dbg->name);
-	fdecl->from_file = WasmInterpSearchFile(lang_stat, &file_name);
+	// for some reason macro functions'a from_files arent set, this is hack to make it now check it
+	if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_MACRO))
+	{
+		auto fl_dbg = (file_dbg*)(data + file->files_sect + fdbg->file_idx);
+		std::string file_name = WasmInterpNameFromOffsetAndLen(data, file, &fl_dbg->name);
+		fdecl->from_file = WasmInterpSearchFile(lang_stat, &file_name);
+		ASSERT(fdecl->from_file);
+	}
+	fdecl->this_decl = d;
+	fdbg->created = true;
 
-	ASSERT(fdecl->from_file);
+	return d;
 
 }
 void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize* file, scope_dbg *scp_pre, scope *scp_final)
@@ -3843,13 +3913,16 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			int a = 0;
 		}break;
 		case TYPE_STRUCT:
+		case TYPE_STRUCT_TYPE:
 		{
 			auto type_strct = (type_dbg*)(data + file->types_sect + cur_var->type_idx);
-			std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type_strct->name);
-			decl2* d = FindIdentifier(name, scp_final, &tp);
-			ASSERT(d);
+			ASSERT(IS_FLAG_ON(type_strct->flags, TYPE_DBG_CREATED_TYPE_STRUCT));
+			type_struct2 * strct = type_strct->strct;
+			//std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type_strct->name);
+			//decl2* d = FindIdentifier(name, scp_final, &tp);
+			//ASSERT(d);
 			tp.type = TYPE_STRUCT;
-			tp.strct = d->type.strct;
+			tp.strct = strct;
 
 		}break;
 		case TYPE_FUNC_TYPE:
@@ -3866,7 +3939,6 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_S32:
 		case TYPE_U32:
 		case TYPE_S64:
-		case TYPE_STRUCT_TYPE:
 		case TYPE_U64:
 			break;
 		default:
@@ -3898,9 +3970,18 @@ unit_file *WasmInterpSearchFile(lang_state* lang_stat, std::string *name)
 }
 
 
-scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize *file, scope *parent, scope_dbg *scp_pre)
+scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize *file, scope *parent, scope_dbg *scp_pre, bool create_vars = false)
 {
-	scope* ret_scp = NewScope(lang_stat, parent);
+	scope* ret_scp = nullptr;
+	if (scp_pre->created)
+		ret_scp = scp_pre->scp;
+	else
+	{
+		ret_scp = NewScope(lang_stat, parent);
+		scp_pre->scp = ret_scp;
+		scp_pre->created = true;
+	}
+	ret_scp->type = scp_pre->type;
 	ret_scp->line_start = scp_pre->line_start;
 	ret_scp->line_end = scp_pre->line_end;
 
@@ -3909,7 +3990,7 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 	for (int i = 0; i < scp_pre->children_len; i++)
 	{
 		decl2* d = nullptr;
-		if (cur_scp->type == SCP_DBG_TP_STRUCT)
+		if (cur_scp->type == SCP_TYPE_STRUCT)
 		{
 			auto dstrct = (type_dbg*)(data + file->types_sect + cur_scp->type_idx);
 
@@ -3917,36 +3998,52 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 
 			//d->type.strct->scp = child_scp;
 
-			ret_scp->vars.emplace_back(d);
+
+			//WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file* file, scope_dbg *scp_pre, scope *scp_final)
+		}
+		if (cur_scp->type == SCP_TYPE_FUNC)
+		{
+			auto fdbg = (func_dbg *)(data + file->func_sect + cur_scp->func_idx);
+
+			d = WasmInterpBuildFunc(data, winterp, lang_stat, file, fdbg);
+			int a = 0;
 
 			//WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file* file, scope_dbg *scp_pre, scope *scp_final)
 		}
 		//scope* new_scp = NewScope(lang_stat, ret_scp);
-		scope *child_scp = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, ret_scp, cur_scp);
+		scope *child_scp = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, ret_scp, cur_scp, create_vars);
 
-		if (cur_scp->type == SCP_DBG_TP_FUNC)
+		if (!create_vars)
 		{
-			auto fdbg = (func_dbg *)(data + file->func_sect + cur_scp->func_idx);
+			if (cur_scp->type == SCP_TYPE_FUNC)
+			{
+				ret_scp->vars.emplace_back(d);
+				d->type.fdecl->scp = child_scp;
 
-			WasmInterpBuildFunc(data, winterp, lang_stat, file, fdbg, ret_scp);
+				child_scp->type = SCP_TYPE_FUNC;
+				child_scp->fdecl = d->type.fdecl;
 
-			//WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file* file, scope_dbg *scp_pre, scope *scp_final)
-		}
-		if (cur_scp->type == SCP_DBG_TP_STRUCT)
-		{
-			//auto dstrct = (struct_dbg*)(data + file->types_sect + cur_scp->type_idx);
+				//WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file* file, scope_dbg *scp_pre, scope *scp_final)
+			}
+			if (cur_scp->type == SCP_TYPE_STRUCT)
+			{
+				//auto dstrct = (struct_dbg*)(data + file->types_sect + cur_scp->type_idx);
 
-			//decl2 *d = WasmInterpBuildStruct(data, len, lang_stat, file, dstrct);
+				//decl2 *d = WasmInterpBuildStruct(data, len, lang_stat, file, dstrct);
+				child_scp->type = SCP_TYPE_STRUCT;
+				child_scp->tstrct = d->type.strct;
 
-			d->type.strct->scp = child_scp;
+				d->type.strct->scp = child_scp;
 
-			ret_scp->vars.emplace_back(d);
+				ret_scp->vars.emplace_back(d);
 
-			//WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file* file, scope_dbg *scp_pre, scope *scp_final)
+				//WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file* file, scope_dbg *scp_pre, scope *scp_final)
+			}
 		}
 		cur_scp++;
 	}
-	WasmInterpBuildVarsForScope(data, len, lang_stat, file, scp_pre, ret_scp);
+	if(create_vars)
+		WasmInterpBuildVarsForScope(data, len, lang_stat, file, scp_pre, ret_scp);
 
 
 
@@ -4357,9 +4454,10 @@ void WasmInterpInit(wasm_interp *winterp, unsigned char *data, unsigned int len,
 		lang_stat->files.emplace_back(new_f);
 	}
 	auto scp_pre = (scope_dbg*)(data + file->scopes_sect);
-	scope* root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre);
-	//std::string scp_pre_str = PrintScpPre(data + file->scopes_sect, scp_pre);
-	//printf("\nscop: \n%s\n****\n%s", root->Print(0).c_str(), scp_pre_str.c_str());
+	scope* root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, false);
+	root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, true);
+	std::string scp_pre_str = PrintScpPre(data + file->scopes_sect, scp_pre);
+	printf("\nscop:\n%s\nscp_pre: %s", root->Print(0).c_str(), scp_pre_str.c_str());
 	
 	for (int i = 0; i < file->total_funcs; i++)
 	{
@@ -4412,7 +4510,7 @@ void WasmInterpInit(wasm_interp *winterp, unsigned char *data, unsigned int len,
 	while (i < winterp->funcs.size())
 	{
 		func_decl* cur_f = winterp->funcs[i];
-		if (IS_FLAG_ON(cur_f->flags, FUNC_DECL_IS_OUTSIDER))
+		if (IS_FLAG_ON(cur_f->flags, FUNC_DECL_IS_OUTSIDER | FUNC_DECL_MACRO))
 		{
 			i++;
 			continue;
@@ -5806,8 +5904,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		lang_stat->cur_file = f;
 		lang_stat->lhs_saved = 0;
 		lang_stat->call_regs_used = 0;
-		//std::string scp_str = lang_stat->root->Print(0);
-		//printf("file: %s, scp: \n %s", f->name.c_str(), scp_str.c_str());
+		std::string scp_str = lang_stat->root->Print(0);
+		printf("file: %s, scp: \n %s", f->name.c_str(), scp_str.c_str());
 		DescendNode(lang_stat, f->s, f->global);
 
 		/*

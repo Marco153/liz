@@ -5599,7 +5599,7 @@ own_std::vector<func_byte_code *> GetFuncs(lang_state *lang_stat, scope *scp)
 			if(v->type.fdecl->templates.size() == 0)
 			{
 				if (IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_TEMPLATED)
-					|| IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_INTERNAL))
+					|| IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_INTERNAL) ||IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_MACRO) )
 				{
 					continue;
 				}

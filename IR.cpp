@@ -39,6 +39,16 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 	{
 		switch (n->t->type)
 		{
+		case T_EXCLAMATION:
+		{
+			ret->type = AST_OPPOSITE;
+			ret->ast = AstFromNode(lang_stat, n->r, scp);
+		}break;
+		case  T_MINUS:
+		{
+			ret->type = AST_NEGATIVE;
+			ret->ast = AstFromNode(lang_stat, n->r, scp);
+		}break;
 		case  T_AMPERSAND:
 		{
 			ret->type = AST_ADDRESS_OF;
@@ -172,13 +182,16 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
 		}break;
 		case T_OR:
+		case T_PIPE:
 		case T_AND:
 		case T_COMMA:
 		case T_MUL:
 		case T_COND_NE:
 		case T_PLUS_EQUAL:
 		case T_COND_EQ:
+		case T_AMPERSAND:
 		case T_LESSER_THAN:
+		case T_GREATER_THAN:
 		case T_PERCENT:
 		{
 		}break;
@@ -244,7 +257,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
     }break;
 	case node_type::N_SCOPE:
     {
-		if (n->r && n->r->type != N_STMNT)
+		if (n->r && n->r->type != N_STMNT && n->r->type != N_IF)
 		{
 			ret->type = AST_STATS;
 			ret->line_number = n->r->t->line;
@@ -577,7 +590,20 @@ void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 		GetIRBin(lang_stat, ast, out, FromTokenOpToIRType(opposite), (void*)false);
 	}
 	else
-        GetIRFromAst(lang_stat, ast, out);
+	{
+		ir_rep ir = {};
+		ir.type = IR_CMP_EQ;
+		ir.bin.op = T_COND_EQ;
+		ir.bin.lhs.type = IR_TYPE_REG;
+		ir.bin.lhs.reg  = 0;
+		ir.bin.lhs.reg_sz  = 4;
+		ir.bin.rhs.type = IR_TYPE_INT;
+		ir.bin.rhs.i = 0;
+		GenStackThenIR(lang_stat, ast, out, &ir.bin.lhs);
+		out->emplace_back(ir);
+
+
+	}
 }
 
 void GenIRSubBin(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val_type to, void* data)
@@ -622,6 +648,12 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 	case AST_FLOAT:
 	case AST_IDENT:
 	{
+		out->emplace_back(ast);
+	}break;
+	case AST_NEGATIVE:
+	case AST_OPPOSITE:
+	{
+		PushAstsInOrder(lang_stat, ast->ast, out);
 		out->emplace_back(ast);
 	}break;
 	case AST_CAST:
@@ -844,6 +876,70 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			out->emplace_back(ir);
 
 		}break;
+		case AST_OPPOSITE:
+		{
+			ir_val* top = &stack[stack.size() - 1];
+
+            int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+            int sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
+            int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
+
+			ir = {};
+			ir.type = IR_CMP_EQ;
+			ir.bin.op = T_COND_EQ;
+			ir.bin.lhs = *top;
+			ir.bin.rhs.type = IR_TYPE_INT;
+			ir.bin.rhs.i = 0;
+			ir.bin.rhs.is_unsigned = top->is_unsigned;
+			out->emplace_back(ir);
+
+            IRCreateEndBlock(lang_stat,cond_idx, out, IR_END_COND_BLOCK);
+
+			int reg = 0;
+			if (top->type == IR_TYPE_REG)
+				reg = top->reg;
+			else
+				reg = AllocReg(lang_stat);
+
+			ir = {};
+			ir.type = IR_ASSIGNMENT;
+			ir.assign.to_assign.type = IR_TYPE_REG;
+			ir.assign.to_assign.reg = reg;
+			ir.assign.to_assign.reg_sz = 4;
+			ir.assign.only_lhs = true;
+
+			ir.assign.lhs.type = IR_TYPE_INT;
+			ir.assign.lhs.i = 1;
+			out->emplace_back(ir);
+
+
+            IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
+
+			ir = {};
+			ir.type = IR_ASSIGNMENT;
+			ir.assign.to_assign.type = IR_TYPE_REG;
+			ir.assign.to_assign.reg = reg;
+			ir.assign.to_assign.reg_sz = 4;
+			ir.assign.only_lhs = true;
+
+			ir.assign.lhs.type = IR_TYPE_INT;
+			ir.assign.lhs.i = 0;
+			out->emplace_back(ir);
+            IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
+
+		}break;
+		case AST_NEGATIVE:
+		{
+			ir_val* top = &stack[stack.size() - 1];
+			ir.type = IR_ASSIGNMENT;
+			ir.assign.op = T_MUL;
+			ir.assign.to_assign = *top;
+			ir.assign.lhs = *top;
+			ir.assign.rhs.type = IR_TYPE_INT;
+			ir.assign.rhs.i = -1;
+			out->emplace_back(ir);
+			//top->reg_sz = e->cast.type;
+		}break;
 		case AST_CAST:
 		{
 			ir_val* top = &stack[stack.size() - 1];
@@ -923,6 +1019,7 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	}break;
 	case AST_CAST:
 	case AST_ADDRESS_OF:
+	case AST_OPPOSITE:
 	case AST_DEREF:
 	{
 		PushAstsInOrder(lang_stat, ast, &exps);
@@ -1553,7 +1650,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
             GetIRFromAst(lang_stat, ast->cond.scope, out);
             if(has_elses)
             {
-                ir.type = IR_BREAK_IF;
+                ir.type = IR_BREAK_OUT_IF_BLOCK;
                 out->emplace_back(ir);
             }
         }
@@ -1578,7 +1675,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 
             if(!is_last)
             {
-                ir.type = IR_BREAK_IF;
+                ir.type = IR_BREAK_OUT_IF_BLOCK;
                 out->emplace_back(ir);
                 IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
             }

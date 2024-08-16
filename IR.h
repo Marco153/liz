@@ -27,6 +27,8 @@ enum ast_type
     AST_FLOAT,
 
     AST_TYPE,
+    AST_NEGATIVE,
+    AST_OPPOSITE,
 
 };
 
@@ -89,6 +91,11 @@ struct ast_deref
     ast_rep *exp;
     char times;
 };
+struct ast_opposite
+{
+    ast_rep *exp;
+	tkn_type2 op;
+};
 struct ast_if
 {
     ast_rep * cond;
@@ -124,6 +131,7 @@ struct ast_rep
         ast_loop loop;
         ast_call call;
         ast_cast cast;
+		ast_opposite opposite;
         ast_deref deref;
         ast_struct_construct strct_constr;
         type2 tp;
@@ -145,7 +153,7 @@ enum ir_type
 	IR_CMP_NE,
 	IR_CMP_LT,
 	IR_CMP_GE,
-	IR_BREAK_IF,
+	IR_BREAK_OUT_IF_BLOCK,
 
 	IR_SPILL_REG,
 	IR_UNSPILL_REG,

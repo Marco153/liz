@@ -28,12 +28,13 @@ mem_alloc : struct
     probable_unallocated : **mem_chunk,
 }
 
-CHUNKS_CAP :const s32=  (1024 * 1024 * 8);
+CHUNKS_CAP :const s32=  (512);
 BYTES_PER_CHUNK : const s32= 8;
-HASH_TABLE_SIZE : const s32=  (1024 * 1024);
+HASH_TABLE_SIZE : const s32=  (512);
 UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 
 GetMem::fn outsider(sz:u64) ! *void;
+Print::fn outsider(sz:*mem_alloc) ! *void;
 heap_insert_unallocated :: fn(alloc : *mem_alloc, a : *mem_chunk)
 {
 	if a < alloc.all || a > (ptr_offset(alloc.all, CHUNKS_CAP, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
@@ -423,6 +424,7 @@ InitMemAlloc::fn(alloc : *mem_alloc)
 	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
 	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
+	__dbg_break;
     free:*mem_chunk= GetUnallocatedChunk(alloc);
 	//alloc.in_use.reserve(HASH_TABLE_SIZE);
 
@@ -437,4 +439,53 @@ main :: fn()
 {
 	alloc :mem_alloc;
 	InitMemAlloc(&alloc);
+	Print(&alloc);
+}
+test_call2::fn(alloc : *mem_alloc)
+{
+	*ptr_offset(alloc.buffer, 4, u8) = 4;
+}
+test_call1::fn(alloc : *mem_alloc)
+{
+	*ptr_offset(alloc.buffer, 3, u8) = 3;
+	test_call2(alloc);
+}
+test_ref::fn(alloc : *mem_alloc)
+{
+	*ptr_offset(alloc.buffer, 2, u8) = 2;
+}
+tests :: fn()
+{
+	i:= 0;
+	if i != 0
+		__dbg_break;
+
+	alloc :mem_alloc;
+	alloc.buffer = nil;
+
+	if alloc.buffer 
+		__dbg_break;
+
+	alloc.buffer = cast(*u8)GetMem(8);
+
+	*ptr_offset(alloc.buffer, 1, u8) = 1;
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 1
+		__dbg_break;
+
+	test_ref(&alloc);
+
+	if *ptr_offset(alloc.buffer, 2, u8) != 2
+		__dbg_break;
+
+	__dbg_break;
+	test_call1(&alloc);
+	__dbg_break;
+
+	if *ptr_offset(alloc.buffer, 3, u8) != 0 || *ptr_offset(alloc.buffer, 4, u8) != 0
+		__dbg_break;
+
+	if *ptr_offset(alloc.buffer, 3, u8) != 3 || *ptr_offset(alloc.buffer, 4, u8) != 4
+		__dbg_break;
+
 }

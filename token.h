@@ -906,6 +906,14 @@ std::string OperatorToString(tkn_type2 type)
 		{
 			return std::string(";\n");
 		}break;
+		case tkn_type2::T_COND_NE:
+		{
+			return std::string("!=");
+		}break;
+		case tkn_type2::T_COND_EQ:
+		{
+			return std::string("==");
+		}break;
 		case tkn_type2::T_GREATER_EQ:
 		{
 			return std::string(">=");

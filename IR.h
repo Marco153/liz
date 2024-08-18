@@ -5,6 +5,7 @@ enum ast_type
 {
     AST_EMPTY,
     AST_BREAK,
+    AST_DBG_BREAK,
     AST_STATS,
     AST_FUNC,
     AST_INT,
@@ -126,7 +127,11 @@ struct ast_rep
 			bool zero_initialized;
 		};
         own_std::vector<ast_rep *> expr;
-        own_std::vector<ast_point> points;
+		struct
+		{
+			own_std::vector<ast_point> points;
+			bool point_get_last_val;
+		};
         ast_if cond;
         ast_func func;
         ast_loop loop;
@@ -172,23 +177,25 @@ enum ir_type
 
 	IR_BREAK,
 
-    IR_BEGIN_LOOP_BLOCK,
-    IR_END_LOOP_BLOCK,
+	IR_BEGIN_LOOP_BLOCK,
+	IR_END_LOOP_BLOCK,
 
-    IR_BEGIN_OR_BLOCK,
-    IR_END_OR_BLOCK,
+	IR_BEGIN_OR_BLOCK,
+	IR_END_OR_BLOCK,
 
-    IR_BEGIN_AND_BLOCK,
-    IR_END_AND_BLOCK,
+	IR_BEGIN_AND_BLOCK,
+	IR_END_AND_BLOCK,
 
-    IR_BEGIN_COND_BLOCK,
-    IR_END_COND_BLOCK,
+	IR_BEGIN_COND_BLOCK,
+	IR_END_COND_BLOCK,
 
-    IR_BEGIN_IF_BLOCK,
-    IR_END_IF_BLOCK,
+	IR_BEGIN_IF_BLOCK,
+	IR_END_IF_BLOCK,
 
-    IR_BEGIN_SUB_IF_BLOCK,
-    IR_END_SUB_IF_BLOCK,
+	IR_BEGIN_SUB_IF_BLOCK,
+	IR_END_SUB_IF_BLOCK,
+
+	IR_DBG_BREAK,
 
     IR_BEGIN_COMPLEX,
     IR_END_COMPLEX,

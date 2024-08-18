@@ -2026,10 +2026,7 @@ void DescendComma(lang_state *lang_stat, node* n, scope* scp, own_std::vector<co
 		else if (n->type == node_type::N_TYPE)
 		{
 			cret.type = COMMA_RET_TYPE;
-
-			cret.decl.type.type = n->decl_type.type;
-			if (n->t)
-				cret.decl.name = n->t->str.substr();
+			cret.tp = n->decl_type;
 
 			ret.emplace_back(cret);
 		}
@@ -4746,7 +4743,8 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 		{
 
 
-			ret = lhs->type.strct->FindDecl(n->r->t->str);
+			type2 dummy;
+			ret = FindIdentifier(n->r->t->str, lhs->type.strct->scp, &dummy);
 			if (!ret)
 			{
 				REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
@@ -5915,6 +5913,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			if (IS_FLAG_ON(ident->flags, DECL_FROM_USING))
 			{
 				auto new_n = ident->using_node->NewTree(lang_stat);
+				new_n->flags |= NODE_FLAGS_POINT_FROM_USING;
 				memcpy(n, new_n, sizeof(node));
 			}
 		}
@@ -7366,6 +7365,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				//var_args_count++;
 			}
 		}
+		ret_type = ltp.fdecl->ret_type;
 
 		func_decl* fdecl = ltp.fdecl;
 		// cant call regular functions inside comp ones, unless it has code, in that case it should be from base.lng file
@@ -7381,6 +7381,16 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 			char* addr = lang_stat->GetCodeAddr(fdecl->code->executable);
 			//int ret_comp = ((int(*)())addr)();
+		}
+		else if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTERNAL))
+		{
+			if (fdecl->name == "sizeof")
+			{
+				ret_type.type = TYPE_INT;
+				ret_type.i = GetTypeSize(&args[0].tp);
+			}
+			else
+				ASSERT(0);
 		}
 
 
@@ -7437,7 +7447,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				}
 			}
 
-			ret_type = ltp.fdecl->ret_type;
 		}break;
 		default:
 		{

@@ -842,6 +842,10 @@ std::string OperatorToString(tkn_type2 type)
 		{
 			return std::string("+");
 		}break;
+		case tkn_type2::T_OR:
+		{
+			return std::string("|");
+		}break;
 		case tkn_type2::T_NEW_LINE:
 		{
 			return std::string("\n");

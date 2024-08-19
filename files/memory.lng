@@ -149,7 +149,7 @@ HHashClear :: fn(self : *heap_hash) ! void
 	using self;
 	memset(cast(*u8)data, 0, sizeof(inner) * HASH_TABLE_SIZE);
 }
-HHashGet :: fn (self: *heap_hash, key : *u8) ! *mem_chunk 
+HHashGet :: fn (self: *heap_hash, key : *u8) ! *u8 
 {
 	using self;
 	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
@@ -250,7 +250,7 @@ heap_clear::fn(alloc : *mem_alloc)
 }
 heap_free::fn(alloc : *mem_alloc, ptr : *u8)
 {
-    chunk_to_free:*mem_chunk= HHashGet(&alloc.in_use, ptr);
+    chunk_to_free:= cast(*mem_chunk)HHashGet(&alloc.in_use, ptr);
 	HHashRemove(&alloc.in_use, ptr);
     cur :*mem_chunk= alloc.head_free;
 	
@@ -424,7 +424,6 @@ InitMemAlloc::fn(alloc : *mem_alloc)
 	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
 	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
-	__dbg_break;
     free:*mem_chunk= GetUnallocatedChunk(alloc);
 	//alloc.in_use.reserve(HASH_TABLE_SIZE);
 
@@ -443,11 +442,11 @@ main :: fn()
 }
 test_call2::fn(alloc : *mem_alloc)
 {
-	*ptr_offset(alloc.buffer, 4, u8) = 4;
+	*ptr_offset(alloc.buffer, 3, u8) = 4;
 }
 test_call1::fn(alloc : *mem_alloc)
 {
-	*ptr_offset(alloc.buffer, 3, u8) = 3;
+	*ptr_offset(alloc.buffer, 2, u8) = 3;
 	test_call2(alloc);
 }
 test_ref::fn(alloc : *mem_alloc)
@@ -478,14 +477,12 @@ tests :: fn()
 	if *ptr_offset(alloc.buffer, 2, u8) != 2
 		__dbg_break;
 
-	__dbg_break;
+	*ptr_offset(alloc.buffer, 1, u8) = 0;
+	*ptr_offset(alloc.buffer, 2, u8) = 0;
 	test_call1(&alloc);
-	__dbg_break;
 
-	if *ptr_offset(alloc.buffer, 3, u8) != 0 || *ptr_offset(alloc.buffer, 4, u8) != 0
-		__dbg_break;
 
-	if *ptr_offset(alloc.buffer, 3, u8) != 3 || *ptr_offset(alloc.buffer, 4, u8) != 4
+	if *ptr_offset(alloc.buffer, 2, u8) != 3 || *ptr_offset(alloc.buffer, 3, u8) != 4
 		__dbg_break;
 
 }

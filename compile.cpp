@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 #include <unordered_map>
+#include <conio.h>
 
 #include "Array.cpp"
 #include "rel_utils.h"
@@ -1034,6 +1035,21 @@ void WasmPushIRVal(wasm_gen_state* gen_state, ir_val* val, own_std::vector<unsig
 func_decl* WasmGetFuncAtIdx(wasm_interp* state, int idx)
 {
 	return (state->funcs[idx]);
+}
+func_decl *FuncAddedWasmInterp(wasm_interp* interp, std::string name)
+{
+	int i = 0;
+	bool found = false;
+	FOR_VEC(func, interp->funcs)
+	{
+		func_decl* f = *func;
+		if (f->name == name)
+		{
+			return f;
+		}
+	}
+
+	return nullptr;
 }
 bool FuncAddedWasm(web_assembly_state* state, std::string name, int* idx = nullptr)
 {
@@ -2344,6 +2360,22 @@ struct dbg_expr
 	func_decl* from_func;
 	std::string exp_str;
 };
+struct command_info_args
+{
+	std::string incomplete_str;
+	int cur_tkn;
+	own_std::vector<token2>* tkns;
+
+};
+typedef std::string(*CommandFunc)(dbg_state* dbg, command_info_args *info);
+struct command_info
+{
+	own_std::vector<std::string> names;
+	own_std::vector<command_info *> cmds;
+	CommandFunc func;
+	CommandFunc execute;
+	bool end;
+};
 struct dbg_state
 {
 	dbg_break_type break_type;
@@ -2360,6 +2392,9 @@ struct dbg_state
 	own_std::vector<wasm_bc> bcs;
 	own_std::vector<wasm_stack_val> wasm_stack;
 	own_std::vector<dbg_expr *> exprs;
+	//own_std::vector<command_info> cmds;
+
+	command_info* global_cmd;
 
 	lang_state* lang_stat;
 	wasm_interp* wasm_state;
@@ -2701,14 +2736,14 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	return ret;
 }
 
-void WasmGetIrWithIdx(dbg_state* dbg, int idx, ir_rep **ir_start, int *len_of_same_start, int start = -1, int end = -1)
+void WasmGetIrWithIdx(dbg_state* dbg, func_decl *func, int idx, ir_rep **ir_start, int *len_of_same_start, int start = -1, int end = -1)
 {
 
 	if (start == -1)
 		dbg->cur_st->start;
 	if (end == -1)
 		dbg->cur_st->end;
-	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &dbg->cur_func->ir;
+	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &func->ir;
 	ir_rep* ir = ir_ar->begin();
 	for (int i = 0; i < ir_ar->size(); i++)
 	{
@@ -2729,21 +2764,21 @@ void WasmGetIrWithIdx(dbg_state* dbg, int idx, ir_rep **ir_start, int *len_of_sa
 	*ir_start = nullptr;
 }
 
-std::string WasmPrintCodeGranular(dbg_state* dbg, int max = -1, bool center_cur = true)
+std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur_bc, int code_start, int code_end, int max = -1, bool center_cur = true)
 {
 	std::string ret = "";
 	int i = 0;
 	//int offset = dbg->
 
-	int start_bc = dbg->cur_st->start;
-	int end_bc = dbg->cur_st->end;
+	int start_bc = code_start;
+	int end_bc = code_end;
 
 	if (center_cur)
 	{
 		int window = 8;
 		int half_window = window / 2;
-		int cur_bc_idx = *dbg->cur_bc - dbg->bcs.begin();
-		start_bc = max(dbg->cur_st->start, cur_bc_idx - half_window);
+		int cur_bc_idx = cur_bc - dbg->bcs.begin();
+		start_bc = max(code_start, cur_bc_idx - half_window);
 		end_bc = min(cur_bc_idx + half_window, dbg->bcs.size());
 	}
 	wasm_bc* stat_begin = dbg->bcs.begin() + start_bc;
@@ -2764,7 +2799,7 @@ std::string WasmPrintCodeGranular(dbg_state* dbg, int max = -1, bool center_cur 
 		int bc_on_stat_abs_idx = bc_on_stat_rel_idx + start_bc;
 		ir_rep* ir = nullptr;
 		int len_ir = 0;
-		WasmGetIrWithIdx(dbg, bc_on_stat_abs_idx, &ir, &len_ir, start_bc, start_bc + max);
+		WasmGetIrWithIdx(dbg, fdecl, bc_on_stat_abs_idx, &ir, &len_ir, start_bc, start_bc + max);
 		std::string ir_str = "";
 		if (ir)
 		{
@@ -2781,10 +2816,10 @@ std::string WasmPrintCodeGranular(dbg_state* dbg, int max = -1, bool center_cur 
 				ir++;
 			}
 		}
-		std::string bc_str = WasmGetBCString(dbg, dbg->cur_func, cur, &dbg->bcs);
+		std::string bc_str = WasmGetBCString(dbg, fdecl, cur, &dbg->bcs);
 		std::string bc_rel_idx = WasmNumToString(dbg, i, 3);
 
-		if (cur == *dbg->cur_bc)
+		if (cur == cur_bc)
 			sprintf(buffer, ANSI_BG_WHITE ANSI_BLACK "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
 		else if (cur->dbg_brk)
 			sprintf(buffer, ANSI_RED "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
@@ -2941,7 +2976,7 @@ void WasmFromAstArrToStackVal(dbg_state* dbg, own_std::vector<ast_rep *> expr, t
 			int deref_times = a->deref.times;
 			while (deref_times > 0)
 			{
-				top->offset = WasmGetRegVal(dbg, top->offset);
+				top->offset = WasmGetMemOffsetVal(dbg, top->offset);
 				top->type.ptr--;
 				deref_times--;
 			}
@@ -3236,7 +3271,7 @@ void WasmPrintExpressions(dbg_state* dbg)
 
 void WasmPrintStackAndBcs(dbg_state* dbg, int max_bcs = -1)
 {
-	printf("%s\n", WasmPrintCodeGranular(dbg, max_bcs).c_str());
+	printf("%s\n", WasmPrintCodeGranular(dbg, dbg->cur_func, *dbg->cur_bc, dbg->cur_st->start, dbg->cur_st->end, max_bcs).c_str());
 	printf("%s\n", WasmGetStack(dbg).c_str());
 }
 
@@ -3260,7 +3295,128 @@ void WasmBreakOnNextStmnt(dbg_state* dbg, bool *args_break)
 		dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
 
 	*args_break = true;
+}
+void getConsoleLine(int line, int length) {
+    // Get the console output handle
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
+    // Get console screen buffer info
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hConsole, &csbi);
+
+    // Allocate space for the characters to read
+    CHAR_INFO* buffer = new CHAR_INFO[length];
+    COORD bufferSize = {length, 1};  // Width x Height
+    COORD bufferCoord = {0, 0};
+    SMALL_RECT readRegion = {0, line, static_cast<SHORT>(length - 1), line};
+
+    // Read the console output into the buffer
+    ReadConsoleOutput(hConsole, buffer, bufferSize, bufferCoord, &readRegion);
+
+    // Print out the characters
+    std::cout << "Line " << line << ": ";
+    for (int i = 0; i < length; ++i) {
+        std::cout << buffer[i].Char.AsciiChar;
+    }
+    std::cout << std::endl;
+
+    // Clean up
+    delete[] buffer;
+}
+void printInput(const std::string& input, size_t cursorPos) {
+	std::cout << "\033[2K\r" << input<<"\r";  // Clear the current line and print the input
+	if(cursorPos > 0)
+		std::cout << "\033[" << cursorPos<< "C";  // Move the cursor back
+
+}
+command_info* GetSuggestion(command_info *cur, std::string incomplete_str)
+{
+
+	FOR_VEC(cmd, cur->cmds)
+	{
+		if (cur->end)
+		{
+			return cur;
+		}
+		else
+		{
+			command_info* c = *cmd;
+
+			bool choose_command = false;
+			FOR_VEC(name, c->names)
+			{
+				std::string n = *name;
+				bool is_equal = true;
+				for (int j = 0; j < incomplete_str.size(); j++)
+				{
+					if (incomplete_str[j] != n[j])
+					{
+						is_equal = false;
+						break;
+					}
+				}
+				if (is_equal)
+					return c;
+			}
+		}
+	}
+	return nullptr;
+}
+void InsertSuggestion(dbg_state* dbg, std::string &input, int *cursor_pos)
+{
+	own_std::vector<std::string> args;
+
+	//std::string aux;
+	//split(input, ' ', args, &aux);
+	own_std::vector<token2> tkns;
+	Tokenize2((char *)input.c_str(), input.size(), &tkns);
+
+	command_info* cur = dbg->global_cmd;
+	command_info* last = nullptr;
+	// poping EOF
+	tkns.pop_back();
+	
+	FOR_VEC(t, tkns)
+	{
+		if (t->type == T_COMMA)
+			continue;
+
+		if (cur->end)
+		{
+			if ((t + 1)->type == T_COMMA)
+			{
+				cur = last;
+				continue;
+			}
+			if (cur->func)
+			{
+				command_info_args args;
+				args.incomplete_str = t->str;
+
+				ASSERT(cur->func);
+				std::string final_str = cur->func(dbg, &args);
+
+				input.erase(t->line_offset, t->str.size());
+				input.insert(t->line_offset, final_str);
+				*cursor_pos = t->line_offset + final_str.size();
+			}
+			continue;
+
+		}
+		command_info* c = GetSuggestion(cur, t->str);
+
+		if (c)
+		{
+			input.erase(t->line_offset, t->str.size());
+			std::string final_str = c->names[0];
+
+			input.insert(t->line_offset,  final_str);
+			*cursor_pos = t->line_offset + final_str.size();
+			last = cur;
+			cur = c;
+		}
+
+	}
 }
 void WasmOnArgs(dbg_state* dbg)
 {
@@ -3286,11 +3442,81 @@ void WasmOnArgs(dbg_state* dbg)
 		func_decl* func = dbg->cur_func;
 		stmnt_dbg* stmnt = dbg->cur_st;
 
-		char* cur_line = func->from_file->lines[stmnt->line - 1];
-		printf("%s\n", cur_line);
+
+		for (int i = stmnt->line - 2; i < (stmnt->line + 1); i++)
+		{
+			i = max(0, i);
+			i = min(func->from_file->lines.size(), i);
+			char* cur_line = func->from_file->lines[i];
+
+			if(i == (stmnt->line - 1))
+				printf(ANSI_BG_WHITE ANSI_BLACK "%s" ANSI_RESET, cur_line);
+			else
+				printf("%s", cur_line);
+			printf("\n", cur_line);
+		}
 
 		std::string input;
-		std::getline(std::cin, input);
+
+		// chatgt helped me here
+		unsigned char ch;
+		int cursorPos = 0;
+		bool done = false;
+
+		while (!done) {
+			ch = _getch(); // Get a single character
+
+			switch (ch) {
+			case '\r': // Enter key
+				cursorPos = 0;
+				done = true;
+			break;
+			case '\t': // Tab key
+				InsertSuggestion(dbg, input, &cursorPos);
+
+				printInput(input, cursorPos);
+			//displaySuggestions(input);
+			break;
+			case 27: // ESC key
+				done = true;
+			break;
+			case 0:  // Special keys (like arrow keys) start with 0x00
+			case 0xE0:  // For extended keys
+				ch = _getch(); // Get the actual special key code
+				if (ch == 75) { // Left arrow
+					if (cursorPos > 0) {
+						std::cout << "\033[" << 1 << "D";  // Move the cursor back
+						--cursorPos;
+					}
+				} else if (ch == 77) { // Right arrow
+					if (cursorPos < input.size()) {
+						++cursorPos;
+						std::cout << "\033[" << 1 << "C";  // Move the cursor back
+					}
+				} else if (ch == 83) { // DEL key
+					if (cursorPos < input.size()) {
+						input.erase(cursorPos, 1);
+						printInput(input, cursorPos);
+					}
+				}
+			break;
+			default:
+				if (ch == 8) { // Backspace key
+					if (cursorPos > 0) {
+						input.erase(cursorPos - 1, 1);
+						--cursorPos;
+						printInput(input, cursorPos);
+					}
+				} else {
+					input.insert(cursorPos, 1, ch);
+					++cursorPos;
+					printInput(input, cursorPos);
+				}
+			break;
+			}
+		}
+
+
 		//std::cin >> input;
 		own_std::vector<std::string> args;
 		/*
@@ -3300,27 +3526,69 @@ void WasmOnArgs(dbg_state* dbg)
 			printf("LANG:");
 			*/
 
+		own_std::vector<token2> tkns;
+		Tokenize2((char*)input.c_str(), input.size(), &tkns);
+
+		ASSERT(tkns[0].type == T_WORD);
+		if (tkns[0].str == "print")
+		{
+			int i = 1;
+			ASSERT(tkns[1].type == T_WORD);
+			if (tkns[i].str == "wasm")
+			{
+				i++;
+				bool can_break = false;
+
+				func_decl* fdecl = dbg->cur_func;
+				wasm_bc* cur_bc = *dbg->cur_bc;
+				stmnt_dbg* cur_st = dbg->cur_st;
+
+				int lines = -1;
+				if(tkns[i].type == T_INT)
+				{
+					lines = tkns[i].i;
+					can_break = true;
+				}
+				while (!can_break)
+				{
+					can_break = true;
+					if (tkns[i].str == "func")
+					{
+						i++;
+					
+						ASSERT(tkns[i].type == T_WORD);
+						fdecl = FuncAddedWasmInterp(dbg->lang_stat->winterp, tkns[i].str);
+						cur_st = fdecl->wasm_stmnts.begin();
+						cur_bc = dbg->bcs.begin() + cur_st->start;
+						i++;
+					}
+					else if (tkns[i].str == "lines")
+					{
+						i++;
+						ASSERT(tkns[i].type == T_INT);
+
+						lines = tkns[i].i;
+					}
+					
+					if (tkns[i].type == T_COMMA)
+					{
+						can_break = false;
+						i++;
+					}
+				}
+				
+				std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines);
+				printf("%s\n", ret.c_str());
+			}
+		}
 		std::string aux;
 		split(input, ' ', args, &aux);
 
-		if (args[0] == "p")
+		if (args[0] == "print")
 		{
 			if (args.size() == 1)
 				continue;
 
-			if (args[1] == "wasm")
-			{
-				int quantity = 1;
-				if (args.size() == 2)
-				{
-					quantity = max(1, dbg->cur_st->end - dbg->cur_st->start);
-				}
-				if (args.size() > 2)
-					quantity = atof(args[2].c_str());
-				std::string ret = WasmPrintCodeGranular(dbg, quantity);
-				printf("%s\n", ret.c_str());
-				printf("%s\n", WasmGetStack(dbg).c_str());
-			}
 			else if (args[1] == "locals")
 			{
 				printf("%s\n", WasmPrintVars(dbg).c_str());
@@ -4313,6 +4581,11 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				dbg.some_bc_modified = false;
 				continue;
 			}
+			if (bc->type == WASM_INST_DBG_BREAK)
+			{
+				bc++;
+				continue;
+			}
 			bc->one_time_dbg_brk = false;
 		}
 		switch (bc->type)
@@ -4575,6 +4848,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		{
 			printf(ANSI_RED "debug break hit\n" ANSI_RESET);
 			dbg.break_type = DBG_BREAK_ON_NEXT_BC;
+			continue;
+
 		}break;
 		case WASM_INST_I32_ADD:
 		{
@@ -4676,6 +4951,65 @@ std::string PrintScpPre(unsigned char* start, scope_dbg* s)
 	return ret;
 }
 
+std::string WasmCmdPrintWasmFuncAutoComplete(dbg_state* dbg, command_info_args *info)
+{
+	std::string ret = "";
+
+	own_std::vector<std::string> names_found;
+		
+	FOR_VEC(func, dbg->lang_stat->winterp->funcs)
+	{
+		std::string n = (*func)->name;
+		bool is_equal = true;
+		for (int j = 0; j < info->incomplete_str.size(); j++)
+		{
+			if (info->incomplete_str[j] != n[j])
+			{
+				is_equal = false;
+				break;
+			}
+		}
+		if (is_equal)
+		{
+			names_found.emplace_back(n);
+		}
+	}
+	if (names_found.size() == 1)
+		return names_found[0];
+
+	int shortest_str_idx = -1;
+	int shortest_str_count = 60000;
+
+	int second_shortest_str_idx = -1;
+	
+	int i = 0;
+	FOR_VEC(str, names_found)
+	{
+		if (str->size() <= shortest_str_count)
+		{
+			second_shortest_str_idx = shortest_str_idx;
+			shortest_str_idx = i;
+			shortest_str_count = str->size();
+		}
+		i++;
+	}
+
+	std::string shortest_str = names_found[shortest_str_idx];
+	std::string second_shortest_str = names_found[second_shortest_str_idx];
+
+	int j = 0;
+	for (; j < shortest_str.size(); j++)
+	{
+		if (shortest_str[j] != second_shortest_str[j])
+		{
+			break;
+		}
+	}
+
+	ret = second_shortest_str.substr(0, j);
+
+	return ret;
+}
 void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len, lang_state* lang_stat)
 {
 
@@ -4755,6 +5089,38 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	dbg_state& dbg = *winterp->dbg;
 	//dbg.mem_size = size;
 	dbg.lang_stat = lang_stat;
+
+	auto global_cmds = (command_info *)AllocMiscData(lang_stat, sizeof(command_info));
+	dbg.global_cmd = global_cmds;
+
+	auto print_command = (command_info *)AllocMiscData(lang_stat, sizeof(command_info));
+	print_command->names.emplace_back("print");
+	print_command->names.emplace_back("p");
+
+	auto wasm_sub_cmd = (command_info *)AllocMiscData(lang_stat, sizeof(command_info));
+	wasm_sub_cmd->names.emplace_back("wasm");
+
+	auto wasm_sub_cmd_func = (command_info *)AllocMiscData(lang_stat, sizeof(command_info));
+	wasm_sub_cmd_func->func = WasmCmdPrintWasmFuncAutoComplete;
+	wasm_sub_cmd_func->end = true;
+	wasm_sub_cmd_func->names.emplace_back("func");
+
+	auto wasm_sub_cmd_lines = (command_info *)AllocMiscData(lang_stat, sizeof(command_info));
+	wasm_sub_cmd_lines->end = true;
+	wasm_sub_cmd_lines->names.emplace_back("lines");
+
+	wasm_sub_cmd->cmds.emplace_back(wasm_sub_cmd_func);
+	wasm_sub_cmd->cmds.emplace_back(wasm_sub_cmd_lines);
+
+	print_command->cmds.emplace_back(wasm_sub_cmd);
+
+
+	global_cmds->cmds.emplace_back(print_command);
+
+
+	//print_command_func->names.emplace_back("func");
+
+
 	//dbg.wasm_state = wasm_state;
 
 	own_std::vector<wasm_bc>& bcs = dbg.bcs;

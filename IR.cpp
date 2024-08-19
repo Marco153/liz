@@ -383,6 +383,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
         for(int i = node_stack.size() - 1; i >= 0; i--)
         {
 			node* s = *(node_stack.begin() + i);
+			if (!s->r)
+				continue;
 			ast_rep* rhs = AstFromNode(lang_stat, s->r, scp);
 
 			if (rhs->type == AST_STATS)
@@ -788,6 +790,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.only_lhs = true;
 
 					ir.assign.lhs = *top;
+					ir.assign.lhs.ptr = 0;
 					out->emplace_back(ir);
 				}
 			}
@@ -993,7 +996,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		case AST_IDENT:
 		{
 			GetIRVal(lang_stat, e, &val);
-			val.ptr = 0;
+			//val.ptr = 0;
 			stack.emplace_back(val);
 
 		}break;
@@ -1020,16 +1023,22 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.rhs = *cur;
 					ir.assign.rhs.is_unsigned = ir.assign.lhs.is_unsigned;
 
-					if (i == (e->points.size() - 1) && !e->point_get_last_val)
+					if (i == (e->points.size() - 1))
 					{
-						ir.assign.rhs.ptr = -1;
+						if (e->point_get_last_val)
+							ir.assign.rhs.ptr = 1;
+						else
+							ir.assign.rhs.ptr = -1;
 					}
 		
 					out->emplace_back(ir);
 					ir.assign.lhs = ir.assign.to_assign;
 					stack.pop_back();
 				}
-				stack.emplace_back(ir.assign.to_assign);
+				val = ir.assign.to_assign;
+				if (e->point_get_last_val)
+					val.ptr = 1;
+				stack.emplace_back(val);
 			}
 			else
 			{

@@ -702,6 +702,13 @@ void node_iter::CreateCondAndScope(node** n)
 	{
 		(*n)->r = parse_(PREC_SEMI_COLON, parser_cond::LESSER_EQUAL);
 		(*n)->r->flags = 0;
+		if ((*n)->r->type != N_STMNT)
+		{
+			node* new_nd = new_node(lang_stat, (*n)->t);
+			new_nd->l = (*n)->r;
+			new_nd->type = N_STMNT;
+			(*n)->r = new_nd;
+		}
 		ExpectTkn(T_SEMI_COLON);
 		//ASSERT(get_tkn()->type == tkn_type2::T_SEMI_COLON)
 		get_tkn();

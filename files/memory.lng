@@ -53,6 +53,11 @@ heap_insert_unallocated :: fn(alloc : *mem_alloc, a : *mem_chunk)
 		i++;
 	}
 }
+ASSERT::fn macro(exp : _expr)
+{
+	if !(exp)
+		__dbg_break;
+}
 ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 {
 	cast(*type)(cast(u64)ptr + (offset) * sizeof(type))
@@ -65,12 +70,13 @@ is_flag_on::fn macro(val : _expr, flag : _expr)
 {
 	((val & flag) != 0)
 }
-_own_memset :: fn(dst : *u8, val : u8, sz : u64) ! void
+_own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 {
 	i :u64= 0;
 	while i < sz
 	{
 		*ptr_offset(dst, i, u8) = val;
+		i++;
 	}
 }
 memset :: fn(dst : *u8, val : u8, sz : u64) ! void
@@ -265,7 +271,7 @@ heap_free::fn(alloc : *mem_alloc, ptr : *u8)
 			cur = cur.next;
 		}
 
-		//ASSERT(cur && cur.next.addr >= chunk_to_free.addr);
+		ASSERT(cur != nil && cur.next.addr >= chunk_to_free.addr);
 		
 		//TODO: create a var put these two vals in each bit, and create a swich statetement so that we 
 		// wont need if and elses
@@ -334,16 +340,17 @@ heap_free::fn(alloc : *mem_alloc, ptr : *u8)
 	//memset(chunk_to_free.addr, 'x', chunk_to_free.size * BYTES_PER_CHUNK);
 
 }
-heap_alloc::fn(alloc : *mem_alloc, size : u32)
+heap_alloc::fn(alloc : *mem_alloc, size : u32) !*void
 {
 	//return (char *)malloc(size);
     cur:*mem_chunk= alloc.head_free;
 
+	__dbg_break;
     while cur != nil && (cur.size * BYTES_PER_CHUNK) < size
     {
         cur = cur.next;
     }
-    //ASSERT(cur && (cur.size * BYTES_PER_CHUNK) >= size);
+    ASSERT(cur != nil && (cur.size * BYTES_PER_CHUNK) >= size);
 
 	got_all_bytes_from_chunk:bool= ((cur.size * BYTES_PER_CHUNK) - size) == 0;
 	
@@ -368,7 +375,7 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32)
 	{
 		// fragmenting the original chunk
 		other_chunk:*mem_chunk= GetUnallocatedChunk(alloc);
-		//ASSERT(other_chunk != cur)
+		ASSERT(other_chunk != cur);
 		
 
 		align_to_bytes_per_chunk:= (min_alloc_size % BYTES_PER_CHUNK);
@@ -403,7 +410,7 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32)
 	HHashStore(&alloc.in_use, cur.addr, cast(*u8)cur);
 	cur.size = min_alloc_size / BYTES_PER_CHUNK;
 
-	//ASSERT(cur.next != cur);
+	ASSERT(cur.next != cur);
 	//if (out)
 		//*out = cur;
     return cur.addr;
@@ -438,8 +445,10 @@ main :: fn()
 {
 	alloc :mem_alloc;
 	InitMemAlloc(&alloc);
+	addr := heap_alloc(&alloc, 12);
 	Print(&alloc);
 }
+
 test_call2::fn(alloc : *mem_alloc)
 {
 	*ptr_offset(alloc.buffer, 3, u8) = 4;
@@ -452,6 +461,10 @@ test_call1::fn(alloc : *mem_alloc)
 test_ref::fn(alloc : *mem_alloc)
 {
 	*ptr_offset(alloc.buffer, 2, u8) = 2;
+}
+test_init ::fn(alloc : *mem_alloc)
+{
+	alloc.buffer = cast(*u8)GetMem(8);
 }
 tests :: fn()
 {
@@ -484,5 +497,47 @@ tests :: fn()
 
 	if *ptr_offset(alloc.buffer, 2, u8) != 3 || *ptr_offset(alloc.buffer, 3, u8) != 4
 		__dbg_break;
+
+	alloc.buffer = nil;
+
+	if alloc.buffer != nil
+		__dbg_break;
+
+	test_init(&alloc);
+
+	if alloc.buffer == nil
+		__dbg_break;
+
+	flags :u64= 0;
+	flags = flags | 1;
+
+	if flags != 1
+		__dbg_break;
+
+	flags = flags & ~1;
+	
+	if flags != 0
+		__dbg_break;
+
+	flags = 2;
+	flags = flags | 1;
+
+	if flags != 3
+		__dbg_break;
+
+	flags = flags & ~2;
+	if flags != 1
+		__dbg_break;
+
+	i = 6;
+	i = i % 7;
+
+	if i != 6
+		__dbg_break;
+
+	__dbg_break;
+	if (i + 1 % 7) != 0
+		__dbg_break;
+
 
 }

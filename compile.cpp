@@ -2337,6 +2337,7 @@ enum dbg_break_type
 {
 	DBG_NO_BREAK,   
 	DBG_BREAK_ON_DIFF_STAT,
+	DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC,
 	DBG_BREAK_ON_NEXT_STAT,
 	DBG_BREAK_ON_NEXT_BC,
 	DBG_BREAK_ON_NEXT_IR   
@@ -2385,6 +2386,7 @@ struct dbg_state
 	char* mem_buffer;
 	int mem_size;
 	func_decl* cur_func;
+	func_decl* next_stat_break_func;
 	stmnt_dbg* cur_st;
 	own_std::vector<func_decl*> func_stack;
 	own_std::vector<block_linked *> block_stack;
@@ -2450,6 +2452,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	case WASM_INST_I32_NE:
 	{
 		ret += "i32.ne";
+	}break;
+	case WASM_INST_I32_LT_S:
+	{
+		ret += "i32.lt_s";
 	}break;
 	case WASM_INST_I32_GE_U:
 	{
@@ -2522,6 +2528,22 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	case WASM_INST_BREAK:
 	{
 		ret += "br " + WasmNumToString(dbg, bc->i);
+	}break;
+	case WASM_INST_I32_OR:
+	{
+		ret += "i32.or";
+	}break;
+	case WASM_INST_I32_REMAINDER_U:
+	{
+		ret += "i32.rem_u";
+	}break;
+	case WASM_INST_I32_REMAINDER_S:
+	{
+		ret += "i32.rem_s";
+	}break;
+	case WASM_INST_I32_AND:
+	{
+		ret += "i32.and";
 	}break;
 	case WASM_INST_I32_MUL:
 	{
@@ -2682,6 +2704,14 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	case IR_CMP_GE:
 	{
 		ret = WasmGetBinIR(dbg, ir) + "\n";
+	}break;
+	case IR_BEGIN_SUB_IF_BLOCK:
+	{
+		ret = "begin sub if loop\n";
+	}break;
+	case IR_END_SUB_IF_BLOCK:
+	{
+		ret = "end sub if loop\n";
 	}break;
 	case IR_END_LOOP_BLOCK:
 	{
@@ -3289,10 +3319,9 @@ void WasmBreakOnNextStmnt(dbg_state* dbg, bool *args_break)
 	{
 		wasm_bc* next_bc = dbg->bcs.begin() + next->start;
 		next_bc->one_time_dbg_brk = true;
-		dbg->break_type = DBG_BREAK_ON_NEXT_STAT;
+		dbg->next_stat_break_func = dbg->cur_func;
+		dbg->break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
 	}
-	else
-		dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
 
 	*args_break = true;
 }
@@ -4087,6 +4116,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_S32:
 		case TYPE_U32:
 		case TYPE_S64:
+		case TYPE_VOID:
 		case TYPE_U64:
 		case TYPE_FUNC_TYPE:
 		
@@ -4389,6 +4419,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_S32:
 		case TYPE_U32:
 		case TYPE_S64:
+		case TYPE_VOID:
 		case TYPE_U64:
 			break;
 		default:
@@ -4567,9 +4598,11 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
-		bool is_different_stmnt = cur_st && dbg.cur_st && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
+		bool found_stat = cur_st && dbg.cur_st;
+		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
+		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
 
-		if ( dbg.break_type == DBG_BREAK_ON_NEXT_BC || is_different_stmnt || bc->dbg_brk || bc->one_time_dbg_brk)
+		if ( dbg.break_type == DBG_BREAK_ON_NEXT_BC || is_different_stmnt || is_different_stmnt_same_func || bc->dbg_brk || bc->one_time_dbg_brk)
 		{
 			if (!cur_st)
 				cur_st = &dbg.cur_func->wasm_stmnts[0];
@@ -4725,6 +4758,26 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			penultimate->u32 = (int)(penultimate->u32 != top.u32);
 			int a = 0;
 		}break;
+		case WASM_INST_I32_LT_S:
+		{
+			auto top = wasm_stack.back();
+			wasm_stack.pop_back();
+			auto penultimate = &wasm_stack.back();
+			// assert is 32bit
+			ASSERT(top.type == 0 && penultimate->type == 0);
+			penultimate->u32 = (int)(penultimate->s32 < top.s32);
+			int a = 0;
+		}break;
+		case WASM_INST_I32_GE_S:
+		{
+			auto top = wasm_stack.back();
+			wasm_stack.pop_back();
+			auto penultimate = &wasm_stack.back();
+			// assert is 32bit
+			ASSERT(top.type == 0 && penultimate->type == 0);
+			penultimate->u32 = (int)(penultimate->s32 >= top.s32);
+			int a = 0;
+		}break;
 		case WASM_INST_I32_LT_U:
 		{
 			auto top = wasm_stack.back();
@@ -4733,6 +4786,26 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			// assert is 32bit
 			ASSERT(top.type == 0 && penultimate->type == 0);
 			penultimate->u32 = (int)(penultimate->u32 < top.u32);
+			int a = 0;
+		}break;
+		case WASM_INST_I32_REMAINDER_S:
+		{
+			auto top = wasm_stack.back();
+			wasm_stack.pop_back();
+			auto penultimate = &wasm_stack.back();
+			// assert is 32bit
+			ASSERT(top.type == 0 && penultimate->type == 0);
+			penultimate->u32 = (penultimate->s32 % top.s32);
+			int a = 0;
+		}break;
+		case WASM_INST_I32_REMAINDER_U:
+		{
+			auto top = wasm_stack.back();
+			wasm_stack.pop_back();
+			auto penultimate = &wasm_stack.back();
+			// assert is 32bit
+			ASSERT(top.type == 0 && penultimate->type == 0);
+			penultimate->u32 = (penultimate->u32 % top.u32);
 			int a = 0;
 		}break;
 		case WASM_INST_I32_DIV_U:
@@ -6465,7 +6538,7 @@ struct compile_options
 	std::string wasm_dir;
 };
 
-void RunDbgFile(lang_state* lang_stat, std::string file_name, std::string func, long long* args, int total_args)
+void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 {
 	int read;
 	web_assembly_state *wasm_state = lang_stat->wasm_state;
@@ -6479,12 +6552,16 @@ void RunDbgFile(lang_state* lang_stat, std::string file_name, std::string func, 
 
 	WasmInterpInit(&winterp, file, read, lang_stat);
 
+}
+void RunDbgFile(lang_state* lang_stat, std::string func, long long* args, int total_args)
+{
+
 
 	int mem_size = 128000;
 	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size);
 	*(int*)&buffer[MEM_PTR_CUR_ADDR] = 20000;
 	*(int*)&buffer[MEM_PTR_MAX_ADDR] = 20000;
-	WasmInterpRun(&winterp, buffer, mem_size, func.c_str(), args, total_args);
+	WasmInterpRun(lang_stat->winterp, buffer, mem_size, func.c_str(), args, total_args);
 	__lang_globals.free(__lang_globals.data, buffer);
 
 }

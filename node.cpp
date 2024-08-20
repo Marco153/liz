@@ -720,6 +720,13 @@ void node_iter::CreateCondAndScope(node** n)
 		int last_scope_size = cur_scope_count;
 		cur_scope_count = 0;
 		(*n)->r = parse_expr();
+		if ((*n)->r->r->type != N_STMNT)
+		{
+			node* new_nd = new_node(lang_stat, (*n)->t);
+			new_nd->l = (*n)->r->r;
+			new_nd->type = N_STMNT;
+			(*n)->r->r = new_nd;
+		}
 		cur_scope_count = last_scope_size;
 
 		(*n)->flags = (*n)->r->flags;
@@ -3648,7 +3655,7 @@ void ReportTypeMismatch(lang_state *lang_stat, token2* tkn, type2* lhs, type2* r
 void BuildMacroTree(lang_state *lang_stat, scope* scp, node* n, unsigned int start_line)
 {
 	if (n->t)
-		n->t->line += start_line;
+		n->t->line = start_line;
 	switch (n->type)
 	{
 	case N_IDENTIFIER:

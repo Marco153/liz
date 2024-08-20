@@ -834,6 +834,10 @@ std::string OperatorToString(tkn_type2 type)
 		{
 			return std::string("!");
 		}break;
+		case tkn_type2::T_PERCENT:
+		{
+			return std::string("%");
+		}break;
 		case tkn_type2::T_COLON:
 		{
 			return std::string(":");
@@ -921,6 +925,10 @@ std::string OperatorToString(tkn_type2 type)
 		case tkn_type2::T_GREATER_EQ:
 		{
 			return std::string(">=");
+		}break;
+		case tkn_type2::T_DIV:
+		{
+			return std::string("*");
 		}break;
 		case tkn_type2::T_MUL:
 		{

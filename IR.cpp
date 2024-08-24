@@ -184,7 +184,9 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				}
 				new_ar->emplace_back(aux);
 			}
-			ret->points = *new_ar;
+			// THIS CAUSES A LEAK
+			memcpy(&ret->points, new_ar, sizeof(*new_ar));
+			//ret->points = *new_ar;
 
 		}break;
 		case T_OR:
@@ -193,6 +195,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		case T_COMMA:
 		case T_MUL:
 		case T_COND_NE:
+		case T_LESSER_EQ:
 		case T_PLUS_EQUAL:
 		case T_COND_EQ:
 		case T_AMPERSAND:
@@ -520,6 +523,8 @@ ir_type FromTokenOpToIRType(tkn_type2 op)
 		return IR_CMP_EQ;
 	case T_GREATER_EQ:
 		return IR_CMP_GE;
+	case T_GREATER_THAN:
+		return IR_CMP_GT;
 	case T_LESSER_THAN:
 		return IR_CMP_LT;
 	case T_LESSER_EQ:
@@ -586,12 +591,22 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 	case IR_CMP_LE:
 	case IR_CMP_EQ:
 	case IR_CMP_GE:
+	case IR_CMP_GT:
 	{
 		ir.bin.it_is_jmp_if_true = (bool)data;
 	}break;
 	default:
 		ASSERT(0);
 	}
+
+	// sometimes the ptr can be -1, meaning it wasm the rhs of a point
+	// -1 would tell to not defer the var yet
+	if(ir.bin.lhs.type == IR_TYPE_DECL || ir.bin.lhs.ptr != 0)
+		ir.bin.lhs.ptr = 1;
+
+	if(ir.bin.rhs.type == IR_TYPE_DECL || ir.bin.rhs.ptr != 0)
+		ir.bin.rhs.ptr = 1;
+
 	out->emplace_back(ir);
 
 
@@ -616,12 +631,13 @@ void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 		ir.type = IR_CMP_EQ;
 		ir.bin.op = T_COND_EQ;
 		ir.bin.lhs.type = IR_TYPE_REG;
-		ir.bin.lhs.reg  = 0;
+		ir.bin.lhs.reg  = AllocReg(lang_stat);
 		ir.bin.lhs.reg_sz  = 4;
 		ir.bin.rhs.type = IR_TYPE_INT;
 		ir.bin.rhs.i = 0;
 		GenStackThenIR(lang_stat, ast, out, &ir.bin.lhs);
 		ir.bin.rhs.is_unsigned = ir.bin.lhs.is_unsigned;;
+		ir.bin.lhs.ptr = 1;
 		out->emplace_back(ir);
 
 
@@ -756,7 +772,7 @@ bool IsIrValFloat(ir_val* val)
 	return val->type == IR_TYPE_DECL && val->decl->type.type == TYPE_F32 || val->is_float || val->type == IR_TYPE_F32;
 }
 
-void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own_std::vector<ir_rep> *out)
+void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own_std::vector<ir_rep> *out, ir_val *top_info)
 {
 	own_std::vector<ir_val> stack;
 	stack.reserve(4);
@@ -793,8 +809,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.only_lhs = true;
 
 					ir.assign.lhs = *top;
-					if(ir.assign.lhs.ptr > 0)
-						ir.assign.lhs.ptr = 0;
+					if(ir.assign.lhs.ptr == -1)
+					else
+						ir.assign.lhs.ptr = 1;
 					out->emplace_back(ir);
 				}
 			}
@@ -838,20 +855,26 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		case AST_ADDRESS_OF:
 		{
 			ir_val* top = &stack[stack.size() - 1];
-			//ASSERT(top->ptr > 0);
-			//if (e->deref.times == 0) break;
 			top->ptr = -1;
 
-			ir.type = IR_ASSIGNMENT;
+			//ASSERT(top->type == IR_TYPE_DECL);
+			//ASSERT(top->ptr > 0);
+			//if (e->deref.times == 0) break;
+			//top->ptr = -1;
 
-			ir.assign.to_assign.type = IR_TYPE_REG;
-			ir.assign.to_assign.reg_sz = 4;
-			ir.assign.to_assign.reg = AllocReg(lang_stat);
-			ir.assign.only_lhs = true;
-			ir.assign.lhs = *top;
-			ir.assign.lhs.ptr = -1;
-			//ir.assign.lhs.ptr = e->deref.times;
-			out->emplace_back(ir);
+			if (top->type != IR_TYPE_REG)
+			{
+				ir.type = IR_ASSIGNMENT;
+
+				ir.assign.to_assign.type = IR_TYPE_REG;
+				ir.assign.to_assign.reg_sz = 4;
+				ir.assign.to_assign.reg = AllocReg(lang_stat);
+				ir.assign.only_lhs = true;
+				ir.assign.lhs = *top;
+				ir.assign.lhs.ptr = 0;
+				//ir.assign.lhs.ptr = e->deref.times;
+				out->emplace_back(ir);
+			}
 
 		}break;
 		case AST_STRUCT_COSTRUCTION:
@@ -883,23 +906,37 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		case AST_DEREF:
 		{
 			ir_val* top = &stack[stack.size() - 1];
-			//ASSERT(top->ptr > 0);
-			if (e->deref.times == 0) break;
 
-			ir.type = IR_ASSIGNMENT;
-			ir.assign.to_assign.type = IR_TYPE_REG;
-			if (top->type == IR_TYPE_REG)
+			//top->ptr++;
+			//break;
+			//top->ptr--;
+
+			
+			if ((top->ptr - 1) > 0)
 			{
-				ir.assign.to_assign = *top;
-			}
-			else
-				ir.assign.to_assign.reg = AllocReg(lang_stat);
+				ir.type = IR_ASSIGNMENT;
+				ir.assign.to_assign.type = IR_TYPE_REG;
+				if (top->type == IR_TYPE_REG)
+				{
+					ir.assign.to_assign = *top;
+				}
+				else
+					ir.assign.to_assign.reg = AllocReg(lang_stat);
 
-			ir.assign.only_lhs = true;
-			ir.assign.lhs = *top;
-			ir.assign.to_assign.reg_sz = top->reg_sz;
-			ir.assign.lhs.ptr = e->deref.times;
-			out->emplace_back(ir);
+				ir.assign.only_lhs = true;
+				ir.assign.lhs = *top;
+				ir.assign.to_assign.reg_sz = top->reg_sz;
+				ir.assign.to_assign.ptr = 0;
+				ir.assign.lhs.ptr = top->ptr - e->deref.times;
+				out->emplace_back(ir);
+				top->ptr = top->ptr - e->deref.times;
+				break;
+			}
+
+
+			//top->type = IR_TYPE_REG;
+			//top->reg = ir.assign.to_assign.reg;
+			//top->reg_sz = ir.assign.to_assign.reg_sz;
 
 		}break;
 		case AST_OPPOSITE:
@@ -911,8 +948,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
             int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
 
 			ir = {};
-			ir.type = IR_CMP_EQ;
-			ir.bin.op = T_COND_EQ;
+			ir.type = IR_CMP_NE;
+			ir.bin.op = T_COND_NE;
 			ir.bin.lhs = *top;
 			ir.bin.rhs.type = IR_TYPE_INT;
 			ir.bin.rhs.i = 0;
@@ -939,8 +976,12 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			out->emplace_back(ir);
 
 
+			ir.type = IR_BREAK_OUT_IF_BLOCK;
+			out->emplace_back(ir);
+
             IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
 
+            sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
 			ir = {};
 			ir.type = IR_ASSIGNMENT;
 			ir.assign.to_assign.type = IR_TYPE_REG;
@@ -951,7 +992,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir.assign.lhs.type = IR_TYPE_INT;
 			ir.assign.lhs.i = 0;
 			out->emplace_back(ir);
+            IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
             IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
+			*top = ir.assign.to_assign;
 
 		}break;
 		case AST_NEGATE:
@@ -992,9 +1035,24 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		case AST_CAST:
 		{
 			ir_val* top = &stack[stack.size() - 1];
-			top->ptr = top->ptr;
+
+			if (top->ptr != 0)
+			{
+				ir.type = IR_ASSIGNMENT;
+				ir.assign.to_assign.type = IR_TYPE_REG;
+				ir.assign.to_assign.reg_sz = 4;
+				ir.assign.to_assign.ptr = 0;
+				ir.assign.to_assign.reg = AllocReg(lang_stat);
+
+				ir.assign.only_lhs = true;
+				ir.assign.lhs = *top;
+				ir.assign.lhs.ptr = 1;
+				out->emplace_back(ir);
+			}
+			top->ptr = e->cast.type.ptr * (top->ptr < 0 ? -1 : 1);
+
 			top->reg_sz = GetTypeSize(&e->cast.type);
-			//top->reg_sz = e->cast.type;
+
 		}break;
 		case AST_INT:
 		case AST_FLOAT:
@@ -1010,6 +1068,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ASSERT(stack.size() >= 2);
 			if (e->op == T_POINT)
 			{
+				ast_rep* next = exps[min(j + 1, exps.size() - 1)];
+
+
 				ir_val* first = (stack.end()) - e->points.size();
 				ir.type = IR_ASSIGNMENT;
 				ir.assign.to_assign.type = IR_TYPE_REG;
@@ -1017,6 +1078,10 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.to_assign.reg = AllocReg(lang_stat);
 				ir.assign.op = e->op;
 
+				if (first->ptr > 0 && first->type == IR_TYPE_REG)
+				{
+				//	first->ptr--;
+				}
 				ir.assign.only_lhs = false;
 				ir.assign.lhs = *first;
 
@@ -1028,21 +1093,19 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.rhs = *cur;
 					ir.assign.rhs.is_unsigned = ir.assign.lhs.is_unsigned;
 
-					if (i == (e->points.size() - 1))
-					{
-						if (e->point_get_last_val)
-							ir.assign.rhs.ptr = 1;
-						else
-							ir.assign.rhs.ptr = -1;
-					}
-		
+					//if(i == (e->points.size() - 1))
+					ir.assign.rhs.ptr = -1;
+
 					out->emplace_back(ir);
 					ir.assign.lhs = ir.assign.to_assign;
+
+					if(i != (e->points.size() - 1))
+						ir.assign.lhs.ptr = 0;
+
 					stack.pop_back();
 				}
 				val = ir.assign.to_assign;
-				if (e->point_get_last_val)
-					val.ptr = 1;
+				val.ptr = ir.assign.rhs.ptr;
 				stack.emplace_back(val);
 			}
 			else
@@ -1065,6 +1128,12 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				if (top->type == IR_TYPE_REG)
 					FreeReg(lang_stat, top->reg);
 
+
+				if (ir.assign.lhs.type == IR_TYPE_DECL || ir.assign.lhs.ptr == -1)
+					ir.assign.lhs.ptr = 1;
+				if (ir.assign.rhs.type == IR_TYPE_DECL || ir.assign.rhs.ptr == -1)
+					ir.assign.rhs.ptr = 1;
+
 				// reusing the reg
 				if (one_minus_top->type == IR_TYPE_REG)
 				{
@@ -1080,6 +1149,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				top = &stack[stack.size() - 1];
 				top->type = IR_TYPE_REG;
 				top->reg = ir.assign.to_assign.reg;
+				top->ptr = 0;
 				out->emplace_back(ir);
 			}
 
@@ -1089,6 +1159,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		default:
 			ASSERT(0);
 		}
+		*top_info = stack.back();
 	}
 }
 
@@ -1131,27 +1202,30 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 
 	ir_rep ir;
 	int begin_complex_idx = out->size();
-	GinIRFromStack(lang_stat, exps, out);
+	ir_val top_info;
+	GinIRFromStack(lang_stat, exps, out, &top_info);
 
-	// get last assignment and moving it to dst complex
-	for (int i = out->size() - 1; i >= begin_complex_idx; i--)
+	if (!dst_val)
+		return;;
+
+	bool diff_type = top_info.type != dst_val->type;
+	if (!diff_type && top_info.reg != dst_val->reg || diff_type)
 	{
-		ir_rep* cur = &(*out)[i];
-		if (cur->type == IR_ASSIGNMENT)
-		{
-			if (cur->assign.to_assign.reg != dst_val->reg)
-			{
-				ir.type = IR_ASSIGNMENT;
-				ir.assign.to_assign = *dst_val;
-				ir.assign.to_assign.is_float = cur->assign.lhs.is_float;
-				ir.assign.to_assign.reg = dst_val->reg;
-				ir.assign.only_lhs = true;
-				ir.assign.lhs = cur->assign.to_assign;
-				dst_val->is_float = ir.assign.to_assign.is_float;
-				out->emplace_back(ir);
-			}
-			break;
-		}
+		ir.type = IR_ASSIGNMENT;
+		ir.assign.to_assign = *dst_val;
+		ir.assign.to_assign.is_float = top_info.is_float;
+		ir.assign.to_assign.reg = dst_val->reg;
+
+		if(top_info.ptr < 0)
+			ir.assign.to_assign.ptr = top_info.ptr;
+		else
+			ir.assign.to_assign.ptr = 0;
+		ir.assign.only_lhs = true;
+		ir.assign.lhs = top_info;
+		ir.assign.lhs.ptr = 0;
+		dst_val->is_float = top_info.is_float;
+		dst_val->ptr = top_info.ptr;
+		out->emplace_back(ir);
 	}
 	//ir.type = IR_END_COMPLEX;
 	//out->emplace_back(ir);
@@ -1280,6 +1354,10 @@ int GetAstTypeSize(lang_state* lang_stat, ast_rep* ast)
 {
 	switch (ast->type)
 	{
+	case AST_ADDRESS_OF:
+	{
+		return 8;
+	}break;
 	case AST_INT:
 	{
 		return 4;
@@ -1411,121 +1489,53 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 	}break;
     case AST_CALL:
 	{
-		GenStackThenIR(lang_stat, ast, out, &ir.assign.lhs);
+		GenStackThenIR(lang_stat, ast, out, nullptr);
 		return;
-		short arg_regs[MAX_ARGS];
-		memcpy(arg_regs, lang_stat->arg_regs, sizeof(lang_stat->arg_regs));
-
-		int spilled = AllocArgsRegsReturnSpilled(lang_stat, ast->call.fdecl, out) * 8;
-		int cur_max_spilled = lang_stat->cur_func->max_spilled_bytes;
-
-		lang_stat->cur_spilled_offset += spilled;
-
-		lang_stat->cur_func->max_spilled_bytes = max(cur_max_spilled, cur_max_spilled + spilled);
-		lang_stat->cur_func->spilled_offset = lang_stat->cur_spilled_offset;
-
-
-
-		ir.type = IR_BEGIN_CALL;
-		ir.call.fdecl = ast->call.fdecl;
-		out->emplace_back(ir);
-		int cur_biggest = ast->call.in_func->biggest_call_args;
-		ast->call.in_func->biggest_call_args = max(cur_biggest, ast->call.fdecl->args.size());
-
-		int cur_arg = 0;
-		FOR_VEC(arg, ast->call.args)
-		{
-			ast_rep* a = *arg;
-			ir = {};
-			ir.type = IR_ASSIGNMENT;
-			ir.assign.to_assign.type = IR_TYPE_ARG_REG;
-			ir.assign.to_assign.reg = cur_arg;
-			ir.assign.to_assign.reg_sz = 8;
-			ir.assign.only_lhs = true;
-
-			if (a->type == AST_CAST)
-				a = a->cast.casted;
-			ir.assign.lhs.type = IR_TYPE_REG;
-			ir.assign.lhs.reg = 0;
-			ir.assign.lhs.reg_sz = 4;
-
-			GenStackThenIR(lang_stat, a, out, &ir.assign.lhs);
-			/*
-			if (IsAstSimple(lang_stat, a))
-			{
-				GetIRVal(lang_stat, a, &ir.assign.lhs);
-			}
-			else if (a->type == AST_ADDRESS_OF)
-			{
-				ir.assign.op = T_AMPERSAND;
-				if (IsAstSimple(lang_stat, a->ast))
-				{
-					GetIRVal(lang_stat, a->ast, &ir.assign.lhs);
-				}
-				else if (a->ast->type == AST_STRUCT_COSTRUCTION)
-				{
-					DoStructConstruction(lang_stat, a->ast, IR_TYPE_ARG_REG, (void *)(long long)cur_arg, out);
-				}
-				else
-					ASSERT(0);
-			}
-			else
-				ASSERT(0);
-				*/
-			out->emplace_back(ir);
-			cur_arg++;
-		}
-		ir.type = IR_END_CALL;
-		ir.call.fdecl = ast->call.fdecl;
-		out->emplace_back(ir);
-
-		FreeArgsRegs(lang_stat, ast->call.fdecl, out);
-
-		lang_stat->cur_spilled_offset -= spilled;
-
-		memcpy(lang_stat->arg_regs, arg_regs, sizeof(lang_stat->arg_regs));
 	}break;
     case AST_RET:
 	{
-		ir.type = IR_ASSIGNMENT;
+		ir.type = IR_RET;
 		ast_rep *rhs_ast = ast->ast;
+		ir.ret.no_ret_val = false;
 		if (!rhs_ast)
+		{
+			ir.ret.no_ret_val = true;
+			out->emplace_back(ir);
 			return;
-		ir.assign.to_assign.type = IR_TYPE_RET_REG;
-		ir.assign.to_assign.reg = RET_1_REG;
-		ir.assign.to_assign.reg_sz = 4;
+		}
+		ir.ret.assign.to_assign.type = IR_TYPE_RET_REG;
+		ir.ret.assign.to_assign.reg = RET_1_REG;
+		ir.ret.assign.to_assign.reg_sz = 4;
 
 		switch (rhs_ast->type)
 		{
 		case AST_CALL:
 		{
-			GenStackThenIR(lang_stat, rhs_ast, out, &ir.assign.to_assign);
+			GenStackThenIR(lang_stat, rhs_ast, out, &ir.ret.assign.to_assign);
 		}break;
 		case AST_BINOP:
 		{
-			ir.assign.only_lhs = true;
-			ir.assign.lhs.type = IR_TYPE_REG;
-			ir.assign.lhs.reg = AllocReg(lang_stat);
-			ir.assign.lhs.reg_sz = 4;
+			ir.ret.assign.only_lhs = true;
+			ir.ret.assign.lhs.type = IR_TYPE_REG;
+			ir.ret.assign.lhs.reg = AllocReg(lang_stat);
+			ir.ret.assign.lhs.reg_sz = 4;
 
-			GenStackThenIR(lang_stat, rhs_ast, out, &ir.assign.lhs);
-			out->emplace_back(ir);
+			GenStackThenIR(lang_stat, rhs_ast, out, &ir.ret.assign.lhs);
 		}break;
 		case AST_IDENT:
 		case AST_INT:
 		{
-			ir.assign.only_lhs = true;
-			GetIRVal(lang_stat, rhs_ast, &ir.assign.lhs);
-			out->emplace_back(ir);
+			ir.ret.assign.only_lhs = true;
+			GetIRVal(lang_stat, rhs_ast, &ir.ret.assign.lhs);
 		}break;
 		{
-			ir.assign.only_lhs = true;
-			GetIRVal(lang_stat, rhs_ast, &ir.assign.lhs);
-			out->emplace_back(ir);
+			ir.ret.assign.only_lhs = true;
+			GetIRVal(lang_stat, rhs_ast, &ir.ret.assign.lhs);
 		}break;
 		default:
 			ASSERT(0)
 		}
+		out->emplace_back(ir);
 	}break;
     case AST_STATS:
 	{
@@ -1586,15 +1596,13 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			ir.assign.to_assign.type = IR_TYPE_REG;
 			ir.assign.to_assign.reg_sz = GetAstTypeSize(lang_stat, ast->expr[0]);
 			ir.assign.to_assign.reg_sz = min(ir.assign.to_assign.reg_sz, 8);
-			if (lhs_ast->type == AST_DEREF)
-				lhs_ast->deref.times--;
-				//ir.assign.to_assign.ptr = lhs_ast->deref.times - 1;
-
-			if (lhs_ast->type == AST_BINOP && lhs_ast->op == T_POINT)
-				lhs_ast->point_get_last_val = false;
-
 
 			GenStackThenIR(lang_stat, ast->expr[0], out, &ir.assign.to_assign);
+			// if the register has a pointer it means it has an address so we want to assign to the address
+			if (ir.assign.to_assign.type == IR_TYPE_REG && ir.assign.to_assign.ptr != 0)
+				ir.assign.to_assign.ptr = 1;
+			else
+				ir.assign.to_assign.ptr = 0;
 			//GetIRVal(lang_stat, ast->expr[0], &ir.assign.to_assign);
 
 			switch (rhs_ast->type)
@@ -1603,12 +1611,15 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			case AST_BINOP:
 			case AST_CAST:
 			case AST_DEREF: 
+			case AST_ADDRESS_OF: 
 			{
 				ir.assign.lhs.type = IR_TYPE_REG;
 				ir.assign.lhs.reg = AllocReg(lang_stat);
 				ir.assign.lhs.reg_sz = GetAstTypeSize(lang_stat, rhs_ast);
 				ir.assign.only_lhs = true;
 				GenStackThenIR(lang_stat, rhs_ast, out, &ir.assign.lhs);
+				ir.assign.lhs.ptr = 0;
+
 			}break;
 			case AST_INT: 
 			case AST_FLOAT: 
@@ -1616,6 +1627,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			{
 				ir.assign.only_lhs = true;
 				GetIRVal(lang_stat, rhs_ast, &ir.assign.lhs);
+				ir.assign.lhs.ptr = 1;
+
 			}break;
 			default:
 				ASSERT(0)
@@ -1625,6 +1638,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ir.assign.only_lhs = false;
 				ir.assign.op = T_PLUS;
 				ir.assign.rhs = ir.assign.to_assign;
+				ir.assign.rhs.ptr = 1;
 				ir.assign.rhs.is_unsigned = ir.assign.lhs.is_unsigned;
 
 				if (IsIrValFloat(&ir.assign.lhs))
@@ -1744,6 +1758,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 	}break;
 	case AST_IF:
     {
+		FreeAllRegs(lang_stat);
+
 		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
         int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
 

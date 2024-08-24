@@ -160,6 +160,7 @@ enum ir_type
 	IR_CMP_LT,
 	IR_CMP_LE,
 	IR_CMP_GE,
+	IR_CMP_GT,
 	IR_BREAK_OUT_IF_BLOCK,
 
 	IR_SPILL_REG,
@@ -239,6 +240,15 @@ struct ir_val
     };
 };
 
+struct assign_info
+{
+	ir_val lhs;
+	ir_val rhs;
+	bool only_lhs;
+
+	ir_val to_assign;
+	tkn_type2 op;
+};
 struct ir_rep
 {
     ir_type type;
@@ -290,21 +300,12 @@ struct ir_rep
             tkn_type2 op;
             bool it_is_jmp_if_true;
         }bin;
+		assign_info assign;
         struct
         {
-            ir_val lhs;
-            ir_val rhs;
-            bool only_lhs;
+			assign_info assign;
+			bool no_ret_val;
         }ret;
-        struct
-        {
-            ir_val lhs;
-            ir_val rhs;
-            bool only_lhs;
-
-            ir_val to_assign;
-            tkn_type2 op;
-        }assign;
     };
 
 };

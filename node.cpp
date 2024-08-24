@@ -125,7 +125,7 @@ std::string scope::Print(int indent)
 	FOR_VEC(decl, vars)
 	{
 		decl2* d = *decl;
-		snprintf(buffer, 512, "%sname: %s, type: %s\n", tabs, d->name.c_str(), TypeToString(d->type).c_str());
+		snprintf(buffer, 512, "%sname: %s, type: %s, offset: %d\n", tabs, d->name.c_str(), TypeToString(d->type).c_str(), d->offset);
 		ret += buffer;
 
 	}
@@ -5187,6 +5187,7 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node* n, scope* sc
 		if (decl->type.type == TYPE_STRUCT)
 		{
 			auto ref_nd = NewUnopNode(lang_stat, nullptr, T_AMPERSAND, n->l);
+			ref_nd->t->line = n->t->line;
 			lang_stat->void_decl->type.ptr++;
 			auto void_nd = CreateNodeFromType(lang_stat, &lang_stat->void_decl->type, n->t);
 			auto casted1 = NewTypeNode(lang_stat, void_nd, N_CAST, ref_nd, n->t);

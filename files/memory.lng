@@ -7,7 +7,7 @@ heap_hash : struct
 	{
 		key : *u8,
 		value : *u8,
-	}
+	} 
 	data : *inner,
 }
 
@@ -44,6 +44,7 @@ heap_insert_unallocated :: fn(alloc : *mem_alloc, a : *mem_chunk)
 
 	while i < UNALLOCATED_BUFFER_ITEMS
 	{
+		//__dbg_break;
 		cur := cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
 		if *cur == nil
 		{
@@ -60,7 +61,7 @@ ASSERT::fn macro(exp : _expr)
 }
 ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 {
-	cast(*type)(cast(u64)ptr + (offset) * sizeof(type))
+	(cast(*type)(cast(u64)ptr + (offset) * sizeof(type)))
 }
 is_flag_off::fn macro(val : _expr, flag : _expr)
 {
@@ -72,6 +73,7 @@ is_flag_on::fn macro(val : _expr, flag : _expr)
 }
 _own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 {
+	ASSERT(cast(u64)dst > 128);
 	i :u64= 0;
 	while i < sz
 	{
@@ -79,15 +81,18 @@ _own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 		i++;
 	}
 }
-memset :: fn(dst : *u8, val : u8, sz : u64) ! void
+memset::fn(dst : *u8, val : u8, sz : u64) !void
 {
+	ASSERT(cast(u64)dst > 128);
 	i :u64= 0;
 	while i < sz
 	{
 		*ptr_offset(dst, i, u8) = val;
+		i++;
 	}
 }
-GetUnallocatedChunk :: fn(alloc : *mem_alloc) ! *mem_chunk
+
+GetUnallocatedChunk::fn(alloc : *mem_alloc) !*mem_chunk
 {
 	ret:*mem_chunk= heap_get_unallocated_cache(alloc);
 
@@ -112,6 +117,7 @@ GetUnallocatedChunk :: fn(alloc : *mem_alloc) ! *mem_chunk
 				heap_insert_unallocated(alloc, cast(*mem_chunk)(cast(u64)ptr_offset(alloc.all, i, mem_chunk) % CHUNKS_CAP));
 				break;
 			}
+			i++;
 		}
 	}
 
@@ -345,7 +351,6 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*void
 	//return (char *)malloc(size);
     cur:*mem_chunk= alloc.head_free;
 
-	__dbg_break;
     while cur != nil && (cur.size * BYTES_PER_CHUNK) < size
     {
         cur = cur.next;
@@ -417,9 +422,11 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*void
 }
 InitMemAlloc::fn(alloc : *mem_alloc)
 {
+	__dbg_break;
     all_chunks_sz:u64= CHUNKS_CAP * sizeof(mem_chunk);
     alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
     memset(cast(*u8)alloc.all, 0, all_chunks_sz);
+	//__dbg_break;
 
 	unallocated_sz:u64 = UNALLOCATED_BUFFER_ITEMS * 8;
 	alloc.probable_unallocated = cast(**mem_chunk)GetMem(cast(u64)unallocated_sz);
@@ -431,6 +438,7 @@ InitMemAlloc::fn(alloc : *mem_alloc)
 	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
 	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
+
     free:*mem_chunk= GetUnallocatedChunk(alloc);
 	//alloc.in_use.reserve(HASH_TABLE_SIZE);
 
@@ -445,7 +453,11 @@ main :: fn()
 {
 	alloc :mem_alloc;
 	InitMemAlloc(&alloc);
+	__dbg_break;
 	addr := heap_alloc(&alloc, 12);
+	addr2 := heap_alloc(&alloc, 12);
+	heap_free(&alloc, cast(*u8)addr);
+	heap_free(&alloc, cast(*u8)addr2);
 	Print(&alloc);
 }
 
@@ -465,6 +477,47 @@ test_ref::fn(alloc : *mem_alloc)
 test_init ::fn(alloc : *mem_alloc)
 {
 	alloc.buffer = cast(*u8)GetMem(8);
+}
+test_ptr::fn(alloc : *mem_alloc)
+{
+	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
+	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
+	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
+
+
+	if !alloc.in_use.data
+		__dbg_break;
+
+
+	chunk1:mem_chunk;
+
+	base_addr: = cast(**mem_chunk)GetMem(8 * 8);
+	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = nil;
+
+	if* ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) != nil
+		__dbg_break;
+
+	alloc.probable_unallocated = base_addr;
+	if alloc.probable_unallocated != base_addr
+		__dbg_break;
+
+	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = &chunk1;
+
+
+	if alloc.probable_unallocated != base_addr
+		__dbg_break;
+
+	if alloc.probable_unallocated == cast(**mem_chunk) &chunk1
+		__dbg_break;
+
+	if *ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) == nil
+		__dbg_break;
+
+	ptr_offset(alloc.probable_unallocated, 0, *mem_chunk).size = 2;
+
+	if chunk1.size != 2
+		__dbg_break;
+
 }
 tests :: fn()
 {
@@ -508,6 +561,18 @@ tests :: fn()
 	if alloc.buffer == nil
 		__dbg_break;
 
+	*ptr_offset(alloc.buffer, 1, u8) = 7;
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 7
+		__dbg_break;
+
+	memset(alloc.buffer, 0, 8);
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 0
+		__dbg_break;
+
+	test_ptr(&alloc);
+
 	flags :u64= 0;
 	flags = flags | 1;
 
@@ -535,7 +600,6 @@ tests :: fn()
 	if i != 6
 		__dbg_break;
 
-	__dbg_break;
 	if (i + 1 % 7) != 0
 		__dbg_break;
 

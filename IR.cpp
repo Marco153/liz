@@ -810,6 +810,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 					ir.assign.lhs = *top;
 					if(ir.assign.lhs.ptr == -1)
+						ir.assign.lhs.ptr = 0;
 					else
 						ir.assign.lhs.ptr = 1;
 					out->emplace_back(ir);

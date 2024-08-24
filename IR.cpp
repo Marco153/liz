@@ -3,7 +3,7 @@
 bool IsAstSimple(lang_state *lang_stat, ast_rep *ast);
 decl2* PointLogic(lang_state* lang_stat, node* n, scope* scp, type2* ret_tp);
 bool NameFindingGetType(lang_state* lang_stat, node* n, scope* scp, type2& ret_type);
-void GenStackThenIR(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val* dst_val);
+void GenStackThenIR(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val* dst_val, ir_val *i=nullptr);
 
 
 #define STACK_PTR_REG 8
@@ -772,6 +772,7 @@ bool IsIrValFloat(ir_val* val)
 	return val->type == IR_TYPE_DECL && val->decl->type.type == TYPE_F32 || val->is_float || val->type == IR_TYPE_F32;
 }
 
+#define IR_VAL_FROM_POINT 0x100
 void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own_std::vector<ir_rep> *out, ir_val *top_info)
 {
 	own_std::vector<ir_val> stack;
@@ -1037,20 +1038,15 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		{
 			ir_val* top = &stack[stack.size() - 1];
 
-			if (top->ptr != 0)
-			{
-				ir.type = IR_ASSIGNMENT;
-				ir.assign.to_assign.type = IR_TYPE_REG;
-				ir.assign.to_assign.reg_sz = 4;
-				ir.assign.to_assign.ptr = 0;
-				ir.assign.to_assign.reg = AllocReg(lang_stat);
-
-				ir.assign.only_lhs = true;
-				ir.assign.lhs = *top;
-				ir.assign.lhs.ptr = 1;
-				out->emplace_back(ir);
-			}
+			char add = 0;
 			top->ptr = e->cast.type.ptr * (top->ptr < 0 ? -1 : 1);
+			if (top->ptr < 0 && top->type == IR_TYPE_REG)
+			{
+				top->ptr = 1;
+				//top->type = IR_TYPE_REG;
+				//top->reg = ir.assign.to_assign.reg;
+				//out->emplace_back(ir);
+			}
 
 			top->reg_sz = GetTypeSize(&e->cast.type);
 
@@ -1107,6 +1103,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				}
 				val = ir.assign.to_assign;
 				val.ptr = ir.assign.rhs.ptr;
+				val.reg_ex |= IR_VAL_FROM_POINT;
 				stack.emplace_back(val);
 			}
 			else
@@ -1149,6 +1146,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 				top = &stack[stack.size() - 1];
 				top->type = IR_TYPE_REG;
+				top->reg_ex = 0;
 				top->reg = ir.assign.to_assign.reg;
 				top->ptr = 0;
 				out->emplace_back(ir);
@@ -1164,7 +1162,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 	}
 }
 
-void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *out, ir_val *dst_val)
+void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *out, ir_val *dst_val, ir_val *top)
 {
 	own_std::vector<ast_rep*> exps;
 
@@ -1228,6 +1226,9 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 		dst_val->ptr = top_info.ptr;
 		out->emplace_back(ir);
 	}
+	if (top)
+		*top = top_info;
+	//dst_val->reg_ex = top_info.reg_ex;
 	//ir.type = IR_END_COMPLEX;
 	//out->emplace_back(ir);
 
@@ -1606,6 +1607,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ir.assign.to_assign.ptr = 0;
 			//GetIRVal(lang_stat, ast->expr[0], &ir.assign.to_assign);
 
+			ir_val rhs_top = {};
 			switch (rhs_ast->type)
 			{
 			case AST_CALL:
@@ -1618,7 +1620,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ir.assign.lhs.reg = AllocReg(lang_stat);
 				ir.assign.lhs.reg_sz = GetAstTypeSize(lang_stat, rhs_ast);
 				ir.assign.only_lhs = true;
-				GenStackThenIR(lang_stat, rhs_ast, out, &ir.assign.lhs);
+				GenStackThenIR(lang_stat, rhs_ast, out, &ir.assign.lhs, &rhs_top);
 				ir.assign.lhs.ptr = 0;
 
 			}break;
@@ -1633,6 +1635,11 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			}break;
 			default:
 				ASSERT(0)
+			}
+			if ((rhs_top.reg_ex & IR_VAL_FROM_POINT) != 0)
+			{
+				ir.assign.lhs.ptr = 1;
+				int a = 0;
 			}
 			if (ast->op == T_PLUS_EQUAL)
 			{

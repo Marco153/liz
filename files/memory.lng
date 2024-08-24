@@ -198,6 +198,7 @@ HHashRemove :: fn (self: *heap_hash, key : *u8)
 	i:u64=0;
 	while i < HASH_TABLE_SIZE
 	{
+		__dbg_break;
 		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
 		cur= ptr_offset(data, mod, inner);
 
@@ -348,6 +349,7 @@ heap_free::fn(alloc : *mem_alloc, ptr : *u8)
 }
 heap_alloc::fn(alloc : *mem_alloc, size : u32) !*void
 {
+	__dbg_break;
 	//return (char *)malloc(size);
     cur:*mem_chunk= alloc.head_free;
 
@@ -422,7 +424,6 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*void
 }
 InitMemAlloc::fn(alloc : *mem_alloc)
 {
-	__dbg_break;
     all_chunks_sz:u64= CHUNKS_CAP * sizeof(mem_chunk);
     alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
     memset(cast(*u8)alloc.all, 0, all_chunks_sz);
@@ -441,12 +442,14 @@ InitMemAlloc::fn(alloc : *mem_alloc)
 
     free:*mem_chunk= GetUnallocatedChunk(alloc);
 	//alloc.in_use.reserve(HASH_TABLE_SIZE);
+	__dbg_break;
 
 	free.size = cast(u32)(total_size / BYTES_PER_CHUNK);
     free.addr = alloc.buffer;
 
 
 	alloc.head_free = free;
+	a: = 0;
 }
 
 main :: fn()
@@ -485,7 +488,7 @@ test_ptr::fn(alloc : *mem_alloc)
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
 
 
-	if !alloc.in_use.data
+	if alloc.in_use.data == nil
 		__dbg_break;
 
 

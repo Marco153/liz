@@ -235,7 +235,11 @@ struct ir_val
         float f32;
         struct
         {
-            char reg;
+			union
+			{
+				char reg;
+				short reg_ex;
+			};
         };
     };
 };

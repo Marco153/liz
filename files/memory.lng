@@ -495,6 +495,7 @@ test_ptr::fn(alloc : *mem_alloc)
 	chunk1:mem_chunk;
 
 	base_addr: = cast(**mem_chunk)GetMem(8 * 8);
+	alloc.probable_unallocated = base_addr;
 	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = nil;
 
 	if* ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) != nil

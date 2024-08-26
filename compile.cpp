@@ -1683,8 +1683,8 @@ void WasmPushMultiple(wasm_gen_state* gen_state, bool only_lhs, ir_val& lhs, ir_
 			WasmPushConst(WASM_LOAD_INT, 0, rhs.decl->offset, &code_sect);
 			WasmPushInst(op, lhs.is_unsigned, code_sect);
 
-			if (deref && rhs.ptr != -1)
-				WasmStoreInst(code_sect, 0, WASM_LOAD_OP);
+			//if (deref && rhs.ptr != -1)
+				//WasmStoreInst(code_sect, 0, WASM_LOAD_OP);
 		}
 		else
 		{
@@ -1861,16 +1861,16 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	default:
 		ASSERT(0)
 	}
-	int ptr = val->ptr;
-	while (((ptr > 0 || deref) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32) && ptr > -1)
+	int deref_times = val->deref;
+	while ((deref_times > 0) && val->type != IR_TYPE_INT)
 	{
 
 		int inst = WASM_LOAD_OP;
 		if (IsIrValFloat(val))
 			inst = WASM_LOAD_F32_OP;
 		WasmStoreInst(code_sect, 0, inst);
-		if(!deref)
-			ptr--;
+		//if(!deref)
+			deref_times--;
 		deref = false;
 	}
 }
@@ -2615,7 +2615,7 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 	{
 		ret += "&";
 	}
-	while (ptr < val->ptr && val->type != IR_TYPE_INT)
+	while (ptr < val->deref && val->type != IR_TYPE_INT)
 	{
 		ret += "*";
 		ptr++;
@@ -4401,6 +4401,8 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	fdecl->flags = fdbg->flags;
 
 	std::string fname = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
+	if (fname == "test_ptr")
+		int a = 0;
 	fdecl->name = std::string(fname);
 	type2 tp;
 	tp.type = TYPE_FUNC;
@@ -5552,7 +5554,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		ir_rep* cur_ir = ir_ar->begin();
 		for (int i = cur_f->wasm_code_sect_idx; i < bcs.size(); i++)
 		{
-			while (cur_ir->start == cur_ir->end)
+			while (cur_ir->start == cur_ir->end && cur_ir < ir_ar->end())
 			{
 				cur_ir->start = i;
 				cur_ir->end = i;

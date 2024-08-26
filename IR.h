@@ -227,6 +227,7 @@ struct ir_val
     bool is_unsigned;
 	bool is_float;
     char ptr;
+	char deref;
     char reg_sz;
     union
     {

@@ -15,9 +15,7 @@ struct mem_chunk
     char *addr;
 };
 
-#define CHUNKS_CAP  (1024 * 1024 * 8)
 #define BYTES_PER_CHUNK  8
-#define HASH_TABLE_SIZE  (1024 * 1024)
 #define UNALLOCATED_BUFFER_ITEMS  8
 
 struct heap_hash
@@ -28,15 +26,16 @@ struct heap_hash
 		void* value;
 	};
 	inner *data;
+	unsigned int hash_table_size = (1024 * 1024);
 
 	void Clear()
 	{
-		memset(data, 0, sizeof(inner) * HASH_TABLE_SIZE);
+		memset(data, 0, sizeof(inner) * hash_table_size);
 	}
 
 	void *Get(void* key)
 	{
-		int idx = ((long long)key) % HASH_TABLE_SIZE;
+		int idx = ((long long)key) % hash_table_size;
 		auto cur = &data[idx];
 
 		if (cur->key == key)
@@ -44,9 +43,9 @@ struct heap_hash
 			return cur->value;
 		}
 		bool put = false;
-		for (int i = 0; i < HASH_TABLE_SIZE; i++)
+		for (int i = 0; i < hash_table_size; i++)
 		{
-			int mod = (i + idx + 1) % HASH_TABLE_SIZE;
+			int mod = (i + idx + 1) % hash_table_size;
 			cur = &data[mod];
 
 			if (cur->key == key)
@@ -59,7 +58,7 @@ struct heap_hash
 	}
 	void Remove(void* key)
 	{
-		int idx = ((long long)key) % HASH_TABLE_SIZE;
+		int idx = ((long long)key) % hash_table_size;
 		auto cur = &data[idx];
 
 		if (cur->key == key)
@@ -68,9 +67,9 @@ struct heap_hash
 			return;
 		}
 		bool removed = false;
-		for (int i = 0; i < HASH_TABLE_SIZE; i++)
+		for (int i = 0; i < hash_table_size; i++)
 		{
-			int mod = (i + idx + 1) % HASH_TABLE_SIZE;
+			int mod = (i + idx + 1) % hash_table_size;
 			cur = &data[mod];
 
 			if (cur->key == key)
@@ -84,7 +83,7 @@ struct heap_hash
 	}
 	void Store(void *key, void *value)
 	{
-		int idx = ((long long)key) % HASH_TABLE_SIZE;
+		int idx = ((long long)key) % hash_table_size;
 		auto cur = &data[idx];
 
 		if (cur->key == nullptr)
@@ -94,9 +93,9 @@ struct heap_hash
 			return;
 		}
 		bool put = false;
-		for (int i = 0; i < HASH_TABLE_SIZE; i++)
+		for (int i = 0; i < hash_table_size; i++)
 		{
-			int mod = (i + idx + 1) % HASH_TABLE_SIZE;
+			int mod = (i + idx + 1) % hash_table_size;
 			cur = &data[mod];
 
 			if (cur->key == nullptr)
@@ -118,4 +117,9 @@ struct mem_alloc
     heap_hash in_use;
     mem_chunk *all;
     mem_chunk **probable_unallocated;
+	unsigned int chunks_cap=(1024 * 1024 * 8);
+
+	char* main_buffer;
 };
+void InitMemAlloc(mem_alloc* alloc);
+void FreeMemAlloc(mem_alloc* alloc);

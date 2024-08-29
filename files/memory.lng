@@ -35,18 +35,17 @@ UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 
 GetMem::fn outsider(sz:u64) ! *void;
 Print::fn outsider(sz:*mem_alloc) ! *void;
-heap_insert_unallocated :: fn(alloc : *mem_alloc, a : *mem_chunk)
+heap_insert_unallocated::fn(alloc : *mem_alloc, a : *mem_chunk)
 {
-	if a < alloc.all || a > (ptr_offset(alloc.all, CHUNKS_CAP, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
+	if a < alloc.all || a >(ptr_offset(alloc.all, CHUNKS_CAP, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
 		return;
 
-	i:u64= 0;
+i:u64 = 0;
 
 	while i < UNALLOCATED_BUFFER_ITEMS
 	{
-		//__dbg_break;
-		cur := cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
-		if *cur == nil
+		cur: = cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
+		if* cur == nil
 		{
 			*cur = a;
 			break;
@@ -74,7 +73,7 @@ is_flag_on::fn macro(val : _expr, flag : _expr)
 _own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128);
-	i :u64= 0;
+	i:u64 = 0;
 	while i < sz
 	{
 		*ptr_offset(dst, i, u8) = val;
@@ -82,39 +81,39 @@ _own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 	}
 }
 memset::fn(dst : *u8, val : u8, sz : u64) !void
-{
-	ASSERT(cast(u64)dst > 128);
-	i :u64= 0;
-	while i < sz
 	{
-		*ptr_offset(dst, i, u8) = val;
-		i++;
-	}
-}
-
-GetUnallocatedChunk::fn(alloc : *mem_alloc) !*mem_chunk
-{
-	ret:*mem_chunk= heap_get_unallocated_cache(alloc);
-
-	if ret
-	{
-
-		heap_insert_unallocated(alloc, ptr_offset(ret, 1, mem_chunk));
-		heap_insert_unallocated(alloc, ptr_offset(ret, -1, mem_chunk));
-		return ret;
-	}
-	if !ret
-	{
-		i :u64=0;
-		while i < CHUNKS_CAP
+		ASSERT(cast(u64)dst > 128);
+		i:u64 = 0;
+		while i < sz
 		{
-			cur0 :*mem_chunk = ptr_offset(alloc.probable_unallocated, i, mem_chunk);
+			*ptr_offset(dst, i, u8) = val;
+			i++;
+		}
+	}
 
-			if is_flag_off(cur0.flags, CHUNK_ALLOCATED)
+		GetUnallocatedChunk::fn(alloc : *mem_alloc) !*mem_chunk
+		{
+			ret:*mem_chunk = heap_get_unallocated_cache(alloc);
+
+			if ret
 			{
-				ret = cur0;
 
-				heap_insert_unallocated(alloc, cast(*mem_chunk)(cast(u64)ptr_offset(alloc.all, i, mem_chunk) % CHUNKS_CAP));
+				heap_insert_unallocated(alloc, ptr_offset(ret, 1, mem_chunk));
+				heap_insert_unallocated(alloc, ptr_offset(ret, -1, mem_chunk));
+				return ret;
+			}
+			if !ret
+			{
+				i:u64 = 0;
+				while i < CHUNKS_CAP
+				{
+					cur0:*mem_chunk = ptr_offset(alloc.all, i, mem_chunk);
+
+					if is_flag_off(cur0.flags, CHUNK_ALLOCATED)
+					{
+						ret = cur0;
+
+				heap_insert_unallocated(alloc, cast(*mem_chunk)(cast(u64)ptr_offset(alloc.all, (i + 1) % CHUNKS_CAP, mem_chunk)));
 				break;
 			}
 			i++;
@@ -181,6 +180,7 @@ HHashGet :: fn (self: *heap_hash, key : *u8) ! *u8
 			return cur.value;
 		i++;
 	}
+	ASSERT(0 == 1);
 	return nil;
 }
 HHashRemove :: fn (self: *heap_hash, key : *u8)
@@ -198,7 +198,6 @@ HHashRemove :: fn (self: *heap_hash, key : *u8)
 	i:u64=0;
 	while i < HASH_TABLE_SIZE
 	{
-		__dbg_break;
 		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
 		cur= ptr_offset(data, mod, inner);
 
@@ -210,6 +209,7 @@ HHashRemove :: fn (self: *heap_hash, key : *u8)
 		}
 		i++;
 	}
+	ASSERT(removed);
 }
 heap_get_unallocated_cache :: fn(alloc : *mem_alloc) ! *mem_chunk
 {
@@ -217,7 +217,7 @@ heap_get_unallocated_cache :: fn(alloc : *mem_alloc) ! *mem_chunk
 	while i < UNALLOCATED_BUFFER_ITEMS
 	{
 		cur := cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
-		if *cur
+		if* cur != nil
 		{
 			ret :*mem_chunk = *cur;
 			cur.flags = cur.flags | CHUNK_ALLOCATED;
@@ -230,6 +230,7 @@ heap_get_unallocated_cache :: fn(alloc : *mem_alloc) ! *mem_chunk
 	}
 	return nil;
 }
+// joins two contiguos chunks
 maybe_join_to_right::fn(prev : *mem_chunk, cur : *mem_chunk, next : *mem_chunk)
 {
 	contiguous_with_cur_next := (cast(u64)cur.addr + cur.size * BYTES_PER_CHUNK) == cast(u64)next.addr;
@@ -278,7 +279,7 @@ heap_free::fn(alloc : *mem_alloc, ptr : *u8)
 			cur = cur.next;
 		}
 
-		ASSERT(cur != nil && cur.next.addr >= chunk_to_free.addr);
+		ASSERT(cur != nil && cur.next.addr <= chunk_to_free.addr);
 		
 		//TODO: create a var put these two vals in each bit, and create a swich statetement so that we 
 		// wont need if and elses
@@ -349,7 +350,6 @@ heap_free::fn(alloc : *mem_alloc, ptr : *u8)
 }
 heap_alloc::fn(alloc : *mem_alloc, size : u32) !*void
 {
-	__dbg_break;
 	//return (char *)malloc(size);
     cur:*mem_chunk= alloc.head_free;
 
@@ -412,7 +412,6 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*void
 			alloc.head_free = other_chunk;
 	}
 
-
     //cur.flags |= CHUNK_IN_USE;
 	HHashStore(&alloc.in_use, cur.addr, cast(*u8)cur);
 	cur.size = min_alloc_size / BYTES_PER_CHUNK;
@@ -442,7 +441,6 @@ InitMemAlloc::fn(alloc : *mem_alloc)
 
     free:*mem_chunk= GetUnallocatedChunk(alloc);
 	//alloc.in_use.reserve(HASH_TABLE_SIZE);
-	__dbg_break;
 
 	free.size = cast(u32)(total_size / BYTES_PER_CHUNK);
     free.addr = alloc.buffer;
@@ -456,12 +454,18 @@ main :: fn()
 {
 	alloc :mem_alloc;
 	InitMemAlloc(&alloc);
-	__dbg_break;
-	addr := heap_alloc(&alloc, 12);
-	addr2 := heap_alloc(&alloc, 12);
-	heap_free(&alloc, cast(*u8)addr);
-	heap_free(&alloc, cast(*u8)addr2);
 	Print(&alloc);
+	i: = 0;
+	while i < 100
+	{
+		addr: = heap_alloc(&alloc, 12);
+		addr2: = heap_alloc(&alloc, 12);
+		heap_free(&alloc, cast(*u8)addr);
+		heap_free(&alloc, cast(*u8)addr2);
+		i++;
+	}
+	__dbg_break;
+	aoeu: = 1234;
 }
 
 test_call2::fn(alloc : *mem_alloc)
@@ -522,6 +526,56 @@ test_ptr::fn(alloc : *mem_alloc)
 	if chunk1.size != 2
 		__dbg_break;
 
+	cur: = ptr_offset(alloc.probable_unallocated, 0, *mem_chunk);
+
+	if *cur == nil
+		__dbg_break;
+
+	if cur.size != 2
+		__dbg_break;
+
+	*cur = nil;
+
+	if *cur
+		__dbg_break;
+
+
+	HHashStore(&alloc.in_use, cast(*u8)1234, cast(*u8)5);
+    val := cast(u64)HHashGet(&alloc.in_use, cast(*u8)1234);
+	if val != 5
+		__dbg_break;
+
+	ptr1:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
+	ptr2:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
+
+	ptr1.addr = cast(*u8)10;
+	ptr2.addr = cast(*u8)20;
+
+	if ptr1.addr > ptr2.addr
+		__dbg_break;
+
+	contiguous_with_ptr2 := (cast(u64)ptr1.addr + 10) == cast(u64)ptr2.addr;
+
+	if contiguous_with_ptr2 != cast(bool)1
+		__dbg_break;
+	
+	contiguous_with_ptr2 = false;
+
+	ptr1.size = 5;
+	contiguous_with_ptr2 = (cast(u64)ptr1.addr + ptr1.size * 2) == cast(u64)ptr2.addr;
+	if contiguous_with_ptr2 != cast(bool)1
+		__dbg_break;
+	
+	
+}
+nil_ptr_ret::fn() !*void
+{
+	return nil;
+}
+simple_strct: struct
+{
+	a : u32,
+	b: u32,
 }
 tests :: fn()
 {
@@ -607,5 +661,47 @@ tests :: fn()
 	if (i + 1 % 7) != 0
 		__dbg_break;
 
+	bool_v: = false;
 
+	if bool_v
+		__dbg_break;
+
+	i = 5;
+	bool_v = i == 5;
+
+
+	if !bool_v
+		__dbg_break;
+
+
+	ptr: *mem_chunk = nil;
+
+	if ptr
+		__dbg_break;
+
+	ptr = cast(*mem_chunk)GetMem(32);
+
+	if ptr == nil
+		__dbg_break;
+
+	ptr = cast(*mem_chunk)nil_ptr_ret();
+
+	if ptr != nil
+		__dbg_break;
+
+	if sizeof(simple_strct) != 8
+		__dbg_break;
+
+	if cast(u64)ptr_offset(0, 0, simple_strct) != 0
+		__dbg_break;
+	if cast(u64)ptr_offset(0, 1, simple_strct) != 8
+		__dbg_break;
+	if cast(u64)ptr_offset(0, 2, simple_strct) != 16
+		__dbg_break;
+	if cast(u64)ptr_offset(0, 0, *simple_strct) != 0
+		__dbg_break;
+	if cast(u64)ptr_offset(0, 1, *simple_strct) != 8
+		__dbg_break;
+	if cast(u64)ptr_offset(0, 2, *simple_strct) != 16
+		__dbg_break;
 }

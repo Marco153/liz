@@ -65,6 +65,7 @@ char* std_str_to_heap(lang_state *, std::string* str);
 #define PSR_FLAGS_HAS_PLUGINS 0x4000
 #define PSR_FLAGS_ON_FUNC_DECL 0x8000
 #define PSR_FLAGS_ON_STRUCT_DECL 0x10000
+#define PSR_FLAGS_ON_JMP_WHEN_ERROR 0x20000
 
 
 #define PREC_SEMI_COLON 0
@@ -108,14 +109,13 @@ std::string scope::Print(int indent)
 	std::string type_name = "";
 	if (type == SCP_TYPE_FUNC)
 	{
-		type_name = std::string("func, name ") + fdecl->name.c_str();
+		type_name = std::string("func, name ,") + fdecl->name.c_str();
 	}
 	if (type == SCP_TYPE_STRUCT)
 	{
-		type_name = std::string("struct, name ") + tstrct->name.c_str();
+		type_name = std::string("struct, name ,") + tstrct->name.c_str();
 	}
-
-	snprintf(buffer, 512, "%s{%s\n", tabs, type_name.c_str());
+	snprintf(buffer, 512, "%s{%s lstart: %d, lend: %d\n", tabs, type_name.c_str(), line_start, line_end);
 
 
 	memset(tabs, ' ', indent + 1);
@@ -443,12 +443,14 @@ token2* node_iter::get_tkn()
 {
 	return &(*this->tkns)[this->cur_idx++];
 }
-void node_iter::SetNodeScopeIdx(lang_state *lang_stat, node** nd, unsigned char val)
+void node_iter::SetNodeScopeIdx(lang_state *lang_stat, node** nd, unsigned char val, int scope_start, int scope_end)
 {
 	auto scp = new_node(lang_stat, (*nd)->t);
 	scp->type = N_SCOPE;
 	scp->r = *nd;
 	scp->t = peek_tkn();
+	scp->scope_line_end = scope_end;
+	scp->scope_line_start = scope_start;
 	*nd = scp;
 	//memcpy(*nd, scp, sizeof(node));
 }
@@ -698,6 +700,7 @@ void node_iter::CreateCondAndScope(node** n)
 	(*n)->l = parse_(0, parser_cond::LESSER_EQUAL);
 	lang_stat->flags &= ~PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
 
+	int scope_start = peek_tkn()->line;
 	if (peek_tkn()->type != tkn_type2::T_OPEN_CURLY)
 	{
 		(*n)->r = parse_(PREC_SEMI_COLON, parser_cond::LESSER_EQUAL);
@@ -709,11 +712,13 @@ void node_iter::CreateCondAndScope(node** n)
 			new_nd->type = N_STMNT;
 			(*n)->r = new_nd;
 		}
+		int scope_end = peek_tkn()->line;
+		SetNodeScopeIdx(lang_stat, &(*n)->r, cur_scope_count++, scope_start, scope_end);
+
 		ExpectTkn(T_SEMI_COLON);
 		//ASSERT(get_tkn()->type == tkn_type2::T_SEMI_COLON)
 		get_tkn();
 		(*n)->flags |= NODE_FLAGS_IS_SCOPE;
-		SetNodeScopeIdx(lang_stat, n, cur_scope_count++);
 	}
 	else
 	{
@@ -738,7 +743,7 @@ void node_iter::CreateCondAndScope(node** n)
 			//free((*n)->r);
 			(*n)->r->r = nullptr;
 		}
-		SwapNodesRhs(n);
+		//SwapNodesRhs(n);
 		//else
 		//SetNodeScopeIdx(n, cur_scope_count++);
 	}
@@ -881,7 +886,7 @@ node* node_iter::parse_func_like()
 		n->type = node_type::N_FUNC_DEF;
 		n->r = new_node(lang_stat, peek_tkn());
 		n->flags |= NODE_FLAGS_IS_SCOPE;
-		SetNodeScopeIdx(lang_stat, &n->r, cur_scope_count++);
+		SetNodeScopeIdx(lang_stat, &n->r, cur_scope_count++, 0, 0);
 		//SetNodeScopeIdx(&n->flags, )
 	}
 
@@ -1154,12 +1159,21 @@ node* node_iter::parse_expr()
 			cur_node->flags = cur_node->l->flags;
 			cur_node->l->flags = 0;
 
-			SwapNodesIf(&cur_node);
+			//SwapNodesIf(&cur_node);
 			n = cur_node;
+			ASSERT(!cur_node->r);
+
+			/*
+			if(IsTknWordStr(peek_tkn(), "else"))
+				cur_node->r = new_node(lang_stat, peek_tkn());
+
 			cur_node = cur_node->r;
+			*/
+
 
 			while (IsTknWordStr(peek_tkn(), "else"))
 			{
+				auto peek = peek_tkn();
 				cur_node->r = new_node(lang_stat, cur_tkn);
 				cur_node = cur_node->r;
 				cur_node->l = new_node(lang_stat, cur_tkn);
@@ -1172,24 +1186,34 @@ node* node_iter::parse_expr()
 					ASSERT(IsTknWordStr(get_tkn(), "else"));
 					cur_node->type = node_type::N_ELSE;
 
+					auto else_tkn = peek_tkn();
+
+					int scope_start = peek_tkn()->line;
 					if (peek_tkn()->type != tkn_type2::T_OPEN_CURLY)
 					{
 						lang_stat->flags |= PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
 						cur_node->r = parse_(0, parser_cond::LESSER_EQUAL);
 						lang_stat->flags &= ~PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
 
+						int scope_end = peek_tkn()->line;
+						SetNodeScopeIdx(lang_stat, &cur_node->r, cur_scope_count++, scope_start, scope_end);
+
 						ExpectTkn(tkn_type2::T_SEMI_COLON);
 						get_tkn();
 
 						cur_node->flags |= NODE_FLAGS_IS_SCOPE;
-						SetNodeScopeIdx(lang_stat, &cur_node, cur_scope_count++);
 					}
 					else
 					{
 						cur_node->r = parse_expr();
-						SwapNodesRhs(&cur_node);
-						cur_node = cur_node->r;
+						//SwapNodesRhs(&cur_node);
+
+						int scope_end = peek_tkn()->line;
+						cur_node->r->scope_line_start = scope_start;
+						cur_node->r->scope_line_end = scope_end;
+						//cur_node = cur_node->r;
 					}
+					cur_node->t = else_tkn;
 				}
 				// else if
 				else if (IsTknWordStr(peek_tkn(), "else") && IsTknWordStr(peek_tkn() + 1, "if"))
@@ -1201,8 +1225,8 @@ node* node_iter::parse_expr()
 
 					cur_node->flags = cur_node->l->flags;
 					cur_node->l->flags = 0;
-					SwapNodesIf(&cur_node);
-					cur_node = cur_node->r;
+					//SwapNodesIf(&cur_node);
+					//cur_node = cur_node->r;
 				}
 				else
 					break;
@@ -1376,6 +1400,8 @@ node* node_iter::parse_expr()
 
 		CheckParenthesesLevel(lang_stat, ttt);
 
+		int scope_start = peek_tkn()->line;
+		int scope_end = peek_tkn()->line;
 		cur_scope_count = 0;
 		if (peek_tkn()->type != tkn_type2::T_CLOSE_CURLY)
 			n = parse_(PREC_CLOSE_CURLY, EQUAL);
@@ -1386,18 +1412,21 @@ node* node_iter::parse_expr()
 		if (IS_FLAG_OFF(n->flags, NODE_FLAGS_IS_SCOPE))
 		{
 			n->flags |= NODE_FLAGS_IS_SCOPE;
+			int scope_end = peek_tkn()->line;
+			SetNodeScopeIdx(lang_stat, &n, cur_scope_count++, scope_start, scope_end);
 
-			SetNodeScopeIdx(lang_stat, &n, cur_scope_count++);
 		}
 		else
 		{
 			node* new_n = new_node(lang_stat, cur_tkn);
 			CREATE_STMNT(new_n, n, nullptr);
 			new_n->flags = NODE_FLAGS_IS_SCOPE;
-			SetNodeScopeIdx(lang_stat, &n, cur_scope_count++);
+			int scope_end = peek_tkn()->line;
 			n = new_n;
+			SetNodeScopeIdx(lang_stat, &n, cur_scope_count++, scope_start, scope_end);
 			//cur_scope_count++;
 		}
+
 		lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		ExpectTkn(T_CLOSE_CURLY);
 		get_tkn();
@@ -2789,8 +2818,8 @@ scope* GetScopeFromParent(lang_state *lang_stat, node* n, scope* given_scp)
 		memset(scp, 0, sizeof(scope));
 		given_scp->children.emplace_back(scp);
 		scp->parent = given_scp;
-		scp->line_start = n->r->t->line;
-		scp->line_end = n->t->line;
+		scp->line_start = n->scope_line_start;
+		scp->line_end = n->scope_line_end;
 		n->scp = scp;
 	}
 	scp = n->scp;
@@ -4265,6 +4294,9 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	//else
 	child_scp = GetScopeFromParent(lang_stat, fnode->r, scp);
 	child_scp->type = SCP_TYPE_FUNC;
+
+	child_scp->line_start = n->t->line;
+	child_scp->line_end = n->r->t->line;
 
 	if (fnode->fdecl == nullptr)
 	{
@@ -6927,7 +6959,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	{
 
 		//checking if the scope isn't empty and descending it
-		if (n->r && n->r->l != nullptr)
+		if (n->r && n->r->r != nullptr)
 		{
 			DescendNode(lang_stat, n->r, scp);
 		}
@@ -7074,7 +7106,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			ret_type = DescendNode(lang_stat, n->l->l, scp);
 		}
 		//checking if the scope isn't zero and descending it
-		if (n->l->r && n->l->r->l)
+		if (n->l->r && n->l->r->r)
 		{
 			DescendNode(lang_stat, n->l->r, scp);
 		}
@@ -7993,6 +8025,15 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			ModifyNodeIntOrFloat(ltp, n->l);
 			ModifyNodeIntOrFloat(rtp, n->r);
 
+			ret_type = ltp;
+			if (ltp.type == TYPE_INT && rtp.type == TYPE_INT)
+			{
+				n->type = N_INT;
+				n->t->i = GetExpressionValT<int>(n->t->type, ltp.i, rtp.i);
+				ret_type.i = n->t->i;
+				//GetExpressionVal(n);
+			}
+
 			// cannot perform this op on ptr
 			if (ltp.ptr > 0 || rtp.ptr > 0)
 			{
@@ -8009,7 +8050,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 			}
 
-			ret_type = ltp;
 
 			/*
 			auto ModifyNd = [](node** nd, type2& ret_type, enum_type2 tp) {

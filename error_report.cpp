@@ -49,5 +49,10 @@ void ReportError(lang_state *lang_stat, int line, int line_offset, char *str, in
 	printf("%s\n\n", (char*)((*lines)[line + 2 - 1]));
 
 	lang_stat->flags |= PSR_FLAGS_ERRO_REPORTED;
+
+	if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_ON_JMP_WHEN_ERROR))
+	{
+		longjmp(lang_stat->jump_buffer, 1);
+	}
 }
 

@@ -66,7 +66,7 @@ struct node_iter
 
 	void CheckTwoBinaryOparatorsTogether(node *);
 	bool node_iter::IsOpUnary(token2* tkn, node*);
-	void node_iter::SetNodeScopeIdx(lang_state* lang_stat, node** nd, unsigned char val);
+	void node_iter::SetNodeScopeIdx(lang_state* lang_stat, node** nd, unsigned char val, int, int);
 
 	void node_iter::ExpectTkn(tkn_type2);
 	node *node_iter::parse_func_like();
@@ -184,6 +184,11 @@ struct node
 		node_type extra_type;
 	};
 
+	struct
+	{
+		int scope_line_start;
+		int scope_line_end;
+	};
 	union
 	{
 		scope *scp;

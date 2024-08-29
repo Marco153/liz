@@ -878,6 +878,10 @@ std::string OperatorToString(tkn_type2 type)
 		{
 			return std::string("<");
 		}break;
+		case tkn_type2::T_LESSER_EQ:
+		{
+			return std::string("<=");
+		}break;
 		case tkn_type2::T_GREATER_THAN:
 		{
 			return std::string(">");

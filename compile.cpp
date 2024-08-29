@@ -7,6 +7,7 @@
 #include <vector>
 #include <unordered_map>
 #include <conio.h>
+#include <setjmp.h>
 
 #include "Array.cpp"
 #include "rel_utils.h"
@@ -382,6 +383,9 @@ struct lang_state
 #endif
 	bool gen_wasm;
 
+
+	
+	jmp_buf jump_buffer;
 	bool ir_in_stmnt;
 	func_decl* cur_func;
 
@@ -534,6 +538,7 @@ void DescendStmntMode(node* stmnt, scope* scp, int mode, void* data);
 #include "bytecode.cpp"
 #include "obj_generator.h"
 #include "IR.cpp"
+#include "memory.h"
 
 #include "error_report.cpp"
 
@@ -1772,7 +1777,7 @@ void WasmPushIRAddress(wasm_gen_state *gen_state, ir_val *val, own_std::vector<u
 	}break;
 	case IR_TYPE_RET_REG:
 	{
-		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, RET_1_REG * 8, &code_sect);
+		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, (RET_1_REG + val->reg) * 8 , &code_sect);
 	}break;
 	case IR_TYPE_ARG_REG:
 	{
@@ -1914,10 +1919,12 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	{
 		if (!cur_ir->ret.no_ret_val)
 		{
+			WasmPushConst(WASM_TYPE_INT, 0, (RET_1_REG + cur_ir->ret.assign.to_assign.reg) * 8, &code_sect);
 			WasmPushMultiple(gen_state, cur_ir->ret.assign.only_lhs, cur_ir->ret.assign.lhs, cur_ir->ret.assign.rhs, last_on_stack, cur_ir->ret.assign.op, code_sect);
+			WasmStoreInst(code_sect, cur_ir->ret.assign.to_assign.reg_sz);
 
-			WasmEndStack(code_sect, *stack_size);
 		}
+		WasmEndStack(code_sect, *stack_size);
 		// adding stack_ptr
 		//WasmGenBinOpImmToReg(BASE_STACK_PTR_REG, 4, *stack_size, code_sect, 0x6a);
 
@@ -1930,7 +1937,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		block_linked *aux = *cur;
 		while (aux->parent)
 		{
-			if (aux->ir->type == IR_BEGIN_IF_BLOCK)
+			if (aux->ir->type == IR_BEGIN_IF_BLOCK || aux->ir->type == IR_BEGIN_LOOP_BLOCK)
                 break;
 			depth++;
 			aux = aux->parent;
@@ -2031,7 +2038,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		block_linked* aux = *cur;
 		while (aux->parent)
 		{
-			if (!val && (aux->ir->type == IR_BEGIN_OR_BLOCK || aux->ir->type == IR_BEGIN_SUB_IF_BLOCK || aux->ir->type == IR_BEGIN_IF_BLOCK))
+			if (!val && (aux->ir->type == IR_BEGIN_OR_BLOCK || aux->ir->type == IR_BEGIN_SUB_IF_BLOCK || aux->ir->type == IR_BEGIN_IF_BLOCK || aux->ir->type == IR_BEGIN_LOOP_BLOCK))
 				break;
 			if (val && (aux->ir->type == IR_BEGIN_AND_BLOCK || aux->ir->type == IR_BEGIN_COND_BLOCK))
 				break;
@@ -2465,6 +2472,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "i32.lt_s";
 	}break;
+	case WASM_INST_I32_LE_S:
+	{
+		ret += "i32.le_u";
+	}break;
 	case WASM_INST_I32_GT_U:
 	{
 		ret += "i32.gs_u";
@@ -2512,6 +2523,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	case WASM_INST_END:
 	{
 		ret += "end";
+	}break;
+	case WASM_INST_I32_DIV_U:
+	{
+		ret += "i32.div_u";
 	}break;
 	case WASM_INST_I32_SUB:
 	{
@@ -2716,8 +2731,11 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	{
 	case IR_RET:
 	{
-		ret = WasmIrAssignment(dbg, &ir->ret.assign) + "\n";
-		ret += "ret\n";
+		ret += "ret: ";
+		if(!ir->ret.no_ret_val)
+			ret += WasmIrAssignment(dbg, &ir->ret.assign) + "\n";
+		else
+			ret += " no return val\n";
 	}break;
 	case IR_DBG_BREAK:
 	{
@@ -2742,6 +2760,7 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	case IR_CMP_NE:
 	case IR_CMP_GT:
 	case IR_CMP_EQ:
+	case IR_CMP_LE:
 	case IR_CMP_GE:
 	{
 		ret = WasmGetBinIR(dbg, ir) + "\n";
@@ -2769,6 +2788,10 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	case IR_BEGIN_COND_BLOCK:
 	{
 		ret = "begin cond block\n";
+	}break;
+	case IR_BREAK:
+	{
+		ret = "break";
 	}break;
 	case IR_END_COND_BLOCK:
 	{
@@ -2913,7 +2936,7 @@ std::string WasmPrintVars(dbg_state *dbg)
 		FOR_VEC(decl, cur_scp->vars)
 		{
 			decl2* d = *decl;
-			if (d->type.type == TYPE_FUNC || d->type.type == TYPE_STRUCT_TYPE || d->type.type == TYPE_FUNC_PTR)
+			if (d->type.type == TYPE_FUNC || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_STRUCT_TYPE || d->type.type == TYPE_FUNC_PTR)
 				continue;
 
 			int val = *(int*)&mem_buffer[base_stack_ptr + d->offset];
@@ -3053,19 +3076,27 @@ void WasmFromAstArrToStackVal(dbg_state* dbg, own_std::vector<ast_rep *> expr, t
 			{
 			case T_POINT:
 			{
-				typed_stack_val *top = &expr_stack.back();
-				expr_stack.pop_back();
-				typed_stack_val *punultimate = &expr_stack.back();
-				
-				while (punultimate->type.ptr > 0)
-				{
-					punultimate->offset = WasmGetRegVal(dbg, BASE_STACK_PTR_REG);
-					punultimate->type.ptr--;
-				}
+				typed_stack_val *top = expr_stack.end();
+				typed_stack_val* first = top - a->points.size();
 
-				punultimate->offset += top->a->decl->offset;
-				punultimate->type = top->type;
-				
+				expr_stack.pop_back();
+				typed_stack_val* punultimate = first;
+				for (int i = 1; i < a->points.size(); i++)
+				{
+					while (punultimate->type.ptr > 0)
+					{
+						punultimate->offset = WasmGetMemOffsetVal(dbg, punultimate->offset);
+						punultimate->type.ptr--;
+					}
+					typed_stack_val* next = first + i;
+					punultimate->offset += next->type.e_decl->offset;
+					punultimate->type = next->type;
+				}
+				for (int i = 0; i < a->points.size(); i++)
+				{
+					expr_stack.pop_back();
+				}
+				expr_stack.emplace_back(*punultimate);
 			}break;
 			default:
 				ASSERT(0);
@@ -3278,7 +3309,7 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 
 	return ret;
 }
-std::string WasmGetSingleExprStr(dbg_state* dbg, dbg_expr* exp)
+std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 {
 	std::string ret = "expression: " + exp->exp_str;
 
@@ -3292,8 +3323,22 @@ std::string WasmGetSingleExprStr(dbg_state* dbg, dbg_expr* exp)
 		//std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset)
 
 
+		std::string addr_str = WasmNumToString(dbg, expr_val.offset);
+
+		int ptr = d->type.ptr;
+
+		int in_ptr_addr = WasmGetMemOffsetVal(dbg, expr_val.offset);
+		while (ptr > 0)
+		{
+			snprintf(buffer, 512, "->%s", WasmNumToString(dbg, in_ptr_addr).c_str());
+			addr_str += buffer;
+			in_ptr_addr = WasmGetMemOffsetVal(dbg, in_ptr_addr);
+			ptr--;
+		}
+		
+
 		std::string struct_str = WasmVarToString(dbg, 0, d, expr_val.offset);
-		sprintf(buffer, " addr(%s) (%s) %s ", WasmNumToString(dbg, expr_val.offset).c_str(), TypeToString(expr_val.type).c_str(), struct_str.c_str());
+		sprintf(buffer, " addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), struct_str.c_str());
 	}
 	else
 	{
@@ -3325,26 +3370,38 @@ std::string WasmGetSingleExprStr(dbg_state* dbg, dbg_expr* exp)
 
 		void *ptr_buffer = &dbg->mem_buffer[expr_val.offset];
 		std::string show = "";
-		switch (expr_val.type.type)
+		if (expr_val.type.ptr == 1)
 		{
-		case TYPE_U8:
+			switch (expr_val.type.type)
+			{
+			case TYPE_U8:
+			{
+			}break;
+			case TYPE_CHAR:
+			{
+				for (int i = 0; i < x_times.offset; i++)
+				{
+					show += *(((char*)ptr_buffer) + i);
+				}
+			}break;
+			default:
+			{
+				ASSERT(0);
+			}break;
+			}
+		}
+		else if (expr_val.type.ptr > 1)
 		{
 			for (int i = 0; i < x_times.offset; i++)
 			{
-				show += *(((unsigned char*)ptr_buffer) + i);
+				show += WasmNumToString(dbg, *(((unsigned int*)ptr_buffer) + i * 8));
+				show += ", ";
 			}
-		}break;
-		case TYPE_CHAR:
-		{
-			for (int i = 0; i < x_times.offset; i++)
+			if (x_times.offset > 0)
 			{
-				show += *(((char*)ptr_buffer) + i);
+				show.pop_back();
+				show.pop_back();
 			}
-		}break;
-		default:
-		{
-			ASSERT(0);
-		}break;
 		}
 		snprintf(buffer, 512, " {%s} ", show.c_str());
 		ret += buffer;
@@ -3361,7 +3418,7 @@ void WasmPrintExpressions(dbg_state* dbg)
 {
 	FOR_VEC(e, dbg->exprs)
 	{
-		printf("%s\n", WasmGetSingleExprStr(dbg, *e).c_str());
+		printf("%s\n", WasmGetSingleExprToStr(dbg, *e).c_str());
 	}
 }
 
@@ -3513,6 +3570,52 @@ void InsertSuggestion(dbg_state* dbg, std::string &input, int *cursor_pos)
 
 	}
 }
+
+dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
+{
+	func_decl* func = dbg->cur_func;
+	node* n = ParseString(dbg->lang_stat, exp_str);
+	//Scope
+	scope* cur_scp = FindScpWithLine(func, dbg->cur_st->line);
+
+	dbg->lang_stat->flags |= PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
+	DescendNameFinding(dbg->lang_stat, n, cur_scp);
+
+	DescendNode(dbg->lang_stat, n, cur_scp);
+
+	ast_rep* ast = AstFromNode(dbg->lang_stat, n, cur_scp);
+
+	n->FreeTree();
+	int last_idx = dbg->lang_stat->allocated_vectors.size() - 1;
+	dbg->lang_stat->allocated_vectors[last_idx]->~vector();
+	dbg->lang_stat->allocated_vectors.pop_back();
+
+	auto exp = (dbg_expr*)AllocMiscData(dbg->lang_stat, sizeof(dbg_expr));
+	exp->exp_str = exp_str.substr();
+	exp->from_func = dbg->cur_func;
+
+	//exp_str = "";
+	if (ast->type == AST_BINOP && ast->op == T_COMMA)
+	{
+		ASSERT(ast->expr.size() == 2);
+
+		exp->type = DBG_EXPR_SHOW_VAL_X_TIMES;
+
+		PushAstsInOrder(dbg->lang_stat, ast->expr[0], &exp->expr);
+		PushAstsInOrder(dbg->lang_stat, ast->expr[1], &exp->x_times);
+		//exp_str = WasmGetSingleExprToStr(dbg, &exp);
+	}
+	else
+	{
+		exp->type = DBG_EXPR_SHOW_SINGLE_VAL;
+
+		PushAstsInOrder(dbg->lang_stat, ast, &exp->expr);
+		//exp_str = WasmGetSingleExprToStr(dbg, &exp);
+	}
+
+	return exp;
+}
+
 void WasmOnArgs(dbg_state* dbg)
 {
 	bool args_break = false;
@@ -3687,6 +3790,38 @@ void WasmOnArgs(dbg_state* dbg)
 			{
 				printf("%s\n", WasmPrintVars(dbg).c_str());
 			}
+			else if (args[1] == "ex")
+			{
+				std::string exp_str = "";
+				for (int i = 2; i < args.size(); i++)
+				{
+					exp_str += args[i];
+				}
+				mem_alloc temp_alloc;
+				temp_alloc.chunks_cap = 1024 * 1024;
+
+				InitMemAlloc(&temp_alloc);
+				void* prev_alloc = __lang_globals.data;
+				dbg_expr* exp = nullptr;
+				int val = setjmp(dbg->lang_stat->jump_buffer);
+				if (val == 0)
+				{
+					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+					exp = WasmGetExprFromStr(dbg, exp_str);
+				}
+				// error
+				else if (val == 1)
+				{
+					
+				}
+				if(exp)
+					printf("\n%s\n", WasmGetSingleExprToStr(dbg, exp).c_str());
+
+				FreeMemAlloc(&temp_alloc);
+
+				__lang_globals.data = prev_alloc;
+
+			}
 			else if (args[1] == "exs")
 			{
 				WasmPrintExpressions(dbg);
@@ -3748,42 +3883,9 @@ void WasmOnArgs(dbg_state* dbg)
 				{
 					exp_str += args[i];
 				}
-				node* n = ParseString(dbg->lang_stat, exp_str);
-				//Scope
-				scope* cur_scp = FindScpWithLine(func, dbg->cur_st->line);
-				DescendNode(dbg->lang_stat, n, cur_scp);
-
-				ast_rep* ast = AstFromNode(dbg->lang_stat, n, dbg->cur_func->scp);
-
-				n->FreeTree();
-				int last_idx = dbg->lang_stat->allocated_vectors.size() - 1;
-				dbg->lang_stat->allocated_vectors[last_idx]->~vector();
-				dbg->lang_stat->allocated_vectors.pop_back();
-
-				auto exp = (dbg_expr*)AllocMiscData(dbg->lang_stat, sizeof(dbg_expr));
-				exp->exp_str = exp_str.substr();
-				exp->from_func = dbg->cur_func;
-
-				//exp_str = "";
-				if (ast->type == AST_BINOP && ast->op == T_COMMA)
-				{
-					ASSERT(ast->expr.size() == 2);
-
-					exp->type = DBG_EXPR_SHOW_VAL_X_TIMES;
-
-					PushAstsInOrder(dbg->lang_stat, ast->expr[0], &exp->expr);
-					PushAstsInOrder(dbg->lang_stat, ast->expr[1], &exp->x_times);
-					//exp_str = WasmGetSingleExprStr(dbg, &exp);
-				}
-				else
-				{
-					exp->type = DBG_EXPR_SHOW_SINGLE_VAL;
-
-					PushAstsInOrder(dbg->lang_stat, ast, &exp->expr);
-					//exp_str = WasmGetSingleExprStr(dbg, &exp);
-				}
 
 
+				dbg_expr* exp = WasmGetExprFromStr(dbg, exp_str);
 				dbg->exprs.emplace_back(exp);
 				int a = 0;
 			}
@@ -4705,15 +4807,15 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				cur = cur->parent;
 				i++;
 			}
+			if (cur->wbc->type == WASM_INST_LOOP)
+			{
+				bc = cur->wbc->block_end + 1;
+				continue;
+			}
 			if (!cur)
 			{
 				can_break = true;
 				break;
-			}
-			if (cur->wbc->type == WASM_INST_LOOP)
-			{
-				bc = cur->wbc + 1;
-				continue;
 			}
 			bc = cur->wbc->block_end;
 			continue;

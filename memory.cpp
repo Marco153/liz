@@ -16,7 +16,7 @@ mem_chunk *GetUnallocatedChunk(mem_alloc *alloc)
 	}
 	if (!ret)
 	{
-		for (int i = 0; CHUNKS_CAP; i += 4)
+		for (int i = 0; alloc->chunks_cap; i += 4)
 		{
 
 
@@ -31,36 +31,36 @@ mem_chunk *GetUnallocatedChunk(mem_alloc *alloc)
 			int f4 = IS_FLAG_OFF(cur3->flags, CHUNK_ALLOCATED);
 
 			// Prefetching the next cache lines
-			_mm_prefetch((char*)&alloc->all[(i + 4) % CHUNKS_CAP], _MM_HINT_T0);
+			_mm_prefetch((char*)&alloc->all[(i + 4) % alloc->chunks_cap], _MM_HINT_T0);
 
 			if (IS_FLAG_OFF(cur0->flags, CHUNK_ALLOCATED)) {
 				ret = cur0;
-				heap_insert_unallocated(alloc, &alloc->all[(i + 1) % CHUNKS_CAP]);
+				heap_insert_unallocated(alloc, &alloc->all[(i + 1) % alloc->chunks_cap]);
 				break;
 			}
 			if (IS_FLAG_OFF(cur1->flags, CHUNK_ALLOCATED)) {
 				ret = cur1;
-				heap_insert_unallocated(alloc, &alloc->all[(i + 2) % CHUNKS_CAP]);
+				heap_insert_unallocated(alloc, &alloc->all[(i + 2) % alloc->chunks_cap]);
 				break;
 			}
 			if (IS_FLAG_OFF(cur2->flags, CHUNK_ALLOCATED)) {
 				ret = cur2;
-				heap_insert_unallocated(alloc, &alloc->all[(i + 3) % CHUNKS_CAP]);
+				heap_insert_unallocated(alloc, &alloc->all[(i + 3) % alloc->chunks_cap]);
 				break;
 			}
 			if (IS_FLAG_OFF(cur3->flags, CHUNK_ALLOCATED)) {
 				ret = cur3;
-				heap_insert_unallocated(alloc, &alloc->all[(i + 4) % CHUNKS_CAP]);
+				heap_insert_unallocated(alloc, &alloc->all[(i + 4) % alloc->chunks_cap]);
 				break;
 			}
 			/*
 			mem_chunk* cur = &alloc->all[i];
-			_mm_prefetch((char*)&alloc->all[(i + 1) % CHUNKS_CAP], _MM_HINT_T0);
+			_mm_prefetch((char*)&alloc->all[(i + 1) % alloc->chunks_cap], _MM_HINT_T0);
 
 			if (IS_FLAG_OFF(cur->flags, CHUNK_ALLOCATED))
 			{
 				ret = cur;
-				alloc->probable_unallocated = &alloc->all[(i + 1) % CHUNKS_CAP];
+				alloc->probable_unallocated = &alloc->all[(i + 1) % alloc->chunks_cap];
 				break;
 			}
 			*/
@@ -123,7 +123,7 @@ void maybe_join_to_right(mem_chunk *prev, mem_chunk *cur, mem_chunk *next, heap_
 void heap_clear(mem_alloc* alloc)
 {
 	alloc->in_use.Clear();
-	int total_size = CHUNKS_CAP * BYTES_PER_CHUNK;
+	int total_size = alloc->chunks_cap * BYTES_PER_CHUNK;
 	memset(alloc->all, 0, total_size);
 
     mem_chunk *free = GetUnallocatedChunk(alloc);
@@ -153,7 +153,7 @@ mem_chunk *heap_get_unallocated_cache(mem_alloc* alloc)
 }
 void heap_insert_unallocated(mem_alloc* alloc, mem_chunk *a)
 {
-	if (a < alloc->all || a > (alloc->all + CHUNKS_CAP) || IS_FLAG_ON(a->flags, CHUNK_ALLOCATED))
+	if (a < alloc->all || a > (alloc->all + alloc->chunks_cap) || IS_FLAG_ON(a->flags, CHUNK_ALLOCATED))
 		return;
 
 	for (int i = 0; i < UNALLOCATED_BUFFER_ITEMS; i++)
@@ -354,26 +354,45 @@ char *heap_alloc(mem_alloc *alloc, int size)//, mem_chunk **out = nullptr)
     return cur->addr;
 }
 
+void FreeMemAlloc(mem_alloc* alloc)
+{
+	VirtualFree(alloc->main_buffer, 0, MEM_RELEASE);
+}
 void InitMemAlloc(mem_alloc *alloc)
 {
-    int all_chunks_sz = CHUNKS_CAP * sizeof(mem_chunk);
-    alloc->all = (mem_chunk *)malloc(all_chunks_sz);
-    memset(alloc->all, 0, all_chunks_sz);
-
+    int all_chunks_sz = alloc->chunks_cap * sizeof(mem_chunk);
+    int chunks_total_size = alloc->chunks_cap * BYTES_PER_CHUNK;
+	int in_use_hash_sz = alloc->in_use.hash_table_size * sizeof(heap_hash::inner);
 	int unallocated_sz = UNALLOCATED_BUFFER_ITEMS * 8;
-	alloc->probable_unallocated = (mem_chunk **)malloc(unallocated_sz);
-    memset(alloc->probable_unallocated, 0, unallocated_sz);
 
-    int total_size = CHUNKS_CAP * BYTES_PER_CHUNK;
-	alloc->buffer = (char *)VirtualAlloc(0, total_size, MEM_COMMIT, PAGE_READWRITE);
+	int total_size = all_chunks_sz + chunks_total_size + in_use_hash_sz + unallocated_sz;
+
+	char* start = (char *)VirtualAlloc(0, total_size, MEM_COMMIT, PAGE_READWRITE);
+	char* buffer = start;
+	memset(start, 0, total_size);
+
+	alloc->main_buffer = start;
+
+
+	alloc->all = (mem_chunk*)buffer;
+
+	buffer += all_chunks_sz;
+
+	alloc->probable_unallocated = (mem_chunk**)(buffer);
+
+	buffer += unallocated_sz;
+
+	alloc->buffer = (char*)buffer;
+	buffer += chunks_total_size;
 	
-	int in_use_hash_sz = HASH_TABLE_SIZE * sizeof(heap_hash::inner);
-	alloc->in_use.data = (heap_hash::inner *)VirtualAlloc(0, in_use_hash_sz, MEM_COMMIT, PAGE_READWRITE);
-	memset(alloc->in_use.data, 0, in_use_hash_sz);
+	alloc->in_use.data = (heap_hash::inner*)buffer;
+
+	buffer += in_use_hash_sz;
+
     mem_chunk *free = GetUnallocatedChunk(alloc);
 	//alloc->in_use.reserve(HASH_TABLE_SIZE);
 
-	free->size = total_size / BYTES_PER_CHUNK;
+	free->size = chunks_total_size / BYTES_PER_CHUNK;
     free->addr = alloc->buffer;
 
 

@@ -111,6 +111,7 @@ enum keyword
 };
 enum node_type
 {
+	N_EMPTY,
 	N_BINOP,
 	N_SCOPE,
 	N_STMNT,
@@ -291,6 +292,7 @@ enum msg_type
 #define SCOPE_INSIDE_STRUCT   2
 #define SCOPE_IS_GLOBAL   4
 #define SCOPE_SERIALIZED   8
+#define SCOPE_SKIP_SERIALIZATION   16
 
  enum scp_type
  {

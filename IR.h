@@ -58,6 +58,7 @@ struct ast_call
 {
     own_std::vector<ast_rep *>args;
 	bool indirect;
+	decl2 *func_ptr_var;
     func_decl *fdecl;
     func_decl *in_func;
 };
@@ -276,6 +277,7 @@ struct ir_rep
 			union
 			{
 				func_decl* fdecl;
+				decl2 *func_ptr_var;
 				OutsiderFuncType outsider;
 			};
 			bool is_outsider;

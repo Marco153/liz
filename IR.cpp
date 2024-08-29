@@ -331,7 +331,10 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
 		ret->call.indirect = false;
 		if (decl->type.type == TYPE_FUNC_PTR)
+		{
 			ret->call.indirect = true;
+			ret->call.func_ptr_var = decl;
+		}
 
 		func_decl* f = ret->call.fdecl;
 
@@ -405,6 +408,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
         }
 	}break;
+	case N_EMPTY:
+		break;
     default:
         ASSERT(0);
     }
@@ -844,14 +849,21 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			}
 			
 			ir.type = IR_CALL;
-			if(e->call.indirect)
-				ir.type = IR_INDIRECT_CALL;
 
 			ir.call.is_outsider = false;
 			if (IS_FLAG_ON(e->call.fdecl->flags, FUNC_DECL_IS_OUTSIDER))
 				ir.call.is_outsider = true;
 
 			ir.call.fdecl = e->call.fdecl;
+
+			if (e->call.indirect)
+			{
+				ir.type = IR_INDIRECT_CALL;
+				ir.bin.lhs.type = IR_TYPE_DECL;
+				ir.bin.lhs.decl = e->call.func_ptr_var;
+				ir.bin.lhs.deref = 1;
+				ir.bin.lhs.is_float = false;
+			}
 			out->emplace_back(ir);
 
 			// if is not last, we will move to some reg
@@ -1729,6 +1741,9 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ASSERT(0)
 			}
 			ir.assign.lhs.deref = 1;
+
+			if (ir.assign.to_assign.type == IR_TYPE_DECL && ir.assign.to_assign.decl->type.type == TYPE_FUNC_PTR)
+				ir.assign.lhs.deref = 0;
 			if (ast->op == T_PLUS_EQUAL)
 			{
 				ir.assign.only_lhs = false;

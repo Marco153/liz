@@ -869,7 +869,7 @@ node* node_iter::parse_func_like()
 		n->r->flags = 0;
 
 		// being able calling the func decl without having to create a statetemnt
-		if(peek_tkn()->type != T_OPEN_PARENTHESES)
+		if(peek_tkn()->type != T_OPEN_PARENTHESES && peek_tkn()->type != T_SEMI_COLON)
 			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		else
 			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
@@ -886,7 +886,7 @@ node* node_iter::parse_func_like()
 		n->type = node_type::N_FUNC_DEF;
 		n->r = new_node(lang_stat, peek_tkn());
 		n->flags |= NODE_FLAGS_IS_SCOPE;
-		SetNodeScopeIdx(lang_stat, &n->r, cur_scope_count++, 0, 0);
+		SetNodeScopeIdx(lang_stat, &n->r, cur_scope_count++, n->t->line, n->t->line);
 		//SetNodeScopeIdx(&n->flags, )
 	}
 
@@ -1405,6 +1405,8 @@ node* node_iter::parse_expr()
 		cur_scope_count = 0;
 		if (peek_tkn()->type != tkn_type2::T_CLOSE_CURLY)
 			n = parse_(PREC_CLOSE_CURLY, EQUAL);
+		else
+			n->type = N_EMPTY;
 
 
 		cur_scope_count = last_scope_size;
@@ -3346,6 +3348,12 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			type2 ret_type;
 			auto ident = FindIdentifier(n->r->t->str, scp, &ret_type);
 
+			if (!ident)
+			{
+				if (IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+					ReportUndeclaredIdentifier(lang_stat, n->t);
+				return false;
+			}
 			if (!ident) return false;
 			ASSERT(ident->type.type == TYPE_ENUM_IDX_32)
 
@@ -3774,7 +3782,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	{
 		if (ncall->l->type == N_FUNC_DECL)
 		{
-			DescendNameFinding(lang_stat, ncall->l, scp);
+			if (!DescendNameFinding(lang_stat, ncall->l, scp))
+				return false;
 			ModifyFuncDeclToName(lang_stat, ncall->l->fdecl, ncall->l, scp);
 		}
 		lhs = DescendNameFinding(lang_stat, ncall->l, scp);
@@ -6088,8 +6097,14 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						{
 							if (lhs->type.type == enum_type2::TYPE_STRUCT_TYPE)
 								lhs->type.type = enum_type2::TYPE_STRUCT;
-							if (lhs->type.type == enum_type2::TYPE_INT)
+							else if (lhs->type.type == enum_type2::TYPE_INT)
 								lhs->type.type = enum_type2::TYPE_S32;
+							else if (lhs->type.type == enum_type2::TYPE_FUNC_DEF)
+								ReportMessage(lang_stat, n->t, "function definition is not a value, so it cant be stored in a variable");
+
+							n->l->r = CreateNodeFromType(lang_stat, &lhs->type, n->t);
+
+							lhs->type.is_const = was_const;
 
 							if (lhs->type.type == TYPE_VOID && lhs->type.ptr == 0)
 							{
@@ -6868,7 +6883,7 @@ void MakeRelPtrDerefFuncCall(lang_state *lang_stat, func_decl* op_func, node* n)
 void MaybeCreateCast(lang_state *lang_stat, node* ln, node* rn, type2* lp, type2* rp)
 {
 	// creating a cast for types that are different
-	if (lp->type != TYPE_ENUM && rp->type != TYPE_STR_LIT && lp->type != rp->type && rp->type != TYPE_INT)
+	if (lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM && rp->type != TYPE_STR_LIT && lp->type != rp->type && rp->type != TYPE_INT)
 	{
 		auto t_nd = CreateNodeFromType(lang_stat, lp, ln->t);
 		auto new_nd = NewTypeNode(lang_stat, t_nd, N_CAST, new_node(lang_stat, rn), ln->t);

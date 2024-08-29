@@ -460,6 +460,7 @@ struct func_decl
 #define DECL_IS_ARG  0x4
 #define DECL_INSERT_VAR_ARGS_AR  0x8
 #define DECL_IS_GLOBAL  0x10
+#define DECL_IS_SERIALIZED  0x20
 struct decl2
 {
 #ifndef COMPILER
@@ -476,6 +477,7 @@ struct decl2
 	int flags;
     int wasm_type_idx;
     int func_arg_idx;
+	int serialized_type_idx;
 
 	node *using_node;
 	node *bottom_n;

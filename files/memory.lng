@@ -450,23 +450,7 @@ InitMemAlloc::fn(alloc : *mem_alloc)
 	a: = 0;
 }
 
-main :: fn()
-{
-	alloc :mem_alloc;
-	InitMemAlloc(&alloc);
-	Print(&alloc);
-	i: = 0;
-	while i < 100
-	{
-		addr: = heap_alloc(&alloc, 12);
-		addr2: = heap_alloc(&alloc, 12);
-		heap_free(&alloc, cast(*u8)addr);
-		heap_free(&alloc, cast(*u8)addr2);
-		i++;
-	}
-	__dbg_break;
-	aoeu: = 1234;
-}
+
 
 test_call2::fn(alloc : *mem_alloc)
 {
@@ -576,6 +560,10 @@ simple_strct: struct
 {
 	a : u32,
 	b: u32,
+}
+func_ptr_test::fn() !u8
+{
+	return 2;
 }
 tests :: fn()
 {
@@ -704,4 +692,35 @@ tests :: fn()
 		__dbg_break;
 	if cast(u64)ptr_offset(0, 2, *simple_strct) != 16
 		__dbg_break;
+
+	__dbg_break;
+	main_type: fn() !u8;
+	main_type = fn() !u8{ return 1; };
+
+	if main_type() != 1
+		__dbg_break;
+
+	main_type = func_ptr_test;
+	if main_type() != 2
+		__dbg_break;
+
+}
+main :: fn()
+{
+
+	alloc :mem_alloc;
+	InitMemAlloc(&alloc);
+	Print(&alloc);
+	i: = 0;
+	addr1 := heap_alloc(&alloc, 32);
+	while i < 100
+	{
+		addr2: = heap_alloc(&alloc, 12);
+		addr3: = heap_alloc(&alloc, 12);
+		heap_free(&alloc, cast(*u8)addr2);
+		heap_free(&alloc, cast(*u8)addr3);
+		i++;
+	}
+	__dbg_break;
+	aoeu: = 1234;
 }

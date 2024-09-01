@@ -53,12 +53,12 @@ enum tkn_type2
 	T_PLUS,
 	T_PIPE,
 	T_EQUAL,
-	T_AND,
+	T_COND_AND,
 	T_COND_EQ,
 	T_COND_NE,
 	T_PLUS_EQUAL,
 	T_MINUS_EQUAL,
-	T_OR,
+	T_COND_OR,
 	T_EXCLAMATION,
 	T_MINUS,
 	T_DIV,
@@ -461,6 +461,8 @@ struct func_decl
 #define DECL_INSERT_VAR_ARGS_AR  0x8
 #define DECL_IS_GLOBAL  0x10
 #define DECL_IS_SERIALIZED  0x20
+#define DECL_ABSOLUTE_ADDRESS  0x40
+
 struct decl2
 {
 #ifndef COMPILER
@@ -848,7 +850,7 @@ std::string OperatorToString(tkn_type2 type)
 		{
 			return std::string("+");
 		}break;
-		case tkn_type2::T_OR:
+		case tkn_type2::T_COND_OR:
 		{
 			return std::string("|");
 		}break;

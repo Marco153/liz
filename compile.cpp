@@ -557,6 +557,7 @@ enum wasm_bc_enum
 	WASM_INST_F32_LOAD,
 	WASM_INST_I32_CONST,
 	WASM_INST_I32_LOAD,
+	WASM_INST_I32_LOAD_8_S,
 	WASM_INST_I32_STORE,
 	WASM_INST_I32_STORE8,
 	WASM_INST_I32_SUB,
@@ -566,6 +567,15 @@ enum wasm_bc_enum
 	WASM_INST_I32_AND,
 	WASM_INST_I32_OR,
 	WASM_INST_I32_MUL,
+
+
+	WASM_INST_F32_GE,
+	WASM_INST_F32_LE,
+	WASM_INST_F32_LT,
+	WASM_INST_F32_GT,
+	WASM_INST_F32_NE,
+	WASM_INST_F32_EQ,
+
 	WASM_INST_I32_GE_U,
 	WASM_INST_I32_GE_S,
 	WASM_INST_I32_LE_U,
@@ -1554,12 +1564,12 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 	{
 		switch (op)
 		{
-		case T_AND:
+		case T_COND_AND:
 		case T_AMPERSAND:
 		{
 			code_sect.emplace_back(0x71);
 		}break;
-		case T_OR:
+		case T_COND_OR:
 		{
 			code_sect.emplace_back(0x72);
 		}break;
@@ -1652,6 +1662,26 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 	{
 		switch (op)
 		{
+		case T_GREATER_THAN:
+		{
+			code_sect.emplace_back(0x5e);
+		}break;
+		case T_LESSER_EQ:
+		{
+			code_sect.emplace_back(0x5f);
+		}break;
+		case T_LESSER_THAN:
+		{
+			code_sect.emplace_back(0x5d);
+		}break;
+		case T_GREATER_EQ:
+		{
+			code_sect.emplace_back(0x60);
+		}break;
+		case T_COND_EQ:
+		{
+			code_sect.emplace_back(0x5b);
+		}break;
 		case T_PLUS:
 		{
 			code_sect.emplace_back(0x92);
@@ -1856,10 +1886,17 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		}
 		else
 		{
-			//int idx = decl_to_local_idx[val->decl];
-			WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
-			WasmPushConst(WASM_LOAD_INT, 0, val->decl->offset, &code_sect);
-			code_sect.emplace_back(0x6a);
+			if (IS_FLAG_ON(val->decl->flags, DECL_ABSOLUTE_ADDRESS))
+			{
+				WasmPushConst(WASM_LOAD_INT, 0, val->decl->offset, &code_sect);
+			}
+			else
+			{
+				//int idx = decl_to_local_idx[val->decl];
+				WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
+				WasmPushConst(WASM_LOAD_INT, 0, val->decl->offset, &code_sect);
+				code_sect.emplace_back(0x6a);
+			}
 		}
 		deref = false;
 	}break;
@@ -1867,13 +1904,13 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		ASSERT(0)
 	}
 	int deref_times = val->deref;
-	while ((deref_times > 0) && val->type != IR_TYPE_INT)
+	while ((deref_times > 0) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32)
 	{
 
 		int inst = WASM_LOAD_OP;
 		if (IsIrValFloat(val))
 			inst = WASM_LOAD_F32_OP;
-		WasmStoreInst(code_sect, 0, inst);
+		WasmStoreInst(code_sect, val->reg_sz, inst);
 		//if(!deref)
 			deref_times--;
 		deref = false;
@@ -2008,6 +2045,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	case IR_CMP_NE:
 	case IR_CMP_GT:
 	case IR_CMP_LE:
+	case IR_CMP_LT:
 	case IR_CMP_GE:
 	case IR_CMP_EQ:
 	{
@@ -2210,6 +2248,16 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	{
 		code_sect.emplace_back(0xff);
 	}break;
+	case IR_BEGIN_BLOCK:
+	{
+		code_sect.emplace_back(0x2);
+		code_sect.emplace_back(0x40);
+	}break;
+	case IR_END_BLOCK:
+	{
+
+		code_sect.emplace_back(0xb);
+	}break;
 	case IR_BREAK:
 	{
 		int depth = 0;
@@ -2222,6 +2270,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			depth++;
 			aux = aux->parent;
 		}
+		depth++;
 		code_sect.emplace_back(0xc);
 		WasmPushImm(depth, &code_sect);
 	}break;
@@ -2362,6 +2411,7 @@ enum dbg_expr_type
 {
 	DBG_EXPR_SHOW_SINGLE_VAL,
 	DBG_EXPR_SHOW_VAL_X_TIMES,
+	DBG_EXPR_FILTER,
 };
 enum dbg_print_numbers_format
 {
@@ -2371,8 +2421,9 @@ enum dbg_print_numbers_format
 struct dbg_expr
 {
 	dbg_expr_type type;
-	own_std::vector<ast_rep *> expr;
-	own_std::vector<ast_rep *> x_times;
+	own_std::vector<ast_rep*> expr;
+	own_std::vector<ast_rep*> x_times;
+	own_std::vector<ir_rep > filter_cond;
 
 	func_decl* from_func;
 	std::string exp_str;
@@ -2477,6 +2528,14 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "i32.le_u";
 	}break;
+	case WASM_INST_F32_LT:
+	{
+		ret += "f32.lt";
+	}break;
+	case WASM_INST_F32_GE:
+	{
+		ret += "f32.ge";
+	}break;
 	case WASM_INST_I32_GT_U:
 	{
 		ret += "i32.gs_u";
@@ -2484,6 +2543,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	case WASM_INST_I32_GT_S:
 	{
 		ret += "i32.gs_t";
+	}break;
+	case WASM_INST_I32_LE_U:
+	{
+		ret += "i32.le_u";
 	}break;
 	case WASM_INST_I32_GE_U:
 	{
@@ -2516,6 +2579,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	case WASM_INST_F32_LOAD:
 	{
 		ret += "f32.load";
+	}break;
+	case WASM_INST_I32_LOAD_8_S:
+	{
+		ret += "i32.load_8_s";
 	}break;
 	case WASM_INST_I32_LOAD:
 	{
@@ -2765,6 +2832,14 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	case IR_CMP_GE:
 	{
 		ret = WasmGetBinIR(dbg, ir) + "\n";
+	}break;
+	case IR_BEGIN_BLOCK:
+	{
+		ret = "begin block\n";
+	}break;
+	case IR_END_BLOCK:
+	{
+		ret = "end block\n";
 	}break;
 	case IR_BEGIN_SUB_IF_BLOCK:
 	{
@@ -3106,8 +3181,11 @@ void WasmFromAstArrToStackVal(dbg_state* dbg, own_std::vector<ast_rep *> expr, t
 			ASSERT(top->decl == true)
 			expr_stack.pop_back();
 			val.type = top->type;
-			val.type.ptr++;
+			val.type.ptr;
 			val.offset = top->offset;
+			char ptr = val.type.ptr;
+			//val.offset = WasmGetMemOffsetVal(dbg, val.offset);
+			//val.type.ptr--;
 		}break;
 		case AST_UNOP:
 		{
@@ -3126,10 +3204,10 @@ void WasmFromAstArrToStackVal(dbg_state* dbg, own_std::vector<ast_rep *> expr, t
 			expr_stack.pop_back();
 			val.a = top->a;
 			val.offset = top->offset;
+			decl2* d = top->type.e_decl;
 			val.type = a->cast.type;
 			//val.type.type = FromTypeToVarType(a->cast.type.type)
-			
-			val.type = a->cast.type;
+			val.type.e_decl = d;
 
 			val.offset = top->offset;
 		}break;
@@ -3230,7 +3308,7 @@ void WasmPrintRegisters(dbg_state* dbg)
 	}
 	printf("%s", str.c_str());
 }
-std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset, bool is_self_ref = false)
+std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset, char ptr, bool is_self_ref = false)
 {
 
 	char buffer[512];
@@ -3240,16 +3318,16 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 	indent_buffer[indent] = 0;
 
 	std::string ptr_val_str = "";
-	if (d->type.ptr > 0)
+	if (ptr > 0)
 	{
 		int ptr_val = WasmGetMemOffsetVal(dbg, struct_offset);
 		ptr_val_str = std::string("(*") + WasmNumToString(dbg, ptr_val) + std::string(")");
 	}
 	std::string ret;
-	if (!is_self_ref && d->type.type == TYPE_STRUCT)
+	if (!is_self_ref && (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE))
 	{
 
-		char ptr = d->type.ptr;
+		//char ptr = ptr;
 		while (ptr > 0)
 		{
 			struct_offset = WasmGetMemOffsetVal(dbg, struct_offset);
@@ -3265,7 +3343,7 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 		indent_buffer[indent] = 0;
 
 
-		if (d->type.ptr > 0 && struct_offset < 128)
+		if (ptr > 0 && struct_offset < 128)
 		{
 		}
 		else
@@ -3278,7 +3356,7 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 				bool is_self_ref = ds->type.type == TYPE_STRUCT && ds->type.strct == d->type.strct;
 				if (ds->type.type == TYPE_STRUCT_TYPE)
 					continue;
-				std::string var_str = WasmVarToString(dbg, indent, ds, struct_offset + ds->offset, is_self_ref);
+				std::string var_str = WasmVarToString(dbg, indent, ds, struct_offset + ds->offset, ds->type.ptr, is_self_ref);
 				snprintf(buffer, 512, "%s,\n", var_str.c_str());
 				ret += buffer;
 			}
@@ -3296,7 +3374,7 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 		snprintf(buffer, 512, "\n%s}", indent_buffer);
 		ret += buffer;
 	}
-	else if(d->type.type != TYPE_STRUCT_TYPE)
+	else// if(d->type.type != TYPE_STRUCT_TYPE)
 	{
 
 		std::string val_str = "";
@@ -3326,7 +3404,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 
 		std::string addr_str = WasmNumToString(dbg, expr_val.offset);
 
-		int ptr = d->type.ptr;
+		int ptr = expr_val.type.ptr;
 
 		int in_ptr_addr = WasmGetMemOffsetVal(dbg, expr_val.offset);
 		while (ptr > 0)
@@ -3336,14 +3414,47 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 			in_ptr_addr = WasmGetMemOffsetVal(dbg, in_ptr_addr);
 			ptr--;
 		}
+		ptr = expr_val.type.ptr;
+		if (ptr > 0)
+		{
+			expr_val.offset = WasmGetMemOffsetVal(dbg, expr_val.offset);
+			ptr--;
+		}
 		
 
-		std::string struct_str = WasmVarToString(dbg, 0, d, expr_val.offset);
+		std::string struct_str = WasmVarToString(dbg, 0, d, expr_val.offset, ptr);
 		sprintf(buffer, " addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), struct_str.c_str());
 	}
 	else
 	{
-		int val = WasmGetMemOffsetVal(dbg, expr_val.offset);
+		int val = 0;
+		if (expr_val.type.ptr > 0)
+		{
+			val = WasmGetMemOffsetVal(dbg, expr_val.offset);
+		}
+		else
+		{
+			switch (expr_val.type.type)
+			{
+			case TYPE_U8:
+			case TYPE_BOOL:
+			{
+				val = WasmGetMemOffsetVal(dbg, expr_val.offset) & 0xff;
+
+			}break;
+			case TYPE_VOID:
+			case TYPE_U64:
+			case TYPE_S32:
+			{
+				val = WasmGetMemOffsetVal(dbg, expr_val.offset);
+
+			}break;
+			default:
+				ASSERT(0);
+			}
+		}
+
+
 		sprintf(buffer, " (%s) %s ", TypeToString(expr_val.type).c_str(), WasmNumToString(dbg, val).c_str());
 	}
 	ret += buffer;
@@ -3383,6 +3494,20 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 				for (int i = 0; i < x_times.offset; i++)
 				{
 					show += *(((char*)ptr_buffer) + i);
+				}
+			}break;
+			case TYPE_STRUCT:
+			{
+				
+				if (x_times.offset > 10)
+				{
+					show.reserve(1024 * 4);
+				}
+				for (int i = 0; i < x_times.offset; i++)
+				{
+					snprintf(buffer, 512, "%d: \n", i);
+					show += buffer;
+					show += WasmVarToString(dbg, 0, expr_val.type.strct->this_decl, expr_val.offset + i * expr_val.type.strct->size, 0);
 				}
 			}break;
 			default:
@@ -3576,13 +3701,67 @@ dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
 {
 	func_decl* func = dbg->cur_func;
 	node* n = ParseString(dbg->lang_stat, exp_str);
+
+
+
+	type_struct2* strct_for_filter;
 	//Scope
 	scope* cur_scp = FindScpWithLine(func, dbg->cur_st->line);
 
-	dbg->lang_stat->flags |= PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
-	DescendNameFinding(dbg->lang_stat, n, cur_scp);
+	if (IS_COMMA(n))
+	{
+		own_std::vector<node *> commas_val;
+		node* cur = n;
+		while (IS_COMMA(cur))
+		{
+			ASSERT(!IS_COMMA(cur->r));
+			commas_val.emplace_back(cur->r);
+			cur = cur->l;
+		}
+		commas_val.emplace_back(cur);
+		
+		switch (commas_val.size())
+		{
+		case 2:
+		case 1:
+		{
 
-	DescendNode(dbg->lang_stat, n, cur_scp);
+			dbg->lang_stat->flags |= PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
+			DescendNameFinding(dbg->lang_stat, n, cur_scp);
+
+			DescendNode(dbg->lang_stat, n, cur_scp);
+		}break;
+		// filter vals
+		case 3:
+		{
+			
+			dbg->lang_stat->flags |= PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
+			DescendNameFinding(dbg->lang_stat, commas_val[2], cur_scp);
+			type2 strct = DescendNode(dbg->lang_stat, commas_val[2], cur_scp);
+
+			ASSERT(strct.type == TYPE_STRUCT && strct.ptr == 1)
+
+			DescendNameFinding(dbg->lang_stat, commas_val[1], cur_scp);
+			DescendNode(dbg->lang_stat, commas_val[1], cur_scp);
+
+			// creating a new scope to not polute the original one
+			scope* scp = NewScope(dbg->lang_stat, cur_scp);
+			cur_scp = scp;
+
+			auto _ptr = (decl2*)AllocMiscData(dbg->lang_stat, sizeof(decl2));
+			_ptr->name = std::string("_ptr");
+			_ptr->flags = DECL_ABSOLUTE_ADDRESS;
+			_ptr->offset = FILTER_PTR;
+			_ptr->type = strct;
+			cur_scp->vars.emplace_back(_ptr);
+			DescendNameFinding(dbg->lang_stat, commas_val[0], cur_scp);
+			DescendNode(dbg->lang_stat, commas_val[0], cur_scp);
+		}break;
+		default:
+			ASSERT(0);
+		}
+	}
+
 
 	ast_rep* ast = AstFromNode(dbg->lang_stat, n, cur_scp);
 
@@ -3598,12 +3777,25 @@ dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
 	//exp_str = "";
 	if (ast->type == AST_BINOP && ast->op == T_COMMA)
 	{
-		ASSERT(ast->expr.size() == 2);
+		ASSERT(ast->expr.size() >= 2);
 
-		exp->type = DBG_EXPR_SHOW_VAL_X_TIMES;
 
 		PushAstsInOrder(dbg->lang_stat, ast->expr[0], &exp->expr);
 		PushAstsInOrder(dbg->lang_stat, ast->expr[1], &exp->x_times);
+
+		if(ast->expr.size() == 2)
+			exp->type = DBG_EXPR_SHOW_VAL_X_TIMES;
+		else if (ast->expr.size() == 3)
+		{
+			exp->type = DBG_EXPR_FILTER;
+			ast_rep* ret = NewAst();
+			ret->type = AST_RET;
+			ret->ast = ast->expr[2];
+			FreeAllRegs(dbg->lang_stat);
+			GetIRFromAst(dbg->lang_stat, ret, &exp->filter_cond);
+		}
+		else
+			ASSERT(0)
 		//exp_str = WasmGetSingleExprToStr(dbg, &exp);
 	}
 	else
@@ -3617,6 +3809,111 @@ dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
 	return exp;
 }
 
+int WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
+{
+	int ret = 0;
+	char ptr = val->deref;
+	switch (val->type)
+	{
+	case IR_TYPE_INT:
+	{
+		ret = val->i;
+	}break;
+	case IR_TYPE_REG:
+	{
+		ret = WasmGetRegVal(dbg, val->reg);
+	}break;
+	case IR_TYPE_DECL:
+	{
+
+		if (IS_FLAG_ON(val->decl->flags, DECL_ABSOLUTE_ADDRESS))
+		{
+			ret = WasmGetRegVal(dbg, val->decl->offset);
+			ptr--;
+		}
+		else 
+			ASSERT(0);
+	}break;
+	default:
+		ASSERT(0);
+	}
+	//ptr--;
+	if (val->type == IR_TYPE_REG)
+		ptr--;
+	while (ptr > 0 && val->type != IR_TYPE_INT)
+	{
+		ret = WasmGetMemOffsetVal(dbg, ret);
+		ptr--;
+	}
+	return ret;
+}
+void WasmIrInterp(dbg_state* dbg, own_std::vector<ir_rep>* ir_ar)
+{
+	ir_rep* ir = ir_ar->begin();
+	while (ir < ir_ar->end())
+	{
+		switch (ir->type)
+		{
+		case IR_RET:
+		{
+			if (ir->ret.no_ret_val)
+			{
+				ASSERT(0);
+			}
+			else
+			{
+				int final_val = WasmIrInterpGetIrVal(dbg, &ir->ret.assign.lhs);
+				int* reg = (int*)&dbg->mem_buffer[(RET_1_REG + ir->ret.assign.to_assign.reg) * 8];
+				*reg = final_val;
+
+			}
+		}break;
+		case IR_ASSIGNMENT:
+		{
+			int final_val = 0;
+			if (ir->assign.only_lhs)
+			{
+				final_val = WasmIrInterpGetIrVal(dbg, &ir->assign.lhs);
+			}
+			else
+			{
+				int lhs_val = WasmIrInterpGetIrVal(dbg, &ir->assign.lhs);
+				if (ir->assign.op == T_POINT)
+					final_val = lhs_val + ir->assign.rhs.decl->offset;
+
+				else
+				{
+					int rhs_val = WasmIrInterpGetIrVal(dbg, &ir->assign.rhs);
+					final_val = GetExpressionValT(ir->assign.op, lhs_val, rhs_val);
+				}
+
+
+
+			}
+
+			switch (ir->assign.to_assign.type)
+			{
+			case IR_TYPE_REG:
+			{
+				int* reg = (int*)&dbg->mem_buffer[ir->assign.to_assign.reg * 8];
+				*reg = final_val;
+			}break;
+			case IR_TYPE_RET_REG:
+			{
+				int* reg = (int*)dbg->mem_buffer[(RET_1_REG + ir->assign.to_assign.reg) * 8];
+				*reg = final_val;
+			}break;
+			default:
+				ASSERT(0);
+			}
+		}break;
+		default:
+			ASSERT(0);
+		}
+		ir++;
+
+	}
+}
 void WasmOnArgs(dbg_state* dbg)
 {
 	bool args_break = false;
@@ -3790,6 +4087,133 @@ void WasmOnArgs(dbg_state* dbg)
 			else if (args[1] == "locals")
 			{
 				printf("%s\n", WasmPrintVars(dbg).c_str());
+			}
+			else if (args[1] == "filter")
+			{
+				std::string exp_str = "";
+				for (int i = 2; i < args.size(); i++)
+				{
+					exp_str += args[i];
+				}
+				mem_alloc temp_alloc;
+				temp_alloc.chunks_cap = 1024 * 1024;
+
+				InitMemAlloc(&temp_alloc);
+				void* prev_alloc = __lang_globals.data;
+				dbg_expr* exp = nullptr;
+				int val = setjmp(dbg->lang_stat->jump_buffer);
+				if (val == 0)
+				{
+					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+					exp = WasmGetExprFromStr(dbg, exp_str);
+				}
+				// error
+				else if (val == 1)
+				{
+					
+				}
+				if (!exp)
+					continue;
+
+				typed_stack_val expr_val;
+				typed_stack_val x_times;
+				WasmFromAstArrToStackVal(dbg, exp->expr, &expr_val);
+				WasmFromAstArrToStackVal(dbg, exp->x_times, &x_times);
+
+				type2 dummy_type;
+				ASSERT(expr_val.type.type == TYPE_STRUCT && expr_val.type.ptr);
+
+				expr_val.offset = WasmGetMemOffsetVal(dbg, expr_val.offset);
+				int start_offset = expr_val.offset;
+				char saved_regs[512];
+
+				memcpy(saved_regs, dbg->mem_buffer, 128);
+
+				std::string filtered = "";
+				decl2* strct_decl = expr_val.type.strct->this_decl;
+
+				for (int i = 0; i < x_times.offset; i++)
+				{
+					int cur_offset = start_offset + i * expr_val.type.strct->size;
+					int* reg = (int*)&dbg->mem_buffer[FILTER_PTR * 8];
+					*reg = cur_offset;
+					//wasm_bc *bc = exp->f
+					WasmIrInterp(dbg, &exp->filter_cond);
+
+					char ret = WasmGetRegVal(dbg, RET_1_REG);
+					if (ret == 1)
+					{
+						filtered += WasmVarToString(dbg, 0, strct_decl, cur_offset, 0);
+					}
+				}
+
+				printf("%s", filtered.c_str());
+
+				memcpy(dbg->mem_buffer, saved_regs, 128);
+				FreeMemAlloc(&temp_alloc);
+
+				__lang_globals.data = prev_alloc;
+
+
+			}
+			else if (args[1] == "onnext")
+			{
+				std::string exp_str = "";
+				for (int i = 2; i < args.size(); i++)
+				{
+					exp_str += args[i];
+				}
+				mem_alloc temp_alloc;
+				temp_alloc.chunks_cap = 1024 * 1024;
+
+				InitMemAlloc(&temp_alloc);
+				void* prev_alloc = __lang_globals.data;
+				dbg_expr* exp = nullptr;
+				int val = setjmp(dbg->lang_stat->jump_buffer);
+				if (val == 0)
+				{
+					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+					exp = WasmGetExprFromStr(dbg, exp_str);
+				}
+				// error
+				else if (val == 1)
+				{
+					
+				}
+				if (!exp)
+					continue;
+				ASSERT(exp->type == DBG_EXPR_SHOW_SINGLE_VAL);
+
+				typed_stack_val expr_val;
+				WasmFromAstArrToStackVal(dbg, exp->expr, &expr_val);
+
+				type2 dummy_type;
+				decl2 *next_var = FindIdentifier("next", expr_val.type.strct->scp, &dummy_type);
+				ASSERT(expr_val.type.type == TYPE_STRUCT && next_var);
+				ASSERT(next_var->type.type == TYPE_STRUCT && next_var->type.strct == expr_val.type.strct);
+				ASSERT(next_var->type.ptr == 1);
+
+				//expr_val.offset = WasmGetMemOffsetVal(dbg, expr_val.offset);
+				if (expr_val.type.ptr > 0)
+				{
+					expr_val.offset = WasmGetMemOffsetVal(dbg, expr_val.offset);
+				}
+				int cur_offset = expr_val.offset;
+
+				std::string struct_str = WasmVarToString(dbg, 0, next_var->type.strct->this_decl, cur_offset, 0);
+				while (WasmGetMemOffsetVal(dbg, cur_offset + next_var->offset) != 0)
+				{
+					cur_offset = WasmGetMemOffsetVal(dbg, cur_offset + next_var->offset);
+					struct_str += WasmVarToString(dbg, 0, next_var->type.strct->this_decl, cur_offset, 0);
+
+				}
+
+				printf("%s", struct_str.c_str());
+
+
+				FreeMemAlloc(&temp_alloc);
+
+				__lang_globals.data = prev_alloc;
 			}
 			else if (args[1] == "ex")
 			{
@@ -3989,6 +4413,7 @@ struct str_dbg
 struct struct_dbg
 {
 	str_dbg name;
+	int struct_size;
 	int vars_offset;
 	int num_of_vars;
 };
@@ -4010,6 +4435,7 @@ struct type_dbg
 		type_struct2 *strct;
 		func_decl *fdecl;
 	};
+	int struct_size;
 	int vars_offset;
 	int num_of_vars;
 	int flags;
@@ -4148,6 +4574,7 @@ void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state* se
 	memset(type, 0, sizeof(type_dbg));
 	type->num_of_vars = strct->vars.size();
 	type->vars_offset = var_offset;
+	type->struct_size = strct->size;
 	WasmSerializePushString(ser_state, &strct->name, &type->name);
 
 	/*
@@ -4295,6 +4722,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		}break;
 		case TYPE_BOOL:
 		case TYPE_INT:
+		case TYPE_F32:
 		case TYPE_U8:
 		case TYPE_S32:
 		case TYPE_U32:
@@ -4592,6 +5020,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			auto type_strct = (type_dbg*)(data + file->types_sect + cur_var->type_idx);
 			ASSERT(IS_FLAG_ON(type_strct->flags, TYPE_DBG_CREATED_TYPE_STRUCT));
 			type_struct2 * strct = type_strct->strct;
+			strct->size = type_strct->struct_size;
 			//std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type_strct->name);
 			//decl2* d = FindIdentifier(name, scp_final, &tp);
 			//ASSERT(d);
@@ -4608,6 +5037,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		{
 			int a = 0;
 		}break;
+		case TYPE_F32:
 		case TYPE_U8:
 		case TYPE_S32:
 		case TYPE_U32:
@@ -4728,6 +5158,416 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 
 	return ret_scp;
 }
+bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigned char* mem_buffer, block_linked** cur, bool &can_break)
+{
+	own_std::vector<wasm_stack_val> &wasm_stack = dbg.wasm_stack;
+	wasm_stack_val val = {};
+	switch ((*cur_bc)->type)
+	{
+	case WASM_INST_NOP:
+	{
+		//WasmPrintVars(&dbg);
+		int a = 0;
+	}break;
+	case WASM_INST_BREAK:
+	{
+		int i = 0;
+		wasm_bc *label;
+		while (i < (*cur_bc)->i)
+		{
+			(*cur) = (*cur)->parent;
+			i++;
+		}
+		if ((*cur)->wbc->type == WASM_INST_LOOP)
+		{
+			(*cur_bc) = (*cur)->wbc + 1;
+			return true;
+		}
+		if (!(*cur))
+		{
+			can_break = true;
+			break;
+		}
+		(*cur_bc) = (*cur)->wbc->block_end;
+		return true;
+		
+	}break;
+	case WASM_INST_BREAK_IF:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+
+		if (top.s32 != 1)
+			break;
+		wasm_bc *label;
+		int i = 0;
+		while (i < (*cur_bc)->i)
+		{
+			(*cur) = (*cur)->parent;
+			i++;
+		}
+		if (!(*cur))
+		{
+			can_break = true;
+			break;
+		}
+		(*cur_bc) = (*cur)->wbc->block_end;
+		return true;
+	}break;
+	case WASM_INST_INDIRECT_CALL:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		func_decl* call_f = dbg.wasm_state->funcs[top.u32];
+		WasmDoCallInstruction(&dbg, &(*cur_bc), &(*cur), call_f);
+	}break;
+	case WASM_INST_CALL:
+	{
+		func_decl* call_f = dbg.wasm_state->funcs[(*cur_bc)->i];
+		if (IS_FLAG_ON(call_f->flags, FUNC_DECL_IS_OUTSIDER))
+		{
+			if (winterp->outsiders.find(call_f->name) != winterp->outsiders.end())
+			{
+				OutsiderFuncType func_ptr = winterp->outsiders[call_f->name];
+				func_ptr(&dbg);
+			}
+			else
+				ASSERT(0);
+
+		}
+		else
+		{
+			WasmDoCallInstruction(&dbg, &(*cur_bc), &(*cur), call_f);
+		}
+
+		// assert is 32bit
+		int a = 0;
+	}break;
+	case WASM_INST_RET:
+	{
+		dbg.func_stack.pop_back();
+		if (dbg.func_stack.size() == 0)
+		{
+			can_break = true;
+			break;
+		}
+		dbg.cur_func = dbg.func_stack.back();
+		
+		(*cur_bc) = dbg.return_stack.back();
+		dbg.return_stack.pop_back();
+
+		(*cur) = dbg.block_stack.back();
+		dbg.block_stack.pop_back();
+	}break;
+	case WASM_INST_I32_EQ:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->s32 = (int) (penultimate->u32 == top.u32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_GE_U:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->s32 = (int)(penultimate->u32 >= top.u32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_GT_U:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (int)(penultimate->u32 > top.u32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_NE:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (int)(penultimate->u32 != top.u32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_LE_S:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (int)(penultimate->s32 <= top.s32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_LT_S:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (int)(penultimate->s32 < top.s32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_GT_S:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (int)(penultimate->s32 > top.s32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_GE_S:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (int)(penultimate->s32 >= top.s32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_LE_U:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (int)(penultimate->u32 <= top.u32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_LT_U:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (int)(penultimate->u32 < top.u32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_REMAINDER_S:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (penultimate->s32 % top.s32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_REMAINDER_U:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (penultimate->u32 % top.u32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_DIV_U:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->u32 = (penultimate->u32 / top.u32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_STORE8:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+
+		auto penultimate = wasm_stack.back();
+		wasm_stack.pop_back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate.type == 0);
+		ASSERT(penultimate.u32 < dbg.mem_size);
+		*(char*)&mem_buffer[penultimate.u32] = top.s32;
+		int a = 0;
+	}break;
+	case WASM_INST_F32_STORE:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+
+		auto penultimate = wasm_stack.back();
+		wasm_stack.pop_back();
+		// assert is 32bit
+		ASSERT(top.type == WSTACK_VAL_F32 && penultimate.type == 0);
+		ASSERT(penultimate.u32 < dbg.mem_size);
+		*(int*)&mem_buffer[penultimate.u32] = top.s32;
+		int a = 0;
+	}break;
+	case WASM_INST_I32_STORE:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+
+		auto penultimate = wasm_stack.back();
+		wasm_stack.pop_back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate.type == 0);
+		ASSERT(penultimate.u32 < dbg.mem_size);
+		*(int*)&mem_buffer[penultimate.u32] = top.s32;
+		int a = 0;
+	}break;
+	case WASM_INST_F32_CONST:
+	{
+		auto top = wasm_stack.back();
+		val.type = WSTACK_VAL_F32;
+		val.f32 = (*cur_bc)->f32;
+		wasm_stack.emplace_back(val);
+	}break;
+	case WASM_INST_F32_LOAD:
+	{
+		auto w = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(w->type == WSTACK_VAL_INT);
+		w->f32 = *(float*)&mem_buffer[w->s32];
+		w->type = WSTACK_VAL_F32;
+		int a = 0;
+	}break;
+	case WASM_INST_F32_GE:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == wstack_val_type::WSTACK_VAL_F32 && penultimate->type == wstack_val_type::WSTACK_VAL_F32)
+		penultimate->u32 = (int)(penultimate->f32 >= top.f32);
+		int a = 0;
+	}break;
+	case WASM_INST_F32_LT:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == wstack_val_type::WSTACK_VAL_F32 && penultimate->type == wstack_val_type::WSTACK_VAL_F32)
+		penultimate->u32 = (int)(penultimate->f32 < top.f32);
+		int a = 0;
+	}break;
+	case WASM_INST_I32_LOAD_8_S:
+	{
+		auto w = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(w->type == WSTACK_VAL_INT);
+		w->s32 = *(char*)&mem_buffer[w->s32];
+		int a = 0;
+	}break;
+	case WASM_INST_I32_LOAD:
+	{
+		auto w = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(w->type == WSTACK_VAL_INT);
+		w->s32 = *(int*)&mem_buffer[w->s32];
+		int a = 0;
+	}break;
+	case WASM_INST_I32_CONST:
+	{
+		val.type = WSTACK_VAL_INT;
+		val.s32 = (*cur_bc)->i;
+		wasm_stack.emplace_back(val);
+	}break;
+	case WASM_INST_LOOP:
+	case WASM_INST_BLOCK:
+	{
+		(*cur) = NewBlock((*cur));
+		(*cur)->wbc = (*cur_bc);
+	}break;
+	case WASM_INST_I32_OR:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->s32 |= top.s32;
+	}break;
+	case WASM_INST_I32_MUL:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->s32 *= top.s32;
+	}break;
+	case WASM_INST_F32_ADD:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == WSTACK_VAL_F32 && penultimate->type == WSTACK_VAL_F32);
+		penultimate->f32 += top.f32;
+	}break;
+	case WASM_INST_DBG_BREAK:
+	{
+		printf(ANSI_RED "debug break hit\n" ANSI_RESET);
+		dbg.break_type = DBG_BREAK_ON_NEXT_BC;
+		return true;
+
+	}break;
+	case WASM_INST_I32_ADD:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->s32 += top.s32;
+	}break;
+	case WASM_INST_I32_AND:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->s32 &= top.s32;
+	}break;
+	case WASM_INST_I32_SUB:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->s32 -= top.s32;
+	}break;
+	case WASM_INST_END:
+	{
+		if ((*cur))
+		{
+			FreeBlock((*cur));
+			(*cur) = (*cur)->parent;
+		}
+
+	}break;
+	default:
+		ASSERT(0)
+	}
+
+	return false;
+}
 void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int len, std::string func_start, long long* args, int total_args)
 {
 	dbg_state& dbg = *winterp->dbg;
@@ -4817,361 +5657,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			}
 			bc->one_time_dbg_brk = false;
 		}
-		switch (bc->type)
-		{
-		case WASM_INST_NOP:
-		{
-			//WasmPrintVars(&dbg);
-			int a = 0;
-		}break;
-		case WASM_INST_BREAK:
-		{
-			int i = 0;
-			wasm_bc *label;
-			while (i < bc->i)
-			{
-				cur = cur->parent;
-				i++;
-			}
-			if (cur->wbc->type == WASM_INST_LOOP)
-			{
-				bc = cur->wbc->block_end + 1;
-				continue;
-			}
-			if (!cur)
-			{
-				can_break = true;
-				break;
-			}
-			bc = cur->wbc->block_end;
+		if (WasmBcLogic(winterp, dbg, &bc, mem_buffer, &cur, can_break))
 			continue;
-			
-		}break;
-		case WASM_INST_BREAK_IF:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-
-			if (top.s32 != 1)
-				break;
-			wasm_bc *label;
-			int i = 0;
-			while (i < bc->i)
-			{
-				cur = cur->parent;
-				i++;
-			}
-			if (!cur)
-			{
-				can_break = true;
-				break;
-			}
-			bc = cur->wbc->block_end;
-			continue;
-		}break;
-		case WASM_INST_INDIRECT_CALL:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			func_decl* call_f = dbg.wasm_state->funcs[top.u32];
-			WasmDoCallInstruction(&dbg, &bc, &cur, call_f);
-		}break;
-		case WASM_INST_CALL:
-		{
-			func_decl* call_f = dbg.wasm_state->funcs[bc->i];
-			if (IS_FLAG_ON(call_f->flags, FUNC_DECL_IS_OUTSIDER))
-			{
-				if (winterp->outsiders.find(call_f->name) != winterp->outsiders.end())
-				{
-					OutsiderFuncType func_ptr = winterp->outsiders[call_f->name];
-					func_ptr(&dbg);
-				}
-				else
-					ASSERT(0);
-
-			}
-			else
-			{
-				WasmDoCallInstruction(&dbg, &bc, &cur, call_f);
-			}
-
-			// assert is 32bit
-			int a = 0;
-		}break;
-		case WASM_INST_RET:
-		{
-			dbg.func_stack.pop_back();
-			if (dbg.func_stack.size() == 0)
-			{
-				can_break = true;
-				break;
-			}
-			dbg.cur_func = dbg.func_stack.back();
-			
-			bc = dbg.return_stack.back();
-			dbg.return_stack.pop_back();
-
-			cur = dbg.block_stack.back();
-			dbg.block_stack.pop_back();
-		}break;
-		case WASM_INST_I32_EQ:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 = (int) (penultimate->u32 == top.u32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_GE_U:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 = (int)(penultimate->u32 >= top.u32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_GT_U:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (int)(penultimate->u32 > top.u32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_NE:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (int)(penultimate->u32 != top.u32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_LE_S:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (int)(penultimate->s32 <= top.s32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_LT_S:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (int)(penultimate->s32 < top.s32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_GE_S:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (int)(penultimate->s32 >= top.s32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_LT_U:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (int)(penultimate->u32 < top.u32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_REMAINDER_S:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (penultimate->s32 % top.s32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_REMAINDER_U:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (penultimate->u32 % top.u32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_DIV_U:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (penultimate->u32 / top.u32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_STORE8:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-
-			auto penultimate = wasm_stack.back();
-			wasm_stack.pop_back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate.type == 0);
-			ASSERT(penultimate.u32 < dbg.mem_size);
-			*(char*)&mem_buffer[penultimate.u32] = top.s32;
-			int a = 0;
-		}break;
-		case WASM_INST_F32_STORE:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-
-			auto penultimate = wasm_stack.back();
-			wasm_stack.pop_back();
-			// assert is 32bit
-			ASSERT(top.type == WSTACK_VAL_F32 && penultimate.type == 0);
-			ASSERT(penultimate.u32 < dbg.mem_size);
-			*(int*)&mem_buffer[penultimate.u32] = top.s32;
-			int a = 0;
-		}break;
-		case WASM_INST_I32_STORE:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-
-			auto penultimate = wasm_stack.back();
-			wasm_stack.pop_back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate.type == 0);
-			ASSERT(penultimate.u32 < dbg.mem_size);
-			*(int*)&mem_buffer[penultimate.u32] = top.s32;
-			int a = 0;
-		}break;
-		case WASM_INST_F32_CONST:
-		{
-			auto top = wasm_stack.back();
-			val.type = WSTACK_VAL_F32;
-			val.f32 = bc->f32;
-			wasm_stack.emplace_back(val);
-		}break;
-		case WASM_INST_F32_LOAD:
-		{
-			auto w = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(w->type == WSTACK_VAL_INT);
-			w->f32 = *(float*)&mem_buffer[w->s32];
-			w->type = WSTACK_VAL_F32;
-			int a = 0;
-		}break;
-		case WASM_INST_I32_LOAD:
-		{
-			auto w = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(w->type == WSTACK_VAL_INT);
-			w->s32 = *(int*)&mem_buffer[w->s32];
-			int a = 0;
-		}break;
-		case WASM_INST_I32_CONST:
-		{
-			val.type = WSTACK_VAL_INT;
-			val.s32 = bc->i;
-			wasm_stack.emplace_back(val);
-		}break;
-		case WASM_INST_LOOP:
-		case WASM_INST_BLOCK:
-		{
-			cur = NewBlock(cur);
-			cur->wbc = bc;
-		}break;
-		case WASM_INST_I32_OR:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 |= top.s32;
-		}break;
-		case WASM_INST_I32_MUL:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 *= top.s32;
-		}break;
-		case WASM_INST_F32_ADD:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == WSTACK_VAL_F32 && penultimate->type == WSTACK_VAL_F32);
-			penultimate->f32 += top.f32;
-		}break;
-		case WASM_INST_DBG_BREAK:
-		{
-			printf(ANSI_RED "debug break hit\n" ANSI_RESET);
-			dbg.break_type = DBG_BREAK_ON_NEXT_BC;
-			continue;
-
-		}break;
-		case WASM_INST_I32_ADD:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 += top.s32;
-		}break;
-		case WASM_INST_I32_AND:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 &= top.s32;
-		}break;
-		case WASM_INST_I32_SUB:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 -= top.s32;
-		}break;
-		case WASM_INST_END:
-		{
-			if (cur)
-			{
-				FreeBlock(cur);
-				cur = cur->parent;
-			}
-
-		}break;
-		default:
-			ASSERT(0)
-		}
 		bc++;
 	}
 }
@@ -5601,6 +6088,15 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			{
 				bc.type = WASM_INST_RET;
 			}break;
+			case 0x2c:
+			{
+				bc.type = WASM_INST_I32_LOAD_8_S;
+				// alignment
+				ptr++;
+				// offset
+				ptr++;
+
+			}break;
 			case 0x2a:
 			{
 				bc.type = WASM_INST_F32_LOAD;
@@ -5672,6 +6168,16 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			case 0x49:
 			{
 				bc.type = WASM_INST_I32_LT_U;
+
+			}break;
+			case 0x5f:
+			{
+				bc.type = WASM_INST_F32_LT;
+
+			}break;
+			case 0x60:
+			{
+				bc.type = WASM_INST_F32_GE;
 
 			}break;
 			case 0xff:

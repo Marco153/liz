@@ -235,7 +235,7 @@ void heap_free(mem_alloc *alloc, char *ptr)//, heap_free_ret_info *ret = nullptr
 
 			cur->next->flags &= ~CHUNK_ALLOCATED;
 			chunk_to_free->flags &= ~CHUNK_ALLOCATED;
-			heap_insert_unallocated(alloc, cur);
+			heap_insert_unallocated(alloc, cur->next);
 			heap_insert_unallocated(alloc, chunk_to_free);
 
 

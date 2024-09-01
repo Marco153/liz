@@ -585,7 +585,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				found_char = true;
 				if(ch[1] == '|')
 				{
-					tkn.type = T_OR;
+					tkn.type = T_COND_OR;
 					i++;
 				}
 				else
@@ -639,7 +639,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				found_char = true;
 				if(ch[1] == '&')
 				{
-					tkn.type = T_AND;
+					tkn.type = T_COND_AND;
 					i++;
 				}
 				else

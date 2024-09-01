@@ -4705,11 +4705,11 @@ descend_func_ret DescendFunc(lang_state *lang_stat, func_byte_code *final_func, 
 				ret.type = fret_type::R_REG;
 			}
 		}break;
-		case tkn_type2::T_OR:
-		case tkn_type2::T_AND:
+		case tkn_type2::T_COND_OR:
+		case tkn_type2::T_COND_AND:
 		{
-			bool is_or = n->t->type == tkn_type2::T_OR;
-			bool is_and = n->t->type == tkn_type2::T_AND;
+			bool is_or = n->t->type == tkn_type2::T_COND_OR;
+			bool is_and = n->t->type == tkn_type2::T_COND_AND;
 
 			int passing_flags = HAS_PARENT_COND | ((int)n->t->type << 16);
 
@@ -4724,7 +4724,7 @@ descend_func_ret DescendFunc(lang_state *lang_stat, func_byte_code *final_func, 
 			}
 
 			tkn_type2 parent_op = (tkn_type2)(flags >> 16);
-			bool is_parent_or = IS_FLAG_ON(flags, HAS_PARENT_COND) && parent_op == T_OR;
+			bool is_parent_or = IS_FLAG_ON(flags, HAS_PARENT_COND) && parent_op == T_COND_OR;
 			if(lhs_bcode.type == fret_type::R_BOOL)
 			{
 				

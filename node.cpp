@@ -391,12 +391,12 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 		*precedence = PREC_SEMI_COLON;
 		return true;
 	}break;
-	case tkn_type2::T_OR:
+	case tkn_type2::T_COND_OR:
 	{
 		*precedence = PREC_OR;
 		return true;
 	}break;
-	case tkn_type2::T_AND:
+	case tkn_type2::T_COND_AND:
 	{
 		*precedence = PREC_AND;
 		return true;
@@ -1378,6 +1378,7 @@ node* node_iter::parse_expr()
 	case tkn_type2::T_OPEN_PARENTHESES:
 	{
 		lang_stat->parentheses_opened++;
+
 		if (peek_tkn()->type != tkn_type2::T_CLOSE_PARENTHESES)
 			n = parse_(PREC_CLOSE_PARENTHESES, EQUAL);
 		else
@@ -1391,6 +1392,11 @@ node* node_iter::parse_expr()
 			ExitProcess(1);
 		}
 		get_tkn();
+		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_ON_FUNC_CALL) && IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD) && peek_tkn()->type == T_OPEN_CURLY)
+		{
+
+			ReportMessage(lang_stat, cur_tkn, "It seems like you're trying to declare a function but you forgot to type this part '::fn(..)");
+		}
 	}break;
 	case tkn_type2::T_OPEN_CURLY:
 	{
@@ -2845,6 +2851,8 @@ T GetExpressionValT(tkn_type2 tp, T a, T b)
 {
 	switch (tp)
 	{
+	case tkn_type2::T_COND_EQ:	return a == b;
+	case tkn_type2::T_COND_NE:	return a != b;
 	case tkn_type2::T_MINUS:	return a - b;
 	case tkn_type2::T_PLUS:	return a + b;
 	case tkn_type2::T_MUL:	return a * b;
@@ -2873,7 +2881,7 @@ int GetExpressionVal(node* n, scope* scp)
 		int rhs = GetExpressionVal(n->r, scp);
 		switch (n->t->type)
 		{
-		case tkn_type2::T_AND:	 return lhs & rhs;
+		case tkn_type2::T_COND_AND:	 return lhs & rhs;
 		case tkn_type2::T_MINUS: return lhs - rhs;
 		case tkn_type2::T_PLUS:	 return lhs + rhs;
 		case tkn_type2::T_MUL:	 return lhs * rhs;
@@ -6940,6 +6948,7 @@ void ModifyNodeIntOrFloat(type2 &ret_type, node *n)
 type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 {
 	char msg_hdr[256];
+
 	scope* scp = given_scp;
 	type2 ret_type = {};
 	message msg;
@@ -7098,7 +7107,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			DescendNode(lang_stat, n->l, scp);
 		}
 		//checking if the scope isn't zero and descending it
-		if (n->r && n->r->l != nullptr)
+		if (n->r && n->r->r != nullptr)
 		{
 			DescendNode(lang_stat, n->r, scp);
 		}
@@ -7190,7 +7199,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case enum_type2::TYPE_U64_TYPE:
 			// can only convert to u64 from a struct, if the struct is a ptr
 			if (rhs_type.ptr == 0 && rhs_type.type == enum_type2::TYPE_STRUCT)
-				ASSERT(false)
+			{
+				//ReportMessage(lang_stat, n->t,);
+				REPORT_ERROR(n->t->line, n->t->line_offset,
+					VAR_ARGS("Non ptr structs cannot be converted to integers, in this case \"%s\"\n", StringifyNode(n->r).c_str())
+				);
+				ExitProcess(1);
+			}
 				break;
 		case enum_type2::TYPE_F64_TYPE:
 		case enum_type2::TYPE_CHAR_TYPE:
@@ -7909,8 +7924,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	{
 		switch (n->t->type)
 		{
-		case tkn_type2::T_AND:
-		case tkn_type2::T_OR:
+		case tkn_type2::T_COND_AND:
+		case tkn_type2::T_COND_OR:
 		{
 			type2 ltp = DescendNode(lang_stat, n->l, scp);
 			type2 rtp = DescendNode(lang_stat, n->r, scp);

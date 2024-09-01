@@ -156,6 +156,8 @@ enum enum_type2
 	TYPE_S8,
 	TYPE_F32,
 	TYPE_F64,
+	TYPE_F32_RAW,
+	TYPE_F64_RAW,
 	TYPE_BOOL,
 	TYPE_CHAR,
 

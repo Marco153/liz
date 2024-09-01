@@ -334,6 +334,7 @@ struct message
 struct unit_file
 {
 	std::string name;
+	std::string path;
 //	std::string contents;
 	char* contents;
 	unsigned long long contents_sz;

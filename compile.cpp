@@ -570,6 +570,9 @@ enum wasm_bc_enum
 	WASM_INST_I32_MUL,
 
 
+	WASM_INST_I64_LOAD,
+	WASM_INST_I64_STORE,
+
 	WASM_INST_F32_GE,
 	WASM_INST_F32_LE,
 	WASM_INST_F32_LT,
@@ -1253,32 +1256,6 @@ void WasmPushConst(char type_int_or_float, char size, int offset, own_std::vecto
 }
 // if it is 64 bit load, make size 1
 
-void WasmPushLoadOrStore(char size, char type, char op_code, int offset, own_std::vector<unsigned char>* out)
-{
-	WasmPushConst(WASM_TYPE_INT, 0, offset, out);
-	if (type == WASM_LOAD_INT)
-	{
-		out->emplace_back(op_code + size);
-	}
-	else if (WASM_LOAD_FLOAT)
-	{
-		out->emplace_back(op_code + 2 + size);
-	}
-	else
-	{
-		ASSERT(0);
-	}
-	if (size == 1)
-		// 8-byte aligned
-		out->emplace_back(0x3);
-	else if (size == 0)
-		out->emplace_back(0x2);
-	else
-		ASSERT(0);
-
-	// offset
-	out->emplace_back(0x0);
-}
 void WasmStoreInst(own_std::vector<unsigned char>& code_sect, int size, char inst = WASM_STORE_OP)
 {
 	int final_inst = 0;
@@ -1304,8 +1281,10 @@ void WasmStoreInst(own_std::vector<unsigned char>& code_sect, int size, char ins
 			break;
 		case 0:
 		case 4:
-		case 8:
 			final_inst = 0x28;
+			break;
+		case 8:
+			final_inst = 0x29;
 			break;
 		default:
 			ASSERT(0);
@@ -1323,8 +1302,10 @@ void WasmStoreInst(own_std::vector<unsigned char>& code_sect, int size, char ins
 			break;
 		case 0:
 		case 4:
-		case 8:
 			final_inst = 0x36;
+			break;
+		case 8:
+			final_inst = 0x37;
 			break;
 		default:
 			ASSERT(0);
@@ -1335,6 +1316,7 @@ void WasmStoreInst(own_std::vector<unsigned char>& code_sect, int size, char ins
 	}
 	code_sect.emplace_back(final_inst);
 	char alignment = 0;
+
 	switch (size)
 	{
 	case 1:
@@ -1356,6 +1338,33 @@ void WasmStoreInst(own_std::vector<unsigned char>& code_sect, int size, char ins
 	// offset
 	code_sect.emplace_back(0x0);
 }
+void WasmPushLoadOrStore(char size, char type, char op_code, int offset, own_std::vector<unsigned char>* out)
+{
+	WasmPushConst(WASM_TYPE_INT, 0, offset, out);
+	ASSERT(size != 8);
+	if (type == WASM_LOAD_INT)
+	{
+		out->emplace_back(op_code + size);
+	}
+	else if (WASM_LOAD_FLOAT)
+	{
+		out->emplace_back(op_code + 2 + size);
+	}
+	else
+	{
+		ASSERT(0);
+	}
+	if (size == 1)
+		// 8-byte aligned
+		out->emplace_back(0x3);
+	else if (size == 0)
+		out->emplace_back(0x2);
+	else
+		ASSERT(0);
+
+	// offset
+	out->emplace_back(0x0);
+}
 
 void WasmGenBinOpImmToReg(int reg, char reg_sz, int imm, own_std::vector<unsigned char>& code_sect, char inst_32bit)
 {
@@ -1366,6 +1375,7 @@ void WasmGenBinOpImmToReg(int reg, char reg_sz, int imm, own_std::vector<unsigne
 
 	// pushing reg dst offset
 	WasmPushConst(WASM_TYPE_INT, 0, dst_reg * 8, &code_sect);
+
 
 	WasmPushLoadOrStore(size, WASM_TYPE_INT, WASM_LOAD_OP, dst_reg * 8, &code_sect);
 	WasmPushConst(WASM_TYPE_INT, size, imm, &code_sect);
@@ -1403,7 +1413,7 @@ static std::string base64_encode(const std::string& in) {
 	std::string out;
 
 	int val = 0, valb = -6;
-	for (u_char c : in) {
+	for (unsigned char c : in) {
 		val = (val << 8) + c;
 		valb += 8;
 		while (valb >= 0) {
@@ -1426,7 +1436,7 @@ static std::string base64_decode(const std::string& in) {
 	}
 
 	int val = 0, valb = -8;
-	for (u_char c : in) {
+	for (unsigned char c : in) {
 		if (T[c] == -1) break;
 		val = (val << 6) + T[c];
 		valb += 6;
@@ -1959,7 +1969,11 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		{
 			WasmPushConst(WASM_TYPE_INT, 0, (RET_1_REG + cur_ir->ret.assign.to_assign.reg) * 8, &code_sect);
 			WasmPushMultiple(gen_state, cur_ir->ret.assign.only_lhs, cur_ir->ret.assign.lhs, cur_ir->ret.assign.rhs, last_on_stack, cur_ir->ret.assign.op, code_sect);
-			WasmStoreInst(code_sect, cur_ir->ret.assign.to_assign.reg_sz);
+			//WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
+			int inst = WASM_STORE_OP;
+			if(cur_ir->ret.assign.to_assign.is_float)
+				inst = WASM_STORE_F32_OP;
+			WasmStoreInst(code_sect, cur_ir->ret.assign.to_assign.reg_sz, inst);
 
 		}
 		WasmEndStack(code_sect, *stack_size);
@@ -2477,31 +2491,48 @@ void WasmModifyCurBcPtr(dbg_state* dbg, wasm_bc* to)
 	dbg->some_bc_modified = true;
 	(*dbg->cur_bc) = to;
 }
+enum print_num_type
+{
+	PRINT_INT,
+	PRINT_FLOAT,
+};
 
-std::string WasmNumToString(dbg_state* dbg, int num, char limit = -1)
+std::string WasmNumToString(dbg_state* dbg, int num, char limit = -1, print_num_type num_type = PRINT_INT)
 {
 	std::string ret = "";
 	char buffer[32];
-	switch (dbg->print_numbers_format)
+	if (num_type == PRINT_FLOAT)
 	{
-	case DBG_PRINT_DECIMAL:
-	{
+		float num_f = *(float*)&num;
 		if(limit == -1)
-			snprintf(buffer, 32, "%d", num);
+			snprintf(buffer, 32, "%.3f", num_f);
 		else 
-			snprintf(buffer, 32, "%0*d", limit, num);
+			// search how to arbitrary number of decimals in float
+			ASSERT(0)
+	}
+	else
+	{
+		switch (dbg->print_numbers_format)
+		{
+		case DBG_PRINT_DECIMAL:
+		{
+			if (limit == -1)
+				snprintf(buffer, 32, "%d", num);
+			else
+				snprintf(buffer, 32, "%0*d", limit, num);
 
-	}break;
-	case DBG_PRINT_HEX:
-	{
-		if(limit == -1)
-			snprintf(buffer, 32, "0x%x", num);
-		else 
-			snprintf(buffer, 32, "0x%0*x", limit, num);
-		
-	}break;
-	default:
-		ASSERT(0);
+		}break;
+		case DBG_PRINT_HEX:
+		{
+			if (limit == -1)
+				snprintf(buffer, 32, "0x%x", num);
+			else
+				snprintf(buffer, 32, "0x%0*x", limit, num);
+
+		}break;
+		default:
+			ASSERT(0);
+		}
 	}
 	ret = buffer;
 	return ret;
@@ -2573,6 +2604,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "f32.store";
 	}break;
+	case WASM_INST_I64_STORE:
+	{
+		ret += "i64.store";
+	}break;
 	case WASM_INST_I32_STORE:
 	{
 		ret += "i32.store";
@@ -2584,6 +2619,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	case WASM_INST_I32_LOAD_8_S:
 	{
 		ret += "i32.load_8_s";
+	}break;
+	case WASM_INST_I64_LOAD:
+	{
+		ret += "i64.load";
 	}break;
 	case WASM_INST_I32_LOAD:
 	{
@@ -2828,6 +2867,7 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	}break;
 	case IR_CMP_NE:
 	case IR_CMP_GT:
+	case IR_CMP_LT:
 	case IR_CMP_EQ:
 	case IR_CMP_LE:
 	case IR_CMP_GE:
@@ -2929,7 +2969,7 @@ void WasmGetIrWithIdx(dbg_state* dbg, func_decl *func, int idx, ir_rep **ir_star
 	*ir_start = nullptr;
 }
 
-std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur_bc, int code_start, int code_end, int max = -1, bool center_cur = true)
+std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur_bc, int code_start, int code_end, int max_ir = -1, bool center_cur = true)
 {
 	std::string ret = "";
 	int i = 0;
@@ -2951,20 +2991,20 @@ std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur
 
 	char buffer[512];
 
-	if (max == -1)
+	if (max_ir == -1)
 	{
-		max = start_bc - end_bc;
-		max++;
+		max_ir = start_bc - end_bc;
+		max_ir++;
 	}
 	//max = max(max, 16);
 
-	while (i < max && cur < dbg->bcs.end())
+	while (i < max_ir && cur < dbg->bcs.end())
 	{
 		int bc_on_stat_rel_idx = cur - stat_begin;
 		int bc_on_stat_abs_idx = bc_on_stat_rel_idx + start_bc;
 		ir_rep* ir = nullptr;
 		int len_ir = 0;
-		WasmGetIrWithIdx(dbg, fdecl, bc_on_stat_abs_idx, &ir, &len_ir, start_bc, start_bc + max);
+		WasmGetIrWithIdx(dbg, fdecl, bc_on_stat_abs_idx, &ir, &len_ir, start_bc, start_bc + max_ir);
 		std::string ir_str = "";
 		if (ir)
 		{
@@ -3435,6 +3475,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 	else
 	{
 		int val = 0;
+		print_num_type print_type = PRINT_INT;
 		if (expr_val.type.ptr > 0)
 		{
 			val = WasmGetMemOffsetVal(dbg, expr_val.offset);
@@ -3456,13 +3497,18 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 				val = WasmGetMemOffsetVal(dbg, expr_val.offset);
 
 			}break;
+			case TYPE_F32:
+			{
+				val = WasmGetMemOffsetVal(dbg, expr_val.offset);
+				print_type = PRINT_FLOAT;
+			}break;
 			default:
 				ASSERT(0);
 			}
 		}
 
 
-		sprintf(buffer, " (%s) %s ", TypeToString(expr_val.type).c_str(), WasmNumToString(dbg, val).c_str());
+		sprintf(buffer, " (%s) %s ", TypeToString(expr_val.type).c_str(), WasmNumToString(dbg, val, -1, print_type).c_str());
 	}
 	ret += buffer;
 
@@ -4526,6 +4572,7 @@ struct dbg_file_seriealize
 	dbg_code_type code_type;
 };
 void WasmSerializePushString(serialize_state* ser_state, std::string* name, str_dbg *);
+void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state* ser_state, type_struct2* strct);
 
 var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state* ser_state, decl2* var, int var_idx)
 {
@@ -4534,7 +4581,10 @@ var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state*
 	if (var->type.type == TYPE_STRUCT )
 	{
 		type_struct2* strct = var->type.strct;
-		ASSERT(IS_FLAG_ON(strct->flags, TP_STRCT_STRUCT_SERIALIZED));
+		if(IS_FLAG_OFF(strct->flags, TP_STRCT_STRUCT_SERIALIZED));
+		{
+			WasmSerializeStructType(wasm_state, ser_state, strct);
+		}
 		var_ser->type_idx = strct->serialized_type_idx;
 
 	}
@@ -4623,6 +4673,35 @@ void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 	unsigned char* end = (unsigned char *)ir_ar->end();
 	ser_state->ir_sect.insert(ser_state->ir_sect.end(), start, end);
 }
+void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_state, func_decl *f)
+{
+	bool is_outsider = IS_FLAG_ON(f->flags, FUNC_DECL_IS_OUTSIDER);
+	int func_offset = ser_state->func_sect.size();
+	int stmnt_offset = ser_state->stmnts_sect.size();
+
+
+	ser_state->func_sect.make_count(ser_state->func_sect.size() + sizeof(func_dbg));
+	auto fdbg = (func_dbg*)(ser_state->func_sect.begin() + func_offset);
+	memset(fdbg, 0, sizeof(func_dbg));
+
+	if (!is_outsider)
+	{
+		ser_state->stmnts_sect.insert(ser_state->stmnts_sect.end(), (unsigned char*)f->wasm_stmnts.begin(), (unsigned char*)f->wasm_stmnts.end());
+
+		own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &f->ir;
+	}
+
+	fdbg->scope = f->scp->serialized_offset;
+	fdbg->code_start = f->wasm_code_sect_idx;
+	fdbg->stmnts_offset = stmnt_offset;
+	fdbg->flags = f->flags;
+	fdbg->stmnts_len = f->wasm_stmnts.size();
+	WasmSerializePushString(ser_state, &f->name, &fdbg->name);
+
+	f->func_dbg_idx = func_offset;
+	f->scp->type = SCP_TYPE_FUNC;
+	f->flags |= FUNC_DECL_SERIALIZED;
+}
 void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_state, scope *scp, unsigned int parent, unsigned int scp_offset)
 {
 	if(IS_FLAG_ON(scp->flags, SCOPE_SKIP_SERIALIZATION))
@@ -4671,35 +4750,11 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 			func_label:
 			func_decl* f = d->type.fdecl;
 			bool is_outsider = IS_FLAG_ON(f->flags, FUNC_DECL_IS_OUTSIDER);
-			if (IS_FLAG_ON(f->flags, FUNC_DECL_INTERNAL | FUNC_DECL_SERIALIZED))
-				break;
-			int func_offset = ser_state->func_sect.size();
-			int stmnt_offset = ser_state->stmnts_sect.size();
-
 			vdbg->type_idx = ser_state->func_sect.size();
+			if (IS_FLAG_ON(f->flags, FUNC_DECL_INTERNAL | FUNC_DECL_SERIALIZED | FUNC_DECL_SERIALIZED))
+				break;
 
-			ser_state->func_sect.make_count(ser_state->func_sect.size() + sizeof(func_dbg));
-			auto fdbg = (func_dbg*)(ser_state->func_sect.begin() + func_offset);
-			memset(fdbg, 0, sizeof(func_dbg));
-
-			if (!is_outsider)
-			{
-				ser_state->stmnts_sect.insert(ser_state->stmnts_sect.end(), (unsigned char*)f->wasm_stmnts.begin(), (unsigned char*)f->wasm_stmnts.end());
-
-				own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &f->ir;
-			}
-
-			fdbg->scope = f->scp->serialized_offset;
-			fdbg->code_start = f->wasm_code_sect_idx;
-			fdbg->stmnts_offset = stmnt_offset;
-			fdbg->flags = f->flags;
-			fdbg->stmnts_len = f->wasm_stmnts.size();
-			WasmSerializePushString(ser_state, &f->name, &fdbg->name);
-
-			f->func_dbg_idx = func_offset;
-			f->scp->type = SCP_TYPE_FUNC;
-			f->flags |= FUNC_DECL_SERIALIZED;
-
+			WasmSerializeFunc(wasm_state, ser_state, f);
 		}break;
 		case TYPE_MACRO_EXPR:
 		{
@@ -4814,6 +4869,15 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	serialize_state ser_state;
 	//printf("\nscop : \n%s\n", wasm_state->lang_stat->root->Print(0).c_str());
 	
+	FOR_VEC(func, wasm_state->lang_stat->outsider_funcs)
+	{
+		func_decl* f = *func;
+		auto fdbg = (func_dbg *)(ser_state.func_sect.begin() + f->func_dbg_idx);
+		WasmSerializeFunc(wasm_state, &ser_state, f);
+		fdbg->file_idx = f->from_file->file_dbg_idx;
+		//WasmSerializeFuncIr(&ser_state, f);
+
+	}
 	ser_state.scopes_sect.make_count(ser_state.scopes_sect.size() + sizeof(scope_dbg));
 	WasmSerializeScope(wasm_state, &ser_state, wasm_state->lang_stat->root, -1, 0);
 
@@ -4831,16 +4895,8 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 
 		auto cur_dbg_f = (file_dbg*)(ser_state.file_sect.begin() + file_offset);
 
-		WasmSerializePushString(&ser_state, &f->name, &cur_dbg_f->name);
+		WasmSerializePushString(&ser_state, &(f->path + "/" + f->name), &cur_dbg_f->name);
 		i++;
-
-	}
-	FOR_VEC(func, wasm_state->lang_stat->outsider_funcs)
-	{
-		func_decl* f = *func;
-		auto fdbg = (func_dbg *)(ser_state.func_sect.begin() + f->func_dbg_idx);
-		fdbg->file_idx = f->from_file->file_dbg_idx;
-		//WasmSerializeFuncIr(&ser_state, f);
 
 	}
 	FOR_VEC(decl, wasm_state->lang_stat->funcs_scp->vars)
@@ -5422,6 +5478,19 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		*(int*)&mem_buffer[penultimate.u32] = top.s32;
 		int a = 0;
 	}break;
+	case WASM_INST_I64_STORE:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+
+		auto penultimate = wasm_stack.back();
+		wasm_stack.pop_back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate.type == 0);
+		ASSERT(penultimate.u32 < dbg.mem_size);
+		*(long long*)&mem_buffer[penultimate.u32] = top.s64;
+		int a = 0;
+	}break;
 	case WASM_INST_I32_STORE:
 	{
 		auto top = wasm_stack.back();
@@ -5461,6 +5530,16 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		penultimate->u32 = (int)(penultimate->f32 >= top.f32);
 		int a = 0;
 	}break;
+	case WASM_INST_F32_LE:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == wstack_val_type::WSTACK_VAL_F32 && penultimate->type == wstack_val_type::WSTACK_VAL_F32)
+		penultimate->u32 = (int)(penultimate->f32 <= top.f32);
+		int a = 0;
+	}break;
 	case WASM_INST_F32_LT:
 	{
 		auto top = wasm_stack.back();
@@ -5477,6 +5556,14 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		// assert is 32bit
 		ASSERT(w->type == WSTACK_VAL_INT);
 		w->s32 = *(char*)&mem_buffer[w->s32];
+		int a = 0;
+	}break;
+	case WASM_INST_I64_LOAD:
+	{
+		auto w = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(w->type == WSTACK_VAL_INT);
+		w->s64 = *(long long*)&mem_buffer[w->s64];
 		int a = 0;
 	}break;
 	case WASM_INST_I32_LOAD:
@@ -5640,7 +5727,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
-		//ir_rep* cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		ir_rep* cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
@@ -5650,7 +5737,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			if (!cur_st)
 				cur_st = &dbg.cur_func->wasm_stmnts[0];
 			dbg.cur_st = cur_st;
-			//dbg.cur_ir = cur_ir;
+			dbg.cur_ir = cur_ir;
 			WasmOnArgs(&dbg);
 			if (dbg.some_bc_modified)
 			{
@@ -5810,7 +5897,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	{
 		auto new_f = (unit_file*)AllocMiscData(lang_stat, sizeof(unit_file));
 
-		auto cur_file = (file_dbg*)(data + file->files_sect);
+		auto cur_file = (file_dbg*)(data + file->files_sect + i * sizeof(file_dbg));
 
 		std::string name = WasmInterpNameFromOffsetAndLen(data, file, &cur_file->name);
 
@@ -6039,7 +6126,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			{
 				bc.type = WASM_INST_F32_CONST;
 				//ptr++;
-				int* int_ptr = (int*)&code[ptr];
+				unsigned int* int_ptr = (unsigned int*)&code[ptr];
 				*(int*)&bc.f32 = (*int_ptr << 24) | (((*int_ptr) & 0xff00) << 8) | (((*int_ptr) & 0xff0000) >> 8) | (((*int_ptr) >> 24));
 
 				ptr += 4;
@@ -6085,6 +6172,24 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			case 0x36:
 			{
 				bc.type = WASM_INST_I32_STORE;
+				// alignment
+				ptr++;
+				// offset
+				ptr++;
+
+			}break;
+			case 0x37:
+			{
+				bc.type = WASM_INST_I64_STORE;
+				// alignment
+				ptr++;
+				// offset
+				ptr++;
+
+			}break;
+			case 0x29:
+			{
+				bc.type = WASM_INST_I64_LOAD;
 				// alignment
 				ptr++;
 				// offset
@@ -6178,6 +6283,11 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 			}break;
 			case 0x5f:
+			{
+				bc.type = WASM_INST_F32_LE;
+
+			}break;
+			case 0x5d:
 			{
 				bc.type = WASM_INST_F32_LT;
 
@@ -7322,6 +7432,31 @@ void AssignOutsiderFunc(lang_state* lang_stat, std::string name, OutsiderFuncTyp
 	lang_stat->winterp->outsiders[name] = func;
 }
 
+void GetFilesInDirectory(std::string dir, own_std::vector<std::string>* contents, own_std::vector<std::string>* file_names)
+{
+	WIN32_FIND_DATA ffd;
+	char buffer[128];
+
+	HANDLE hFind = FindFirstFile((dir + "\\*").c_str(), &ffd);
+
+	if(hFind == INVALID_HANDLE_VALUE)
+	{
+		ASSERT(0);
+		return;
+	}
+	BOOL found_file = 1;
+	FindNextFile(hFind, &ffd);
+	while (true)
+	{
+		found_file = FindNextFile(hFind, &ffd);
+		if (!found_file)
+			break;
+		int read = 0;
+		//char *data = ReadEntireFileLang(ffd.cFileName, &read);
+		//contents->emplace_back(std::string(data, read));
+		file_names->emplace_back((char *)ffd.cFileName);
+	}
+}
 int Compile(lang_state* lang_stat, compile_options *opts)
 {
 	//own_std::vector<std::string> args;
@@ -7340,7 +7475,44 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", base_fl);
 	//lang_stat->base_lang = NewDecl(lang_stat, "base", tp);
 
-	AddNewFile(lang_stat, file);
+	own_std::vector<std::string> file_contents;
+	own_std::vector<std::string> file_names;
+	GetFilesInDirectory(file, &file_contents, &file_names);
+	/*
+	node* mod = new_node(lang_stat);
+	
+	if (file_contents.size() == 1)
+	{
+		
+	}
+	if (file_contents.size() == 2)
+	{
+
+	}
+	else
+		ASSERT(0);
+	*/
+
+	lang_stat->work_dir = file;
+
+	FOR_VEC(str, file_names)
+	{
+		AddNewFile(lang_stat, *str);
+	}
+	FOR_VEC(i1, lang_stat->files)
+	{
+		type2 tp;
+		tp.type = enum_type2::TYPE_IMPORT;
+		tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", *i1);
+		FOR_VEC(i2, lang_stat->files)
+		{
+			if (*i1 == *i2)
+				continue;
+
+
+			(*i2)->global->imports.emplace_back(NewDecl(lang_stat, "__import", tp));
+		}
+	}
 	//AddNewFile(lang_stat, "Core/tests.lng");
 	//AddNewFile(lang_stat, "Core/player.lng");
 	//AddNewFile(file_name);
@@ -7356,10 +7528,12 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		for(cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
 		{
 			auto f = lang_stat->files[cur_f];
+			lang_stat->work_dir = f->path;
 			lang_stat->cur_file = f;
 			DescendNameFinding(lang_stat, f->s, f->global);
 			int a = 0;
 			iterations++;
+			ASSERT(iterations < 100);
 		}
 		if(!lang_stat->something_was_declared)
 			break;
@@ -7454,7 +7628,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		auto f = *f_ptr;
 		auto fdecl = (decl2 *)AllocMiscData(lang_stat, sizeof(decl2));
 		fdecl->type.type = TYPE_FUNC;
-		fdecl->name = f->name;
+		fdecl->name = std::string(f->name);
 		fdecl->type.fdecl = f;
 		f->this_decl = fdecl;
 		wasm_state.imports.emplace_back(f->this_decl);

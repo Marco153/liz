@@ -1,4 +1,5 @@
 #pragma once
+#include <windows.h>
 #include "serializable_pound_defines.h"
 #define FOR_ARRAY(index_name, ar_name, type_ar) for(int index_name = 0; index_name < (ar_name).count; index_name++){ type_ar *it = (ar_name)[index_name];
 #define FOR(ar_name) for(auto it = (ar_name)[0]; it < (ar_name).end; it++)

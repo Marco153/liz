@@ -360,12 +360,12 @@ void FreeMemAlloc(mem_alloc* alloc)
 }
 void InitMemAlloc(mem_alloc *alloc)
 {
-    int all_chunks_sz = alloc->chunks_cap * sizeof(mem_chunk);
-    int chunks_total_size = alloc->chunks_cap * BYTES_PER_CHUNK;
-	int in_use_hash_sz = alloc->in_use.hash_table_size * sizeof(heap_hash::inner);
-	int unallocated_sz = UNALLOCATED_BUFFER_ITEMS * 8;
+    long long all_chunks_sz = alloc->chunks_cap * sizeof(mem_chunk);
+    long long chunks_total_size = alloc->chunks_cap * BYTES_PER_CHUNK;
+	long long in_use_hash_sz = alloc->in_use.hash_table_size * sizeof(heap_hash::inner);
+	long long unallocated_sz = UNALLOCATED_BUFFER_ITEMS * 8;
 
-	int total_size = all_chunks_sz + chunks_total_size + in_use_hash_sz + unallocated_sz;
+	long long total_size = all_chunks_sz + chunks_total_size + in_use_hash_sz + unallocated_sz;
 
 	char* start = (char *)VirtualAlloc(0, total_size, MEM_COMMIT, PAGE_READWRITE);
 	char* buffer = start;

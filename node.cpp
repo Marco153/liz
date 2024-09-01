@@ -47,6 +47,17 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state *, node* n, scope* scp);
 void DescendComma(lang_state *,node* n, scope* scp, own_std::vector<comma_ret>& ret);
 bool CheckOverloadFunction(lang_state *, func_decl* f);
 
+/*
+int max(int a, int b)
+{
+	return a > b ? a : b;
+}
+int min(int a, int b)
+{
+	return a < b ? a : b;
+}
+*/
+
 char* std_str_to_heap(lang_state *, std::string* str);
 #define PSR_FLAGS_LAMBDA_ARGS 1
 #define PSR_FLAGS_IMPLICIT_SEMI_COLON 2
@@ -581,7 +592,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 	}break;
 	case enum_type2::TYPE_F32:
 	{
-		cond = rhs->type == enum_type2::TYPE_F32;
+		cond = rhs->type == enum_type2::TYPE_F32 || rhs->type == enum_type2::TYPE_F32_RAW;
 		if (assert && !cond)
 			ASSERT(false)
 	}break;
@@ -2628,6 +2639,7 @@ enum_type2 FromVarTypeToType(enum_type2 tp)
 	case  enum_type2::TYPE_F64:
 		ret_type = enum_type2::TYPE_F64_TYPE;
 		break;
+	case  enum_type2::TYPE_F32_RAW:
 	case  enum_type2::TYPE_F32:
 		ret_type = enum_type2::TYPE_F32_TYPE;
 		break;
@@ -3101,7 +3113,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	{
 	case node_type::N_FLOAT:
 	{
-		ret_type.type = TYPE_F32;
+		ret_type.type = TYPE_F32_RAW;
 	}break;
 	case node_type::N_KEYWORD:
 	{
@@ -4454,7 +4466,8 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 			// parameters with name and type
 			else if (t->type == COMMA_RET_COLON || t->type == COMMA_RET_TYPE)
 			{
-				t->decl.type.type = FromTypeToVarType(t->decl.type.type);
+				enum_type2 tp = t->type == COMMA_RET_COLON ? t->decl.type.type : t->tp.type;
+				t->decl.type.type = FromTypeToVarType(tp);
 				new_decl->type = t->decl.type;
 				new_decl->name = t->decl.name;
 
@@ -6105,6 +6118,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						{
 							if (lhs->type.type == enum_type2::TYPE_STRUCT_TYPE)
 								lhs->type.type = enum_type2::TYPE_STRUCT;
+							else if (lhs->type.type == enum_type2::TYPE_F32_RAW)
+								lhs->type.type = enum_type2::TYPE_F32;
 							else if (lhs->type.type == enum_type2::TYPE_INT)
 								lhs->type.type = enum_type2::TYPE_S32;
 							else if (lhs->type.type == enum_type2::TYPE_FUNC_DEF)
@@ -6937,7 +6952,7 @@ void ModifyNodeIntOrFloat(type2 &ret_type, node *n)
 		n->t->i = ret_type.i;
 		//ret_type.i *= -1;
 	}
-	else if (ret_type.type == enum_type2::TYPE_F32)
+	else if (ret_type.type == enum_type2::TYPE_F32_RAW)
 	{
 		n->type = N_FLOAT;
 		//ret_type.f = -1;
@@ -7541,7 +7556,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_FLOAT:
 	{
-		ret_type.type = enum_type2::TYPE_F32;
+		ret_type.type = enum_type2::TYPE_F32_RAW;
 		ret_type.f = n->t->f;
 	}break;
 	case node_type::N_INT:
@@ -8855,9 +8870,20 @@ unit_file* AddNewFile(lang_state *lang_stat, std::string name)
 	}
 	std::string dir = lang_stat->work_dir + "\\" + name;
 
+
 	auto new_f = (unit_file*)AllocMiscData(lang_stat, sizeof(unit_file));
 	memset(new_f, 0, sizeof(unit_file));
-	new_f->name = name.substr();
+	int bar_idx = name.find_last_of("\\/");
+	if (bar_idx != -1)
+	{
+
+		new_f->name = name.substr(bar_idx + 1);
+	}
+	else
+		new_f->name = name.substr();
+
+	bar_idx = dir.find_last_of("\\/");
+	new_f->path = dir.substr(0, bar_idx);
 
 	int read;
 	char* file = ReadEntireFileLang((char*)dir.c_str(), &read);

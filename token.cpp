@@ -26,6 +26,7 @@ bool IsUnsigned(enum_type2 tp)
 		case enum_type2::TYPE_CHAR:
 		case enum_type2::TYPE_BOOL:
 		case enum_type2::TYPE_F32:
+		case enum_type2::TYPE_F32_RAW:
 		case enum_type2::TYPE_F64:
 		case enum_type2::TYPE_INT:
 			return true;
@@ -136,6 +137,7 @@ int GetTypeSize(type2 *tp)
 		case enum_type2::TYPE_S32_TYPE:
 		case enum_type2::TYPE_U32:
 		case enum_type2::TYPE_F32:
+		case enum_type2::TYPE_F32_RAW:
 		case enum_type2::TYPE_S32:
 		case enum_type2::TYPE_ENUM_TYPE:
 		case enum_type2::TYPE_ENUM:
@@ -264,6 +266,10 @@ std::string TypeToString(type2 &tp)
 	case enum_type2::TYPE_BOOL:
 	{
 		ret += "bool";
+	}break;
+	case enum_type2::TYPE_F32_RAW:
+	{
+		ret += "f32_raw";
 	}break;
 	case enum_type2::TYPE_F64:
 	{

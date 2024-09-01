@@ -1,0 +1,25 @@
+context: struct
+{
+	alloc : mem_alloc,
+}
+
+OpenWindow::fn outsider() ! *u8;
+ClearBackground::fn outsider(f32, f32, f32);
+Draw::fn outsider(*u8);
+ShouldClose::fn outsider(*u8) ! bool;
+
+main :: fn()
+{
+	ctx: context;
+	InitMemAlloc(&ctx.alloc);
+	Print(&ctx.alloc);
+
+	window := OpenWindow();
+	while !ShouldClose(window)
+	{
+		ClearBackground(0.7, 0.5, 0.1);
+		Draw(window);
+	}
+	aoeu: = 1234;
+
+}

@@ -487,6 +487,12 @@ test_change_heap_hash::fn(h : *heap_hash)
 {
 	h.data = cast(*heap_hash.inner)100;
 }
+
+test_sum_float::fn(f1 : f32, f2 : f32) !f32
+{
+	return f1 + f2;
+}
+
 test_ptr::fn(alloc : *mem_alloc)
 {
 
@@ -584,6 +590,7 @@ test_ptr::fn(alloc : *mem_alloc)
 	if contiguous_with_ptr2 != cast(bool)1
 		__dbg_break;
 	
+	*cur = &chunk1;
 	cur.flags = CHUNK_ALLOCATED;
 
 	if is_flag_off(cur.flags, CHUNK_ALLOCATED)
@@ -810,27 +817,13 @@ tests :: fn()
 	if val == false
 		__dbg_break;
 	
+	fsum: = test_sum_float(1.0, 2.0);
+	if fsum < 2.0  || fsum > 4.0
+		__dbg_break;
+
 	chunk: = mem_chunk{ next: nil, prev : cast(*mem_chunk)7 };
 	if cast(u64)chunk.prev != 7
 		__dbg_break;
-}
-main :: fn()
-{
 
-	alloc :mem_alloc;
-	InitMemAlloc(&alloc);
-	Print(&alloc);
-	i: = 0;
-	addr1 := heap_alloc(&alloc, 32);
-	while i < 1000
-	{
-		addr2: = heap_alloc(&alloc, 12);
-		addr3: = heap_alloc(&alloc, 12);
-		heap_free(&alloc, cast(*u8)addr2);
-		heap_free(&alloc, cast(*u8)addr3);
-		i++;
-	}
-	__dbg_break;
-	aoeu: = 1234;
 
 }

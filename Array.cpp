@@ -38,69 +38,6 @@ int LangArray<T>::GetTotalBytes()
 
 
 template <class T>
-FUNC_STRUCT_EXPORT void LangArray<T>::Init(int length)
-{
-	char *b = GET_END_PTR_ADD_MEM(globals.main_buffer, WND_MISC, sizeof(T) * length);
-
-	this->start  = (T *) b;
-	this->end    = (T *) b;
-	this->count   = 0;
-	this->length = length;
-}
-
-
-template <class T>
-void LangArray<T>::Init(char *buffer, int length)
-{
-	char *b = GET_END_PTR_ADD_MEM(buffer, WND_MISC, sizeof(T) * length);
-
-	this->start  = (T *) b;
-	this->end    = (T *) b;
-	this->count   = 0;
-	this->length = length;
-}
-
-template <class T>
-void LangArray<T>::CopyDataToAr(T *a, int count)
-{
-	ASSERT((this->count + count) <= this->length)
-	memcpy(this->end, a, sizeof(T) * count);
-	this->count += count;
-	this->end   += count;
-}
-
-
-template <class T>
-void LangArray<T>::Copy(LangArray<T> *a)
-{
-	if (a->count == 0)
-	{
-		return;
-	}
-	ASSERT((this->count + a->count) <= this->length)
-	memcpy(this->end, a->start, sizeof(T) * a->count);
-	this->end   += a->count;
-	this->count += a->count;
-}
-template <class T>
-void LangArray<T>::CopyCreateAnotherAr(LangArray<T> *a, char *buffer)
-{
-	this->start  = (T *)(buffer);
-	memcpy(this->start, a->start, sizeof(T) * a->count);
-	this->end    = this->start + a->count;
-	this->length = a->length;
-	this->count  = a->count;
-}
-template <class T>
-FUNC_STRUCT_EXPORT T *LangArray<T>::Add()
-{
-	ASSERT(this->count < this->length)
-	T *ret = this->end;
-	this->end++;
-	this->count++;
-	return ret;
-}
-template <class T>
 FUNC_STRUCT_EXPORT T *LangArray<T>::Add(LangArray<T> *a)
 {
 	ASSERT((this->count + a->count) < this->length)

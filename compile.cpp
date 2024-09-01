@@ -382,6 +382,7 @@ struct lang_state
 	own_std::vector<node*> not_founds;
 #endif
 	bool gen_wasm;
+	bool release;
 
 
 	
@@ -3048,19 +3049,25 @@ long long WasmInterpGetReVal(char* mem_buffer, int reg, bool deref)
 ir_rep *GetIrBasedOnOffset(dbg_state *dbg, int offset)
 {
 	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &dbg->cur_func->ir;
-	FOR_VEC(ir, (*ir_ar))
+	ir_rep* ir = ir_ar->begin();
+	ir_rep* end = ir_ar->end();
+	while(ir < end)
 	{
 		if (offset >= ir->start && offset <= ir->end)
 			return ir;
+		ir++;
 	}
 	return nullptr;
 }
 stmnt_dbg* GetStmntBasedOnOffset(own_std::vector<stmnt_dbg>* ar, int offset)
 {
-	FOR_VEC(st, (*ar))
+	stmnt_dbg* st = ar->begin();
+	stmnt_dbg* end = ar->end();
+	while(st < end)
 	{
 		if (offset >= st->start && offset <= st->end)
 			return st;
+		st++;
 	}
 	return nullptr;
 }
@@ -5158,7 +5165,7 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 
 	return ret_scp;
 }
-bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigned char* mem_buffer, block_linked** cur, bool &can_break)
+inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigned char* mem_buffer, block_linked** cur, bool &can_break)
 {
 	own_std::vector<wasm_stack_val> &wasm_stack = dbg.wasm_stack;
 	wasm_stack_val val = {};
@@ -5633,7 +5640,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
-		ir_rep* cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		//ir_rep* cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
@@ -5643,7 +5650,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			if (!cur_st)
 				cur_st = &dbg.cur_func->wasm_stmnts[0];
 			dbg.cur_st = cur_st;
-			dbg.cur_ir = cur_ir;
+			//dbg.cur_ir = cur_ir;
 			WasmOnArgs(&dbg);
 			if (dbg.some_bc_modified)
 			{
@@ -6719,6 +6726,7 @@ void WasmInterp(own_std::vector<unsigned char>& code, char* mem_buffer, int size
 
 			cur = dbg.block_stack.back();
 			dbg.block_stack.pop_back();
+			ASSERT(wasm_stack.size() == 0);
 		}break;
 		case WASM_INST_I32_GE_U:
 		{
@@ -7251,7 +7259,8 @@ async function start(){\n\
 	}
 
 
-	WasmSerialize(wasm_state, final_code_sect);
+	if(!wasm_state->lang_stat->release)
+		WasmSerialize(wasm_state, final_code_sect);
 
 	//WasmInterp(final_code_sect, buffer, mem_size, "wasm_test_func_ptr", wasm_state, args, 3);
 
@@ -7277,6 +7286,7 @@ struct compile_options
 {
 	std::string file;
 	std::string wasm_dir;
+	bool release;
 };
 
 void AssignDbgFile(lang_state* lang_stat, std::string file_name)
@@ -7324,6 +7334,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	std::string target = "";
 
 	lang_stat->gen_wasm = true;
+	lang_stat->release = opts->release;
 	//auto base_fl = AddNewFile(lang_stat, "Core/base.lng");
 	//tp.type = enum_type2::TYPE_IMPORT;
 	//tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", base_fl);

@@ -81,6 +81,16 @@ _own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 		i++;
 	}
 }
+memcpy::fn(dst : *u8, src : *u8, sz : u64) !void
+{
+	ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
+	i:u64 = 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
+		i++;
+	}
+}
 memset::fn(dst : *u8, val : u8, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128);
@@ -799,6 +809,10 @@ tests :: fn()
 
 	if val == false
 		__dbg_break;
+	
+	chunk: = mem_chunk{ next: nil, prev : cast(*mem_chunk)7 };
+	if cast(u64)chunk.prev != 7
+		__dbg_break;
 }
 main :: fn()
 {
@@ -808,7 +822,7 @@ main :: fn()
 	Print(&alloc);
 	i: = 0;
 	addr1 := heap_alloc(&alloc, 32);
-	while i < 100
+	while i < 1000
 	{
 		addr2: = heap_alloc(&alloc, 12);
 		addr3: = heap_alloc(&alloc, 12);

@@ -1939,7 +1939,10 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
     }break;
 	case AST_DBG_BREAK:
 	{
-		ir.type = IR_DBG_BREAK;
+		if (lang_stat->release)
+			ir.type = IR_NOP;
+		else
+			ir.type = IR_DBG_BREAK;
 		out->emplace_back(ir);
 	}break;
 	case AST_BREAK:

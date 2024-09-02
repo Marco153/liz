@@ -17,7 +17,7 @@ main :: fn()
 	window := OpenWindow();
 	while !ShouldClose(window)
 	{
-		ClearBackground(0.7, 0.5, 0.1);
+		ClearBackground(0.2, 0.5, 0.1);
 		Draw(window);
 	}
 	aoeu: = 1234;

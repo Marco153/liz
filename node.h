@@ -24,6 +24,7 @@
 #define NODE_FLAGS_FUNC_THIS 0x80000
 #define NODE_FLAGS_STMNT_ZERO_INITIALIZED 0x100000
 #define NODE_FLAGS_POINT_FROM_USING 0x200000
+#define NODE_FLAGS_STMNT_WITHOUT_SEMICOLON 0x400000
 
 #define ASSIGN_VEC(v1, v2) v1.assign(v2.begin(), v2. end())
 #define INSERT_VEC(v1, v2) v1.insert(v1.end(), v2.begin(), v2.end())

@@ -77,6 +77,7 @@ char* std_str_to_heap(lang_state *, std::string* str);
 #define PSR_FLAGS_ON_FUNC_DECL 0x8000
 #define PSR_FLAGS_ON_STRUCT_DECL 0x10000
 #define PSR_FLAGS_ON_JMP_WHEN_ERROR 0x20000
+#define PSR_FLAGS_SCOPE_WHITHOUT_CURLY 0x40000
 
 
 #define PREC_SEMI_COLON 0
@@ -714,8 +715,11 @@ void node_iter::CreateCondAndScope(node** n)
 	int scope_start = peek_tkn()->line;
 	if (peek_tkn()->type != tkn_type2::T_OPEN_CURLY)
 	{
+		lang_stat->flags |= PSR_FLAGS_SCOPE_WHITHOUT_CURLY;
 		(*n)->r = parse_(PREC_SEMI_COLON, parser_cond::LESSER_EQUAL);
-		(*n)->r->flags = 0;
+		lang_stat->flags &= ~PSR_FLAGS_SCOPE_WHITHOUT_CURLY;
+
+		//(*n)->r->flags = 0;
 		if ((*n)->r->type != N_STMNT)
 		{
 			node* new_nd = new_node(lang_stat, (*n)->t);
@@ -726,9 +730,14 @@ void node_iter::CreateCondAndScope(node** n)
 		int scope_end = peek_tkn()->line;
 		SetNodeScopeIdx(lang_stat, &(*n)->r, cur_scope_count++, scope_start, scope_end);
 
-		ExpectTkn(T_SEMI_COLON);
-		//ASSERT(get_tkn()->type == tkn_type2::T_SEMI_COLON)
-		get_tkn();
+		auto peek = peek_tkn();
+		bool is_else = peek->type == T_WORD && peek->str == "else";
+		if (!is_else)
+		{
+			ExpectTkn(T_SEMI_COLON);
+			//ASSERT(get_tkn()->type == tkn_type2::T_SEMI_COLON)
+			get_tkn();
+		}
 		(*n)->flags |= NODE_FLAGS_IS_SCOPE;
 	}
 	else
@@ -1207,6 +1216,13 @@ node* node_iter::parse_expr()
 						lang_stat->flags &= ~PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
 
 						int scope_end = peek_tkn()->line;
+						if (cur_node->r->type != N_STMNT)
+						{
+							node* new_nd = new_node(lang_stat, cur_node->t);
+							new_nd->l = cur_node->r;
+							new_nd->type = N_STMNT;
+							cur_node->r = new_nd;
+						}
 						SetNodeScopeIdx(lang_stat, &cur_node->r, cur_scope_count++, scope_start, scope_end);
 
 						ExpectTkn(tkn_type2::T_SEMI_COLON);
@@ -1571,10 +1587,24 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 
 		int cur_prec = 0;
 
+		bool break_when_node_head = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD);
+		bool scope_without_curly = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY);
+		bool cur_is_ident_or_int = peek_tkn()->type == tkn_type2::T_WORD || peek_tkn()->type == tkn_type2::T_INT;
+		bool return_without_semicolon_on_scope_end = false;
+
+		auto cur = peek_tkn();
+		bool next_is_curly = cur->type == T_CLOSE_CURLY;
+		bool next_is_else = cur->type == T_CLOSE_CURLY;
+		if (scope_without_curly)
+			next_is_else = cur->type == T_WORD && cur->str == "else";
+
+		return_without_semicolon_on_scope_end = cur_is_ident_or_int && (next_is_else || next_is_curly);
+		if (return_without_semicolon_on_scope_end)
+		{
+			cur_node->l->flags = NODE_FLAGS_STMNT_WITHOUT_SEMICOLON;
+		}
 		// breaking when inside if, while for it found a word in head of the node
-		if ((peek_tkn()->type == tkn_type2::T_WORD 
-			) &&
-			IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD))
+		if ((cur_is_ident_or_int && break_when_node_head) || return_without_semicolon_on_scope_end)
 		{
 			return cur_node->l;
 		}
@@ -1760,9 +1790,10 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			PARSER_CHECK
 		}
 
-		ASSERT(cur_node->r == nullptr)
+		ASSERT(cur_node->r == nullptr);
 
-			cur_node->r = parse_(cur_prec, parser_cond::LESSER_EQUAL);
+		cur_node->r = parse_(cur_prec, parser_cond::LESSER_EQUAL);
+
 
 	double_colon_scope_label:
 		auto nnode = new_node(lang_stat, cur_node->t);
@@ -3105,12 +3136,56 @@ bool FromStaticArToAr(lang_state *lang_stat, type2* ret_type, scope* scp, node* 
 	n->ar_lit_tp = NewType(lang_stat, ret_type);
 	return true;
 }
+node *GetLastStmntType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type)
+{
+	ASSERT(n->type == N_STMNT);
+	node* last_stmnt = n;
+	if (last_stmnt->r)
+		last_stmnt = last_stmnt->r;
+	else
+	{
+		ASSERT(n->l->type != N_STMNT);
+		last_stmnt = n->l;
+	}
+	NameFindingGetType(lang_stat, last_stmnt, scp, ret_type);
+
+	return last_stmnt;
+}
+void GetIfExprType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type, int only_type)
+{
+	scp = n->l->r->scp;
+	auto last_st = GetLastStmntType(lang_stat, n->l->r->r, scp, ret_type);
+	node* cur = n->r;
+	type2 aux_type;
+	if (only_type || !cur || IS_FLAG_OFF(last_st->flags, NODE_FLAGS_STMNT_WITHOUT_SEMICOLON))
+		return;
+	
+	while (cur->type == N_ELSE || cur->type == N_ELSE_IF)
+	{
+		if (cur->type == N_ELSE)
+		{
+			GetLastStmntType(lang_stat, cur->r->r, scp, aux_type);
+			break;
+		}
+		else
+			GetLastStmntType(lang_stat, cur->l->r->r, scp, aux_type);
+
+		if (!CompareTypes(&ret_type, &aux_type))
+			ASSERT(0);
+		cur = cur->r;
+	}
+}
+
 // $NameFindingGetType $NameType
 bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type)
 {
 	char msg_hdr[256];
 	switch (n->type)
 	{
+	case node_type::N_WHILE:
+	{
+		ret_type.type = TYPE_VOID;
+	}break;
 	case node_type::N_FLOAT:
 	{
 		ret_type.type = TYPE_F32_RAW;
@@ -3532,6 +3607,10 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				return false;
 		}break;
 		}
+	}break;
+	case N_IF:
+	{
+		GetIfExprType(lang_stat, n, scp, ret_type, false);
 	}break;
 	default:
 		ASSERT(false)
@@ -5156,9 +5235,23 @@ node* CreateBoolExpression(lang_state *lang_stat, node* var, node* expr, scope* 
 	eq_true->flags = NODE_FLAGS_IS_PROCESSED2;
 	eq_false->flags = NODE_FLAGS_IS_PROCESSED2;
 
-	auto if_logic = NewTypeNode(lang_stat, expr, N_BINOP, eq_true, expr->t);
 
-	auto else_logic = NewTypeNode(lang_stat, nullptr, N_BINOP, eq_false, expr->t);
+	auto scope_nd = new_node(lang_stat, expr->t);
+	scope_nd->type = N_SCOPE;
+	auto stmnt_nd = new_node(lang_stat, expr->t);
+	stmnt_nd->type = N_STMNT;
+	stmnt_nd->l = eq_true;
+	scope_nd->r = stmnt_nd;
+
+	auto if_logic = NewTypeNode(lang_stat, expr, N_BINOP, scope_nd, expr->t);
+
+	scope_nd = new_node(lang_stat, expr->t);
+	scope_nd->type = N_SCOPE;
+	stmnt_nd = new_node(lang_stat, expr->t);
+	stmnt_nd->type = N_STMNT;
+	stmnt_nd->l = eq_false;
+	scope_nd->r = stmnt_nd;
+	auto else_logic = NewTypeNode(lang_stat, nullptr, N_BINOP, scope_nd, expr->t);
 	else_logic->type = N_ELSE;
 
 	auto new_if = NewTypeNode(lang_stat, if_logic, N_IF, else_logic, expr->t);
@@ -6716,6 +6809,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		if (n->l->r != nullptr && !DescendNameFinding(lang_stat, n->l->r, scp) && scp->parent != nullptr)
 			return nullptr;
 
+
+
 		if (n->r != nullptr && !DescendNameFinding(lang_stat, n->r, scp) && scp->parent != nullptr)
 			return nullptr;
 	}break;
@@ -7149,6 +7244,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			DescendNode(lang_stat, n->l->r, scp);
 		}
+		GetIfExprType(lang_stat, n, scp, ret_type, true);
+
+		//node *cur:
 
 		// else blocks
 		if (n->r != nullptr)

@@ -104,11 +104,13 @@ struct ast_if
     ast_rep * cond;
     own_std::vector<ast_rep *> elses;
     ast_rep *scope;
+	type2 expr_type;
 };
 struct ast_rep
 {
     ast_type type;
     tkn_type2 op;
+	bool stmnt_without_semicolon;
 
     union
     {
@@ -193,6 +195,9 @@ enum ir_type
 
 	IR_BEGIN_COND_BLOCK,
 	IR_END_COND_BLOCK,
+
+	IR_BEGIN_IF_EXPR_BLOCK,
+	IR_END_IF_EXPR_BLOCK,
 
 	IR_BEGIN_IF_BLOCK,
 	IR_END_IF_BLOCK,

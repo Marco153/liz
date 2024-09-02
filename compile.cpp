@@ -2560,6 +2560,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "i32.le_u";
 	}break;
+	case WASM_INST_F32_LE:
+	{
+		ret += "f32.le";
+	}break;
 	case WASM_INST_F32_LT:
 	{
 		ret += "f32.lt";

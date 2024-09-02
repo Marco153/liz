@@ -825,5 +825,12 @@ tests :: fn()
 	if cast(u64)chunk.prev != 7
 		__dbg_break;
 
+	i = 5;
+
+	a: = if i == 5 69 else 420;
+
+	if a != 69
+		__dbg_break;
+
 
 }

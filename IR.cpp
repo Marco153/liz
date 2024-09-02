@@ -25,6 +25,22 @@ ast_rep *NewAst()
 }
 
 
+bool CheckStmntWithoutSemicolon(lang_state* lang_stat, own_std::vector<ast_rep *>* ar)
+{
+	FOR_VEC(stmnt, (*ar))
+	{
+		ast_rep* st = *stmnt;
+		bool is_stmnt_without_semicolon = st->stmnt_without_semicolon;
+		if (is_stmnt_without_semicolon)
+		{
+			// stmnt without semicolon should be at the end of the scope, because they are like a return
+			ASSERT((stmnt + 1) == ar->end());
+			return true;
+		}
+
+	}
+	return false;
+}
 ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 {
     ast_rep *ret = NewAst();
@@ -114,6 +130,18 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			ret->cond.elses.emplace_back(AstFromNode(lang_stat, cur, scp));
 			cur = cur->r;
 		}
+
+
+		if (CheckStmntWithoutSemicolon(lang_stat, &ret->cond.scope->stats))
+			GetLastStmntType(lang_stat, n->l->r->r, scp, ret->cond.expr_type);
+
+		FOR_VEC(cond, ret->cond.elses)
+		{
+			ast_rep* c = *cond;
+			CheckStmntWithoutSemicolon(lang_stat, &c->cond.scope->stats);
+		}
+
+
     }break;
 	case node_type::N_BINOP:
     {
@@ -387,6 +415,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		int size = node_stack.size();
 
 		ast_rep* lhs = AstFromNode(lang_stat, cur_node->l, scp);
+		if (IS_FLAG_ON(cur_node->l->flags, NODE_FLAGS_STMNT_WITHOUT_SEMICOLON))
+			lhs->stmnt_without_semicolon = true;
 		ret->stats.emplace_back(lhs);
 
         for(int i = node_stack.size() - 1; i >= 0; i--)
@@ -395,6 +425,9 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			if (!s->r)
 				continue;
 			ast_rep* rhs = AstFromNode(lang_stat, s->r, scp);
+
+			if (IS_FLAG_ON(s->r->flags, NODE_FLAGS_STMNT_WITHOUT_SEMICOLON))
+				rhs->stmnt_without_semicolon = true;
 
 			if (rhs->type == AST_STATS)
 				INSERT_VEC(ret->stats, rhs->stats);
@@ -1594,11 +1627,29 @@ int AllocArgsRegsReturnSpilled(lang_state* lang_stat, func_decl* func, own_std::
 	}
 	return spilled;
 }
+void GenIfExpr(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out)
+{
+	ir_rep ir = {};
+
+	ir.type = IR_ASSIGNMENT;
+	ir.assign.to_assign.type = IR_TYPE_RET_REG;
+	ir.assign.to_assign.reg_sz = 8;
+	ir.assign.to_assign.reg = 0;
+	ir.assign.only_lhs = true;
+
+	GenStackThenIR(lang_stat, ast, out, &ir.assign.lhs);
+	out->emplace_back(ir);
+
+}
 void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *out)
 {
 	ir_rep ir = {};
     switch(ast->type)
     {
+	case AST_INT:
+	{
+
+	}break;
 	case AST_UNOP:
 	{
 		ASSERT(0);
@@ -1770,6 +1821,15 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			ir_val rhs_top = {};
 			switch (rhs_ast->type)
 			{
+			case AST_IF:
+			{
+				GetIRFromAst(lang_stat, rhs_ast, out);
+				ir.assign.only_lhs = true;
+				ir.assign.lhs.type = IR_TYPE_RET_REG;
+				ir.assign.lhs.reg = 0;
+				ir.assign.lhs.is_float = ast->cond.expr_type.IsFloat();
+
+			}break;
 			case AST_CALL:
 			case AST_BINOP:
 			case AST_CAST:
@@ -1961,6 +2021,18 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
     {
 		FreeAllRegs(lang_stat);
 
+		bool is_stmnt_without_semicolon = ast->cond.scope->stats.back()->stmnt_without_semicolon;
+		bool was_in_stmnt = lang_stat->ir_in_stmnt;
+		if (is_stmnt_without_semicolon)
+			lang_stat->ir_in_stmnt = false;
+		/*
+
+		int stmnt_without_semicolon_idx = 0;
+
+		if(is_stmnt_without_semicolon)
+			stmnt_without_semicolon_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_EXPR_BLOCK, (void *)(long long)ast->line_number);
+		*/
+
 		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
         int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
 
@@ -1979,11 +2051,14 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
         if(ast->cond.scope)
         {
             GetIRFromAst(lang_stat, ast->cond.scope, out);
+			if (is_stmnt_without_semicolon)
+				GenIfExpr(lang_stat, ast->cond.scope->stats.back(), out);
             if(has_elses)
             {
                 ir.type = IR_BREAK_OUT_IF_BLOCK;
                 out->emplace_back(ir);
             }
+
         }
 
         if(has_elses)
@@ -2004,6 +2079,9 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 
             GetIRFromAst(lang_stat, e->cond.scope, out);
 
+			if (is_stmnt_without_semicolon)
+				GenIfExpr(lang_stat, e->cond.scope->stats.back(), out);
+
             if(!is_last)
             {
                 ir.type = IR_BREAK_OUT_IF_BLOCK;
@@ -2013,6 +2091,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
         }
 
         IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
+		if (is_stmnt_without_semicolon)
+			lang_stat->ir_in_stmnt = was_in_stmnt;
 
     }break;
     default:

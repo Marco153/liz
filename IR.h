@@ -18,6 +18,7 @@ enum ast_type
     AST_IF,
     AST_ELSE_IF,
     AST_ELSE,
+    AST_INDEX,
     AST_WHILE,
     AST_CALL,
     AST_CAST,
@@ -32,6 +33,10 @@ enum ast_type
     AST_NEGATE,
     AST_OPPOSITE,
 
+};
+enum ast_index_type
+{
+	AST_INDEX_TP_NORMAL,
 };
 
 struct ast_rep;
@@ -48,6 +53,13 @@ struct ast_bool_exp
     own_std::vector<ir_rep *> false_conds;
     own_std::vector<ir_rep *> true_conds;
 
+};
+struct ast_index
+{
+	ast_index_type type;
+	type2 lhs_type;
+	ast_rep* lhs;
+	ast_rep* rhs;
 };
 struct ast_loop
 {
@@ -144,6 +156,7 @@ struct ast_rep
         ast_deref deref;
         ast_struct_construct strct_constr;
         type2 tp;
+		ast_index index;
 
     };
     ~ast_rep()

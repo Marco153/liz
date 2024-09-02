@@ -832,5 +832,14 @@ tests :: fn()
 	if a != 69
 		__dbg_break;
 
+	static_ar: [4] f32;
+	__dbg_break;
+	*static_ar[0] = 0.5;
+
+
+	if* static_ar[0] > 0.4 || *static_ar[0] > 0.6
+		__dbg_break;
+
+
 
 }

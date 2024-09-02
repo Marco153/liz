@@ -1919,7 +1919,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	{
 
 		int inst = WASM_LOAD_OP;
-		if (IsIrValFloat(val))
+		if (IsIrValFloat(val) && deref_times == 1)
 			inst = WASM_LOAD_F32_OP;
 		WasmStoreInst(code_sect, val->reg_sz, inst);
 		//if(!deref)
@@ -2136,7 +2136,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
 		WasmPushMultiple(gen_state, cur_ir->assign.only_lhs, *lhs, *rhs, last_on_stack, cur_ir->assign.op, code_sect, true);
 
-		ASSERT(cur_ir->assign.to_assign.is_float == cur_ir->assign.lhs.is_float);
+		if(!cur_ir->assign.only_lhs)
+			ASSERT(cur_ir->assign.rhs.is_float == cur_ir->assign.lhs.is_float);
 		/*
 		for(int i = 2; i < gen_state->similar.size();i++)
 		{
@@ -2159,7 +2160,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		case IR_TYPE_DECL:
 		{
 			int inst = WASM_STORE_OP;
-			if (IsIrValFloat(&cur_ir->assign.to_assign))
+			if (cur_ir->assign.lhs.is_float)
 				inst = WASM_STORE_F32_OP;
 			WasmStoreInst(code_sect, r_sz, inst);
 		}break;
@@ -2563,6 +2564,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	case WASM_INST_F32_LE:
 	{
 		ret += "f32.le";
+	}break;
+	case WASM_INST_F32_GT:
+	{
+		ret += "f32.gt";
 	}break;
 	case WASM_INST_F32_LT:
 	{
@@ -4486,12 +4491,14 @@ struct var_dbg
 #define TYPE_DBG_CREATED_TYPE_STRUCT 1
 struct type_dbg
 {
+	enum_type2 type;
 	union
 	{
 		str_dbg name;
 		type_struct2 *strct;
 		func_decl *fdecl;
 	};
+	char ptr;
 	int struct_size;
 	int vars_offset;
 	int num_of_vars;
@@ -4554,6 +4561,9 @@ struct serialize_state
 	own_std::vector<unsigned char> vars_sect;
 	own_std::vector<unsigned char> ir_sect;
 	own_std::vector<unsigned char> file_sect;
+
+	unsigned int f32_type_offset;
+	unsigned int u32_type_offset;
 };
 enum dbg_code_type
 {
@@ -4706,6 +4716,19 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 	f->scp->type = SCP_TYPE_FUNC;
 	f->flags |= FUNC_DECL_SERIALIZED;
 }
+int WasmSerializeType(web_assembly_state* wasm_state, serialize_state* ser_state, type2 *tp)
+{
+	int offset = ser_state->types_sect.size();
+
+	ser_state->types_sect.make_count(ser_state->types_sect.size() + sizeof(type_dbg));
+
+	auto f32_type = (type_dbg *)(ser_state->types_sect.begin() + offset);
+	f32_type->type = tp->type;
+	f32_type->ptr = tp->ptr;
+	f32_type->strct = tp->strct;
+	return offset;
+
+}
 void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_state, scope *scp, unsigned int parent, unsigned int scp_offset)
 {
 	if(IS_FLAG_ON(scp->flags, SCOPE_SKIP_SERIALIZATION))
@@ -4786,6 +4809,10 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 				vdbg->type_idx = d->type.strct->serialized_type_idx;
 			}
 		}break;
+		case TYPE_STATIC_ARRAY:
+		{
+			vdbg->type_idx = WasmSerializeType(wasm_state, ser_state, d->type.tp);
+		}break;
 		case TYPE_BOOL:
 		case TYPE_INT:
 		case TYPE_F32:
@@ -4861,6 +4888,16 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 	scp->serialized_offset = scp_offset;
 	s->parent = parent;
 }
+void WasmSerializeBuiltTypes(serialize_state* ser_state)
+{
+	int offset = ser_state->types_sect.size();
+	ser_state->f32_type_offset = offset;
+
+	ser_state->types_sect.make_count(ser_state->types_sect.size() + sizeof(type_dbg));
+
+	auto f32_type = (type_dbg *)(ser_state->types_sect.begin() + offset);
+	f32_type->type = TYPE_F32;
+}
 void WasmSerializePushString(serialize_state* ser_state, std::string* name, str_dbg *out)
 {
 	out->name_on_string_sect = ser_state->string_sect.size();
@@ -4882,6 +4919,8 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 		//WasmSerializeFuncIr(&ser_state, f);
 
 	}
+
+	WasmSerializeBuiltTypes(&ser_state);
 	ser_state.scopes_sect.make_count(ser_state.scopes_sect.size() + sizeof(scope_dbg));
 	WasmSerializeScope(wasm_state, &ser_state, wasm_state->lang_stat->root, -1, 0);
 
@@ -5098,6 +5137,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_AUTO:
 		case TYPE_FUNC_TYPE:
 		case TYPE_FUNC:
+		case TYPE_STATIC_ARRAY:
 		case TYPE_BOOL:
 		case TYPE_INT:
 		case TYPE_MACRO_EXPR:
@@ -5125,6 +5165,15 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			d->offset = cur_var->offset;
 
 			scp_final->vars.emplace_back(d);
+		}
+		if (d->type.type == TYPE_STATIC_ARRAY)
+		{
+			auto type = (type_dbg*)(data + file->types_sect + cur_var->type_idx);
+			auto ar_tp = (type2 *)AllocMiscData(lang_stat, sizeof(type2));
+			ar_tp->type = type->type;
+			ar_tp->ptr = type->ptr;
+			ar_tp->strct = type->strct;
+			d->type.tp = ar_tp;
 		}
 
 		cur_var->decl = d;
@@ -5542,6 +5591,16 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		// assert is 32bit
 		ASSERT(top.type == wstack_val_type::WSTACK_VAL_F32 && penultimate->type == wstack_val_type::WSTACK_VAL_F32)
 		penultimate->u32 = (int)(penultimate->f32 <= top.f32);
+		int a = 0;
+	}break;
+	case WASM_INST_F32_GT:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == wstack_val_type::WSTACK_VAL_F32 && penultimate->type == wstack_val_type::WSTACK_VAL_F32)
+		penultimate->u32 = (int)(penultimate->f32 > top.f32);
 		int a = 0;
 	}break;
 	case WASM_INST_F32_LT:
@@ -6297,6 +6356,11 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 			}break;
 			case 0x60:
+			{
+				bc.type = WASM_INST_F32_GT;
+
+			}break;
+			case 0x5e:
 			{
 				bc.type = WASM_INST_F32_GE;
 

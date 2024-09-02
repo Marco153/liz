@@ -3,6 +3,11 @@ context: struct
 	alloc : mem_alloc,
 }
 
+draw_info: struct
+{
+	color: [4]f32,
+}
+
 OpenWindow::fn outsider() ! *u8;
 ClearBackground::fn outsider(f32, f32, f32);
 Draw::fn outsider(*u8);

@@ -141,7 +141,12 @@ struct ast_rep
 			own_std::vector<ast_rep*> stats;
 			bool zero_initialized;
 		};
-        own_std::vector<ast_rep *> expr;
+		struct
+		{
+			own_std::vector<ast_rep*> expr;
+			type2 lhs_tp;
+		};
+		
 		struct
 		{
 			own_std::vector<ast_point> points;

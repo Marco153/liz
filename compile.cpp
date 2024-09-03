@@ -1918,6 +1918,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	while ((deref_times > 0) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32)
 	{
 
+		int reg_sz = val->reg_sz;
 		int inst = WASM_LOAD_OP;
 		if (IsIrValFloat(val) && deref_times == 1)
 			inst = WASM_LOAD_F32_OP;
@@ -2131,12 +2132,17 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		}
 		*/
 
-
+		int prev_reg_sz = cur_ir->assign.to_assign.reg_sz;
+		if (cur_ir->assign.to_assign.type == IR_TYPE_REG && cur_ir->assign.to_assign.deref > 0)
+			cur_ir->assign.to_assign.reg_sz = 8;
+			
 		WasmPushIRVal(gen_state, &cur_ir->assign.to_assign, code_sect);
+
+		cur_ir->assign.to_assign.reg_sz = prev_reg_sz;
 
 		WasmPushMultiple(gen_state, cur_ir->assign.only_lhs, *lhs, *rhs, last_on_stack, cur_ir->assign.op, code_sect, true);
 
-		if(!cur_ir->assign.only_lhs)
+		if(!cur_ir->assign.only_lhs && cur_ir->assign.op != T_POINT)
 			ASSERT(cur_ir->assign.rhs.is_float == cur_ir->assign.lhs.is_float);
 		/*
 		for(int i = 2; i < gen_state->similar.size();i++)
@@ -2486,6 +2492,8 @@ struct dbg_state
 
 
 	bool some_bc_modified;
+
+	void* data;
 };
 void WasmModifyCurBcPtr(dbg_state* dbg, wasm_bc* to)
 {
@@ -3170,6 +3178,8 @@ struct typed_stack_val
 
 int WasmGetMemOffsetVal(dbg_state* dbg, unsigned int offset)
 {
+	if (offset > dbg->mem_size)
+		return -1;
 	return *(int*)&dbg->mem_buffer[offset];
 }
 int WasmGetDeclVal(dbg_state* dbg, int offset)
@@ -3452,24 +3462,27 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 	typed_stack_val expr_val;
 	WasmFromAstArrToStackVal(dbg, exp->expr, &expr_val);
 	char buffer[512];
+	std::string addr_str = WasmNumToString(dbg, expr_val.offset);
+
+	int ptr = expr_val.type.ptr;
+
+	int in_ptr_addr = WasmGetMemOffsetVal(dbg, expr_val.offset);
+	while (ptr > 0)
+	{
+		if (in_ptr_addr > dbg->mem_size || in_ptr_addr < 0)
+			snprintf(buffer, 512, "->out of bounds");
+		else
+			snprintf(buffer, 512, "->%s", WasmNumToString(dbg, in_ptr_addr).c_str());
+		addr_str += buffer;
+		in_ptr_addr = WasmGetMemOffsetVal(dbg, in_ptr_addr);
+		ptr--;
+	}
 	if (expr_val.type.type == TYPE_STRUCT)
 	{
 		decl2* d = expr_val.type.e_decl;
 		//std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset)
 
 
-		std::string addr_str = WasmNumToString(dbg, expr_val.offset);
-
-		int ptr = expr_val.type.ptr;
-
-		int in_ptr_addr = WasmGetMemOffsetVal(dbg, expr_val.offset);
-		while (ptr > 0)
-		{
-			snprintf(buffer, 512, "->%s", WasmNumToString(dbg, in_ptr_addr).c_str());
-			addr_str += buffer;
-			in_ptr_addr = WasmGetMemOffsetVal(dbg, in_ptr_addr);
-			ptr--;
-		}
 		ptr = expr_val.type.ptr;
 		if (ptr > 0)
 		{
@@ -3517,7 +3530,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 		}
 
 
-		sprintf(buffer, " (%s) %s ", TypeToString(expr_val.type).c_str(), WasmNumToString(dbg, val, -1, print_type).c_str());
+		sprintf(buffer, "addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), WasmNumToString(dbg, val, -1, print_type).c_str());
 	}
 	ret += buffer;
 

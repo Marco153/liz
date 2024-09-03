@@ -833,13 +833,20 @@ tests :: fn()
 		__dbg_break;
 
 	static_ar: [4] f32;
-	__dbg_break;
 	*static_ar[0] = 0.5;
 
-
-	if* static_ar[0] > 0.4 || *static_ar[0] > 0.6
+	if* static_ar[0] < 0.4 || *static_ar[0] > 0.6
 		__dbg_break;
 
+	test_strct : struct
+	{
+		ar : [4]f32
+	}
+
+	color:test_strct;
+	*color.ar[1] = 0.5;
+	if* color.ar[1] < 0.4 || *color.ar[1] > 0.6
+		__dbg_break;
 
 
 }

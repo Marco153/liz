@@ -5,12 +5,13 @@ context: struct
 
 draw_info: struct
 {
+	pos :v3,
 	color: [4]f32,
 }
 
 OpenWindow::fn outsider() ! *u8;
 ClearBackground::fn outsider(f32, f32, f32);
-Draw::fn outsider(*u8);
+Draw::fn outsider(*u8, *draw_info);
 ShouldClose::fn outsider(*u8) ! bool;
 
 main :: fn()
@@ -20,10 +21,17 @@ main :: fn()
 	Print(&ctx.alloc);
 
 	window := OpenWindow();
+	draw:draw_info;
+	//pos:v2;
 	while !ShouldClose(window)
 	{
 		ClearBackground(0.2, 0.5, 0.1);
-		Draw(window);
+		draw.pos.x += 0.01;
+		*draw.color[0] = 1.0;
+		*draw.color[1] = 0.5;
+		*draw.color[2] = 0.0;
+		*draw.color[3] = 0.0;
+		Draw(window, &draw);
 	}
 	aoeu: = 1234;
 

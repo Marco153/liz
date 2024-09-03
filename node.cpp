@@ -2595,13 +2595,15 @@ int SetVariablesAddress(own_std::vector<decl2*>* ar, int start, int* in_out_bigg
 		*/
 
 		int t_sz = GetTypeSize(&t->type);
+		if(t->type.type == TYPE_STATIC_ARRAY)
+			t_sz = GetTypeSize(t->type.tp);
 
 		addr = get_even_address_with(t_sz, addr);
 		//*in_out_biggest_type = other_biggest_type > cur_size ? other_biggest_type : cur_size;
 
 		t->offset = addr;
 
-		addr += t_sz;
+		addr += GetTypeSize(&t->type);
 	}
 	if (*in_out_biggest_type != 0)
 	{
@@ -5326,7 +5328,7 @@ node* NewThreeArgNd2(std::string name, void* arg1, int arg1_type, void* arg2, in
 
 void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node* n, scope* scp)
 {
-	if (IsNodeOperator(n, T_COLON) && IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION)
+	if (IsNodeOperator(n, T_COLON) && IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION) && n->r->type != N_STRUCT_DECL
 		//&& IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2)
 		)
 	{

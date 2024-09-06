@@ -13,6 +13,7 @@ enum ast_type
     AST_RET,
     AST_BINOP,
     AST_UNOP,
+    AST_STR_LIT,
     AST_ADDRESS_OF,
     AST_EXPR,
     AST_IF,
@@ -184,6 +185,9 @@ enum ir_type
 	IR_CMP_GT,
 	IR_BREAK_OUT_IF_BLOCK,
 
+	IR_CAST_INT_TO_F32,
+	IR_CAST_F32_TO_INT,
+
 	IR_SPILL_REG,
 	IR_UNSPILL_REG,
 
@@ -237,10 +241,11 @@ enum ir_type
 };
 enum ir_val_type
 {
-    IR_TYPE_F32_REG,
+    IR_TYPE_NONE,
     IR_TYPE_REG,
     IR_TYPE_INT,
     IR_TYPE_F32,
+    IR_TYPE_STR_LIT,
     IR_TYPE_PARAM_REG,
     IR_TYPE_ARG_REG,
     IR_TYPE_RET_REG,
@@ -260,7 +265,9 @@ struct ir_val
     {
         decl2 *decl;
         int i;
+        int on_data_sect_offset;
         float f32;
+		char* str;
         struct
         {
 			union

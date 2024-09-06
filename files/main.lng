@@ -2,35 +2,84 @@ context: struct
 {
 	alloc : mem_alloc,
 }
-
+DRAW_INFO_HAS_TEXTURE:const s32 = 1;
 draw_info: struct
 {
 	pos :v3,
 	color: [4]f32,
+	texture_id : u32,
+	flags:u32,
 }
+key_enum : enum
+{
+	KEY_LEFT,
+	KEY_RIGHT,
+	KEY_DOWN,
+	KEY_UP,
+	KEY_ACT0,
+	KEY_ACT1,
+	KEY_ACT2,
+	KEY_ACT3,
+}
+
+clip: struct
+{
+	tex_idxs: *u32,
+	total_texs: u32,
+	id:u32,
+	len : f32,
+	cur_time :f32,
+	loop :bool,
+}
+
+IsKeyDown::fn outsider(key_enum) !bool;
+IsKeyHeld::fn outsider(key_enum) !bool;
 
 OpenWindow::fn outsider() ! *u8;
 ClearBackground::fn outsider(f32, f32, f32);
 Draw::fn outsider(*u8, *draw_info);
 ShouldClose::fn outsider(*u8) ! bool;
+LoadClip::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, total_sps :u32, len :f32, out_clip : *clip);
+
+UpdateClip::fn(c : *clip, dt : f32) ! u32
+{
+	c.cur_time += dt;
+
+	if c.cur_time >= c.len
+		c.cur_time = 0.0;
+	f: = (cast(f32)c.total_texs * c.cur_time);
+	f = f / c.len;
+
+	idx: = *ptr_offset(c.tex_idxs, cast(u32)f, u32);
+	return idx;
+
+}
 
 main :: fn()
 {
 	ctx: context;
 	InitMemAlloc(&ctx.alloc);
-	Print(&ctx.alloc);
 
 	window := OpenWindow();
+	clip1:clip;
+	LoadClip(&ctx, "../images/frog.png", 0, 0, 32, 32, 2, 1.0, &clip1);
+	clip1.loop = true;
 	draw:draw_info;
 	//pos:v2;
 	while !ShouldClose(window)
 	{
 		ClearBackground(0.2, 0.5, 0.1);
-		draw.pos.x += 0.01;
+		if IsKeyHeld(key_enum.KEY_LEFT)
+		{
+			draw.pos.x += 0.01;
+		}
 		*draw.color[0] = 1.0;
-		*draw.color[1] = 0.5;
-		*draw.color[2] = 0.0;
-		*draw.color[3] = 0.0;
+		*draw.color[1] = 1.0;
+		*draw.color[2] = 1.0;
+		*draw.color[3] = 1.0;
+		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+		draw.texture_id = UpdateClip(&clip1, 0.01);
+		//draw.texture_id = 1;
 		Draw(window, &draw);
 	}
 	aoeu: = 1234;

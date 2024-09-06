@@ -137,6 +137,8 @@ std::string scope::Print(int indent)
 	FOR_VEC(decl, vars)
 	{
 		decl2* d = *decl;
+		if (d->type.type == TYPE_ENUM_TYPE || d->type.type == TYPE_ENUM)
+			continue;
 		snprintf(buffer, 512, "%sname: %s, type: %s, offset: %d\n", tabs, d->name.c_str(), TypeToString(d->type).c_str(), d->offset);
 		ret += buffer;
 
@@ -2324,7 +2326,7 @@ own_std::vector<decl2*> GetTemplateTypes(lang_state *lang_stat, own_std::vector<
 		if (cur_t->expr == nullptr)
 		{
 			cur_t->final_type = (type2*)AllocMiscData(lang_stat, sizeof(type2));
-			*(cur_t->final_type) = a->decl.type;
+			*(cur_t->final_type) = a->type == COMMA_RET_COLON ? a->decl.type : a->tp;
 
 			decl2 decl;
 			decl.name = cur_t->name.substr();
@@ -4305,7 +4307,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		FOR_VEC(t, args)
 		{
 			type2 aux = t->decl.type;
-			aux.type = FromTypeToVarType(t->decl.type.type);
+			//enum_type2 tp = 
+			aux.type = t->type == COMMA_RET_COLON ? t->decl.type.type : t->tp.type;
 			templ_name += TypeToString(aux);
 			templ_name += "_";
 		}
@@ -7305,7 +7308,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		if (rhs_type.IsFloat() && rhs_type.ptr == 0)
 		{
 			ASSERT(lhs_type.type == TYPE_F32_TYPE || lhs_type.type == TYPE_F32_TYPE
-				|| lhs_type.type == TYPE_S32_TYPE || lhs_type.type == TYPE_S32_TYPE);
+				|| lhs_type.type == TYPE_S32_TYPE || lhs_type.type == TYPE_S32_TYPE
+			    || lhs_type.type == TYPE_U32_TYPE);
 		}
 
 		switch (lhs_type.type)
@@ -8390,6 +8394,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 
 			PointLogic(lang_stat, n, scp, &ret_type);
+			if (ret_type.type == TYPE_ENUM_IDX_32)
+			{
+				decl2 *d = ret_type.from_enum->type.GetEnumDecl(n->r->t->str);
+				n->type = N_INT;
+				n->t->i = d->offset;
+			}
 
 		}break;
 		case tkn_type2::T_WORD:

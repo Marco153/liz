@@ -938,7 +938,7 @@ std::string OperatorToString(tkn_type2 type)
 		}break;
 		case tkn_type2::T_DIV:
 		{
-			return std::string("*");
+			return std::string("/");
 		}break;
 		case tkn_type2::T_MUL:
 		{

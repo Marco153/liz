@@ -2,15 +2,43 @@
 #include "memory.cpp"
 #include <glad/glad.h> 
 #include <glad/glad.c> 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h> 
 
 #include "../include/GLFW/glfw3.h"
 
+#define KEY_HELD 1
+#define KEY_DOWN 2
+#define KEY_UP   4
+
+#define TOTAL_KEYS   255
+#define TOTAL_TEXTURES   32
+
+void GetMem(dbg_state* dbg);
+struct texture_info
+{
+	bool used;
+	int id;
+};
 struct open_gl_state
 {
 	int vao;
 	int shader_program;
 	int color_u;
 	int pos_u;
+	int buttons[TOTAL_KEYS];
+	texture_info textures[TOTAL_TEXTURES];
+};
+enum key_enum
+{
+	_KEY_LEFT,
+	_KEY_RIGHT,
+	_KEY_DOWN,
+	_KEY_UP,
+	_KEY_ACT0,
+	_KEY_ACT1,
+	_KEY_ACT2,
+	_KEY_ACT3,
 };
 
 void Print(dbg_state* dbg)
@@ -22,6 +50,7 @@ void Print(dbg_state* dbg)
 
 
 }
+#define DRAW_INFO_HAS_TEXTURE 1
 struct draw_info
 {
 	float pos_x;
@@ -32,7 +61,25 @@ struct draw_info
 	float color_g;
 	float color_b;
 	float color_a;
+
+	int texture_id;
+	int flags;
 };
+
+int GetTextureSlotId(open_gl_state* gl_state)
+{
+	for (int i = 0; i < TOTAL_TEXTURES; i++)
+	{
+		texture_info* t = &gl_state->textures[i];
+		if (!t->used)
+		{
+			t->used = true;
+			return i;
+		}
+	}
+	ASSERT(0);
+}
+#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {ASSERT(0)}
 void Draw(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -52,9 +99,17 @@ void Draw(dbg_state* dbg)
 	gl_state->pos_u = glGetUniformLocation(gl_state->shader_program, "pos");
 	glUniform3f(gl_state->pos_u, draw->pos_x, draw->pos_y, draw->pos_z);
 
-	
-	glDrawArrays(GL_TRIANGLES, 0, 3);
-	glfwPollEvents();
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
+	{
+		draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
+		texture_info* t = &gl_state->textures[draw->texture_id];
+
+		glBindTexture(GL_TEXTURE_2D, t->id);
+	}
+
+
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	//glDrawArrays(GL_TRIANGLES, 0, 3);
 	glfwSwapBuffers(wnd);
 	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
 }
@@ -70,12 +125,182 @@ void ClearBackground(dbg_state* dbg)
 	glClear(GL_COLOR_BUFFER_BIT);
 	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
 }
+void IsKeyHeld(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	switch ((key_enum)key)
+	{
+	case _KEY_UP:
+	{
+		key = GLFW_KEY_W;
+	}break;
+	case _KEY_DOWN:
+	{
+		key = GLFW_KEY_S;
+	}break;
+	case _KEY_RIGHT:
+	{
+		key = GLFW_KEY_D;
+	}break;
+	case _KEY_LEFT:
+	{
+		key = GLFW_KEY_A;
+	}break;
+	default:
+		ASSERT(0);
+	}
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_HELD))
+	{
+		*addr = 1;
+	}
+	else
+		*addr = 0;
+
+}
 void ShouldClose(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	long long wnd = *(long long*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	for (int i = 0; i < TOTAL_KEYS; i++)
+	{
+		int retain_flags = gl_state->buttons[i] & KEY_HELD;
+		gl_state->buttons[i] &= ~(KEY_DOWN | KEY_UP);
+		gl_state->buttons[i] |= retain_flags;
+	}
+	
+	glfwPollEvents();
+}
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	if (action == GLFW_PRESS)
+	{
+		gl_state->buttons[key] |= KEY_HELD | KEY_DOWN;
+		printf("key(%d) is %d", key, gl_state->buttons[key]);
+	}
+	else if (action == GLFW_RELEASE)
+	{
+		gl_state->buttons[key] &= ~KEY_HELD;
+		gl_state->buttons[key] |= KEY_UP;
+	}
+}
+struct clip
+{
+	unsigned int* texs_idxs;
+	unsigned int total_texs;
+	unsigned int id;
+	float len;
+	float cur_time;
+	bool loop;
+};
+struct load_clip_args
+{
+	unsigned long long ctx;
+	unsigned char* file_name;
+	unsigned long long x_offset;
+	unsigned long long y_offset;
+	unsigned long long sp_width;
+	unsigned long long sp_height;
+	unsigned long long total_sps;
+	float len;
+	clip* cinfo;
+};
+void LoadClip(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+
+	auto info = (load_clip_args*)&dbg->mem_buffer[base_ptr + 8];
+	info->file_name = (unsigned char*)&dbg->mem_buffer[(long long)info->file_name];
+	info->cinfo = (clip*)&dbg->mem_buffer[(long long)info->cinfo];
+	info->cinfo->total_texs = info->total_sps;
+	info->cinfo->len = info->len;
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8 + 8] = info->total_sps * sizeof(int);
+	int idx = 0;
+	
+	GetMem(dbg);
+	int offset = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] += 16;
+
+	*(int**)&info->cinfo->texs_idxs = (int*)(long long)offset;
+	info->cinfo->total_texs = info->total_sps;
+
+	// load and generate the texture
+	int width, height, nrChannels;
+	stbi_set_flip_vertically_on_load(true);
+
+	unsigned char* src = stbi_load((char *)info->file_name, &width, &height, &nrChannels, 0);
+
+	auto texs_id = (int*)&dbg->mem_buffer[(long long)info->cinfo->texs_idxs];
+
+	for (int cur_sp = 0; cur_sp < info->total_sps; cur_sp++)
+	{
+		unsigned int texture;
+		glGenTextures(1, &texture);
+		glBindTexture(GL_TEXTURE_2D, texture);
+		// set the texture wrapping/filtering options (on the currently bound texture object)
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+		int sp_height = info->sp_width;
+		int sp_width = info->sp_height;
+		auto sp_data = (unsigned char*)AllocMiscData(dbg->lang_stat, sp_width * sp_width * 4);
+		int sp_idx = cur_sp;
+
+		for (int i = 0; i < sp_width; i++)
+		{
+			int x_offset = info->x_offset + sp_idx * sp_width * 4;
+			//int y_offset = sp_idx * sp_height;
+			memcpy(sp_data + i * sp_width * 4, src + x_offset + (i * width * 4), sp_width * 4);
+		}
+		if (sp_data)
+		{
+			GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_width, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
+			//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
+
+			GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+		}
+		else
+		{
+			std::cout << "Failed to load texture" << std::endl;
+		}
+		int idx = GetTextureSlotId(gl_state);
+		texture_info* tex = &gl_state->textures[idx];
+		tex->id = texture;
+
+		heap_free((mem_alloc *)__lang_globals.data, (char *)sp_data);
+
+		texs_id[cur_sp] = idx;
+
+	}
+	stbi_image_free(src);
+	/*
+	func_decl* call_f = FuncAddedWasmInterp(dbg->wasm_state, "heap_alloc");
+
+	block_linked* cur = NewBlock(nullptr);
+	WasmDoCallInstruction(dbg, dbg->cur_bc, &cur, call_f);
+	FreeBlock(cur);
+	int addr = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
+	//dbg->wasm_state->funcs
+	int a = 0;
+	*/
 }
 void OpenWindow(dbg_state* dbg)
 {
@@ -85,6 +310,7 @@ void OpenWindow(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 
 	GLFWwindow* window;
+
 
 	/* Initialize the library */
 	if (!glfwInit())
@@ -101,12 +327,20 @@ void OpenWindow(dbg_state* dbg)
 	/* Make the window's context current */
 	glfwMakeContextCurrent(window);
 
-	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long )window;
+	glfwSetWindowUserPointer(window, (void*)gl_state);
+	glfwSetKeyCallback(window, KeyCallback);
 
+	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long )window;
 	float vertices[] = {
-	-0.5f, -0.5f, 0.0f,
-	 0.5f, -0.5f, 0.0f,
-	 0.0f,  0.5f, 0.0f
+		// positions          // texture coords
+		 0.5f,  0.5f, 0.0f,   1.0f, 1.0f,   // top right
+		 0.5f, -0.5f, 0.0f,   1.0f, 0.0f,   // bottom right
+		-0.5f, -0.5f, 0.0f,   0.0f, 0.0f,   // bottom left
+		-0.5f,  0.5f, 0.0f,   0.0f, 1.0f    // top left 
+	};
+	unsigned int indices[] = {  // note that we start from 0!
+		0, 1, 3,   // first triangle
+		1, 2, 3    // second triangle
 	};
 
 	int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
@@ -117,18 +351,27 @@ void OpenWindow(dbg_state* dbg)
 	glGenBuffers(1, &VBO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0));
+	GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
 	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
 
-
+	unsigned int EBO;
+	glGenBuffers(1, &EBO);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
 
 	const char* vertexShaderSource = "#version 330 core\n"
 		"layout (location = 0) in vec3 aPos;\n"
+		"layout (location = 1) in vec2 uv;\n"
 		"uniform vec3 pos;\n"
+		"out vec2 TexCoord;\n"
 		"void main()\n"
 		"{\n"
 		"   gl_Position = vec4(aPos.x + pos.x, aPos.y + pos.y, aPos.z + pos.z, 1.0);\n"
+		"   TexCoord = uv;\n"
 		"}\0";
 
 	unsigned int vertexShader;
@@ -147,9 +390,14 @@ void OpenWindow(dbg_state* dbg)
 	}
 	const char* fragmentShaderSource = "#version 330 core\n"
 		"out vec4 FragColor;\n"
+		"in vec2 TexCoord;\n"
 		"uniform vec4 color;\n"
+		"uniform sampler2D tex;\n"
 		"void main(){\n"
-		"FragColor = color;\n}\n";
+		"vec4 tex_col =  texture(tex, TexCoord);\n"
+		//"vec4 tex_col =  texture(tex, uv);\n"
+		"FragColor =  tex_col * color;\n"
+		"}\n";
 
 	unsigned int fragmentShader;
 	fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -174,6 +422,53 @@ void OpenWindow(dbg_state* dbg)
 
 	gl_state->vao = VAO;
 	gl_state->shader_program = shaderProgram;
+
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	// set the texture wrapping/filtering options (on the currently bound texture object)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	// load and generate the texture
+	int width, height, nrChannels;
+	stbi_set_flip_vertically_on_load(true);
+
+	unsigned char* data = stbi_load("../images/frog.png", &width, &height, &nrChannels, 0);
+
+	int sp_height = 32;
+	int sp_width = 32;
+	auto sp_data = (unsigned char* )AllocMiscData(dbg->lang_stat, 32 * 32 * 4);
+	int sp_idx = 1;
+
+	for (int i = 0; i < sp_width; i++)
+	{
+		int x_offset = sp_idx * sp_width * 4;
+		//int y_offset = sp_idx * sp_height;
+		memcpy(sp_data + i * sp_width * 4, data + x_offset + (i * width * 4), sp_width * 4);
+	}
+	stbi_image_free(data);
+	data = sp_data;
+	if (data)
+	{
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_width, 0, GL_RGBA, GL_UNSIGNED_BYTE, data));
+		//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
+
+		GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+	}
+	else
+	{
+		std::cout << "Failed to load texture" << std::endl;
+	}
+	int idx = GetTextureSlotId(gl_state);
+	texture_info* tex = &gl_state->textures[idx];
+	tex->id = texture;
+
 
 }
 void GetMem(dbg_state* dbg)
@@ -204,7 +499,7 @@ int main()
 	*/
 
 
-	open_gl_state gl_state;
+	open_gl_state gl_state = {};
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 	compile_options opts = {};
 	opts.file = "../lang2/files";
@@ -217,6 +512,8 @@ int main()
 	AssignOutsiderFunc(&lang_stat, "ShouldClose", (OutsiderFuncType)ShouldClose);
 	AssignOutsiderFunc(&lang_stat, "ClearBackground", (OutsiderFuncType)ClearBackground);
 	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
+	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
+	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	Compile(&lang_stat, &opts);
 	if (!opts.release)
 	{

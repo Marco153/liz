@@ -1,0 +1,11 @@
+str_ln::fn(str :str_lit) !u64
+{
+	s: = cast(*u8)str;
+	
+	i:u64 = 0;
+	while *ptr_offset(s, i, u8) != 0
+	{
+		i++;
+	}
+	return i;
+}

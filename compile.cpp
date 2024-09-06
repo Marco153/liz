@@ -36,6 +36,8 @@
 #define MEM_PTR_CUR_ADDR 18000
 #define MEM_PTR_MAX_ADDR 18008
 
+#define DATA_SECT_OFFSET 100000
+
 struct comp_time_type_info
 {
 	//var arg struct, defined at base.lng
@@ -577,8 +579,15 @@ enum wasm_bc_enum
 	WASM_INST_F32_LE,
 	WASM_INST_F32_LT,
 	WASM_INST_F32_GT,
+	WASM_INST_F32_DIV,
+	WASM_INST_F32_MUL,
 	WASM_INST_F32_NE,
 	WASM_INST_F32_EQ,
+
+	WASM_INST_CAST_S64_2_F32,
+	WASM_INST_CAST_S32_2_F32,
+	WASM_INST_CAST_U32_2_F32,
+	WASM_INST_CAST_F32_2_S32,
 
 	WASM_INST_I32_GE_U,
 	WASM_INST_I32_GE_S,
@@ -1693,6 +1702,14 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 		{
 			code_sect.emplace_back(0x5b);
 		}break;
+		case T_MUL:
+		{
+			code_sect.emplace_back(0x94);
+		}break;
+		case T_DIV:
+		{
+			code_sect.emplace_back(0x95);
+		}break;
 		case T_PLUS:
 		{
 			code_sect.emplace_back(0x92);
@@ -1847,6 +1864,15 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 {
 	switch (val->type)
 	{
+	case IR_TYPE_STR_LIT:
+	{
+
+		lang_state* lang_stat = gen_state->wasm_state->lang_stat;
+		int data_offset = lang_stat->data_sect.size();
+		InsertIntoDataSect(lang_stat, val->str, strlen(val->str) + 1);
+		WasmPushConst(WASM_LOAD_INT, 0, DATA_SECT_OFFSET + data_offset , &code_sect);
+		val->on_data_sect_offset = data_offset;
+	}break;
 	case IR_TYPE_F32:
 	{
 		WasmPushConst(WASM_LOAD_FLOAT, 0, *(int *) & val->f32, &code_sect);
@@ -1915,7 +1941,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		ASSERT(0)
 	}
 	int deref_times = val->deref;
-	while ((deref_times > 0) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32)
+	while ((deref_times > 0) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32 && val->type != IR_TYPE_STR_LIT)
 	{
 
 		int reg_sz = val->reg_sz;
@@ -2193,10 +2219,12 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		int idx = 0;
 		ASSERT(FuncAddedWasm(gen_state->wasm_state, cur_ir->call.fdecl->name, &idx));
 		WasmPushRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
+		//WasmPushRegister(gen_state, 0, code_sect);
 
         code_sect.emplace_back(0x10);
         WasmPushImm(idx, &code_sect);
 
+		//WasmPopToRegister(gen_state, 0, code_sect);
 		WasmPopToRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
 	}break;
 	case IR_BEGIN_CALL:
@@ -2249,6 +2277,60 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		
         //gen_state->cur_func->wasm_scp->vars.emplace_back(cur_ir->decl);
 
+	}break;
+	case IR_CAST_F32_TO_INT:
+	{
+		WasmPushIRVal(gen_state, &cur_ir->bin.lhs, code_sect);
+		WasmPushIRVal(gen_state, &cur_ir->bin.rhs, code_sect, true);
+
+		if (gen_state->wasm_state->lang_stat->release && cur_ir->bin.rhs.reg_sz == 8)
+			cur_ir->bin.rhs.reg_sz = 4;
+
+		code_sect.emplace_back(0xbc);
+
+		WasmStoreInst(code_sect, 4, WASM_STORE_OP);
+	}break;
+	case IR_CAST_INT_TO_F32:
+	{
+		WasmPushIRVal(gen_state, &cur_ir->bin.lhs, code_sect);
+		WasmPushIRVal(gen_state, &cur_ir->bin.rhs, code_sect, true);
+
+		if (gen_state->wasm_state->lang_stat->release && cur_ir->bin.rhs.reg_sz == 8)
+			cur_ir->bin.rhs.reg_sz = 4;
+		if (cur_ir->bin.rhs.is_unsigned)
+		{
+			switch (cur_ir->bin.rhs.reg_sz)
+			{
+			case 4:
+			{
+				code_sect.emplace_back(0xb8);
+			}break;
+			case 8:
+			{
+				code_sect.emplace_back(0xba);
+			}break;
+			default:
+				ASSERT(0)
+			}
+		}
+		else
+		{
+			switch (cur_ir->bin.rhs.reg_sz)
+			{
+			case 4:
+			{
+				code_sect.emplace_back(0xb7);
+			}break;
+			case 8:
+			{
+				code_sect.emplace_back(0xb9);
+			}break;
+			default:
+				ASSERT(0)
+			}
+		}
+
+		WasmStoreInst(code_sect, 4, WASM_STORE_F32_OP);
 	}break;
 	case IR_DECLARE_ARG:
 	{
@@ -2569,6 +2651,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "i32.le_u";
 	}break;
+	case WASM_INST_F32_DIV:
+	{
+		ret += "f32.div";
+	}break;
 	case WASM_INST_F32_LE:
 	{
 		ret += "f32.le";
@@ -2689,6 +2775,26 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "i32.or";
 	}break;
+	case WASM_INST_CAST_S32_2_F32:
+	{
+		ret += "f32.cast_s32";
+	}break;
+	case WASM_INST_CAST_S64_2_F32:
+	{
+		ret += "f32.cast_s64";
+	}break;
+	case WASM_INST_F32_MUL:
+	{
+		ret += "f32.mul";
+	}break;
+	case WASM_INST_CAST_F32_2_S32:
+	{
+		ret += "i32.cast_f32";
+	}break;
+	case WASM_INST_CAST_U32_2_F32:
+	{
+		ret += "f32.cast_u32";
+	}break;
 	case WASM_INST_I32_REMAINDER_U:
 	{
 		ret += "i32.rem_u";
@@ -2802,6 +2908,12 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 	case IR_TYPE_ARG_REG:
 	{
 		snprintf(buffer, 32, "arg_reg[%s]", WasmNumToString(dbg, val->reg).c_str());
+		ret += buffer;
+	}break;
+	case IR_TYPE_STR_LIT:
+	{
+		char* data = dbg->lang_stat->data_sect.begin() + val->i;
+		snprintf(buffer, 32, "str \"%s\"", data);
 		ret += buffer;
 	}break;
 	case IR_TYPE_F32:
@@ -2927,9 +3039,17 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	{
 		ret = "break";
 	}break;
+	case IR_CAST_INT_TO_F32:
+	{
+		ret = "cast int to f32\n";
+	}break;
 	case IR_END_COND_BLOCK:
 	{
 		ret = "end cond block\n";
+	}break;
+	case IR_CAST_F32_TO_INT:
+	{
+		ret = "cast f32 to int\n";
 	}break;
 	case IR_END_IF_BLOCK:
 	{
@@ -3447,7 +3567,10 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 		if (struct_offset < 128)
 			val_str = "0";
 		else
-			val_str = WasmNumToString(dbg, WasmGetMemOffsetVal(dbg, struct_offset));
+		{
+			print_num_type ptype = d->type.type == TYPE_F32 ? PRINT_FLOAT : PRINT_INT;
+			val_str = WasmNumToString(dbg, WasmGetMemOffsetVal(dbg, struct_offset), -1, ptype);
+		}
 		snprintf(buffer, 512, "%s%s%s: %s", indent_buffer, d->name.c_str(), ptr_val_str.c_str(), val_str.c_str());
 		ret += buffer;
 	}
@@ -3515,6 +3638,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 			case TYPE_VOID:
 			case TYPE_U64:
 			case TYPE_S32:
+			case TYPE_U32:
 			{
 				val = WasmGetMemOffsetVal(dbg, expr_val.offset);
 
@@ -3559,10 +3683,19 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 		std::string show = "";
 		if (expr_val.type.ptr == 1)
 		{
+			//ptr_buffer = &dbg->mem_buffer[*(int*)ptr_buffer];
 			switch (expr_val.type.type)
 			{
 			case TYPE_U8:
 			{
+			}break;
+			case TYPE_U32:
+			{
+				for (int i = 0; i < x_times.offset; i++)
+				{
+					unsigned int num = *(((unsigned int*)ptr_buffer) + i);
+					show += WasmNumToString(dbg, num);
+				}
 			}break;
 			case TYPE_CHAR:
 			{
@@ -4780,6 +4913,10 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 
 		switch (d->type.type)
 		{
+		case TYPE_ENUM_TYPE:
+		{
+
+		}break;
 		case TYPE_FUNC_EXTERN:
 		{
 			int a = 0;
@@ -4836,6 +4973,9 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_VOID:
 		case TYPE_U64:
 		case TYPE_FUNC_TYPE:
+		case TYPE_STR_LIT:
+		case TYPE_ENUM_IDX_32:
+		case TYPE_ENUM:
 		
 		break;
 		default:
@@ -5154,6 +5294,10 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_BOOL:
 		case TYPE_INT:
 		case TYPE_MACRO_EXPR:
+		case TYPE_ENUM_IDX_32:
+		case TYPE_ENUM_TYPE:
+		case TYPE_STR_LIT:
+		case TYPE_ENUM:
 		{
 			int a = 0;
 		}break;
@@ -5596,6 +5740,16 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		penultimate->u32 = (int)(penultimate->f32 >= top.f32);
 		int a = 0;
 	}break;
+	case WASM_INST_F32_DIV:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == wstack_val_type::WSTACK_VAL_F32 && penultimate->type == wstack_val_type::WSTACK_VAL_F32)
+		penultimate->f32 = (penultimate->f32 / top.f32);
+		int a = 0;
+	}break;
 	case WASM_INST_F32_LE:
 	{
 		auto top = wasm_stack.back();
@@ -5679,6 +5833,47 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		// assert is 32bit
 		ASSERT(top.type == 0 && penultimate->type == 0);
 		penultimate->s32 *= top.s32;
+	}break;
+	case WASM_INST_CAST_F32_2_S32:
+	{
+		auto top = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top->type == WSTACK_VAL_F32)
+		top->s32 = top->f32;
+		top->type = WSTACK_VAL_INT;
+	}break;
+	case WASM_INST_CAST_S64_2_F32:
+	{
+		auto top = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top->type == WSTACK_VAL_INT)
+		top->f32 = top->s64;
+		top->type = WSTACK_VAL_F32;
+	}break;
+	case WASM_INST_CAST_S32_2_F32:
+	{
+		auto top = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top->type == WSTACK_VAL_INT)
+		top->f32 = top->s32;
+		top->type = WSTACK_VAL_F32;
+	}break;
+	case WASM_INST_CAST_U32_2_F32:
+	{
+		auto top = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top->type == WSTACK_VAL_INT)
+		top->f32 = top->u32;
+		top->type = WSTACK_VAL_F32;
+	}break;
+	case WASM_INST_F32_MUL:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == WSTACK_VAL_F32 && penultimate->type == WSTACK_VAL_F32);
+		penultimate->f32 *= top.f32;
 	}break;
 	case WASM_INST_F32_ADD:
 	{
@@ -6368,9 +6563,39 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 				bc.type = WASM_INST_F32_LT;
 
 			}break;
+			case 0x95:
+			{
+				bc.type = WASM_INST_F32_DIV;
+
+			}break;
+			case 0xb7:
+			{
+				bc.type = WASM_INST_CAST_S32_2_F32;
+
+			}break;
+			case 0xbc:
+			{
+				bc.type = WASM_INST_CAST_F32_2_S32;
+
+			}break;
+			case 0xb9:
+			{
+				bc.type = WASM_INST_CAST_S64_2_F32;
+
+			}break;
+			case 0xba:
+			{
+				bc.type = WASM_INST_CAST_U32_2_F32;
+
+			}break;
 			case 0x60:
 			{
 				bc.type = WASM_INST_F32_GT;
+
+			}break;
+			case 0x94:
+			{
+				bc.type = WASM_INST_F32_MUL;
 
 			}break;
 			case 0x5e:
@@ -7420,7 +7645,10 @@ void GenWasm(web_assembly_state* wasm_state)
 	INSERT_VEC((*ret), exports_sect);
 	INSERT_VEC((*ret), element_sect);
 	INSERT_VEC((*ret), final_code_sect);
+	
+	lang_state* lang_stat = wasm_state->lang_stat;
 	WriteFileLang((char*)(wasm_state->wasm_dir + "test.wasm").c_str(), ret->begin(), ret->size());
+	WriteFileLang((char*)(wasm_state->wasm_dir + "dbg_wasm_data.dbg").c_str(), lang_stat->data_sect.begin(), lang_stat->data_sect.size());
 	std::string code_str((char*)ret->begin(), ret->size());
 	std::string encoded_str = base64_encode(code_str);
 
@@ -7484,11 +7712,19 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 {
 	int read;
 	web_assembly_state *wasm_state = lang_stat->wasm_state;
+	lang_stat->data_sect.clear();
 	wasm_state->lang_stat = lang_stat;
 	wasm_state->funcs.clear();
 	wasm_state->imports.clear();
 	wasm_state->outsiders.clear();
 	auto file = (unsigned char *)ReadEntireFileLang((char *)file_name.c_str(), &read);
+
+	int point_idx = file_name.find_last_of('.');
+	std::string data_file_name = file_name.substr(0, point_idx)+"_data.dbg";
+	auto file_data_sect = (char *)ReadEntireFileLang((char *)(data_file_name.c_str()), &read);
+	lang_stat->data_sect.insert(lang_stat->data_sect.begin(), file_data_sect, file_data_sect + read);
+	
+
 	auto dfile = (dbg_file_seriealize*)(file);
 	wasm_interp &winterp = *lang_stat->winterp;
 
@@ -7504,6 +7740,8 @@ void RunDbgFile(lang_state* lang_stat, std::string func, long long* args, int to
 	lang_stat->winterp->dbg->mem_size = mem_size;
 	*(int*)&buffer[MEM_PTR_CUR_ADDR] = 20000;
 	*(int*)&buffer[MEM_PTR_MAX_ADDR] = 0;
+
+	memcpy(&buffer[DATA_SECT_OFFSET], lang_stat->data_sect.begin(), lang_stat->data_sect.size());
 	WasmInterpRun(lang_stat->winterp, buffer, mem_size, func.c_str(), args, total_args);
 	__lang_globals.free(__lang_globals.data, buffer);
 
@@ -7771,6 +8009,12 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	}
 
     GenWasm(&wasm_state);
+	/*
+	FOR_VEC(i1, lang_stat->files)
+	{
+		(*i1)->s->FreeTree();
+	}
+	*/
 }
 int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_addr, void *data)
 {

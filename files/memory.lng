@@ -610,6 +610,10 @@ func_ptr_test::fn() !u8
 {
 	return 2;
 }
+test_bool_ret::fn(b : bool) !bool
+{
+	return b;
+}
 tests :: fn()
 {
 	i:= 0;
@@ -848,5 +852,44 @@ tests :: fn()
 	if* color.ar[1] < 0.4 || *color.ar[1] > 0.6
 		__dbg_break;
 
+	bool_rt: = test_bool_ret(true);
+
+	if bool_rt != true
+		__dbg_break;
+
+	if test_bool_ret(false)
+		__dbg_break;
+
+
+	slen: = str_ln("ab");
+	if slen != 2
+		__dbg_break;
+
+	fval: = cast(f32)2;
+
+	if fval > 2.1 || fval < 1.9
+		__dbg_break;
+
+	i = 3;
+	fval = cast(f32)i;
+
+	if fval > 3.1 || fval < 2.9
+		__dbg_break;
+
+	f1: = 1.0;
+	f2: = 0.5;
+	i = 5;
+
+	i = cast(s32)((cast(f32)i * f2) / f1);
+	
+	if i != 2
+		__dbg_break;
+
+	i = 5;
+	f2 = 0.7;
+
+	i = cast(s32)((cast(f32)i * f2) / f1);
+	if i != 3
+		__dbg_break;
 
 }

@@ -1948,7 +1948,9 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		int inst = WASM_LOAD_OP;
 		if (IsIrValFloat(val) && deref_times == 1)
 			inst = WASM_LOAD_F32_OP;
-		WasmStoreInst(code_sect, val->reg_sz, inst);
+		if (deref_times > 1)
+			reg_sz = 8;
+		WasmStoreInst(code_sect, reg_sz, inst);
 		//if(!deref)
 			deref_times--;
 		deref = false;
@@ -5068,6 +5070,7 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 		func_decl* f = *func;
 		auto fdbg = (func_dbg *)(ser_state.func_sect.begin() + f->func_dbg_idx);
 		WasmSerializeFunc(wasm_state, &ser_state, f);
+		fdbg = (func_dbg *)(ser_state.func_sect.begin() + f->func_dbg_idx);
 		fdbg->file_idx = f->from_file->file_dbg_idx;
 		//WasmSerializeFuncIr(&ser_state, f);
 

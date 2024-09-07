@@ -540,6 +540,41 @@ void EatSpace(char *input, int *i)
 		(*i)++;
 	}
 }
+/*
+std::string GetQuoteStr(char *input, int i, char *ch,  int &line, char **line_str, own_std::vector<char *> *lines_out = nullptr)
+{
+	int cur_idx = 1;
+	//we only want to stop if the find a single quotantion, and not a \" 
+	while (ch[cur_idx - 1] != '\\' && ch[cur_idx] != '\"')
+	{
+		if (ch[cur_idx] == '\n')
+		{
+			*line_str = (char*)(&input[i + 1]);
+
+			if (lines_out)
+				lines_out->emplace_back(*line_str);
+			line++;
+		}
+
+		if (ch[cur_idx] == '\\')
+		{
+			ch[cur_idx] = 255;
+			if(ch[cur_idx + 1] == 'n')
+			{
+				ch[cur_idx + 1] = '\n';
+			}
+			else
+			{
+				ASSERT(false)
+			}
+			cur_idx++;
+		}
+		cur_idx++;
+	}
+	return std::string(&input[i + 1], cur_idx - 1);
+
+}
+*/
 void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns, own_std::vector<char *> *lines_out = nullptr)
 {
 	*tkns = own_std::vector<token2>();
@@ -769,6 +804,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			case '\"':
 			{
 				int cur_idx = 1;
+				tkn.str = std::string();
 				//we only want to stop if the find a single quotantion, and not a \" 
 				while (ch[cur_idx - 1] != '\\' && ch[cur_idx] != '\"')
 				{
@@ -783,23 +819,31 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 
 					if (ch[cur_idx] == '\\')
 					{
-						ch[cur_idx] = 255;
+						///*
+						//ch[cur_idx] = 255;
 						if(ch[cur_idx + 1] == 'n')
 						{
 							ch[cur_idx + 1] = '\n';
+							tkn.str.push_back('\n');
 						}
 						else
 						{
 							ASSERT(false)
 						}
 						cur_idx++;
+						//*/
+					}
+					else
+					{
+
+						tkn.str += ch[cur_idx];
 					}
 					cur_idx++;
 				}
 				
 				found_char = true;
 				tkn.type = T_STR_LIT;
-				tkn.str  = std::string(&input[i + 1], cur_idx - 1);
+				//tkn.str  = std::string(&input[i + 1], cur_idx - 1);
 
 				i += cur_idx;
 			}break;
@@ -820,16 +864,23 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			{
 				found_char = true;
 				tkn.type = T_APOSTROPHE;
-				if(input[i] == '\\')
+				if(input[i + 1] == '\\')
 				{
-					ASSERT(false)
+					i++;
+					if (input[i + 1] == 'n')
+					{
+						
+						tkn.i = 0xa;
+					}
+					else
+						ASSERT(0)
 				}
 				else
 				{
 					tkn.i = input[i + 1];
-					i++;
 				}
 
+				i++;
 			}break;
 			case ')':
 			{

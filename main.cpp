@@ -28,6 +28,7 @@ struct open_gl_state
 	int pos_u;
 	int buttons[TOTAL_KEYS];
 	texture_info textures[TOTAL_TEXTURES];
+	double last_time;
 };
 enum key_enum
 {
@@ -63,6 +64,13 @@ struct draw_info
 	float color_a;
 
 	int texture_id;
+
+	float cam_size;
+
+	float cam_pos_x;
+	float cam_pos_y;
+	float cam_pos_z;
+
 	int flags;
 };
 
@@ -98,6 +106,12 @@ void Draw(dbg_state* dbg)
 
 	gl_state->pos_u = glGetUniformLocation(gl_state->shader_program, "pos");
 	glUniform3f(gl_state->pos_u, draw->pos_x, draw->pos_y, draw->pos_z);
+
+	int cam_size_u = glGetUniformLocation(gl_state->shader_program, "cam_size");
+	glUniform1f(cam_size_u, draw->cam_size);
+
+	int cam_pos_u = glGetUniformLocation(gl_state->shader_program, "cam_pos");
+	glUniform3f(cam_size_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
 
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
 	{
@@ -163,12 +177,27 @@ void IsKeyHeld(dbg_state* dbg)
 		*addr = 0;
 
 }
+void GetDeltaTime(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	auto ret = (float *)&dbg->mem_buffer[RET_1_REG * 8];
+	*ret = glfwGetTime() - gl_state->last_time;
+	gl_state->last_time = glfwGetTime();
+}
+void EndFrame(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->last_time = glfwGetTime();
+}
 void ShouldClose(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	long long wnd = *(long long*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
+
+
 
 	auto gl_state = (open_gl_state*)dbg->data;
 
@@ -317,7 +346,7 @@ void OpenWindow(dbg_state* dbg)
 		return;
 
 	/* Create a windowed mode window and its OpenGL context */
-	window = glfwCreateWindow(640, 480, "Hello World", NULL, NULL);
+	window = glfwCreateWindow(1200, 640, "Hello World", NULL, NULL);
 	if (!window)
 	{
 		glfwTerminate();
@@ -367,17 +396,21 @@ void OpenWindow(dbg_state* dbg)
 		"layout (location = 0) in vec3 aPos;\n"
 		"layout (location = 1) in vec2 uv;\n"
 		"uniform vec3 pos;\n"
+		"uniform float cam_size;\n"
+		"uniform vec3 cam_pos;\n"
 		"out vec2 TexCoord;\n"
 		"void main()\n"
 		"{\n"
 		"   gl_Position = vec4(aPos.x + pos.x, aPos.y + pos.y, aPos.z + pos.z, 1.0);\n"
+		"   gl_Position.xy /= cam_size;\n"
+		//"   gl_Position = ition / cam_size + cam_size;\n"
 		"   TexCoord = uv;\n"
 		"}\0";
 
 	unsigned int vertexShader;
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-	glCompileShader(vertexShader);
+	GL_CALL(glShaderSource(vertexShader, 1, &vertexShaderSource, NULL));
+	GL_CALL(glCompileShader(vertexShader));
 
 	int  success;
 	char infoLog[512];
@@ -514,6 +547,7 @@ int main()
 	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
+	AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
 	Compile(&lang_stat, &opts);
 	if (!opts.release)
 	{

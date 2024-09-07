@@ -990,7 +990,17 @@ node* node_iter::parse_expr()
 	{
 		n->type = node_type::N_STR_LIT;
 		int i = 0;
-		auto& str = n->t->str;
+
+		auto peek = peek_tkn();
+		while (peek->type == T_STR_LIT)
+		{
+			cur_tkn->str += peek->str;
+			get_tkn();
+
+			peek = peek_tkn();
+		}
+			
+		auto& str = cur_tkn->str;
 		own_std::vector<node*> args;
 
 		std::string ref_str;

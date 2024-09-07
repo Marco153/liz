@@ -9,6 +9,7 @@ enum ast_type
     AST_STATS,
     AST_FUNC,
     AST_INT,
+    AST_CHAR,
     AST_IDENT,
     AST_RET,
     AST_BINOP,
@@ -105,6 +106,7 @@ struct ast_point
 struct ast_deref
 {
     ast_rep *exp;
+	type2 type;
     char times;
 };
 struct ast_opposite

@@ -647,6 +647,7 @@ tests :: fn()
 
 	*ptr_offset(alloc.buffer, 1, u8) = 1;
 
+	__dbg_break;
 	if *ptr_offset(alloc.buffer, 1, u8) != 1
 		__dbg_break;
 

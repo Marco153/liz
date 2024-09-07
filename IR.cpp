@@ -87,6 +87,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				cur = cur->r;
 			}
 			ret->deref.exp = AstFromNode(lang_stat, cur, scp);
+			ret->deref.type = DescendNode(lang_stat, n, scp);
 		}break;
 		default:
 			ASSERT(0)
@@ -458,6 +459,11 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
         }
 	}break;
+	case N_APOSTROPHE:
+	{
+		ret->type = AST_CHAR;
+		ret->num = n->t->i;
+	}break;
 	case N_EMPTY:
 		break;
     default:
@@ -506,6 +512,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val)
 		val->is_unsigned = false;
 		val->is_float = true;
     }break;
+    case AST_CHAR:
     case AST_INT:
     {
         val->type = IR_TYPE_INT;
@@ -1112,6 +1119,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				//ASSERT(top->ptr <= 0);
 			}
 			top->deref++;
+			top->reg_sz = GetTypeSize(&e->deref.type);
 
 
 			int val_to_modify = top->type == IR_TYPE_REG ? -1 : 1;
@@ -1485,6 +1493,7 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	}break;
 	case AST_FLOAT:
 	case AST_INT:
+	case AST_CHAR:
 	case AST_IDENT:
 	{
 		GetIRVal(lang_stat, ast, dst_val);
@@ -1945,6 +1954,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			case AST_INT: 
 			case AST_FLOAT: 
 			case AST_IDENT:
+			case AST_STR_LIT:
+			case AST_CHAR:
 			{
 				ir.assign.only_lhs = true;
 				GetIRVal(lang_stat, rhs_ast, &ir.assign.lhs);

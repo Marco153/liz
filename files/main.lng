@@ -8,6 +8,8 @@ draw_info: struct
 	pos :v3,
 	color: [4]f32,
 	texture_id : u32,
+	cam_size : f32,
+	cam_pos :v3,
 	flags:u32,
 }
 key_enum : enum
@@ -31,9 +33,26 @@ clip: struct
 	cur_time :f32,
 	loop :bool,
 }
+cel_type: enum
+{
+	EMPTY,
+	SOLID,
+}
+cel_info :struct
+{
+	type:cel_type,
+}
+scene: struct
+{
+	cels : *cel_info,
+	total_cels : u32,
+	width : u32,
+	height : u32,
+}
 
 IsKeyDown::fn outsider(key_enum) !bool;
 IsKeyHeld::fn outsider(key_enum) !bool;
+GetDeltaTime::fn outsider() !f32;
 
 OpenWindow::fn outsider() ! *u8;
 ClearBackground::fn outsider(f32, f32, f32);
@@ -54,21 +73,53 @@ UpdateClip::fn(c : *clip, dt : f32) ! u32
 	return idx;
 
 }
+CreateScene::fn(ctx : *context, str : str_lit, scn : *scene)
+{
+	len: u32= cast(u32)str_ln(str);
+	s: = cast(*u8)str;
+
+	width: u32;
+	height: u32;
+
+	while* ptr_offset(s, width, char) != '\n
+	{
+		width++;
+	}
+	height = len / width;
+
+	scn.cels = cast(*cel_info)heap_alloc(&ctx.alloc, width * height * sizeof(cel_info));
+	scn.total_cels = width * height;
+	scn.width = width;
+	scn.height = height;
+	
+
+}
 
 main :: fn()
 {
 	ctx: context;
 	InitMemAlloc(&ctx.alloc);
-
+	
+scene1: = 
+"---------\n"
+"-.......-\n"
+"-p...o..-\n"
+"-.......-\n"
+"---------\n"
+;
 	window := OpenWindow();
 	clip1:clip;
 	LoadClip(&ctx, "../images/frog.png", 0, 0, 32, 32, 2, 1.0, &clip1);
+	scn:scene;
+	CreateScene(&ctx, scene1, &scn);
+	__dbg_break;
 	clip1.loop = true;
 	draw:draw_info;
 	//pos:v2;
 	while !ShouldClose(window)
 	{
-		ClearBackground(0.2, 0.5, 0.1);
+		ClearBackground(0.2, 0.2, 0.1);
+		dt: = GetDeltaTime();
 		if IsKeyHeld(key_enum.KEY_LEFT)
 		{
 			draw.pos.x += 0.01;
@@ -78,7 +129,11 @@ main :: fn()
 		*draw.color[2] = 1.0;
 		*draw.color[3] = 1.0;
 		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-		draw.texture_id = UpdateClip(&clip1, 0.01);
+		draw.texture_id = UpdateClip(&clip1, dt);
+		draw.cam_size = 10.0;
+		draw.cam_pos.x = 0.0;
+		draw.cam_pos.y = 0.0;
+		draw.cam_pos.z = 0.0;
 		//draw.texture_id = 1;
 		Draw(window, &draw);
 	}

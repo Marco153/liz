@@ -236,7 +236,8 @@ char* GetFuncBasedOnAddr(lang_state *lang_stat, unsigned long long offset)
 }
 void NewDeclToCurFilseGlobalsScope(lang_state *lang_stat, decl2 *decl)
 {
-	lang_stat->cur_file->global->vars.emplace_back(decl);
+	//lang_stat->cur_file->global->vars.emplace_back(decl);
+	lang_stat->funcs_scp->vars.emplace_back(decl);
 }
 void NewFuncToCompile(lang_state *lang_stat, func_decl *fdecl)
 {
@@ -673,6 +674,10 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		cond = (rhs->type == enum_type2::TYPE_U8 || rhs->type == enum_type2::TYPE_CHAR ||
 			(rhs->type == enum_type2::TYPE_INT && rhs->i >= 0 && rhs->u16 <= 0xff)
 			);
+		break;
+	case enum_type2::TYPE_VOID:
+		cond = lhs->ptr > 0 && rhs->ptr > 0;
+
 		break;
 	case enum_type2::TYPE_BOOL:
 		cond = rhs->type == enum_type2::TYPE_BOOL;
@@ -1344,6 +1349,24 @@ node* node_iter::parse_expr()
 				op_type = tkn_type2::T_OPEN_BRACKETS;
 				ovlrd_op = overload_op::COND_EQ_OP;
 			}
+			else if (peek_tkn()->type == tkn_type2::T_MUL)
+			{
+				get_tkn();
+				op_type = tkn_type2::T_OPEN_BRACKETS;
+				ovlrd_op = overload_op::MUL_OP;
+			}
+			else if (peek_tkn()->type == tkn_type2::T_MINUS)
+			{
+				get_tkn();
+				op_type = tkn_type2::T_OPEN_BRACKETS;
+				ovlrd_op = overload_op::MINUS_OP;
+			}
+			else if (peek_tkn()->type == tkn_type2::T_PLUS)
+			{
+				get_tkn();
+				op_type = tkn_type2::T_OPEN_BRACKETS;
+				ovlrd_op = overload_op::PLUS_OP;
+			}
 			else if (peek_tkn()->type == tkn_type2::T_EQUAL)
 			{
 				get_tkn();
@@ -1601,7 +1624,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 
 		bool break_when_node_head = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD);
 		bool scope_without_curly = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY);
-		bool cur_is_ident_or_int = peek_tkn()->type == tkn_type2::T_WORD || peek_tkn()->type == tkn_type2::T_INT;
+		bool cur_is_ident_or_int = peek_tkn()->type == tkn_type2::T_WORD || peek_tkn()->type == tkn_type2::T_INT || peek_tkn()->type == tkn_type2::T_FLOAT;
 		bool return_without_semicolon_on_scope_end = false;
 
 		auto cur = peek_tkn();
@@ -6138,16 +6161,15 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					auto arg2 = &n->fdecl->args[1]->type;
 				ASSERT(arg2->type == enum_type2::TYPE_U64 && arg2->ptr == 0)
 			}break;
+			case overload_op::DEREF_OP:
 			case overload_op::FOR_OP:
 				ASSERT(n->fdecl->args.size() == 1)
 					break;
-			case overload_op::DEREF_OP:
-				ASSERT(n->fdecl->args.size() == 1)
-					break;
-			case overload_op::COND_EQ_OP:
-				ASSERT(n->fdecl->args.size() == 2)
-					break;
+			case overload_op::PLUS_OP:
+			case overload_op::MINUS_OP:
+			case overload_op::MUL_OP:
 			case overload_op::ASSIGN_OP:
+			case overload_op::COND_EQ_OP:
 				ASSERT(n->fdecl->args.size() == 2)
 					break;
 			default:
@@ -7016,7 +7038,7 @@ void MakeRelPtrDerefFuncCall(lang_state *lang_stat, func_decl* op_func, node* n)
 void MaybeCreateCast(lang_state *lang_stat, node* ln, node* rn, type2* lp, type2* rp)
 {
 	// creating a cast for types that are different
-	if (lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM && rp->type != TYPE_STR_LIT && lp->type != rp->type && rp->type != TYPE_INT)
+	if (lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM && rp->type != TYPE_STR_LIT && lp->type != rp->type && rp->type != TYPE_INT && rp->type != TYPE_F32_RAW)
 	{
 		auto t_nd = CreateNodeFromType(lang_stat, lp, ln->t);
 		auto new_nd = NewTypeNode(lang_stat, t_nd, N_CAST, new_node(lang_stat, rn), ln->t);
@@ -7419,8 +7441,16 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			ret_type = DescendNode(lang_stat, n->r, scp);
 			ModifyNodeIntOrFloat(ret_type, n);
-			ret_type.i *= -1;
-			n->t->i *= -1;
+			if (ret_type.type == TYPE_F32 || ret_type.type == TYPE_F32_RAW)
+			{
+				ret_type.f *= -1;
+				n->t->f *= -1;
+			}
+			else
+			{
+				ret_type.i *= -1;
+				n->t->i *= -1;
+			}
 		}break;
 		case tkn_type2::T_AMPERSAND:
 		{
@@ -8204,7 +8234,62 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				ExitProcess(1);
 			}
 
-			if (!CompareTypes(&ltp, &rtp))
+			if (ret_type.type == enum_type2::TYPE_STRUCT && ret_type.ptr == 0)
+			{
+				overload_op op;
+				switch (n->t->type)
+				{
+				case T_MINUS:
+				{
+					op = overload_op::MINUS_OP;
+				}break;
+				case T_MUL:
+				{
+					op = overload_op::MUL_OP;
+				}break;
+				case T_PLUS:
+				{
+					op = overload_op::PLUS_OP;
+				}break;
+				default:
+					ASSERT(0)
+				}
+				auto op_func = ret_type.strct->FindOpOverload(lang_stat, op);
+				ASSERT(op_func)
+					/*
+				bool is_correct_ovrld = CompareTypes(&op_func->args[0]->type, &ret_type);
+				if (!is_correct_ovrld)
+				{
+					printf("operator '*' overload. ");
+					ReportTypeMismatch(n->t, &op_func->args[0]->type, &ret_type);
+				}
+				*/
+
+
+				ret_type = op_func->ret_type;
+				own_std::vector<node*> args;
+
+				node* ref_nd = NewBinOpNode(lang_stat, nullptr, tkn_type2::T_AMPERSAND, new_node(lang_stat, n->l));
+				ref_nd->type = node_type::N_UNOP;
+				args.emplace_back(ref_nd);
+
+				node *sec_arg = new_node(lang_stat, n->r);
+				if (op_func->args[1]->type.ptr > 0)
+				{
+					ref_nd = NewBinOpNode(lang_stat, nullptr, tkn_type2::T_AMPERSAND, sec_arg);
+					ref_nd->type = node_type::N_UNOP;
+					sec_arg = ref_nd;
+				}
+				args.emplace_back(sec_arg);
+
+				node* ncall = MakeFuncCallArgs(lang_stat, op_func->name, nullptr, args, n->t);
+				ncall->t = n->t;
+
+				memcpy(n, ncall, sizeof(node));
+
+				DescendNameFinding(lang_stat, n, scp);
+			}
+			else if (!CompareTypes(&ltp, &rtp))
 			{
 				ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 			}
@@ -8336,6 +8421,11 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 							n->flags &= ~NODE_FLAGS_CALL_RET_ANON;
 						}
 					}
+					else
+					{
+						node * call = MakeMemCpyCall(lang_stat, n->l, n->r, ltp.strct->size);
+						memcpy(n, call, sizeof(node));
+					}
 				}
 				else
 				{
@@ -8408,7 +8498,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			{
 				decl2 *d = ret_type.from_enum->type.GetEnumDecl(n->r->t->str);
 				n->type = N_INT;
-				n->t->i = d->offset;
+				n->t->i = d->type.e_idx;
 			}
 
 		}break;
@@ -8742,6 +8832,18 @@ std::string OvrldOpToStr(overload_op op)
 	{
 		return "[]";
 	}break;
+	case overload_op::MINUS_OP:
+	{
+		return "-";
+	}break;
+	case overload_op::MUL_OP:
+	{
+		return "*";
+	}break;
+	case overload_op::PLUS_OP:
+	{
+		return "+";
+	}break;
 	case overload_op::FOR_OP:
 	{
 		return "for";
@@ -9012,6 +9114,8 @@ unit_file* AddNewFile(lang_state *lang_stat, std::string name)
 	new_f->contents_sz = read;
 	new_f->global = NewScope(lang_stat, lang_stat->root);
 	new_f->global->flags |= SCOPE_IS_GLOBAL;
+	new_f->global->type = SCP_TYPE_FILE;
+	new_f->global->file = new_f;
 	lang_stat->files.emplace_back(new_f);
 
 	if (lang_stat->base_lang)

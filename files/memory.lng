@@ -81,7 +81,7 @@ _own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 		i++;
 	}
 }
-memcpy::fn(dst : *u8, src : *u8, sz : u64) !void
+memcpy::fn(dst : *void, src : *void, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
@@ -614,8 +614,23 @@ test_bool_ret::fn(b : bool) !bool
 {
 	return b;
 }
+ret_v3::fn() !v3
+{
+	ret:v3;
+	ret.x = 1.0;
+	ret.y = 2.0;
+	return ret;
+}
 tests :: fn()
 {
+	vec1:v3;
+	vec2:v3;
+	vec2.x = 1.0;
+	memcpy(&vec1, &vec2, sizeof(v3));
+
+	if vec1.x > 1.1 || vec1.x <0.9
+		__dbg_break;
+
 	i:= 0;
 	if i != 0
 		__dbg_break;
@@ -647,7 +662,6 @@ tests :: fn()
 
 	*ptr_offset(alloc.buffer, 1, u8) = 1;
 
-	__dbg_break;
 	if *ptr_offset(alloc.buffer, 1, u8) != 1
 		__dbg_break;
 
@@ -893,4 +907,46 @@ tests :: fn()
 	if i != 3
 		__dbg_break;
 
+	v1:v3;
+	v1= ret_v3();
+	if v1.y > 2.1 || v1.y < 1.9
+		__dbg_break;
+	v2:v3;
+
+	v1.x = 1.0;
+	v2.x = 3.0;
+	v1.y = 1.0;
+	v2.y = -1.0;
+	v: = v1 + v2;
+
+	if v.x > 4.1 || v.x < 3.9
+		__dbg_break;
+
+	v1.x = 1.0;
+	v = v1 * 2.0;
+
+	if v.x > 2.1 || v.x < 1.9
+		__dbg_break;
+
+	v1.x = 1.0;
+	v2.x = 1.0;
+	v = v1 - v2;
+	if v.x > 0.1 || v.x < -0.1
+		__dbg_break;
+
+	v1.x = 5.0;
+	v1.y = -6.0;
+
+	v1 = sign_v3(&v1);
+
+	if v1.x > 1.1 || v1.x < 0.9 || v1.y < -1.0 || v1.y > -0.9
+		__dbg_break;
+
+	v2.x = 2.0;
+	v1.x = 1.0;
+	__dbg_break;
+	v1 = v1 + v2 * 2.0;
+
+	if v1.x > 5.1 || v1.x < 4.9
+		__dbg_break;
 }

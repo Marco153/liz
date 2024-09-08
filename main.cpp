@@ -24,6 +24,7 @@ struct open_gl_state
 {
 	int vao;
 	int shader_program;
+	int shader_program_no_texture;
 	int color_u;
 	int pos_u;
 	int buttons[TOTAL_KEYS];
@@ -58,10 +59,15 @@ struct draw_info
 	float pos_y;
 	float pos_z;
 
+	float ent_size_x;
+	float ent_size_y;
+	float ent_size_z;
+
 	float color_r;
 	float color_g;
 	float color_b;
 	float color_a;
+
 
 	int texture_id;
 
@@ -98,33 +104,45 @@ void Draw(dbg_state* dbg)
 	auto draw = (draw_info *)(long long*)&dbg->mem_buffer[draw_addr];
 
 	auto gl_state = (open_gl_state*)dbg->data;
-	glUseProgram(gl_state->shader_program);
-	glBindVertexArray(gl_state->vao);
 
-	gl_state->color_u = glGetUniformLocation(gl_state->shader_program, "color");
-	glUniform4f(gl_state->color_u, draw->color_r, draw->color_b, draw->color_g, 1.0f);
-
-	gl_state->pos_u = glGetUniformLocation(gl_state->shader_program, "pos");
-	glUniform3f(gl_state->pos_u, draw->pos_x, draw->pos_y, draw->pos_z);
-
-	int cam_size_u = glGetUniformLocation(gl_state->shader_program, "cam_size");
-	glUniform1f(cam_size_u, draw->cam_size);
-
-	int cam_pos_u = glGetUniformLocation(gl_state->shader_program, "cam_pos");
-	glUniform3f(cam_size_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
+	int prog = gl_state->shader_program;
 
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
 	{
-		draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
+		prog = gl_state->shader_program;
+		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
 		texture_info* t = &gl_state->textures[draw->texture_id];
 
 		glBindTexture(GL_TEXTURE_2D, t->id);
 	}
+	else
+	{
+		prog = gl_state->shader_program_no_texture;
+		//glDisable(GL_TEXTURE_2D);
+	}
+
+	glUseProgram(prog);
+	glBindVertexArray(gl_state->vao);
+
+	gl_state->color_u = glGetUniformLocation(prog, "color");
+	glUniform4f(gl_state->color_u, draw->color_r, draw->color_b, draw->color_g, 1.0f);
+
+	gl_state->pos_u = glGetUniformLocation(prog, "pos");
+	glUniform3f(gl_state->pos_u, draw->pos_x, draw->pos_y, draw->pos_z);
+
+	int cam_size_u = glGetUniformLocation(prog, "cam_size");
+	glUniform1f(cam_size_u, draw->cam_size);
+
+	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
+	glUniform3f(cam_size_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
+
+	int ent_size_u = glGetUniformLocation(prog, "ent_size");
+	glUniform3f(ent_size_u, draw->ent_size_x, draw->ent_size_y, draw->ent_size_z);
+
 
 
 	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	//glDrawArrays(GL_TRIANGLES, 0, 3);
-	glfwSwapBuffers(wnd);
 	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
 }
 void ClearBackground(dbg_state* dbg)
@@ -136,17 +154,16 @@ void ClearBackground(dbg_state* dbg)
 	float b = *(float*)&dbg->mem_buffer[base_ptr + 8 * 3];
 
 	glClearColor(r, g, b, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	glClearDepth(1.0f);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
 }
-void IsKeyHeld(dbg_state* dbg)
-{
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
-	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
-	
-	auto gl_state = (open_gl_state*)dbg->data;
 
-	switch ((key_enum)key)
+int FromGameToGLFWKey(int in)
+{
+	int key;
+	switch ((key_enum)in)
 	{
 	case _KEY_UP:
 	{
@@ -167,6 +184,35 @@ void IsKeyHeld(dbg_state* dbg)
 	default:
 		ASSERT(0);
 	}
+	return key;
+}
+void IsKeyDown(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	key = FromGameToGLFWKey(key);
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN))
+	{
+		*addr = 1;
+	}
+	else
+		*addr = 0;
+
+}
+void IsKeyHeld(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	key = FromGameToGLFWKey(key);
+
 	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
 
 	if (IS_FLAG_ON(gl_state->buttons[key], KEY_HELD))
@@ -187,8 +233,14 @@ void GetDeltaTime(dbg_state* dbg)
 }
 void EndFrame(dbg_state* dbg)
 {
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+
+	auto wnd = (GLFWwindow *)*(long long*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
-	gl_state->last_time = glfwGetTime();
+	//gl_state->last_time = glfwGetTime();
+	glfwSwapBuffers(wnd);
 }
 void ShouldClose(dbg_state* dbg)
 {
@@ -216,7 +268,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 	if (action == GLFW_PRESS)
 	{
 		gl_state->buttons[key] |= KEY_HELD | KEY_DOWN;
-		printf("key(%d) is %d", key, gl_state->buttons[key]);
+		//printf("key(%d) is %d", key, gl_state->buttons[key]);
 	}
 	else if (action == GLFW_RELEASE)
 	{
@@ -331,6 +383,25 @@ void LoadClip(dbg_state* dbg)
 	int a = 0;
 	*/
 }
+int CompileShader(char* source, int type)
+{
+	int  success;
+	char infoLog[512];
+	unsigned int shader;
+	shader = glCreateShader(type);
+	glShaderSource(shader, 1, &source, NULL);
+	glCompileShader(shader);
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+ 
+	//ASSERT(gl_)
+
+	if (!success)
+	{
+		glGetShaderInfoLog(shader, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+	}
+	return shader;
+}
 void OpenWindow(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -397,11 +468,14 @@ void OpenWindow(dbg_state* dbg)
 		"layout (location = 1) in vec2 uv;\n"
 		"uniform vec3 pos;\n"
 		"uniform float cam_size;\n"
+		"uniform vec3 ent_size;\n"
 		"uniform vec3 cam_pos;\n"
 		"out vec2 TexCoord;\n"
 		"void main()\n"
 		"{\n"
-		"   gl_Position = vec4(aPos.x + pos.x, aPos.y + pos.y, aPos.z + pos.z, 1.0);\n"
+		"   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+		"   gl_Position.xy *= ent_size.xy;\n"
+		"   gl_Position.xy += pos.xy;\n"
 		"   gl_Position.xy /= cam_size;\n"
 		//"   gl_Position = ition / cam_size + cam_size;\n"
 		"   TexCoord = uv;\n"
@@ -421,6 +495,14 @@ void OpenWindow(dbg_state* dbg)
 		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
 		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
 	}
+	const char* fragmentShaderNoTextureSource = "#version 330 core\n"
+		"out vec4 FragColor;\n"
+		"in vec2 TexCoord;\n"
+		"uniform vec4 color;\n"
+		"void main(){\n"
+		//"vec4 tex_col =  texture(tex, uv);\n"
+		"FragColor =  color;\n"
+		"}\n";
 	const char* fragmentShaderSource = "#version 330 core\n"
 		"out vec4 FragColor;\n"
 		"in vec2 TexCoord;\n"
@@ -432,19 +514,9 @@ void OpenWindow(dbg_state* dbg)
 		"FragColor =  tex_col * color;\n"
 		"}\n";
 
-	unsigned int fragmentShader;
-	fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-	glCompileShader(fragmentShader);
-	glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+	unsigned int fragmentShader = CompileShader((char *)fragmentShaderSource, GL_FRAGMENT_SHADER);
+	unsigned int fragmentNoTextureShader = CompileShader((char *)fragmentShaderNoTextureSource, GL_FRAGMENT_SHADER);
 
-	//ASSERT(gl_)
-
-	if (!success)
-	{
-		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
 
 	unsigned int shaderProgram;
 	shaderProgram = glCreateProgram();
@@ -453,11 +525,26 @@ void OpenWindow(dbg_state* dbg)
 	glLinkProgram(shaderProgram);
 	glUseProgram(shaderProgram);
 
+	unsigned int shaderProgramNoTexture;
+	shaderProgramNoTexture = glCreateProgram();
+	glAttachShader(shaderProgramNoTexture, vertexShader);
+	glAttachShader(shaderProgramNoTexture, fragmentNoTextureShader);
+	glLinkProgram(shaderProgramNoTexture);
+	//glUseProgram(shaderProgram);
+
+
 	gl_state->vao = VAO;
 	gl_state->shader_program = shaderProgram;
+	gl_state->shader_program_no_texture = shaderProgramNoTexture;
 
 
 	glEnable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	glDepthFunc(GL_ALWAYS);
+
+
+
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	unsigned int texture;
@@ -546,8 +633,10 @@ int main()
 	AssignOutsiderFunc(&lang_stat, "ClearBackground", (OutsiderFuncType)ClearBackground);
 	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
+	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
+	AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
 	Compile(&lang_stat, &opts);
 	if (!opts.release)
 	{

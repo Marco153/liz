@@ -180,6 +180,10 @@ std::string TypeToString(type2 &tp)
 
 	switch(tp.type)
 	{
+	case enum_type2::TYPE_IMPORT:
+	{
+		ret += "import";
+	}break;
 	case enum_type2::TYPE_MACRO_EXPR:
 	{
 		ret += "macro expr";

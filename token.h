@@ -43,6 +43,9 @@ enum overload_op
 {
 	INDEX_OP,
 	ASSIGN_OP,
+	PLUS_OP,
+	MUL_OP,
+	MINUS_OP,
 	DEREF_OP,
 	COND_EQ_OP,
 	FOR_OP,
@@ -399,10 +402,15 @@ struct func_decl
 	int biggest_saved_regs = 2;
 	int biggest_call_args;
 
+	int to_spill_size;
+	int to_spill_offset;
+	//int biggest_call_args;
+
 	int biggest_saved_lhs;
 
-    int max_spilled_bytes;
-    int spilled_offset;
+
+	int strct_ret_size_per_statement;
+	int strct_ret_size_per_statement_offset;
 
 	int strct_constrct_size_per_statement;
 	int strct_constrct_at_offset;

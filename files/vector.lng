@@ -11,6 +11,30 @@ v3 : struct
 	y : f32,
 	z : f32,
 }
+operator *(self : *v3, f : f32) !v3
+{
+	ret:v3;
+	ret.x = self.x * f;
+	ret.y = self.y * f;
+	ret.z = self.z * f;
+	return ret;
+}
+operator -(self : *v3, rhs : *v3) !v3
+{
+	ret:v3;
+	ret.x = self.x - rhs.x;
+	ret.y = self.y - rhs.y;
+	ret.z = self.z - rhs.z;
+	return ret;
+}
+operator +(self : *v3, rhs : *v3) !v3
+{
+	ret:v3;
+	ret.x = self.x + rhs.x;
+	ret.y = self.y + rhs.y;
+	ret.z = self.z + rhs.z;
+	return ret;
+}
 
 ASSIGN_V3::fn macro(dst : _expr, a : _expr)
 {
@@ -18,6 +42,20 @@ ASSIGN_V3::fn macro(dst : _expr, a : _expr)
 	dst.y = a.y;
 	dst.z = a.z;
 
+}
+sign_v3::fn(a : *v3) !v3
+{
+	aux: = *a;
+	aux.x = if a.x > 0.0 1.0 else - 1.0;
+	aux.y = if a.y > 0.0 1.0 else - 1.0;
+	aux.z = if a.z > 0.0 1.0 else - 1.0;
+
+	return aux;
+}
+dot_v3::fn(a : *v3, b : *v3) ! f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z;
+	return ret;
 }
 DOT_V3::fn macro(dst : _expr, a : _expr, b : _expr)
 {

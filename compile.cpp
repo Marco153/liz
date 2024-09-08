@@ -393,6 +393,7 @@ struct lang_state
 	func_decl* cur_func;
 
 	int cur_strct_constrct_size_per_statement;
+	int cur_strct_ret_size_per_statement;
 
 	int cur_spilled_offset;
 
@@ -557,6 +558,7 @@ enum wasm_bc_enum
 	WASM_INST_F32_CONST,
 	WASM_INST_F32_STORE,
 	WASM_INST_F32_ADD,
+	WASM_INST_F32_SUB,
 	WASM_INST_F32_LOAD,
 	WASM_INST_I32_CONST,
 	WASM_INST_I32_LOAD,
@@ -1052,6 +1054,8 @@ struct wasm_gen_state
 	own_std::vector<ir_val*> similar;
 	int advance_ptr;
 	int strcts_construct_stack_offset;
+	int strcts_ret_stack_offset;
+	int to_spill_offset;
 
 	func_decl* cur_func;
 	web_assembly_state* wasm_state;
@@ -1710,6 +1714,10 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 		{
 			code_sect.emplace_back(0x95);
 		}break;
+		case T_MINUS:
+		{
+			code_sect.emplace_back(0x93);
+		}break;
 		case T_PLUS:
 		{
 			code_sect.emplace_back(0x92);
@@ -1886,7 +1894,25 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	case IR_TYPE_ON_STACK:
 	{
 		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
-		int base_offset = gen_state->strcts_construct_stack_offset;
+		int base_offset = 0;
+		switch (val->on_stack_type)
+		{
+		case ON_STACK_STRUCT_RET:
+		{
+			base_offset = gen_state->strcts_ret_stack_offset;
+		}break;
+		case ON_STACK_STRUCT_CONSTR:
+		{
+			base_offset = gen_state->strcts_construct_stack_offset;
+		}break;
+		case ON_STACK_SPILL:
+		{
+			base_offset = gen_state->to_spill_offset;
+		}break;
+		default:
+			ASSERT(0)
+		}
+		
 		int offset = val->i;
 		WasmPushConst(WASM_LOAD_INT, 0, -(base_offset + offset), &code_sect);
 		code_sect.emplace_back(0x6a);
@@ -1988,6 +2014,11 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	cur_ir->start = code_sect.size();
 	switch (cur_ir->type)
 	{
+	case IR_SPILL:
+	{
+
+		code_sect.emplace_back(0x1);
+	}break;
 	case IR_NOP:
 	{
 		code_sect.emplace_back(0x1);
@@ -2262,6 +2293,15 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		gen_state->strcts_construct_stack_offset = *stack_size;
 		cur_ir->fdecl->strct_constrct_at_offset = *stack_size;
 		*stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
+
+		gen_state->to_spill_offset = *stack_size;
+		cur_ir->fdecl->to_spill_offset = *stack_size;
+		*stack_size += cur_ir->fdecl->to_spill_size * 8;
+
+		gen_state->strcts_ret_stack_offset = *stack_size;
+		cur_ir->fdecl->strct_ret_size_per_statement_offset = *stack_size;
+		*stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
+
 		*stack_size += cur_ir->fdecl->biggest_call_args * 8;
 
 		// 8 bytes for saving rbs
@@ -2745,6 +2785,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "i32.sub";
 	}break;
+	case WASM_INST_F32_SUB:
+	{
+		ret += "f32.sub";
+	}break;
 	case WASM_INST_F32_ADD:
 	{
 		ret += "f32.add";
@@ -2888,8 +2932,28 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 	case IR_TYPE_ON_STACK:
 	{
 		int base_ptr = WasmGetRegVal(dbg, BASE_STACK_PTR_REG);
-		base_ptr -= dbg->cur_func->strct_constrct_at_offset;
-		snprintf(buffer, 32, "struct constr (address %s)", WasmNumToString(dbg, base_ptr).c_str());
+		std::string stack_type_name = "";
+		switch (val->on_stack_type)
+		{
+		case ON_STACK_STRUCT_RET:
+		{
+			stack_type_name = "struct ret";
+			base_ptr -= dbg->cur_func->strct_ret_size_per_statement_offset;
+		}break;
+		case ON_STACK_STRUCT_CONSTR:
+		{
+			stack_type_name = "struct constr";
+			base_ptr -= dbg->cur_func->strct_constrct_at_offset;
+		}break;
+		case ON_STACK_SPILL:
+		{
+			stack_type_name = "spill";
+			base_ptr -= dbg->cur_func->to_spill_offset;
+		}break;
+		default:
+			ASSERT(0);
+		}
+		snprintf(buffer, 32, "%s (address %s)", stack_type_name.c_str(), WasmNumToString(dbg, base_ptr).c_str());
 		ret += buffer;
 	}break;
 	case IR_TYPE_PARAM_REG:
@@ -3108,7 +3172,7 @@ void WasmGetIrWithIdx(dbg_state* dbg, func_decl *func, int idx, ir_rep **ir_star
 	*ir_start = nullptr;
 }
 
-std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur_bc, int code_start, int code_end, int max_ir = -1, bool center_cur = true)
+std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur_bc, int code_start, int code_end, int max_ir = -1, bool center_cur = true, bool print_bc = true)
 {
 	std::string ret = "";
 	int i = 0;
@@ -3160,17 +3224,20 @@ std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur
 				ir++;
 			}
 		}
-		std::string bc_str = WasmGetBCString(dbg, fdecl, cur, &dbg->bcs);
-		std::string bc_rel_idx = WasmNumToString(dbg, i, 3);
+		if (print_bc)
+		{
+			std::string bc_str = WasmGetBCString(dbg, fdecl, cur, &dbg->bcs);
+			std::string bc_rel_idx = WasmNumToString(dbg, i, 3);
 
-		if (cur == cur_bc)
-			sprintf(buffer, ANSI_BG_WHITE ANSI_BLACK "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
-		else if (cur->dbg_brk)
-			sprintf(buffer, ANSI_RED "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
-		else
-			sprintf(buffer, "%s:%s", bc_rel_idx.c_str(), bc_str.c_str());
-		ret += buffer;
-		ret += "\n";
+			if (cur == cur_bc)
+				sprintf(buffer, ANSI_BG_WHITE ANSI_BLACK "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
+			else if (cur->dbg_brk)
+				sprintf(buffer, ANSI_RED "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
+			else
+				sprintf(buffer, "%s:%s", bc_rel_idx.c_str(), bc_str.c_str());
+			ret += buffer;
+			ret += "\n";
+		}
 		i++;
 		cur++;
 	}
@@ -3604,7 +3671,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 	}
 	if (expr_val.type.type == TYPE_STRUCT)
 	{
-		decl2* d = expr_val.type.e_decl;
+		decl2* d = expr_val.type.strct->this_decl;
 		//std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset)
 
 
@@ -3690,6 +3757,18 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 			{
 			case TYPE_U8:
 			{
+			}break;
+			case TYPE_F32:
+			{
+				for (int i = 0; i < x_times.offset; i++)
+				{
+					unsigned int num = *(((unsigned int*)ptr_buffer) + i);
+					show += WasmNumToString(dbg, num, -1, PRINT_FLOAT);
+					show += ", ";
+				}
+
+				show.pop_back();
+				show.pop_back();
 			}break;
 			case TYPE_U32:
 			{
@@ -3971,6 +4050,14 @@ dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
 			ASSERT(0);
 		}
 	}
+	else
+	{
+		dbg->lang_stat->flags |= PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
+		DescendNameFinding(dbg->lang_stat, n, cur_scp);
+
+		DescendNode(dbg->lang_stat, n, cur_scp);
+	}
+
 
 
 	ast_rep* ast = AstFromNode(dbg->lang_stat, n, cur_scp);
@@ -4242,6 +4329,12 @@ void WasmOnArgs(dbg_state* dbg)
 			if (tkns[i].str == "wasm")
 			{
 				i++;
+				bool is_ir = tkns[i].str == "ir";
+
+				if (is_ir)
+				{
+					i++;
+				}
 				bool can_break = false;
 
 				func_decl* fdecl = dbg->cur_func;
@@ -4282,7 +4375,7 @@ void WasmOnArgs(dbg_state* dbg)
 					}
 				}
 				
-				std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines);
+				std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines, true, !is_ir);
 				printf("%s\n", ret.c_str());
 			}
 		}
@@ -4642,9 +4735,20 @@ struct type_dbg
 	enum_type2 type;
 	union
 	{
+		struct
+		{
+			import_type imp_type;
+			str_dbg alias;
+			union
+			{
+				int file_idx;
+				unit_file *file;
+			};
+		}imp;
 		str_dbg name;
 		type_struct2 *strct;
 		func_decl *fdecl;
+		unit_file *file;
 	};
 	char ptr;
 	int struct_size;
@@ -4656,6 +4760,10 @@ struct scope_dbg
 {
 	int vars_offset;
 	int num_of_vars;
+
+	int imports;
+	int num_of_imports;
+
 	unsigned int parent;
 	unsigned int next_sibling;
 	int children;
@@ -4669,13 +4777,19 @@ struct scope_dbg
 	{
 		int type_idx;
 		int func_idx;
+		int file_idx;
 	};
 	bool created;
 	scope* scp;
 };
 struct file_dbg
 {
-	str_dbg name;
+	union
+	{
+		str_dbg name;
+		unit_file* fl;
+	};
+	int scp_offset;
 };
 struct func_dbg
 {
@@ -4698,12 +4812,16 @@ struct func_dbg
 	int flags;
 	bool created;
 
+	int strct_constr_offset;
+	int strct_ret_offset;
+	int to_spill_offset;
 };
 struct serialize_state
 {
 	own_std::vector<unsigned char> func_sect;
 	own_std::vector<unsigned char> stmnts_sect;
 	own_std::vector<unsigned char> string_sect;
+	//own_std::vector<unsigned char> ts_sect;
 	own_std::vector<unsigned char> scopes_sect;
 	own_std::vector<unsigned char> types_sect;
 	own_std::vector<unsigned char> vars_sect;
@@ -4837,6 +4955,8 @@ void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 }
 void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_state, func_decl *f)
 {
+	if (IS_FLAG_ON(f->flags, FUNC_DECL_SERIALIZED))
+		return;
 	bool is_outsider = IS_FLAG_ON(f->flags, FUNC_DECL_IS_OUTSIDER);
 	int func_offset = ser_state->func_sect.size();
 	int stmnt_offset = ser_state->stmnts_sect.size();
@@ -4858,6 +4978,9 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 	fdbg->stmnts_offset = stmnt_offset;
 	fdbg->flags = f->flags;
 	fdbg->stmnts_len = f->wasm_stmnts.size();
+	fdbg->strct_constr_offset = f->strct_constrct_at_offset;
+	fdbg->strct_ret_offset = f->strct_ret_size_per_statement_offset;
+	fdbg->to_spill_offset = f->to_spill_offset;
 	WasmSerializePushString(ser_state, &f->name, &fdbg->name);
 
 	f->func_dbg_idx = func_offset;
@@ -4870,10 +4993,21 @@ int WasmSerializeType(web_assembly_state* wasm_state, serialize_state* ser_state
 
 	ser_state->types_sect.make_count(ser_state->types_sect.size() + sizeof(type_dbg));
 
-	auto f32_type = (type_dbg *)(ser_state->types_sect.begin() + offset);
-	f32_type->type = tp->type;
-	f32_type->ptr = tp->ptr;
-	f32_type->strct = tp->strct;
+	auto type = (type_dbg *)(ser_state->types_sect.begin() + offset);
+	if (tp->type == TYPE_IMPORT)
+	{
+		type->imp.imp_type = tp->imp->type;
+		type->imp.file_idx = tp->imp->fl->file_dbg_idx;
+
+		WasmSerializePushString(ser_state, &tp->imp->alias, &type->imp.alias);
+		//type->imp.alias = tp->imp->fl->file_dbg_idx;
+	}
+	else
+	{
+		type->type = tp->type;
+		type->ptr = tp->ptr;
+		type->strct = tp->strct;
+	}
 	return offset;
 
 }
@@ -4890,6 +5024,8 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 	{
 		int a = 0;
 	}
+
+	INSERT_VEC(scp->vars, scp->imports);
 
 	int vars_offset = ser_state->vars_sect.size();
 	int children_offset = ser_state->scopes_sect.size();
@@ -4960,6 +5096,10 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 			{
 				vdbg->type_idx = d->type.strct->serialized_type_idx;
 			}
+		}break;
+		case TYPE_IMPORT:
+		{
+			vdbg->type_idx = WasmSerializeType(wasm_state, ser_state, &d->type);
 		}break;
 		case TYPE_STATIC_ARRAY:
 		{
@@ -5033,6 +5173,12 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		s->type = SCP_TYPE_FUNC;
 		s->func_idx = scp->fdecl->func_dbg_idx;
 	}break;
+	case SCP_TYPE_FILE:
+	{
+
+		s->type = SCP_TYPE_FILE;
+		s->file_idx = scp->file->file_dbg_idx;
+	}break;
 	case SCP_TYPE_STRUCT:
 	{
 		ASSERT(IS_FLAG_ON(scp->tstrct->flags, TP_STRCT_STRUCT_SERIALIZED));
@@ -5065,7 +5211,7 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	serialize_state ser_state;
 	//printf("\nscop : \n%s\n", wasm_state->lang_stat->root->Print(0).c_str());
 	
-	FOR_VEC(func, wasm_state->lang_stat->outsider_funcs)
+	FOR_VEC(func, wasm_state->funcs)
 	{
 		func_decl* f = *func;
 		auto fdbg = (func_dbg *)(ser_state.func_sect.begin() + f->func_dbg_idx);
@@ -5075,13 +5221,6 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 		//WasmSerializeFuncIr(&ser_state, f);
 
 	}
-
-	WasmSerializeBuiltTypes(&ser_state);
-	ser_state.scopes_sect.make_count(ser_state.scopes_sect.size() + sizeof(scope_dbg));
-	WasmSerializeScope(wasm_state, &ser_state, wasm_state->lang_stat->root, -1, 0);
-
-	//printf("\nscop2: \n%s\n", wasm_state->lang_stat->root->Print(0).c_str());
-
 	ser_state.file_sect.make_count(wasm_state->lang_stat->files.size() * sizeof(file_dbg));
 	int i = 0;
 	FOR_VEC(file, wasm_state->lang_stat->files)
@@ -5098,6 +5237,14 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 		i++;
 
 	}
+
+	WasmSerializeBuiltTypes(&ser_state);
+	ser_state.scopes_sect.make_count(ser_state.scopes_sect.size() + sizeof(scope_dbg));
+	WasmSerializeScope(wasm_state, &ser_state, wasm_state->lang_stat->root, -1, 0);
+
+	i = 0;
+	//printf("\nscop2: \n%s\n", wasm_state->lang_stat->root->Print(0).c_str());
+
 	FOR_VEC(decl, wasm_state->lang_stat->funcs_scp->vars)
 	{
 		func_decl* f = (*decl)->type.fdecl;
@@ -5240,14 +5387,19 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_MACRO))
 	{
 		auto fl_dbg = (file_dbg*)(data + file->files_sect + fdbg->file_idx);
-		std::string file_name = WasmInterpNameFromOffsetAndLen(data, file, &fl_dbg->name);
-		fdecl->from_file = WasmInterpSearchFile(lang_stat, &file_name);
+		//std::string file_name = WasmInterpNameFromOffsetAndLen(data, file, &fl_dbg->name);
+		fdecl->from_file = fl_dbg->fl;
 		ASSERT(fdecl->from_file);
 		winterp->funcs.emplace_back(fdecl);
 	}
 	fdecl->this_decl = d;
+	fdecl->strct_constrct_at_offset = fdbg->strct_constr_offset;
+	fdecl->strct_ret_size_per_statement_offset = fdbg->strct_ret_offset;
+	fdecl->to_spill_offset = fdbg->to_spill_offset;
+
 	fdbg->created = true;
 	fdbg->decl = d;
+
 
 	return d;
 
@@ -5275,6 +5427,29 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			//WasmInterpBuildFunc(data, lang_stat->winterp, lang_stat, file, fdbg, scp_final);
 			int a = 0;
 			*/
+		}break;
+		case TYPE_IMPORT:
+		{
+			auto tp_dbg = (type_dbg*)(data + file->types_sect + cur_var->type_idx);
+			auto fl_dbg = (file_dbg*)(data + file->files_sect + tp_dbg->imp.file_idx);
+			//auto fl_dbg = (file_dbg *)(data + file->files_sect + tp_dbg->imp.file_idx)
+
+			//std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type_strct->name);
+			type2 tp;
+			tp.type = enum_type2::TYPE_IMPORT;
+
+			std::string alias;
+			if (tp_dbg->imp.alias.name_len > 0)
+			{
+				alias = std::string((const char*)string_sect + tp_dbg->imp.alias.name_on_string_sect, tp_dbg->imp.alias.name_len);
+			}
+
+			tp.imp = NewImport(lang_stat, tp_dbg->imp.imp_type, alias, fl_dbg->fl);
+			tp.imp->alias = alias.substr();
+
+			std::string name = std::string("imp_") + alias;
+
+			scp_final->imports.emplace_back(NewDecl(lang_stat, name, tp));
 		}break;
 		case TYPE_STRUCT:
 		case TYPE_STRUCT_TYPE:
@@ -5430,6 +5605,11 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 	if(create_vars)
 		WasmInterpBuildVarsForScope(data, len, lang_stat, file, scp_pre, ret_scp);
 
+	if (ret_scp->type == SCP_TYPE_FILE)
+	{
+		auto fl = (file_dbg*)(data + file->files_sect + scp_pre->file_idx);
+		fl->fl->global = ret_scp;
+	}
 
 
 	return ret_scp;
@@ -5878,6 +6058,15 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		ASSERT(top.type == WSTACK_VAL_F32 && penultimate->type == WSTACK_VAL_F32);
 		penultimate->f32 *= top.f32;
 	}break;
+	case WASM_INST_F32_SUB:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == WSTACK_VAL_F32 && penultimate->type == WSTACK_VAL_F32);
+		penultimate->f32 -= top.f32;
+	}break;
 	case WASM_INST_F32_ADD:
 	{
 		auto top = wasm_stack.back();
@@ -6179,6 +6368,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		int read = 0;
 		new_f->contents = ReadEntireFileLang((char*)new_f->name.c_str(), &read);
 		char* cur_str = new_f->contents;
+		cur_file->fl = new_f;
 
 		for (int j = 0; j < read; j++)
 		{
@@ -6192,6 +6382,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		}
 		lang_stat->files.emplace_back(new_f);
 	}
+	own_std::vector<char *> strs;
 
 	for (int f = 0; f < file->total_funcs; f++)
 	{
@@ -6199,11 +6390,13 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		if (IS_FLAG_ON(fdbg->flags, FUNC_DECL_MACRO))
 			continue;
 		std::string name = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
-		printf("\nfunc_name: %s", name.c_str());
+		printf("\n%d: func_name: %s", (int)strs.size(), name.c_str());
+		strs.emplace_back(std_str_to_heap(lang_stat, &name));
 
 		auto d = WasmInterpBuildFunc(data, winterp, lang_stat, file, fdbg);
 
 	}
+
 
 	auto scp_pre = (scope_dbg*)(data + file->scopes_sect);
 	scope* root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, false);
@@ -6404,6 +6597,10 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 				*(int*)&bc.f32 = (*int_ptr << 24) | (((*int_ptr) & 0xff00) << 8) | (((*int_ptr) & 0xff0000) >> 8) | (((*int_ptr) >> 24));
 
 				ptr += 4;
+			}break;
+			case 0x93:
+			{
+				bc.type = WASM_INST_F32_SUB;
 			}break;
 			case 0x92:
 			{
@@ -7648,7 +7845,7 @@ void GenWasm(web_assembly_state* wasm_state)
 	INSERT_VEC((*ret), exports_sect);
 	INSERT_VEC((*ret), element_sect);
 	INSERT_VEC((*ret), final_code_sect);
-	
+
 	lang_state* lang_stat = wasm_state->lang_stat;
 	WriteFileLang((char*)(wasm_state->wasm_dir + "test.wasm").c_str(), ret->begin(), ret->size());
 	WriteFileLang((char*)(wasm_state->wasm_dir + "dbg_wasm_data.dbg").c_str(), lang_stat->data_sect.begin(), lang_stat->data_sect.size());
@@ -7672,12 +7869,23 @@ async function start(){\n\
 </html>\
 ");
 
-	FOR_VEC(decl, wasm_state->imports)
+	for (int i = wasm_state->imports.size() - 1; i >=0 ; i--)
 	{
-		decl2* d = *decl;
+		decl2* d = *(wasm_state->imports.begin() + i);
 
 		if (d->type.type == TYPE_FUNC)
 			wasm_state->funcs.insert(0, d->type.fdecl);
+	}
+
+	int i = 0;
+	FOR_VEC(decl, wasm_state->funcs)
+	{
+		func_decl* d = *decl;
+		
+		std::string st = d->name;
+		printf("%d: %s\n", i, st.c_str());
+
+		i++;
 	}
 
 

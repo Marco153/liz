@@ -6,6 +6,7 @@ DRAW_INFO_HAS_TEXTURE:const s32 = 1;
 draw_info: struct
 {
 	pos :v3,
+	ent_size :v3,
 	color: [4]f32,
 	texture_id : u32,
 	cam_size : f32,
@@ -50,9 +51,17 @@ scene: struct
 	height : u32,
 }
 
+player_dir: enum
+{
+	LEFT,
+	RIGHT,
+	DOWN,
+	UP,
+}
 IsKeyDown::fn outsider(key_enum) !bool;
 IsKeyHeld::fn outsider(key_enum) !bool;
 GetDeltaTime::fn outsider() !f32;
+EndFrame::fn outsider(wnd : *u8);
 
 OpenWindow::fn outsider() ! *u8;
 ClearBackground::fn outsider(f32, f32, f32);
@@ -112,31 +121,88 @@ scene1: =
 	LoadClip(&ctx, "../images/frog.png", 0, 0, 32, 32, 2, 1.0, &clip1);
 	scn:scene;
 	CreateScene(&ctx, scene1, &scn);
-	__dbg_break;
 	clip1.loop = true;
 	draw:draw_info;
 	//pos:v2;
+	cam_size: = 10.0;
+	player_pos:v3;
+	final_pos: v3;
+	p_dir: player_dir;
 	while !ShouldClose(window)
 	{
 		ClearBackground(0.2, 0.2, 0.1);
 		dt: = GetDeltaTime();
-		if IsKeyHeld(key_enum.KEY_LEFT)
+
+		memset(cast(*u8)& draw, 0, sizeof(draw));
+
+		*draw.color[0] = 1.0;
+		*draw.color[1] = 0.0;
+		*draw.color[2] = 0.0;
+		*draw.color[3] = 1.0;
+		draw.cam_size = cam_size;
+		draw.ent_size.x = 2.0;
+		draw.ent_size.y = 2.0;
+		draw.pos.x = 0.0;
+		draw.pos.y = 0.0;
+		draw.pos.z = 0.5;
+
+
+		Draw(window, &draw);
+
+		memset(cast(*u8)& draw, 0, sizeof(draw));
+
+		if IsKeyDown(key_enum.KEY_LEFT)
 		{
-			draw.pos.x += 0.01;
+			final_pos.x -= 1.0;
+			//player_pos.x -= dt * 5.0;
+			p_dir = player_dir.LEFT;
+
 		}
+		if IsKeyDown(key_enum.KEY_RIGHT)
+		{
+			//player_pos.x += dt * 5.0;
+			final_pos.x += 1.0;
+			p_dir = player_dir.RIGHT;
+		}
+		dir: = final_pos - player_pos;
+		d: = dot_v3(&dir, &dir);
+
+		if d > 0.1
+		{
+			dir = sign_v3(&dir);
+			player_pos = player_pos + dir * dt;
+		}
+
+
+		memcpy(&draw.pos, &player_pos, sizeof(draw.pos));
+		draw.ent_size.x = 1.0;
+		draw.ent_size.y = 1.0;
+
 		*draw.color[0] = 1.0;
 		*draw.color[1] = 1.0;
 		*draw.color[2] = 1.0;
 		*draw.color[3] = 1.0;
 		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
 		draw.texture_id = UpdateClip(&clip1, dt);
-		draw.cam_size = 10.0;
+		draw.cam_size = cam_size;
 		draw.cam_pos.x = 0.0;
 		draw.cam_pos.y = 0.0;
 		draw.cam_pos.z = 0.0;
+
+		draw.cam_pos.y = 0.0;
+		draw.cam_pos.z = 0.0;
+
+		if p_dir == player_dir.LEFT
+		{
+			draw.ent_size.x = -1.0;
+		}
+		else if p_dir == player_dir.RIGHT
+		{
+			draw.ent_size.x = 1.0;
+		}
 		//draw.texture_id = 1;
 		Draw(window, &draw);
+		EndFrame(window);
 	}
-	aoeu: = 1234;
 
 }

@@ -155,6 +155,11 @@ struct ast_rep
 			own_std::vector<ast_point> points;
 			bool point_get_last_val;
 		};
+		struct
+		{
+			ast_rep* ast;
+			type2 tp;
+		}ret;
         ast_if cond;
         ast_func func;
         ast_loop loop;
@@ -205,6 +210,9 @@ enum ir_type
 
 	IR_BREAK,
 
+	IR_SPILL,
+	IR_UNSPILL,
+
 	IR_BEGIN_BLOCK,
 	IR_END_BLOCK,
 
@@ -254,7 +262,12 @@ enum ir_val_type
     IR_TYPE_DECL,
     IR_TYPE_ON_STACK,
 };
-
+enum on_stack_type
+{
+	ON_STACK_STRUCT_CONSTR,	
+	ON_STACK_STRUCT_RET,	
+	ON_STACK_SPILL,	
+};
 struct ir_val
 {
     ir_val_type type;
@@ -266,7 +279,11 @@ struct ir_val
     union
     {
         decl2 *decl;
-        int i;
+		struct
+		{
+			on_stack_type on_stack_type;
+			int i;
+		};
         int on_data_sect_offset;
         float f32;
 		char* str;
@@ -298,11 +315,6 @@ struct ir_rep
     int end;
     union
     {
-        struct
-        {
-            ir_val dst;
-            int offset;
-        }spill;
         struct
         {
             ir_val dst;
@@ -343,6 +355,11 @@ struct ir_rep
             bool it_is_jmp_if_true;
         }bin;
 		assign_info assign;
+        struct
+        {
+			ir_val spilled;
+			int offset;
+        }spill;
         struct
         {
 			assign_info assign;

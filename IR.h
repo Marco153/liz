@@ -25,6 +25,7 @@ enum ast_type
     AST_CALL,
     AST_CAST,
     AST_STRUCT_COSTRUCTION,
+    AST_ARRAY_COSTRUCTION,
 
     AST_DEREF,
 
@@ -81,12 +82,21 @@ struct ast_struct_construct_info
     decl2 *var;
     ast_rep *exp;
 };
+struct ast_array_construct
+{
+    type2 type;
+
+    int at_offset;
+
+	own_std::vector<ast_rep *>commas;
+};
 struct ast_struct_construct
 {
     type_struct2 *strct;
 
     int at_offset;
-    own_std::vector<ast_struct_construct_info>commas;
+
+	own_std::vector<ast_struct_construct_info>commas;
 };
 struct ast_func
 {
@@ -168,6 +178,7 @@ struct ast_rep
 		ast_opposite opposite;
         ast_deref deref;
         ast_struct_construct strct_constr;
+        ast_array_construct ar_constr;
         type2 tp;
 		ast_index index;
 

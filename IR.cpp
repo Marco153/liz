@@ -196,37 +196,47 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		{
 			ret->point_get_last_val = true;
 
-			auto new_ar = (own_std::vector<ast_point> *) AllocMiscData(lang_stat, sizeof(own_std::vector<ast_point>));
-			memset(new_ar, 0, sizeof(*new_ar));
-
 			node *first_node = *(node_stack.begin() + last_idx);
 
 			dummy_type = DescendNode(lang_stat, first_node->l, scp);
-
-			ast_point aux;
-			aux.decl_strct = dummy_type.strct->this_decl;
-			aux.exp = ret->expr[0];
-			new_ar->emplace_back(aux);
-
-			decl2* strct = aux.decl_strct;
-			for(int i = node_stack.size() - 1; i >= 0; i--)
+			
+			if (dummy_type.type == TYPE_ENUM_TYPE)
 			{
-				first_node = *(node_stack.begin() + i);
-
-				decl2* is_struct = FindIdentifier(first_node->r->t->str, strct->type.strct->scp, &dummy_type);
-				ASSERT(is_struct);
-				if (is_struct)
-				{
-					aux.decl_strct = is_struct;
-					aux.exp = AstFromNode(lang_stat, first_node->r, strct->type.strct->scp);
-
-					strct = aux.decl_strct;
-					rhs->decl = is_struct;
-				}
-				new_ar->emplace_back(aux);
+				decl2 *d = dummy_type.e_decl->type.GetEnumDecl(n->r->t->str);
+				ret->type = AST_INT;
+				ret->num = d->type.e_idx;;
 			}
-			// THIS CAUSES A LEAK
-			memcpy(&ret->points, new_ar, sizeof(*new_ar));
+			else
+			{
+
+				auto new_ar = (own_std::vector<ast_point> *) AllocMiscData(lang_stat, sizeof(own_std::vector<ast_point>));
+				memset(new_ar, 0, sizeof(*new_ar));
+
+				ast_point aux;
+				aux.decl_strct = dummy_type.strct->this_decl;
+				aux.exp = ret->expr[0];
+				new_ar->emplace_back(aux);
+
+				decl2* strct = aux.decl_strct;
+				for (int i = node_stack.size() - 1; i >= 0; i--)
+				{
+					first_node = *(node_stack.begin() + i);
+
+					decl2* is_struct = FindIdentifier(first_node->r->t->str, strct->type.strct->scp, &dummy_type);
+					ASSERT(is_struct);
+					if (is_struct)
+					{
+						aux.decl_strct = is_struct;
+						aux.exp = AstFromNode(lang_stat, first_node->r, strct->type.strct->scp);
+
+						strct = aux.decl_strct;
+						rhs->decl = is_struct;
+					}
+					new_ar->emplace_back(aux);
+				}
+				// THIS CAUSES A LEAK
+				memcpy(&ret->points, new_ar, sizeof(*new_ar));
+			}
 			//ret->points = *new_ar;
 
 		}break;
@@ -332,6 +342,34 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		else
 			ret = AstFromNode(lang_stat, n->r, n->scp);
     }break;
+	case node_type::N_ARRAY_CONSTRUCTION:
+	{
+		auto last = lang_stat->cur_func;
+        ret->type = AST_ARRAY_COSTRUCTION;
+		type2 tp_ar;
+		NameFindingGetType(lang_stat, n->l, scp, tp_ar);
+
+		ret->ar_constr.type = *tp_ar.tp;
+
+		int tp_size = GetTypeSize(&tp_ar);
+		lang_stat->cur_strct_constrct_size_per_statement += tp_size;
+
+		ret->ar_constr.at_offset = lang_stat->cur_strct_constrct_size_per_statement;
+
+
+		int cur_sz = lang_stat->cur_func->strct_constrct_size_per_statement;
+		lang_stat->cur_func->strct_constrct_size_per_statement = max(cur_sz, lang_stat->cur_strct_constrct_size_per_statement);
+
+		//type_struct2* strct =  ret->strct_constr.strct;
+		FOR_VEC(c, *n->exprs)
+		{
+			//ast_struct_construct_info info;
+			//info.var = strct->FindDecl(c->n->l->t->str);
+			ast_rep *a = AstFromNode(lang_stat, c->n, scp);
+			ret->ar_constr.commas.emplace_back(a);
+		}
+		lang_stat->cur_strct_constrct_size_per_statement -= tp_size;
+	}break;
 	case node_type::N_STRUCT_CONSTRUCTION:
 	{
 		auto last = lang_stat->cur_func;
@@ -839,6 +877,16 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 		PushAstsInOrder(lang_stat, ast->cast.casted, out);
 		out->emplace_back(ast);
 	}break;
+	case AST_ARRAY_COSTRUCTION:
+	{
+		PushAstsInOrder(lang_stat, ast->ar_constr.commas[0], out);
+		for (int i = 1; i < ast->ar_constr.commas.size(); i++)
+		{
+			ast_rep* cur = ast->ar_constr.commas[i];
+			PushAstsInOrder(lang_stat, cur, out);
+		}
+		out->emplace_back(ast);
+	}break;
 	case AST_STRUCT_COSTRUCTION:
 	{
 		PushAstsInOrder(lang_stat, ast->strct_constr.commas[0].exp, out);
@@ -983,6 +1031,7 @@ void GinIRMemCpy(lang_state* lang_stat, own_std::vector<ir_rep>* out)
 	//IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
 
 	// while reg0 < arg_reg2
+	ir = {};
 	ir.type = IR_CMP_GE;
 	ir.bin.op = T_GREATER_EQ;
 	ir.bin.only_lhs = false;
@@ -1126,6 +1175,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						ir.assign.lhs.deref = 1;
 						out->emplace_back(ir);
 
+
 						cur_spill_offset += 8;
 					}
 					to_spill++;
@@ -1152,6 +1202,11 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.lhs.reg_sz = 8;
 					ir.assign.lhs.deref += top->deref;
 					out->emplace_back(ir);
+
+					if (top->type == IR_TYPE_REG)
+					{
+						FreeReg(lang_stat, top->reg);
+					}
 				}
 			}
 			
@@ -1330,6 +1385,34 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				top->deref = 0;
 			}
 
+		}break;
+		case AST_ARRAY_COSTRUCTION:
+		{
+			ir_val* top = &stack.back();
+			int offset = e->ar_constr.at_offset;
+			int tp_sz = GetTypeSize(&e->ar_constr.type);
+			//top->i = offset;
+
+			//ir.assign.to_assign.i = offset;
+			for (int i = e->ar_constr.commas.size() - 1; i >= 0; i--)
+			{
+				//ast_struct_construct_info* cinfo = &e->strct_constr.commas[i];
+				top = &stack.back();
+				stack.pop_back();
+
+				ir.type = IR_ASSIGNMENT;
+				ir.assign.only_lhs = true;
+				ir.assign.to_assign.is_unsigned = top->is_unsigned;
+				ir.assign.to_assign.type = IR_TYPE_ON_STACK;
+				ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
+				ir.assign.to_assign.i = offset - tp_sz * i;
+				ir.assign.to_assign.reg_sz = tp_sz;
+				ir.assign.lhs = *top;
+				out->emplace_back(ir);
+			}
+			val.type = IR_TYPE_ON_STACK;
+			val.i = offset;
+			stack.emplace_back(val);
 		}break;
 		case AST_STRUCT_COSTRUCTION:
 		{
@@ -1736,6 +1819,8 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	}break;
 	case AST_CAST:
 	case AST_ADDRESS_OF:
+	case AST_ARRAY_COSTRUCTION:
+	case AST_INDEX:
 	case AST_OPPOSITE:
 	case AST_DEREF:
 	{
@@ -1920,6 +2005,7 @@ int GetAstTypeSize(lang_state* lang_stat, ast_rep* ast)
 	{
 		return 8;
 	}break;
+	case AST_FLOAT:
 	case AST_INT:
 	{
 		return 4;
@@ -2155,6 +2241,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			case AST_BINOP:
 			case AST_CAST:
 			case AST_DEREF: 
+			case AST_ARRAY_COSTRUCTION:
 			case AST_ADDRESS_OF: 
 			{
 				ir.assign.lhs.type = IR_TYPE_REG;

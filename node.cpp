@@ -561,8 +561,10 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 	}break;
 	case enum_type2::TYPE_STATIC_ARRAY:
 	{
+		bool rhs_type = rhs->type == enum_type2::TYPE_STATIC_ARRAY_TYPE || rhs->type == enum_type2::TYPE_STATIC_ARRAY;
+		bool are_arrays_same_type = rhs_type && CompareTypes(lhs->tp, lhs->tp);
 		cond =
-			(rhs->type == enum_type2::TYPE_STATIC_ARRAY && CompareTypes(lhs->tp, lhs->tp) && rhs->ar_size == lhs->ar_size)
+			(are_arrays_same_type && (rhs->ar_size == lhs->ar_size || rhs->ar_size == -1))
 			|| (lhs->tp->type == rhs->type && rhs->ptr == (lhs->tp->ptr + 1));
 
 
@@ -599,6 +601,10 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		cond = rhs->type == enum_type2::TYPE_F32 || rhs->type == enum_type2::TYPE_F32_RAW;
 		if (assert && !cond)
 			ASSERT(false)
+	}break;
+	case enum_type2::TYPE_F32_RAW:
+	{
+		cond = rhs->type == enum_type2::TYPE_F32;
 	}break;
 	case enum_type2::TYPE_ARRAY:
 	{
@@ -1535,6 +1541,19 @@ node* node_iter::parse_expr()
 		get_tkn();
 
 		n->r = parse_(PREC_COMMA, parser_cond::LESSER_EQUAL);
+		if (n->r->type == N_STRUCT_CONSTRUCTION)
+		{
+			node* strct_constr = n->r;
+			//node* strct_constr = n->r;
+
+			n->r = n->r->l;
+			
+			strct_constr->l = n;
+
+			n = strct_constr;
+			n->type = N_ARRAY_CONSTRUCTION;
+
+		}
 	}break;
 	}
 
@@ -1547,6 +1566,7 @@ node* node_iter::parse_expr()
 			n->l = new_node(lang_stat, n);
 			n->type = N_STRUCT_CONSTRUCTION;
 			n->r = parse_expr();
+			n->scp = nullptr;
 
 			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
 
@@ -3433,11 +3453,12 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			{
 				switch (ret_type.type)
 				{
-				case enum_type2::TYPE_STATIC_ARRAY:
+					/*
 				{
-					ReportMessage(lang_stat, n->t, "Cannot take address of static arrays. Try just indexing it, use the plain variable.");
+					//ReportMessage(lang_stat, n->t, "Cannot take address of static arrays. Try just indexing it, use the plain variable.");
 
 				}break;
+				*/
 				case enum_type2::TYPE_FUNC:
 				{
 					ret_type.type = TYPE_FUNC_PTR;
@@ -3458,6 +3479,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				case enum_type2::TYPE_CHAR:
 				case enum_type2::TYPE_ENUM:
 				case enum_type2::TYPE_ARRAY:
+				case enum_type2::TYPE_STATIC_ARRAY:
 					break;
 				case enum_type2::TYPE_STRUCT_TYPE:
 				{
@@ -3595,6 +3617,11 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	{
 		ret_type.type = enum_type2::TYPE_S32;
 		return true;
+	}break;
+	case node_type::N_ARRAY_CONSTRUCTION:
+	{
+		if (!NameFindingGetType(lang_stat, n->l, scp, ret_type))
+			return false;
 	}break;
 	case node_type::N_STRUCT_CONSTRUCTION:
 	{
@@ -6248,6 +6275,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						{
 							if (lhs->type.type == enum_type2::TYPE_STRUCT_TYPE)
 								lhs->type.type = enum_type2::TYPE_STRUCT;
+							else if (lhs->type.type == enum_type2::TYPE_STATIC_ARRAY_TYPE)
+								lhs->type.type = enum_type2::TYPE_STATIC_ARRAY;
 							else if (lhs->type.type == enum_type2::TYPE_F32_RAW)
 								lhs->type.type = enum_type2::TYPE_F32;
 							else if (lhs->type.type == enum_type2::TYPE_INT)
@@ -6921,21 +6950,51 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 
 	}break;
+	case N_ARRAY_CONSTRUCTION:
+	{
+		if (n->l != nullptr && !DescendNameFinding(lang_stat, n->l, scp))
+			return nullptr;
+
+		if (!n->scp)
+		{
+			n->exprs = (own_std::vector<comma_ret> *)AllocMiscData(lang_stat, sizeof(own_std::vector<comma_ret>));
+			n->scp = scp;
+			DescendComma(lang_stat, n->r->r, scp, *n->exprs);
+		}
+		if (!n->l->l)
+		{
+			n->l->l = NewIntNode(lang_stat, n->exprs->size(), n->t);
+		}
+		NameFindingGetType(lang_stat, n->l, scp, ret_type);
+
+		
+
+		FOR_VEC(c, *n->exprs)
+		{
+			if (!DescendNameFinding(lang_stat, c->n, n->scp))
+				return 0;
+			//if()
+		}
+		
+		int a = 0;
+
+	}break;
 	case N_STRUCT_CONSTRUCTION:
 	{
 		if (n->l != nullptr && !DescendNameFinding(lang_stat, n->l, scp))
 			return nullptr;
 
-		decl2 *strct = FindIdentifier(n->l->t->str, scp, &ret_type);
-
+		NameFindingGetType(lang_stat, n->l, scp, ret_type);
 
 		if (!n->scp)
 		{
+			decl2* strct = FindIdentifier(n->l->t->str, scp, &ret_type);
 			scope* strct_scp = strct->type.strct->scp;
-			n->scp = NewScope(lang_stat, scp);
-			n->scp->vars = strct_scp->vars;
+			scope *new_scp = NewScope(lang_stat, scp);
+			new_scp->vars = strct_scp->vars;
+
 			n->exprs = (own_std::vector<comma_ret> *)AllocMiscData(lang_stat, sizeof(own_std::vector<comma_ret>));
-			scope* new_scp = n->scp;
+			n->scp = new_scp;
 			DescendComma(lang_stat, n->r->r, new_scp, *n->exprs);
 		}
 		
@@ -7037,8 +7096,9 @@ void MakeRelPtrDerefFuncCall(lang_state *lang_stat, func_decl* op_func, node* n)
 
 void MaybeCreateCast(lang_state *lang_stat, node* ln, node* rn, type2* lp, type2* rp)
 {
+	bool static_ar = lp->type == TYPE_STATIC_ARRAY && rp->type == TYPE_STATIC_ARRAY_TYPE;
 	// creating a cast for types that are different
-	if (lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM && rp->type != TYPE_STR_LIT && lp->type != rp->type && rp->type != TYPE_INT && rp->type != TYPE_F32_RAW)
+	if (lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM && rp->type != TYPE_STR_LIT && lp->type != rp->type && rp->type != TYPE_INT && rp->type != TYPE_F32_RAW && !static_ar)
 	{
 		auto t_nd = CreateNodeFromType(lang_stat, lp, ln->t);
 		auto new_nd = NewTypeNode(lang_stat, t_nd, N_CAST, new_node(lang_stat, rn), ln->t);
@@ -8449,6 +8509,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					}
 					else
 						MaybeCreateCast(lang_stat, n->l, n->r, &ltp, &rtp);
+					if (ltp.type == enum_type2::TYPE_STATIC_ARRAY && ltp.ptr == 0)
+					{
+						node * call = MakeMemCpyCall(lang_stat, n->l, n->r, GetTypeSize(&ltp));
+						memcpy(n, call, sizeof(node));
+
+					}
 					/*
 					// creating a cast for types that are different
 					if (ltp.type != TYPE_ENUM && rtp.type != TYPE_STR_LIT && ltp.type != rtp.type)
@@ -8496,9 +8562,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			PointLogic(lang_stat, n, scp, &ret_type);
 			if (ret_type.type == TYPE_ENUM_IDX_32)
 			{
-				decl2 *d = ret_type.from_enum->type.GetEnumDecl(n->r->t->str);
-				n->type = N_INT;
-				n->t->i = d->type.e_idx;
+				//decl2 *d = ret_type.from_enum->type.GetEnumDecl(n->r->t->str);
+				//n->type = N_INT;
+				//n->t->i = d->type.e_idx;
 			}
 
 		}break;
@@ -8524,9 +8590,15 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 		message msg;
 	}break;
+	case N_ARRAY_CONSTRUCTION:
+	{
+		NameFindingGetType(lang_stat, n->l, scp, ret_type);
+		//FindIdentifier(n->l->t->str, scp, &ret_type);
+	}break;
 	case N_STRUCT_CONSTRUCTION:
 	{
-		FindIdentifier(n->l->t->str, scp, &ret_type);
+		NameFindingGetType(lang_stat, n->l, scp, ret_type);
+		//FindIdentifier(n->l->t->str, scp, &ret_type);
 	}break;
 	default:
 	{

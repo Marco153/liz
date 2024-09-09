@@ -60,6 +60,7 @@ player_dir: enum
 }
 IsKeyDown::fn outsider(key_enum) !bool;
 IsKeyHeld::fn outsider(key_enum) !bool;
+GetTimeSinceStart::fn outsider() !f32;
 GetDeltaTime::fn outsider() !f32;
 EndFrame::fn outsider(wnd : *u8);
 
@@ -69,12 +70,20 @@ Draw::fn outsider(*u8, *draw_info);
 ShouldClose::fn outsider(*u8) ! bool;
 LoadClip::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, total_sps :u32, len :f32, out_clip : *clip);
 
+sin::fn outsider(f32) !f32;
+
 UpdateClip::fn(c : *clip, dt : f32) ! u32
 {
 	c.cur_time += dt;
 
 	if c.cur_time >= c.len
-		c.cur_time = 0.0;
+	{
+		if c.loop
+			c.cur_time = 0.0;
+		else
+			return *ptr_offset(c.tex_idxs, c.total_texs - 1, u32);
+	}
+
 	f: = (cast(f32)c.total_texs * c.cur_time);
 	f = f / c.len;
 
@@ -104,6 +113,11 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene)
 
 }
 
+ChangeClip::fn(cur_clip : **clip, to : *clip)
+{
+	to.cur_time = 0.0;
+	*cur_clip = to;
+}
 main :: fn()
 {
 	ctx: context;
@@ -117,31 +131,57 @@ scene1: =
 "---------\n"
 ;
 	window := OpenWindow();
-	clip1:clip;
-	LoadClip(&ctx, "../images/frog.png", 0, 0, 32, 32, 2, 1.0, &clip1);
+
+	walk_h:clip;
+	LoadClip(&ctx, "../images/frog.png", 32 * 4, 0, 32, 32, 1, 1.0, &walk_h);
+	walk_h.loop = false;
+
+	walk_v:clip;
+	LoadClip(&ctx, "../images/frog.png", (32 * 3) * 4, 0, 32, 32, 1, 1.0, &walk_v);
+	walk_v.loop = false;
+
+	idle_h:clip;
+	LoadClip(&ctx, "../images/frog.png", 0, 0, 32, 32, 1, 1.0, &idle_h);
+	idle_h.loop = false;
+
+	idle_v:clip;
+	LoadClip(&ctx, "../images/frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &idle_v);
+	idle_v.loop = false;
+
 	scn:scene;
+
 	CreateScene(&ctx, scene1, &scn);
-	clip1.loop = true;
 	draw:draw_info;
 	//pos:v2;
-	cam_size: = 10.0;
+	cam_size: = 5.0;
 	player_pos:v3;
+	player_size:v3;
 	final_pos: v3;
 	p_dir: player_dir;
+	cur_clip:*clip= &idle_h;
+	can_move: = true;
+
+	blocks_jmp: = 2.0;
+	player_size.x = 1.0;
+	player_size.y = 1.0;
+
 	while !ShouldClose(window)
 	{
-		ClearBackground(0.2, 0.2, 0.1);
+		ClearBackground(0.4, 0.4, 0.5);
 		dt: = GetDeltaTime();
+		time: = GetTimeSinceStart();
+		s: = sin(time) + 1.0;
+
 
 		memset(cast(*u8)& draw, 0, sizeof(draw));
 
-		*draw.color[0] = 1.0;
-		*draw.color[1] = 0.0;
-		*draw.color[2] = 0.0;
-		*draw.color[3] = 1.0;
+		draw.color = []f32{ 1.0, 0.0, 0.0, 1.0 };
+		//*draw.color[1] = 0.0;
+		//*draw.color[2] = 0.0;
+		//*draw.color[3] = 1.0;
 		draw.cam_size = cam_size;
-		draw.ent_size.x = 2.0;
-		draw.ent_size.y = 2.0;
+		draw.ent_size.x = 1.0 + s;
+		draw.ent_size.y = 1.0 + s;
 		draw.pos.x = 0.0;
 		draw.pos.y = 0.0;
 		draw.pos.z = 0.5;
@@ -151,39 +191,90 @@ scene1: =
 
 		memset(cast(*u8)& draw, 0, sizeof(draw));
 
-		if IsKeyDown(key_enum.KEY_LEFT)
+		if can_move
 		{
-			final_pos.x -= 1.0;
-			//player_pos.x -= dt * 5.0;
-			p_dir = player_dir.LEFT;
+			if IsKeyDown(key_enum.KEY_LEFT)
+			{
+				player_size.x = -1.0;
+				player_size.y = 1.0;
+				final_pos.x -= blocks_jmp;
+				//player_pos.x -= dt * 5.0;
+				p_dir = player_dir.LEFT;
+				ChangeClip(&cur_clip, &walk_h);
 
-		}
-		if IsKeyDown(key_enum.KEY_RIGHT)
-		{
-			//player_pos.x += dt * 5.0;
-			final_pos.x += 1.0;
-			p_dir = player_dir.RIGHT;
+			}
+			else if IsKeyDown(key_enum.KEY_RIGHT)
+			{
+				player_size.x = 1.0;
+				player_size.y = 1.0;
+				//player_pos.x += dt * 5.0;
+				final_pos.x += blocks_jmp;
+				p_dir = player_dir.RIGHT;
+				ChangeClip(&cur_clip, &walk_h);
+			}
+			else if IsKeyDown(key_enum.KEY_UP)
+			{
+				player_size.x = 1.0;
+				player_size.y = 1.0;
+				//player_pos.x += dt * 5.0;
+				final_pos.y += blocks_jmp;
+				p_dir = player_dir.UP;
+				ChangeClip(&cur_clip, &walk_v);
+			}
+			else if IsKeyDown(key_enum.KEY_DOWN)
+			{
+				player_size.x = 1.0;
+				player_size.y = -1.0;
+				//player_pos.x += dt * 5.0;
+				final_pos.y -= blocks_jmp;
+				p_dir = player_dir.DOWN;
+				ChangeClip(&cur_clip, &walk_v);
+			}
 		}
 		dir: = final_pos - player_pos;
 		d: = dot_v3(&dir, &dir);
 
-		if d > 0.1
+		if d > 0.01
 		{
 			dir = sign_v3(&dir);
-			player_pos = player_pos + dir * dt;
+			if p_dir == player_dir.LEFT
+			{
+				player_pos.x -= dt * 4.0;
+			}
+			else if p_dir == player_dir.RIGHT
+			{
+				player_pos.x += dt * 4.0;
+			}
+			else if p_dir == player_dir.DOWN
+			{
+				player_pos.y -= dt * 4.0;
+			}
+			else if p_dir == player_dir.UP
+			{
+				player_pos.y += dt * 4.0;
+			}
+			//player_pos = player_pos + dir * dt * 4.0;
+			can_move = false;
+		}
+		else
+		{
+			player_pos = final_pos;
+			idle_clip: *clip;
+			if p_dir == player_dir.DOWN || p_dir == player_dir.UP
+				idle_clip = &idle_v;
+			else
+				idle_clip = &idle_h;
+			ChangeClip(&cur_clip, idle_clip);
+			can_move = true;
 		}
 
 
 		memcpy(&draw.pos, &player_pos, sizeof(draw.pos));
-		draw.ent_size.x = 1.0;
-		draw.ent_size.y = 1.0;
+		memcpy(&draw.ent_size, &player_size, sizeof(draw.ent_size));
 
-		*draw.color[0] = 1.0;
-		*draw.color[1] = 1.0;
-		*draw.color[2] = 1.0;
-		*draw.color[3] = 1.0;
+		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
 		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-		draw.texture_id = UpdateClip(&clip1, dt);
+		draw.texture_id = UpdateClip(cur_clip, dt);
 		draw.cam_size = cam_size;
 		draw.cam_pos.x = 0.0;
 		draw.cam_pos.y = 0.0;
@@ -192,14 +283,6 @@ scene1: =
 		draw.cam_pos.y = 0.0;
 		draw.cam_pos.z = 0.0;
 
-		if p_dir == player_dir.LEFT
-		{
-			draw.ent_size.x = -1.0;
-		}
-		else if p_dir == player_dir.RIGHT
-		{
-			draw.ent_size.x = 1.0;
-		}
 		//draw.texture_id = 1;
 		Draw(window, &draw);
 		EndFrame(window);

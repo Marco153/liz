@@ -115,6 +115,7 @@ int GetTypeSize(type2 *tp)
 			return BuiltinTypeSize(tp->rel_lhs);
 		case enum_type2::TYPE_ARRAY_DYN:
 			return 16;
+		case enum_type2::TYPE_STATIC_ARRAY_TYPE:
 		case enum_type2::TYPE_STATIC_ARRAY:
 			return tp->ar_size * GetTypeSize(tp->tp);
 		case enum_type2::TYPE_ARRAY:

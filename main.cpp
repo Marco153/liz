@@ -10,6 +10,7 @@
 #define KEY_HELD 1
 #define KEY_DOWN 2
 #define KEY_UP   4
+#define KEY_RECENTLY_DOWN   8
 
 #define TOTAL_KEYS   255
 #define TOTAL_TEXTURES   32
@@ -30,6 +31,9 @@ struct open_gl_state
 	int buttons[TOTAL_KEYS];
 	texture_info textures[TOTAL_TEXTURES];
 	double last_time;
+
+	int width;
+	int height;
 };
 enum key_enum
 {
@@ -133,6 +137,10 @@ void Draw(dbg_state* dbg)
 	int cam_size_u = glGetUniformLocation(prog, "cam_size");
 	glUniform1f(cam_size_u, draw->cam_size);
 
+	float screen_ratio = (float)gl_state->height / (float)gl_state->width;
+	int screen_ratio_u = glGetUniformLocation(prog, "screen_ratio");
+	glUniform1f(screen_ratio_u, screen_ratio);
+
 	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
 	glUniform3f(cam_size_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
 
@@ -196,7 +204,7 @@ void IsKeyDown(dbg_state* dbg)
 	key = FromGameToGLFWKey(key);
 	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
 
-	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN))
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN) || IS_FLAG_ON(gl_state->buttons[key], KEY_RECENTLY_DOWN))
 	{
 		*addr = 1;
 	}
@@ -258,6 +266,21 @@ void ShouldClose(dbg_state* dbg)
 		int retain_flags = gl_state->buttons[i] & KEY_HELD;
 		gl_state->buttons[i] &= ~(KEY_DOWN | KEY_UP);
 		gl_state->buttons[i] |= retain_flags;
+
+		if (IS_FLAG_ON(gl_state->buttons[i], KEY_RECENTLY_DOWN))
+		{
+			unsigned short held_from = (unsigned short)(gl_state->buttons[i] >> 16);
+			held_from++;
+			if (held_from > 24)
+			{
+				gl_state->buttons[i] &= ~KEY_RECENTLY_DOWN;
+				gl_state->buttons[i] = (gl_state->buttons[i] & 0xffff);
+			}
+			else
+			{
+				gl_state->buttons[i] = (gl_state->buttons[i] & 0xffff) | (held_from << 16);
+			}
+		}
 	}
 	
 	glfwPollEvents();
@@ -267,7 +290,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
 	if (action == GLFW_PRESS)
 	{
-		gl_state->buttons[key] |= KEY_HELD | KEY_DOWN;
+		gl_state->buttons[key] |= KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN;
 		//printf("key(%d) is %d", key, gl_state->buttons[key]);
 	}
 	else if (action == GLFW_RELEASE)
@@ -416,8 +439,10 @@ void OpenWindow(dbg_state* dbg)
 	if (!glfwInit())
 		return;
 
+	gl_state->width = 1200;
+	gl_state->height = 600;
 	/* Create a windowed mode window and its OpenGL context */
-	window = glfwCreateWindow(1200, 640, "Hello World", NULL, NULL);
+	window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World", NULL, NULL);
 	if (!window)
 	{
 		glfwTerminate();
@@ -468,6 +493,7 @@ void OpenWindow(dbg_state* dbg)
 		"layout (location = 1) in vec2 uv;\n"
 		"uniform vec3 pos;\n"
 		"uniform float cam_size;\n"
+		"uniform float screen_ratio;\n"
 		"uniform vec3 ent_size;\n"
 		"uniform vec3 cam_pos;\n"
 		"out vec2 TexCoord;\n"
@@ -477,6 +503,7 @@ void OpenWindow(dbg_state* dbg)
 		"   gl_Position.xy *= ent_size.xy;\n"
 		"   gl_Position.xy += pos.xy;\n"
 		"   gl_Position.xy /= cam_size;\n"
+		"   gl_Position.x *= screen_ratio;\n"
 		//"   gl_Position = ition / cam_size + cam_size;\n"
 		"   TexCoord = uv;\n"
 		"}\0";
@@ -606,6 +633,21 @@ void GetMem(dbg_state* dbg)
 
 }
 
+void GetTimeSinceStart(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	//auto gl_state = (open_gl_state*)dbg->data;
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = (float)glfwGetTime();
+}
+void Sin(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
+}
 int main()
 {
 	lang_state lang_stat;
@@ -637,6 +679,8 @@ int main()
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
 	AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
+	AssignOutsiderFunc(&lang_stat, "GetTimeSinceStart", (OutsiderFuncType)GetTimeSinceStart);
+	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	Compile(&lang_stat, &opts);
 	if (!opts.release)
 	{

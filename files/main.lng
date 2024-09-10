@@ -6,6 +6,7 @@ DRAW_INFO_HAS_TEXTURE:const s32 = 1;
 draw_info: struct
 {
 	pos :v3,
+	pivot :v3,
 	ent_size :v3,
 	color: [4]f32,
 	texture_id : u32,
@@ -38,6 +39,8 @@ cel_type: enum
 {
 	EMPTY,
 	SOLID,
+	PLAYER,
+	TARGET,
 }
 cel_info :struct
 {
@@ -49,6 +52,7 @@ scene: struct
 	total_cels : u32,
 	width : u32,
 	height : u32,
+	cam_size : f32,
 }
 
 player_dir: enum
@@ -91,7 +95,7 @@ UpdateClip::fn(c : *clip, dt : f32) ! u32
 	return idx;
 
 }
-CreateScene::fn(ctx : *context, str : str_lit, scn : *scene)
+CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 {
 	len: u32= cast(u32)str_ln(str);
 	s: = cast(*u8)str;
@@ -103,6 +107,7 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene)
 	{
 		width++;
 	}
+
 	height = len / width;
 
 	scn.cels = cast(*cel_info)heap_alloc(&ctx.alloc, width * height * sizeof(cel_info));
@@ -110,6 +115,48 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene)
 	scn.width = width;
 	scn.height = height;
 	
+	i:u32 = 0;
+
+	cel_idx:u64 = 0;
+	total_points: = 0;
+	while i < len
+	{
+		x := cel_idx % scn.width;
+		y := cast(u32)(cast(f32)i / cast(f32)scn.width);
+
+		ch: = *ptr_offset(s, i, char);
+		cur_cel: = ptr_offset(scn.cels, cel_idx, cel_info);
+		if ch == '-
+		{
+			cur_cel.type = cel_type.SOLID;
+		}
+		else if ch == '.
+		{
+			cur_cel.type = cel_type.EMPTY;
+		}
+		else if ch == 't
+		{
+			cur_cel.type = cel_type.TARGET;
+		}
+		else if ch == 'p
+		{
+			cur_cel.type = cel_type.PLAYER;
+			start_pos.x = cast(f32)x;
+			start_pos.y = cast(f32)y;
+		}
+		else if ch == '\n
+		{
+			cel_idx--;
+		}
+		else
+		{
+			__dbg_break;
+			cel_idx--;
+		}
+		cel_idx++;
+
+		i++;
+	}
 
 }
 
@@ -118,16 +165,64 @@ ChangeClip::fn(cur_clip : **clip, to : *clip)
 	to.cur_time = 0.0;
 	*cur_clip = to;
 }
+
+DrawSceneMap::fn(scn : *scene, window : *u8)
+{
+
+	draw: draw_info;
+	draw.color = []f32{ 0.0, 0.5, 0.5, 1.0};
+	//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+	//draw.texture_id = UpdateClip(cur_clip, dt);
+	draw.cam_size = scn.cam_size;
+	draw.cam_pos.x = 0.0;
+	draw.cam_pos.y = 0.0;
+	draw.cam_pos.z = 0.0;
+
+	draw.ent_size.x = cast(f32)scn.width;
+	draw.ent_size.y = cast(f32)scn.height;
+
+
+	draw.cam_pos.y = 0.0;
+	draw.cam_pos.z = 0.0;
+
+	//draw.texture_id = 1;
+	Draw(window, &draw);
+	i:u32 = 0;
+	while i < scn.width * scn.height
+	{
+		x := i % scn.width;
+		y := cast(u32)(cast(f32)i / cast(f32)scn.width);
+
+		if ptr_offset(scn.cels, i, cel_info).type == cel_type.SOLID
+		{
+			draw.color = []f32{ 0.5, 0.0, 0.5, 1.0};
+			//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+			//draw.texture_id = UpdateClip(cur_clip, dt);
+			draw.cam_size = scn.cam_size;
+			draw.pos.x = cast(f32)x;
+			draw.pos.y = cast(f32)y;
+			draw.pos.z = 0.0;
+
+			draw.ent_size.x = 1.0;
+			draw.ent_size.y = 1.0;
+			Draw(window, &draw);
+		}
+		i++;
+	}
+}
+
 main :: fn()
 {
 	ctx: context;
 	InitMemAlloc(&ctx.alloc);
+	addr: = heap_alloc(&ctx.alloc, 10);
+	heap_free(&ctx.alloc, addr);
 	
 scene1: = 
 "---------\n"
-"-.......-\n"
-"-p...o..-\n"
-"-.......-\n"
+"--......-\n"
+"-....t..-\n"
+"-...p...-\n"
 "---------\n"
 ;
 	window := OpenWindow();
@@ -150,13 +245,16 @@ scene1: =
 
 	scn:scene;
 
-	CreateScene(&ctx, scene1, &scn);
+	scn.cam_size = 5.0;
 	draw:draw_info;
 	//pos:v2;
-	cam_size: = 5.0;
 	player_pos:v3;
 	player_size:v3;
 	final_pos: v3;
+	start_pos: v3;
+
+	CreateScene(&ctx, scene1, &scn, &start_pos);
+
 	p_dir: player_dir;
 	cur_clip:*clip= &idle_h;
 	can_move: = true;
@@ -165,6 +263,12 @@ scene1: =
 	player_size.x = 1.0;
 	player_size.y = 1.0;
 
+	start_pos.x += 0.5;
+	start_pos.y += 0.5;
+
+	//final_pos.x = 0.5;
+	//final_pos.y = 0.5;
+
 	while !ShouldClose(window)
 	{
 		ClearBackground(0.4, 0.4, 0.5);
@@ -172,6 +276,7 @@ scene1: =
 		time: = GetTimeSinceStart();
 		s: = sin(time) + 1.0;
 
+		DrawSceneMap(&scn, window);
 
 		memset(cast(*u8)& draw, 0, sizeof(draw));
 
@@ -179,7 +284,7 @@ scene1: =
 		//*draw.color[1] = 0.0;
 		//*draw.color[2] = 0.0;
 		//*draw.color[3] = 1.0;
-		draw.cam_size = cam_size;
+		draw.cam_size = scn.cam_size;
 		draw.ent_size.x = 1.0 + s;
 		draw.ent_size.y = 1.0 + s;
 		draw.pos.x = 0.0;
@@ -187,7 +292,7 @@ scene1: =
 		draw.pos.z = 0.5;
 
 
-		Draw(window, &draw);
+		//Draw(window, &draw);
 
 		memset(cast(*u8)& draw, 0, sizeof(draw));
 
@@ -270,15 +375,23 @@ scene1: =
 
 
 		memcpy(&draw.pos, &player_pos, sizeof(draw.pos));
+		draw.pos.x += start_pos.x;
+		draw.pos.y += start_pos.y;
+		//draw.pos.x += 0.5;
+		//draw.pos.y += 0.5;
 		memcpy(&draw.ent_size, &player_size, sizeof(draw.ent_size));
 
 		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
 		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
 		draw.texture_id = UpdateClip(cur_clip, dt);
-		draw.cam_size = cam_size;
+		draw.cam_size = scn.cam_size;
 		draw.cam_pos.x = 0.0;
 		draw.cam_pos.y = 0.0;
 		draw.cam_pos.z = 0.0;
+
+		draw.pivot.x = 0.5;
+		draw.pivot.y = 0.5;
+		draw.pivot.z = 0.0;
 
 		draw.cam_pos.y = 0.0;
 		draw.cam_pos.z = 0.0;

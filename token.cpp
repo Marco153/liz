@@ -711,6 +711,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					tkn.type = T_MINUS_EQUAL;
 					i++;
 				}
+				else if(ch[1] == '-')
+				{
+					tkn.type = T_MINUS_MINUS;
+					i++;
+				}
 				else
 					tkn.type = T_MINUS;
 			}break;

@@ -362,7 +362,7 @@ heap_free::fn(alloc : *mem_alloc, ptr : *u8)
 	//memset(chunk_to_free.addr, 'x', chunk_to_free.size * BYTES_PER_CHUNK);
 
 }
-heap_alloc::fn(alloc : *mem_alloc, size : u32) !*void
+heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 {
 	//return (char *)malloc(size);
     cur:*mem_chunk= alloc.head_free;
@@ -633,6 +633,11 @@ tests :: fn()
 
 	i:= 0;
 	if i != 0
+		__dbg_break;
+
+	i = 4;
+	i--;
+	if i != 3
 		__dbg_break;
 
 	while i < 5

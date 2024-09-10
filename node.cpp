@@ -1472,6 +1472,9 @@ node* node_iter::parse_expr()
 
 		auto ttt = peek_tkn();
 
+		int last_scopes_opened = lang_stat->scopes_opened;
+		lang_stat->scopes_opened++;
+
 		CheckParenthesesLevel(lang_stat, ttt);
 
 		int scope_start = peek_tkn()->line;
@@ -1502,6 +1505,10 @@ node* node_iter::parse_expr()
 			SetNodeScopeIdx(lang_stat, &n, cur_scope_count++, scope_start, scope_end);
 			//cur_scope_count++;
 		}
+
+		lang_stat->scopes_opened--;
+		ASSERT(last_scopes_opened == lang_stat->scopes_opened);
+		//int ;
 
 		lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		ExpectTkn(T_CLOSE_CURLY);
@@ -1668,16 +1675,22 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 
 		PARSER_CHECK
 
-			switch (peek_tkn()->type)
+			auto peek = peek_tkn();
+			switch (peek->type)
 			{
+			case tkn_type2::T_MINUS_MINUS:
 			case tkn_type2::T_PLUS_PLUS:
 			{
 				get_tkn();
-				cur_node = NewBinOpNode(lang_stat, cur_node->l, T_EQUAL,
-					NewBinOpNode(lang_stat, cur_node->l, T_PLUS, NewIntNode(lang_stat, 1, cur_node->l->t))
-				);
-				get_tkn();
-				continue;
+				cur_node = NewBinOpNode(lang_stat, nullptr, peek->type, cur_node->l);
+				cur_node->type = N_UNOP;
+				
+				node* nd = new_node(lang_stat, cur_node->t);
+				nd->l = cur_node;
+				cur_node = nd;
+
+				//get_tkn();
+				//continue;
 				// return cur_node;
 			}break;
 			case tkn_type2::T_COLON:
@@ -1846,6 +1859,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		}
 
 		ASSERT(cur_node->r == nullptr);
+
 
 		cur_node->r = parse_(cur_prec, parser_cond::LESSER_EQUAL);
 
@@ -3204,7 +3218,8 @@ node *GetLastStmntType(lang_state *lang_stat, node* n, scope* scp, type2& ret_ty
 		ASSERT(n->l->type != N_STMNT);
 		last_stmnt = n->l;
 	}
-	NameFindingGetType(lang_stat, last_stmnt, scp, ret_type);
+	if(last_stmnt->type != N_EMPTY)
+		NameFindingGetType(lang_stat, last_stmnt, scp, ret_type);
 
 	return last_stmnt;
 }
@@ -7418,6 +7433,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				ExitProcess(1);
 			}
 				break;
+		case enum_type2::TYPE_STR_LIT:
 		case enum_type2::TYPE_F64_TYPE:
 		case enum_type2::TYPE_CHAR_TYPE:
 		case enum_type2::TYPE_F32_TYPE:

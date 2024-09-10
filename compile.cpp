@@ -48,6 +48,7 @@ struct comp_time_type_info
 };
 
 struct dbg_state;
+struct block_linked;
 
 typedef void* (*FreeTypeFunc)(void* this_ptr, void* ptr);
 typedef void* (*AllocTypeFunc)(void* this_ptr, int sz);
@@ -60,6 +61,10 @@ struct global_variables_lang
 	void* data;
 	AllocTypeFunc alloc;
 	FreeTypeFunc free;
+
+	block_linked* blocks;
+	int total_blocks;
+	int cur_block;
 
 
 	//LangArray<type_struct2> *structs;
@@ -422,6 +427,7 @@ struct lang_state
 	unit_file* cur_file;
 
 	int parentheses_opened;
+	int scopes_opened;
 
 	own_std::vector<char> data_sect;
 	own_std::vector<char> type_sect;
@@ -1477,12 +1483,14 @@ struct block_linked
 };
 void FreeBlock(block_linked* block)
 {
-	__lang_globals.free(__lang_globals.data, (void*)block);
+	__lang_globals.cur_block--; (__lang_globals.data, (void*)block);
 }
 block_linked* NewBlock(block_linked* parent)
 {
-	auto ret = (block_linked*)__lang_globals.alloc(__lang_globals.data, sizeof(block_linked));
+	ASSERT((__lang_globals.cur_block + 1) < __lang_globals.total_blocks)
+	auto ret = __lang_globals.blocks + __lang_globals.cur_block;
 	memset(ret, 0, sizeof(block_linked));
+	__lang_globals.cur_block++;
 	ret->parent = parent;
 	return ret;
 
@@ -2628,6 +2636,7 @@ enum print_num_type
 {
 	PRINT_INT,
 	PRINT_FLOAT,
+	PRINT_CHAR,
 };
 
 std::string WasmNumToString(dbg_state* dbg, int num, char limit = -1, print_num_type num_type = PRINT_INT)
@@ -2642,6 +2651,12 @@ std::string WasmNumToString(dbg_state* dbg, int num, char limit = -1, print_num_
 		else 
 			// search how to arbitrary number of decimals in float
 			ASSERT(0)
+	}
+	else if (num_type == PRINT_CHAR)
+	{
+		char num_ch = (char)num;
+		snprintf(buffer, 32, "0x%x %c", num_ch, num_ch);
+
 	}
 	else
 	{
@@ -3694,14 +3709,30 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 	{
 		int val = 0;
 		print_num_type print_type = PRINT_INT;
+		std::string str_val = "";
 		if (expr_val.type.ptr > 0)
 		{
 			val = WasmGetMemOffsetVal(dbg, expr_val.offset);
+		}
+		else if (expr_val.type.type == TYPE_STR_LIT)
+		{
+			val = WasmGetMemOffsetVal(dbg, expr_val.offset);
+			auto addr = (char*)&dbg->mem_buffer[val];
+			sprintf(buffer, "%s", addr);
+			str_val = buffer;
+
+			//unsigned int len = strlen(addr);
+			//len = 0;
 		}
 		else
 		{
 			switch (expr_val.type.type)
 			{
+			case TYPE_CHAR:
+			{
+				val = WasmGetMemOffsetVal(dbg, expr_val.offset) & 0xff;
+				print_type = PRINT_CHAR;
+			}break;
 			case TYPE_U8:
 			case TYPE_BOOL:
 			{
@@ -3724,10 +3755,12 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 			default:
 				ASSERT(0);
 			}
+			str_val = WasmNumToString(dbg, val, -1, print_type);
 		}
 
 
-		sprintf(buffer, "addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), WasmNumToString(dbg, val, -1, print_type).c_str());
+	
+		sprintf(buffer, "addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), str_val.c_str());
 	}
 	ret += buffer;
 
@@ -3756,7 +3789,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 		std::string show = "";
 		if (expr_val.type.ptr == 1)
 		{
-			//ptr_buffer = &dbg->mem_buffer[*(int*)ptr_buffer];
+			ptr_buffer = &dbg->mem_buffer[*(int*)ptr_buffer];
 			switch (expr_val.type.type)
 			{
 			case TYPE_U8:
@@ -3990,12 +4023,11 @@ void InsertSuggestion(dbg_state* dbg, std::string &input, int *cursor_pos)
 	}
 }
 
-dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
+dbg_expr* WasmGetExprFromTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 {
 	func_decl* func = dbg->cur_func;
-	node* n = ParseString(dbg->lang_stat, exp_str);
-
-
+	node_iter niter = node_iter(tkns, dbg->lang_stat);
+	node *n = niter.parse_all();
 
 	type_struct2* strct_for_filter;
 	//Scope
@@ -4067,12 +4099,16 @@ dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
 	ast_rep* ast = AstFromNode(dbg->lang_stat, n, cur_scp);
 
 	n->FreeTree();
+	/*
 	int last_idx = dbg->lang_stat->allocated_vectors.size() - 1;
+	if(last_idx >= 0)
+	{
 	dbg->lang_stat->allocated_vectors[last_idx]->~vector();
 	dbg->lang_stat->allocated_vectors.pop_back();
+	*/
 
 	auto exp = (dbg_expr*)AllocMiscData(dbg->lang_stat, sizeof(dbg_expr));
-	exp->exp_str = exp_str.substr();
+	//exp->exp_str = exp_str.substr();
 	exp->from_func = dbg->cur_func;
 
 	//exp_str = "";
@@ -4108,6 +4144,14 @@ dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
 	}
 
 	return exp;
+}
+dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
+{
+	func_decl* func = dbg->cur_func;
+
+	own_std::vector<token2> tkns;
+	Tokenize2((char *)exp_str.c_str(), exp_str.size(), &tkns);
+	return WasmGetExprFromTkns(dbg, &tkns);
 }
 
 int WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
@@ -4220,6 +4264,7 @@ void WasmOnArgs(dbg_state* dbg)
 	bool args_break = false;
 	bool first_timer = true;
 
+	printf("cur_block_bc %d\n", __lang_globals.cur_block);
 	while (!args_break)
 	{
 
@@ -4325,12 +4370,50 @@ void WasmOnArgs(dbg_state* dbg)
 		own_std::vector<token2> tkns;
 		Tokenize2((char*)input.c_str(), input.size(), &tkns);
 
-		ASSERT(tkns[0].type == T_WORD);
-		if (tkns[0].str == "print")
+		if (tkns[0].type == T_WORD && tkns[0].str == "print")
 		{
 			int i = 1;
 			ASSERT(tkns[1].type == T_WORD);
-			if (tkns[i].str == "wasm")
+			if (tkns[i].str == "ex")
+			{
+				i++;
+				std::string exp_str = "";
+				/*
+				for (int i = 2; i < tkns.size(); i++)
+				{
+					//std::string cur = std::string(args[i]);;
+					exp_str += tkns[i].str;
+				}
+				*/
+				mem_alloc temp_alloc;
+				temp_alloc.chunks_cap = 1024 * 1024;
+
+				InitMemAlloc(&temp_alloc);
+				void* prev_alloc = __lang_globals.data;
+				dbg_expr* exp = nullptr;
+				int val = setjmp(dbg->lang_stat->jump_buffer);
+				if (val == 0)
+				{
+					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+					tkns.ar.start += i;
+					exp = WasmGetExprFromTkns(dbg, &tkns);
+					tkns.ar.start -= i;
+				}
+				// error
+				else if (val == 1)
+				{
+					
+				}
+				if(exp)
+					printf("\n%s\n", WasmGetSingleExprToStr(dbg, exp).c_str());
+
+				FreeMemAlloc(&temp_alloc);
+
+				__lang_globals.data = prev_alloc;
+
+
+			}
+			else if (tkns[i].str == "wasm")
 			{
 				i++;
 				bool is_ir = tkns[i].str == "ir";
@@ -4524,35 +4607,6 @@ void WasmOnArgs(dbg_state* dbg)
 			}
 			else if (args[1] == "ex")
 			{
-				std::string exp_str = "";
-				for (int i = 2; i < args.size(); i++)
-				{
-					exp_str += args[i];
-				}
-				mem_alloc temp_alloc;
-				temp_alloc.chunks_cap = 1024 * 1024;
-
-				InitMemAlloc(&temp_alloc);
-				void* prev_alloc = __lang_globals.data;
-				dbg_expr* exp = nullptr;
-				int val = setjmp(dbg->lang_stat->jump_buffer);
-				if (val == 0)
-				{
-					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
-					exp = WasmGetExprFromStr(dbg, exp_str);
-				}
-				// error
-				else if (val == 1)
-				{
-					
-				}
-				if(exp)
-					printf("\n%s\n", WasmGetSingleExprToStr(dbg, exp).c_str());
-
-				FreeMemAlloc(&temp_alloc);
-
-				__lang_globals.data = prev_alloc;
-
 			}
 			else if (args[1] == "exs")
 			{
@@ -5121,6 +5175,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_FUNC_TYPE:
 		case TYPE_STR_LIT:
 		case TYPE_ENUM_IDX_32:
+		case TYPE_CHAR:
 		case TYPE_ENUM:
 		
 		break;
@@ -5479,6 +5534,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_ENUM_IDX_32:
 		case TYPE_ENUM_TYPE:
 		case TYPE_STR_LIT:
+		case TYPE_CHAR:
 		case TYPE_ENUM:
 		{
 			int a = 0;
@@ -5636,6 +5692,7 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		while (i < (*cur_bc)->i)
 		{
 			(*cur) = (*cur)->parent;
+			FreeBlock((*cur));
 			i++;
 		}
 		if ((*cur)->wbc->type == WASM_INST_LOOP)
@@ -5664,6 +5721,7 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		while (i < (*cur_bc)->i)
 		{
 			(*cur) = (*cur)->parent;
+			FreeBlock((*cur));
 			i++;
 		}
 		if (!(*cur))
@@ -5710,6 +5768,12 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		{
 			can_break = true;
 			break;
+		}
+		while ((*cur))
+		{
+			FreeBlock((*cur));
+			(*cur) = (*cur)->parent;
+
 		}
 		dbg.cur_func = dbg.func_stack.back();
 		
@@ -6194,7 +6258,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
-		ir_rep* cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		ir_rep* cur_ir = nullptr;
+		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
@@ -6786,6 +6851,10 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			{
 				bc.type = WASM_INST_CAST_S64_2_F32;
 
+			}break;
+			case 0xb8:
+			{
+				bc.type = WASM_INST_CAST_U32_2_F32;
 			}break;
 			case 0xba:
 			{
@@ -8236,6 +8305,9 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
     __lang_globals.alloc =  alloc_addr;
     __lang_globals.data = data;
     __lang_globals.free = free_addr;
+	__lang_globals.total_blocks = 258;
+	__lang_globals.blocks = (block_linked*)AllocMiscData(lang_stat, sizeof(block_linked) * __lang_globals.total_blocks);
+	__lang_globals.cur_block = 0;
 	auto test = lang_state();
 	*lang_stat = test;
 	lang_stat->code_sect.reserve(256);

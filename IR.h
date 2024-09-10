@@ -35,6 +35,8 @@ enum ast_type
     AST_NEGATIVE,
     AST_NEGATE,
     AST_OPPOSITE,
+    AST_PLUS_PLUS,
+    AST_MINUS_MINUS,
 
 };
 enum ast_index_type
@@ -165,6 +167,11 @@ struct ast_rep
 			own_std::vector<ast_point> points;
 			bool point_get_last_val;
 		};
+		struct
+		{
+			ast_rep* ast;
+			type2 tp;
+		}unop_assign;
 		struct
 		{
 			ast_rep* ast;

@@ -63,6 +63,10 @@ struct draw_info
 	float pos_y;
 	float pos_z;
 
+	float pivot_x;
+	float pivot_y;
+	float pivot_z;
+
 	float ent_size_x;
 	float ent_size_y;
 	float ent_size_z;
@@ -133,6 +137,9 @@ void Draw(dbg_state* dbg)
 
 	gl_state->pos_u = glGetUniformLocation(prog, "pos");
 	glUniform3f(gl_state->pos_u, draw->pos_x, draw->pos_y, draw->pos_z);
+
+	int pivot_u = glGetUniformLocation(prog, "pivot");
+	glUniform3f(pivot_u, draw->pivot_x, draw->pivot_y, draw->pivot_z);
 
 	int cam_size_u = glGetUniformLocation(prog, "cam_size");
 	glUniform1f(cam_size_u, draw->cam_size);
@@ -458,10 +465,10 @@ void OpenWindow(dbg_state* dbg)
 	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long )window;
 	float vertices[] = {
 		// positions          // texture coords
-		 0.5f,  0.5f, 0.0f,   1.0f, 1.0f,   // top right
-		 0.5f, -0.5f, 0.0f,   1.0f, 0.0f,   // bottom right
-		-0.5f, -0.5f, 0.0f,   0.0f, 0.0f,   // bottom left
-		-0.5f,  0.5f, 0.0f,   0.0f, 1.0f    // top left 
+		 1.0f,  1.0f, 0.0f,   1.0f, 1.0f,   // top right
+		 1.0f,   0.0f, 0.0f,   1.0f, 0.0f,   // bottom right
+		 0.0f,	0.0f, 0.0f,   0.0f, 0.0f,   // bottom left
+		 0.0f,  1.0f, 0.0f,   0.0f, 1.0f    // top left 
 	};
 	unsigned int indices[] = {  // note that we start from 0!
 		0, 1, 3,   // first triangle
@@ -492,6 +499,7 @@ void OpenWindow(dbg_state* dbg)
 		"layout (location = 0) in vec3 aPos;\n"
 		"layout (location = 1) in vec2 uv;\n"
 		"uniform vec3 pos;\n"
+		"uniform vec3 pivot;\n"
 		"uniform float cam_size;\n"
 		"uniform float screen_ratio;\n"
 		"uniform vec3 ent_size;\n"
@@ -500,6 +508,7 @@ void OpenWindow(dbg_state* dbg)
 		"void main()\n"
 		"{\n"
 		"   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+		"   gl_Position.xy -= pivot.xy;\n"
 		"   gl_Position.xy *= ent_size.xy;\n"
 		"   gl_Position.xy += pos.xy;\n"
 		"   gl_Position.xy /= cam_size;\n"
@@ -622,14 +631,15 @@ void GetMem(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	ASSERT(sz > 0)
 
-	int *addr = (int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
-	int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
+	int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
+	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
 	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] += sz;
-	ASSERT(*max < 64000);
-	*max += sz;
+	ASSERT((addr + sz) < 64000);
+	//*max += sz;
 
-	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = *addr;
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
 
 }
 

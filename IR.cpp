@@ -706,7 +706,7 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 	GenStackThenIR(lang_stat, ast_bin->expr[0], out, &ir.bin.lhs, &ir.bin.lhs);
 	GenStackThenIR(lang_stat, ast_bin->expr[1], out, &ir.bin.rhs, &ir.bin.rhs);
 
-	ir.bin.lhs.is_unsigned = ir.bin.rhs.is_unsigned;
+	ir.bin.rhs.is_unsigned = ir.bin.lhs.is_unsigned;
 
 	ir.type = type;
 	ir.bin.op = ast_bin->op;
@@ -1345,6 +1345,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						ir = {};
 						ir.type = IR_ASSIGNMENT;
 						ir.assign.to_assign = *begin;
+						ir.assign.to_assign.deref = 0;
 						ir.assign.to_assign.reg_sz = 8;
 						ir.assign.only_lhs = true;
 						ir.assign.lhs.type = IR_TYPE_ON_STACK;
@@ -1565,9 +1566,23 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir.type = IR_ASSIGNMENT;
 			ir.assign.op = T_MUL;
 			ir.assign.to_assign = *top;
+			ir.assign.to_assign.deref--;
 			ir.assign.lhs = *top;
+			ir.assign.lhs.deref++;
 			ir.assign.rhs.type = IR_TYPE_INT;
-			ir.assign.rhs.i = -1;
+			ir.assign.rhs.is_unsigned = ir.assign.lhs.is_unsigned;
+			if (top->is_float)
+			{
+				ir.assign.rhs.type = IR_TYPE_F32;
+				ir.assign.rhs.f32 = -1.0;
+				ir.assign.rhs.is_float = true;
+				top->deref = 0;
+			}
+			else
+			{
+				ir.assign.rhs.is_float = false;
+				ir.assign.rhs.i = -1;
+			}
 			out->emplace_back(ir);
 			//top->reg_sz = e->cast.type;
 		}break;
@@ -1834,6 +1849,7 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	case AST_ARRAY_COSTRUCTION:
 	case AST_INDEX:
 	case AST_OPPOSITE:
+	case AST_NEGATIVE:
 	case AST_DEREF:
 	{
 		PushAstsInOrder(lang_stat, ast, &exps);
@@ -2044,6 +2060,10 @@ int GetAstTypeSize(lang_state* lang_stat, ast_rep* ast)
 		int sz = GetTypeSize(&ast->cast.type);
 		ast->cast.type.ptr = prev;
 		return  sz;
+	}break;
+	case AST_NEGATIVE:
+	{
+		return GetAstTypeSize(lang_stat, ast->ast);
 	}break;
 	case AST_DEREF:
 	{
@@ -2322,6 +2342,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			case AST_BINOP:
 			case AST_CAST:
 			case AST_DEREF: 
+			case AST_NEGATIVE: 
 			case AST_ARRAY_COSTRUCTION:
 			case AST_ADDRESS_OF: 
 			{

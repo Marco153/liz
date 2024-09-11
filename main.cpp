@@ -214,6 +214,8 @@ void IsKeyDown(dbg_state* dbg)
 	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN) || IS_FLAG_ON(gl_state->buttons[key], KEY_RECENTLY_DOWN))
 	{
 		*addr = 1;
+		gl_state->buttons[key] &= ~KEY_RECENTLY_DOWN;
+		gl_state->buttons[key] = (gl_state->buttons[key] & 0xffff);
 	}
 	else
 		*addr = 0;
@@ -447,7 +449,7 @@ void OpenWindow(dbg_state* dbg)
 		return;
 
 	gl_state->width = 1200;
-	gl_state->height = 600;
+	gl_state->height = 1000;
 	/* Create a windowed mode window and its OpenGL context */
 	window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World", NULL, NULL);
 	if (!window)

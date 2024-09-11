@@ -1535,7 +1535,7 @@ node* node_iter::parse_expr()
 	{
 		n->type = node_type::N_UNOP;
 		CheckTwoBinaryOparatorsTogether(n);
-		n->r = parse_(PREC_MUL, LESSER_EQUAL);
+		n->r = parse_(PREC_MUL, parser_cond::LESSER);
 	}break;
 	// array type
 	case tkn_type2::T_OPEN_BRACKETS:
@@ -1853,7 +1853,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		auto tt = peek_tkn();
 		// checking the the first tkn is'nt an unary one
 		// because we dont want to get its precedence
-		if (peek_tkn()->type != tkn_type2::T_MUL)
+		if (peek_tkn()->type != tkn_type2::T_MUL && peek_tkn()->type != tkn_type2::T_MINUS)
 		{
 			PARSER_CHECK
 		}
@@ -2582,8 +2582,8 @@ void DescendStmnt(lang_state *lang_stat, node* n, scope* scp)
 		if (size < 0)
 			break;
 
-		if (IS_FLAG_ON(cur_node->flags, NODE_FLAGS_IS_SCOPE))
-			scp = scp_stack[cur_scp_idx--];
+		//if (IS_FLAG_ON(cur_node->flags, NODE_FLAGS_IS_SCOPE))
+			//scp = scp_stack[cur_scp_idx--];
 
 		cur_node = *(node_stack.end() - 1);
 		node_stack.pop_back();
@@ -3207,17 +3207,29 @@ bool FromStaticArToAr(lang_state *lang_stat, type2* ret_type, scope* scp, node* 
 	n->ar_lit_tp = NewType(lang_stat, ret_type);
 	return true;
 }
+node* GetLastStmntNode(lang_state* lang_stat, node* n)
+{
+	if (n->type != N_STMNT)
+	{
+		return n;
+	}
+	else if (n->r)
+	{
+		return GetLastStmntNode(lang_stat, n->r);
+	}
+	else if (n->l)
+	{
+		return GetLastStmntNode(lang_stat, n->l);
+	}
+
+	ASSERT(0);
+	return nullptr;
+
+
+}
 node *GetLastStmntType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type)
 {
-	ASSERT(n->type == N_STMNT);
-	node* last_stmnt = n;
-	if (last_stmnt->r)
-		last_stmnt = last_stmnt->r;
-	else
-	{
-		ASSERT(n->l->type != N_STMNT);
-		last_stmnt = n->l;
-	}
+	node* last_stmnt = GetLastStmntNode(lang_stat, n);
 	if(last_stmnt->type != N_EMPTY)
 		NameFindingGetType(lang_stat, last_stmnt, scp, ret_type);
 
@@ -6816,7 +6828,10 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			}
 			else
 			{
-				return (decl2*)1;
+				if (decl_exist)
+					return decl_exist;
+				else
+					return (decl2*)1;
 			}
 		}break;
 
@@ -7530,8 +7545,22 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		}break;
 		case tkn_type2::T_AMPERSAND:
 		{
+			node* maybe_lhs_or_modified_nd = n->r;
+			if (IsNodeUnop(n->r, T_MUL))
+			{
+				memcpy(n, n->r->r, sizeof(node));
+
+				maybe_lhs_or_modified_nd = n;
+			}
+			// index already returns a pointer so we removing the "taking address of"
+			else if (CMP_NTYPE(n->r, N_INDEX))
+			{
+				memcpy(n, n->r, sizeof(node));
+				maybe_lhs_or_modified_nd = n;
+			}
+
 			NameFindingGetType(lang_stat, n, scp, ret_type);
-			auto tp = DescendNode(lang_stat, n->r, scp);
+			auto tp = DescendNode(lang_stat, maybe_lhs_or_modified_nd, scp);
 
 			if (tp.type == TYPE_INT)
 			{
@@ -7540,7 +7569,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			}
 
 			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_AFTER_TYPE_CHECK))
-				DescendNode(lang_stat, n->r, scp);
+				DescendNode(lang_stat, maybe_lhs_or_modified_nd, scp);
 		}break;
 		case tkn_type2::T_MUL:
 		{

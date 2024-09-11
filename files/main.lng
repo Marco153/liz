@@ -1,6 +1,9 @@
 context: struct
 {
 	alloc : mem_alloc,
+	frames : *frame_info,
+	frames_count : u32,
+	frames_max : u32,
 }
 DRAW_INFO_HAS_TEXTURE:const s32 = 1;
 draw_info: struct
@@ -35,6 +38,7 @@ clip: struct
 	cur_time :f32,
 	loop :bool,
 }
+
 cel_type: enum
 {
 	EMPTY,
@@ -62,6 +66,35 @@ player_dir: enum
 	DOWN,
 	UP,
 }
+
+frame_action:enum
+{
+	FREE,
+	NOT_ASSIGNED,
+	MOV,
+}
+frame_action_stage:enum
+{
+	NOT_STARTED,
+	DOING,
+	DONE,
+}
+frame_info:struct
+{
+	type :frame_action,
+	stage:frame_action_stage,
+
+	using u :: union
+	{
+		mov::struct
+		{
+			from_pos: v3,
+			to_pos: v3,
+			modify_pos: *v3,
+		}
+	}
+}
+
 IsKeyDown::fn outsider(key_enum) !bool;
 IsKeyHeld::fn outsider(key_enum) !bool;
 GetTimeSinceStart::fn outsider() !f32;
@@ -142,7 +175,7 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 		{
 			cur_cel.type = cel_type.PLAYER;
 			start_pos.x = cast(f32)x;
-			start_pos.y = cast(f32)y;
+			start_pos.y = -cast(f32)y;
 		}
 		else if ch == '\n
 		{
@@ -169,8 +202,10 @@ ChangeClip::fn(cur_clip : **clip, to : *clip)
 DrawSceneMap::fn(scn : *scene, window : *u8)
 {
 
+	start_x: = 0.0;
+	start_y: = 0.0;
 	draw: draw_info;
-	draw.color = []f32{ 0.0, 0.5, 0.5, 1.0};
+	draw.color = []f32{ 0.0, 0.5, 0.5, 1.0 };
 	//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
 	//draw.texture_id = UpdateClip(cur_clip, dt);
 	draw.cam_size = scn.cam_size;
@@ -178,8 +213,13 @@ DrawSceneMap::fn(scn : *scene, window : *u8)
 	draw.cam_pos.y = 0.0;
 	draw.cam_pos.z = 0.0;
 
+
 	draw.ent_size.x = cast(f32)scn.width;
-	draw.ent_size.y = cast(f32)scn.height;
+	draw.ent_size.y = -cast(f32)scn.height;
+
+	//draw.ent_size.y = cast(f32)scn.height;
+	draw.pos.x = start_x;
+	draw.pos.y = start_y;
 
 
 	draw.cam_pos.y = 0.0;
@@ -187,42 +227,167 @@ DrawSceneMap::fn(scn : *scene, window : *u8)
 
 	//draw.texture_id = 1;
 	Draw(window, &draw);
-	i:u32 = 0;
-	while i < scn.width * scn.height
+	//y:s32 = cast(s32)scn.height - 1;
+	y:s32 = 0;
+	while y < (cast(s32)scn.height)
 	{
-		x := i % scn.width;
-		y := cast(u32)(cast(f32)i / cast(f32)scn.width);
-
-		if ptr_offset(scn.cels, i, cel_info).type == cel_type.SOLID
+		x:u32 = 0;
+		while x < scn.width
 		{
-			draw.color = []f32{ 0.5, 0.0, 0.5, 1.0};
-			//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-			//draw.texture_id = UpdateClip(cur_clip, dt);
-			draw.cam_size = scn.cam_size;
-			draw.pos.x = cast(f32)x;
-			draw.pos.y = cast(f32)y;
-			draw.pos.z = 0.0;
+			//x: = i % scn.width;
+			//y: = cast(u32)(cast(f32)i / cast(f32)scn.width);
+			i: = x + (cast(u32)y * scn.width);
 
-			draw.ent_size.x = 1.0;
-			draw.ent_size.y = 1.0;
-			Draw(window, &draw);
+			if ptr_offset(scn.cels, i, cel_info).type == cel_type.SOLID
+			{
+				draw.color = []f32{ 0.5, 0.0, 0.5, 1.0};
+				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				//draw.texture_id = UpdateClip(cur_clip, dt);
+				draw.cam_size = scn.cam_size;
+				draw.pos.x = cast(f32)x + start_x;
+				draw.pos.y = -(cast(f32)y + start_y);
+				draw.pos.y -= 1.0;
+				draw.pos.z = 0.0;
+
+				draw.ent_size.x = 1.0;
+				draw.ent_size.y = 1.0;
+				Draw(window, &draw);
+			}
+			x++;
 		}
-		i++;
+		y++;
 	}
 }
 
+ProcessFrameActions::fn(ctx : *context, scn : *scene)
+{
+	i:u32 = 0;
+	while i < ctx.frames_max
+	{
+		cur_fr: = ptr_offset(ctx.frames, i, frame_info);
+		if cur_fr.type == frame_action.MOV
+		{
+			if cur_fr.stage == frame_action_stage.NOT_STARTED
+			{
+				dist: = cur_fr.mov.to_pos - cur_fr.mov.from_pos;
+
+				len: = cast(u32)dot_v3(&dist, &dist);
+
+				dst_x: = cast(u32)cur_fr.mov.to_pos.x;
+				dst_y: = cast(u32)cur_fr.mov.to_pos.y;
+
+				src_x: = cast(u32)cur_fr.mov.from_pos.x;
+				src_y: = cast(u32)cur_fr.mov.from_pos.y;
+
+				sign_dir: = cur_fr.mov.to_pos - cur_fr.mov.from_pos;
+				if sign_dir.x > 1.0
+					sign_dir.x = 1.0;
+				else if sign_dir.x <= -1.0
+					sign_dir.x = -1.0;
+
+				if sign_dir.y > 1.0
+					sign_dir.y = 1.0;
+				else if sign_dir.y <= -1.0
+					sign_dir.y = -1.0;
+
+				next_cel_x: = cast(u32)(cur_fr.mov.from_pos.x + sign_dir.x);
+				next_cel_y : = cast(u32)(cur_fr.mov.from_pos.y + sign_dir.y);
+
+				src_cel: = ptr_offset(scn.cels, src_x + src_y * scn.width, cel_info);
+				dst_cel: = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
+				next_cel: = ptr_offset(scn.cels, next_cel_x + next_cel_y * scn.width, cel_info);
+
+				if next_cel.type == cel_type.SOLID
+				{
+					cur_fr.stage = frame_action_stage.DONE;
+					*cur_fr.mov.modify_pos = cur_fr.mov.from_pos;
+
+				}
+				else
+				{
+					if dst_cel.type != cel_type.SOLID
+					{
+						*cur_fr.mov.modify_pos = cur_fr.mov.to_pos;
+
+					}
+					else
+					{
+
+						*cur_fr.mov.modify_pos = sign_dir + cur_fr.mov.from_pos;
+					}
+					cur_fr.stage = frame_action_stage.DOING;
+				}
+
+				cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+				//dst_cel := ptr_offset(ctx.frames, scr)
+				// one block mov
+				if len == 1
+				{
+					
+				}
+				// two blocks mov
+				else if len == 4
+				{
+					
+				}
+				else
+				{
+					// too much blocks mov
+					ASSERT(0);
+				}
+			}
+			else if cur_fr.stage == frame_action_stage.DOING
+			{
+				
+			}
+			else if cur_fr.stage == frame_action_stage.DONE
+			{
+
+			}
+			else
+				__dbg_break;
+		}
+		else if cur_fr.type == frame_action.NOT_ASSIGNED || cur_fr.type == frame_action.FREE
+		{
+
+		}
+		else
+			__dbg_break;
+		i++;
+	}
+}
+AddFrameAction::fn(ctx : *context) ! *frame_info
+{
+	i:u32 = 0;
+	while i < ctx.frames_max
+	{
+		cur: = ptr_offset(ctx.frames, i, frame_info);
+		if cur.type == frame_action.FREE
+		{
+			cur.type = frame_action.NOT_ASSIGNED;
+			return cur;
+		}
+		i++;
+	}
+	ASSERT(0);
+	return nil;
+}
 main :: fn()
 {
 	ctx: context;
 	InitMemAlloc(&ctx.alloc);
 	addr: = heap_alloc(&ctx.alloc, 10);
 	heap_free(&ctx.alloc, addr);
+
+	ctx.frames_max = 32;
+	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));
+	memset(cast(*u8)ctx.frames, 0, sizeof(frame_info));
 	
 scene1: = 
 "---------\n"
-"--......-\n"
+"-......--\n"
 "-....t..-\n"
-"-...p...-\n"
+"-.p.....-\n"
 "---------\n"
 ;
 	window := OpenWindow();
@@ -245,15 +410,19 @@ scene1: =
 
 	scn:scene;
 
-	scn.cam_size = 5.0;
+	scn.cam_size = 10.0;
 	draw:draw_info;
 	//pos:v2;
 	player_pos:v3;
 	player_size:v3;
 	final_pos: v3;
 	start_pos: v3;
+	map_start_pos: v3;
+	map_start_pos.x = -4.0;
+	map_start_pos.y = 2.0;
 
-	CreateScene(&ctx, scene1, &scn, &start_pos);
+	CreateScene(&ctx, scene1, &scn, &player_pos);
+	//play
 
 	p_dir: player_dir;
 	cur_clip:*clip= &idle_h;
@@ -263,11 +432,13 @@ scene1: =
 	player_size.x = 1.0;
 	player_size.y = 1.0;
 
-	start_pos.x += 0.5;
-	start_pos.y += 0.5;
+	//start_pos.x += 0.5 + map_start_pos.x;
+	//start_pos.y += 0.5 + map_start_pos.y;
 
-	//final_pos.x = 0.5;
-	//final_pos.y = 0.5;
+	//player_pos.x = 0.5;
+	//player_pos.y = 0.5;
+	//player_pos.y = 0.0;
+	final_pos = player_pos;
 
 	while !ShouldClose(window)
 	{
@@ -300,10 +471,27 @@ scene1: =
 		{
 			if IsKeyDown(key_enum.KEY_LEFT)
 			{
+				//__dbg_break;
 				player_size.x = -1.0;
 				player_size.y = 1.0;
-				final_pos.x -= blocks_jmp;
+				//final_pos.x -= blocks_jmp;
 				//player_pos.x -= dt * 5.0;
+
+				act:= AddFrameAction(&ctx);
+
+				act.type = frame_action.MOV;
+				act.mov.from_pos = player_pos;
+				act.mov.from_pos.y = -act.mov.from_pos.y;
+				//act.mov.from_pos.y = -act.mov.from_pos.y;
+				//act.mov.from_pos.x -= map_start_pos.x;
+				//act.mov.from_pos.y -= map_start_pos.y;
+				act.mov.to_pos.x = player_pos.x - blocks_jmp;
+				act.mov.to_pos.y = -player_pos.y;
+
+				//act.mov.to_pos.x -= map_start_pos.x;
+				//act.mov.to_pos.y -= map_start_pos.y;
+				act.mov.modify_pos = &final_pos;
+
 				p_dir = player_dir.LEFT;
 				ChangeClip(&cur_clip, &walk_h);
 
@@ -336,10 +524,12 @@ scene1: =
 				ChangeClip(&cur_clip, &walk_v);
 			}
 		}
+
+		ProcessFrameActions(&ctx, &scn);
 		dir: = final_pos - player_pos;
 		d: = dot_v3(&dir, &dir);
 
-		if d > 0.01
+		if d > 0.1
 		{
 			dir = sign_v3(&dir);
 			if p_dir == player_dir.LEFT
@@ -373,12 +563,12 @@ scene1: =
 			can_move = true;
 		}
 
-
+		//__dbg_break;
 		memcpy(&draw.pos, &player_pos, sizeof(draw.pos));
-		draw.pos.x += start_pos.x;
-		draw.pos.y += start_pos.y;
-		//draw.pos.x += 0.5;
-		//draw.pos.y += 0.5;
+		//draw.pos.x += start_pos.x + map_start_pos.x;
+		//draw.pos.y += start_pos.y + map_start_pos.y;
+		draw.pos.x += 0.5;
+		draw.pos.y -= 0.5;
 		memcpy(&draw.ent_size, &player_size, sizeof(draw.ent_size));
 
 		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};

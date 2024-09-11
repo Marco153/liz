@@ -2736,6 +2736,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "i32.gs_t";
 	}break;
+	case WASM_INST_I32_LT_U:
+	{
+		ret += "i32.lt_u";
+	}break;
 	case WASM_INST_I32_LE_U:
 	{
 		ret += "i32.le_u";
@@ -5936,7 +5940,7 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		// assert is 32bit
 		ASSERT(top.type == WSTACK_VAL_F32 && penultimate.type == 0);
 		ASSERT(penultimate.u32 < dbg.mem_size);
-		*(int*)&mem_buffer[penultimate.u32] = top.s32;
+		*(float*)&mem_buffer[penultimate.u32] = top.f32;
 		int a = 0;
 	}break;
 	case WASM_INST_I64_STORE:
@@ -6259,7 +6263,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
-		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;

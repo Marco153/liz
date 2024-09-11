@@ -958,4 +958,10 @@ tests :: fn()
 
 	if *ar_test[0] > 1.1 || *ar_test[0] < 0.9
 		__dbg_break;
+
+	i = 2;
+	v2.x = cast(f32)-i;
+
+	if v2.x > -1.9 || v2.x < -2.1
+		__dbg_break;
 }

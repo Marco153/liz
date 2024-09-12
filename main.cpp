@@ -34,6 +34,8 @@ struct open_gl_state
 
 	int width;
 	int height;
+
+	void* glfw_window;
 };
 enum key_enum
 {
@@ -148,8 +150,10 @@ void Draw(dbg_state* dbg)
 	int screen_ratio_u = glGetUniformLocation(prog, "screen_ratio");
 	glUniform1f(screen_ratio_u, screen_ratio);
 
+	draw->cam_pos_x = 3;
+	draw->cam_pos_y = -1;
 	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
-	glUniform3f(cam_size_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
+	glUniform3f(cam_pos_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
 
 	int ent_size_u = glGetUniformLocation(prog, "ent_size");
 	glUniform3f(ent_size_u, draw->ent_size_x, draw->ent_size_y, draw->ent_size_z);
@@ -415,6 +419,7 @@ void LoadClip(dbg_state* dbg)
 	int a = 0;
 	*/
 }
+
 int CompileShader(char* source, int type)
 {
 	int  success;
@@ -433,6 +438,13 @@ int CompileShader(char* source, int type)
 		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
 	}
 	return shader;
+}
+void UpdateLastTime(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	if(gl_state)
+		gl_state->last_time = glfwGetTime();
+
 }
 void OpenWindow(dbg_state* dbg)
 {
@@ -457,6 +469,7 @@ void OpenWindow(dbg_state* dbg)
 		glfwTerminate();
 		return;
 	}
+	gl_state->glfw_window = window;
 
 	/* Make the window's context current */
 	glfwMakeContextCurrent(window);
@@ -513,6 +526,7 @@ void OpenWindow(dbg_state* dbg)
 		"   gl_Position.xy -= pivot.xy;\n"
 		"   gl_Position.xy *= ent_size.xy;\n"
 		"   gl_Position.xy += pos.xy;\n"
+		"   gl_Position.xy -= cam_pos.xy;\n"
 		"   gl_Position.xy /= cam_size;\n"
 		"   gl_Position.x *= screen_ratio;\n"
 		//"   gl_Position = ition / cam_size + cam_size;\n"
@@ -629,6 +643,26 @@ void OpenWindow(dbg_state* dbg)
 
 
 }
+/*
+void DebuggerCommand(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int str_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	//ASSERT(sz > 0)
+
+	char* str = (char*)&dbg->mem_buffer[str_offset];
+
+
+	int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
+	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
+	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] += sz;
+	ASSERT((addr + sz) < 64000);
+	//*max += sz;
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
+
+}
+*/
 void GetMem(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -652,6 +686,13 @@ void GetTimeSinceStart(dbg_state* dbg)
 	//auto gl_state = (open_gl_state*)dbg->data;
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = (float)glfwGetTime();
+}
+void Sqrt(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sqrt(val);
 }
 void Sin(dbg_state* dbg)
 {
@@ -692,6 +733,8 @@ int main()
 	AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
 	AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
 	AssignOutsiderFunc(&lang_stat, "GetTimeSinceStart", (OutsiderFuncType)GetTimeSinceStart);
+	AssignOutsiderFunc(&lang_stat, "sqrt", (OutsiderFuncType)Sqrt);
+	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	Compile(&lang_stat, &opts);
 	if (!opts.release)

@@ -4263,6 +4263,35 @@ void WasmIrInterp(dbg_state* dbg, own_std::vector<ir_rep>* ir_ar)
 
 	}
 }
+void PrintExpressionTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
+{
+	mem_alloc temp_alloc;
+	temp_alloc.chunks_cap = 1024 * 1024;
+
+	InitMemAlloc(&temp_alloc);
+	void* prev_alloc = __lang_globals.data;
+	dbg_expr* exp = nullptr;
+	int val = setjmp(dbg->lang_stat->jump_buffer);
+	if (val == 0)
+	{
+		dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+		exp = WasmGetExprFromTkns(dbg, tkns);
+	}
+	// error
+	else if (val == 1)
+	{
+		
+	}
+	if(exp)
+		printf("\n%s\n", WasmGetSingleExprToStr(dbg, exp).c_str());
+
+	FreeMemAlloc(&temp_alloc);
+
+	__lang_globals.data = prev_alloc;
+
+}
+
+void UpdateLastTime(dbg_state* dbg);
 void WasmOnArgs(dbg_state* dbg)
 {
 	bool args_break = false;
@@ -4389,31 +4418,9 @@ void WasmOnArgs(dbg_state* dbg)
 					exp_str += tkns[i].str;
 				}
 				*/
-				mem_alloc temp_alloc;
-				temp_alloc.chunks_cap = 1024 * 1024;
-
-				InitMemAlloc(&temp_alloc);
-				void* prev_alloc = __lang_globals.data;
-				dbg_expr* exp = nullptr;
-				int val = setjmp(dbg->lang_stat->jump_buffer);
-				if (val == 0)
-				{
-					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
-					tkns.ar.start += i;
-					exp = WasmGetExprFromTkns(dbg, &tkns);
-					tkns.ar.start -= i;
-				}
-				// error
-				else if (val == 1)
-				{
-					
-				}
-				if(exp)
-					printf("\n%s\n", WasmGetSingleExprToStr(dbg, exp).c_str());
-
-				FreeMemAlloc(&temp_alloc);
-
-				__lang_globals.data = prev_alloc;
+				tkns.ar.start += i;
+				PrintExpressionTkns(dbg, &tkns);
+				tkns.ar.start -= i;
 
 
 			}
@@ -4747,6 +4754,7 @@ void WasmOnArgs(dbg_state* dbg)
 
 		}
 	}
+	UpdateLastTime(dbg);
 }
 
 void JsPrint(dbg_state* dbg)
@@ -6005,6 +6013,26 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		penultimate->f32 = (penultimate->f32 / top.f32);
 		int a = 0;
 	}break;
+	case WASM_INST_F32_NE:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == wstack_val_type::WSTACK_VAL_F32 && penultimate->type == wstack_val_type::WSTACK_VAL_F32)
+		penultimate->u32 = (int)(penultimate->f32 != top.f32);
+		int a = 0;
+	}break;
+	case WASM_INST_F32_EQ:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == wstack_val_type::WSTACK_VAL_F32 && penultimate->type == wstack_val_type::WSTACK_VAL_F32)
+		penultimate->u32 = (int)(penultimate->f32 == top.f32);
+		int a = 0;
+	}break;
 	case WASM_INST_F32_LE:
 	{
 		auto top = wasm_stack.back();
@@ -6263,7 +6291,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
-		cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
@@ -6824,6 +6852,16 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			case 0x49:
 			{
 				bc.type = WASM_INST_I32_LT_U;
+
+			}break;
+			case 0x5c:
+			{
+				bc.type = WASM_INST_F32_NE;
+
+			}break;
+			case 0x5b:
+			{
+				bc.type = WASM_INST_F32_EQ;
 
 			}break;
 			case 0x5f:

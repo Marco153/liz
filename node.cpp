@@ -380,6 +380,8 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 	case tkn_type2::T_PERCENT:
 	case tkn_type2::T_PLUS:
 	case tkn_type2::T_PIPE:
+	case tkn_type2::T_PLUS_PLUS:
+	case tkn_type2::T_MINUS_MINUS:
 	{
 		*precedence = PREC_PLUS;
 		return true;
@@ -1830,6 +1832,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			}
 
 			cur_node->t = get_tkn();
+			is_operator(cur_node->t, &cur_prec);
 
 			CheckTwoBinaryOparatorsTogether(cur_node);
 
@@ -8538,7 +8541,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 						ReportMessage(lang_stat, n->t, "lhs must be a memory value");
 
 					if (!CompareTypes(&ltp, &rtp))
-						ReportTypeMismatch(lang_stat, n->r->t, &ltp, &rtp);
+						ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 
 					// excluding the colon node
 					if (IsNodeUnop(n->r, T_DOLLAR))

@@ -11,6 +11,7 @@ v3 : struct
 	y : f32,
 	z : f32,
 }
+sqrt::fn outsider(f32) !f32;
 operator *(self : *v3, f : f32) !v3
 {
 	ret:v3;
@@ -43,6 +44,21 @@ ASSIGN_V3::fn macro(dst : _expr, a : _expr)
 	dst.z = a.z;
 
 }
+square_normalize::fn(a : *v3) !v3
+{
+	aux: = *a;
+	epsilon: = 0.01;
+	if aux.x > epsilon
+		aux.x = 1.0;
+	else if aux.x <= -epsilon
+		aux.x = -1.0;
+
+	if aux.y > epsilon
+		aux.y = 1.0;
+	else if aux.y <= -epsilon
+		aux.y = -1.0;
+	return aux;
+}
 sign_v3::fn(a : *v3) !v3
 {
 	aux: = *a;
@@ -51,6 +67,14 @@ sign_v3::fn(a : *v3) !v3
 	aux.z = if a.z > 0.0 1.0 else - 1.0;
 
 	return aux;
+}
+normalize_v3::fn(a : *v3) !v3
+{
+	len: = sqrt(dot_v3(a, a));
+	ret:v3;
+	ret.x = a.x / len;
+	ret.y = a.y / len;
+	return ret;
 }
 dot_v3::fn(a : *v3, b : *v3) ! f32
 {

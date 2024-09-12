@@ -3112,6 +3112,14 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	{
 		ret = "break if block\n";
 	}break;
+	case IR_BEGIN_OR_BLOCK:
+	{
+		ret = "begin or block\n";
+	}break;
+	case IR_END_OR_BLOCK:
+	{
+		ret = "end or block\n";
+	}break;
 	case IR_END_LOOP_BLOCK:
 	{
 		ret = "end loop\n";
@@ -3253,11 +3261,11 @@ std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur
 			std::string bc_rel_idx = WasmNumToString(dbg, i, 3);
 
 			if (cur == cur_bc)
-				sprintf(buffer, ANSI_BG_WHITE ANSI_BLACK "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
+				snprintf(buffer, 512, ANSI_BG_WHITE ANSI_BLACK "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
 			else if (cur->dbg_brk)
-				sprintf(buffer, ANSI_RED "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
+				snprintf(buffer, 512, ANSI_RED "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
 			else
-				sprintf(buffer, "%s:%s", bc_rel_idx.c_str(), bc_str.c_str());
+				snprintf(buffer, 512, "%s:%s", bc_rel_idx.c_str(), bc_str.c_str());
 			ret += buffer;
 			ret += "\n";
 		}
@@ -3707,7 +3715,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 		
 
 		std::string struct_str = WasmVarToString(dbg, 0, d, expr_val.offset, ptr);
-		sprintf(buffer, " addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), struct_str.c_str());
+		snprintf(buffer, 512," addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), struct_str.c_str());
 	}
 	else
 	{
@@ -3722,7 +3730,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 		{
 			val = WasmGetMemOffsetVal(dbg, expr_val.offset);
 			auto addr = (char*)&dbg->mem_buffer[val];
-			sprintf(buffer, "%s", addr);
+			snprintf(buffer, 512, "%s", addr);
 			str_val = buffer;
 
 			//unsigned int len = strlen(addr);
@@ -3764,7 +3772,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 
 
 	
-		sprintf(buffer, "addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), str_val.c_str());
+		snprintf(buffer, 512, "addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), str_val.c_str());
 	}
 	ret += buffer;
 
@@ -3777,7 +3785,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 
 			int ptr_deref_val = WasmGetMemOffsetVal(dbg, expr_val.offset);
 
-			sprintf(buffer, "{%s}", WasmNumToString(dbg, ptr_deref_val).c_str());
+			snprintf(buffer, 512, "{%s}", WasmNumToString(dbg, ptr_deref_val).c_str());
 			ret += buffer;
 
 		}

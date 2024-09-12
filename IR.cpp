@@ -2454,7 +2454,11 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
             FOR_VEC(expr, ast->expr)
             {
                 ast_rep *e = *expr;
-                if(e->type == AST_BINOP && e->op == T_COND_AND)
+                if((idx == (ast->expr.size() - 1)) && e->type == AST_BINOP && e->op == T_COND_AND)
+                {
+                    GetIRFromAst(lang_stat, e, out);
+                }
+                else if(e->type == AST_BINOP && e->op == T_COND_AND)
                 {
                     int block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_OR_BLOCK);
 

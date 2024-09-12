@@ -929,6 +929,7 @@ node* node_iter::parse_func_like()
 }
 node* node_iter::parse_strct_like()
 {
+	auto before_flags = lang_stat->flags;
 	lang_stat->flags |= PSR_FLAGS_ON_STRUCT_DECL;
 	node* n = new_node(lang_stat, peek_tkn());
 	n->t = peek_tkn() - 1;
@@ -941,14 +942,15 @@ node* node_iter::parse_strct_like()
 
 
 
-	lang_stat->flags = 1;
+	//lang_stat->flags = 1;
 
 
 	n->flags = n->r->flags;
 	n->r->flags = 0;
 
+	//lang_stat->flags &= ~PSR_FLAGS_ON_STRUCT_DECL;
+	lang_stat->flags = before_flags;
 	lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
-	lang_stat->flags &= ~PSR_FLAGS_ON_STRUCT_DECL;
 	return n;
 }
 void CheckParenthesesLevel(lang_state *lang_stat, token2* tkn)
@@ -1617,6 +1619,7 @@ void node_iter::CheckTwoBinaryOparatorsTogether(node* cur_node)
 		&& tkn->type != tkn_type2::T_OPEN_CURLY;
 	if (two_binary_operators_together)
 		ReportMessageOne(lang_stat, tkn, "unexpected token '%s'", (char*)tkn->ToString().c_str());
+
 }
 //$parse_
 node* node_iter::parse_(int prec, parser_cond pcond)
@@ -1851,7 +1854,15 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			cur_node->type = node_type::N_STMNT;
 		}
 		else
+		{
+			int dummy_prec = 0;
 			cur_node->type = node_type::N_BINOP;
+			begin_tkn = peek_tkn();
+			if (begin_tkn->type == T_CLOSE_CURLY && is_operator(cur_node->l->t, &dummy_prec) && IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_ON_STRUCT_DECL))
+			{
+				ReportMessageOne(lang_stat, cur_node->l->t, "unexpected token '%s'", (char*)begin_tkn->ToString().c_str());
+			}
+		}
 
 		auto tt = peek_tkn();
 		// checking the the first tkn is'nt an unary one

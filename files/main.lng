@@ -101,6 +101,7 @@ frame_info:struct
 {
 	type :frame_action,
 	stage:frame_action_stage,
+	holder_type :cel_type,
 
 	using u :: union
 	{
@@ -109,6 +110,7 @@ frame_info:struct
 			from_pos: v3,
 			to_pos: v3,
 			modify_pos: *v3,
+			cur_pos: *v3,
 		}
 	}
 }
@@ -178,12 +180,14 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 
 	cel_idx:u64 = 0;
 	total_points: = 0;
+	y:u32= 0;
 	while i < len
 	{
 		x := cel_idx % scn.width;
+
+		//passed := cel_idx % scn.width;
 		// subbing the amount of \n we have at the end of each line
-		corrected_i: = i - scn.height;
-		y := cast(u32)(cast(f32)corrected_i / cast(f32)scn.width);
+		//corrected_i: = i - x;
 
 		ch: = *ptr_offset(s, i, char);
 		cur_cel: = ptr_offset(scn.cels, cel_idx, cel_info);
@@ -216,6 +220,7 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 		}
 		else if ch == '\n
 		{
+			y++;
 			cel_idx--;
 		}
 		else
@@ -313,94 +318,53 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 
 		if cur_fr.type == frame_action.MOV
 		{
+			dist: = cur_fr.mov.to_pos - cur_fr.mov.from_pos;
+
+			len: = cast(u32)dot_v3(&dist, &dist);
+
+			dst_x: = cast(u32)cur_fr.mov.to_pos.x;
+			dst_y: = cast(u32)cur_fr.mov.to_pos.y;
+
+			src_x: = cast(u32)cur_fr.mov.from_pos.x;
+			src_y: = cast(u32)cur_fr.mov.from_pos.y;
+
+			cur_x: = cast(u32)cur_fr.mov.cur_pos.x;
+			cur_y: = cast(u32)-cur_fr.mov.cur_pos.y;
+
+			sign_dir: = normalize_v3(&(cur_fr.mov.to_pos - cur_fr.mov.from_pos));
+
+			if sign_dir.y > 0.0
+				cur_y = cur_y + 1;
+			if sign_dir.x > 0.0
+			{
+				cur_x++;
+			}
+
+
+			next_cel_x: = cast(u32)(cur_fr.mov.from_pos.x + sign_dir.x);
+			next_cel_y: = cast(u32)(cur_fr.mov.from_pos.y + sign_dir.y);
+
+			cur_cel_x: = cast(u32)(cur_fr.mov.from_pos.x) + cur_x;
+			cur_cel_y: = cast(u32)(cur_fr.mov.from_pos.y) + cur_y;
+
+
+
+
+			src_cel: = ptr_offset(scn.cels, src_x + src_y * scn.width, cel_info);
+			dst_cel: = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
+			next_cel: = ptr_offset(scn.cels, next_cel_x + next_cel_y * scn.width, cel_info);
+			cur_cel: = ptr_offset(scn.cels, cur_x + cur_y * scn.width, cel_info);
+
 			if cur_fr.stage == frame_action_stage.NOT_STARTED
 			{
-				dist: = cur_fr.mov.to_pos - cur_fr.mov.from_pos;
-
-				len: = cast(u32)dot_v3(&dist, &dist);
-
-				dst_x: = cast(u32)cur_fr.mov.to_pos.x;
-				dst_y: = cast(u32)cur_fr.mov.to_pos.y;
-
-				src_x: = cast(u32)cur_fr.mov.from_pos.x;
-				src_y: = cast(u32)cur_fr.mov.from_pos.y;
-
-				sign_dir: = normalize_v3(&(cur_fr.mov.to_pos - cur_fr.mov.from_pos));
-
-				next_cel_x: = cast(u32)(cur_fr.mov.from_pos.x + sign_dir.x);
-				next_cel_y: = cast(u32)(cur_fr.mov.from_pos.y + sign_dir.y);
-
-				src_cel: = ptr_offset(scn.cels, src_x + src_y * scn.width, cel_info);
-				dst_cel: = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
-				next_cel: = ptr_offset(scn.cels, next_cel_x + next_cel_y * scn.width, cel_info);
 				
 				found_movable: = false;
 				mov_pos:v3;
 				mov:*movable = nil;
 				stop_mov_because_next_is_solid: = false;
-				if next_cel.type == cel_type.SOLID
-				{
-					stop_mov_because_next_is_solid = true;
-				}
-				else if (next_cel.type == cel_type.MOVABLE)
-				{
-					stop_mov_because_next_is_solid = true;
-					found_movable = true;
-					mov = next_cel.mov;
-					mov_pos.x = cast(f32)next_cel_x;
-					mov_pos.y = cast(f32)next_cel_y;
-				}
-				else
-				{
-					if (dst_cel.type == cel_type.MOVABLE)
-					{
-						found_movable = true;
-						mov = dst_cel.mov;
-						mov_pos.x = cast(f32)dst_x;
-						mov_pos.y = cast(f32)dst_y;
-					}
 
-					if dst_cel.type != cel_type.SOLID
-					{
-						*cur_fr.mov.modify_pos = cur_fr.mov.to_pos;
-						dst_cel.type = src_cel.type;
-						dst_cel.mov = src_cel.mov;
-
-					}
-					else
-					{
-						*cur_fr.mov.modify_pos = sign_dir + cur_fr.mov.from_pos;
-						next_cel.type = src_cel.type;
-						next_cel.mov = src_cel.mov;
-					}
-
-
-					src_cel.type = cel_type.EMPTY;
-
-					cur_fr.stage = frame_action_stage.DOING;
-				}
-
-
-				if stop_mov_because_next_is_solid
-				{
-					cur_fr.stage = frame_action_stage.DONE;
-					*cur_fr.mov.modify_pos = cur_fr.mov.from_pos;
-				}
-				if found_movable
-				{
-					act:= AddFrameAction(ctx);
-
-					act.type = frame_action.MOV;
-					act.mov.from_pos = mov_pos;
-					//act.mov.from_pos.y = -act.mov.from_pos.y;
-					act.mov.to_pos = mov_pos + sign_dir;
-					//act.mov.to_pos.y = -act.mov.to_pos.y;
-
-					act.mov.modify_pos = &mov.final;
-					mov.going = true;
-					a: = 0;
-
-				}
+				*cur_fr.mov.modify_pos = cur_fr.mov.to_pos;
+				cur_fr.stage = frame_action_stage.DOING;
 
 				cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
 				//dst_cel := ptr_offset(ctx.frames, scr)
@@ -417,18 +381,62 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				else
 				{
 					// too much blocks mov
-					ASSERT(0);
+					//ASSERT(0);
 				}
 			}
 			else if cur_fr.stage == frame_action_stage.DOING
 			{
-				aux: = *cur_fr.mov.modify_pos;
+				
+				y: = -cur_fr.mov.cur_pos.y;
+				x: = cur_fr.mov.cur_pos.x;
+				//if x < 3.01
+					//__dbg_break;
+					//a: = 0;
+				src_is_mov: = src_cel.type == cel_type.MOVABLE;
+				holder_is_mov: = cur_fr.holder_type == cel_type.MOVABLE;
+				holder_is_player: = cur_fr.holder_type == cel_type.PLAYER;
+				//if cur_fr.mov.cur_pos.x < 9.0
+					//__dbg_break;
+				if cur_cel.type == cel_type.SOLID || (cur_cel.type == cel_type.MOVABLE && holder_is_mov == false)
+				{
+					cur_x = cast(u32)(cur_x + cast(u32) - sign_dir.x);
+					cur_y = cast(u32)(cur_y + cast(u32) - sign_dir.y);
+					cur_fr.mov.modify_pos.x = cast(f32)cur_x;
+					cur_fr.mov.modify_pos.y = cast(f32)cur_y;
+					cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+					cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+					cur_fr.stage = frame_action_stage.DONE;
+					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
+					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
+					//__dbg_break;
+				}
+				if cur_cel.type == cel_type.MOVABLE && holder_is_player
+				{
+
+					act:= AddFrameAction(ctx);
+
+					act.type = frame_action.MOV;
+					mov_pos: = cur_cel.mov.cur;
+					act.mov.from_pos = mov_pos;
+					act.mov.from_pos.y = -act.mov.from_pos.y;
+					sign_dir.y = -sign_dir.y;
+					act.mov.to_pos = mov_pos + sign_dir;
+					act.mov.to_pos.y = -act.mov.to_pos.y;
+
+					act.mov.modify_pos = &cur_cel.mov.final;
+					act.holder_type = cel_type.MOVABLE;
+					act.mov.cur_pos = &cur_cel.mov.cur;
+					cur_fr.stage = frame_action_stage.DONE;
+					//mov.going = true;
+
+				}
+				aux: = *cur_fr.mov.cur_pos;
 				aux.y = -aux.y;
 				dir: = aux - cur_fr.mov.to_pos;
 				d: = dot_v3(&dir, &dir);
-
-				if d < 0.1
+				if d < 0.01
 				{
+					//__dbg_break;
 					cur_fr.stage = frame_action_stage.DONE;
 				}
 			}
@@ -440,6 +448,13 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 			}
 			else
 				__dbg_break;
+
+			if cur_cel != src_cel && cur_cel.type == cel_type.EMPTY
+			{
+				cur_cel.type = src_cel.type;
+				cur_cel.mov = src_cel.mov;
+				src_cel.type = cel_type.EMPTY;
+			}
 		}
 		else if cur_fr.type == frame_action.NOT_ASSIGNED || cur_fr.type == frame_action.FREE
 		{
@@ -479,7 +494,7 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 		dir: = normalize_v3(&dist);
 		d: = dot_v3(&dist, &dist);
 
-		if d > 0.1
+		if d > 0.01
 		{
 			cur.cur.x += dir.x * dt;
 			cur.cur.y += dir.y * dt;
@@ -513,16 +528,6 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 }
 main :: fn()
 {
-	ctx: context;
-	InitMemAlloc(&ctx.alloc);
-	addr: = heap_alloc(&ctx.alloc, 10);
-	heap_free(&ctx.alloc, addr);
-
-	ctx.frames_max = 4;
-	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));
-	memset(cast(*u8)ctx.frames, 0, sizeof(frame_info));
-
-	
 scene1: = 
 "---------\n"
 "-......--\n"
@@ -534,10 +539,20 @@ scene2: =
 "--------------\n"
 "---.....------\n"
 "-............-\n"
-"-.-.....-....t\n"
-"-.-.....-..op-\n"
+"-.-p....-....t\n"
+"-.-.....-.o..-\n"
 "-.......------\n"
 "--------------\n";
+	ctx: context;
+	InitMemAlloc(&ctx.alloc);
+	addr: = heap_alloc(&ctx.alloc, 10);
+	heap_free(&ctx.alloc, addr);
+
+	ctx.frames_max = 4;
+	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));
+	memset(cast(*u8)ctx.frames, 0, sizeof(frame_info));
+
+	
 	window := OpenWindow();
 	ctx.window = window;
 
@@ -676,12 +691,14 @@ scene2: =
 				act:= AddFrameAction(&ctx);
 
 				act.type = frame_action.MOV;
+				act.holder_type = cel_type.PLAYER;
 				act.mov.from_pos = player_pos;
 				act.mov.from_pos.y = -act.mov.from_pos.y;
 				act.mov.to_pos.x = player_pos.x + block_dir.x;
 				act.mov.to_pos.y = -(player_pos.y + block_dir.y);
 
 				act.mov.modify_pos = &final_pos;
+				act.mov.cur_pos = &player_pos;
 			}
 		}
 

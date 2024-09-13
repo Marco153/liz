@@ -719,7 +719,7 @@ int main()
 	compile_options opts = {};
 	opts.file = "../lang2/files";
 	opts.wasm_dir = "../../wabt/";
-	opts.release = false;
+	opts.release = true;
 
 	AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
 	AssignOutsiderFunc(&lang_stat, "Print", (OutsiderFuncType)Print);

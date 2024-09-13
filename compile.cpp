@@ -1260,7 +1260,8 @@ void WasmPushConst(char type_int_or_float, char size, int offset, own_std::vecto
 	}
 	else if (type_int_or_float == WASM_TYPE_FLOAT)
 	{
-		out->emplace_back(WASM_I32_CONST + size + 2);
+		int f_inst = WASM_I32_CONST + size + 2;
+		out->emplace_back(f_inst);
 		out->emplace_back(offset >> 24);
 		out->emplace_back(offset >> 16);
 		out->emplace_back(offset >> 8);
@@ -1275,9 +1276,11 @@ void WasmPushConst(char type_int_or_float, char size, int offset, own_std::vecto
 }
 // if it is 64 bit load, make size 1
 
-void WasmStoreInst(own_std::vector<unsigned char>& code_sect, int size, char inst = WASM_STORE_OP)
+void WasmStoreInst(lang_state *lang_stat, own_std::vector<unsigned char>& code_sect, int size, char inst = WASM_STORE_OP)
 {
 	int final_inst = 0;
+	if (lang_stat->release && size == 8)
+		size = 4;
 	switch (inst)
 	{
 	case WASM_LOAD_F32_OP:
@@ -1385,7 +1388,7 @@ void WasmPushLoadOrStore(char size, char type, char op_code, int offset, own_std
 	out->emplace_back(0x0);
 }
 
-void WasmGenBinOpImmToReg(int reg, char reg_sz, int imm, own_std::vector<unsigned char>& code_sect, char inst_32bit)
+void WasmGenBinOpImmToReg(lang_state *lang_stat, int reg, char reg_sz, int imm, own_std::vector<unsigned char>& code_sect, char inst_32bit)
 {
 	ASSERT(reg_sz >= 4)
 		int dst_reg = reg;
@@ -1404,9 +1407,9 @@ void WasmGenBinOpImmToReg(int reg, char reg_sz, int imm, own_std::vector<unsigne
 	// 
 	code_sect.emplace_back(inst_32bit + (size * 0x12));
 
-	WasmStoreInst(code_sect, size);
+	WasmStoreInst(lang_stat, code_sect, size);
 }
-void WasmGenRegToMem(byte_code* bc, own_std::vector<unsigned char>& code_sect)
+void WasmGenRegToMem(lang_state *lang_stat, byte_code* bc, own_std::vector<unsigned char>& code_sect)
 {
 	int src_reg = FromAsmRegToWasmReg(bc->bin.rhs.reg);
 	int dst_reg = FromAsmRegToWasmReg(bc->bin.lhs.reg);
@@ -1424,7 +1427,7 @@ void WasmGenRegToMem(byte_code* bc, own_std::vector<unsigned char>& code_sect)
 	// src reg val to mem
 	WasmPushLoadOrStore(size, WASM_TYPE_INT, WASM_LOAD_OP, src_reg * 8, &code_sect);
 
-	WasmStoreInst(code_sect, size);
+	WasmStoreInst(lang_stat, code_sect, size);
 }
 
 static std::string base64_encode(const std::string& in) {
@@ -1495,7 +1498,7 @@ block_linked* NewBlock(block_linked* parent)
 	return ret;
 
 }
-void WesmGenMovR(int src_reg, int dst_reg, own_std::vector<unsigned char>& code_sect)
+void WesmGenMovR(lang_state *lang_stat, int src_reg, int dst_reg, own_std::vector<unsigned char>& code_sect)
 {
 
 	// pushing dst reg offset in mem
@@ -1504,7 +1507,7 @@ void WesmGenMovR(int src_reg, int dst_reg, own_std::vector<unsigned char>& code_
 	WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, src_reg * 8, &code_sect);
 
 
-	WasmStoreInst(code_sect, 0);
+	WasmStoreInst(lang_stat, code_sect, 0);
 }
 int GetDepthBreak(block_linked* cur, int cur_bc_idx, int jmp_rel)
 {
@@ -1557,7 +1560,7 @@ void WasmPushLocalGet(own_std::vector<unsigned char>& code_sect, int idx)
 	WasmPushImm(idx, &code_sect);
 }
 
-void WasmPushWhateverIRValIs(std::unordered_map<decl2*, int>& decl_to_local_idx, ir_val* val, ir_val* last_on_stack, own_std::vector<unsigned char>& code_sect)
+void WasmPushWhateverIRValIs(lang_state *lang_stat, std::unordered_map<decl2*, int>& decl_to_local_idx, ir_val* val, ir_val* last_on_stack, own_std::vector<unsigned char>& code_sect)
 {
 	switch (val->type)
 	{
@@ -1576,7 +1579,7 @@ void WasmPushWhateverIRValIs(std::unordered_map<decl2*, int>& decl_to_local_idx,
 		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
 		WasmPushConst(WASM_LOAD_INT, 0, val->decl->offset, &code_sect);
 		code_sect.emplace_back(0x6a);
-		WasmStoreInst(code_sect, 0, WASM_LOAD_OP);
+		WasmStoreInst(lang_stat, code_sect, 0, WASM_LOAD_OP);
 
 		//WasmPushLocalGet(code_sect, idx);
 	}break;
@@ -1797,17 +1800,17 @@ ir_type GetOppositeCondIR(ir_type type)
 	return IR_CMP_EQ;
 }
 
-void WasmBeginStack(own_std::vector<unsigned char>& code_sect, int stack_size)
+void WasmBeginStack(lang_state *lang_stat, own_std::vector<unsigned char>& code_sect, int stack_size)
 {
-	WesmGenMovR(STACK_PTR_REG, BASE_STACK_PTR_REG, code_sect);
+	WesmGenMovR(lang_stat, STACK_PTR_REG, BASE_STACK_PTR_REG, code_sect);
 	// sub inst
-	WasmGenBinOpImmToReg(STACK_PTR_REG, 4, stack_size, code_sect, 0x6b);
+	WasmGenBinOpImmToReg(lang_stat, STACK_PTR_REG, 4, stack_size, code_sect, 0x6b);
 }
-void WasmEndStack(own_std::vector<unsigned char>& code_sect, int stack_size)
+void WasmEndStack(lang_state *lang_stat, own_std::vector<unsigned char>& code_sect, int stack_size)
 {
 	// sum inst
-	WasmGenBinOpImmToReg(STACK_PTR_REG, 4, stack_size, code_sect, 0x6a);
-	WesmGenMovR(STACK_PTR_REG, BASE_STACK_PTR_REG, code_sect);
+	WasmGenBinOpImmToReg(lang_stat, STACK_PTR_REG, 4, stack_size, code_sect, 0x6a);
+	WesmGenMovR(lang_stat, STACK_PTR_REG, BASE_STACK_PTR_REG, code_sect);
 }
 
 bool AreIRValsEqual(ir_val* lhs, ir_val* rhs)
@@ -1983,8 +1986,12 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		if (IsIrValFloat(val) && deref_times == 1)
 			inst = WASM_LOAD_F32_OP;
 		if (deref_times > 1)
+		{
 			reg_sz = 8;
-		WasmStoreInst(code_sect, reg_sz, inst);
+			if(gen_state->wasm_state->lang_stat->release)
+				reg_sz = 4;
+		}
+		WasmStoreInst(gen_state->wasm_state->lang_stat, code_sect, reg_sz, inst);
 		//if(!deref)
 			deref_times--;
 		deref = false;
@@ -1993,23 +2000,24 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 
 void WasmPopToRegister(wasm_gen_state* state, int reg_dst, own_std::vector<unsigned char>& code_sect)
 {
+	lang_state* lang_stat = state->wasm_state->lang_stat;
 	WasmPushConst(WASM_TYPE_INT, 0, BASE_STACK_PTR_REG * 8, &code_sect);
 	WasmPushConst(WASM_TYPE_INT, 0, STACK_PTR_REG * 8, &code_sect);
-	WasmStoreInst(code_sect, 0, WASM_LOAD_OP);
-	WasmStoreInst(code_sect, 0, WASM_LOAD_OP);
-	WasmStoreInst(code_sect, 0, WASM_STORE_OP);
-	WasmGenBinOpImmToReg(STACK_PTR_REG, 4, 8, code_sect, 0x6a);
+	WasmStoreInst(lang_stat, code_sect, 0, WASM_LOAD_OP);
+	WasmStoreInst(lang_stat, code_sect, 0, WASM_LOAD_OP);
+	WasmStoreInst(lang_stat, code_sect, 0, WASM_STORE_OP);
+	WasmGenBinOpImmToReg(lang_stat, STACK_PTR_REG, 4, 8, code_sect, 0x6a);
 }
 void WasmPushRegister(wasm_gen_state* state, int reg, own_std::vector<unsigned char>& code_sect)
 {
-	WasmGenBinOpImmToReg(STACK_PTR_REG, 4, 8, code_sect, 0x6b);
+	lang_state* lang_stat = state->wasm_state->lang_stat;
+	WasmGenBinOpImmToReg(lang_stat, STACK_PTR_REG, 4, 8, code_sect, 0x6b);
 
 	WasmPushConst(WASM_TYPE_INT, 0, STACK_PTR_REG * 8, &code_sect);
-	WasmStoreInst(code_sect, 0, WASM_LOAD_OP);
+	WasmStoreInst(lang_stat, code_sect, 0, WASM_LOAD_OP);
 	WasmPushConst(WASM_TYPE_INT, 0, BASE_STACK_PTR_REG * 8, &code_sect);
-	WasmStoreInst(code_sect, 0, WASM_LOAD_OP);
-	WasmStoreInst(code_sect, 0, WASM_STORE_OP);
-
+	WasmStoreInst(lang_stat, code_sect, 0, WASM_LOAD_OP);
+	WasmStoreInst(lang_stat, code_sect, 0, WASM_STORE_OP);
 }
 void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx, 
 					  int &total_of_args, int &total_of_locals, 
@@ -2020,6 +2028,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	cur_ir->idx = cur_ir - irs->begin();
 	gen_state->advance_ptr = 0;
 	cur_ir->start = code_sect.size();
+	lang_state* lang_stat = gen_state->wasm_state->lang_stat;
 	switch (cur_ir->type)
 	{
 	case IR_SPILL:
@@ -2041,10 +2050,10 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			int inst = WASM_STORE_OP;
 			if(cur_ir->ret.assign.to_assign.is_float)
 				inst = WASM_STORE_F32_OP;
-			WasmStoreInst(code_sect, cur_ir->ret.assign.to_assign.reg_sz, inst);
+			WasmStoreInst(lang_stat, code_sect, cur_ir->ret.assign.to_assign.reg_sz, inst);
 
 		}
-		WasmEndStack(code_sect, *stack_size);
+		WasmEndStack(lang_stat, code_sect, *stack_size);
 		// adding stack_ptr
 		//WasmGenBinOpImmToReg(BASE_STACK_PTR_REG, 4, *stack_size, code_sect, 0x6a);
 
@@ -2235,7 +2244,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			int inst = WASM_STORE_OP;
 			if (cur_ir->assign.lhs.is_float)
 				inst = WASM_STORE_F32_OP;
-			WasmStoreInst(code_sect, r_sz, inst);
+			WasmStoreInst(lang_stat, code_sect, r_sz, inst);
 		}break;
 		default:
 			ASSERT(0)
@@ -2251,7 +2260,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
         code_sect.emplace_back(0x10);
         WasmPushImm(gen_state->wasm_state->imports.size() + cur_ir->call.fdecl->wasm_func_sect_idx, &code_sect);
 		// sum inst
-		WasmGenBinOpImmToReg(STACK_PTR_REG, 4, cur_ir->call.fdecl->args.size() * 8, code_sect, 0x6a);
+		WasmGenBinOpImmToReg(lang_stat, STACK_PTR_REG, 4, cur_ir->call.fdecl->args.size() * 8, code_sect, 0x6a);
 		WasmPopToRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
 
 	}break;
@@ -2273,7 +2282,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		ASSERT(FuncAddedWasm(gen_state->wasm_state, cur_ir->call.fdecl->name));
 		// sub inst
 		WasmPushRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
-		WasmGenBinOpImmToReg(STACK_PTR_REG, 4, cur_ir->call.fdecl->args.size() * 8, code_sect, 0x6b);
+		WasmGenBinOpImmToReg(lang_stat, STACK_PTR_REG, 4, cur_ir->call.fdecl->args.size() * 8, code_sect, 0x6b);
 
 	}break;
 	case IR_INDIRECT_CALL:
@@ -2291,7 +2300,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		//*stack_size = cur_ir->num;
 		// sub inst
 
-		WasmEndStack(code_sect, *stack_size);
+		WasmEndStack(lang_stat, code_sect, *stack_size);
 		code_sect.emplace_back(0xf);
 	}break;
 	case IR_STACK_BEGIN:
@@ -2315,7 +2324,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		// 8 bytes for saving rbs
 		//*stack_size += 8;
 
-		WasmBeginStack(code_sect, *stack_size);
+		WasmBeginStack(lang_stat, code_sect, *stack_size);
 	}break;
 	case IR_DECLARE_LOCAL:
 	{
@@ -2338,7 +2347,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
 		code_sect.emplace_back(0xbc);
 
-		WasmStoreInst(code_sect, 4, WASM_STORE_OP);
+		WasmStoreInst(lang_stat, code_sect, 4, WASM_STORE_OP);
 	}break;
 	case IR_CAST_INT_TO_F32:
 	{
@@ -2352,13 +2361,15 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			switch (cur_ir->bin.rhs.reg_sz)
 			{
 			case 4:
+			case 8:
+			{
+				code_sect.emplace_back(0xb3);
+			}break;
+			/*
 			{
 				code_sect.emplace_back(0xb8);
 			}break;
-			case 8:
-			{
-				code_sect.emplace_back(0xba);
-			}break;
+			*/
 			default:
 				ASSERT(0)
 			}
@@ -2369,18 +2380,18 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			{
 			case 4:
 			{
-				code_sect.emplace_back(0xb7);
+				code_sect.emplace_back(0xb2);
 			}break;
 			case 8:
 			{
-				code_sect.emplace_back(0xb9);
+				code_sect.emplace_back(0xb7);
 			}break;
 			default:
 				ASSERT(0)
 			}
 		}
 
-		WasmStoreInst(code_sect, 4, WASM_STORE_F32_OP);
+		WasmStoreInst(lang_stat, code_sect, 4, WASM_STORE_F32_OP);
 	}break;
 	case IR_DECLARE_ARG:
 	{
@@ -2490,7 +2501,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		ASSERT(cur_ir->type == IR_END_COMPLEX);
 
 
-		WasmStoreInst(code_sect, 0, WASM_STORE_OP);
+		WasmStoreInst(lang_stat, code_sect, 0, WASM_STORE_OP);
 		gen_state->advance_ptr++;
 
 	}break;
@@ -6887,7 +6898,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 				bc.type = WASM_INST_F32_DIV;
 
 			}break;
-			case 0xb7:
+			case 0xb2:
 			{
 				bc.type = WASM_INST_CAST_S32_2_F32;
 
@@ -6902,7 +6913,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 				bc.type = WASM_INST_CAST_S64_2_F32;
 
 			}break;
-			case 0xb8:
+			case 0xb3:
 			{
 				bc.type = WASM_INST_CAST_U32_2_F32;
 			}break;
@@ -7785,7 +7796,7 @@ void GenWasm(web_assembly_state* wasm_state)
 
 		func_sect.insert(func_sect.end(), uleb.begin(), uleb.end());
 
-		(*f)->wasm_func_sect_idx = funcs_inserted;
+		(*f)->wasm_func_sect_idx = funcs_inserted + wasm_state->imports.size();
 		funcs_inserted++;
 
 	}
@@ -7837,6 +7848,8 @@ void GenWasm(web_assembly_state* wasm_state)
 		case TYPE_FUNC:
 		{
 			uleb.clear();
+			if (ex->name == "_own_memset")
+				auto a = 0;
 			encodeSLEB128(&uleb, ex->type.fdecl->wasm_func_sect_idx);
 			// func type
 			exports_sect.emplace_back(0);
@@ -7860,8 +7873,18 @@ void GenWasm(web_assembly_state* wasm_state)
 	table_sect.emplace_back(1);
 	table_sect.emplace_back(0x70);
 	table_sect.emplace_back(0x1);
-	table_sect.emplace_back(0x16);
-	table_sect.emplace_back(0x16);
+	/*
+	uleb.clear();
+	//encodeSLEB128(&uleb, out->size());
+	GenUleb128(&uleb, 0x90);
+	INSERT_VEC(table_sect, uleb);
+	uleb.clear();
+	//encodeSLEB128(&uleb, out->size());
+	GenUleb128(&uleb, 0x90);
+	INSERT_VEC(table_sect, uleb);
+	*/
+	table_sect.emplace_back(0x70);
+	table_sect.emplace_back(0x70);
 
 	// ******
 	// memory sect

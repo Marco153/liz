@@ -9,6 +9,13 @@ let FILTER_PTR = 12
 let MEM_PTR_CUR_ADDR = 18000
 let MEM_PTR_MAX_ADDR = 18008
 
+let KEY_HELD =  1
+let KEY_DOWN= 2
+let KEY_UP =   4
+let KEY_RECENTLY_DOWN =   8
+
+let TOTAL_KEYS =   255
+
 let DATA_SECT_OFFSET = 100000
 let wasm_inst;
 let should_close_val;
@@ -17,6 +24,18 @@ let stack_ptr_addr_on_main_loop = 0;
 let base_stack_ptr_addr_on_main_loop = 0;
 let gl_program;
 
+let keys = []
+
+const key_enum = Object.freeze({
+    _KEY_LEFT: 0,
+    _KEY_RIGHT: 1,
+    _KEY_DOWN: 2,
+    _KEY_UP: 3,
+    _KEY_ACT0: 4,
+    _KEY_ACT1: 5,
+    _KEY_ACT2: 6,
+    _KEY_ACT3: 7
+});
 function get_ret(view) {
     return view.getBigUint64(10 * 8, true);
 }
@@ -33,7 +52,6 @@ window.onload = start
 
 
 
-let u_pos;
 let x_pos = 0.0;
 let gl;
 // Vertex shader program
@@ -67,8 +85,9 @@ void main()
   `;
 
 const fsSource = `
+    uniform highp vec4 color;
     void main() {
-      gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+      gl_FragColor = color;
     }
   `;
 
@@ -124,12 +143,43 @@ function loadShader(gl, type, source) {
 
   return shader;
 }
+function FromGameToGLFWKey(input) {
+    let key;
+    switch (input) {
+        case key_enum._KEY_UP:
+            key = 'w';
+            break;
+        case key_enum._KEY_DOWN:
+            key = 's';
+            break;
+        case key_enum._KEY_RIGHT:
+            key = 'd';
+            break;
+        case key_enum._KEY_LEFT:
+            key = 'a';
+            break;
+        default:
+            throw new Error("Invalid key enum value");
+    }
+    return key.charCodeAt(0);
+}
 function _IsKeyDown() {
     // Implement the functionality here
+    let base = mem_view.getBigUint64(STACK_PTR_REG * 8, true);
+    let val = mem_view.getUint32(Number(base) + 8, true);
+    let key = FromGameToGLFWKey(val);
+
+    if (IS_FLAG_ON(keys[key], KEY_DOWN))
+    {
+        mem_view.setUint32(RET_1_REG * 8, 1, true);
+    }
+    else
+        mem_view.setUint32(RET_1_REG * 8, 0, true);
 }
 
 function _IsKeyHeld() {
     // Implement the functionality here
+    mem_view.setUint32(RET_1_REG * 8, 0, true);
 }
 
 function _GetTimeSinceStart() {
@@ -138,9 +188,32 @@ function _GetTimeSinceStart() {
 
 function _GetDeltaTime() {
     // Implement the functionality here
-}
+    let float_var = 3.14;  // The float value you want to reinterpret
 
-function CallMainLoopFunc() {
+    // Create a buffer to hold 4 bytes (since a 32-bit float and a 32-bit int are both 4 bytes)
+    let buffer = new ArrayBuffer(4);
+
+    // Create a Float32Array and set the float value
+    let floatView = new Float32Array(buffer);
+    floatView[0] = cur_dt / 1000;
+
+    // Create an Int32Array that shares the same buffer to access the same bits as an integer
+    let intView = new Int32Array(buffer);
+    mem_view.setUint32(RET_1_REG * 8, intView[0], true);
+
+}
+let start_time
+let cur_dt
+function CallMainLoopFunc(timestamp) {
+    if(start_time === undefined)
+        start_time = timestamp
+
+    cur_dt = timestamp - start_time
+    start_time =timestamp
+
+    let doc_dt = document.getElementById("dt")
+    doc_dt.textContent = cur_dt
+
     mem_view.setUint32(STACK_PTR_REG * 8, stack_ptr_addr_on_main_loop,  true);
     mem_view.setUint32(BASE_STACK_PTR_REG * 8, base_stack_ptr_addr_on_main_loop,  true);
 
@@ -162,6 +235,27 @@ function _EndFrame() {
     should_close_val = 1;
     requestAnimationFrame(CallMainLoopFunc)
     let a = 0;
+	for (let i = 0; i < TOTAL_KEYS; i++)
+	{
+		let retain_flags = keys[i] & KEY_HELD;
+		keys[i] &= ~(KEY_DOWN | KEY_UP);
+		keys[i] |= retain_flags;
+
+		if (IS_FLAG_ON(keys[i], KEY_RECENTLY_DOWN))
+		{
+			let held_from = (keys[i] >> 16);
+			held_from++;
+			if (held_from > 24)
+			{
+				keys[i] &= ~KEY_RECENTLY_DOWN;
+				keys[i] = (keys[i] & 0xffff);
+			}
+			else
+			{
+				keys[i] = (keys[i] & 0xffff) | (held_from << 16);
+			}
+		}
+	}
 }
 
 function _OpenWindow() {
@@ -172,10 +266,14 @@ function _ClearBackground() {
     // Implement the functionality here
 }
 
+function IS_FLAG_ON(flag, val) {
+    return (flag & val) != 0
+}
 function _ShouldClose() {
     // Implement the functionality here
     mem_view.setUint32(RET_1_REG * 8, should_close_val, true)
     should_close_val = 0;
+
 }
 
 function _DebuggerCommand() {
@@ -209,12 +307,39 @@ function _Print() {
 }
 
 function _sqrt() {
+    let base = mem_view.getBigUint64(STACK_PTR_REG * 8, true);
+    let val = mem_view.getFloat32(Number(base) + 8, true);
+    let s = Math.sqrt(val)
+    mem_view.setFloat32(RET_1_REG * 8, s, true);
+    let a = 0;
     // Implement the functionality here
 }
-
+function FromMemOffsetToV3(offset, f32_buffer) {
+    f32_buffer[0] = 
+    f32_buffer[1] = mem_view.getFloat32(offset + 4, true)
+    f32_buffer[2] = mem_view.getFloat32(offset + 8, true)
+}
+let aux_buffer = new ArrayBuffer(16);
+let aux_buffer_32 = new Float32Array(12);
+let u_pos;
+let u_color;
+let u_pivot;
+let u_cam_size;
+let u_screen_ratio;
+let u_ent_size;
+let u_cam_pos;
+function _PrintV3() {
+    let base = mem_view.getBigUint64(STACK_PTR_REG * 8, true);
+    let val = mem_view.getUint32(Number(base) + 8, true);
+    //FromMemOffsetToV3(Number(base) + 8, aux_buffer_32);
+    let offset = Number(base) + 8
+    let f0= mem_view.getFloat32(offset, true)
+    let f1= mem_view.getFloat32(offset + 8, true)
+    let f2= mem_view.getFloat32(offset + 16, true)
+    console.log(`x: ${f0}, y: ${f1}, z: ${f2}`);
+}
 function _Draw() {
     // Implement the functionality here
-    //drawSquare();
 
     /*
 uniform vec3 pos;
@@ -224,24 +349,75 @@ uniform float screen_ratio;
 uniform vec3 ent_size;
 uniform vec3 cam_pos;
 */
-    u_pos = gl.getUniformLocation(gl_program, "pos");
-    u_pivot = gl.getUniformLocation(gl_program, "pivot");
-    u_cam_size = gl.getUniformLocation(gl_program, "cam_size");
-    u_screen_ratio = gl.getUniformLocation(gl_program, "screen_ratio");
-    u_ent_size = gl.getUniformLocation(gl_program, "ent_size");
-    u_cam_pos = gl.getUniformLocation(gl_program, "cam_pos");
-    
-    gl.uniform3f(u_pos, 0, 0, 0);
-    gl.uniform3f(u_pivot, 1.0, 1.0, 1.0);
-    gl.uniform1f(u_cam_size, 10.0);
-    gl.uniform1f(u_screen_ratio, 1.0);
-    gl.uniform3f(u_ent_size, 1.0, 1.0, 1.0);
-    gl.uniform3f(u_cam_pos, 1.0, 1.0, 1.0);
+    let base = mem_view.getBigUint64(STACK_PTR_REG * 8, true);
+    let val = mem_view.getUint32(Number(base) + 16, true);
 
+    
+
+    let offset = val
+    let pos_x= mem_view.getFloat32(offset, true)
+    let pos_y= mem_view.getFloat32(offset + 4, true)
+    let pos_z= mem_view.getFloat32(offset + 8, true)
+    offset += 12
+
+    let pivot_x = mem_view.getFloat32(offset, true)
+    let pivot_y = mem_view.getFloat32(offset + 4, true)
+    let pivot_z = mem_view.getFloat32(offset + 8, true)
+    offset += 12
+
+    let ent_sz_x = mem_view.getFloat32(offset, true)
+    let ent_sz_y = mem_view.getFloat32(offset + 4, true)
+    let ent_sz_z = mem_view.getFloat32(offset + 8, true)
+    offset += 12
+
+    let color_r = mem_view.getFloat32(offset, true)
+    let color_g = mem_view.getFloat32(offset + 4, true)
+    let color_b = mem_view.getFloat32(offset + 8, true)
+    let color_a = mem_view.getFloat32(offset + 12, true)
+    offset += 16
+
+    let tex_id = mem_view.getUint32(offset, true)
+    offset += 4
+
+    let cam_sz = mem_view.getFloat32(offset, true)
+    offset += 4
+
+    let cam_pos_x = mem_view.getFloat32(offset, true)
+    let cam_pos_y = mem_view.getFloat32(offset + 4, true)
+    let cam_pos_z = mem_view.getFloat32(offset + 8, true)
+    offset += 12
+
+    let flags = mem_view.getUint32(offset, true)
+    offset += 4
+    cam_pos_x = 3;
+    cam_pos_y = -1;
+
+    gl.uniform3f(u_pos, pos_x, pos_y, 0);
+    gl.uniform3f(u_pivot, pivot_x, pivot_y, 1.0);
+    gl.uniform1f(u_cam_size, cam_sz);
+    gl.uniform1f(u_screen_ratio, 0.8);
+    gl.uniform3f(u_ent_size, ent_sz_x, ent_sz_y, 1.0);
+    gl.uniform3f(u_cam_pos, cam_pos_x, cam_pos_y, 1.0);
+    gl.uniform4f(u_color, color_r, color_g, color_b, color_a);
+
+
+    //if (start_time && start_time > 3000)
+        //x_pos += 0.01
     drawSquare();
 }
 
 function _WasmDbg() {
+    let base = mem_view.getBigUint64(STACK_PTR_REG * 8, true);
+    let val = mem_view.getUint32(Number(base) + 8, true);
+    let scene_addr = mem_view.getUint32(val, true);
+    let cels_buffer = new ArrayBuffer(16);
+    let int_ar = new Int32Array(cels_buffer)
+    int_ar[0] = scene_addr;
+    int_ar[1] = mem_view.getUint32(scene_addr, true);
+    console.log(int_ar)
+
+
+
     // Implement the functionality here
     let a = 0;
 }
@@ -266,6 +442,7 @@ async function start() {
             Print: _Print,
             sqrt: _sqrt,
             Draw: _Draw,
+            PrintV3: _PrintV3,
             LoadClip: _LoadClip,
             WasmDbg: _WasmDbg,
             AssignCtxAddr: _AssignCtxAddr,
@@ -340,6 +517,15 @@ async function start() {
         */
     // Get A WebGL context
     var canvas = document.querySelector("#glcanvas");
+    document.addEventListener('keydown', (e) => {
+        keys[e.key.charCodeAt(0)] |= KEY_DOWN | KEY_HELD
+        console.log(`Key "${e.key.charCodeAt(0)}" pressed`);
+    });
+
+    document.addEventListener('keyup', (e) => {
+        keys[e.code] |= KEY_UP
+        console.log(`Key "${e.key}" released`);
+    });
     gl = canvas.getContext("webgl");
     if (!gl) {
         return;
@@ -441,6 +627,13 @@ async function start() {
     //gl.uniform2f(resolutionUniformLocation, gl.canvas.width, gl.canvas.height);
     //setRectangle(gl, 0, 0, 300, 300);
     let main = wasm_inst.instance.exports.main;
+    u_pos = gl.getUniformLocation(gl_program, "pos");
+    u_color = gl.getUniformLocation(gl_program, "color");
+    u_pivot = gl.getUniformLocation(gl_program, "pivot");
+    u_cam_size = gl.getUniformLocation(gl_program, "cam_size");
+    u_screen_ratio = gl.getUniformLocation(gl_program, "screen_ratio");
+    u_ent_size = gl.getUniformLocation(gl_program, "ent_size");
+    u_cam_pos = gl.getUniformLocation(gl_program, "cam_pos");
     main()
     let a = 0;
     //requestAnimationFrame(main)
@@ -450,7 +643,7 @@ async function start() {
 
 function drawSquare()
 {
-    x_pos += 0.01;
+    //x_pos += 0.01;
     //console.log(x_pos);
     //gl.uniform2f(u_pos, x_pos, 0);
     setRectangle(

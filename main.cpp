@@ -701,6 +701,10 @@ void Sin(dbg_state* dbg)
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
+void Stub()
+{
+
+}
 int main()
 {
 	lang_state lang_stat;
@@ -718,7 +722,7 @@ int main()
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 	compile_options opts = {};
 	opts.file = "../lang2/files";
-	opts.wasm_dir = "../../wabt/";
+	opts.wasm_dir = "../lang2/web/";
 	opts.release = true;
 
 	AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
@@ -734,6 +738,9 @@ int main()
 	AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
 	AssignOutsiderFunc(&lang_stat, "GetTimeSinceStart", (OutsiderFuncType)GetTimeSinceStart);
 	AssignOutsiderFunc(&lang_stat, "sqrt", (OutsiderFuncType)Sqrt);
+	AssignOutsiderFunc(&lang_stat, "AssignCtxAddr", (OutsiderFuncType)Stub);
+	AssignOutsiderFunc(&lang_stat, "WasmDbg", (OutsiderFuncType)Stub);
+	AssignOutsiderFunc(&lang_stat, "PrintV3", (OutsiderFuncType)Stub);
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	Compile(&lang_stat, &opts);

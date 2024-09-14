@@ -504,12 +504,12 @@ test_sum_float::fn(f1 : f32, f2 : f32) !f32
 	return f1 + f2;
 }
 
-test_ptr::fn(alloc : *mem_alloc)
+test_ptr::fn(alloc : *mem_alloc, ret : *u32)
 {
 
 	test_change_heap_hash(&alloc.in_use);
 	if (cast(u64)alloc.in_use.data) != 100
-		__dbg_break;
+		debug_break();
 
 	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
 	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
@@ -517,7 +517,7 @@ test_ptr::fn(alloc : *mem_alloc)
 
 
 	if alloc.in_use.data == nil
-		__dbg_break;
+		debug_break();
 
 
 	chunk1:mem_chunk;
@@ -527,41 +527,41 @@ test_ptr::fn(alloc : *mem_alloc)
 	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = nil;
 
 	if* ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) != nil
-		__dbg_break;
+		debug_break();
 
 	alloc.probable_unallocated = base_addr;
 	if alloc.probable_unallocated != base_addr
-		__dbg_break;
+		debug_break();
 
 	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = &chunk1;
 
 
 	if alloc.probable_unallocated != base_addr
-		__dbg_break;
+		debug_break();
 
 	if alloc.probable_unallocated == cast(**mem_chunk) &chunk1
-		__dbg_break;
+		debug_break();
 
 	if *ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) == nil
-		__dbg_break;
+		debug_break();
 
 	ptr_offset(alloc.probable_unallocated, 0, *mem_chunk).size = 2;
 
 	if chunk1.size != 2
-		__dbg_break;
+		debug_break();
 
 	cur: = ptr_offset(alloc.probable_unallocated, 0, *mem_chunk);
 
 	if *cur == nil
-		__dbg_break;
+		debug_break();
 
 	if cur.size != 2
-		__dbg_break;
+		debug_break();
 
 	*cur = nil;
 
 	if *cur
-		__dbg_break;
+		debug_break();
 
 
 	HHashStore(&alloc.in_use, cast(*u8)1, cast(*u8)5);
@@ -570,7 +570,7 @@ test_ptr::fn(alloc : *mem_alloc)
     val := cast(u64)HHashGet(&alloc.in_use, cast(*u8)1);
     val2 := cast(u64)HHashGet(&alloc.in_use, cast(*u8)513);
 	if val != 5 || val2 != 6
-		__dbg_break;
+		debug_break();
 
 	ptr1:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
 	ptr2:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
@@ -579,7 +579,7 @@ test_ptr::fn(alloc : *mem_alloc)
 	ptr2.addr = cast(*u8)20;
 
 	if ptr1.addr > ptr2.addr
-		__dbg_break;
+		debug_break();
 
 	ptr1.size = 5;
 	ptr2.size = 5;
@@ -587,25 +587,25 @@ test_ptr::fn(alloc : *mem_alloc)
 	ptr1.size += ptr2.size;
 
 	if ptr1.size  != 10
-		__dbg_break;
+		debug_break();
 
 	contiguous_with_ptr2 := (cast(u64)ptr1.addr + 10) == cast(u64)ptr2.addr;
 
 	if contiguous_with_ptr2 != cast(bool)1
-		__dbg_break;
+		debug_break();
 	
 	contiguous_with_ptr2 = false;
 
 	ptr1.size = 5;
 	contiguous_with_ptr2 = (cast(u64)ptr1.addr + ptr1.size * 2) == cast(u64)ptr2.addr;
 	if contiguous_with_ptr2 != cast(bool)1
-		__dbg_break;
+		debug_break();
 	
 	*cur = &chunk1;
 	cur.flags = CHUNK_ALLOCATED;
 
 	if is_flag_off(cur.flags, CHUNK_ALLOCATED)
-		__dbg_break;
+		debug_break();
 	
 }
 nil_ptr_ret::fn() !*void
@@ -713,7 +713,7 @@ tests :: fn(ret : *u32)
 	if *ptr_offset(alloc.buffer, 1, u8) != 0
 		debug_break();
 
-	test_ptr(&alloc);
+	test_ptr(&alloc, ret);
 
 	flags :u64= 0;
 	flags = flags | 1;
@@ -978,6 +978,15 @@ tests :: fn(ret : *u32)
 	if v2.x > -1.9 || v2.x < -2.1
 		debug_break();
 
+	fval = sqrt(4.0);
+	if fval > 2.1 || fval < 1.9
+		debug_break();
+	//WasmDbg(nil);
+	norm: = normalize_v3(&v2);
+	fval = dot_v3(&norm, &norm);
+
+	if fval > 1.1 || fval < 0.9
+		debug_break();
 
 
 }

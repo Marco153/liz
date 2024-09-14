@@ -2293,10 +2293,13 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		int idx = 0;
 		//ASSERT(FuncAddedWasm(gen_state->wasm_state, cur_ir->call.fdecl->name, &idx));
 		//WasmPushConst(WASM_TYPE_INT, 0, idx, &code_sect);
+		WasmPushRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
+		//WasmPushRegister(gen_state, 0, code_sect);
 		WasmPushIRVal(gen_state, &cur_ir->bin.lhs, code_sect);
 		code_sect.emplace_back(0x11);
 		code_sect.emplace_back(0x0);
 		code_sect.emplace_back(0x0);
+		WasmPopToRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
 	}break;
 	case IR_STACK_END:
 	{
@@ -2348,7 +2351,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		if (gen_state->wasm_state->lang_stat->release && cur_ir->bin.rhs.reg_sz == 8)
 			cur_ir->bin.rhs.reg_sz = 4;
 
-		code_sect.emplace_back(0xbc);
+		code_sect.emplace_back(0xa8);
 
 		WasmStoreInst(lang_stat, code_sect, 4, WASM_STORE_OP);
 	}break;
@@ -6907,7 +6910,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 				bc.type = WASM_INST_CAST_S32_2_F32;
 
 			}break;
-			case 0xbc:
+			case 0xa8:
 			{
 				bc.type = WASM_INST_CAST_F32_2_S32;
 

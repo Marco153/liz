@@ -1,11 +1,19 @@
+scene_info:struct
+{
+	str : str_lit,
+	next : *scene_info,
+}
 context: struct
 {
+	scn:*scene,
+	scenes : *scene_info,
+	scene_cur : u32,
+	scenes_max : u32,
 	alloc : mem_alloc,
 	frames : *frame_info,
 	frames_count : u32,
 	frames_max : u32,
 	window:*u8,
-	scn:*scene,
 	can_move :bool,
 	player_size :v3,
 	player_pos :v3,
@@ -88,6 +96,10 @@ scene: struct
 	height : u32,
 	cam_size : f32,
 	cam_pos : v3,
+
+	scn_info : *scene_info,
+	done :bool,
+
 }
 
 player_dir: enum
@@ -140,7 +152,8 @@ Draw::fn outsider(*u8, *draw_info);
 ShouldClose::fn outsider(*u8) ! bool;
 LoadClip::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, total_sps :u32, len :f32, out_clip : *clip);
 DebuggerCommand::fn outsider(cmd :str_lit);
-WasmDbg::fn outsider();
+WasmDbg::fn outsider(*context);
+PrintV3::fn outsider(f32, f32, f32);
 AssignCtxAddr::fn outsider(*context);
 
 sin::fn outsider(f32) !f32;
@@ -186,6 +199,8 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 
 	height = len / width;
 
+	if scn.cels
+		heap_free(&ctx.alloc, cast(*u8)scn.cels);
 	scn.cels = cast(*cel_info)heap_alloc(&ctx.alloc, width * height * sizeof(cel_info));
 	scn.total_cels = width * height;
 	scn.width = width;
@@ -326,6 +341,7 @@ DrawSceneMap::fn(scn : *scene, window : *u8)
 
 ProcessFrameActions::fn(ctx : *context, scn : *scene)
 {
+	//if scn.done return;
 	i:u32 = 0;
 	while i < ctx.frames_max
 	{
@@ -343,6 +359,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 			src_x: = cast(u32)cur_fr.mov.from_pos.x;
 			src_y: = cast(u32)cur_fr.mov.from_pos.y;
 
+			//WasmDbg(ctx);
 			cur_x: = cast(u32)cur_fr.mov.cur_pos.x;
 			cur_y: = cast(u32)-cur_fr.mov.cur_pos.y;
 
@@ -368,6 +385,8 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 			next_cel: = ptr_offset(scn.cels, next_cel_x + next_cel_y * scn.width, cel_info);
 			cur_cel: = ptr_offset(scn.cels, cur_x + cur_y * scn.width, cel_info);
 
+			src_is_mov: = src_cel.type == cel_type.MOVABLE;
+
 			if cur_fr.stage == frame_action_stage.NOT_STARTED
 			{
 				
@@ -375,7 +394,6 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				mov_pos:v3;
 				mov:*movable = nil;
 				stop_mov_because_next_is_solid: = false;
-
 
 				*cur_fr.mov.modify_pos = cur_fr.mov.to_pos;
 				cur_fr.stage = frame_action_stage.DOING;
@@ -406,7 +424,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				//if x < 3.01
 					//__dbg_break;
 					//a: = 0;
-				src_is_mov: = src_cel.type == cel_type.MOVABLE;
+				src_is_mov = src_cel.type == cel_type.MOVABLE;
 				holder_is_mov: = cur_fr.holder_type == cel_type.MOVABLE;
 				holder_is_player: = cur_fr.holder_type == cel_type.PLAYER;
 				//if cur_fr.mov.cur_pos.x < 9.0
@@ -424,7 +442,11 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
 					//__dbg_break;
 				}
-				if cur_cel.type == cel_type.MOVABLE && holder_is_player
+				if cur_cel.type == cel_type.TARGET && holder_is_player
+				{
+					scn.done = true;
+				}
+				else if cur_cel.type == cel_type.MOVABLE && holder_is_player
 				{
 
 					act:= AddFrameAction(ctx);
@@ -546,6 +568,13 @@ main_loop::fn(ctx : *context)
 	draw:draw_info;
 	while !ShouldClose(window)
 	{
+		if scn.done != nil && scn.scn_info.next != nil
+		{
+			CreateScene(ctx, scn.scn_info.next.str, scn, &ctx.player_pos);
+			scn.scn_info = scn.scn_info.next;
+			scn.done = false;
+		
+		}
 		ClearBackground(0.4, 0.4, 0.5);
 		dt: = GetDeltaTime();
 		time: = GetTimeSinceStart();
@@ -621,7 +650,7 @@ main_loop::fn(ctx : *context)
 				ChangeClip(&cur_clip, &walk_v);
 			}
 
-			if pressed
+			if pressed && ctx.scn.done == false
 			{
 				act:= AddFrameAction(ctx);
 
@@ -641,6 +670,7 @@ main_loop::fn(ctx : *context)
 		MovablesLogic(ctx, scn, dt);
 		dir: = final_pos - player_pos;
 		d: = dot_v3(&dir, &dir);
+		PrintV3(player_pos.x, dt, 5.0);
 
 		if d > 0.1
 		{
@@ -717,7 +747,7 @@ scene2: =
 "--------------\n"
 "---.....------\n"
 "-............-\n"
-"-.-p....-....t\n"
+"-.-....p-....t\n"
 "-.-.....-.o..-\n"
 "-.......------\n"
 "--------------\n";
@@ -730,6 +760,21 @@ scene2: =
 	ctx.frames_max = 4;
 	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));
 	memset(cast(*u8)ctx.frames, 0, sizeof(frame_info));
+
+	ctx.scenes_max = 32;
+	ctx.scenes = cast(*scene_info)heap_alloc(&ctx.alloc, ctx.scenes_max * sizeof(scene_info));
+	memset(cast(*u8)ctx.scenes, 0, sizeof(scene_info));
+
+	scn_cur: = ptr_offset(ctx.scenes, 0, scene_info);
+	scn_cur.str = scene1;
+	scn_cur.next = ptr_offset(ctx.scenes, 1, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 1, scene_info);
+	scn_cur.str = scene2;
+	scn_cur.next = nil;
+
+	scn_cur = ptr_offset(ctx.scenes, 0, scene_info);
+
 
 	
 	window := OpenWindow();
@@ -754,10 +799,14 @@ scene2: =
 
 	scn.cam_size = 10.0;
 	ctx.scn = &scn;
+	src_cel: = ptr_offset(scn.cels, 0 + 6 * scn.width, cel_info);
+	scn.scn_info = scn_cur;
 	//pos:v2;
 
-	CreateScene(&ctx, scene2, &scn, &ctx.player_pos);
+	CreateScene(&ctx, scn_cur.str, &scn, &ctx.player_pos);
 	//play
+	aoeu: = src_cel.type == cel_type.SOLID;
+	//WasmDbg(&ctx);
 
 	p_dir: player_dir;
 	ctx.cur_clip = &ctx.idle_h;

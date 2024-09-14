@@ -8,44 +8,44 @@
 
 #define CMP_NTYPE(a, t) ((a)->type == node_type::t)
 
-void AddStructMembersToScopeWithUsing(lang_state *, decl2* decl, scope* scp, node* by_name_nd);
+void AddStructMembersToScopeWithUsing(lang_state*, decl2* decl, scope* scp, node* by_name_nd);
 node* parse_expression(own_std::vector<token2>* tkns, int precedence);
 node* parse(own_std::vector<token2>* tkns, tkn_type2 target);
 bool IsNodeOperator(node* nd, tkn_type2 tkn);
-type2 DescendNode(lang_state *, node* n, scope* scp);
+type2 DescendNode(lang_state*, node* n, scope* scp);
 enum_type2 FromTypeToVarType(enum_type2 tp);
 void ModifyFuncDeclToName(lang_state* lang_stat, func_decl* fdecl, node* n, scope* scp);
 std::string StringifyNode(node* n);
 bool CallNode(lang_state*, node* ncall, scope* scp, type2* ret_type, decl2* = nullptr);
-unit_file* AddNewFile(lang_state *, std::string name);
-bool NameFindingGetType(lang_state *, node* n, scope* scp, type2& ret_type);
-decl2* PointLogic(lang_state *, node* n, scope* scp, type2* ret_tp);
-decl2* DescendNameFinding(lang_state *, node* n, scope* given_scp);
-std::string FuncNameWithTempls(lang_state *, std::string fname, own_std::vector<type2>* types);
-node* ParseString(lang_state *, std::string str, int = 0);
-decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *, std::string name, type2* tp, scope* scp, node* nd = nullptr);
-node* NewIdentNode(lang_state *, std::string name, token2 *);
+unit_file* AddNewFile(lang_state*, std::string name);
+bool NameFindingGetType(lang_state*, node* n, scope* scp, type2& ret_type);
+decl2* PointLogic(lang_state*, node* n, scope* scp, type2* ret_tp);
+decl2* DescendNameFinding(lang_state*, node* n, scope* given_scp);
+std::string FuncNameWithTempls(lang_state*, std::string fname, own_std::vector<type2>* types);
+node* ParseString(lang_state*, std::string str, int = 0);
+decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state*, std::string name, type2* tp, scope* scp, node* nd = nullptr);
+node* NewIdentNode(lang_state*, std::string name, token2*);
 std::string OvrldOpToStr(overload_op op);
-void MakeRelPtrDerefFuncCall(lang_state *, func_decl* op_func, node* n);
+void MakeRelPtrDerefFuncCall(lang_state*, func_decl* op_func, node* n);
 decl2* FindIdentifier(std::string name, scope* scp, type2* ret_type, int = 0);
-node* NewBinOpNode(lang_state *, node* lhs, tkn_type2 t, node* rhs);
-decl2* FromBuiltinTypeToDecl(lang_state *, enum_type2 tp);
-void ReportUndeclaredIdentifier(lang_state *,  token2* t);
-node* MakeFuncCallArgs(lang_state *, std::string op_func, node* ref, own_std::vector<node*>& args, token2 *);
+node* NewBinOpNode(lang_state*, node* lhs, tkn_type2 t, node* rhs);
+decl2* FromBuiltinTypeToDecl(lang_state*, enum_type2 tp);
+void ReportUndeclaredIdentifier(lang_state*, token2* t);
+node* MakeFuncCallArgs(lang_state*, std::string op_func, node* ref, own_std::vector<node*>& args, token2*);
 enum_type2 FromVarTypeToType(enum_type2 tp);
 void CheckStructValToFunc(func_decl* fdecl, type2* type);
-void ReportMessage(lang_state *, token2* tkn, char* msg);
-decl2* FromTypeToDecl(lang_state *, type2* tp);
+void ReportMessage(lang_state*, token2* tkn, char* msg);
+decl2* FromTypeToDecl(lang_state*, type2* tp);
 bool IsNodeUnop(node* nd, tkn_type2 tkn);
-node* NewIntNode(lang_state *, long long i, token2 *);
-node* NewTypeNode(lang_state*, node* lhs, node_type nd, node* rhs, token2 *);
-scope* GetScopeFromParent(lang_state *, node* n, scope* given_scp);
-node* CreateNodeFromType(lang_state*, type2* tp, token2 *);
-bool FunctionIsDone(lang_state *, node* n, scope* scp, type2* ret_type, int flags);
-void ReportMessageOne(lang_state *, token2* tkn, char* msg, void* data);
-void CheckDeclNodeAndMaybeAddEqualZero(lang_state *, node* n, scope* scp);
-void DescendComma(lang_state *,node* n, scope* scp, own_std::vector<comma_ret>& ret);
-bool CheckOverloadFunction(lang_state *, func_decl* f);
+node* NewIntNode(lang_state*, long long i, token2*);
+node* NewTypeNode(lang_state*, node* lhs, node_type nd, node* rhs, token2*);
+scope* GetScopeFromParent(lang_state*, node* n, scope* given_scp);
+node* CreateNodeFromType(lang_state*, type2* tp, token2*);
+bool FunctionIsDone(lang_state*, node* n, scope* scp, type2* ret_type, int flags);
+void ReportMessageOne(lang_state*, token2* tkn, char* msg, void* data);
+void CheckDeclNodeAndMaybeAddEqualZero(lang_state*, node* n, scope* scp);
+void DescendComma(lang_state*, node* n, scope* scp, own_std::vector<comma_ret>& ret);
+bool CheckOverloadFunction(lang_state*, func_decl* f);
 
 /*
 int max(int a, int b)
@@ -58,7 +58,7 @@ int min(int a, int b)
 }
 */
 
-char* std_str_to_heap(lang_state *, std::string* str);
+char* std_str_to_heap(lang_state*, std::string* str);
 #define PSR_FLAGS_LAMBDA_ARGS 1
 #define PSR_FLAGS_IMPLICIT_SEMI_COLON 2
 #define PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD 4
@@ -78,6 +78,7 @@ char* std_str_to_heap(lang_state *, std::string* str);
 #define PSR_FLAGS_ON_STRUCT_DECL 0x10000
 #define PSR_FLAGS_ON_JMP_WHEN_ERROR 0x20000
 #define PSR_FLAGS_SCOPE_WHITHOUT_CURLY 0x40000
+#define PSR_FLAGS_COMP_TIME 0x80000
 
 
 #define PREC_SEMI_COLON 0
@@ -989,6 +990,11 @@ node* node_iter::parse_expr()
 	n->t = cur_tkn;
 	switch (cur_tkn->type)
 	{
+	case tkn_type2::T_HASHTAG:
+	{
+		n->type = N_HASHTAG;
+		n->r = parse_(0, parser_cond::LESSER_EQUAL);
+	}break;
 	case tkn_type2::T_TWO_POINTS:
 	{
 		n->type = node_type::N_BINOP;
@@ -3013,6 +3019,7 @@ int GetExpressionVal(node* n, scope* scp)
 		case tkn_type2::T_MINUS: return lhs - rhs;
 		case tkn_type2::T_PLUS:	 return lhs + rhs;
 		case tkn_type2::T_MUL:	 return lhs * rhs;
+		case tkn_type2::T_COND_EQ:	 return lhs == rhs;
 		default: ASSERT(false)
 			//case tkn_type2::T_DIV:	return lhs / rhs;
 		}
@@ -3664,6 +3671,19 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 		if (!NameFindingGetType(lang_stat, n->l, scp, ret_type))
 			return false;
 	}break;
+	case node_type::N_STMNT:
+	{
+		if (n->r && NameFindingGetType(lang_stat, n->r, scp, ret_type))
+			return true;;
+		if (n->l && NameFindingGetType(lang_stat, n->l, scp, ret_type))
+			return true;;
+		return false;
+	}break;
+	case node_type::N_SCOPE:
+	{
+		if (!NameFindingGetType(lang_stat, n->r, scp, ret_type))
+			return false;
+	}break;
 	case node_type::N_STRUCT_CONSTRUCTION:
 	{
 		if (!NameFindingGetType(lang_stat, n->l, scp, ret_type))
@@ -3905,6 +3925,11 @@ void BuildMacroTree(lang_state *lang_stat, scope* scp, node* n, unsigned int sta
 		{
 			n->t->str.assign(lang_stat->cur_file->name);
 			n->type = node_type::N_STR_LIT;
+		}
+		else if (n->t->str == "__LINE__")
+		{
+			n->t->i = start_line;
+			n->type = node_type::N_INT;
 		}
 		else if (n->t->str == "__CALL_SITE_LN_NUM")
 		{
@@ -5626,6 +5651,30 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}
 	switch (n->type)
 	{
+	case node_type::N_HASHTAG:
+	{
+		switch (n->r->type)
+		{
+		case node_type::N_IF:
+		{
+			node* cur = n->r;
+			do 
+			{
+				if (!DescendNameFinding(lang_stat, cur, scp))
+					return (decl2*)0;
+
+				if (cur->type == N_ELSE)
+					memcpy(n, cur->r, sizeof(node));
+				else if (GetExpressionVal(cur->l->l, scp) == 1)
+				{
+					memcpy(n, cur->l->r, sizeof(node));
+					break;
+				}
+				cur = cur->r;
+			} while (cur->type == N_ELSE || cur->type == N_ELSE_IF);
+		}break;
+		}
+	}break;
 	case node_type::N_KEYWORD:
 	{
 		switch (n->kw)

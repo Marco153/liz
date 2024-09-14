@@ -345,14 +345,20 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 	}break;
 	case node_type::N_SCOPE:
     {
+		ret->type = AST_STATS;
+		ret->line_number = n->r->t->line;
+		ast_rep* rhs = AstFromNode(lang_stat, n->r, n->scp);
+		if (rhs->type == AST_STATS)
+			INSERT_VEC(ret->stats, rhs->stats);
+		else
+			ret->stats.emplace_back(rhs);
+		/*
 		if (n->r && n->r->type != N_STMNT && n->r->type != N_IF)
 		{
-			ret->type = AST_STATS;
-			ret->line_number = n->r->t->line;
-			ret->stats.emplace_back(AstFromNode(lang_stat, n->r, n->scp));
 		}
 		else
 			ret = AstFromNode(lang_stat, n->r, n->scp);
+			*/
     }break;
 	case node_type::N_ARRAY_CONSTRUCTION:
 	{
@@ -488,7 +494,11 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		ast_rep* lhs = AstFromNode(lang_stat, cur_node->l, scp);
 		if (IS_FLAG_ON(cur_node->l->flags, NODE_FLAGS_STMNT_WITHOUT_SEMICOLON))
 			lhs->stmnt_without_semicolon = true;
-		ret->stats.emplace_back(lhs);
+
+		if (lhs->type == AST_STATS)
+			INSERT_VEC(ret->stats, lhs->stats);
+		else
+			ret->stats.emplace_back(lhs);
 
         for(int i = node_stack.size() - 1; i >= 0; i--)
         {
@@ -817,7 +827,7 @@ void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 		{
 			ir.bin.lhs.deref = 1;
 		}
-		else if (ast->type == AST_DEREF)
+		else if (ast->type == AST_DEREF || ast->type == AST_BINOP)
 		{
 			ir.bin.lhs.deref += 1;
 		}

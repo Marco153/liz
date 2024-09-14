@@ -5,6 +5,19 @@ context: struct
 	frames_count : u32,
 	frames_max : u32,
 	window:*u8,
+	scn:*scene,
+	can_move :bool,
+	player_size :v3,
+	player_pos :v3,
+	final_pos :v3,
+	block_dir :v3,
+	p_dir : player_dir,
+	cur_clip : *clip,
+	walk_h : clip,
+	walk_v : clip,
+	idle_h : clip,
+	idle_v : clip,
+	
 }
 DRAW_INFO_HAS_TEXTURE:const s32 = 1;
 draw_info: struct
@@ -127,6 +140,8 @@ Draw::fn outsider(*u8, *draw_info);
 ShouldClose::fn outsider(*u8) ! bool;
 LoadClip::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, total_sps :u32, len :f32, out_clip : *clip);
 DebuggerCommand::fn outsider(cmd :str_lit);
+WasmDbg::fn outsider();
+AssignCtxAddr::fn outsider(*context);
 
 sin::fn outsider(f32) !f32;
 
@@ -348,8 +363,6 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 			cur_cel_y: = cast(u32)(cur_fr.mov.from_pos.y) + cur_y;
 
 
-
-
 			src_cel: = ptr_offset(scn.cels, src_x + src_y * scn.width, cel_info);
 			dst_cel: = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
 			next_cel: = ptr_offset(scn.cels, next_cel_x + next_cel_y * scn.width, cel_info);
@@ -362,6 +375,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				mov_pos:v3;
 				mov:*movable = nil;
 				stop_mov_because_next_is_solid: = false;
+
 
 				*cur_fr.mov.modify_pos = cur_fr.mov.to_pos;
 				cur_fr.stage = frame_action_stage.DOING;
@@ -526,88 +540,10 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 		i++;
 	}
 }
-main :: fn()
+main_loop::fn(ctx : *context)
 {
-scene1: = 
-"---------\n"
-"-......--\n"
-"-....t..-\n"
-"-.p.....-\n"
-"---------\n";
-
-scene2: =
-"--------------\n"
-"---.....------\n"
-"-............-\n"
-"-.-p....-....t\n"
-"-.-.....-.o..-\n"
-"-.......------\n"
-"--------------\n";
-	ctx: context;
-	InitMemAlloc(&ctx.alloc);
-	addr: = heap_alloc(&ctx.alloc, 10);
-	heap_free(&ctx.alloc, addr);
-
-	ctx.frames_max = 4;
-	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));
-	memset(cast(*u8)ctx.frames, 0, sizeof(frame_info));
-
-	
-	window := OpenWindow();
-	ctx.window = window;
-
-	walk_h:clip;
-	LoadClip(&ctx, "../images/frog.png", 32 * 4, 0, 32, 32, 1, 1.0, &walk_h);
-	walk_h.loop = false;
-
-	walk_v:clip;
-	LoadClip(&ctx, "../images/frog.png", (32 * 3) * 4, 0, 32, 32, 1, 1.0, &walk_v);
-	walk_v.loop = false;
-
-	idle_h:clip;
-	LoadClip(&ctx, "../images/frog.png", 0, 0, 32, 32, 1, 1.0, &idle_h);
-	idle_h.loop = false;
-
-	idle_v:clip;
-	LoadClip(&ctx, "../images/frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &idle_v);
-	idle_v.loop = false;
-
-	scn:scene;
-	scn.total_movs = 32;
-	scn.movs = cast(*movable)heap_alloc(&ctx.alloc, scn.total_movs * sizeof(movable));
-	memset(cast(*u8)scn.movs, 0, scn.total_movs * sizeof(movable));
-
-	scn.cam_size = 10.0;
+	using ctx;
 	draw:draw_info;
-	//pos:v2;
-	player_pos:v3;
-	player_size:v3;
-	final_pos: v3;
-	start_pos: v3;
-	block_dir:v3;
-	map_start_pos: v3;
-	map_start_pos.x = -4.0;
-	map_start_pos.y = 2.0;
-
-	CreateScene(&ctx, scene2, &scn, &player_pos);
-	//play
-
-	p_dir: player_dir;
-	cur_clip:*clip= &idle_h;
-	can_move: = true;
-
-	blocks_jmp: = 2.0;
-	player_size.x = 1.0;
-	player_size.y = 1.0;
-
-	//start_pos.x += 0.5 + map_start_pos.x;
-	//start_pos.y += 0.5 + map_start_pos.y;
-
-	//player_pos.x = 0.5;
-	//player_pos.y = 0.5;
-	//player_pos.y = 0.0;
-	final_pos = player_pos;
-
 	while !ShouldClose(window)
 	{
 		ClearBackground(0.4, 0.4, 0.5);
@@ -615,7 +551,7 @@ scene2: =
 		time: = GetTimeSinceStart();
 		s: = sin(time) + 1.0;
 
-		DrawSceneMap(&scn, window);
+		DrawSceneMap(scn, window);
 
 		memset(cast(*u8)& draw, 0, sizeof(draw));
 
@@ -641,7 +577,6 @@ scene2: =
 			
 			if IsKeyDown(key_enum.KEY_LEFT)
 			{
-				//__dbg_break;
 				player_size.x = -1.0;
 				player_size.y = 1.0;
 				pressed = true;
@@ -688,7 +623,7 @@ scene2: =
 
 			if pressed
 			{
-				act:= AddFrameAction(&ctx);
+				act:= AddFrameAction(ctx);
 
 				act.type = frame_action.MOV;
 				act.holder_type = cel_type.PLAYER;
@@ -702,8 +637,8 @@ scene2: =
 			}
 		}
 
-		ProcessFrameActions(&ctx, &scn);
-		MovablesLogic(&ctx, &scn, dt);
+		ProcessFrameActions(ctx, scn);
+		MovablesLogic(ctx, scn, dt);
 		dir: = final_pos - player_pos;
 		d: = dot_v3(&dir, &dir);
 
@@ -751,7 +686,7 @@ scene2: =
 
 		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
 		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-		draw.texture_id = UpdateClip(cur_clip, dt);
+		//draw.texture_id = UpdateClip(cur_clip, dt);
 		draw.cam_size = scn.cam_size;
 		draw.cam_pos.x = 0.0;
 		draw.cam_pos.y = 0.0;
@@ -768,5 +703,77 @@ scene2: =
 		Draw(window, &draw);
 		EndFrame(window);
 	}
+}
+main :: fn()
+{
+scene1: = 
+"---------\n"
+"-......--\n"
+"-....t..-\n"
+"-.p.....-\n"
+"---------\n";
+
+scene2: =
+"--------------\n"
+"---.....------\n"
+"-............-\n"
+"-.-p....-....t\n"
+"-.-.....-.o..-\n"
+"-.......------\n"
+"--------------\n";
+	ctx: context;
+	AssignCtxAddr(&ctx);
+	InitMemAlloc(&ctx.alloc);
+	addr: = heap_alloc(&ctx.alloc, 10);
+	heap_free(&ctx.alloc, addr);
+
+	ctx.frames_max = 4;
+	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));
+	memset(cast(*u8)ctx.frames, 0, sizeof(frame_info));
+
+	
+	window := OpenWindow();
+	ctx.window = window;
+
+	LoadClip(&ctx, "../images/frog.png", 32 * 4, 0, 32, 32, 1, 1.0, &ctx.walk_h);
+	ctx.walk_h.loop = false;
+
+	LoadClip(&ctx, "../images/frog.png", (32 * 3) * 4, 0, 32, 32, 1, 1.0, &ctx.walk_v);
+	ctx.walk_v.loop = false;
+
+	LoadClip(&ctx, "../images/frog.png", 0, 0, 32, 32, 1, 1.0, &ctx.idle_h);
+	ctx.idle_h.loop = false;
+
+	LoadClip(&ctx, "../images/frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
+	ctx.idle_v.loop = false;
+
+	scn:scene;
+	scn.total_movs = 32;
+	scn.movs = cast(*movable)heap_alloc(&ctx.alloc, scn.total_movs * sizeof(movable));
+	memset(cast(*u8)scn.movs, 0, scn.total_movs * sizeof(movable));
+
+	scn.cam_size = 10.0;
+	ctx.scn = &scn;
+	//pos:v2;
+
+	CreateScene(&ctx, scene2, &scn, &ctx.player_pos);
+	//play
+
+	p_dir: player_dir;
+	ctx.cur_clip = &ctx.idle_h;
+	ctx.can_move = true;
+
+	//blocks_jmp: = 2.0;
+	ctx.player_size.x = 1.0;
+	ctx.player_size.y = 1.0;
+
+	//start_pos.x += 0.5 + map_start_pos.x;
+	//start_pos.y += 0.5 + map_start_pos.y;
+
+	//player_pos.x = 0.5;
+	//player_pos.y = 0.5;
+	//player_pos.y = 0.0;
+	ctx.final_pos = ctx.player_pos;
+	main_loop(&ctx);
 
 }

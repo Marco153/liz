@@ -36,6 +36,17 @@ UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 GetMem::fn outsider(sz:u64) ! *void;
 Print::fn outsider(sz:*mem_alloc) ! *void;
 
+debug_break::fn macro()
+{
+	#if RELEASE == 1
+	{
+		*ret = __LINE__;
+		return;
+	}
+	else
+		__dbg_break;
+}
+
 heap_insert_unallocated::fn(alloc : *mem_alloc, a : *mem_chunk)
 {
 	if a < alloc.all || a > (ptr_offset(alloc.all, CHUNKS_CAP, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
@@ -621,24 +632,26 @@ ret_v3::fn() !v3
 	ret.y = 2.0;
 	return ret;
 }
-tests :: fn()
+tests :: fn(ret : *u32)
 {
+	i:= 7;
+	if i != 7
+		debug_break();
+
 	vec1:v3;
 	vec2:v3;
 	vec2.x = 1.0;
 	memcpy(&vec1, &vec2, sizeof(v3));
 
-	if vec1.x > 1.1 || vec1.x <0.9
-		__dbg_break;
+	if vec1.x > 1.1 || vec1.x < 0.9
+		debug_break();
+		//debug_break();
 
-	i:= 0;
-	if i != 0
-		__dbg_break;
 
 	i = 4;
 	i--;
 	if i != 3
-		__dbg_break;
+		debug_break();
 
 	while i < 5
 	{
@@ -646,7 +659,7 @@ tests :: fn()
 	}
 
 	if i != 5
-		__dbg_break;
+		debug_break();
 
 	while true
 	{
@@ -655,25 +668,25 @@ tests :: fn()
 		i++;
 	}
 	if i != 11
-		__dbg_break;
+		debug_break();
 
 	alloc :mem_alloc;
 	alloc.buffer = nil;
 
 	if alloc.buffer 
-		__dbg_break;
+		debug_break();
 
 	alloc.buffer = cast(*u8)GetMem(8);
 
 	*ptr_offset(alloc.buffer, 1, u8) = 1;
 
 	if *ptr_offset(alloc.buffer, 1, u8) != 1
-		__dbg_break;
+		debug_break();
 
 	test_ref(&alloc);
 
 	if *ptr_offset(alloc.buffer, 2, u8) != 2
-		__dbg_break;
+		debug_break();
 
 	*ptr_offset(alloc.buffer, 1, u8) = 0;
 	*ptr_offset(alloc.buffer, 2, u8) = 0;
@@ -683,22 +696,22 @@ tests :: fn()
 	alloc.buffer = nil;
 
 	if alloc.buffer != nil
-		__dbg_break;
+		debug_break();
 
 	test_init(&alloc);
 
 	if alloc.buffer == nil
-		__dbg_break;
+		debug_break();
 
 	*ptr_offset(alloc.buffer, 1, u8) = 7;
 
 	if *ptr_offset(alloc.buffer, 1, u8) != 7
-		__dbg_break;
+		debug_break();
 
 	memset(alloc.buffer, 0, 8);
 
 	if *ptr_offset(alloc.buffer, 1, u8) != 0
-		__dbg_break;
+		debug_break();
 
 	test_ptr(&alloc);
 
@@ -706,43 +719,43 @@ tests :: fn()
 	flags = flags | 1;
 
 	if flags != 1
-		__dbg_break;
+		debug_break();
 
 	flags = flags & ~1;
 	
 	if flags != 0
-		__dbg_break;
+		debug_break();
 
 	flags = 2;
 	flags = flags | 1;
 
 	if flags != 3
-		__dbg_break;
+		debug_break();
 
 	flags = flags & ~2;
 	if flags != 1
-		__dbg_break;
+		debug_break();
 
 	i = 6;
 	i = i % 7;
 
 	if i != 6
-		__dbg_break;
+		debug_break();
 
 	if (i + 1 % 7) != 0
-		__dbg_break;
+		debug_break();
 
 	bool_v: = false;
 
 	if bool_v
-		__dbg_break;
+		debug_break();
 
 	i = 5;
 	bool_v = i == 5;
 
 
 	if !bool_v
-		__dbg_break;
+		debug_break();
 
 	i = 4;
 	i2 := 5;
@@ -750,53 +763,53 @@ tests :: fn()
 	i += i2 + i3;
 
 	if i != 14
-		__dbg_break;
+		debug_break();
 
 	ptr: *mem_chunk = nil;
 
 	if ptr
-		__dbg_break;
+		debug_break();
 
 	ptr = cast(*mem_chunk)GetMem(32);
 
 	if ptr == nil
-		__dbg_break;
+		debug_break();
 
 	ptr = cast(*mem_chunk)nil_ptr_ret();
 
 	if ptr != nil
-		__dbg_break;
+		debug_break();
 
 	if sizeof(simple_strct) != 8
-		__dbg_break;
+		debug_break();
 
 	if cast(u64)ptr_offset(0, 0, simple_strct) != 0
-		__dbg_break;
+		debug_break();
 	if cast(u64)ptr_offset(0, 1, simple_strct) != 8
-		__dbg_break;
+		debug_break();
 	if cast(u64)ptr_offset(0, 2, simple_strct) != 16
-		__dbg_break;
+		debug_break();
 	if cast(u64)ptr_offset(0, 0, *simple_strct) != 0
-		__dbg_break;
+		debug_break();
 	if cast(u64)ptr_offset(0, 1, *simple_strct) != 8
-		__dbg_break;
+		debug_break();
 	if cast(u64)ptr_offset(0, 2, *simple_strct) != 16
-		__dbg_break;
+		debug_break();
 
 	main_type: fn() !u8;
 	main_type = fn() !u8{ return 1; };
 
 	if main_type() != 1
-		__dbg_break;
+		debug_break();
 
 	main_type = func_ptr_test;
 	if main_type() != 2
-		__dbg_break;
+		debug_break();
 
 	f := 1.0;
 
 	if f > 2.0
-		__dbg_break;
+		debug_break();
 
 
 	greater_than_0 : = f > 0.0;
@@ -808,7 +821,7 @@ tests :: fn()
 		val = true;
 
 	if val == false
-		__dbg_break;
+		debug_break();
 
 	val = false;
 
@@ -816,7 +829,7 @@ tests :: fn()
 		val = true;
 
 	if val == false
-		__dbg_break;
+		debug_break();
 
 	val = false;
 
@@ -824,14 +837,14 @@ tests :: fn()
 		val = true;
 
 	if val == false
-		__dbg_break;
+		debug_break();
 
 	val = false;
 	if greater_than_0 == false || greater_than_2 || less_than_3
 		val = true;
 
 	if val == false
-		__dbg_break;
+		debug_break();
 
 	val = false;
 
@@ -839,28 +852,28 @@ tests :: fn()
 		val = true;
 
 	if val == false
-		__dbg_break;
+		debug_break();
 	
 	fsum: = test_sum_float(1.0, 2.0);
 	if fsum < 2.0  || fsum > 4.0
-		__dbg_break;
+		debug_break();
 
 	chunk: = mem_chunk{ next: nil, prev : cast(*mem_chunk)7 };
 	if cast(u64)chunk.prev != 7
-		__dbg_break;
+		debug_break();
 
 	i = 5;
 
 	a: = if i == 5 69 else 420;
 
 	if a != 69
-		__dbg_break;
+		debug_break();
 
 	static_ar: [4] f32;
 	*static_ar[0] = 0.5;
 
 	if* static_ar[0] < 0.4 || *static_ar[0] > 0.6
-		__dbg_break;
+		debug_break();
 
 	test_strct : struct
 	{
@@ -870,31 +883,31 @@ tests :: fn()
 	color:test_strct;
 	*color.ar[1] = 0.5;
 	if* color.ar[1] < 0.4 || *color.ar[1] > 0.6
-		__dbg_break;
+		debug_break();
 
 	bool_rt: = test_bool_ret(true);
 
 	if bool_rt != true
-		__dbg_break;
+		debug_break();
 
 	if test_bool_ret(false)
-		__dbg_break;
+		debug_break();
 
 
 	slen: = str_ln("ab");
 	if slen != 2
-		__dbg_break;
+		debug_break();
 
 	fval: = cast(f32)2;
 
 	if fval > 2.1 || fval < 1.9
-		__dbg_break;
+		debug_break();
 
 	i = 3;
 	fval = cast(f32)i;
 
 	if fval > 3.1 || fval < 2.9
-		__dbg_break;
+		debug_break();
 
 	f1: = 1.0;
 	f2: = 0.5;
@@ -903,19 +916,19 @@ tests :: fn()
 	i = cast(s32)((cast(f32)i * f2) / f1);
 	
 	if i != 2
-		__dbg_break;
+		debug_break();
 
 	i = 5;
 	f2 = 0.7;
 
 	i = cast(s32)((cast(f32)i * f2) / f1);
 	if i != 3
-		__dbg_break;
+		debug_break();
 
 	v1:v3;
 	v1= ret_v3();
 	if v1.y > 2.1 || v1.y < 1.9
-		__dbg_break;
+		debug_break();
 	v2:v3;
 
 	v1.x = 1.0;
@@ -925,19 +938,19 @@ tests :: fn()
 	v: = v1 + v2;
 
 	if v.x > 4.1 || v.x < 3.9
-		__dbg_break;
+		debug_break();
 
 	v1.x = 1.0;
 	v = v1 * 2.0;
 
 	if v.x > 2.1 || v.x < 1.9
-		__dbg_break;
+		debug_break();
 
 	v1.x = 1.0;
 	v2.x = 1.0;
 	v = v1 - v2;
 	if v.x > 0.1 || v.x < -0.1
-		__dbg_break;
+		debug_break();
 
 	v1.x = 5.0;
 	v1.y = -6.0;
@@ -945,25 +958,25 @@ tests :: fn()
 	v1 = sign_v3(&v1);
 
 	if v1.x > 1.1 || v1.x < 0.9 || v1.y < -1.0 || v1.y > -0.9
-		__dbg_break;
+		debug_break();
 
 	v2.x = 2.0;
 	v1.x = 1.0;
 	v1 = v1 + v2 * 2.0;
 
 	if v1.x > 5.1 || v1.x < 4.9
-		__dbg_break;
+		debug_break();
 
 	ar_test := []f32{ 1.0, 2.0, 3.0, 4.0 };
 
 	if *ar_test[0] > 1.1 || *ar_test[0] < 0.9
-		__dbg_break;
+		debug_break();
 
 	i = 2;
 	v2.x = cast(f32)-i;
 
 	if v2.x > -1.9 || v2.x < -2.1
-		__dbg_break;
+		debug_break();
 
 
 

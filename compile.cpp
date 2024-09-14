@@ -1262,10 +1262,10 @@ void WasmPushConst(char type_int_or_float, char size, int offset, own_std::vecto
 	{
 		int f_inst = WASM_I32_CONST + size + 2;
 		out->emplace_back(f_inst);
-		out->emplace_back(offset >> 24);
-		out->emplace_back(offset >> 16);
-		out->emplace_back(offset >> 8);
 		out->emplace_back(offset & 0xff);
+		out->emplace_back(offset >> 8);
+		out->emplace_back(offset >> 16);
+		out->emplace_back(offset >> 24);
 
 	}
 	else
@@ -2168,6 +2168,9 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		block_linked* aux = *cur;
 		while (aux->parent)
 		{
+			if (!val && (aux->ir->type == IR_BEGIN_LOOP_BLOCK))
+				depth++;
+				//break;
 			if (!val && (aux->ir->type == IR_BEGIN_OR_BLOCK || aux->ir->type == IR_BEGIN_SUB_IF_BLOCK || aux->ir->type == IR_BEGIN_IF_BLOCK || aux->ir->type == IR_BEGIN_LOOP_BLOCK))
 				break;
 			if (val && (aux->ir->type == IR_BEGIN_AND_BLOCK || aux->ir->type == IR_BEGIN_COND_BLOCK))
@@ -6714,7 +6717,8 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 				bc.type = WASM_INST_F32_CONST;
 				//ptr++;
 				unsigned int* int_ptr = (unsigned int*)&code[ptr];
-				*(int*)&bc.f32 = (*int_ptr << 24) | (((*int_ptr) & 0xff00) << 8) | (((*int_ptr) & 0xff0000) >> 8) | (((*int_ptr) >> 24));
+				//*(int*)&bc.f32 = (*int_ptr << 24) | (((*int_ptr) & 0xff00) << 8) | (((*int_ptr) & 0xff0000) >> 8) | (((*int_ptr) >> 24));
+				*(int*)&bc.f32 = *int_ptr;
 
 				ptr += 4;
 			}break;
@@ -7673,8 +7677,19 @@ void GenWasm(web_assembly_state* wasm_state)
 	own_std::vector<unsigned char> uleb;
 
 	uleb.clear();
-	GenUleb128(&uleb, wasm_state->funcs.size());
+	GenUleb128(&uleb, wasm_state->funcs.size() + wasm_state->imports.size());
 	INSERT_VEC(element_sect, uleb);
+	FOR_VEC(func, wasm_state->imports)
+	{
+		func_decl* f = (*func)->type.fdecl;
+		int idx = 0;
+		FuncAddedWasm(wasm_state, f->name, &idx);
+
+		uleb.clear();
+		GenUleb128(&uleb, idx);
+		INSERT_VEC(element_sect, uleb);
+
+	}
 	FOR_VEC(func, wasm_state->funcs)
 	{
 		func_decl* f = *func;
@@ -8154,6 +8169,11 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	own_std::vector<std::string> file_contents;
 	own_std::vector<std::string> file_names;
 	GetFilesInDirectory(file, &file_contents, &file_names);
+
+	type2 dummy_type;
+	decl2* release = FindIdentifier("RELEASE", lang_stat->root, &dummy_type);
+	release->type.i = lang_stat->release;
+
 	/*
 	node* mod = new_node(lang_stat);
 	
@@ -8455,6 +8475,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "enum_count", tp));
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "get_type_data", tp));
 
+
 	tp.type = enum_type2::TYPE_VOID;
 	lang_stat->void_decl = NewDecl(lang_stat, "void", tp);
 
@@ -8497,6 +8518,9 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	tp.type = enum_type2::TYPE_CHAR;
 	lang_stat->char_decl = NewDecl(lang_stat, "char", tp);
 
+	tp.type = TYPE_INT;
+	tp.i = lang_stat->release;
+	lang_stat->root->vars.push_back(NewDecl(lang_stat, "RELEASE", tp));
 	// inserting builtin types
 	{
 		NewTypeToSection(lang_stat, "s64", TYPE_S64);

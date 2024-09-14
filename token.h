@@ -76,6 +76,7 @@ enum tkn_type2
 	T_CLOSE_BRACKETS,
 	T_NUM,
 	T_INT,
+	T_HASHTAG,
 	T_FLOAT,
 	T_DOLLAR,
 	T_OPEN_CURLY,

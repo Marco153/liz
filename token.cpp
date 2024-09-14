@@ -892,6 +892,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 
 				i++;
 			}break;
+			case '#':
+			{
+				found_char = true;
+				tkn.type = T_HASHTAG;
+			}break;
 			case ')':
 			{
 				found_char = true;

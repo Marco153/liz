@@ -5407,7 +5407,7 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 
 	final_buffer.insert(final_buffer.begin(), (unsigned char*)&file, ((unsigned char*)&file) + sizeof(dbg_file_seriealize));
 	
-	WriteFileLang("../../wabt/dbg_wasm.dbg", final_buffer.begin(), final_buffer.size());
+	WriteFileLang("../lang2/web/dbg_wasm.dbg", final_buffer.begin(), final_buffer.size());
 
 }
 std::string WasmInterpNameFromOffsetAndLen(unsigned char* data, dbg_file_seriealize* file, str_dbg *name)

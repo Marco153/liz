@@ -3,6 +3,11 @@ scene_info:struct
 	str : str_lit,
 	next : *scene_info,
 }
+lever_info:struct
+{
+	lever : *cel_info,
+	door : *cel_info,
+}
 context: struct
 {
 	scn:*scene,
@@ -68,6 +73,8 @@ cel_type: enum
 	MOVABLE,
 	PLAYER,
 	TARGET,
+	LEVER,
+	DOOR,
 }
 cel_info :struct
 {
@@ -75,6 +82,7 @@ cel_info :struct
 	using u ::union
 	{
 		mov: *movable,
+		door : *cel_info,
 	}
 }
 movable:struct
@@ -87,6 +95,10 @@ scene: struct
 {
 	cels : *cel_info,
 	total_cels : u32,
+
+	levers : *lever_info,
+	cur_levers : u32,
+	max_levers : u32,
 
 	movs : *movable,
 	cur_sz_movs : u32,
@@ -201,16 +213,56 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 
 	if scn.cels
 		heap_free(&ctx.alloc, cast(*u8)scn.cels);
-	scn.cels = cast(*cel_info)heap_alloc(&ctx.alloc, width * height * sizeof(cel_info));
+
+	sz: = width * height * sizeof(cel_info);
+	scn.cels = cast(*cel_info)heap_alloc(&ctx.alloc, sz);
+	memset(cast(*u8)scn.cels, 0, sz);
 	scn.total_cels = width * height;
 	scn.width = width;
 	scn.height = height;
+	scn.cur_levers = 0;
+	scn.cur_sz_movs = 0;
 	
 	i:u32 = 0;
 
 	cel_idx:u64 = 0;
 	total_points: = 0;
 	y:u32= 0;
+
+	// first getting all levers
+	while i < len
+	{
+		x := cel_idx % scn.width;
+
+		//passed := cel_idx % scn.width;
+		// subbing the amount of \n we have at the end of each line
+		//corrected_i: = i - x;
+
+		ch: = *ptr_offset(s, i, char);
+		cur_cel: = ptr_offset(scn.cels, cel_idx, cel_info);
+		if ch == '0
+		{
+			ASSERT(scn.cur_levers < 4);
+			cur_levers:*lever_info = ptr_offset(scn.levers, scn.cur_levers, lever_info);
+			cur_levers.lever = cur_cel;
+			scn.cur_levers++;
+			
+			cur_cel.type = cel_type.EMPTY;
+			//start_pos.x = cast(f32)x;
+			//start_pos.y = -cast(f32)y;
+		}
+		else if ch == '\n
+		{
+			y++;
+			cel_idx--;
+		}
+		cel_idx++;
+
+		i++;
+	}
+	i = 0;
+	cel_idx = 0;
+	y = 0;
 	while i < len
 	{
 		x := cel_idx % scn.width;
@@ -241,6 +293,18 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 			mov.cur.y = -cast(f32)y;
 			mov.final = mov.cur;
 			cur_cel.mov = mov;
+		}
+		else if ch == '0
+		{
+		}
+		else if ch == '1
+		{
+			cur_door:*lever_info = ptr_offset(scn.levers, 0, lever_info);
+			cur_door.door = cur_cel;
+
+			cur_cel.type = cel_type.DOOR;
+			//start_pos.x = cast(f32)x;
+			//start_pos.y = -cast(f32)y;
 		}
 		else if ch == 'p
 		{
@@ -321,6 +385,13 @@ DrawSceneMap::fn(scn : *scene, window : *u8)
 			if ptr_offset(scn.cels, i, cel_info).type == cel_type.SOLID
 			{
 				draw.color = []f32{ 0.5, 0.0, 0.5, 1.0};
+				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				//draw.texture_id = UpdateClip(cur_clip, dt);
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.DOOR
+			{
+				draw.color = []f32{ 0.5, 0.2, 0.6, 1.0};
 				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
 				//draw.texture_id = UpdateClip(cur_clip, dt);
 				Draw(window, &draw);
@@ -429,7 +500,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				holder_is_player: = cur_fr.holder_type == cel_type.PLAYER;
 				//if cur_fr.mov.cur_pos.x < 9.0
 					//__dbg_break;
-				if cur_cel.type == cel_type.SOLID || (cur_cel.type == cel_type.MOVABLE && holder_is_mov == false)
+				if cur_cel.type == cel_type.DOOR || cur_cel.type == cel_type.SOLID || (cur_cel.type == cel_type.MOVABLE && holder_is_mov == false)
 				{
 					cur_x = cast(u32)(cur_x + cast(u32) - sign_dir.x);
 					cur_y = cast(u32)(cur_y + cast(u32) - sign_dir.y);
@@ -442,7 +513,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
 					//__dbg_break;
 				}
-				if cur_cel.type == cel_type.TARGET && holder_is_player
+				if cur_cel.type == cel_type.TARGET && holder_is_player && cur_cel == dst_cel
 				{
 					scn.done = true;
 				}
@@ -571,6 +642,7 @@ main_loop::fn(ctx : *context)
 		if scn.done != nil && scn.scn_info.next != nil
 		{
 			CreateScene(ctx, scn.scn_info.next.str, scn, &ctx.player_pos);
+			final_pos = player_pos;
 			scn.scn_info = scn.scn_info.next;
 			scn.done = false;
 		
@@ -666,6 +738,16 @@ main_loop::fn(ctx : *context)
 			}
 		}
 
+		if scn.cur_levers > 0
+		{
+			lever: = ptr_offset(scn.levers, 0, lever_info);
+			if lever.lever.type != cel_type.EMPTY
+			{
+				lever.door.type = cel_type.EMPTY;
+			}
+
+		}
+
 		ProcessFrameActions(ctx, scn);
 		MovablesLogic(ctx, scn, dt);
 		dir: = final_pos - player_pos;
@@ -734,8 +816,7 @@ main_loop::fn(ctx : *context)
 		EndFrame(window);
 	}
 }
-main :: fn()
-{
+main :: fn(){
 scene1: = 
 "---------\n"
 "-......--\n"
@@ -751,6 +832,28 @@ scene2: =
 "-.-.....-.o..-\n"
 "-.......------\n"
 "--------------\n";
+
+// 0 = lever
+// 1 = door that only opens when something is on lever cell
+scene3: =
+"--------------\n"
+"---------..p.-\n"
+"-----...--.---\n"
+"---...t.-....-\n"
+"---...-.1..o.-\n"
+"--......-..0.-\n"
+"-.......-....-\n"
+"--------------\n";
+
+scene4: =
+"--------------\n"
+"---------..p.-\n"
+"-----...--.---\n"
+"---...t.-....-\n"
+"---...-.1..o.-\n"
+"--......-..0.-\n"
+"-.......-....-\n"
+"--------------\n";
 	ctx: context;
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.alloc);
@@ -765,12 +868,17 @@ scene2: =
 	ctx.scenes = cast(*scene_info)heap_alloc(&ctx.alloc, ctx.scenes_max * sizeof(scene_info));
 	memset(cast(*u8)ctx.scenes, 0, sizeof(scene_info));
 
+
 	scn_cur: = ptr_offset(ctx.scenes, 0, scene_info);
 	scn_cur.str = scene1;
 	scn_cur.next = ptr_offset(ctx.scenes, 1, scene_info);
 
 	scn_cur = ptr_offset(ctx.scenes, 1, scene_info);
 	scn_cur.str = scene2;
+	scn_cur.next = ptr_offset(ctx.scenes, 2, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 2, scene_info);
+	scn_cur.str = scene3;
 	scn_cur.next = nil;
 
 	scn_cur = ptr_offset(ctx.scenes, 0, scene_info);
@@ -793,12 +901,16 @@ scene2: =
 	ctx.idle_v.loop = false;
 
 	scn:scene;
+	ctx.scn = &scn;
 	scn.total_movs = 32;
 	scn.movs = cast(*movable)heap_alloc(&ctx.alloc, scn.total_movs * sizeof(movable));
 	memset(cast(*u8)scn.movs, 0, scn.total_movs * sizeof(movable));
 
+	ctx.scn.max_levers = 4;
+	ctx.scn.levers = cast(*lever_info)heap_alloc(&ctx.alloc, ctx.scn.max_levers * sizeof(lever_info));
+	memset(cast(*u8)ctx.scn.levers, 0, sizeof(*cel_info));
+
 	scn.cam_size = 10.0;
-	ctx.scn = &scn;
 	src_cel: = ptr_offset(scn.cels, 0 + 6 * scn.width, cel_info);
 	scn.scn_info = scn_cur;
 	//pos:v2;

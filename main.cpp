@@ -723,7 +723,7 @@ int main()
 	compile_options opts = {};
 	opts.file = "../lang2/files";
 	opts.wasm_dir = "../lang2/web/";
-	opts.release = true;
+	opts.release = false;
 
 	AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
 	AssignOutsiderFunc(&lang_stat, "Print", (OutsiderFuncType)Print);
@@ -748,7 +748,7 @@ int main()
 	{
 		long long args[] = { 0 };
 
-		AssignDbgFile(&lang_stat, "../../wabt/dbg_wasm.dbg");
+		AssignDbgFile(&lang_stat, "../lang2/web/dbg_wasm.dbg");
 		RunDbgFile(&lang_stat, "tests", args, 1);
 		lang_stat.winterp->dbg->data = (void*)&gl_state;
 		RunDbgFile(&lang_stat, "main", args, 1);

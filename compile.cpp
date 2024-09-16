@@ -1713,6 +1713,10 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 		{
 			code_sect.emplace_back(0x60);
 		}break;
+		case T_COND_NE:
+		{
+			code_sect.emplace_back(0x5c);
+		}break;
 		case T_COND_EQ:
 		{
 			code_sect.emplace_back(0x5b);

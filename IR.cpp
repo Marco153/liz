@@ -2430,8 +2430,9 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
                     IRCreateBeginBlock(lang_stat, out, IR_END_AND_BLOCK);
 
                 }
-				else if (e->type == AST_BINOP)
+				else if (e->type == AST_BINOP && e->op != T_POINT)
 				{
+					tkn_type2 op;
 					tkn_type2 opposite = OppositeCondCmp(e->op);
 					e->op = opposite;
 					// false is for the it_is_jmp_if_true var in ir_rep

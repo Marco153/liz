@@ -389,8 +389,8 @@ uniform vec3 cam_pos;
 
     let flags = mem_view.getUint32(offset, true)
     offset += 4
-    cam_pos_x = 3;
-    cam_pos_y = -1;
+    cam_pos_x = 5;
+    cam_pos_y = -5;
 
     gl.uniform3f(u_pos, pos_x, pos_y, 0);
     gl.uniform3f(u_pivot, pivot_x, pivot_y, 1.0);
@@ -414,7 +414,7 @@ function _WasmDbg() {
     let int_ar = new Int32Array(cels_buffer)
     int_ar[0] = scene_addr;
     int_ar[1] = mem_view.getUint32(scene_addr, true);
-    console.log(int_ar)
+    //console.log(int_ar)
 
 
 
@@ -422,6 +422,9 @@ function _WasmDbg() {
     let a = 0;
 }
 function _LoadClip() {
+    // Implement the functionality here
+}
+function _PrintStr() {
     // Implement the functionality here
 }
 async function start() {
@@ -445,6 +448,7 @@ async function start() {
             PrintV3: _PrintV3,
             LoadClip: _LoadClip,
             WasmDbg: _WasmDbg,
+            PrintStr: _PrintStr,
             AssignCtxAddr: _AssignCtxAddr,
         }
     }

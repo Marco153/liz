@@ -6443,7 +6443,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					bool is_struct_val = lhs->type.type == TYPE_STRUCT && lhs->type.ptr == 0
 						&& IsNodeUnop(equal_stmnt->r, T_MUL);
 
-					if (is_bool && IS_FLAG_OFF(n->flags, NODE_FLAGS_IS_PROCESSED2) && equal_stmnt->r->type == N_BINOP)
+					if (is_bool && IS_FLAG_OFF(n->flags, NODE_FLAGS_IS_PROCESSED2) && equal_stmnt->r->type == N_BINOP && equal_stmnt->r->t->type != T_POINT)
 					{
 						node* bool_expr = CreateBoolExpression(lang_stat, equal_stmnt->l, equal_stmnt->r, scp);
 						memcpy(equal_stmnt, bool_expr, sizeof(node));
@@ -8591,6 +8591,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					}
 					else
 					{
+						if (!CompareTypes(&ltp, &rtp))
+							ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 						node * call = MakeMemCpyCall(lang_stat, n->l, n->r, ltp.strct->size);
 						memcpy(n, call, sizeof(node));
 					}

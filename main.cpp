@@ -150,8 +150,8 @@ void Draw(dbg_state* dbg)
 	int screen_ratio_u = glGetUniformLocation(prog, "screen_ratio");
 	glUniform1f(screen_ratio_u, screen_ratio);
 
-	draw->cam_pos_x = 3;
-	draw->cam_pos_y = -1;
+	draw->cam_pos_x = 5;
+	draw->cam_pos_y = -6;
 	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
 	glUniform3f(cam_pos_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
 
@@ -672,7 +672,7 @@ void GetMem(dbg_state* dbg)
 	int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
 	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
 	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] += sz;
-	ASSERT((addr + sz) < 64000);
+	ASSERT((addr + sz) < 80000);
 	//*max += sz;
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
@@ -693,6 +693,25 @@ void Sqrt(dbg_state* dbg)
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sqrt(val);
+}
+void PrintStr(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int str_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *str = (char*)&dbg->mem_buffer[str_offset];
+	printf("%s", str);
+
+	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
+}
+void PrintV3(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float x = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float y = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	float z = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	printf("x: %.3f, y: %.3f, z: %.3f\n", x, y, z);
+
+	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
 void Sin(dbg_state* dbg)
 {
@@ -723,7 +742,7 @@ int main()
 	compile_options opts = {};
 	opts.file = "../lang2/files";
 	opts.wasm_dir = "../lang2/web/";
-	opts.release = false;
+	opts.release = true;
 
 	AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
 	AssignOutsiderFunc(&lang_stat, "Print", (OutsiderFuncType)Print);
@@ -740,7 +759,8 @@ int main()
 	AssignOutsiderFunc(&lang_stat, "sqrt", (OutsiderFuncType)Sqrt);
 	AssignOutsiderFunc(&lang_stat, "AssignCtxAddr", (OutsiderFuncType)Stub);
 	AssignOutsiderFunc(&lang_stat, "WasmDbg", (OutsiderFuncType)Stub);
-	AssignOutsiderFunc(&lang_stat, "PrintV3", (OutsiderFuncType)Stub);
+	AssignOutsiderFunc(&lang_stat, "PrintV3", (OutsiderFuncType)PrintV3);
+	AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	Compile(&lang_stat, &opts);

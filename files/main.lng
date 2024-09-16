@@ -30,6 +30,7 @@ context: struct
 	walk_v : clip,
 	idle_h : clip,
 	idle_v : clip,
+	in_flow : bool,
 	
 }
 DRAW_INFO_HAS_TEXTURE:const s32 = 1;
@@ -74,11 +75,18 @@ cel_type: enum
 	PLAYER,
 	TARGET,
 	LEVER,
+	RUBBER,
 	DOOR,
+	FLOW_LEFT,
+	FLOW_RIGHT,
+	FLOW_DOWN,	
+	FLOW_UP,	
 }
 cel_info :struct
 {
 	type:cel_type,
+	is_lever :bool,
+	movable_on_water:bool,
 	using u ::union
 	{
 		mov: *movable,
@@ -132,6 +140,7 @@ frame_action_stage:enum
 {
 	NOT_STARTED,
 	DOING,
+	FOLLOW_TO_POS,
 	DONE,
 }
 frame_info:struct
@@ -148,6 +157,7 @@ frame_info:struct
 			to_pos: v3,
 			modify_pos: *v3,
 			cur_pos: *v3,
+			in_flow: *bool,
 		}
 	}
 }
@@ -166,6 +176,7 @@ LoadClip::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32
 DebuggerCommand::fn outsider(cmd :str_lit);
 WasmDbg::fn outsider(*context);
 PrintV3::fn outsider(f32, f32, f32);
+PrintStr::fn outsider(str_lit);
 AssignCtxAddr::fn outsider(*context);
 
 sin::fn outsider(f32) !f32;
@@ -248,6 +259,7 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 			scn.cur_levers++;
 			
 			cur_cel.type = cel_type.EMPTY;
+			cur_cel.is_lever = true;
 			//start_pos.x = cast(f32)x;
 			//start_pos.y = -cast(f32)y;
 		}
@@ -281,6 +293,18 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 		{
 			cur_cel.type = cel_type.EMPTY;
 		}
+		else if ch == 'r
+		{
+			cur_cel.type = cel_type.RUBBER;
+		}
+		else if ch == 'd
+		{
+			cur_cel.type = cel_type.FLOW_DOWN;
+		}
+		else if ch == 'l
+		{
+			cur_cel.type = cel_type.FLOW_LEFT;
+		}
 		else if ch == 't
 		{
 			cur_cel.type = cel_type.TARGET;
@@ -293,6 +317,8 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 			mov.cur.y = -cast(f32)y;
 			mov.final = mov.cur;
 			cur_cel.mov = mov;
+			//__dbg_break;
+			cur_cel.movable_on_water = false;
 		}
 		else if ch == '0
 		{
@@ -382,6 +408,14 @@ DrawSceneMap::fn(scn : *scene, window : *u8)
 
 			draw.ent_size.x = 1.0;
 			draw.ent_size.y = 1.0;
+			if ptr_offset(scn.cels, i, cel_info).is_lever
+			{
+				draw.color = []f32{ 0.0, 0.0, 0.9, 1.0};
+				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				//draw.texture_id = UpdateClip(cur_clip, dt);
+				Draw(window, &draw);
+			}
+
 			if ptr_offset(scn.cels, i, cel_info).type == cel_type.SOLID
 			{
 				draw.color = []f32{ 0.5, 0.0, 0.5, 1.0};
@@ -389,11 +423,24 @@ DrawSceneMap::fn(scn : *scene, window : *u8)
 				//draw.texture_id = UpdateClip(cur_clip, dt);
 				Draw(window, &draw);
 			}
+			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.FLOW_DOWN
+			{
+				draw.color = []f32{ 0.2, 0.8, 0.3, 1.0};
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.FLOW_LEFT
+			{
+				draw.color = []f32{ 0.0, 0.8, 0.1, 1.0};
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.RUBBER
+			{
+				draw.color = []f32{ 0.5, 0.8, 0.1, 1.0};
+				Draw(window, &draw);
+			}
 			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.DOOR
 			{
 				draw.color = []f32{ 0.5, 0.2, 0.6, 1.0};
-				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-				//draw.texture_id = UpdateClip(cur_clip, dt);
 				Draw(window, &draw);
 			}
 			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.TARGET
@@ -409,11 +456,33 @@ DrawSceneMap::fn(scn : *scene, window : *u8)
 		y++;
 	}
 }
+FlowBlockGetDir::fn(type : cel_type, x : *s32, y : *s32)
+{
+
+	if type == cel_type.FLOW_LEFT
+	{
+		*x = -1;
+		*y = 0;
+
+	}
+	else if  type == cel_type.FLOW_DOWN
+	{
+		*x = 0;
+		*y = 1;
+	}
+	else
+	{
+		// unhadled flow block getting direction
+		__dbg_break;
+	}
+}
 
 ProcessFrameActions::fn(ctx : *context, scn : *scene)
 {
 	//if scn.done return;
 	i:u32 = 0;
+	add_x:s32;
+	add_y:s32;
 	while i < ctx.frames_max
 	{
 		cur_fr: = ptr_offset(ctx.frames, i, frame_info);
@@ -434,7 +503,23 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 			cur_x: = cast(u32)cur_fr.mov.cur_pos.x;
 			cur_y: = cast(u32)-cur_fr.mov.cur_pos.y;
 
-			sign_dir: = normalize_v3(&(cur_fr.mov.to_pos - cur_fr.mov.from_pos));
+			sign_dir: = normalize_v3(&dist);
+			if dot_v3(&dist, &dist) == 0.0
+			{
+				sign_dir.x = 0.0;
+				sign_dir.y = 0.0;
+			}
+
+
+			cur_int_v3:v3;
+			cur_int_v3.x = cast(f32)cur_x;
+			cur_int_v3.y = -cast(f32)cur_y;
+
+			cur_int_to_cur_f32: = cur_int_v3 - *cur_fr.mov.cur_pos;
+			cur_int_to_cur_f32_dist:= sqrt(dot_v3(&cur_int_to_cur_f32, &cur_int_to_cur_f32));
+			//PrintV3(cur_int_to_cur_f32_dist, cur_fr.mov.cur_pos.x, 0.0);
+
+
 
 			if sign_dir.y > 0.0
 				cur_y = cur_y + 1;
@@ -444,7 +529,11 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 			}
 
 
+			WasmDbg(ctx);
+			PrintV3(cur_fr.mov.to_pos.x, cur_fr.mov.to_pos.y, sign_dir.x);
+			PrintV3(cur_fr.mov.from_pos.x, cur_fr.mov.from_pos.y, sign_dir.x);
 			next_cel_x: = cast(u32)(cur_fr.mov.from_pos.x + sign_dir.x);
+			WasmDbg(ctx);
 			next_cel_y: = cast(u32)(cur_fr.mov.from_pos.y + sign_dir.y);
 
 			cur_cel_x: = cast(u32)(cur_fr.mov.from_pos.x) + cur_x;
@@ -458,6 +547,8 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 
 			src_is_mov: = src_cel.type == cel_type.MOVABLE;
 
+
+			is_flow_block: = cur_cel.type == cel_type.FLOW_LEFT || cur_cel.type == cel_type.FLOW_DOWN;
 			if cur_fr.stage == frame_action_stage.NOT_STARTED
 			{
 				
@@ -500,14 +591,50 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				holder_is_player: = cur_fr.holder_type == cel_type.PLAYER;
 				//if cur_fr.mov.cur_pos.x < 9.0
 					//__dbg_break;
+				//__dbg_break;
+				movable_on_water: = cur_cel.movable_on_water;
 				if cur_cel.type == cel_type.DOOR || cur_cel.type == cel_type.SOLID || (cur_cel.type == cel_type.MOVABLE && holder_is_mov == false)
 				{
 					cur_x = cast(u32)(cur_x + cast(u32) - sign_dir.x);
 					cur_y = cast(u32)(cur_y + cast(u32) - sign_dir.y);
 					cur_fr.mov.modify_pos.x = cast(f32)cur_x;
 					cur_fr.mov.modify_pos.y = cast(f32)cur_y;
-					cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
 					cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+					cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+					cur_fr.stage = frame_action_stage.DONE;
+					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
+					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
+					//__dbg_break;
+				}
+				else if is_flow_block&& movable_on_water
+				{
+					//FlowBlockGetDir(cur_cel.type, &add_x, &add_y);
+
+					//cur_x = cast(u32)(cast(s32)cur_x + cast(s32)sign_dir.x);
+					//cur_y = cast(u32)(cast(s32)cur_y + cast(s32)sign_dir.y);
+					cur_fr.mov.modify_pos.x = cast(f32)cur_x;
+					cur_fr.mov.modify_pos.y = cast(f32)cur_y;
+					cur_fr.mov.to_pos = *cur_fr.mov.modify_pos;
+					cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+					//cur_fr.mov.cur_pos = *cur_fr.mov.modify_pos;
+					cur_fr.stage = frame_action_stage.FOLLOW_TO_POS;
+					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
+					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
+					//__dbg_break;
+				}
+
+				else if cur_cel.type == cel_type.RUBBER
+				{
+					//__dbg_break;
+					cur_x = cast(u32)(cur_x + cast(u32) - (sign_dir.x * 2.0));
+					cur_y = cast(u32)(cur_y + cast(u32) - (sign_dir.y * 2.0));
+					cur_fr.mov.modify_pos.x = cast(f32)cur_x;
+					cur_fr.mov.modify_pos.y = cast(f32)cur_y;
+					//cur_fr.from_pos = cur_fr.mov.modify_pos
+					cur_fr.mov.to_pos = *cur_fr.mov.modify_pos;
+					cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+					//cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+
 					cur_fr.stage = frame_action_stage.DONE;
 					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
 					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
@@ -517,9 +644,8 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				{
 					scn.done = true;
 				}
-				else if cur_cel.type == cel_type.MOVABLE && holder_is_player
+				else if cur_cel.type == cel_type.MOVABLE && holder_is_player && movable_on_water == false
 				{
-
 					act:= AddFrameAction(ctx);
 
 					act.type = frame_action.MOV;
@@ -543,23 +669,109 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				d: = dot_v3(&dir, &dir);
 				if d < 0.01
 				{
-					//__dbg_break;
 					cur_fr.stage = frame_action_stage.DONE;
 				}
+			}
+			else if cur_fr.stage == frame_action_stage.FOLLOW_TO_POS
+			{
+				aux: = *cur_fr.mov.cur_pos;
+				aux.y = -aux.y;
+				dir: = aux - cur_fr.mov.to_pos;
+				d: = dot_v3(&dir, &dir);
+				PrintStr("\nto_pos:\n");
+				PrintV3(cur_fr.mov.to_pos.x, cur_fr.mov.to_pos.y, 0.0);
+				PrintStr("cur_pos:\n");
+				PrintV3(cur_fr.mov.cur_pos.x, cur_fr.mov.cur_pos.y, 0.0);
+				PrintStr("dot and idx");
+				PrintV3(d, cast(f32)i, 0.0);
+				if d < 0.01
+				{
+					cur_fr.stage = frame_action_stage.DONE;
+					PrintStr("follow to pos done");
+				}
+
 			}
 			else if cur_fr.stage == frame_action_stage.DONE
 			{
 
-				//__dbg_break;
-				cur_fr.type = frame_action.FREE;
+				dst_x = cast(u32)cur_fr.mov.cur_pos.x;
+				dst_y = cast(u32)-cur_fr.mov.cur_pos.y;
+				dst_cel = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
+				is_flow_block = dst_cel.type == cel_type.FLOW_LEFT || dst_cel.type == cel_type.FLOW_DOWN;
+				if is_flow_block
+				{
+					if (dst_cel.movable_on_water == false)
+					{
+						FlowBlockGetDir(dst_cel.type, &add_x, &add_y);
+
+						//__dbg_break;
+						if cur_fr.holder_type == cel_type.PLAYER
+						{
+							//__dbg_break;
+							cur_fr.mov.modify_pos.x = cast(f32)(cast(s32)cur_x + add_x);
+							cur_fr.mov.modify_pos.y = cast(f32)(cast(s32)cur_y + add_y);
+							cur_fr.mov.to_pos = *cur_fr.mov.modify_pos;
+							cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+							if cur_fr.mov.in_flow
+							{
+								*cur_fr.mov.in_flow = true;
+							}
+
+							//cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+
+							cur_fr.stage = frame_action_stage.FOLLOW_TO_POS;
+						}
+						else if cur_fr.holder_type == cel_type.MOVABLE
+						{
+							src_cel.type = cel_type.EMPTY;
+							dst_cel.movable_on_water = true;
+							cur_fr.type = frame_action.FREE;
+						}
+						else
+							//on flowing block not hadled
+							__dbg_break;
+					}
+					else
+					{
+						if cur_fr.holder_type == cel_type.PLAYER
+						{
+
+							//cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+
+							*cur_fr.mov.in_flow = false;
+							cur_fr.stage = frame_action_stage.DONE;
+							src_cel.type = cel_type.EMPTY;
+							cur_fr.type = frame_action.FREE;
+						}
+						else
+						{
+							// unhadled movable found a movable on water
+							__dbg_break;
+						}
+
+					 }
+					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
+					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
+					//__dbg_break;
+				}
+				else
+				{
+					*cur_fr.mov.in_flow = false;
+					//__dbg_break;
+					//__dbg_break;
+					cur_fr.type = frame_action.FREE;
+				}
 			}
 			else
 				__dbg_break;
 
-			if cur_cel != src_cel && cur_cel.type == cel_type.EMPTY
+			dst_x = cast(u32)cur_fr.mov.cur_pos.x;
+			dst_y = cast(u32)-cur_fr.mov.cur_pos.y;
+			dst_cel = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
+			if dst_cel != src_cel && dst_cel.type == cel_type.EMPTY && (src_cel.type == cel_type.PLAYER || src_cel.type == cel_type.MOVABLE)
 			{
-				cur_cel.type = src_cel.type;
-				cur_cel.mov = src_cel.mov;
+				dst_cel.type = src_cel.type;
+				dst_cel.mov = src_cel.mov;
 				src_cel.type = cel_type.EMPTY;
 			}
 		}
@@ -603,8 +815,8 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 
 		if d > 0.01
 		{
-			cur.cur.x += dir.x * dt;
-			cur.cur.y += dir.y * dt;
+			cur.cur = cur.cur + dir * dt * 3.0;
+			//cur.cury += dir.y * dt;
 		}
 		else
 		{
@@ -672,7 +884,7 @@ main_loop::fn(ctx : *context)
 
 		memset(cast(*u8)& draw, 0, sizeof(draw));
 
-		if can_move
+		if can_move && in_flow == false
 		{
 			pressed: = false;
 			
@@ -735,15 +947,21 @@ main_loop::fn(ctx : *context)
 
 				act.mov.modify_pos = &final_pos;
 				act.mov.cur_pos = &player_pos;
+				act.mov.in_flow = &in_flow;
 			}
 		}
 
 		if scn.cur_levers > 0
 		{
 			lever: = ptr_offset(scn.levers, 0, lever_info);
-			if lever.lever.type != cel_type.EMPTY
+			if lever.lever.type != cel_type.EMPTY && lever.lever.type == cel_type.MOVABLE
 			{
 				lever.door.type = cel_type.EMPTY;
+			}
+			else
+			{
+				lever.door.type = cel_type.DOOR;
+
 			}
 
 		}
@@ -752,27 +970,12 @@ main_loop::fn(ctx : *context)
 		MovablesLogic(ctx, scn, dt);
 		dir: = final_pos - player_pos;
 		d: = dot_v3(&dir, &dir);
-		PrintV3(player_pos.x, dt, 5.0);
+		dir = normalize_v3(&dir);
 
-		if d > 0.1
+		if d > 0.01
 		{
-			dir = sign_v3(&dir);
-			if p_dir == player_dir.LEFT
-			{
-				player_pos.x -= dt * 4.0;
-			}
-			else if p_dir == player_dir.RIGHT
-			{
-				player_pos.x += dt * 4.0;
-			}
-			else if p_dir == player_dir.DOWN
-			{
-				player_pos.y -= dt * 4.0;
-			}
-			else if p_dir == player_dir.UP
-			{
-				player_pos.y += dt * 4.0;
-			}
+			//dir = sign_v3(&dir);
+			player_pos = player_pos + (dir * dt * 4.0);
 			//player_pos = player_pos + dir * dt * 4.0;
 			can_move = false;
 		}
@@ -817,43 +1020,63 @@ main_loop::fn(ctx : *context)
 	}
 }
 main :: fn(){
-scene1: = 
-"---------\n"
-"-......--\n"
-"-....t..-\n"
-"-.p.....-\n"
-"---------\n";
+	scene1: = 
+	"---------\n"
+	"-......--\n"
+	"-....t..-\n"
+	"-.p.....-\n"
+	"---------\n";
 
-scene2: =
-"--------------\n"
-"---.....------\n"
-"-............-\n"
-"-.-....p-....t\n"
-"-.-.....-.o..-\n"
-"-.......------\n"
-"--------------\n";
+	scene2: =
+	"--------------\n"
+	"---.....------\n"
+	"-............-\n"
+	"-.-....p-....t\n"
+	"-.-.....-.o..-\n"
+	"-.......------\n"
+	"--------------\n";
 
-// 0 = lever
-// 1 = door that only opens when something is on lever cell
-scene3: =
-"--------------\n"
-"---------..p.-\n"
-"-----...--.---\n"
-"---...t.-....-\n"
-"---...-.1..o.-\n"
-"--......-..0.-\n"
-"-.......-....-\n"
-"--------------\n";
+	// 0 = lever
+	// 1 = door that only opens when something is on lever cell
+	scene3: =
+	"--------------\n"
+	"---------..p.-\n"
+	"-----...--.---\n"
+	"---...t.-....-\n"
+	"---...-.1..o.-\n"
+	"--......-...0-\n"
+	"-.......-....-\n"
+	"--------------\n";
 
-scene4: =
-"--------------\n"
-"---------..p.-\n"
-"-----...--.---\n"
-"---...t.-....-\n"
-"---...-.1..o.-\n"
-"--......-..0.-\n"
-"-.......-....-\n"
-"--------------\n";
+	scene4: =
+	"---------------\n"
+	"--r......------\n"
+	"--r......-....-\n"
+	"--.......-..o.-\n"
+	"-......t.-....-\n"
+	"--.....-.----.-\n"
+	"--....-r...p..-\n"
+	"--....-r......-\n"
+	"---------------\n";
+
+	scene5: =
+	"--t-------------\n"
+	"-........-----.-\n"
+	"-........-----.-\n"
+	"-........----.d-\n"
+	"-........----.d-\n"
+	"-..........--.d-\n"
+	"--.-----.----..-\n"
+	"--.-----.----.p-\n"
+	"--.-----.----.o-\n"
+	"-..--......-llll\n"
+	"--.-----.----..-\n"
+	"-..--.llllll...-\n"
+	"--.--....o..----\n"
+	"--.--.......----\n"
+	"--.--.......----\n"
+	"--.-------------\n";
+
 	ctx: context;
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.alloc);
@@ -870,7 +1093,7 @@ scene4: =
 
 
 	scn_cur: = ptr_offset(ctx.scenes, 0, scene_info);
-	scn_cur.str = scene1;
+	scn_cur.str = scene5;
 	scn_cur.next = ptr_offset(ctx.scenes, 1, scene_info);
 
 	scn_cur = ptr_offset(ctx.scenes, 1, scene_info);
@@ -879,6 +1102,14 @@ scene4: =
 
 	scn_cur = ptr_offset(ctx.scenes, 2, scene_info);
 	scn_cur.str = scene3;
+	scn_cur.next = ptr_offset(ctx.scenes, 3, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 3, scene_info);
+	scn_cur.str = scene4;
+	scn_cur.next = ptr_offset(ctx.scenes, 4, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 4, scene_info);
+	scn_cur.str = scene5;
 	scn_cur.next = nil;
 
 	scn_cur = ptr_offset(ctx.scenes, 0, scene_info);

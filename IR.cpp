@@ -424,7 +424,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		lang_stat->cur_func = n->fdecl;
         
         ret->func.fdecl = n->fdecl;
-        ret->func.stats = AstFromNode(lang_stat, n->r, n->fdecl->scp);
+        ret->func.stats = AstFromNode(lang_stat, n->r->r, n->fdecl->scp);
 
 		lang_stat->cur_func = last;
 

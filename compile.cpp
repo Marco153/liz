@@ -38,6 +38,8 @@
 
 #define DATA_SECT_OFFSET 100000
 
+//#define DEBUG_GLOBAL_NOT_FOUND 
+
 struct comp_time_type_info
 {
 	//var arg struct, defined at base.lng
@@ -8258,6 +8260,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 				can_continue = true;
 
 
+#ifdef DEBUG_GLOBAL_NOT_FOUND
+	
 			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND))
 			{
 				FOR_VEC(global_nd, lang_stat->global_decl_not_found)
@@ -8270,6 +8274,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 				}
 				can_continue = true;
 			}
+#endif
 
 			int a = 0;
 			iterations++;
@@ -8304,6 +8309,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		if(!lang_stat->something_was_declared && !can_continue)
 			break;
 	}
+#ifdef DEBUG_GLOBAL_NOT_FOUND
 	printf("names not found!\n");
 	FOR_VEC(cur, names_not_found)
 	{
@@ -8316,6 +8322,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		}
 
 	}
+#endif
 	lang_stat->flags = PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
 
 	for(cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)

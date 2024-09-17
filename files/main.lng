@@ -1065,7 +1065,6 @@ main_loop::fn(ctx : *context)
 	}
 }
 main :: fn(){
-	dyn: dyn_ar(u32);
 	//dyn.data
 	scene1: = 
 	"---------\n"
@@ -1129,6 +1128,11 @@ main :: fn(){
 	InitMemAlloc(&ctx.alloc);
 	addr: = heap_alloc(&ctx.alloc, 10);
 	heap_free(&ctx.alloc, addr);
+
+	dyn: dyn_array(u32);
+	dyn.ctx = &ctx;
+	__dbg_break;
+	init_dyn(&dyn, 4);
 
 	ctx.frames_max = 4;
 	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));

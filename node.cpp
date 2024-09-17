@@ -3749,6 +3749,21 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	return true;
 }
 
+bool DescendArgsOfModifiedFunc(lang_state *lang_stat, func_decl *f)
+{
+	// getting the func decl args
+	int cur_scp_vars_size = f->scp->vars.size();
+	if (!DescendNameFinding(lang_stat, f->func_node->l->l->r, f->scp))
+		return false;
+
+	for (int i = cur_scp_vars_size; i < f->scp->vars.size(); i++)
+	{
+		decl2* d = f->scp->vars[i];
+		d->flags |= DECL_IS_ARG;
+	}
+
+	return true;
+}
 // this adds a function to the parent scope of the found function scope
 bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::string original_name, scope* scp, own_std::vector<type2>* final_types, func_decl** fdecl_out = nullptr)
 {
@@ -3820,8 +3835,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 		return false;
 
 
-	// getting the func decl args
-	if (fdecl->func_node->l->l->r && !DescendNameFinding(lang_stat, fdecl->func_node->l->l->r, fdecl->scp))
+	if (!DescendArgsOfModifiedFunc(lang_stat, fdecl))
 		return false;
 
 	// adding scope vars to args
@@ -3867,7 +3881,8 @@ bool InstantiateTemplateFunction(lang_state *lang_stat, func_decl* fdecl, own_st
 
 	// getting the func decl args
 	//DescendNode(fdecl->func_node->l->l->r, fdecl->scp);
-	if (!DescendNameFinding(lang_stat, fdecl->func_node->l->l->r, fdecl->scp))
+	if(!DescendArgsOfModifiedFunc(lang_stat, fdecl))
+	//if (!DescendNameFinding(lang_stat, fdecl->func_node->l->l->r, fdecl->scp))
 		return false;
 
 
@@ -7039,12 +7054,14 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				if (!ret_decl && IS_FLAG_OFF(scp->flags, SCOPE_IS_GLOBAL))
 					return nullptr;
 
+#ifdef DEBUG_GLOBAL_NOT_FOUND
 				if (!ret_decl && IS_FLAG_ON(scp->flags, SCOPE_IS_GLOBAL))
 				{
 					lang_stat->flags |= PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND;
 					lang_stat->global_decl_not_found.emplace_back(cur_node->r);
 					//return nullptr;
 				}
+#endif
 
 				cur_node->l->flags &= ~NODE_FLAGS_IS_PROCESSED;
 			}
@@ -7054,6 +7071,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				if (!ret_decl && IS_FLAG_OFF(scp->flags, SCOPE_IS_GLOBAL))
 					return nullptr;
 
+#ifdef DEBUG_GLOBAL_NOT_FOUND
 				if (!ret_decl && IS_FLAG_ON(scp->flags, SCOPE_IS_GLOBAL))
 				{
 					lang_stat->flags |= PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND;
@@ -7061,6 +7079,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					lang_stat->global_decl_not_found.emplace_back(cur_node->r);
 					//return nullptr;
 				}
+#endif
 
 
 				cur_node->r->flags &= ~NODE_FLAGS_IS_PROCESSED;
@@ -8993,14 +9012,8 @@ bool CheckOverloadFunction(lang_state* lang_stat, func_decl* f)
 
 	// getting the func decl args
 	int cur_scp_vars_size = f->scp->vars.size();
-	if (!DescendNameFinding(lang_stat, f->func_node->l->l->r, f->scp))
+	if (!DescendArgsOfModifiedFunc(lang_stat, f))
 		return false;
-
-	for (int i = cur_scp_vars_size; i < f->scp->vars.size(); i++)
-	{
-		decl2* d = f->scp->vars[i];
-		d->flags |= DECL_IS_ARG;
-	}
 
 	if (f->args.size() == 0)
 		f->args.insert(f->args.end(), f->scp->vars.begin() + f->templates.size(), f->scp->vars.end());

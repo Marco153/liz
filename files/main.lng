@@ -10,6 +10,11 @@ lever_info:struct
 }
 undo_cel_info: struct
 {
+	from_cel_pos_x : u32,
+	from_cel_pos_y : u32,
+	dst_cel_pos_x : u32,
+	dst_cel_pos_y : u32,
+
 	from_cel_ptr : *cel_info,
 	dst_cel_ptr : *cel_info,
 	from_cel_val : cel_info,
@@ -17,9 +22,7 @@ undo_cel_info: struct
 }
 undo_state: struct
 {
-	state : *undo_cel_info,
-	state_cur : u32,
-	state_max : u32,
+	states: dyn_array(undo_cel_info),
 }
 context: struct
 {
@@ -44,8 +47,9 @@ context: struct
 	idle_h : clip,
 	idle_v : clip,
 	in_flow : bool,
+	something_is_processing : bool,
 
-	undos : *undo_cel_info,
+	undos : *undo_state,
 	undos_cur : u32,
 	undos_max : u32,
 
@@ -238,6 +242,21 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 	{
 		width++;
 	}
+	i: u32= 0;
+	while i < ctx.frames_max
+	{
+		cur_fr: = ptr_offset(ctx.frames, i, frame_info);
+		cur_fr.type = frame_action.FREE;
+		i++;
+	}
+	ctx.something_is_processing = false;
+	i = 0;
+	while i < ctx.undos_max
+	{
+		cur: = ptr_offset(ctx.undos, i, undo_state);
+		cur.states.count = 0;
+		i++;
+	}
 
 	height = len / width;
 
@@ -252,8 +271,9 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 	scn.height = height;
 	scn.cur_levers = 0;
 	scn.cur_sz_movs = 0;
+	ctx.undos_cur = 0;
 	
-	i:u32 = 0;
+	i = 0;
 
 	cel_idx:u64 = 0;
 	total_points: = 0;
@@ -496,8 +516,23 @@ FlowBlockGetDir::fn(type : cel_type, x : *s32, y : *s32)
 	}
 }
 
-ChangeCelType::fn(ctx : *context, src_cel : * cel_info, dst_cel : *cel_info, assign_dst_type_from_src : bool)
+ChangeCelType::fn(ctx : *context, src_cel : * cel_info, dst_cel : *cel_info, src_pos_x : u32, src_pos_y : u32, dst_pos_x : u32, dst_pos_y : u32, assign_dst_type_from_src : bool)
 {
+	undo:*undo_state = GetCurUndo(ctx);
+
+	n:undo_cel_info;
+	n.from_cel_pos_x = src_pos_x;
+	n.from_cel_pos_y = src_pos_y;
+	n.dst_cel_pos_x = dst_pos_x;
+	n.dst_cel_pos_y = dst_pos_y;
+
+	n.from_cel_ptr = src_cel;
+	n.dst_cel_ptr = dst_cel;
+	n.from_cel_val = *src_cel;
+	n.dst_cel_val_before = *dst_cel;
+	//__dbg_break;
+	dyn_add(&undo.states, &n);
+
 	if (assign_dst_type_from_src)
 	{
 		dst_cel.type = src_cel.type;
@@ -512,6 +547,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 	i:u32 = 0;
 	add_x:s32;
 	add_y:s32;
+	ctx.something_is_processing = false;
 	while i < ctx.frames_max
 	{
 		cur_fr: = ptr_offset(ctx.frames, i, frame_info);
@@ -559,8 +595,8 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 
 
 			WasmDbg(ctx);
-			PrintV3(cur_fr.mov.to_pos.x, cur_fr.mov.to_pos.y, sign_dir.x);
-			PrintV3(cur_fr.mov.from_pos.x, cur_fr.mov.from_pos.y, sign_dir.x);
+			//PrintV3(cur_fr.mov.to_pos.x, cur_fr.mov.to_pos.y, sign_dir.x);
+			//PrintV3(cur_fr.mov.from_pos.x, cur_fr.mov.from_pos.y, sign_dir.x);
 			next_cel_x: = cast(u32)(cur_fr.mov.from_pos.x + sign_dir.x);
 			WasmDbg(ctx);
 			next_cel_y: = cast(u32)(cur_fr.mov.from_pos.y + sign_dir.y);
@@ -709,12 +745,12 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				aux.y = -aux.y;
 				dir: = aux - cur_fr.mov.to_pos;
 				d: = dot_v3(&dir, &dir);
-				PrintStr("\nto_pos:\n");
-				PrintV3(cur_fr.mov.to_pos.x, cur_fr.mov.to_pos.y, 0.0);
-				PrintStr("cur_pos:\n");
-				PrintV3(cur_fr.mov.cur_pos.x, cur_fr.mov.cur_pos.y, 0.0);
-				PrintStr("dot and idx");
-				PrintV3(d, cast(f32)i, 0.0);
+				//PrintStr("\nto_pos:\n");
+				//PrintV3(cur_fr.mov.to_pos.x, cur_fr.mov.to_pos.y, 0.0);
+				//PrintStr("cur_pos:\n");
+				//PrintV3(cur_fr.mov.cur_pos.x, cur_fr.mov.cur_pos.y, 0.0);
+				//PrintStr("dot and idx");
+				//PrintV3(d, cast(f32)i, 0.0);
 				if d < 0.01
 				{
 					cur_fr.stage = frame_action_stage.DONE;
@@ -755,7 +791,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 						else if cur_fr.holder_type == cel_type.MOVABLE
 						{
 							//src_cel.type = cel_type.EMPTY;
-							ChangeCelType(ctx, src_cel, dst_cel, false);
+							ChangeCelType(ctx, src_cel, dst_cel, src_x, src_y, dst_x, dst_y, false);
 							dst_cel.movable_on_water = true;
 							cur_fr.type = frame_action.FREE;
 						}
@@ -773,7 +809,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 							*cur_fr.mov.in_flow = false;
 							cur_fr.stage = frame_action_stage.DONE;
 							//src_cel.type = cel_type.EMPTY;
-							ChangeCelType(ctx, src_cel, dst_cel, false);
+							ChangeCelType(ctx, src_cel, dst_cel, src_x, src_y, dst_x, dst_y, false);
 							cur_fr.type = frame_action.FREE;
 						}
 						else
@@ -794,17 +830,20 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 					//__dbg_break;
 					cur_fr.type = frame_action.FREE;
 				}
+				dst_x = cast(u32)cur_fr.mov.cur_pos.x;
+				dst_y = cast(u32)-cur_fr.mov.cur_pos.y;
+				dst_cel = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
+
+				PrintStr("dst_cel type and src_cel type");
+				PrintV3(cast(f32)dst_cel.type, cast(f32)src_cel.type, 0.0);
+				if dst_cel != src_cel && dst_cel.type == cel_type.EMPTY && (src_cel.type == cel_type.PLAYER || src_cel.type == cel_type.MOVABLE)
+				{
+					ChangeCelType(ctx, src_cel, dst_cel, src_x, src_y, dst_x, dst_y, true);
+				}
 			}
 			else
 				__dbg_break;
 
-			dst_x = cast(u32)cur_fr.mov.cur_pos.x;
-			dst_y = cast(u32)-cur_fr.mov.cur_pos.y;
-			dst_cel = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
-			if dst_cel != src_cel && dst_cel.type == cel_type.EMPTY && (src_cel.type == cel_type.PLAYER || src_cel.type == cel_type.MOVABLE)
-			{
-				ChangeCelType(ctx, src_cel, dst_cel, true);
-			}
 		}
 		else if cur_fr.type == frame_action.NOT_ASSIGNED || cur_fr.type == frame_action.FREE
 		{
@@ -812,7 +851,13 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 		}
 		else
 			__dbg_break;
+
+		if cur_fr.type != frame_action.FREE
+		{
+			ctx.something_is_processing = true;
+		}
 		i++;
+
 	}
 }
 AddFrameAction::fn(ctx : *context) ! *frame_info
@@ -876,18 +921,84 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 		i++;
 	}
 }
-GetCurUndo::fn(ctx : *context) !*undo_cel_info
+
+GetCurUndo::fn(ctx : *context) !*undo_state
 {
-	return ptr_offset(ctx.undos, ctx.undos_cur - 1, undo_cel_info);
+	if ctx.undos_cur == 0
+		return nil;
+
+	return ptr_offset(ctx.undos, ctx.undos_cur - 1, undo_state);
 }
-AddNewUndo::fn(ctx : *context) !*undo_cel_info
+AddNewUndo::fn(ctx : *context) !*undo_state
 {
-	ASSERT(ctx.undos_cur < ctx.undos_max);
-	ret : = ptr_offset(ctx.undos, ctx.undos_cur, undo_cel_info);
+	ASSERT(ctx.undos_cur <= ctx.undos_max);
+
+
+	if (ctx.undos_cur == ctx.undos_max)
+	{
+		//__dbg_break;
+		sz:u32 = (ctx.undos_max - 1) * sizeof(undo_state);
+		aux_buffer: = GetMem(sz);
+
+		start: = ptr_offset(ctx.undos, 0, undo_state);
+		next: = ptr_offset(ctx.undos, 1, undo_state);
+		last: = ptr_offset(ctx.undos, ctx.undos_max - 1, undo_state);
+		//heap_free(&ctx.alloc, cast(*u8)ptr_offset(ctx.undos, 0, undo_state).states.data);
+		memcpy(aux_buffer, next, sz);
+		start.states.count = 0;
+		memcpy(last, start, sizeof(undo_state));
+		memcpy(start, aux_buffer, sz);
+
+		SubMem(sz);
+		ctx.undos_cur--;
+
+	}
+	ret : = ptr_offset(ctx.undos, ctx.undos_cur, undo_state);
+
+	//__dbg_break;
+	if ret.states.cap == 0
+	{
+		ret.states.ctx = ctx;
+		dyn_init(&ret.states, 2);
+	}
 
 	ctx.undos_cur++;
 	return ret;
 }
+UndoLogic::fn(ctx : *context)
+{
+	undo:*undo_state = GetCurUndo(ctx);
+	if undo == nil
+		return;
+	
+	i:u64 = 0;
+	while i < undo.states.count
+	{
+		cur:*undo_cel_info = undo.states[i];
+
+		if cur.from_cel_val.type == cel_type.PLAYER
+		{
+			ctx.player_pos.x = cast(f32)cur.from_cel_pos_x;
+			ctx.player_pos.y = -cast(f32)cur.from_cel_pos_y;
+			ctx.final_pos = ctx.player_pos;
+		}
+		else if cur.from_cel_val.type == cel_type.MOVABLE
+		{
+			cur.from_cel_val.mov.cur.x = cast(f32)cur.from_cel_pos_x;
+			cur.from_cel_val.mov.cur.y = -cast(f32)cur.from_cel_pos_y;
+			cur.from_cel_val.mov.final = cur.from_cel_val.mov.cur;
+		}
+		else
+			__dbg_break;
+		*cur.from_cel_ptr = cur.from_cel_val;
+		*cur.dst_cel_ptr = cur.dst_cel_val_before;
+		i++;
+	}
+
+	dyn_clear(&undo.states);
+	ctx.undos_cur--;
+}
+
 main_loop::fn(ctx : *context)
 {
 	using ctx;
@@ -976,8 +1087,13 @@ main_loop::fn(ctx : *context)
 				p_dir = player_dir.DOWN;
 				ChangeClip(&cur_clip, &walk_v);
 			}
+			else if IsKeyDown(key_enum.KEY_ACT0)
+			{
+				UndoLogic(ctx);
 
-			if pressed && ctx.scn.done == false
+			}
+
+			if pressed && ctx.scn.done == false && ctx.something_is_processing == false
 			{
 				act:= AddFrameAction(ctx);
 
@@ -1107,7 +1223,7 @@ main :: fn(){
 
 	scene5: =
 	"------------\n"
-	"-....-----.-\n"
+	"-....-----p-\n"
 	"-....-----.-\n"
 	"-.t..----.d-\n"
 	"-....----.d-\n"
@@ -1116,7 +1232,7 @@ main :: fn(){
 	"--.-.-----.-\n"
 	"--...-----o-\n"
 	"----.-lllll-\n"
-	"----.----p.-\n"
+	"----.----..-\n"
 	"-.llllll...-\n"
 	"-....o..----\n"
 	"-.......----\n"
@@ -1126,13 +1242,11 @@ main :: fn(){
 	ctx: context;
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.alloc);
-	addr: = heap_alloc(&ctx.alloc, 10);
-	heap_free(&ctx.alloc, addr);
 
-	dyn: dyn_array(u32);
-	dyn.ctx = &ctx;
-	__dbg_break;
-	init_dyn(&dyn, 4);
+
+	//dyn: dyn_array(u32);
+	//dyn.ctx = &ctx;
+	//dyn_init(&dyn, 4);
 
 	ctx.frames_max = 4;
 	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));
@@ -1142,13 +1256,13 @@ main :: fn(){
 	ctx.scenes = cast(*scene_info)heap_alloc(&ctx.alloc, ctx.scenes_max * sizeof(scene_info));
 	memset(cast(*u8)ctx.scenes, 0, sizeof(scene_info));
 
-	ctx.undos_max = 32;
-	ctx.undos_cur = 1;
-	ctx.undos = cast(*undo_cel_info)heap_alloc(&ctx.alloc, ctx.undos_max * sizeof(undo_cel_info));
-	memset(cast(*u8)ctx.undos, 0, sizeof(undo_cel_info));
+	ctx.undos_max = 8;
+	ctx.undos_cur = 0;
+	ctx.undos = cast(*undo_state)heap_alloc(&ctx.alloc, ctx.undos_max * sizeof(undo_state));
+	memset(cast(*u8)ctx.undos, 0, sizeof(undo_state));
 
 	scn_cur: = ptr_offset(ctx.scenes, 0, scene_info);
-	scn_cur.str = scene5;
+	scn_cur.str = scene4;
 	scn_cur.next = ptr_offset(ctx.scenes, 1, scene_info);
 
 	scn_cur = ptr_offset(ctx.scenes, 1, scene_info);

@@ -1099,7 +1099,6 @@ struct comma_ret
 	int type;
 	union
 	{
-		type2 tp;
 		decl2 decl;
 	};
 	node *n;

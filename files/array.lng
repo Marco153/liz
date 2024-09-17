@@ -10,11 +10,11 @@ operator []{ T }(dyn : *dyn_array(T), idx : u64) !*T
 	ASSERT(idx < dyn.count);
 	return ptr_offset(dyn.data, idx, T);
 }
-clear_dyn::fn{ T }(dyn : *dyn_array(T))
+dyn_clear::fn{ T }(dyn : *dyn_array(T))
 {
 	dyn.count = 0;
 }
-init_dyn::fn{ T }(dyn : *dyn_array(T), cap : u64)
+dyn_init::fn{ T }(dyn : *dyn_array(T), cap : u64)
 {
 	dyn.data = cast(*T)heap_alloc(&dyn.ctx.alloc, cast(u32)(cap * sizeof(T)));
 	dyn.count = 0;
@@ -32,14 +32,15 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 	else
 		dyn.count = dyn.count + sz;
 }
-add_dyn::fn{ T }(dyn : *dyn_array(T), data : *T)
+dyn_add::fn{ T }(dyn : *dyn_array(T), data : *T)
 {
-	//ASSERT(dyn.cap > 0);
+	ASSERT(dyn.cap > 0 && dyn.ctx != nil);
 
 	if (dyn.count + 1) >= dyn.cap
 	{
 		aux_data: = dyn.data;
 		dyn.cap = dyn.cap * 2;
+		heap_free(&dyn.ctx.alloc, cast(*u8)aux_data);
 		dyn.data = heap_alloc(&dyn.ctx.alloc, cast(u32)dyn.cap * sizeof(T));
 		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
 	}

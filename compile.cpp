@@ -36,7 +36,9 @@
 #define MEM_PTR_CUR_ADDR 18000
 #define MEM_PTR_MAX_ADDR 18008
 
-#define DATA_SECT_OFFSET 100000
+#define DATA_SECT_MAX 2048
+#define DATA_SECT_OFFSET 120000
+#define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 //#define DEBUG_GLOBAL_NOT_FOUND 
 
@@ -4456,57 +4458,13 @@ void WasmOnArgs(dbg_state* dbg)
 
 
 			}
-			else if (tkns[i].str == "wasm")
+			else if (tkns[i].str == "callstack")
 			{
-				i++;
-				bool is_ir = tkns[i].str == "ir";
-
-				if (is_ir)
+				FOR_VEC(func, dbg->func_stack)
 				{
-					i++;
+					func_decl* f = *func;
+					printf("func %s\n", f->name.c_str());
 				}
-				bool can_break = false;
-
-				func_decl* fdecl = dbg->cur_func;
-				wasm_bc* cur_bc = *dbg->cur_bc;
-				stmnt_dbg* cur_st = dbg->cur_st;
-
-				int lines = -1;
-				if(tkns[i].type == T_INT)
-				{
-					lines = tkns[i].i;
-					can_break = true;
-				}
-				while (!can_break)
-				{
-					can_break = true;
-					if (tkns[i].str == "func")
-					{
-						i++;
-					
-						ASSERT(tkns[i].type == T_WORD);
-						fdecl = FuncAddedWasmInterp(dbg->lang_stat->winterp, tkns[i].str);
-						cur_st = fdecl->wasm_stmnts.begin();
-						cur_bc = dbg->bcs.begin() + cur_st->start;
-						i++;
-					}
-					else if (tkns[i].str == "lines")
-					{
-						i++;
-						ASSERT(tkns[i].type == T_INT);
-
-						lines = tkns[i].i;
-					}
-					
-					if (tkns[i].type == T_COMMA)
-					{
-						can_break = false;
-						i++;
-					}
-				}
-				
-				std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines, true, !is_ir);
-				printf("%s\n", ret.c_str());
 			}
 		}
 		std::string aux;
@@ -8125,12 +8083,13 @@ void RunDbgFile(lang_state* lang_stat, std::string func, long long* args, int to
 {
 
 
-	int mem_size = 128000;
+	int mem_size = BUFFER_MEM_MAX;
 	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size);
 	lang_stat->winterp->dbg->mem_size = mem_size;
 	*(int*)&buffer[MEM_PTR_CUR_ADDR] = 20000;
 	*(int*)&buffer[MEM_PTR_MAX_ADDR] = 0;
 
+	ASSERT(lang_stat->data_sect.size() < DATA_SECT_MAX);
 	memcpy(&buffer[DATA_SECT_OFFSET], lang_stat->data_sect.begin(), lang_stat->data_sect.size());
 	WasmInterpRun(lang_stat->winterp, buffer, mem_size, func.c_str(), args, total_args);
 	__lang_globals.free(__lang_globals.data, buffer);

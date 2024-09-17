@@ -2210,7 +2210,7 @@ void DescendComma(lang_state *lang_stat, node* n, scope* scp, own_std::vector<co
 		else if (n->type == node_type::N_TYPE)
 		{
 			cret.type = COMMA_RET_TYPE;
-			cret.tp = n->decl_type;
+			cret.decl.type = n->decl_type;
 
 			ret.emplace_back(cret);
 		}
@@ -2232,7 +2232,7 @@ void DescendComma(lang_state *lang_stat, node* n, scope* scp, own_std::vector<co
 		else if (n->t && n->t->type != T_OPEN_CURLY || n->t == nullptr)
 		{
 			cret.type = COMMA_RET_EXPR;
-			cret.tp = DescendNode(lang_stat, n, scp);
+			cret.decl.type = DescendNode(lang_stat, n, scp);
 			ret.emplace_back(cret);
 		}
 		lang_stat->call_regs_used++;
@@ -2346,19 +2346,19 @@ own_std::vector<type2> TemplatesTypeToLangArray(lang_state *lang_stat, own_std::
 		decl2* og_a = (*original)[i];
 		auto given_arg = &(*args)[i];
 
-		if (given_arg->tp.type == TYPE_STATIC_ARRAY)
+		if (given_arg->decl.type.type == TYPE_STATIC_ARRAY)
 			ReportMessage(lang_stat, given_arg->n->t, "Cannot create template from static array types. Try dereferencing it.");
 
 		// if the og func arg is a plain template, which is not inside another type
 		if (og_a->type.type == enum_type2::TYPE_TEMPLATE && og_a->type.templ_name == t->name)
 		{
-			given_arg->tp.type = FromVarTypeToType(given_arg->tp.type);
-			ret.emplace_back(given_arg->tp);
+			given_arg->decl.type.type = FromVarTypeToType(given_arg->decl.type.type);
+			ret.emplace_back(given_arg->decl.type);
 		}
 		else if (og_a->type.type == enum_type2::TYPE_STRUCT)
 		{
 			type2 tp;
-			if (TemplTypeFromStruct(&og_a->type, &tp, &given_arg->tp, t->name))
+			if (TemplTypeFromStruct(&og_a->type, &tp, &given_arg->decl.type, t->name))
 			{
 				ret.emplace_back(tp);
 			}
@@ -2381,13 +2381,13 @@ std::string TemplatesTypeToString(own_std::vector<template_expr>* templates, fun
 		// if the og func arg is a plain template, which is not inside another type
 		if (og_a->type.type == enum_type2::TYPE_TEMPLATE && og_a->type.templ_name == t->name)
 		{
-			ret += TypeToString((*args)[0].tp);
+			ret += TypeToString((*args)[0].decl.type);
 			ret += ", ";
 		}
 		else if (og_a->type.type == enum_type2::TYPE_STRUCT)
 		{
 			type2 tp;
-			if (TemplTypeFromStruct(&og_a->type, &tp, &given_arg->tp, t->name))
+			if (TemplTypeFromStruct(&og_a->type, &tp, &given_arg->decl.type, t->name))
 			{
 				ret += TypeToString(tp);
 				ret += ", ";
@@ -2415,7 +2415,7 @@ own_std::vector<decl2*> GetTemplateTypes(lang_state *lang_stat, own_std::vector<
 		if (cur_t->expr == nullptr)
 		{
 			cur_t->final_type = (type2*)AllocMiscData(lang_stat, sizeof(type2));
-			*(cur_t->final_type) = a->type == COMMA_RET_COLON ? a->decl.type : a->tp;
+			*(cur_t->final_type) = a->decl.type;
 
 			decl2 decl;
 			decl.name = cur_t->name.substr();
@@ -3907,7 +3907,7 @@ void ModifyCommaRetTypes(own_std::vector<comma_ret>* ar, scope* scp)
 		}break;
 		//case COMMA_RET_TYPE:
 		case COMMA_RET_EXPR:
-			t->decl.type = t->tp;
+			//t->decl.type = t->tp;
 			break;
 		}
 	}
@@ -4129,13 +4129,13 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			{
 				if (t->type == COMMA_RET_IDENT)
 				{
-					ASSERT(FindIdentifier(t->decl.name, scp, &t->tp))
+					ASSERT(FindIdentifier(t->decl.name, scp, &t->decl.type))
 				}
 				else if (t->type == COMMA_RET_EXPR)
 					ASSERT(false);
 			}
 
-			if (!(args[0].tp.type != TYPE_ENUM))
+			if (!(args[0].decl.type.type != TYPE_ENUM))
 			{
 				ReportMessage(lang_stat, ncall->r->t, "enum_count only accepts enum as args");
 				ExitProcess(1);
@@ -4175,10 +4175,12 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			{
 				if (t->type == COMMA_RET_IDENT)
 				{
-					ASSERT(FindIdentifier(t->decl.name, scp, &t->tp))
+					ASSERT(FindIdentifier(t->decl.name, scp, &t->decl.type))
 				}
+				/*
 				else if (t->type == COMMA_RET_EXPR)
-					t->decl.type = t->tp;
+					t->decl.type = t->;
+				*/
 			}
 			// choosing overload funcs
 			if (lhs->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
@@ -4251,12 +4253,14 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				*ret_type = fdecl->ret_type;
 			}
 
+			/*
 			// transfering type to tp
 			FOR_VEC(t, args)
 			{
 				if (t->type == COMMA_RET_EXPR)
 					t->tp = t->decl.type;
 			}
+			*/
 
 			int fdecl_arg_idx = 0;
 
@@ -4270,11 +4274,11 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				auto t = &args[i];
 
 				auto f_arg = fdecl->args[fdecl_arg_idx];
-				bool comp_val = CompareTypes(&f_arg->type, &t->tp, false);
+				bool comp_val = CompareTypes(&f_arg->type, &t->decl.type, false);
 
 				// create implicit cast
 				if (comp_val && f_arg->type.type != TYPE_STRUCT &&
-					f_arg->type.type != TYPE_ENUM && f_arg->type.type != t->tp.type)
+					f_arg->type.type != TYPE_ENUM && f_arg->type.type != t->decl.type.type)
 				{
 					auto cast_tp_nd = CreateNodeFromType(lang_stat, &f_arg->type, ncall->t);
 					auto casted = NewTypeNode(lang_stat, cast_tp_nd, N_CAST, new_node(lang_stat, t->n), ncall->t);
@@ -4285,7 +4289,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				if (!comp_val && f_arg->type.type == enum_type2::TYPE_STRUCT && f_arg->type.ptr == 0)
 				{
 					own_std::vector<type2> tp_ar;
-					tp_ar.emplace_back(t->tp);
+					tp_ar.emplace_back(t->decl.type);
 
 					if (f_arg->type.strct->constructors.size() == 0)
 					{
@@ -4318,7 +4322,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					if (!comp_val)
 					{
 						REPORT_ERROR(t->n->t->line, t->n->t->line_offset, VAR_ARGS("On call to '%s', argument %d type mismatch. Expected %s, received %s\n\n", fdecl->name.c_str(),
-							i + 1, TypeToString(f_arg->type).c_str(), TypeToString(t->tp).c_str()))
+							i + 1, TypeToString(f_arg->type).c_str(), TypeToString(t->decl.type).c_str()))
 							ExitProcess(1);
 					}
 					// ASSERT(comp_val)
@@ -4367,7 +4371,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				auto var_args_call_nd = MakeFuncCallArgs(lang_stat, "new_var_arg", nullptr, var_args_params);
 
 				*/
-				auto var_args_call_nd = CreateNewVarArgCall(lang_stat, a->n, a->n, a->tp.ptr, ncall);
+				auto var_args_call_nd = CreateNewVarArgCall(lang_stat, a->n, a->n, a->decl.type.ptr, ncall);
 
 				memcpy(a->n, var_args_call_nd, sizeof(node));
 
@@ -4411,8 +4415,10 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			{
 				ASSERT(FindIdentifier(t->decl.name, scp, &t->decl.type));
 			}
+			/*
 			else if (t->type == COMMA_RET_EXPR)
 				t->decl.type = t->tp;
+				*/
 
 
 		}
@@ -4455,7 +4461,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		{
 			type2 aux = t->decl.type;
 			//enum_type2 tp = 
-			aux.type = (t->type == COMMA_RET_COLON || t->type == COMMA_RET_IDENT)? t->decl.type.type : t->tp.type;
+			aux.type = t->decl.type.type;
 			aux.type = FromTypeToVarType(aux.type);
 			templ_name += TypeToString(aux);
 			templ_name += "_";
@@ -4680,15 +4686,15 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 			{
 				if (t->decl.type.type == enum_type2::TYPE_AUTO)
 				{
-					enum_decl = FindIdentifier(t->decl.name, child_scp, &t->tp);
+					enum_decl = FindIdentifier(t->decl.name, child_scp, &t->decl.type);
 					ASSERT(enum_decl);
-					t->tp.type = FromTypeToVarType(t->tp.type);
+					t->decl.type.type = FromTypeToVarType(t->decl.type.type);
 				}
 				else
 				{
-					t->tp.type = FromTypeToVarType(t->decl.type.type);
+					t->decl.type.type = FromTypeToVarType(t->decl.type.type);
 				}
-				new_decl->type = t->tp;
+				new_decl->type = t->decl.type;
 				new_decl->name = "unamed";
 
 				if (new_decl->type.type == TYPE_ENUM)
@@ -4699,7 +4705,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 			// parameters with name and type
 			else if (t->type == COMMA_RET_COLON || t->type == COMMA_RET_TYPE)
 			{
-				enum_type2 tp = t->type == COMMA_RET_COLON ? t->decl.type.type : t->tp.type;
+				enum_type2 tp = t->decl.type.type;
 				t->decl.type.type = FromTypeToVarType(tp);
 				new_decl->type = t->decl.type;
 				new_decl->name = t->decl.name;
@@ -4714,8 +4720,8 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 			// probably ptr type *u8, *u16 etc
 			else if (t->type == COMMA_RET_EXPR)
 			{
-				t->tp.type = FromTypeToVarType(t->tp.type);
-				new_decl->type = t->tp;
+				t->decl.type.type = FromTypeToVarType(t->decl.type.type);
+				new_decl->type = t->decl.type;
 				new_decl->name = "unamed_arg";
 				//child_scp->vars.emplace_back(NewDecl(lang_stat, "unamed", t->tp));
 			}
@@ -5826,14 +5832,16 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			FOR_VEC(t, args)
 			{
 				if (t->type == COMMA_RET_IDENT)
-					ASSERT(FindIdentifier(t->decl.name, scp, &t->tp))
+					ASSERT(FindIdentifier(t->decl.name, scp, &t->decl.type))
+					/*
 				else if (t->type == COMMA_RET_EXPR)
-					t->decl.type = t->tp;
+					t->decl.type = t->decl;
+					*/
 			}
 
 			//ASSERT(IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 
-			auto ref_type = args[0].tp;
+			auto ref_type = args[0].decl.type;
 
 			if (ref_type.type == enum_type2::TYPE_INT)
 				ref_type.type = enum_type2::TYPE_S32;
@@ -5841,7 +5849,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			// comparing types
 			FOR_VEC(t, args)
 			{
-				ASSERT(CompareTypes(&ref_type, &t->tp))
+				ASSERT(CompareTypes(&ref_type, &t->decl.type))
 			}
 
 			auto new_tp = (type2*)AllocMiscData(lang_stat, sizeof(type2));
@@ -7822,7 +7830,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			if (t->type == COMMA_RET_IDENT)
 			{
-				ASSERT(FindIdentifier(t->decl.name, scp, &t->tp));
+				ASSERT(FindIdentifier(t->decl.name, scp, &t->decl.type));
 			}
 			if (t->type == COMMA_VAR_ARGS)
 			{
@@ -7851,7 +7859,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			if (fdecl->name == "sizeof")
 			{
 				ret_type.type = TYPE_INT;
-				ret_type.i = GetTypeSize(&args[0].tp);
+				ret_type.i = GetTypeSize(&args[0].decl.type);
 			}
 			else
 				ASSERT(0);

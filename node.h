@@ -384,7 +384,7 @@ bool decl2::AssignTemplate(lang_state *lang_stat, std::string tname, type2 *tp, 
 			//original function parameter signature args
 			if ((*t)->AssignTemplate(lang_stat, tname, tp, given_arg))
 			{
-				auto func_ptr_in_call_arg = given_arg->tp.fdecl->args[cur_arg];
+				auto func_ptr_in_call_arg = given_arg->decl.type.fdecl->args[cur_arg];
 				ASSERT(func_ptr_in_call_arg->type.type == enum_type2::TYPE_AUTO)
 				// func passed to func call
 				func_ptr_in_call_arg->AssignTemplate(lang_stat, tname, tp, given_arg);
@@ -393,7 +393,7 @@ bool decl2::AssignTemplate(lang_state *lang_stat, std::string tname, type2 *tp, 
 			cur_arg++;
 		}
 
-		auto func_ptr_in_call= given_arg->tp.fdecl;
+		auto func_ptr_in_call= given_arg->decl.type.fdecl;
 
 		if (func_ptr_in_call->ret_type.type == enum_type2::TYPE_AUTO)
 		{

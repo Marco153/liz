@@ -196,6 +196,10 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_D;
 	}break;
+	case _KEY_ACT0:
+	{
+		key = GLFW_KEY_Z;
+	}break;
 	case _KEY_LEFT:
 	{
 		key = GLFW_KEY_A;
@@ -663,6 +667,19 @@ void DebuggerCommand(dbg_state* dbg)
 
 }
 */
+void SubMem(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	ASSERT(sz > 0)
+
+	int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
+	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
+	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] -= sz;
+	ASSERT((addr - sz) >= 0);
+	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
+
+}
 void GetMem(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -672,7 +689,7 @@ void GetMem(dbg_state* dbg)
 	int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
 	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
 	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] += sz;
-	ASSERT((addr + sz) < 80000);
+	ASSERT((addr + sz) < DATA_SECT_OFFSET);
 	//*max += sz;
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
@@ -756,6 +773,7 @@ int main(int argc, char* argv[])
 	}
 
 	AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
+	AssignOutsiderFunc(&lang_stat, "SubMem", (OutsiderFuncType)SubMem);
 	AssignOutsiderFunc(&lang_stat, "Print", (OutsiderFuncType)Print);
 	AssignOutsiderFunc(&lang_stat, "OpenWindow", (OutsiderFuncType)OpenWindow);
 	AssignOutsiderFunc(&lang_stat, "ShouldClose", (OutsiderFuncType)ShouldClose);

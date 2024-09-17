@@ -294,7 +294,7 @@ std::string TypeToString(type2 &tp)
 		ret = "func";
 	}break;
 	case enum_type2::TYPE_TEMPLATE:
-		ret += TypeToString(*tp.tp);
+		ret += "template";
 		break;
 	case enum_type2::TYPE_FUNC_EXTERN:
 	case enum_type2::TYPE_FUNC_PTR:

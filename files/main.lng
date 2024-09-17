@@ -8,6 +8,19 @@ lever_info:struct
 	lever : *cel_info,
 	door : *cel_info,
 }
+undo_cel_info: struct
+{
+	from_cel_ptr : *cel_info,
+	dst_cel_ptr : *cel_info,
+	from_cel_val : cel_info,
+	dst_cel_val_before : cel_info,
+}
+undo_state: struct
+{
+	state : *undo_cel_info,
+	state_cur : u32,
+	state_max : u32,
+}
 context: struct
 {
 	scn:*scene,
@@ -31,9 +44,15 @@ context: struct
 	idle_h : clip,
 	idle_v : clip,
 	in_flow : bool,
-	
+
+	undos : *undo_cel_info,
+	undos_cur : u32,
+	undos_max : u32,
+
 }
+
 DRAW_INFO_HAS_TEXTURE:const s32 = 1;
+
 draw_info: struct
 {
 	pos :v3,
@@ -477,6 +496,16 @@ FlowBlockGetDir::fn(type : cel_type, x : *s32, y : *s32)
 	}
 }
 
+ChangeCelType::fn(ctx : *context, src_cel : * cel_info, dst_cel : *cel_info, assign_dst_type_from_src : bool)
+{
+	if (assign_dst_type_from_src)
+	{
+		dst_cel.type = src_cel.type;
+		dst_cel.mov = src_cel.mov;
+	}
+	src_cel.type = cel_type.EMPTY;
+	
+}
 ProcessFrameActions::fn(ctx : *context, scn : *scene)
 {
 	//if scn.done return;
@@ -549,6 +578,8 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 
 
 			is_flow_block: = cur_cel.type == cel_type.FLOW_LEFT || cur_cel.type == cel_type.FLOW_DOWN;
+			is_in_flow: = cur_fr.mov.in_flow != nil && *cur_fr.mov.in_flow == true;
+
 			if cur_fr.stage == frame_action_stage.NOT_STARTED
 			{
 				
@@ -606,7 +637,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
 					//__dbg_break;
 				}
-				else if is_flow_block&& movable_on_water
+				else if is_flow_block && movable_on_water && is_in_flow
 				{
 					//FlowBlockGetDir(cur_cel.type, &add_x, &add_y);
 
@@ -723,7 +754,8 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 						}
 						else if cur_fr.holder_type == cel_type.MOVABLE
 						{
-							src_cel.type = cel_type.EMPTY;
+							//src_cel.type = cel_type.EMPTY;
+							ChangeCelType(ctx, src_cel, dst_cel, false);
 							dst_cel.movable_on_water = true;
 							cur_fr.type = frame_action.FREE;
 						}
@@ -740,7 +772,8 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 
 							*cur_fr.mov.in_flow = false;
 							cur_fr.stage = frame_action_stage.DONE;
-							src_cel.type = cel_type.EMPTY;
+							//src_cel.type = cel_type.EMPTY;
+							ChangeCelType(ctx, src_cel, dst_cel, false);
 							cur_fr.type = frame_action.FREE;
 						}
 						else
@@ -770,9 +803,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 			dst_cel = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
 			if dst_cel != src_cel && dst_cel.type == cel_type.EMPTY && (src_cel.type == cel_type.PLAYER || src_cel.type == cel_type.MOVABLE)
 			{
-				dst_cel.type = src_cel.type;
-				dst_cel.mov = src_cel.mov;
-				src_cel.type = cel_type.EMPTY;
+				ChangeCelType(ctx, src_cel, dst_cel, true);
 			}
 		}
 		else if cur_fr.type == frame_action.NOT_ASSIGNED || cur_fr.type == frame_action.FREE
@@ -844,6 +875,18 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 		Draw(ctx.window, &draw);
 		i++;
 	}
+}
+GetCurUndo::fn(ctx : *context) !*undo_cel_info
+{
+	return ptr_offset(ctx.undos, ctx.undos_cur - 1, undo_cel_info);
+}
+AddNewUndo::fn(ctx : *context) !*undo_cel_info
+{
+	ASSERT(ctx.undos_cur < ctx.undos_max);
+	ret : = ptr_offset(ctx.undos, ctx.undos_cur, undo_cel_info);
+
+	ctx.undos_cur++;
+	return ret;
 }
 main_loop::fn(ctx : *context)
 {
@@ -948,6 +991,8 @@ main_loop::fn(ctx : *context)
 				act.mov.modify_pos = &final_pos;
 				act.mov.cur_pos = &player_pos;
 				act.mov.in_flow = &in_flow;
+
+				AddNewUndo(ctx);
 			}
 		}
 
@@ -1020,6 +1065,8 @@ main_loop::fn(ctx : *context)
 	}
 }
 main :: fn(){
+	dyn: dyn_ar(u32);
+	//dyn.data
 	scene1: = 
 	"---------\n"
 	"-......--\n"
@@ -1060,22 +1107,22 @@ main :: fn(){
 	"---------------\n";
 
 	scene5: =
-	"--t-------------\n"
-	"-........-----.-\n"
-	"-........-----.-\n"
-	"-........----.d-\n"
-	"-........----.d-\n"
-	"-..........--.d-\n"
-	"--.-----.----..-\n"
-	"--.-----.----.p-\n"
-	"--.-----.----.o-\n"
-	"-..--......-llll\n"
-	"--.-----.----..-\n"
-	"-..--.llllll...-\n"
-	"--.--....o..----\n"
-	"--.--.......----\n"
-	"--.--.......----\n"
-	"--.-------------\n";
+	"------------\n"
+	"-....-----.-\n"
+	"-....-----.-\n"
+	"-.t..----.d-\n"
+	"-....----.d-\n"
+	"-....----.d-\n"
+	"--.-------.-\n"
+	"--.-.-----.-\n"
+	"--...-----o-\n"
+	"----.-lllll-\n"
+	"----.----p.-\n"
+	"-.llllll...-\n"
+	"-....o..----\n"
+	"-.......----\n"
+	"-.......----\n"
+	"------------\n";
 
 	ctx: context;
 	AssignCtxAddr(&ctx);
@@ -1091,6 +1138,10 @@ main :: fn(){
 	ctx.scenes = cast(*scene_info)heap_alloc(&ctx.alloc, ctx.scenes_max * sizeof(scene_info));
 	memset(cast(*u8)ctx.scenes, 0, sizeof(scene_info));
 
+	ctx.undos_max = 32;
+	ctx.undos_cur = 1;
+	ctx.undos = cast(*undo_cel_info)heap_alloc(&ctx.alloc, ctx.undos_max * sizeof(undo_cel_info));
+	memset(cast(*u8)ctx.undos, 0, sizeof(undo_cel_info));
 
 	scn_cur: = ptr_offset(ctx.scenes, 0, scene_info);
 	scn_cur.str = scene5;

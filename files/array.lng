@@ -1,3 +1,15 @@
+dyn_ar: struct(T)
+{
+	data : *T,
+	count : u64,
+	cap : u64,
+	ctx : *context,
+}
+operator []{ T }(self : *dyn_ar(T), idx : u64) !*T
+{
+	ASSERT(idx < self.count);
+	return ptr_offset(self.data, idx, T);
+}
 str_ln::fn(str :str_lit) !u64
 {
 	s: = cast(*u8)str;

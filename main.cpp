@@ -724,7 +724,7 @@ void Stub()
 {
 
 }
-int main()
+int main(int argc, char* argv[])
 {
 	lang_state lang_stat;
 	mem_alloc alloc;
@@ -742,7 +742,18 @@ int main()
 	compile_options opts = {};
 	opts.file = "../lang2/files";
 	opts.wasm_dir = "../lang2/web/";
-	opts.release = true;
+	if (argc > 1)
+	{
+		std::string is_release = argv[1];
+		if (is_release == "0")
+		{
+			opts.release = false;
+		}
+		else
+		{
+			opts.release = true;
+		}
+	}
 
 	AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
 	AssignOutsiderFunc(&lang_stat, "Print", (OutsiderFuncType)Print);

@@ -524,6 +524,7 @@ std::string OvrldOpToStr(overload_op op);
 #define TP_STRCT_TEMPLATED 1
 #define TP_STRCT_STRUCT_NOT_NODE 2
 #define TP_STRCT_STRUCT_SERIALIZED 4
+//#define TP_STRCT_DONE 8
 struct type_struct2
 {
 #ifndef COMPILER

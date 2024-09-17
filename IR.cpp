@@ -2,7 +2,7 @@
 
 bool IsAstSimple(lang_state *lang_stat, ast_rep *ast);
 decl2* PointLogic(lang_state* lang_stat, node* n, scope* scp, type2* ret_tp);
-bool NameFindingGetType(lang_state* lang_stat, node* n, scope* scp, type2& ret_type);
+bool NameFindingGetType(lang_state* lang_stat, node* n, scope* scp, type2& ret_type, int);
 void GenStackThenIR(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val* dst_val, ir_val *i=nullptr);
 void CreateOppositeRegAssigmentAfterCondChecking(lang_state* lang_stat, own_std::vector<ir_rep>* out, int sub_if_idx, int if_idx, int reg);
 
@@ -2173,6 +2173,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		FOR_VEC(arg, ast->func.fdecl->vars)
 		{
 			decl2* a = *arg;
+			if (a->type.type == TYPE_TEMPLATE)
+				continue;
             ir.fdecl = ast->func.fdecl;
 			if(IS_FLAG_ON(a->flags, DECL_IS_ARG))
 				ir.type = IR_DECLARE_ARG;

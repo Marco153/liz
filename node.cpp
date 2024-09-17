@@ -18,7 +18,7 @@ void ModifyFuncDeclToName(lang_state* lang_stat, func_decl* fdecl, node* n, scop
 std::string StringifyNode(node* n);
 bool CallNode(lang_state*, node* ncall, scope* scp, type2* ret_type, decl2* = nullptr);
 unit_file* AddNewFile(lang_state*, std::string name);
-bool NameFindingGetType(lang_state*, node* n, scope* scp, type2& ret_type);
+bool NameFindingGetType(lang_state*, node* n, scope* scp, type2& ret_type, int = 0);
 decl2* PointLogic(lang_state*, node* n, scope* scp, type2* ret_tp);
 decl2* DescendNameFinding(lang_state*, node* n, scope* given_scp);
 std::string FuncNameWithTempls(lang_state*, std::string fname, own_std::vector<type2>* types);
@@ -79,6 +79,8 @@ char* std_str_to_heap(lang_state*, std::string* str);
 #define PSR_FLAGS_ON_JMP_WHEN_ERROR 0x20000
 #define PSR_FLAGS_SCOPE_WHITHOUT_CURLY 0x40000
 #define PSR_FLAGS_COMP_TIME 0x80000
+#define PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND 0x100000
+#define PSR_FLAGS_RET_NIL_EVEN_WHEN_PTR_TO_STRUCT_NOT_DONE 0x200000
 
 
 #define PREC_SEMI_COLON 0
@@ -2527,7 +2529,9 @@ decl2* FindIdentifier(std::string name, scope* scp, type2* ret_type, int flags)
 
 
 
-	if (decl->type.type == enum_type2::TYPE_STRUCT_TYPE && IS_FLAG_ON(decl->type.strct->flags, TP_STRCT_STRUCT_NOT_NODE))
+	if (decl->type.type == enum_type2::TYPE_STRUCT_TYPE 
+		&& IS_FLAG_ON(decl->type.strct->flags, TP_STRCT_STRUCT_NOT_NODE) 
+		&& IS_FLAG_OFF(flags, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE))
 		return nullptr;
 
 	*ret_type = decl->type;
@@ -3045,7 +3049,8 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 
 	type2 ret_type;
 	memset(&ret_type, 0, sizeof(ret_type));
-	auto instantions_exist = FindIdentifier(templ_name, scp, &ret_type);
+	auto instantions_exist = FindIdentifier(templ_name, scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+
 	type_struct2* new_strct;
 	scope* new_scope;
 
@@ -3282,7 +3287,8 @@ void GetIfExprType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type, 
 }
 
 // $NameFindingGetType $NameType
-bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type)
+#define NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE 1
+bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type, int flags)
 {
 	char msg_hdr[256];
 	switch (n->type)
@@ -3563,7 +3569,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 		}break;
 		case tkn_type2::T_MUL:
 		{
-			if (!NameFindingGetType(lang_stat, n->r, scp, ret_type))
+			if (!NameFindingGetType(lang_stat, n->r, scp, ret_type, flags))
 				return false;
 
 
@@ -3650,8 +3656,8 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	}break;
 	case node_type::N_IDENTIFIER:
 	{
-
-		auto ident = FindIdentifier(n->t->str, scp, &ret_type);
+		int f = (flags & NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE) * FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE;
+		auto ident = FindIdentifier(n->t->str, scp, &ret_type, f);
 		if (ident == nullptr)
 		{
 			if (IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
@@ -4434,7 +4440,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		{
 			type2 aux = t->decl.type;
 			//enum_type2 tp = 
-			aux.type = t->type == COMMA_RET_COLON ? t->decl.type.type : t->tp.type;
+			aux.type = (t->type == COMMA_RET_COLON || t->type == COMMA_RET_IDENT)? t->decl.type.type : t->tp.type;
+			aux.type = FromTypeToVarType(aux.type);
 			templ_name += TypeToString(aux);
 			templ_name += "_";
 		}
@@ -4599,6 +4606,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 
 
 		lang_stat->flags |= PSR_FLAGS_DONT_DECLARE_VARIABLES;
+		lang_stat->flags |= PSR_FLAGS_RET_NIL_EVEN_WHEN_PTR_TO_STRUCT_NOT_DONE;
 		lang_stat->flags &= ~PSR_FLAGS_DECLARE_ONLY_TYPE_PARAMTS;
 		if (!DescendNameFinding(lang_stat, fnode->l->l->r, child_scp))
 		{
@@ -5031,6 +5039,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 
 			type2 dummy;
 			ret = FindIdentifier(n->r->t->str, lhs->type.strct->scp, &dummy);
+
 			if (!ret)
 			{
 				REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
@@ -6450,6 +6459,9 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					}
 					else if (is_struct_val)
 					{
+						decl2* memcpy_func = FindIdentifier("memcpy", scp, &ret_type);
+						if (!memcpy_func)
+							return nullptr;
 						auto arg1 = NewUnopNode(lang_stat, nullptr, T_AMPERSAND, equal_stmnt->l);
 						auto arg2 = NewUnopNode(lang_stat, nullptr, T_AMPERSAND, equal_stmnt->r);
 
@@ -6590,7 +6602,12 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				case node_type::N_UNOP:
 				{
 					bool was_call = CMP_NTYPE(n->r, N_CALL);
-					if (!NameFindingGetType(lang_stat, n->r, scp, ret_type))
+					bool was_ptr = CMP_NTYPE(n->r, N_UNOP) && n->r->t->type == T_MUL;
+
+					bool is_ret_nil = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_DONT_DECLARE_VARIABLES);
+					int flags_to_get_type = was_ptr * NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE * !is_ret_nil;
+					//DescendNameNM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE
+					if (!NameFindingGetType(lang_stat, n->r, scp, ret_type, flags_to_get_type))
 						return nullptr;
 
 					if (ret_type.type == TYPE_STRUCT_TYPE && ret_type.strct->templates.size() > 0 && IS_FLAG_OFF(ret_type.flags, TYPE_NOT_INSTANTIATED_YET))
@@ -6798,7 +6815,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							machine_sym(lang_stat, SYM_TYPE_DATA, (unsigned int)lang_stat->type_sect.size(), (char*)std_str_to_heap(lang_stat, &final_name))
 						);
 					}
-
+					//decl_exist->flags &= ~DECL_NOT_DONE;
+					//tstrct->flags |= TP_STRCT_STRUCT_NODE;
 					can_declare = true;
 
 				}break;
@@ -6900,11 +6918,20 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		default:
 		{
+			node* cur = n->l;
+			while (cur->l && cur->l->type == N_BINOP)
+			{
+				cur = cur->l;
+			}
+			if (cur != nullptr)
+				DescendNameFinding(lang_stat, cur, scp);
+
 			if (n->l != nullptr && !DescendNameFinding(lang_stat, n->l, scp))
 				return nullptr;
 
 			if (n->r != nullptr && !DescendNameFinding(lang_stat, n->r, scp))
 				return nullptr;
+
 		}break;
 		}
 	}break;
@@ -7012,7 +7039,12 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				if (!ret_decl && IS_FLAG_OFF(scp->flags, SCOPE_IS_GLOBAL))
 					return nullptr;
 
-
+				if (!ret_decl && IS_FLAG_ON(scp->flags, SCOPE_IS_GLOBAL))
+				{
+					lang_stat->flags |= PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND;
+					lang_stat->global_decl_not_found.emplace_back(cur_node->r);
+					//return nullptr;
+				}
 
 				cur_node->l->flags &= ~NODE_FLAGS_IS_PROCESSED;
 			}
@@ -7021,6 +7053,15 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				auto ret_decl = DescendNameFinding(lang_stat, cur_node->r, scp);
 				if (!ret_decl && IS_FLAG_OFF(scp->flags, SCOPE_IS_GLOBAL))
 					return nullptr;
+
+				if (!ret_decl && IS_FLAG_ON(scp->flags, SCOPE_IS_GLOBAL))
+				{
+					lang_stat->flags |= PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND;
+					//lang_stat->global_decl_not_found = cur_node->r;
+					lang_stat->global_decl_not_found.emplace_back(cur_node->r);
+					//return nullptr;
+				}
+
 
 				cur_node->r->flags &= ~NODE_FLAGS_IS_PROCESSED;
 			}
@@ -8923,15 +8964,15 @@ node* node_iter::parse(tkn_type2 target)
 	ASSERT(false)
 		return nullptr;
 }
-bool CheckOverloadFunction(lang_state *lang_stat, func_decl* f)
+bool CheckOverloadFunction(lang_state* lang_stat, func_decl* f)
 {
 	struct defer_strct
 	{
 		unit_file* last;
-		lang_state *_l;
-		defer_strct(lang_state *l, func_decl* f)
+		lang_state* _l;
+		defer_strct(lang_state* l, func_decl* f)
 		{
-            _l = l;
+			_l = l;
 			last = _l->cur_file;
 			_l->cur_file = f->from_file;
 		}
@@ -8951,8 +8992,15 @@ bool CheckOverloadFunction(lang_state *lang_stat, func_decl* f)
 		return false;
 
 	// getting the func decl args
+	int cur_scp_vars_size = f->scp->vars.size();
 	if (!DescendNameFinding(lang_stat, f->func_node->l->l->r, f->scp))
 		return false;
+
+	for (int i = cur_scp_vars_size; i < f->scp->vars.size(); i++)
+	{
+		decl2* d = f->scp->vars[i];
+		d->flags |= DECL_IS_ARG;
+	}
 
 	if (f->args.size() == 0)
 		f->args.insert(f->args.end(), f->scp->vars.begin() + f->templates.size(), f->scp->vars.end());

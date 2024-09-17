@@ -1,3 +1,7 @@
+ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
+{
+	(cast(*type)(cast(u64)ptr + (offset) * sizeof(type)))
+}
 CHUNK_FREE : const s32 = 1;
 CHUNK_ALLOCATED : const s32= 4;
 
@@ -69,10 +73,6 @@ ASSERT::fn macro(exp : _expr)
 {
 	if !(exp)
 		__dbg_break;
-}
-ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
-{
-	(cast(*type)(cast(u64)ptr + (offset) * sizeof(type)))
 }
 is_flag_off::fn macro(val : _expr, flag : _expr)
 {
@@ -997,5 +997,15 @@ tests :: fn(ret : *u32)
 	c_ptr.movable_on_water = false;
 
 	if c_ptr.movable_on_water != false
+		debug_break();
+
+	ar: dyn_ar(u32);
+
+	ar.count = 4;
+	//__dbg_break;
+	if ar[0] != cast(*u32)0
+		debug_break();
+
+	if ar[1] != cast(*u32)4
 		debug_break();
 }

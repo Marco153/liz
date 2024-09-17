@@ -406,6 +406,7 @@ struct lang_state
 	unsigned short arg_regs[MAX_ARGS];
 
 	node* cur_stmnt;
+	own_std::vector<node*> global_decl_not_found;
 	own_std::vector<scope**> scope_stack;
 	own_std::vector<func_decl*> func_ptrs_decls;
 	own_std::vector<func_decl*> outsider_funcs;
@@ -5150,6 +5151,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 
 		switch (d->type.type)
 		{
+		case TYPE_TEMPLATE:
 		case TYPE_ENUM_TYPE:
 		{
 
@@ -5165,7 +5167,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 			func_decl* f = d->type.fdecl;
 			bool is_outsider = IS_FLAG_ON(f->flags, FUNC_DECL_IS_OUTSIDER);
 			vdbg->type_idx = ser_state->func_sect.size();
-			if (IS_FLAG_ON(f->flags, FUNC_DECL_INTERNAL | FUNC_DECL_SERIALIZED | FUNC_DECL_SERIALIZED))
+			if (IS_FLAG_ON(f->flags, FUNC_DECL_INTERNAL | FUNC_DECL_SERIALIZED | FUNC_DECL_SERIALIZED | FUNC_DECL_TEMPLATED))
 				break;
 
 			WasmSerializeFunc(wasm_state, ser_state, f);
@@ -5216,6 +5218,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_FUNC_TYPE:
 		case TYPE_STR_LIT:
 		case TYPE_ENUM_IDX_32:
+		case TYPE_U32_TYPE:
 		case TYPE_CHAR:
 		case TYPE_ENUM:
 		
@@ -5269,7 +5272,10 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 	{
 	case SCP_TYPE_FUNC:
 	{
-		ASSERT(IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_SERIALIZED));
+		if (IS_FLAG_OFF(scp->fdecl->flags, FUNC_DECL_TEMPLATED))
+		{
+			ASSERT(IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_SERIALIZED));
+		}
 		s->type = SCP_TYPE_FUNC;
 		s->func_idx = scp->fdecl->func_dbg_idx;
 	}break;
@@ -5566,6 +5572,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 
 		}break;
 		case TYPE_AUTO:
+		case TYPE_TEMPLATE:
 		case TYPE_FUNC_TYPE:
 		case TYPE_FUNC:
 		case TYPE_STATIC_ARRAY:
@@ -5587,6 +5594,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_S64:
 		case TYPE_VOID:
 		case TYPE_U64:
+		case TYPE_U32_TYPE:
 			break;
 		default:
 			ASSERT(0);
@@ -8068,6 +8076,7 @@ async function start(){\n\
 
 void CreateAstFromFunc(lang_state* lang_stat, web_assembly_state* wasm_state, func_decl* f)
 {
+	f->func_node->fdecl = f;
 	ast_rep* ast = AstFromNode(lang_stat, f->func_node, f->scp);
 	ASSERT(ast->type == AST_FUNC);
 	own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & f->ir;
@@ -8224,22 +8233,88 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	int cur_f = 0;
 
 	int iterations = 0;
+	bool can_continue = false;
+	struct info_not_found
+	{
+		node* nd;
+		scope* scp;
+	};
+	own_std::vector<info_not_found>names_not_found;
+	type2 dummy;
 	while(true)
 	{
+		
 		lang_stat->something_was_declared = false;
 		
 		for(cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
 		{
+			can_continue = false;
+			lang_stat->flags &= ~PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND;
+			lang_stat->global_decl_not_found.clear();
 			auto f = lang_stat->files[cur_f];
 			lang_stat->work_dir = f->path;
 			lang_stat->cur_file = f;
-			DescendNameFinding(lang_stat, f->s, f->global);
+			if(!DescendNameFinding(lang_stat, f->s, f->global))
+				can_continue = true;
+
+
+			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND))
+			{
+				FOR_VEC(global_nd, lang_stat->global_decl_not_found)
+				{
+					node* cur = *global_nd;
+					info_not_found info;
+					info.nd = cur->l;
+					info.scp = f->global;
+					names_not_found.emplace_back(info);
+				}
+				can_continue = true;
+			}
+
 			int a = 0;
 			iterations++;
-			ASSERT(iterations < 100);
+			if (iterations >= 99)
+			{
+				FOR_VEC(cur, names_not_found)
+				{
+					decl2* d = FindIdentifier(cur->nd->t->str, cur->scp, &dummy);
+
+					printf("\nglobal decl not found line %d\nstr: %s\n", cur->nd->t->line,
+						cur->nd->t->line_str);
+					if (d == nullptr)
+					{
+						printf("\nglobal decl not found line %d\nstr: %s\n was found %d", cur->nd->t->line,
+							cur->nd->t->line_str, d != nullptr);
+					}
+					if (d && IS_FLAG_ON(d->flags, DECL_NOT_DONE))
+					{
+						printf("\nglobal decl not done line %d\nstr: %s\n was found %d", cur->nd->t->line,
+							cur->nd->t->line_str, d != nullptr);
+					}
+					if (d && d->type.type == TYPE_STRUCT_TYPE && IS_FLAG_ON(d->type.strct->flags, TP_STRCT_STRUCT_NOT_NODE))
+					{
+						printf("\nglobal struct not done line %d\nstr: %s\n was found %d", cur->nd->t->line,
+							cur->nd->t->line_str, d != nullptr);
+					}
+
+				}
+			}
+			ASSERT(iterations < 150);
 		}
-		if(!lang_stat->something_was_declared)
+		if(!lang_stat->something_was_declared && !can_continue)
 			break;
+	}
+	printf("names not found!\n");
+	FOR_VEC(cur, names_not_found)
+	{
+		decl2* d = FindIdentifier(cur->nd->t->str, cur->scp, &dummy);
+
+		if (d == nullptr)
+		{
+			printf("\nglobal decl not found line %d\nstr: %s\n was found %d", cur->nd->t->line,
+				cur->nd->t->line_str, d != nullptr);
+		}
+
 	}
 	lang_stat->flags = PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
 
@@ -8342,7 +8417,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		if (f->type.type != TYPE_FUNC)
 			continue;
 		auto fdecl = f->type.fdecl;
-		if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_IS_OUTSIDER))
+		if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_IS_OUTSIDER | FUNC_DECL_TEMPLATED))
 			continue;
 
 		if (FuncAddedWasm(&wasm_state, f->name))
@@ -8350,6 +8425,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 
 		AddFuncToWasm(&wasm_state, f->type.fdecl);
 		CreateAstFromFunc(lang_stat, &wasm_state, f->type.fdecl);
+		int  a = 0;
 
 	}
 

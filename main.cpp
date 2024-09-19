@@ -4,6 +4,8 @@
 #include <glad/glad.c> 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h> 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h> 
 
 #include "../include/GLFW/glfw3.h"
 
@@ -21,6 +23,14 @@ struct texture_info
 	bool used;
 	int id;
 };
+struct texture_raw
+{
+	char *name;
+	unsigned char *data;
+	int width;
+	int height;
+	char channels;
+};
 struct open_gl_state
 {
 	int vao;
@@ -30,12 +40,14 @@ struct open_gl_state
 	int pos_u;
 	int buttons[TOTAL_KEYS];
 	texture_info textures[TOTAL_TEXTURES];
+	own_std::vector<texture_raw> textures_raw;
 	double last_time;
 
 	int width;
 	int height;
 
 	void* glfw_window;
+	lang_state* lang_stat;
 };
 enum key_enum
 {
@@ -337,6 +349,99 @@ struct load_clip_args
 	float len;
 	clip* cinfo;
 };
+texture_raw* HasRawTexture(open_gl_state *gl_state, std::string name)
+{
+	FOR_VEC(tex, gl_state->textures_raw)
+	{
+		if (std::string(tex->name) == name)
+		{
+			return tex;
+		}
+	}
+	int width, height, nrChannels;
+	unsigned char* src = nullptr;
+	stbi_set_flip_vertically_on_load(true);
+	src = stbi_load((char*)name.c_str(), &width, &height, &nrChannels, 0);
+	gl_state->textures_raw.emplace_back(texture_raw());
+	texture_raw *new_tex = &gl_state->textures_raw.back();
+	//new_tex->name = "";
+	new_tex->name = std_str_to_heap(gl_state->lang_stat, &name);
+	new_tex->data = src;
+	new_tex->width = width;
+	new_tex->height = height;
+	new_tex->channels = nrChannels;
+	//gl_state->textures_raw.emplace_back(new_tex);
+	return new_tex;
+}
+int GenTexture(lang_state *lang_stat, open_gl_state *gl_state, unsigned char *src, int sp_width, int sp_height, int x_offset, int y_offset, int width, int height, int sp_idx)
+{
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	// set the texture wrapping/filtering options (on the currently bound texture object)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	//int sp_height = info->sp_width;
+	//int sp_width = info->sp_height;
+	auto sp_data = (unsigned char*)AllocMiscData(lang_stat, sp_width * sp_width * 4);
+	//int sp_idx = ;
+
+	y_offset = (height - (y_offset + sp_height));
+
+	for (int i = 0; i < sp_width; i++)
+	{
+		 int cur_x_offset = (x_offset) + sp_idx * sp_width * 4;
+		//int y_offset = sp_idx * sp_height;
+		memcpy(sp_data + i * sp_width * 4, src + cur_x_offset + ((i + y_offset) * width * 4), sp_width * 4);
+		int  a = 0;
+	}
+	if (sp_data)
+	{
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_width, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
+		//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
+
+		GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+	}
+	else
+	{
+		std::cout << "Failed to load texture" << std::endl;
+	}
+	stbi_write_png("dbg_img.png", sp_width, sp_height, 4, sp_data, sp_width * 4);
+	int idx = GetTextureSlotId(gl_state);
+	texture_info* tex = &gl_state->textures[idx];
+	tex->id = texture;
+
+	heap_free((mem_alloc *)__lang_globals.data, (char *)sp_data);
+
+	return idx;
+}
+void LoadTex(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+
+	auto info = (load_clip_args*)&dbg->mem_buffer[base_ptr + 8];
+	info->file_name = (unsigned char*)&dbg->mem_buffer[(long long)info->file_name];
+	//info->cinfo = (clip*)&dbg->mem_buffer[(long long)info->cinfo];
+	//info->cinfo->total_texs = info->total_sps;
+	//info->cinfo->len = info->len;
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	texture_raw* tex_raw = HasRawTexture(gl_state, std::string((char *)info->file_name));
+	int width, height, nrChannels;
+	unsigned char* src = nullptr;
+	src = tex_raw->data;
+	width = tex_raw->width;
+	height = tex_raw->height;
+	nrChannels = tex_raw->channels;
+
+	int idx = GenTexture(dbg->lang_stat, gl_state, src, info->sp_width, info->sp_height, info->x_offset, info->y_offset, width, height, 0);
+	auto ret = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	*ret = idx;
+}
 void LoadClip(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -363,55 +468,21 @@ void LoadClip(dbg_state* dbg)
 
 	// load and generate the texture
 	int width, height, nrChannels;
-	stbi_set_flip_vertically_on_load(true);
-
-	unsigned char* src = stbi_load((char *)info->file_name, &width, &height, &nrChannels, 0);
+	texture_raw* tex_raw = HasRawTexture(gl_state, std::string((char *)info->file_name));
+	ASSERT(tex_raw);
+	unsigned char* src = nullptr;
+	src = tex_raw->data;
+	width = tex_raw->width;
+	height = tex_raw->height;
+	nrChannels = tex_raw->channels;
 
 	auto texs_id = (int*)&dbg->mem_buffer[(long long)info->cinfo->texs_idxs];
 
 	for (int cur_sp = 0; cur_sp < info->total_sps; cur_sp++)
 	{
-		unsigned int texture;
-		glGenTextures(1, &texture);
-		glBindTexture(GL_TEXTURE_2D, texture);
-		// set the texture wrapping/filtering options (on the currently bound texture object)
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-		int sp_height = info->sp_width;
-		int sp_width = info->sp_height;
-		auto sp_data = (unsigned char*)AllocMiscData(dbg->lang_stat, sp_width * sp_width * 4);
-		int sp_idx = cur_sp;
-
-		for (int i = 0; i < sp_width; i++)
-		{
-			int x_offset = info->x_offset + sp_idx * sp_width * 4;
-			//int y_offset = sp_idx * sp_height;
-			memcpy(sp_data + i * sp_width * 4, src + x_offset + (i * width * 4), sp_width * 4);
-		}
-		if (sp_data)
-		{
-			GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_width, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
-			//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
-
-			GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
-		}
-		else
-		{
-			std::cout << "Failed to load texture" << std::endl;
-		}
-		int idx = GetTextureSlotId(gl_state);
-		texture_info* tex = &gl_state->textures[idx];
-		tex->id = texture;
-
-		heap_free((mem_alloc *)__lang_globals.data, (char *)sp_data);
-
-		texs_id[cur_sp] = idx;
-
+		texs_id[cur_sp] = GenTexture(dbg->lang_stat, gl_state, src, info->sp_width, info->sp_height, info->x_offset, info->y_offset, width, height, cur_sp);
 	}
-	stbi_image_free(src);
 	/*
 	func_decl* call_f = FuncAddedWasmInterp(dbg->wasm_state, "heap_alloc");
 
@@ -755,6 +826,7 @@ int main(int argc, char* argv[])
 
 
 	open_gl_state gl_state = {};
+	gl_state.lang_stat = &lang_stat;
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 	compile_options opts = {};
 	opts.file = "../lang2/files";
@@ -782,6 +854,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
+	AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
 	AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
 	AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
 	AssignOutsiderFunc(&lang_stat, "GetTimeSinceStart", (OutsiderFuncType)GetTimeSinceStart);

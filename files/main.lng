@@ -46,12 +46,25 @@ context: struct
 	walk_v : clip,
 	idle_h : clip,
 	idle_v : clip,
+	flow_h_clip : clip,
+	flow_v_clip : clip,
+	lever_clip : clip,
 	in_flow : bool,
 	something_is_processing : bool,
 
 	undos : *undo_state,
 	undos_cur : u32,
 	undos_max : u32,
+
+	solid_cel_tex : u32,
+	empty_cel_tex : u32,
+	rubber_cel_tex : u32,
+	flow_cel_tex : u32,
+	movable_cel_tex : u32,
+	target_cel_tex : u32,
+	lever_unpressed_cel_tex : u32,
+	lever_pressed_cel_tex : u32,
+	door_cel_tex : u32,
 
 }
 
@@ -108,6 +121,8 @@ cel_type: enum
 cel_info :struct
 {
 	type:cel_type,
+	backup:cel_type,
+	original:cel_type,
 	is_lever :bool,
 	movable_on_water:bool,
 	using u ::union
@@ -196,6 +211,7 @@ ClearBackground::fn outsider(f32, f32, f32);
 Draw::fn outsider(*u8, *draw_info);
 ShouldClose::fn outsider(*u8) ! bool;
 LoadClip::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, total_sps :u32, len :f32, out_clip : *clip);
+LoadTex::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! u32;
 DebuggerCommand::fn outsider(cmd :str_lit);
 WasmDbg::fn outsider(*context);
 PrintV3::fn outsider(f32, f32, f32);
@@ -260,7 +276,7 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 
 	height = len / width;
 
-	if scn.cels
+	if scn.cels != nil
 		heap_free(&ctx.alloc, cast(*u8)scn.cels);
 
 	sz: = width * height * sizeof(cel_info);
@@ -339,10 +355,17 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 		else if ch == 'd
 		{
 			cur_cel.type = cel_type.FLOW_DOWN;
+			cur_cel.backup = cel_type.FLOW_DOWN;
+		}
+		else if ch == 'i
+		{
+			cur_cel.type = cel_type.FLOW_RIGHT;
+			cur_cel.backup = cel_type.FLOW_RIGHT;
 		}
 		else if ch == 'l
 		{
 			cur_cel.type = cel_type.FLOW_LEFT;
+			cur_cel.backup = cel_type.FLOW_LEFT;
 		}
 		else if ch == 't
 		{
@@ -374,6 +397,7 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 		else if ch == 'p
 		{
 			cur_cel.type = cel_type.PLAYER;
+			cur_cel.original = cel_type.EMPTY;
 			start_pos.x = cast(f32)x;
 			start_pos.y = -cast(f32)y;
 		}
@@ -387,6 +411,8 @@ CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
 			__dbg_break;
 			cel_idx--;
 		}
+		if ch != 'p && ch != 'o
+			cur_cel.original = cur_cel.type;
 		cel_idx++;
 
 		i++;
@@ -400,9 +426,10 @@ ChangeClip::fn(cur_clip : **clip, to : *clip)
 	*cur_clip = to;
 }
 
-DrawSceneMap::fn(scn : *scene, window : *u8)
+DrawSceneMap::fn(ctx : *context, scn : *scene, window : *u8, dt : f32)
 {
-
+	flow_h_clip_tex := UpdateClip(&ctx.flow_h_clip, dt);
+	flow_v_clip_tex := UpdateClip(&ctx.flow_v_clip, dt);
 	start_x: = 0.0;
 	start_y: = 0.0;
 	draw: draw_info;
@@ -447,46 +474,83 @@ DrawSceneMap::fn(scn : *scene, window : *u8)
 
 			draw.ent_size.x = 1.0;
 			draw.ent_size.y = 1.0;
+			draw.flags = 0;
+
+			if ptr_offset(scn.cels, i, cel_info).original == cel_type.SOLID
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				draw.texture_id = ctx.solid_cel_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.FLOW_DOWN
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = flow_v_clip_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.FLOW_RIGHT
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = flow_h_clip_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.FLOW_LEFT
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = flow_h_clip_tex;
+				draw.pos.x += 1.0;
+				draw.ent_size.x = -1.0;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.RUBBER
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = ctx.rubber_cel_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.DOOR
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = ctx.door_cel_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.TARGET
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = ctx.target_cel_tex;
+				Draw(window, &draw);
+				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				//draw.texture_id = UpdateClip(cur_clip, dt);
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.EMPTY
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = ctx.empty_cel_tex;
+				Draw(window, &draw);
+			}
 			if ptr_offset(scn.cels, i, cel_info).is_lever
 			{
-				draw.color = []f32{ 0.0, 0.0, 0.9, 1.0};
-				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-				//draw.texture_id = UpdateClip(cur_clip, dt);
-				Draw(window, &draw);
-			}
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.texture_id = *ptr_offset(ctx.lever_clip.tex_idxs, 0, u32);
 
-			if ptr_offset(scn.cels, i, cel_info).type == cel_type.SOLID
-			{
-				draw.color = []f32{ 0.5, 0.0, 0.5, 1.0};
-				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-				//draw.texture_id = UpdateClip(cur_clip, dt);
-				Draw(window, &draw);
-			}
-			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.FLOW_DOWN
-			{
-				draw.color = []f32{ 0.2, 0.8, 0.3, 1.0};
-				Draw(window, &draw);
-			}
-			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.FLOW_LEFT
-			{
-				draw.color = []f32{ 0.0, 0.8, 0.1, 1.0};
-				Draw(window, &draw);
-			}
-			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.RUBBER
-			{
-				draw.color = []f32{ 0.5, 0.8, 0.1, 1.0};
-				Draw(window, &draw);
-			}
-			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.DOOR
-			{
-				draw.color = []f32{ 0.5, 0.2, 0.6, 1.0};
-				Draw(window, &draw);
-			}
-			else if ptr_offset(scn.cels, i, cel_info).type == cel_type.TARGET
-			{
-				draw.color = []f32{ 0.6, 0.4, 0.5, 1.0};
-				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-				//draw.texture_id = UpdateClip(cur_clip, dt);
+
 				Draw(window, &draw);
 			}
 
@@ -503,6 +567,11 @@ FlowBlockGetDir::fn(type : cel_type, x : *s32, y : *s32)
 		*x = -1;
 		*y = 0;
 
+	}
+	else if  type == cel_type.FLOW_RIGHT
+	{
+		*x = 1;
+		*y = 0;
 	}
 	else if  type == cel_type.FLOW_DOWN
 	{
@@ -538,7 +607,7 @@ ChangeCelType::fn(ctx : *context, src_cel : * cel_info, dst_cel : *cel_info, src
 		dst_cel.type = src_cel.type;
 		dst_cel.mov = src_cel.mov;
 	}
-	src_cel.type = cel_type.EMPTY;
+	src_cel.type = src_cel.backup;
 	
 }
 ProcessFrameActions::fn(ctx : *context, scn : *scene)
@@ -613,7 +682,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 			src_is_mov: = src_cel.type == cel_type.MOVABLE;
 
 
-			is_flow_block: = cur_cel.type == cel_type.FLOW_LEFT || cur_cel.type == cel_type.FLOW_DOWN;
+			is_flow_block: = cur_cel.type == cel_type.FLOW_LEFT ||cur_cel.type == cel_type.FLOW_RIGHT || cur_cel.type == cel_type.FLOW_DOWN;
 			is_in_flow: = cur_fr.mov.in_flow != nil && *cur_fr.mov.in_flow == true;
 
 			if cur_fr.stage == frame_action_stage.NOT_STARTED
@@ -673,7 +742,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
 					//__dbg_break;
 				}
-				else if is_flow_block && movable_on_water && is_in_flow
+				else if is_flow_block && (movable_on_water && is_in_flow || is_in_flow == false && movable_on_water == false)
 				{
 					//FlowBlockGetDir(cur_cel.type, &add_x, &add_y);
 
@@ -687,7 +756,6 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 					cur_fr.stage = frame_action_stage.FOLLOW_TO_POS;
 					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
 					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
-					//__dbg_break;
 				}
 
 				else if cur_cel.type == cel_type.RUBBER
@@ -711,7 +779,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				{
 					scn.done = true;
 				}
-				else if cur_cel.type == cel_type.MOVABLE && holder_is_player && movable_on_water == false
+				else if cur_cel.type == cel_type.MOVABLE && holder_is_player
 				{
 					act:= AddFrameAction(ctx);
 
@@ -764,7 +832,7 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 				dst_x = cast(u32)cur_fr.mov.cur_pos.x;
 				dst_y = cast(u32)-cur_fr.mov.cur_pos.y;
 				dst_cel = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
-				is_flow_block = dst_cel.type == cel_type.FLOW_LEFT || dst_cel.type == cel_type.FLOW_DOWN;
+				is_flow_block = dst_cel.type == cel_type.FLOW_LEFT ||dst_cel.type == cel_type.FLOW_RIGHT || dst_cel.type == cel_type.FLOW_DOWN;
 				if is_flow_block
 				{
 					if (dst_cel.movable_on_water == false)
@@ -775,8 +843,8 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 						if cur_fr.holder_type == cel_type.PLAYER
 						{
 							//__dbg_break;
-							cur_fr.mov.modify_pos.x = cast(f32)(cast(s32)cur_x + add_x);
-							cur_fr.mov.modify_pos.y = cast(f32)(cast(s32)cur_y + add_y);
+							cur_fr.mov.modify_pos.x = cast(f32)(cast(s32)dst_x + add_x);
+							cur_fr.mov.modify_pos.y = cast(f32)(cast(s32)dst_y + add_y);
 							cur_fr.mov.to_pos = *cur_fr.mov.modify_pos;
 							cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
 							if cur_fr.mov.in_flow
@@ -801,20 +869,22 @@ ProcessFrameActions::fn(ctx : *context, scn : *scene)
 					}
 					else
 					{
-						if cur_fr.holder_type == cel_type.PLAYER
+						if cur_fr.holder_type == cel_type.PLAYER || cur_fr.holder_type == cel_type.MOVABLE
 						{
 
 							//cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
 
-							*cur_fr.mov.in_flow = false;
+							if cur_fr.mov.in_flow != nil
+							{
+								*cur_fr.mov.in_flow = false;
+							}
 							cur_fr.stage = frame_action_stage.DONE;
 							//src_cel.type = cel_type.EMPTY;
-							ChangeCelType(ctx, src_cel, dst_cel, src_x, src_y, dst_x, dst_y, false);
+							ChangeCelType(ctx, src_cel, dst_cel, src_x, src_y, dst_x, dst_y, true);
 							cur_fr.type = frame_action.FREE;
 						}
 						else
 						{
-							// unhadled movable found a movable on water
 							__dbg_break;
 						}
 
@@ -909,6 +979,11 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 		draw.ent_size.x = 1.0;
 		draw.ent_size.y = 1.0;
 
+		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+		//__dbg_break;
+		draw.texture_id = ctx.movable_cel_tex;
+		//Draw(window, &draw);
 		//draw.pivot.x = 0.5;
 		//draw.pivot.y = 0.5;
 		//draw.pivot.z = 0.0;
@@ -1018,7 +1093,7 @@ main_loop::fn(ctx : *context)
 		time: = GetTimeSinceStart();
 		s: = sin(time) + 1.0;
 
-		DrawSceneMap(scn, window);
+		DrawSceneMap(ctx, scn, window, dt);
 
 		memset(cast(*u8)& draw, 0, sizeof(draw));
 
@@ -1118,9 +1193,11 @@ main_loop::fn(ctx : *context)
 			if lever.lever.type != cel_type.EMPTY && lever.lever.type == cel_type.MOVABLE
 			{
 				lever.door.type = cel_type.EMPTY;
+				lever.door.original = cel_type.EMPTY;
 			}
 			else
 			{
+				lever.door.original = cel_type.DOOR;
 				lever.door.type = cel_type.DOOR;
 
 			}
@@ -1162,7 +1239,7 @@ main_loop::fn(ctx : *context)
 
 		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
 		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-		//draw.texture_id = UpdateClip(cur_clip, dt);
+		draw.texture_id = UpdateClip(cur_clip, dt);
 		draw.cam_size = scn.cam_size;
 		draw.cam_pos.x = 0.0;
 		draw.cam_pos.y = 0.0;
@@ -1239,6 +1316,35 @@ main :: fn(){
 	"-.......----\n"
 	"------------\n";
 
+	scene6: =
+	"-------------\n"
+	"-.....--d-..-\n"
+	"-..t..--d-.p-\n"
+	"--.-----d-..-\n"
+	"--.--...d...-\n"
+	"-r....--d-o.-\n"
+	"---...--d-.--\n"
+	"---d.---d-..-\n"
+	"---d.---d...-\n"
+	"-......-....-\n"
+	"-.....o.-----\n"
+	"-.......-----\n"
+	"-------------\n";
+
+	scene7: =
+	"-------------\n"
+	"---.......-t-\n"
+	"--....o...-1-\n"
+	"--...o......-\n"
+	".--iiii---..-\n"
+	"..-0...-.-..-\n"
+	"..-...-..-..-\n"
+	"..-....-.-.--\n"
+	".--.o.----.--\n"
+	"-p.iiiiii..r-\n"
+	"---o.----...-\n"
+	"---.........-\n"
+	"-------------\n";
 	ctx: context;
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.alloc);
@@ -1262,7 +1368,7 @@ main :: fn(){
 	memset(cast(*u8)ctx.undos, 0, sizeof(undo_state));
 
 	scn_cur: = ptr_offset(ctx.scenes, 0, scene_info);
-	scn_cur.str = scene4;
+	scn_cur.str = scene5;
 	scn_cur.next = ptr_offset(ctx.scenes, 1, scene_info);
 
 	scn_cur = ptr_offset(ctx.scenes, 1, scene_info);
@@ -1279,6 +1385,14 @@ main :: fn(){
 
 	scn_cur = ptr_offset(ctx.scenes, 4, scene_info);
 	scn_cur.str = scene5;
+	scn_cur.next = ptr_offset(ctx.scenes, 5, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 5, scene_info);
+	scn_cur.str = scene6;
+	scn_cur.next = ptr_offset(ctx.scenes, 6, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 6, scene_info);
+	scn_cur.str = scene7;
 	scn_cur.next = nil;
 
 	scn_cur = ptr_offset(ctx.scenes, 0, scene_info);
@@ -1287,6 +1401,15 @@ main :: fn(){
 	
 	window := OpenWindow();
 	ctx.window = window;
+
+	LoadClip(&ctx, "../images/sprite_sheet.png/", 0, 32, 32, 32, 3, 1.0, &ctx.flow_h_clip);
+	ctx.flow_h_clip.loop = true;
+
+	LoadClip(&ctx, "../images/sprite_sheet.png/", 0, (32 * 3), 32, 32, 3, 1.0, &ctx.flow_v_clip);
+	ctx.flow_v_clip.loop = true;
+
+	LoadClip(&ctx, "../images/sprite_sheet.png/", 0, 64, 32, 32, 2, 1.0, &ctx.lever_clip);
+	ctx.lever_clip.loop = false;
 
 	LoadClip(&ctx, "../images/frog.png", 32 * 4, 0, 32, 32, 1, 1.0, &ctx.walk_h);
 	ctx.walk_h.loop = false;
@@ -1299,6 +1422,17 @@ main :: fn(){
 
 	LoadClip(&ctx, "../images/frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
 	ctx.idle_v.loop = false;
+
+	LoadClip(&ctx, "../images/frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
+	ctx.idle_v.loop = false;
+
+
+	ctx.solid_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32) * 4, 0, 32, 32);
+	ctx.empty_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", 0, 0, 32, 32);
+	ctx.door_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32 * 2) * 4, (32 * 2), 32, 32);
+	ctx.target_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32 * 2) * 4, 0, 32, 32);
+	ctx.movable_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32 * 3) * 4, 32, 32, 32);
+	ctx.rubber_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32 * 3) * 4, 0, 32, 32);
 
 	scn:scene;
 	ctx.scn = &scn;

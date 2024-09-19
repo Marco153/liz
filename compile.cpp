@@ -37,7 +37,7 @@
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 2048
-#define DATA_SECT_OFFSET 120000
+#define DATA_SECT_OFFSET 130000
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 //#define DEBUG_GLOBAL_NOT_FOUND 
@@ -6286,7 +6286,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	{
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
-		stmnt_dbg* cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+		stmnt_dbg* cur_st = nullptr;
+		//cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
 		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;

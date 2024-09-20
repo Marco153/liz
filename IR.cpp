@@ -2104,6 +2104,7 @@ void GenIfExpr(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 	ir.assign.only_lhs = true;
 
 	GenStackThenIR(lang_stat, ast, out, &ir.assign.lhs);
+	ir.assign.lhs.deref++;
 	out->emplace_back(ir);
 
 }

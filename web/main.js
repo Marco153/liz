@@ -15,16 +15,25 @@ let KEY_UP =   4
 let KEY_RECENTLY_DOWN =   8
 
 let TOTAL_KEYS =   255
+let TOTAL_TEXTURES =   32
 
-let DATA_SECT_OFFSET = 100000
+let DATA_SECT_OFFSET = 130000
+
+let DRAW_INFO_HAS_TEXTURE = 1
+let DRAW_INFO_NO_SCREEN_RATIO = 2
+
 let wasm_inst;
 let should_close_val;
 let ctx_addr;
 let stack_ptr_addr_on_main_loop = 0;
 let base_stack_ptr_addr_on_main_loop = 0;
 let gl_program;
+let textures_raw = [];
+let textures_gl=[];
 
 let keys = []
+
+
 
 const key_enum = Object.freeze({
     _KEY_LEFT: 0,
@@ -36,6 +45,15 @@ const key_enum = Object.freeze({
     _KEY_ACT2: 6,
     _KEY_ACT3: 7
 });
+async function HasRawTexture(name) {
+    for (let i = 0; i < textures_raw.length; i++) {
+        let cur = textures_raw[i];
+        if (cur.name == name)
+            return cur;
+    }
+    let file = await fetch("images/"+name)
+    let bleb = await file.blob();
+}
 function get_ret(view) {
     return view.getBigUint64(10 * 8, true);
 }
@@ -85,10 +103,16 @@ void main()
   `;
 
 const fsSource = `
-    uniform highp vec4 color;
-    void main() {
-      gl_FragColor = color;
-    }
+precision mediump float;
+
+varying vec2 TexCoord;  // This corresponds to 'in vec2 TexCoord;' in GLSL 3.3
+uniform vec4 color;     // This corresponds to 'uniform vec4 color;'
+uniform sampler2D tex;  // This corresponds to 'uniform sampler2D tex;'
+
+void main() {
+    vec4 texCol = texture2D(tex, TexCoord);  // texture2D is the WebGL 1.0 version of texture()
+    gl_FragColor = texCol * color;            // This corresponds to 'FragColor' in GLSL 3.3
+}
   `;
 
 function initShaderProgram(gl, vsSource, fsSource) {
@@ -143,6 +167,71 @@ function loadShader(gl, type, source) {
 
   return shader;
 }
+function GetTextureSlotId()
+{
+	for (let i = 0; i < TOTAL_TEXTURES; i++)
+    {
+        let t = textures_gl[i];
+		if (!t.used)
+		{
+			t.used = true;
+			return i;
+		}
+    }
+    console.error("no texture id slot available")
+    throw new Error()
+}
+function HasRawTexture(name) {
+    for (let i = 0; i < textures_raw.length; i++)
+    {
+        let cur = textures_raw[i]
+        if (cur.name == name)
+            return cur;
+    }
+    console.error("texture not found")
+    throw new Error()
+}
+function GenTexture(src, spWidth, spHeight, xOffset, yOffset, width, height, spIdx) {
+    //const gl = glState.gl;
+
+    // Generate and bind texture
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Set texture wrapping/filtering options
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    // Allocate buffer for subimage
+    const spData = new Uint8Array(spWidth * spHeight * 4);
+
+    // Adjust yOffset based on height and spHeight
+    yOffset = height - (yOffset + spHeight);
+
+    // Copy pixel data from source image
+    for (let i = 0; i < spHeight; i++) {
+        const curXOffset = xOffset + spIdx * spWidth * 4;
+        const srcOffset = curXOffset + ((i + yOffset) * width * 4);
+        spData.set(src.subarray(srcOffset, srcOffset + spWidth * 4), i * spWidth * 4);
+    }
+
+    // Upload the texture to WebGL
+    if (spData) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, spWidth, spHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, spData);
+        //gl.generateMipmap(gl.TEXTURE_2D);
+    } else {
+        console.log("Failed to load texture");
+    }
+
+    // Get texture slot and store the texture in the glState
+    const idx = GetTextureSlotId();
+    const tex = textures_gl[idx];
+    tex.id = texture;
+
+    return idx;
+}
 function FromGameToGLFWKey(input) {
     let key;
     switch (input) {
@@ -154,6 +243,12 @@ function FromGameToGLFWKey(input) {
             break;
         case key_enum._KEY_RIGHT:
             key = 'd';
+            break;
+        case key_enum._KEY_ACT1:
+            key = 'r';
+            break;
+        case key_enum._KEY_ACT0:
+            key = 'z';
             break;
         case key_enum._KEY_LEFT:
             key = 'a';
@@ -169,8 +264,9 @@ function _IsKeyDown() {
     let val = mem_view.getUint32(Number(base) + 8, true);
     let key = FromGameToGLFWKey(val);
 
-    if (IS_FLAG_ON(keys[key], KEY_DOWN))
+    if (IS_FLAG_ON(keys[key], KEY_DOWN) || IS_FLAG_ON(keys[key], KEY_RECENTLY_DOWN))
     {
+        keys[key] &= ~KEY_RECENTLY_DOWN;
         mem_view.setUint32(RET_1_REG * 8, 1, true);
     }
     else
@@ -245,7 +341,7 @@ function _EndFrame() {
 		{
 			let held_from = (keys[i] >> 16);
 			held_from++;
-			if (held_from > 24)
+			if (held_from > 40)
 			{
 				keys[i] &= ~KEY_RECENTLY_DOWN;
 				keys[i] = (keys[i] & 0xffff);
@@ -260,10 +356,23 @@ function _EndFrame() {
 
 function _OpenWindow() {
     // Implement the functionality here
+
 }
 
 function _ClearBackground() {
+    let base = mem_view.getBigUint64(STACK_PTR_REG * 8, true);
+    let r = mem_view.getFloat32(Number(base) + 8, true);
+    let g = mem_view.getFloat32(Number(base) + 16, true);
+    let b = mem_view.getFloat32(Number(base) + 24, true);
+    let a = mem_view.getFloat32(Number(base) + 32, true);
     // Implement the functionality here
+    gl.clearColor(r, g, b, 1.0);
+
+    // Set the clear depth value
+    gl.clearDepth(1.0);
+
+    // Clear the color and depth buffers
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 }
 
 function IS_FLAG_ON(flag, val) {
@@ -284,10 +393,32 @@ function _sin() {
     // Implement the functionality here
 }
 
-function _GetMem() {
-    let base = mem_view.getBigUint64(STACK_PTR_REG * 8, true);
-    let val = mem_view.getUint32(Number(base) + 8, true);
+function _SubMem() {
+    let base = mem_view.getUint32(STACK_PTR_REG * 8, true);
+    let val = mem_view.getUint32(base + 8, true);
     let addr = mem_view.getUint32(MEM_PTR_CUR_ADDR, true)
+
+    mem_view.setUint32(MEM_PTR_CUR_ADDR, addr - val, true)
+
+    if ((addr - val) <= 0)
+    {
+        console.error("too much memory to sub: cur_addr "+addr+", sz "+ val)
+        throw new Error()
+    }
+
+    let a = 0;
+    // Implement the functionality here
+}
+function _GetMem() {
+    let base = mem_view.getUint32(STACK_PTR_REG * 8, true);
+    let val = mem_view.getUint32(base + 8, true);
+    let addr = mem_view.getUint32(MEM_PTR_CUR_ADDR, true)
+
+    if ((addr + val) > DATA_SECT_OFFSET)
+    {
+        console.error("too much memory asked: cur_addr "+addr+", sz "+ val)
+        throw new Error()
+    }
 
     mem_view.setUint32(MEM_PTR_CUR_ADDR, addr + val, true)
     mem_view.setUint32(RET_1_REG * 8, addr, true)
@@ -389,13 +520,24 @@ uniform vec3 cam_pos;
 
     let flags = mem_view.getUint32(offset, true)
     offset += 4
-    cam_pos_x = 5;
-    cam_pos_y = -5;
+    cam_pos_x = cam_pos_x;
+    cam_pos_y = cam_pos_y;
 
+    if (IS_FLAG_ON(flags, DRAW_INFO_HAS_TEXTURE)) {
+        let t_id = textures_gl[tex_id].id
+        gl.bindTexture(gl.TEXTURE_2D, t_id);
+    }
     gl.uniform3f(u_pos, pos_x, pos_y, 0);
     gl.uniform3f(u_pivot, pivot_x, pivot_y, 1.0);
     gl.uniform1f(u_cam_size, cam_sz);
-    gl.uniform1f(u_screen_ratio, 0.8);
+
+    let screen_ratio = 0.8;
+	if (IS_FLAG_ON(flags, DRAW_INFO_NO_SCREEN_RATIO))
+	{
+		screen_ratio = 1;
+	}
+
+    gl.uniform1f(u_screen_ratio, screen_ratio);
     gl.uniform3f(u_ent_size, ent_sz_x, ent_sz_y, 1.0);
     gl.uniform3f(u_cam_pos, cam_pos_x, cam_pos_y, 1.0);
     gl.uniform4f(u_color, color_r, color_g, color_b, color_a);
@@ -421,13 +563,105 @@ function _WasmDbg() {
     // Implement the functionality here
     let a = 0;
 }
-function _LoadClip() {
-    // Implement the functionality here
+function _LoadTex(dbg) {
+    //const basePtr = dbg.memBuffer[STACK_PTR_REG * 8];
+    let uint8_ar = new Uint8Array(mem_view.buffer)
+    let base = mem_view.getUint32(STACK_PTR_REG * 8, true);
+
+    let ctx = mem_view.getUint32(base + 8, true);          // ctx - unsigned long long (8 bytes)
+    let file_name = mem_view.getUint32(base + 16, true);      // Assuming a pointer or handle for file_name (4 or 8 bytes, depending on platform)
+    let x_offset = mem_view.getUint32(base + 24, true);    // x_offset - unsigned long long (8 bytes)
+    let y_offset = mem_view.getUint32(base + 32, true);    // y_offset - unsigned long long (8 bytes)
+    let sp_width = mem_view.getUint32(base + 40, true);    // sp_width - unsigned long long (8 bytes)
+    let sp_height = mem_view.getUint32(base + 48, true);   // sp_height - unsigned long long (8 bytes)
+    let total_sps = mem_view.getUint32(base + 56, true);   // total_sps - unsigned long long (8 bytes)
+
+    let decoder = new TextDecoder();
+    let name_len = 0;
+    while (mem_view.getUint8(file_name + name_len) != 0) {
+        name_len++;
+    }
+    let name = decoder.decode(uint8_ar.subarray(file_name, file_name + name_len));
+
+    const texRaw = HasRawTexture(name);
+    if (!texRaw) {
+        return;
+    }
+
+    const src = texRaw.data;
+    const width = texRaw.width;
+    const height = texRaw.height;
+    const nrChannels = texRaw.channels;
+    if (sp_width == 0) {
+        sp_width = width
+        sp_height = height
+    }
+
+    const idx = GenTexture(texRaw.data, sp_width, sp_height, x_offset, y_offset, width, height, 0);
+
+    //dbg.memBuffer[RET_1_REG * 8] = idx;
+    mem_view.setUint32(RET_1_REG * 8, idx, true)
+}
+
+function _LoadClip(dbg) {
+    let uint8_ar = new Uint8Array(mem_view.buffer)
+    let base = mem_view.getUint32(STACK_PTR_REG * 8, true);
+
+    let ctx = mem_view.getUint32(base + 8, true);          // ctx - unsigned long long (8 bytes)
+    let file_name = mem_view.getUint32(base + 16, true);      // Assuming a pointer or handle for file_name (4 or 8 bytes, depending on platform)
+    let x_offset = mem_view.getUint32(base + 24, true);    // x_offset - unsigned long long (8 bytes)
+    let y_offset = mem_view.getUint32(base + 32, true);    // y_offset - unsigned long long (8 bytes)
+    let sp_width = mem_view.getUint32(base + 40, true);    // sp_width - unsigned long long (8 bytes)
+    let sp_height = mem_view.getUint32(base + 48, true);   // sp_height - unsigned long long (8 bytes)
+    let total_sps = mem_view.getUint32(base + 56, true);   // total_sps - unsigned long long (8 bytes)
+    let len = mem_view.getFloat32(base + 64, true);   
+    let clip_info_ptr = mem_view.getUint32(base + 72, true);   
+
+
+	mem_view.setUint32(STACK_PTR_REG * 8, base - 16, true);
+	mem_view.setUint32(base + 8, total_sps * 4, true);
+	//*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8 + 8] = info->total_sps * sizeof(int);
+	///int idx = 0;
+	
+	_GetMem();
+
+	let offset = mem_view.getUint32(RET_1_REG * 8, true);
+
+    mem_view.setUint32(clip_info_ptr, offset, true);
+    mem_view.setUint32(clip_info_ptr + 8, total_sps, true);
+    mem_view.setFloat32(clip_info_ptr + 16, len, true);
+
+    base = mem_view.getUint32(STACK_PTR_REG * 8, true);
+	mem_view.setUint32(STACK_PTR_REG * 8, base + 16, true);
+
+    let decoder = new TextDecoder();
+    //let name_sub_array = mem_view.subarray(file_name);
+    let name_len = 0;
+    while (mem_view.getUint8(file_name + name_len) != 0) {
+        name_len++;
+    }
+    let name = decoder.decode(uint8_ar.subarray(file_name, file_name + name_len));
+
+    const texRaw = HasRawTexture(name);
+    if (!texRaw) {
+        return;
+    }
+
+    const src = texRaw.data;
+    const width = texRaw.width;
+    const height = texRaw.height;
+    const nrChannels = texRaw.channels;
+
+    for (let i = 0; i < total_sps; i++) {
+        let tex_id = GenTexture(texRaw.data, sp_width, sp_height, x_offset, y_offset, width, height, i)
+        mem_view.setUint32(offset + i * 4, tex_id, true)
+    }
 }
 function _PrintStr() {
     // Implement the functionality here
 }
 async function start() {
+    
     const imports = {
         funcs_import: {
             test_out: () => console.log("called from js"),
@@ -442,6 +676,9 @@ async function start() {
             DebuggerCommand: _DebuggerCommand,
             sin: _sin,
             GetMem: _GetMem,
+            SubMem: _SubMem,
+            LoadTex: _LoadTex,
+            LoadClip: _LoadClip,
             Print: _Print,
             sqrt: _sqrt,
             Draw: _Draw,
@@ -456,6 +693,50 @@ async function start() {
     let data_sect_prom = await fetch('dbg_wasm_data.dbg');
     let data_sect = await data_sect_prom.arrayBuffer();
 
+    {
+        textures_gl = Array.from({ length: TOTAL_TEXTURES }, ()=> ({id: 0, used: false}))
+
+        let imgs_prom = await fetch('images.data');
+        let imgs_buffer = await imgs_prom.arrayBuffer();
+        let int_ar = new Uint32Array(imgs_buffer)
+        let char_ar = new Uint8Array(imgs_buffer)
+
+        let total_imgs = int_ar[0]
+        let data_sect_offset = int_ar[1]
+        let str_tbl_offset = int_ar[2]
+
+        let str_table = char_ar.subarray(4 * 3 + str_tbl_offset);
+        let data_sect = char_ar.subarray(4 * 3 + data_sect_offset);
+        let decoder = new TextDecoder()
+        for (let i = 0; i < total_imgs; i++) {
+            let name_in_str_table = int_ar[(i * 5) + 3]
+
+            let name_len = 0
+            while (str_table[name_len + name_in_str_table] != 0) {
+                name_len++;
+            }
+            let name_sub_array = str_table.subarray(name_in_str_table, name_in_str_table + name_len)
+
+            let width = int_ar[(i * 5 + 1) + 3]
+            let height = int_ar[(i * 5 + 2) + 3]
+            let channels = int_ar[(i * 5 + 3) + 3]
+            let offset_in_data_sectt = int_ar[(i * 5 + 4) + 3]
+
+            let name = decoder.decode(name_sub_array)
+            let data = data_sect.subarray(offset_in_data_sectt, offset_in_data_sectt + (width * height * channels));
+
+            textures_raw.push({name: name, data: data, width: width, height: height, channels: channels })
+            /*
+            let name_uint8 = 
+            const tex =
+            {
+                name: new TextDecoder().decode()
+
+            }
+            */
+        }
+        let a = 0;
+    }
     await fetch('test.wasm')
         .then(response => {
             if (!response.ok) {
@@ -487,7 +768,7 @@ async function start() {
                 
 
             //console.log(call(main, [3], view))
-            console.log(tests(view));
+            //console.log(tests(view));
             let ret =view.getUint32(600, true);
             if (ret != 0) {
                 console.error("Test at line " + ret + " failed")
@@ -522,7 +803,7 @@ async function start() {
     // Get A WebGL context
     var canvas = document.querySelector("#glcanvas");
     document.addEventListener('keydown', (e) => {
-        keys[e.key.charCodeAt(0)] |= KEY_DOWN | KEY_HELD
+        keys[e.key.charCodeAt(0)] |= KEY_DOWN | KEY_HELD | KEY_RECENTLY_DOWN
         console.log(`Key "${e.key.charCodeAt(0)}" pressed`);
     });
 
@@ -534,6 +815,12 @@ async function start() {
     if (!gl) {
         return;
     }
+    const audioPlayer = document.getElementById('music');
+    document.addEventListener("click", ()=> {
+        audioPlayer.play();
+        audioPlayer.loop = true;
+
+    })
 
     //ctx = WebGLDebugUtils.makeDebugContext(canvas.getContext("webgl"));
 
@@ -638,6 +925,17 @@ async function start() {
     u_screen_ratio = gl.getUniformLocation(gl_program, "screen_ratio");
     u_ent_size = gl.getUniformLocation(gl_program, "ent_size");
     u_cam_pos = gl.getUniformLocation(gl_program, "cam_pos");
+
+    gl.enable(gl.BLEND);
+
+    gl.enable(gl.DEPTH_TEST);
+
+    gl.depthMask(false);
+
+    gl.depthFunc(gl.ALWAYS);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+
     main()
     let a = 0;
     //requestAnimationFrame(main)

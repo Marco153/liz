@@ -71,6 +71,7 @@ void Print(dbg_state* dbg)
 
 }
 #define DRAW_INFO_HAS_TEXTURE 1
+#define DRAW_INFO_NO_SCREEN_RATIO 2
 struct draw_info
 {
 	float pos_x;
@@ -160,10 +161,15 @@ void Draw(dbg_state* dbg)
 
 	float screen_ratio = (float)gl_state->height / (float)gl_state->width;
 	int screen_ratio_u = glGetUniformLocation(prog, "screen_ratio");
+
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_NO_SCREEN_RATIO))
+	{
+		screen_ratio = 1;
+	}
 	glUniform1f(screen_ratio_u, screen_ratio);
 
-	draw->cam_pos_x = 5;
-	draw->cam_pos_y = -6;
+	//draw->cam_pos_x = draw->cam_pos_x;
+	//draw->cam_pos_y = draw->cam_pos_y
 	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
 	glUniform3f(cam_pos_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
 
@@ -207,6 +213,10 @@ int FromGameToGLFWKey(int in)
 	case _KEY_RIGHT:
 	{
 		key = GLFW_KEY_D;
+	}break;
+	case _KEY_ACT1:
+	{
+		key = GLFW_KEY_R;
 	}break;
 	case _KEY_ACT0:
 	{
@@ -361,7 +371,7 @@ texture_raw* HasRawTexture(open_gl_state *gl_state, std::string name)
 	int width, height, nrChannels;
 	unsigned char* src = nullptr;
 	stbi_set_flip_vertically_on_load(true);
-	src = stbi_load((char*)name.c_str(), &width, &height, &nrChannels, 0);
+	src = stbi_load((char*)(std::string("../images/") + name).c_str(), &width, &height, &nrChannels, 0);
 	gl_state->textures_raw.emplace_back(texture_raw());
 	texture_raw *new_tex = &gl_state->textures_raw.back();
 	//new_tex->name = "";
@@ -386,12 +396,12 @@ int GenTexture(lang_state *lang_stat, open_gl_state *gl_state, unsigned char *sr
 
 	//int sp_height = info->sp_width;
 	//int sp_width = info->sp_height;
-	auto sp_data = (unsigned char*)AllocMiscData(lang_stat, sp_width * sp_width * 4);
+	auto sp_data = (unsigned char*)AllocMiscData(lang_stat, sp_width * sp_height * 4);
 	//int sp_idx = ;
 
 	y_offset = (height - (y_offset + sp_height));
 
-	for (int i = 0; i < sp_width; i++)
+	for (int i = 0; i < sp_height; i++)
 	{
 		 int cur_x_offset = (x_offset) + sp_idx * sp_width * 4;
 		//int y_offset = sp_idx * sp_height;
@@ -400,7 +410,7 @@ int GenTexture(lang_state *lang_stat, open_gl_state *gl_state, unsigned char *sr
 	}
 	if (sp_data)
 	{
-		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_width, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
 		//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
 
 		GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
@@ -438,6 +448,12 @@ void LoadTex(dbg_state* dbg)
 	height = tex_raw->height;
 	nrChannels = tex_raw->channels;
 
+	if (info->sp_width == 0)
+	{
+		info->sp_width = width;
+		info->sp_height = height;
+	}
+
 	int idx = GenTexture(dbg->lang_stat, gl_state, src, info->sp_width, info->sp_height, info->x_offset, info->y_offset, width, height, 0);
 	auto ret = (int*)&dbg->mem_buffer[RET_1_REG * 8];
 	*ret = idx;
@@ -455,7 +471,7 @@ void LoadClip(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 
 	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
-	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8 + 8] = info->total_sps * sizeof(int);
+	*(int*)&dbg->mem_buffer[base_ptr + 8] = info->total_sps * sizeof(int);
 	int idx = 0;
 	
 	GetMem(dbg);
@@ -812,11 +828,93 @@ void Stub()
 {
 
 }
+
+void ImageFolderToFile()
+{
+	struct file_header
+	{
+		unsigned int total_imgs;
+		unsigned int data_sect_offset;
+		unsigned int str_tbl_offset;
+	};
+	struct file_png
+	{
+		unsigned int name;
+		unsigned int width;
+		unsigned int height;
+		unsigned char channels;
+		unsigned int data;
+	};
+	own_std::vector<char *> file_names;
+	own_std::vector<unsigned char> file_data;
+	own_std::vector<unsigned char> data_sect;
+	own_std::vector<unsigned char> str_table;
+	GetFilesInDirectory("../images", nullptr, &file_names);
+
+
+	int total_imgs = 0;
+	FOR_VEC(ptr, file_names)
+	{
+		std::string str = *ptr;
+		int p_idx = str.find_last_of('.');
+		std::string ext = str.substr(p_idx + 1);
+		if (ext == "png")
+		{
+			int cur_str_table_offset = str_table.size();
+			auto c_str = (unsigned char*)str.c_str();
+			str_table.insert(str_table.end(), c_str, c_str + str.size() + 1);
+
+			int cur_offset = file_data.size();
+			file_data.make_count(file_data.size() + sizeof(file_png));
+			auto cur_file =(file_png *)( file_data.begin() + cur_offset);
+
+			int width, height, nrChannels;
+			unsigned char* src = nullptr;
+			stbi_set_flip_vertically_on_load(true);
+
+			src = stbi_load((char*)(std::string("../images/") + str).c_str(), &width, &height, &nrChannels, 0);
+
+			cur_file->name = cur_str_table_offset;
+			cur_file->width = width;
+			cur_file->height = height;
+			cur_file->channels = nrChannels;
+			cur_file->data = data_sect.size();
+
+			data_sect.insert(data_sect.end(), src, src + (width * height * nrChannels));
+			stbi_image_free(src);
+			total_imgs++;
+
+		}
+	}
+	own_std::vector<unsigned char> final_buffer;
+
+	INSERT_VEC(final_buffer, file_data);
+	int data_sect_offset = final_buffer.size();
+	INSERT_VEC(final_buffer, data_sect);
+	int str_tbl_offset = final_buffer.size();
+	INSERT_VEC(final_buffer, str_table);
+	
+	file_header hdr;
+	hdr.total_imgs = total_imgs;
+	hdr.str_tbl_offset = str_tbl_offset;
+	hdr.data_sect_offset = data_sect_offset;
+
+	final_buffer.insert(final_buffer.begin(), (unsigned char*)&hdr, (unsigned char*)(&hdr + 1));
+
+	int size = final_buffer.size();
+	if((size % 4) != 0)
+		size += 4 - (size % 4);
+	final_buffer.make_count(size);
+
+	WriteFileLang("../lang2/web/images.data", final_buffer.data(), final_buffer.size());
+}
 int main(int argc, char* argv[])
 {
+
 	lang_state lang_stat;
 	mem_alloc alloc;
 	InitMemAlloc(&alloc);
+
 	/*
 	auto addr = heap_alloc(&alloc, 12);
 	auto addr2 = heap_alloc(&alloc, 12);
@@ -828,6 +926,9 @@ int main(int argc, char* argv[])
 	open_gl_state gl_state = {};
 	gl_state.lang_stat = &lang_stat;
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
+
+	ImageFolderToFile();
+
 	compile_options opts = {};
 	opts.file = "../lang2/files";
 	opts.wasm_dir = "../lang2/web/";

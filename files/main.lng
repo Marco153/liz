@@ -1,7 +1,10 @@
 scene_info:struct
 {
 	str : str_lit,
+	cam_size:f32,
+	cam_pos:v3,
 	next : *scene_info,
+	ending :bool,
 }
 lever_info:struct
 {
@@ -65,10 +68,12 @@ context: struct
 	lever_unpressed_cel_tex : u32,
 	lever_pressed_cel_tex : u32,
 	door_cel_tex : u32,
+	ending_tex : u32,
 
 }
 
 DRAW_INFO_HAS_TEXTURE:const s32 = 1;
+DRAW_INFO_NO_SCREEN_RATIO:const s32 = 2;
 
 draw_info: struct
 {
@@ -426,6 +431,19 @@ ChangeClip::fn(cur_clip : **clip, to : *clip)
 	*cur_clip = to;
 }
 
+Max::fn(a : s32, b : s32) !s32
+{
+	ret: = if a > b a else b;
+	return ret;
+}
+
+AssignCamStuff::fn(scn : *scene, draw : *draw_info)
+{
+	draw.cam_pos.x = cast(f32)(scn.width / 2);
+	draw.cam_pos.y = -cast(f32)(scn.height / 2);
+
+	draw.cam_size = cast(f32)Max(cast(s32)scn.width, cast(s32)scn.height)/2.0;
+}
 DrawSceneMap::fn(ctx : *context, scn : *scene, window : *u8, dt : f32)
 {
 	flow_h_clip_tex := UpdateClip(&ctx.flow_h_clip, dt);
@@ -436,12 +454,12 @@ DrawSceneMap::fn(ctx : *context, scn : *scene, window : *u8, dt : f32)
 	draw.color = []f32{ 0.0, 0.5, 0.5, 1.0 };
 	//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
 	//draw.texture_id = UpdateClip(cur_clip, dt);
-	draw.cam_size = scn.cam_size;
-	draw.cam_pos.x = 0.0;
-	draw.cam_pos.y = 0.0;
-	draw.cam_pos.z = 0.0;
+	//max: = Max(scn.width, scn.height);
+	//draw.cam_pos.y = 0.0;
+	//draw.cam_pos.z = 0.0;
 
 
+	AssignCamStuff(scn, &draw);
 	draw.ent_size.x = cast(f32)scn.width;
 	draw.ent_size.y = -cast(f32)scn.height;
 
@@ -449,14 +467,11 @@ DrawSceneMap::fn(ctx : *context, scn : *scene, window : *u8, dt : f32)
 	draw.pos.x = start_x;
 	draw.pos.y = start_y;
 
-
-	draw.cam_pos.y = 0.0;
-	draw.cam_pos.z = 0.0;
-
 	//draw.texture_id = 1;
 	Draw(window, &draw);
 	//y:s32 = cast(s32)scn.height - 1;
 	y:s32 = 0;
+	AssignCamStuff(scn, &draw);
 	while y < (cast(s32)scn.height)
 	{
 		x:u32 = 0;
@@ -466,7 +481,7 @@ DrawSceneMap::fn(ctx : *context, scn : *scene, window : *u8, dt : f32)
 			//y: = cast(u32)(cast(f32)i / cast(f32)scn.width);
 			i: = x + (cast(u32)y * scn.width);
 
-			draw.cam_size = scn.cam_size;
+			//draw.cam_size = scn.cam_size;
 			draw.pos.x = cast(f32)x + start_x;
 			draw.pos.y = -(cast(f32)y + start_y);
 			draw.pos.y -= 1.0;
@@ -951,6 +966,7 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 {
 	i:u32 = 0;
 	draw:draw_info;
+	AssignCamStuff(scn, &draw);
 	while i < scn.cur_sz_movs
 	{
 		cur: = ptr_offset(scn.movs, i, movable);
@@ -974,8 +990,6 @@ MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
 
 		draw.pos = cur.cur;
 		draw.pos.y -= 1.0;
-		draw.cam_size = scn.cam_size;
-		draw.cam_pos = scn.cam_pos;
 		draw.ent_size.x = 1.0;
 		draw.ent_size.y = 1.0;
 
@@ -1078,182 +1092,204 @@ main_loop::fn(ctx : *context)
 {
 	using ctx;
 	draw:draw_info;
+	//AssignCamStuff(scn, &draw);
 	while !ShouldClose(window)
 	{
-		if scn.done != nil && scn.scn_info.next != nil
+		ClearBackground(0.3, 0.3, 0.3);
+		if (scn.scn_info != nil && scn.scn_info.ending)
 		{
-			CreateScene(ctx, scn.scn_info.next.str, scn, &ctx.player_pos);
-			final_pos = player_pos;
-			scn.scn_info = scn.scn_info.next;
-			scn.done = false;
-		
-		}
-		ClearBackground(0.4, 0.4, 0.5);
-		dt: = GetDeltaTime();
-		time: = GetTimeSinceStart();
-		s: = sin(time) + 1.0;
-
-		DrawSceneMap(ctx, scn, window, dt);
-
-		memset(cast(*u8)& draw, 0, sizeof(draw));
-
-		draw.color = []f32{ 1.0, 0.0, 0.0, 1.0 };
-		//*draw.color[1] = 0.0;
-		//*draw.color[2] = 0.0;
-		//*draw.color[3] = 1.0;
-		draw.cam_size = scn.cam_size;
-		draw.ent_size.x = 1.0 + s;
-		draw.ent_size.y = 1.0 + s;
-		draw.pos.x = 0.0;
-		draw.pos.y = 0.0;
-		draw.pos.z = 0.5;
-
-
-		//Draw(window, &draw);
-
-		memset(cast(*u8)& draw, 0, sizeof(draw));
-
-		if can_move && in_flow == false
-		{
-			pressed: = false;
-			
-			if IsKeyDown(key_enum.KEY_LEFT)
-			{
-				player_size.x = -1.0;
-				player_size.y = 1.0;
-				pressed = true;
-				block_dir.x = -2.0;
-				block_dir.y = 0.0;
-
-				p_dir = player_dir.LEFT;
-				ChangeClip(&cur_clip, &walk_h);
-
-			}
-			else if IsKeyDown(key_enum.KEY_RIGHT)
-			{
-				player_size.x = 1.0;
-				player_size.y = 1.0;
-				//player_pos.x += dt * 5.0;
-				pressed = true;
-				block_dir.x = 2.0;
-				block_dir.y = 0.0;
-				p_dir = player_dir.RIGHT;
-				ChangeClip(&cur_clip, &walk_h);
-			}
-			else if IsKeyDown(key_enum.KEY_UP)
-			{
-				player_size.x = 1.0;
-				player_size.y = 1.0;
-				//player_pos.x += dt * 5.0;
-				pressed = true;
-				block_dir.x = 0.0;
-				block_dir.y = 2.0;
-				p_dir = player_dir.UP;
-				ChangeClip(&cur_clip, &walk_v);
-			}
-			else if IsKeyDown(key_enum.KEY_DOWN)
-			{
-				player_size.x = 1.0;
-				player_size.y = -1.0;
-				//player_pos.x += dt * 5.0;
-				pressed = true;
-				block_dir.x = 0.0;
-				block_dir.y = -2.0;
-				p_dir = player_dir.DOWN;
-				ChangeClip(&cur_clip, &walk_v);
-			}
-			else if IsKeyDown(key_enum.KEY_ACT0)
-			{
-				UndoLogic(ctx);
-
-			}
-
-			if pressed && ctx.scn.done == false && ctx.something_is_processing == false
-			{
-				act:= AddFrameAction(ctx);
-
-				act.type = frame_action.MOV;
-				act.holder_type = cel_type.PLAYER;
-				act.mov.from_pos = player_pos;
-				act.mov.from_pos.y = -act.mov.from_pos.y;
-				act.mov.to_pos.x = player_pos.x + block_dir.x;
-				act.mov.to_pos.y = -(player_pos.y + block_dir.y);
-
-				act.mov.modify_pos = &final_pos;
-				act.mov.cur_pos = &player_pos;
-				act.mov.in_flow = &in_flow;
-
-				AddNewUndo(ctx);
-			}
-		}
-
-		if scn.cur_levers > 0
-		{
-			lever: = ptr_offset(scn.levers, 0, lever_info);
-			if lever.lever.type != cel_type.EMPTY && lever.lever.type == cel_type.MOVABLE
-			{
-				lever.door.type = cel_type.EMPTY;
-				lever.door.original = cel_type.EMPTY;
-			}
-			else
-			{
-				lever.door.original = cel_type.DOOR;
-				lever.door.type = cel_type.DOOR;
-
-			}
-
-		}
-
-		ProcessFrameActions(ctx, scn);
-		MovablesLogic(ctx, scn, dt);
-		dir: = final_pos - player_pos;
-		d: = dot_v3(&dir, &dir);
-		dir = normalize_v3(&dir);
-
-		if d > 0.01
-		{
-			//dir = sign_v3(&dir);
-			player_pos = player_pos + (dir * dt * 4.0);
-			//player_pos = player_pos + dir * dt * 4.0;
-			can_move = false;
+			draw.flags = DRAW_INFO_HAS_TEXTURE | DRAW_INFO_NO_SCREEN_RATIO;
+			draw.texture_id = ctx.ending_tex;
+			draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+			draw.ent_size.x = 2.0;
+			draw.ent_size.y = 2.0;
+			draw.cam_size = 1.0;
+			draw.pos.x = -1.0;
+			draw.pos.y = -1.0;
+			draw.cam_pos.x = 0.0;
+			draw.cam_pos.y = 0.0;
+			Draw(window, &draw);
 		}
 		else
 		{
-			player_pos = final_pos;
-			idle_clip: *clip;
-			if p_dir == player_dir.DOWN || p_dir == player_dir.UP
-				idle_clip = &idle_v;
+			if scn.done != nil && scn.scn_info.next != nil
+			{
+				CreateScene(ctx, scn.scn_info.next.str, scn, &ctx.player_pos);
+				final_pos = player_pos;
+				scn.scn_info = scn.scn_info.next;
+				scn.done = false;
+
+			}
+
+			dt: = GetDeltaTime();
+			time: = GetTimeSinceStart();
+			s: = sin(time) + 1.0;
+
+			DrawSceneMap(ctx, scn, window, dt);
+
+			memset(cast(*u8) & draw, 0, sizeof(draw));
+
+			draw.color = []f32{ 1.0, 0.0, 0.0, 1.0 };
+			//*draw.color[1] = 0.0;
+			//*draw.color[2] = 0.0;
+			//*draw.color[3] = 1.0;
+			draw.cam_size = scn.cam_size;
+			draw.ent_size.x = 1.0 + s;
+			draw.ent_size.y = 1.0 + s;
+			draw.pos.x = 0.0;
+			draw.pos.y = 0.0;
+			draw.pos.z = 0.5;
+
+
+			//Draw(window, &draw);
+
+			memset(cast(*u8) & draw, 0, sizeof(draw));
+
+			if can_move&& in_flow == false
+			{
+			pressed: = false;
+
+				if IsKeyDown(key_enum.KEY_LEFT)
+				{
+					player_size.x = -1.0;
+					player_size.y = 1.0;
+					pressed = true;
+					block_dir.x = -2.0;
+					block_dir.y = 0.0;
+
+					p_dir = player_dir.LEFT;
+					ChangeClip(&cur_clip, &walk_h);
+
+				}
+				else if IsKeyDown(key_enum.KEY_RIGHT)
+				{
+					player_size.x = 1.0;
+					player_size.y = 1.0;
+					//player_pos.x += dt * 5.0;
+					pressed = true;
+					block_dir.x = 2.0;
+					block_dir.y = 0.0;
+					p_dir = player_dir.RIGHT;
+					ChangeClip(&cur_clip, &walk_h);
+				}
+				else if IsKeyDown(key_enum.KEY_UP)
+				{
+					player_size.x = 1.0;
+					player_size.y = 1.0;
+					//player_pos.x += dt * 5.0;
+					pressed = true;
+					block_dir.x = 0.0;
+					block_dir.y = 2.0;
+					p_dir = player_dir.UP;
+					ChangeClip(&cur_clip, &walk_v);
+				}
+				else if IsKeyDown(key_enum.KEY_DOWN)
+				{
+					player_size.x = 1.0;
+					player_size.y = -1.0;
+					//player_pos.x += dt * 5.0;
+					pressed = true;
+					block_dir.x = 0.0;
+					block_dir.y = -2.0;
+					p_dir = player_dir.DOWN;
+					ChangeClip(&cur_clip, &walk_v);
+				}
+				else if IsKeyDown(key_enum.KEY_ACT0)
+				{
+					UndoLogic(ctx);
+
+				}
+				else if IsKeyDown(key_enum.KEY_ACT1)
+				{
+					CreateScene(ctx, scn.scn_info.str, scn, &ctx.player_pos);
+					final_pos = player_pos;
+					//scn.scn_info = scn.scn_info.next;
+					scn.done = false;
+
+				}
+
+				if pressed&& ctx.scn.done == false && ctx.something_is_processing == false
+				{
+				act: = AddFrameAction(ctx);
+
+					act.type = frame_action.MOV;
+					act.holder_type = cel_type.PLAYER;
+					act.mov.from_pos = player_pos;
+					act.mov.from_pos.y = -act.mov.from_pos.y;
+					act.mov.to_pos.x = player_pos.x + block_dir.x;
+					act.mov.to_pos.y = -(player_pos.y + block_dir.y);
+
+					act.mov.modify_pos = &final_pos;
+					act.mov.cur_pos = &player_pos;
+					act.mov.in_flow = &in_flow;
+
+					AddNewUndo(ctx);
+				}
+			}
+
+			if scn.cur_levers > 0
+			{
+			lever: = ptr_offset(scn.levers, 0, lever_info);
+				if lever.lever.type != cel_type.EMPTY && lever.lever.type == cel_type.MOVABLE
+				{
+					lever.door.type = cel_type.EMPTY;
+					lever.door.original = cel_type.EMPTY;
+				}
+				else
+				{
+					lever.door.original = cel_type.DOOR;
+					lever.door.type = cel_type.DOOR;
+
+				}
+
+			}
+
+			ProcessFrameActions(ctx, scn);
+			MovablesLogic(ctx, scn, dt);
+			dir: = final_pos - player_pos;
+			d: = dot_v3(&dir, &dir);
+			dir = normalize_v3(&dir);
+
+			if d > 0.01
+			{
+				//dir = sign_v3(&dir);
+				player_pos = player_pos + (dir * dt * 4.0);
+				//player_pos = player_pos + dir * dt * 4.0;
+				can_move = false;
+			}
 			else
-				idle_clip = &idle_h;
-			ChangeClip(&cur_clip, idle_clip);
-			can_move = true;
+			{
+				player_pos = final_pos;
+			idle_clip: *clip;
+				if p_dir == player_dir.DOWN || p_dir == player_dir.UP
+					idle_clip = &idle_v;
+				else
+					idle_clip = &idle_h;
+				ChangeClip(&cur_clip, idle_clip);
+				can_move = true;
+			}
+
+			//__dbg_break;
+			memcpy(&draw.pos, &player_pos, sizeof(draw.pos));
+			//draw.pos.x += start_pos.x + map_start_pos.x;
+			//draw.pos.y += start_pos.y + map_start_pos.y;
+			draw.pos.x += 0.5;
+			draw.pos.y -= 0.5;
+			memcpy(&draw.ent_size, &player_size, sizeof(draw.ent_size));
+
+			draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+			draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+			draw.texture_id = UpdateClip(cur_clip, dt);
+			//draw.cam_size = scn.cam_size;
+
+			draw.pivot.x = 0.5;
+			draw.pivot.y = 0.5;
+			draw.pivot.z = 0.0;
+
+			AssignCamStuff(scn, &draw);
+			//draw.texture_id = 1;
+			Draw(window, &draw);
 		}
-
-		//__dbg_break;
-		memcpy(&draw.pos, &player_pos, sizeof(draw.pos));
-		//draw.pos.x += start_pos.x + map_start_pos.x;
-		//draw.pos.y += start_pos.y + map_start_pos.y;
-		draw.pos.x += 0.5;
-		draw.pos.y -= 0.5;
-		memcpy(&draw.ent_size, &player_size, sizeof(draw.ent_size));
-
-		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
-		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-		draw.texture_id = UpdateClip(cur_clip, dt);
-		draw.cam_size = scn.cam_size;
-		draw.cam_pos.x = 0.0;
-		draw.cam_pos.y = 0.0;
-		draw.cam_pos.z = 0.0;
-
-		draw.pivot.x = 0.5;
-		draw.pivot.y = 0.5;
-		draw.pivot.z = 0.0;
-
-		draw.cam_pos.y = 0.0;
-		draw.cam_pos.z = 0.0;
-
-		//draw.texture_id = 1;
-		Draw(window, &draw);
 		EndFrame(window);
 	}
 }
@@ -1368,7 +1404,8 @@ main :: fn(){
 	memset(cast(*u8)ctx.undos, 0, sizeof(undo_state));
 
 	scn_cur: = ptr_offset(ctx.scenes, 0, scene_info);
-	scn_cur.str = scene5;
+	scn_cur.str = scene1;
+	//scn_cur.ending = true;
 	scn_cur.next = ptr_offset(ctx.scenes, 1, scene_info);
 
 	scn_cur = ptr_offset(ctx.scenes, 1, scene_info);
@@ -1393,6 +1430,10 @@ main :: fn(){
 
 	scn_cur = ptr_offset(ctx.scenes, 6, scene_info);
 	scn_cur.str = scene7;
+	scn_cur.next = ptr_offset(ctx.scenes, 7, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 7, scene_info);
+	scn_cur.ending = true;
 	scn_cur.next = nil;
 
 	scn_cur = ptr_offset(ctx.scenes, 0, scene_info);
@@ -1402,37 +1443,38 @@ main :: fn(){
 	window := OpenWindow();
 	ctx.window = window;
 
-	LoadClip(&ctx, "../images/sprite_sheet.png/", 0, 32, 32, 32, 3, 1.0, &ctx.flow_h_clip);
+	LoadClip(&ctx, "sprite_sheet.png", 0, 32, 32, 32, 3, 1.0, &ctx.flow_h_clip);
 	ctx.flow_h_clip.loop = true;
 
-	LoadClip(&ctx, "../images/sprite_sheet.png/", 0, (32 * 3), 32, 32, 3, 1.0, &ctx.flow_v_clip);
+	LoadClip(&ctx, "sprite_sheet.png", 0, (32 * 3), 32, 32, 3, 1.0, &ctx.flow_v_clip);
 	ctx.flow_v_clip.loop = true;
 
-	LoadClip(&ctx, "../images/sprite_sheet.png/", 0, 64, 32, 32, 2, 1.0, &ctx.lever_clip);
+	LoadClip(&ctx, "sprite_sheet.png", 0, 64, 32, 32, 2, 1.0, &ctx.lever_clip);
 	ctx.lever_clip.loop = false;
 
-	LoadClip(&ctx, "../images/frog.png", 32 * 4, 0, 32, 32, 1, 1.0, &ctx.walk_h);
+	LoadClip(&ctx, "frog.png", 32 * 4, 0, 32, 32, 1, 1.0, &ctx.walk_h);
 	ctx.walk_h.loop = false;
 
-	LoadClip(&ctx, "../images/frog.png", (32 * 3) * 4, 0, 32, 32, 1, 1.0, &ctx.walk_v);
+	LoadClip(&ctx, "frog.png", (32 * 3) * 4, 0, 32, 32, 1, 1.0, &ctx.walk_v);
 	ctx.walk_v.loop = false;
 
-	LoadClip(&ctx, "../images/frog.png", 0, 0, 32, 32, 1, 1.0, &ctx.idle_h);
+	LoadClip(&ctx, "frog.png", 0, 0, 32, 32, 1, 1.0, &ctx.idle_h);
 	ctx.idle_h.loop = false;
 
-	LoadClip(&ctx, "../images/frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
+	LoadClip(&ctx, "frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
 	ctx.idle_v.loop = false;
 
-	LoadClip(&ctx, "../images/frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
+	LoadClip(&ctx, "frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
 	ctx.idle_v.loop = false;
 
 
-	ctx.solid_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32) * 4, 0, 32, 32);
-	ctx.empty_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", 0, 0, 32, 32);
-	ctx.door_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32 * 2) * 4, (32 * 2), 32, 32);
-	ctx.target_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32 * 2) * 4, 0, 32, 32);
-	ctx.movable_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32 * 3) * 4, 32, 32, 32);
-	ctx.rubber_cel_tex = LoadTex(&ctx, "../images/sprite_sheet.png", (32 * 3) * 4, 0, 32, 32);
+	ctx.solid_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32) * 4, 0, 32, 32);
+	ctx.empty_cel_tex = LoadTex(&ctx, "sprite_sheet.png", 0, 0, 32, 32);
+	ctx.door_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32 * 2) * 4, (32 * 2), 32, 32);
+	ctx.target_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32 * 2) * 4, 0, 32, 32);
+	ctx.movable_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32 * 3) * 4, 32, 32, 32);
+	ctx.rubber_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32 * 3) * 4, 0, 32, 32);
+	ctx.ending_tex = LoadTex(&ctx, "ending.png", 0, 0, 0, 0);
 
 	scn:scene;
 	ctx.scn = &scn;
@@ -1444,7 +1486,7 @@ main :: fn(){
 	ctx.scn.levers = cast(*lever_info)heap_alloc(&ctx.alloc, ctx.scn.max_levers * sizeof(lever_info));
 	memset(cast(*u8)ctx.scn.levers, 0, sizeof(*cel_info));
 
-	scn.cam_size = 10.0;
+	scn.cam_size = 8.0;
 	src_cel: = ptr_offset(scn.cels, 0 + 6 * scn.width, cel_info);
 	scn.scn_info = scn_cur;
 	//pos:v2;

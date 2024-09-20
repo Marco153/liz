@@ -2826,6 +2826,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "end";
 	}break;
+	case WASM_INST_I32_DIV_S:
+	{
+		ret += "i32.div_s";
+	}break;
 	case WASM_INST_I32_DIV_U:
 	{
 		ret += "i32.div_u";
@@ -3185,6 +3189,8 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	case IR_STACK_BEGIN:
 	case IR_STACK_END:
 	case IR_BEGIN_STMNT:
+	case IR_DECLARE_LOCAL:
+	case IR_DECLARE_ARG:
 	case IR_END_STMNT:
 	case IR_NOP:
 	{
@@ -5912,6 +5918,16 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		penultimate->u32 = (penultimate->u32 % top.u32);
 		int a = 0;
 	}break;
+	case WASM_INST_I32_DIV_S:
+	{
+		auto top = wasm_stack.back();
+		wasm_stack.pop_back();
+		auto penultimate = &wasm_stack.back();
+		// assert is 32bit
+		ASSERT(top.type == 0 && penultimate->type == 0);
+		penultimate->s32 = (penultimate->s32 / top.s32);
+		int a = 0;
+	}break;
 	case WASM_INST_I32_DIV_U:
 	{
 		auto top = wasm_stack.back();
@@ -8101,7 +8117,8 @@ void AssignOutsiderFunc(lang_state* lang_stat, std::string name, OutsiderFuncTyp
 	lang_stat->winterp->outsiders[name] = func;
 }
 
-void GetFilesInDirectory(std::string dir, own_std::vector<std::string>* contents, own_std::vector<std::string>* file_names)
+char* heap_alloc(mem_alloc* alloc, int size);//, mem_chunk **out = nullptr)
+void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own_std::vector<char *>* file_names)
 {
 	WIN32_FIND_DATA ffd;
 	char buffer[128];
@@ -8123,7 +8140,10 @@ void GetFilesInDirectory(std::string dir, own_std::vector<std::string>* contents
 		int read = 0;
 		//char *data = ReadEntireFileLang(ffd.cFileName, &read);
 		//contents->emplace_back(std::string(data, read));
-		file_names->emplace_back((char *)ffd.cFileName);
+		int len = strlen(ffd.cFileName) + 1;
+		char* name = heap_alloc((mem_alloc *)__lang_globals.data, len);
+		memcpy(name, ffd.cFileName, len);
+		file_names->emplace_back(name);
 	}
 }
 int Compile(lang_state* lang_stat, compile_options *opts)
@@ -8145,8 +8165,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//lang_stat->base_lang = NewDecl(lang_stat, "base", tp);
 
 	own_std::vector<std::string> file_contents;
-	own_std::vector<std::string> file_names;
-	GetFilesInDirectory(file, &file_contents, &file_names);
+	own_std::vector<char *> file_names;
+	GetFilesInDirectory(file, nullptr, &file_names);
 
 	type2 dummy_type;
 	decl2* release = FindIdentifier("RELEASE", lang_stat->root, &dummy_type);

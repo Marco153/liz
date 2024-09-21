@@ -796,29 +796,50 @@ void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 			GetIRFromAst(lang_stat, ast, out);
 		}
 	}
-	else if (ast->type == AST_OPPOSITE && ast->opposite.exp->type == AST_BINOP && IsCondAndOr(ast->opposite.exp->op))
+	else if (ast->type == AST_OPPOSITE && ast->opposite.exp->type == AST_BINOP)
 	{
-		int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
-		int sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
-		int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
+		if (IsCondAndOr(ast->opposite.exp->op))
+		{
+			int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+			int sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
+			int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
 
-		GetIRFromAst(lang_stat, ast->opposite.exp, out);
+			GetIRFromAst(lang_stat, ast->opposite.exp, out);
 
-		IRCreateEndBlock(lang_stat,cond_idx, out, IR_END_COND_BLOCK);
+			IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_COND_BLOCK);
 
-		char reg = AllocReg(lang_stat);
+			char reg = AllocReg(lang_stat);
 
-		CreateOppositeRegAssigmentAfterCondChecking(lang_stat, out, sub_if_idx, if_idx, reg);
+			CreateOppositeRegAssigmentAfterCondChecking(lang_stat, out, sub_if_idx, if_idx, reg);
 
-		ir.type = IR_CMP_EQ;
-		ir.bin.op = T_COND_EQ;
-		ir.bin.lhs.type = IR_TYPE_REG;
-		ir.bin.lhs.reg = reg;
-		ir.bin.lhs.reg_sz  = 8;
-		ir.bin.lhs.deref  = 1;
-		ir.bin.rhs.type = IR_TYPE_INT;
-		ir.bin.rhs.i = 0;
-		out->emplace_back(ir);
+			ir.type = IR_CMP_EQ;
+			ir.bin.op = T_COND_EQ;
+			ir.bin.lhs.type = IR_TYPE_REG;
+			ir.bin.lhs.reg = reg;
+			ir.bin.lhs.reg_sz = 8;
+			ir.bin.lhs.deref = 1;
+			ir.bin.rhs.type = IR_TYPE_INT;
+			ir.bin.rhs.i = 0;
+			out->emplace_back(ir);
+		}
+		else
+		{
+			char reg = reg;
+			ir.bin.lhs.type = IR_TYPE_REG;
+			ir.bin.lhs.reg = reg;
+			ir.bin.lhs.reg_sz = 8;
+
+			GenStackThenIR(lang_stat, ast->opposite.exp, out, &ir.bin.lhs);
+			ir.type = IR_CMP_NE;
+			ir.bin.op = T_COND_NE;
+			ir.bin.lhs.type = IR_TYPE_REG;
+			ir.bin.lhs.reg = reg;
+			ir.bin.lhs.reg_sz  = 8;
+			ir.bin.lhs.deref  = 1;
+			ir.bin.rhs.type = IR_TYPE_INT;
+			ir.bin.rhs.i = 0;
+			out->emplace_back(ir);
+		}
 	}
 	else
 	{
@@ -1897,7 +1918,7 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	if (!dst_val)
 		return;;
 
-	bool diff_type = top_info.type != dst_val->type;
+	bool diff_type = top_info.type != dst_val->type && dst_val->type != IR_NONE;
 	if (!diff_type && top_info.reg != dst_val->reg || diff_type)
 	{
 		ir.type = IR_ASSIGNMENT;

@@ -1246,9 +1246,9 @@ node* node_iter::parse_expr()
 					int scope_start = peek_tkn()->line;
 					if (peek_tkn()->type != tkn_type2::T_OPEN_CURLY)
 					{
-						lang_stat->flags |= PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
+						lang_stat->flags |= PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD | PSR_FLAGS_SCOPE_WHITHOUT_CURLY;
 						cur_node->r = parse_(0, parser_cond::LESSER_EQUAL);
-						lang_stat->flags &= ~PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
+						lang_stat->flags &= ~(PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD | PSR_FLAGS_SCOPE_WHITHOUT_CURLY);
 
 						int scope_end = peek_tkn()->line;
 						if (cur_node->r->type != N_STMNT)
@@ -1817,13 +1817,15 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			}
 
 
+		auto tkn = peek_tkn();
+		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY) && tkn->type == T_SEMI_COLON)
+			return cur_node->l;
 
 		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IMPLICIT_SEMI_COLON))
 			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
 
 		else if (!IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IMPLICIT_SEMI_COLON))
 		{
-			auto tkn = peek_tkn();
 			// we wanna treat some words as binary operators, so in this case
 			// we dont wanna make crash because it's at the head of a node
 			if (!IsTknWordStr(tkn, "as"))

@@ -167,6 +167,16 @@ function loadShader(gl, type, source) {
 
   return shader;
 }
+function DecodeBase64ToUintArray(encoded) {
+    let encoded_base_64 = encoded
+    let decoded_base_64 = atob(encoded_base_64)
+    const byteNumbers = new Uint8Array(decoded_base_64.length);
+    for (let i = 0; i < decoded_base_64.length; i++) {
+        byteNumbers[i] = decoded_base_64.charCodeAt(i);
+    }
+    return byteNumbers;
+ 
+}
 function GetTextureSlotId()
 {
 	for (let i = 0; i < TOTAL_TEXTURES; i++)
@@ -660,6 +670,36 @@ function _LoadClip(dbg) {
 function _PrintStr() {
     // Implement the functionality here
 }
+function SetUpWasm(result, data_sect) {
+    const inst = result;
+    wasm_inst = inst;
+    // Use the instance as needed
+    let { tests } = inst.instance.exports
+    let view = inst.instance.exports.mem;
+    view = new DataView(view.buffer);
+    view.setUint32(MEM_PTR_CUR_ADDR, 20000, true)
+    mem_view = view
+    // offset for rsp
+    view.setUint32(8 * 8, stack_ptr_offset, true);
+    view.setUint32(stack_ptr_offset + 8, 600, true);
+
+    let uint8_data = new Uint8Array(data_sect)
+    for (let i = 0; i < data_sect.byteLength; i++)
+        view.setUint8(DATA_SECT_OFFSET + i, uint8_data[i], true)
+        
+
+    //console.log(call(main, [3], view))
+    //console.log(tests(view));
+    let ret =view.getUint32(600, true);
+    if (ret != 0) {
+        console.error("Test at line " + ret + " failed")
+    }
+    let a = 0;
+    //console.log(instance.exports);
+}
+function Stub() {
+
+}
 async function start() {
     
     const imports = {
@@ -686,41 +726,50 @@ async function start() {
             LoadClip: _LoadClip,
             WasmDbg: _WasmDbg,
             PrintStr: _PrintStr,
+            AssignTexFolder: Stub,
             AssignCtxAddr: _AssignCtxAddr,
         }
     }
 
-    let data_sect_prom = await fetch('dbg_wasm_data.dbg');
-    let data_sect = await data_sect_prom.arrayBuffer();
+    let wasm_data_sect_bytes = DecodeBase64ToUintArray(document.getElementById("wasm_data_sect").textContent);
+    //let data_sect_prom = await fetch('files_data_sect');
+    let data_sect = wasm_data_sect_bytes;
 
     {
         textures_gl = Array.from({ length: TOTAL_TEXTURES }, ()=> ({id: 0, used: false}))
 
-        let imgs_prom = await fetch('images.data');
-        let imgs_buffer = await imgs_prom.arrayBuffer();
+        let imgs_buffer = DecodeBase64ToUintArray(document.getElementById("wasm_images").textContent);
+        let data_view = new DataView(imgs_buffer.buffer)
+        //let imgs_prom = await fetch('images.data');
+        //let imgs_buffer = await imgs_prom.arrayBuffer();
         let int_ar = new Uint32Array(imgs_buffer)
         let char_ar = new Uint8Array(imgs_buffer)
 
-        let total_imgs = int_ar[0]
-        let data_sect_offset = int_ar[1]
-        let str_tbl_offset = int_ar[2]
+        let total_imgs = data_view.getUint32(0, true)
+        let data_sect_offset = data_view.getUint32(4, true)
+        let str_tbl_offset = data_view.getUint32(8, true)
 
         let str_table = char_ar.subarray(4 * 3 + str_tbl_offset);
         let data_sect = char_ar.subarray(4 * 3 + data_sect_offset);
+
         let decoder = new TextDecoder()
         for (let i = 0; i < total_imgs; i++) {
-            let name_in_str_table = int_ar[(i * 5) + 3]
+            let name_in_str_table = data_view.getUint32((i * 5) * 4 + 3 * 4, true)
 
             let name_len = 0
             while (str_table[name_len + name_in_str_table] != 0) {
+                console.log(`name len ${name_len} name in str table ${name_in_str_table}`)
                 name_len++;
+                if(name_len > 200)
+                    return
             }
+            //return;
             let name_sub_array = str_table.subarray(name_in_str_table, name_in_str_table + name_len)
 
-            let width = int_ar[(i * 5 + 1) + 3]
-            let height = int_ar[(i * 5 + 2) + 3]
-            let channels = int_ar[(i * 5 + 3) + 3]
-            let offset_in_data_sectt = int_ar[(i * 5 + 4) + 3]
+            let width = data_view.getUint32((i * 5 + 1) * 4 + 3 * 4, true)
+            let height = data_view.getUint32((i * 5 + 2) * 4 + 3 * 4, true)
+            let channels = data_view.getUint32((i * 5 + 3) * 4 + 3 * 4, true)
+            let offset_in_data_sectt = data_view.getUint32((i * 5 + 4) * 4 + 3 * 4, true)
 
             let name = decoder.decode(name_sub_array)
             let data = data_sect.subarray(offset_in_data_sectt, offset_in_data_sectt + (width * height * channels));
@@ -737,7 +786,12 @@ async function start() {
         }
         let a = 0;
     }
-    await fetch('test.wasm')
+    // You can now instantiate the WebAssembly module with these bytes
+    let wasm_bytes = DecodeBase64ToUintArray(document.getElementById("wasm_module").textContent);
+    let result = await WebAssembly.instantiate(wasm_bytes, imports)
+    SetUpWasm(result, data_sect)
+
+    await fetch('files.wasm')
         .then(response => {
             if (!response.ok) {
                 throw new Error(`Network response was not ok: ${response.statusText}`);
@@ -745,36 +799,8 @@ async function start() {
             return response.arrayBuffer();
         })
         .then(bytes => {
-            const wasmBytes = new Uint8Array(bytes);
-            // You can now instantiate the WebAssembly module with these bytes
-            return WebAssembly.instantiate(wasmBytes, imports)
         })
         .then(result => {
-            const inst = result;
-            wasm_inst = inst;
-            // Use the instance as needed
-            let { tests } = inst.instance.exports
-            let view = inst.instance.exports.mem;
-            view = new DataView(view.buffer);
-            view.setUint32(MEM_PTR_CUR_ADDR, 20000, true)
-            mem_view = view
-            // offset for rsp
-            view.setUint32(8 * 8, stack_ptr_offset, true);
-            view.setUint32(stack_ptr_offset + 8, 600, true);
-
-            let uint8_data = new Uint8Array(data_sect)
-            for (let i = 0; i < data_sect.byteLength; i++)
-                view.setUint8(DATA_SECT_OFFSET + i, uint8_data[i], true)
-                
-
-            //console.log(call(main, [3], view))
-            //console.log(tests(view));
-            let ret =view.getUint32(600, true);
-            if (ret != 0) {
-                console.error("Test at line " + ret + " failed")
-            }
-            let a = 0;
-            //console.log(instance.exports);
         })
         .catch(error => {
             console.error('Error fetching or instantiating WASM module:', error);

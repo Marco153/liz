@@ -1,0 +1,112 @@
+v4 : struct
+{
+	x : f32,
+	y : f32,
+	z : f32,
+	w : f32,
+}
+v3 : struct
+{
+	x : f32,
+	y : f32,
+	z : f32,
+}
+sqrt::fn outsider(f32) !f32;
+operator *(self : *v3, f : f32) !v3
+{
+	ret:v3;
+	ret.x = self.x * f;
+	ret.y = self.y * f;
+	ret.z = self.z * f;
+	return ret;
+}
+operator -(self : *v3, rhs : *v3) !v3
+{
+	ret:v3;
+	ret.x = self.x - rhs.x;
+	ret.y = self.y - rhs.y;
+	ret.z = self.z - rhs.z;
+	return ret;
+}
+operator +(self : *v3, rhs : *v3) !v3
+{
+	ret:v3;
+	ret.x = self.x + rhs.x;
+	ret.y = self.y + rhs.y;
+	ret.z = self.z + rhs.z;
+	return ret;
+}
+
+ASSIGN_V3::fn macro(dst : _expr, a : _expr)
+{
+	dst.x = a.x;
+	dst.y = a.y;
+	dst.z = a.z;
+
+}
+square_normalize::fn(a : *v3) !v3
+{
+	aux: = *a;
+	epsilon: = 0.01;
+	if aux.x > epsilon
+		aux.x = 1.0;
+	else if aux.x <= -epsilon
+		aux.x = -1.0;
+
+	if aux.y > epsilon
+		aux.y = 1.0;
+	else if aux.y <= -epsilon
+		aux.y = -1.0;
+	return aux;
+}
+sign_v3::fn(a : *v3) !v3
+{
+	aux: = *a;
+	aux.x = if a.x > 0.0 1.0 else - 1.0;
+	aux.y = if a.y > 0.0 1.0 else - 1.0;
+	aux.z = if a.z > 0.0 1.0 else - 1.0;
+
+	return aux;
+}
+normalize_v3::fn(a : *v3) !v3
+{
+	len: = sqrt(dot_v3(a, a));
+	ret:v3;
+	ret.x = a.x / len;
+	ret.y = a.y / len;
+	return ret;
+}
+dot_v3::fn(a : *v3, b : *v3) ! f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z;
+	return ret;
+}
+DOT_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	
+	dst = a.x * b.x + a.y * b.y + a.z * b.z;
+}
+MUL_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	dst.x = a.x * b.x;
+	dst.y = a.y * b.y;
+	dst.z = a.z * b.z;
+}
+MUL_V3_F32::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	dst.x = a.x * b;
+	dst.y = a.y * b;
+	dst.z = a.z * b;
+}
+SUB_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	dst.x = a.x - b.x;
+	dst.y = a.y - b.y;
+	dst.z = a.z - b.z;
+}
+SUM_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	dst.x = a.x + b.x;
+	dst.y = a.y + b.y;
+	dst.z = a.z + b.z;
+}

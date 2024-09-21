@@ -1,0 +1,1519 @@
+scene_info:struct
+{
+	str : str_lit,
+	cam_size:f32,
+	cam_pos:v3,
+	next : *scene_info,
+	ending :bool,
+}
+lever_info:struct
+{
+	lever : *cel_info,
+	door : *cel_info,
+}
+undo_cel_info: struct
+{
+	from_cel_pos_x : u32,
+	from_cel_pos_y : u32,
+	dst_cel_pos_x : u32,
+	dst_cel_pos_y : u32,
+
+	from_cel_ptr : *cel_info,
+	dst_cel_ptr : *cel_info,
+	from_cel_val : cel_info,
+	dst_cel_val_before : cel_info,
+}
+undo_state: struct
+{
+	states: dyn_array(undo_cel_info),
+}
+context: struct
+{
+	scn:*scene,
+	scenes : *scene_info,
+	scene_cur : u32,
+	scenes_max : u32,
+	alloc : mem_alloc,
+	frames : *frame_info,
+	frames_count : u32,
+	frames_max : u32,
+	window:*u8,
+	can_move :bool,
+	player_size :v3,
+	player_pos :v3,
+	final_pos :v3,
+	block_dir :v3,
+	p_dir : player_dir,
+	cur_clip : *clip,
+	walk_h : clip,
+	walk_v : clip,
+	idle_h : clip,
+	idle_v : clip,
+	flow_h_clip : clip,
+	flow_v_clip : clip,
+	lever_clip : clip,
+	in_flow : bool,
+	something_is_processing : bool,
+
+	undos : *undo_state,
+	undos_cur : u32,
+	undos_max : u32,
+
+	solid_cel_tex : u32,
+	empty_cel_tex : u32,
+	rubber_cel_tex : u32,
+	flow_cel_tex : u32,
+	movable_cel_tex : u32,
+	target_cel_tex : u32,
+	lever_unpressed_cel_tex : u32,
+	lever_pressed_cel_tex : u32,
+	door_cel_tex : u32,
+	ending_tex : u32,
+
+}
+
+DRAW_INFO_HAS_TEXTURE:const s32 = 1;
+DRAW_INFO_NO_SCREEN_RATIO:const s32 = 2;
+
+draw_info: struct
+{
+	pos :v3,
+	pivot :v3,
+	ent_size :v3,
+	color: [4]f32,
+	texture_id : u32,
+	cam_size : f32,
+	cam_pos :v3,
+	flags:u32,
+}
+key_enum : enum
+{
+	KEY_LEFT,
+	KEY_RIGHT,
+	KEY_DOWN,
+	KEY_UP,
+	KEY_ACT0,
+	KEY_ACT1,
+	KEY_ACT2,
+	KEY_ACT3,
+}
+
+clip: struct
+{
+	tex_idxs: *u32,
+	total_texs: u32,
+	id:u32,
+	len : f32,
+	cur_time :f32,
+	loop :bool,
+}
+
+cel_type: enum
+{
+	EMPTY,
+	SOLID,
+	MOVABLE,
+	PLAYER,
+	TARGET,
+	LEVER,
+	RUBBER,
+	DOOR,
+	FLOW_LEFT,
+	FLOW_RIGHT,
+	FLOW_DOWN,	
+	FLOW_UP,	
+}
+cel_info :struct
+{
+	type:cel_type,
+	backup:cel_type,
+	original:cel_type,
+	is_lever :bool,
+	movable_on_water:bool,
+	using u ::union
+	{
+		mov: *movable,
+		door : *cel_info,
+	}
+}
+movable:struct
+{
+	cur : v3,
+	final:v3,
+	going :bool,
+}
+scene: struct
+{
+	cels : *cel_info,
+	total_cels : u32,
+
+	levers : *lever_info,
+	cur_levers : u32,
+	max_levers : u32,
+
+	movs : *movable,
+	cur_sz_movs : u32,
+	total_movs : u32,
+
+	width : u32,
+	height : u32,
+	cam_size : f32,
+	cam_pos : v3,
+
+	scn_info : *scene_info,
+	done :bool,
+
+}
+
+player_dir: enum
+{
+	LEFT,
+	RIGHT,
+	DOWN,
+	UP,
+}
+
+frame_action:enum
+{
+	FREE,
+	NOT_ASSIGNED,
+	MOV,
+}
+frame_action_stage:enum
+{
+	NOT_STARTED,
+	DOING,
+	FOLLOW_TO_POS,
+	DONE,
+}
+frame_info:struct
+{
+	type :frame_action,
+	stage:frame_action_stage,
+	holder_type :cel_type,
+
+	using u :: union
+	{
+		mov::struct
+		{
+			from_pos: v3,
+			to_pos: v3,
+			modify_pos: *v3,
+			cur_pos: *v3,
+			in_flow: *bool,
+		}
+	}
+}
+
+IsKeyDown::fn outsider(key_enum) !bool;
+IsKeyHeld::fn outsider(key_enum) !bool;
+GetTimeSinceStart::fn outsider() !f32;
+GetDeltaTime::fn outsider() !f32;
+EndFrame::fn outsider(wnd : *u8);
+
+OpenWindow::fn outsider() ! *u8;
+ClearBackground::fn outsider(f32, f32, f32);
+Draw::fn outsider(*u8, *draw_info);
+ShouldClose::fn outsider(*u8) ! bool;
+LoadClip::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, total_sps :u32, len :f32, out_clip : *clip);
+LoadTex::fn outsider(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! u32;
+DebuggerCommand::fn outsider(cmd :str_lit);
+WasmDbg::fn outsider(*context);
+PrintV3::fn outsider(f32, f32, f32);
+PrintStr::fn outsider(str_lit);
+AssignCtxAddr::fn outsider(*context);
+AssignTexFolder::fn outsider(str_lit);
+
+sin::fn outsider(f32) !f32;
+
+UpdateClip::fn(c : *clip, dt : f32) ! u32
+{
+	c.cur_time += dt;
+
+	if c.cur_time >= c.len
+	{
+		if c.loop
+			c.cur_time = 0.0;
+		else
+			return *ptr_offset(c.tex_idxs, c.total_texs - 1, u32);
+	}
+
+	f: = (cast(f32)c.total_texs * c.cur_time);
+	f = f / c.len;
+
+	idx: = *ptr_offset(c.tex_idxs, cast(u32)f, u32);
+	return idx;
+
+}
+AddMovable::fn(scn : *scene) ! *movable
+{
+	ASSERT(scn.cur_sz_movs < scn.total_movs);
+	ret: = ptr_offset(scn.movs, scn.cur_sz_movs, movable);
+	scn.cur_sz_movs++;
+	return ret;
+}
+CreateScene::fn(ctx : *context, str : str_lit, scn : *scene, start_pos : *v3)
+{
+	len: u32= cast(u32)str_ln(str);
+	s: = cast(*u8)str;
+
+	width: u32;
+	height: u32;
+
+	while* ptr_offset(s, width, char) != '\n
+	{
+		width++;
+	}
+	i: u32= 0;
+	while i < ctx.frames_max
+	{
+		cur_fr: = ptr_offset(ctx.frames, i, frame_info);
+		cur_fr.type = frame_action.FREE;
+		i++;
+	}
+	ctx.something_is_processing = false;
+	i = 0;
+	while i < ctx.undos_max
+	{
+		cur: = ptr_offset(ctx.undos, i, undo_state);
+		cur.states.count = 0;
+		i++;
+	}
+
+	height = len / width;
+
+	if scn.cels != nil
+		heap_free(&ctx.alloc, cast(*u8)scn.cels);
+
+	sz: = width * height * sizeof(cel_info);
+	scn.cels = cast(*cel_info)heap_alloc(&ctx.alloc, sz);
+	memset(cast(*u8)scn.cels, 0, sz);
+	scn.total_cels = width * height;
+	scn.width = width;
+	scn.height = height;
+	scn.cur_levers = 0;
+	scn.cur_sz_movs = 0;
+	ctx.undos_cur = 0;
+	
+	i = 0;
+
+	cel_idx:u64 = 0;
+	total_points: = 0;
+	y:u32= 0;
+
+	// first getting all levers
+	while i < len
+	{
+		x := cel_idx % scn.width;
+
+		//passed := cel_idx % scn.width;
+		// subbing the amount of \n we have at the end of each line
+		//corrected_i: = i - x;
+
+		ch: = *ptr_offset(s, i, char);
+		cur_cel: = ptr_offset(scn.cels, cel_idx, cel_info);
+		if ch == '0
+		{
+			ASSERT(scn.cur_levers < 4);
+			cur_levers:*lever_info = ptr_offset(scn.levers, scn.cur_levers, lever_info);
+			cur_levers.lever = cur_cel;
+			scn.cur_levers++;
+			
+			cur_cel.type = cel_type.EMPTY;
+			cur_cel.is_lever = true;
+			//start_pos.x = cast(f32)x;
+			//start_pos.y = -cast(f32)y;
+		}
+		else if ch == '\n
+		{
+			y++;
+			cel_idx--;
+		}
+		cel_idx++;
+
+		i++;
+	}
+	i = 0;
+	cel_idx = 0;
+	y = 0;
+	while i < len
+	{
+		x := cel_idx % scn.width;
+
+		//passed := cel_idx % scn.width;
+		// subbing the amount of \n we have at the end of each line
+		//corrected_i: = i - x;
+
+		ch: = *ptr_offset(s, i, char);
+		cur_cel: = ptr_offset(scn.cels, cel_idx, cel_info);
+		if ch == '-
+		{
+			cur_cel.type = cel_type.SOLID;
+		}
+		else if ch == '.
+		{
+			cur_cel.type = cel_type.EMPTY;
+		}
+		else if ch == 'r
+		{
+			cur_cel.type = cel_type.RUBBER;
+		}
+		else if ch == 'd
+		{
+			cur_cel.type = cel_type.FLOW_DOWN;
+			cur_cel.backup = cel_type.FLOW_DOWN;
+		}
+		else if ch == 'i
+		{
+			cur_cel.type = cel_type.FLOW_RIGHT;
+			cur_cel.backup = cel_type.FLOW_RIGHT;
+		}
+		else if ch == 'l
+		{
+			cur_cel.type = cel_type.FLOW_LEFT;
+			cur_cel.backup = cel_type.FLOW_LEFT;
+		}
+		else if ch == 't
+		{
+			cur_cel.type = cel_type.TARGET;
+		}
+		else if ch == 'o
+		{
+			cur_cel.type = cel_type.MOVABLE;
+			mov: = AddMovable(scn);
+			mov.cur.x = cast(f32)x;
+			mov.cur.y = -cast(f32)y;
+			mov.final = mov.cur;
+			cur_cel.mov = mov;
+			//__dbg_break;
+			cur_cel.movable_on_water = false;
+		}
+		else if ch == '0
+		{
+		}
+		else if ch == '1
+		{
+			cur_door:*lever_info = ptr_offset(scn.levers, 0, lever_info);
+			cur_door.door = cur_cel;
+
+			cur_cel.type = cel_type.DOOR;
+			//start_pos.x = cast(f32)x;
+			//start_pos.y = -cast(f32)y;
+		}
+		else if ch == 'p
+		{
+			cur_cel.type = cel_type.PLAYER;
+			cur_cel.original = cel_type.EMPTY;
+			start_pos.x = cast(f32)x;
+			start_pos.y = -cast(f32)y;
+		}
+		else if ch == '\n
+		{
+			y++;
+			cel_idx--;
+		}
+		else
+		{
+			__dbg_break;
+			cel_idx--;
+		}
+		if ch != 'p && ch != 'o
+			cur_cel.original = cur_cel.type;
+		cel_idx++;
+
+		i++;
+	}
+
+}
+
+ChangeClip::fn(cur_clip : **clip, to : *clip)
+{
+	to.cur_time = 0.0;
+	*cur_clip = to;
+}
+
+Max::fn(a : s32, b : s32) !s32
+{
+	ret: = if a > b a else b;
+	return ret;
+}
+
+AssignCamStuff::fn(scn : *scene, draw : *draw_info)
+{
+	draw.cam_pos.x = cast(f32)(scn.width / 2);
+	draw.cam_pos.y = -cast(f32)(scn.height / 2);
+
+	draw.cam_size = cast(f32)Max(cast(s32)scn.width, cast(s32)scn.height)/2.0;
+}
+DrawSceneMap::fn(ctx : *context, scn : *scene, window : *u8, dt : f32)
+{
+	flow_h_clip_tex := UpdateClip(&ctx.flow_h_clip, dt);
+	flow_v_clip_tex := UpdateClip(&ctx.flow_v_clip, dt);
+	start_x: = 0.0;
+	start_y: = 0.0;
+	draw: draw_info;
+	draw.color = []f32{ 0.0, 0.5, 0.5, 1.0 };
+	//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+	//draw.texture_id = UpdateClip(cur_clip, dt);
+	//max: = Max(scn.width, scn.height);
+	//draw.cam_pos.y = 0.0;
+	//draw.cam_pos.z = 0.0;
+
+
+	AssignCamStuff(scn, &draw);
+	draw.ent_size.x = cast(f32)scn.width;
+	draw.ent_size.y = -cast(f32)scn.height;
+
+	//draw.ent_size.y = cast(f32)scn.height;
+	draw.pos.x = start_x;
+	draw.pos.y = start_y;
+
+	//draw.texture_id = 1;
+	Draw(window, &draw);
+	//y:s32 = cast(s32)scn.height - 1;
+	y:s32 = 0;
+	AssignCamStuff(scn, &draw);
+	while y < (cast(s32)scn.height)
+	{
+		x:u32 = 0;
+		while x < scn.width
+		{
+			//x: = i % scn.width;
+			//y: = cast(u32)(cast(f32)i / cast(f32)scn.width);
+			i: = x + (cast(u32)y * scn.width);
+
+			//draw.cam_size = scn.cam_size;
+			draw.pos.x = cast(f32)x + start_x;
+			draw.pos.y = -(cast(f32)y + start_y);
+			draw.pos.y -= 1.0;
+			draw.pos.z = 0.0;
+
+			draw.ent_size.x = 1.0;
+			draw.ent_size.y = 1.0;
+			draw.flags = 0;
+
+			if ptr_offset(scn.cels, i, cel_info).original == cel_type.SOLID
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				draw.texture_id = ctx.solid_cel_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.FLOW_DOWN
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = flow_v_clip_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.FLOW_RIGHT
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = flow_h_clip_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.FLOW_LEFT
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = flow_h_clip_tex;
+				draw.pos.x += 1.0;
+				draw.ent_size.x = -1.0;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.RUBBER
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = ctx.rubber_cel_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.DOOR
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = ctx.door_cel_tex;
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.TARGET
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = ctx.target_cel_tex;
+				Draw(window, &draw);
+				//draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				//draw.texture_id = UpdateClip(cur_clip, dt);
+				Draw(window, &draw);
+			}
+			else if ptr_offset(scn.cels, i, cel_info).original == cel_type.EMPTY
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				//__dbg_break;
+				draw.texture_id = ctx.empty_cel_tex;
+				Draw(window, &draw);
+			}
+			if ptr_offset(scn.cels, i, cel_info).is_lever
+			{
+				draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.texture_id = *ptr_offset(ctx.lever_clip.tex_idxs, 0, u32);
+
+
+				Draw(window, &draw);
+			}
+
+			x++;
+		}
+		y++;
+	}
+}
+FlowBlockGetDir::fn(type : cel_type, x : *s32, y : *s32)
+{
+
+	if type == cel_type.FLOW_LEFT
+	{
+		*x = -1;
+		*y = 0;
+
+	}
+	else if  type == cel_type.FLOW_RIGHT
+	{
+		*x = 1;
+		*y = 0;
+	}
+	else if  type == cel_type.FLOW_DOWN
+	{
+		*x = 0;
+		*y = 1;
+	}
+	else
+	{
+		// unhadled flow block getting direction
+		__dbg_break;
+	}
+}
+
+ChangeCelType::fn(ctx : *context, src_cel : * cel_info, dst_cel : *cel_info, src_pos_x : u32, src_pos_y : u32, dst_pos_x : u32, dst_pos_y : u32, assign_dst_type_from_src : bool)
+{
+	undo:*undo_state = GetCurUndo(ctx);
+
+	n:undo_cel_info;
+	n.from_cel_pos_x = src_pos_x;
+	n.from_cel_pos_y = src_pos_y;
+	n.dst_cel_pos_x = dst_pos_x;
+	n.dst_cel_pos_y = dst_pos_y;
+
+	n.from_cel_ptr = src_cel;
+	n.dst_cel_ptr = dst_cel;
+	n.from_cel_val = *src_cel;
+	n.dst_cel_val_before = *dst_cel;
+	//__dbg_break;
+	dyn_add(&undo.states, &n);
+
+	if (assign_dst_type_from_src)
+	{
+		dst_cel.type = src_cel.type;
+		dst_cel.mov = src_cel.mov;
+	}
+	src_cel.type = src_cel.backup;
+	
+}
+ProcessFrameActions::fn(ctx : *context, scn : *scene)
+{
+	//if scn.done return;
+	i:u32 = 0;
+	add_x:s32;
+	add_y:s32;
+	ctx.something_is_processing = false;
+	while i < ctx.frames_max
+	{
+		cur_fr: = ptr_offset(ctx.frames, i, frame_info);
+
+		if cur_fr.type == frame_action.MOV
+		{
+			dist: = cur_fr.mov.to_pos - cur_fr.mov.from_pos;
+
+			len: = cast(u32)dot_v3(&dist, &dist);
+
+			dst_x: = cast(u32)cur_fr.mov.to_pos.x;
+			dst_y: = cast(u32)cur_fr.mov.to_pos.y;
+
+			src_x: = cast(u32)cur_fr.mov.from_pos.x;
+			src_y: = cast(u32)cur_fr.mov.from_pos.y;
+
+			//WasmDbg(ctx);
+			cur_x: = cast(u32)cur_fr.mov.cur_pos.x;
+			cur_y: = cast(u32)-cur_fr.mov.cur_pos.y;
+
+			sign_dir: = normalize_v3(&dist);
+			if dot_v3(&dist, &dist) == 0.0
+			{
+				sign_dir.x = 0.0;
+				sign_dir.y = 0.0;
+			}
+
+
+			cur_int_v3:v3;
+			cur_int_v3.x = cast(f32)cur_x;
+			cur_int_v3.y = -cast(f32)cur_y;
+
+			cur_int_to_cur_f32: = cur_int_v3 - *cur_fr.mov.cur_pos;
+			cur_int_to_cur_f32_dist:= sqrt(dot_v3(&cur_int_to_cur_f32, &cur_int_to_cur_f32));
+			//PrintV3(cur_int_to_cur_f32_dist, cur_fr.mov.cur_pos.x, 0.0);
+
+
+
+			if sign_dir.y > 0.0
+				cur_y = cur_y + 1;
+			if sign_dir.x > 0.0
+			{
+				cur_x++;
+			}
+
+
+			WasmDbg(ctx);
+			//PrintV3(cur_fr.mov.to_pos.x, cur_fr.mov.to_pos.y, sign_dir.x);
+			//PrintV3(cur_fr.mov.from_pos.x, cur_fr.mov.from_pos.y, sign_dir.x);
+			next_cel_x: = cast(u32)(cur_fr.mov.from_pos.x + sign_dir.x);
+			WasmDbg(ctx);
+			next_cel_y: = cast(u32)(cur_fr.mov.from_pos.y + sign_dir.y);
+
+			cur_cel_x: = cast(u32)(cur_fr.mov.from_pos.x) + cur_x;
+			cur_cel_y: = cast(u32)(cur_fr.mov.from_pos.y) + cur_y;
+
+
+			src_cel: = ptr_offset(scn.cels, src_x + src_y * scn.width, cel_info);
+			dst_cel: = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
+			next_cel: = ptr_offset(scn.cels, next_cel_x + next_cel_y * scn.width, cel_info);
+			cur_cel: = ptr_offset(scn.cels, cur_x + cur_y * scn.width, cel_info);
+
+			src_is_mov: = src_cel.type == cel_type.MOVABLE;
+
+
+			is_flow_block: = cur_cel.type == cel_type.FLOW_LEFT ||cur_cel.type == cel_type.FLOW_RIGHT || cur_cel.type == cel_type.FLOW_DOWN;
+			is_in_flow: = cur_fr.mov.in_flow != nil && *cur_fr.mov.in_flow == true;
+
+			if cur_fr.stage == frame_action_stage.NOT_STARTED
+			{
+				
+				found_movable: = false;
+				mov_pos:v3;
+				mov:*movable = nil;
+				stop_mov_because_next_is_solid: = false;
+
+				*cur_fr.mov.modify_pos = cur_fr.mov.to_pos;
+				cur_fr.stage = frame_action_stage.DOING;
+
+				cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+				//dst_cel := ptr_offset(ctx.frames, scr)
+				// one block mov
+				if len == 1
+				{
+
+				}
+				// two blocks mov
+				else if len == 4
+				{
+
+				}
+				else
+				{
+					// too much blocks mov
+					//ASSERT(0);
+				}
+			}
+			else if cur_fr.stage == frame_action_stage.DOING
+			{
+				
+				y: = -cur_fr.mov.cur_pos.y;
+				x: = cur_fr.mov.cur_pos.x;
+				//if x < 3.01
+					//__dbg_break;
+					//a: = 0;
+				src_is_mov = src_cel.type == cel_type.MOVABLE;
+				holder_is_mov: = cur_fr.holder_type == cel_type.MOVABLE;
+				holder_is_player: = cur_fr.holder_type == cel_type.PLAYER;
+				//if cur_fr.mov.cur_pos.x < 9.0
+					//__dbg_break;
+				//__dbg_break;
+				movable_on_water: = cur_cel.movable_on_water;
+				if cur_cel.type == cel_type.DOOR || cur_cel.type == cel_type.SOLID || (cur_cel.type == cel_type.MOVABLE && holder_is_mov == false)
+				{
+					cur_x = cast(u32)(cur_x + cast(u32) - sign_dir.x);
+					cur_y = cast(u32)(cur_y + cast(u32) - sign_dir.y);
+					cur_fr.mov.modify_pos.x = cast(f32)cur_x;
+					cur_fr.mov.modify_pos.y = cast(f32)cur_y;
+					cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+					cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+					cur_fr.stage = frame_action_stage.DONE;
+					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
+					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
+					//__dbg_break;
+				}
+				else if is_flow_block && (movable_on_water && is_in_flow || is_in_flow == false && movable_on_water == false)
+				{
+					//FlowBlockGetDir(cur_cel.type, &add_x, &add_y);
+
+					//cur_x = cast(u32)(cast(s32)cur_x + cast(s32)sign_dir.x);
+					//cur_y = cast(u32)(cast(s32)cur_y + cast(s32)sign_dir.y);
+					cur_fr.mov.modify_pos.x = cast(f32)cur_x;
+					cur_fr.mov.modify_pos.y = cast(f32)cur_y;
+					cur_fr.mov.to_pos = *cur_fr.mov.modify_pos;
+					cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+					//cur_fr.mov.cur_pos = *cur_fr.mov.modify_pos;
+					cur_fr.stage = frame_action_stage.FOLLOW_TO_POS;
+					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
+					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
+				}
+
+				else if cur_cel.type == cel_type.RUBBER
+				{
+					//__dbg_break;
+					cur_x = cast(u32)(cur_x + cast(u32) - (sign_dir.x * 2.0));
+					cur_y = cast(u32)(cur_y + cast(u32) - (sign_dir.y * 2.0));
+					cur_fr.mov.modify_pos.x = cast(f32)cur_x;
+					cur_fr.mov.modify_pos.y = cast(f32)cur_y;
+					//cur_fr.from_pos = cur_fr.mov.modify_pos
+					cur_fr.mov.to_pos = *cur_fr.mov.modify_pos;
+					cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+					//cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+
+					cur_fr.stage = frame_action_stage.DONE;
+					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
+					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
+					//__dbg_break;
+				}
+				if cur_cel.type == cel_type.TARGET && holder_is_player && cur_cel == dst_cel
+				{
+					scn.done = true;
+				}
+				else if cur_cel.type == cel_type.MOVABLE && holder_is_player
+				{
+					act:= AddFrameAction(ctx);
+
+					act.type = frame_action.MOV;
+					mov_pos: = cur_cel.mov.cur;
+					act.mov.from_pos = mov_pos;
+					act.mov.from_pos.y = -act.mov.from_pos.y;
+					sign_dir.y = -sign_dir.y;
+					act.mov.to_pos = mov_pos + sign_dir;
+					act.mov.to_pos.y = -act.mov.to_pos.y;
+
+					act.mov.modify_pos = &cur_cel.mov.final;
+					act.holder_type = cel_type.MOVABLE;
+					act.mov.cur_pos = &cur_cel.mov.cur;
+					cur_fr.stage = frame_action_stage.DONE;
+					//mov.going = true;
+
+				}
+				aux: = *cur_fr.mov.cur_pos;
+				aux.y = -aux.y;
+				dir: = aux - cur_fr.mov.to_pos;
+				d: = dot_v3(&dir, &dir);
+				if d < 0.01
+				{
+					cur_fr.stage = frame_action_stage.DONE;
+				}
+			}
+			else if cur_fr.stage == frame_action_stage.FOLLOW_TO_POS
+			{
+				aux: = *cur_fr.mov.cur_pos;
+				aux.y = -aux.y;
+				dir: = aux - cur_fr.mov.to_pos;
+				d: = dot_v3(&dir, &dir);
+				//PrintStr("\nto_pos:\n");
+				//PrintV3(cur_fr.mov.to_pos.x, cur_fr.mov.to_pos.y, 0.0);
+				//PrintStr("cur_pos:\n");
+				//PrintV3(cur_fr.mov.cur_pos.x, cur_fr.mov.cur_pos.y, 0.0);
+				//PrintStr("dot and idx");
+				//PrintV3(d, cast(f32)i, 0.0);
+				if d < 0.01
+				{
+					cur_fr.stage = frame_action_stage.DONE;
+					PrintStr("follow to pos done");
+				}
+
+			}
+			else if cur_fr.stage == frame_action_stage.DONE
+			{
+
+				dst_x = cast(u32)cur_fr.mov.cur_pos.x;
+				dst_y = cast(u32)-cur_fr.mov.cur_pos.y;
+				dst_cel = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
+				is_flow_block = dst_cel.type == cel_type.FLOW_LEFT ||dst_cel.type == cel_type.FLOW_RIGHT || dst_cel.type == cel_type.FLOW_DOWN;
+				if is_flow_block
+				{
+					if (dst_cel.movable_on_water == false)
+					{
+						FlowBlockGetDir(dst_cel.type, &add_x, &add_y);
+
+						//__dbg_break;
+						if cur_fr.holder_type == cel_type.PLAYER
+						{
+							//__dbg_break;
+							cur_fr.mov.modify_pos.x = cast(f32)(cast(s32)dst_x + add_x);
+							cur_fr.mov.modify_pos.y = cast(f32)(cast(s32)dst_y + add_y);
+							cur_fr.mov.to_pos = *cur_fr.mov.modify_pos;
+							cur_fr.mov.modify_pos.y = -cur_fr.mov.modify_pos.y;
+							if cur_fr.mov.in_flow
+							{
+								*cur_fr.mov.in_flow = true;
+							}
+
+							//cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+
+							cur_fr.stage = frame_action_stage.FOLLOW_TO_POS;
+						}
+						else if cur_fr.holder_type == cel_type.MOVABLE
+						{
+							//src_cel.type = cel_type.EMPTY;
+							ChangeCelType(ctx, src_cel, dst_cel, src_x, src_y, dst_x, dst_y, false);
+							dst_cel.movable_on_water = true;
+							cur_fr.type = frame_action.FREE;
+						}
+						else
+							//on flowing block not hadled
+							__dbg_break;
+					}
+					else
+					{
+						if cur_fr.holder_type == cel_type.PLAYER || cur_fr.holder_type == cel_type.MOVABLE
+						{
+
+							//cur_fr.mov.cur_pos = cur_fr.mov.modify_pos;
+
+							if cur_fr.mov.in_flow != nil
+							{
+								*cur_fr.mov.in_flow = false;
+							}
+							cur_fr.stage = frame_action_stage.DONE;
+							//src_cel.type = cel_type.EMPTY;
+							ChangeCelType(ctx, src_cel, dst_cel, src_x, src_y, dst_x, dst_y, true);
+							cur_fr.type = frame_action.FREE;
+						}
+						else
+						{
+							__dbg_break;
+						}
+
+					 }
+					//cur_fr.mov.modify_pos.x = cast(f32)dst_x + -sign_dir.x;
+					//cur_fr.mov.modify_pos.y = cast(f32)dst_y + -sign_dir.y;
+					//__dbg_break;
+				}
+				else
+				{
+					*cur_fr.mov.in_flow = false;
+					//__dbg_break;
+					//__dbg_break;
+					cur_fr.type = frame_action.FREE;
+				}
+				dst_x = cast(u32)cur_fr.mov.cur_pos.x;
+				dst_y = cast(u32)-cur_fr.mov.cur_pos.y;
+				dst_cel = ptr_offset(scn.cels, dst_x + dst_y * scn.width, cel_info);
+
+				PrintStr("dst_cel type and src_cel type");
+				PrintV3(cast(f32)dst_cel.type, cast(f32)src_cel.type, 0.0);
+				if dst_cel != src_cel && dst_cel.type == cel_type.EMPTY && (src_cel.type == cel_type.PLAYER || src_cel.type == cel_type.MOVABLE)
+				{
+					ChangeCelType(ctx, src_cel, dst_cel, src_x, src_y, dst_x, dst_y, true);
+				}
+			}
+			else
+				__dbg_break;
+
+		}
+		else if cur_fr.type == frame_action.NOT_ASSIGNED || cur_fr.type == frame_action.FREE
+		{
+
+		}
+		else
+			__dbg_break;
+
+		if cur_fr.type != frame_action.FREE
+		{
+			ctx.something_is_processing = true;
+		}
+		i++;
+
+	}
+}
+AddFrameAction::fn(ctx : *context) ! *frame_info
+{
+	i:u32 = 0;
+	while i < ctx.frames_max
+	{
+		cur: = ptr_offset(ctx.frames, i, frame_info);
+		if cur.type == frame_action.FREE
+		{
+			cur.type = frame_action.NOT_ASSIGNED;
+			cur.stage = frame_action_stage.NOT_STARTED;
+			return cur;
+		}
+		i++;
+	}
+	ASSERT(0);
+	return nil;
+}
+MovablesLogic::fn(ctx :*context, scn : *scene, dt : f32)
+{
+	i:u32 = 0;
+	draw:draw_info;
+	AssignCamStuff(scn, &draw);
+	while i < scn.cur_sz_movs
+	{
+		cur: = ptr_offset(scn.movs, i, movable);
+		dist: = cur.final - cur.cur;
+
+		dir: = normalize_v3(&dist);
+		d: = dot_v3(&dist, &dist);
+
+		if d > 0.01
+		{
+			cur.cur = cur.cur + dir * dt * 3.0;
+			//cur.cury += dir.y * dt;
+		}
+		else
+		{
+			//__dbg_break;
+			cur.cur = cur.final;
+
+		}
+		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+
+		draw.pos = cur.cur;
+		draw.pos.y -= 1.0;
+		draw.ent_size.x = 1.0;
+		draw.ent_size.y = 1.0;
+
+		draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0};
+		//__dbg_break;
+		draw.texture_id = ctx.movable_cel_tex;
+		//Draw(window, &draw);
+		//draw.pivot.x = 0.5;
+		//draw.pivot.y = 0.5;
+		//draw.pivot.z = 0.0;
+
+		//draw.cam_pos.y = 0.0;
+		//draw.cam_pos.z = 0.0;
+
+		//draw.texture_id = 1;
+		Draw(ctx.window, &draw);
+		i++;
+	}
+}
+
+GetCurUndo::fn(ctx : *context) !*undo_state
+{
+	if ctx.undos_cur == 0
+		return nil;
+
+	return ptr_offset(ctx.undos, ctx.undos_cur - 1, undo_state);
+}
+AddNewUndo::fn(ctx : *context) !*undo_state
+{
+	ASSERT(ctx.undos_cur <= ctx.undos_max);
+
+
+	if (ctx.undos_cur == ctx.undos_max)
+	{
+		//__dbg_break;
+		sz:u32 = (ctx.undos_max - 1) * sizeof(undo_state);
+		aux_buffer: = GetMem(sz);
+
+		start: = ptr_offset(ctx.undos, 0, undo_state);
+		next: = ptr_offset(ctx.undos, 1, undo_state);
+		last: = ptr_offset(ctx.undos, ctx.undos_max - 1, undo_state);
+		//heap_free(&ctx.alloc, cast(*u8)ptr_offset(ctx.undos, 0, undo_state).states.data);
+		memcpy(aux_buffer, next, sz);
+		start.states.count = 0;
+		memcpy(last, start, sizeof(undo_state));
+		memcpy(start, aux_buffer, sz);
+
+		SubMem(sz);
+		ctx.undos_cur--;
+
+	}
+	ret : = ptr_offset(ctx.undos, ctx.undos_cur, undo_state);
+
+	//__dbg_break;
+	if ret.states.cap == 0
+	{
+		ret.states.ctx = ctx;
+		dyn_init(&ret.states, 2);
+	}
+
+	ctx.undos_cur++;
+	return ret;
+}
+UndoLogic::fn(ctx : *context)
+{
+	undo:*undo_state = GetCurUndo(ctx);
+	if undo == nil
+		return;
+	
+	i:u64 = 0;
+	while i < undo.states.count
+	{
+		cur:*undo_cel_info = undo.states[i];
+
+		if cur.from_cel_val.type == cel_type.PLAYER
+		{
+			ctx.player_pos.x = cast(f32)cur.from_cel_pos_x;
+			ctx.player_pos.y = -cast(f32)cur.from_cel_pos_y;
+			ctx.final_pos = ctx.player_pos;
+		}
+		else if cur.from_cel_val.type == cel_type.MOVABLE
+		{
+			cur.from_cel_val.mov.cur.x = cast(f32)cur.from_cel_pos_x;
+			cur.from_cel_val.mov.cur.y = -cast(f32)cur.from_cel_pos_y;
+			cur.from_cel_val.mov.final = cur.from_cel_val.mov.cur;
+		}
+		else
+			__dbg_break;
+		*cur.from_cel_ptr = cur.from_cel_val;
+		*cur.dst_cel_ptr = cur.dst_cel_val_before;
+		i++;
+	}
+
+	dyn_clear(&undo.states);
+	ctx.undos_cur--;
+}
+
+main_loop::fn(ctx : *context)
+{
+	using ctx;
+	draw:draw_info;
+	//AssignCamStuff(scn, &draw);
+	while !ShouldClose(window)
+	{
+		ClearBackground(0.3, 0.7, 0.7);
+		if (scn.scn_info != nil && scn.scn_info.ending)
+		{
+			draw.flags = DRAW_INFO_HAS_TEXTURE | DRAW_INFO_NO_SCREEN_RATIO;
+			draw.texture_id = ctx.ending_tex;
+			draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+			draw.ent_size.x = 2.0;
+			draw.ent_size.y = 2.0;
+			draw.cam_size = 1.0;
+			draw.pos.x = -1.0;
+			draw.pos.y = -1.0;
+			draw.cam_pos.x = 0.0;
+			draw.cam_pos.y = 0.0;
+			Draw(window, &draw);
+		}
+		else
+		{
+			if scn.done != nil && scn.scn_info.next != nil
+			{
+				CreateScene(ctx, scn.scn_info.next.str, scn, &ctx.player_pos);
+				final_pos = player_pos;
+				scn.scn_info = scn.scn_info.next;
+				scn.done = false;
+
+			}
+
+			dt: = GetDeltaTime();
+			time: = GetTimeSinceStart();
+			s: = sin(time) + 1.0;
+
+			DrawSceneMap(ctx, scn, window, dt);
+
+			memset(cast(*u8) & draw, 0, sizeof(draw));
+
+			draw.color = []f32{ 1.0, 0.0, 0.0, 1.0 };
+			//*draw.color[1] = 0.0;
+			//*draw.color[2] = 0.0;
+			//*draw.color[3] = 1.0;
+			draw.cam_size = scn.cam_size;
+			draw.ent_size.x = 1.0 + s;
+			draw.ent_size.y = 1.0 + s;
+			draw.pos.x = 0.0;
+			draw.pos.y = 0.0;
+			draw.pos.z = 0.5;
+
+
+			//Draw(window, &draw);
+
+			memset(cast(*u8) & draw, 0, sizeof(draw));
+
+			if can_move&& in_flow == false
+			{
+			pressed: = false;
+
+				if IsKeyDown(key_enum.KEY_LEFT)
+				{
+					player_size.x = -1.0;
+					player_size.y = 1.0;
+					pressed = true;
+					block_dir.x = -2.0;
+					block_dir.y = 0.0;
+
+					p_dir = player_dir.LEFT;
+					ChangeClip(&cur_clip, &walk_h);
+
+				}
+				else if IsKeyDown(key_enum.KEY_RIGHT)
+				{
+					player_size.x = 1.0;
+					player_size.y = 1.0;
+					//player_pos.x += dt * 5.0;
+					pressed = true;
+					block_dir.x = 2.0;
+					block_dir.y = 0.0;
+					p_dir = player_dir.RIGHT;
+					ChangeClip(&cur_clip, &walk_h);
+				}
+				else if IsKeyDown(key_enum.KEY_UP)
+				{
+					player_size.x = 1.0;
+					player_size.y = 1.0;
+					//player_pos.x += dt * 5.0;
+					pressed = true;
+					block_dir.x = 0.0;
+					block_dir.y = 2.0;
+					p_dir = player_dir.UP;
+					ChangeClip(&cur_clip, &walk_v);
+				}
+				else if IsKeyDown(key_enum.KEY_DOWN)
+				{
+					player_size.x = 1.0;
+					player_size.y = -1.0;
+					//player_pos.x += dt * 5.0;
+					pressed = true;
+					block_dir.x = 0.0;
+					block_dir.y = -2.0;
+					p_dir = player_dir.DOWN;
+					ChangeClip(&cur_clip, &walk_v);
+				}
+				else if IsKeyDown(key_enum.KEY_ACT0)
+				{
+					UndoLogic(ctx);
+
+				}
+				else if IsKeyDown(key_enum.KEY_ACT1)
+				{
+					CreateScene(ctx, scn.scn_info.str, scn, &ctx.player_pos);
+					final_pos = player_pos;
+					//scn.scn_info = scn.scn_info.next;
+					scn.done = false;
+
+				}
+
+				if pressed&& ctx.scn.done == false && ctx.something_is_processing == false
+				{
+				act: = AddFrameAction(ctx);
+
+					act.type = frame_action.MOV;
+					act.holder_type = cel_type.PLAYER;
+					act.mov.from_pos = player_pos;
+					act.mov.from_pos.y = -act.mov.from_pos.y;
+					act.mov.to_pos.x = player_pos.x + block_dir.x;
+					act.mov.to_pos.y = -(player_pos.y + block_dir.y);
+
+					act.mov.modify_pos = &final_pos;
+					act.mov.cur_pos = &player_pos;
+					act.mov.in_flow = &in_flow;
+
+					AddNewUndo(ctx);
+				}
+			}
+
+			if scn.cur_levers > 0
+			{
+			lever: = ptr_offset(scn.levers, 0, lever_info);
+				if lever.lever.type != cel_type.EMPTY && lever.lever.type == cel_type.MOVABLE
+				{
+					lever.door.type = cel_type.EMPTY;
+					lever.door.original = cel_type.EMPTY;
+				}
+				else
+				{
+					lever.door.original = cel_type.DOOR;
+					lever.door.type = cel_type.DOOR;
+
+				}
+
+			}
+
+			ProcessFrameActions(ctx, scn);
+			MovablesLogic(ctx, scn, dt);
+			dir: = final_pos - player_pos;
+			d: = dot_v3(&dir, &dir);
+			dir = normalize_v3(&dir);
+
+			if d > 0.01
+			{
+				//dir = sign_v3(&dir);
+				player_pos = player_pos + (dir * dt * 4.0);
+				//player_pos = player_pos + dir * dt * 4.0;
+				can_move = false;
+			}
+			else
+			{
+				player_pos = final_pos;
+			idle_clip: *clip;
+				if p_dir == player_dir.DOWN || p_dir == player_dir.UP
+					idle_clip = &idle_v;
+				else
+					idle_clip = &idle_h;
+				ChangeClip(&cur_clip, idle_clip);
+				can_move = true;
+			}
+
+			//__dbg_break;
+			memcpy(&draw.pos, &player_pos, sizeof(draw.pos));
+			//draw.pos.x += start_pos.x + map_start_pos.x;
+			//draw.pos.y += start_pos.y + map_start_pos.y;
+			draw.pos.x += 0.5;
+			draw.pos.y -= 0.5;
+			memcpy(&draw.ent_size, &player_size, sizeof(draw.ent_size));
+
+			draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+			draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+			draw.texture_id = UpdateClip(cur_clip, dt);
+			//draw.cam_size = scn.cam_size;
+
+			draw.pivot.x = 0.5;
+			draw.pivot.y = 0.5;
+			draw.pivot.z = 0.0;
+
+			AssignCamStuff(scn, &draw);
+			//draw.texture_id = 1;
+			Draw(window, &draw);
+		}
+		EndFrame(window);
+	}
+}
+main :: fn(){
+	//dyn.data
+	scene1: = 
+	"---------\n"
+	"-......--\n"
+	"-....t..-\n"
+	"-.p.....-\n"
+	"---------\n";
+
+	scene2: =
+	"--------------\n"
+	"---.....------\n"
+	"-............-\n"
+	"-.-....p-....t\n"
+	"-.-.....-.o..-\n"
+	"-.......------\n"
+	"--------------\n";
+
+	// 0 = lever
+	// 1 = door that only opens when something is on lever cell
+	scene3: =
+	"--------------\n"
+	"---------..p.-\n"
+	"-----...--.---\n"
+	"---...t.-....-\n"
+	"---...-.1..o.-\n"
+	"--......-...0-\n"
+	"-.......-....-\n"
+	"--------------\n";
+
+	scene4: =
+	"---------------\n"
+	"--r......------\n"
+	"--r......-....-\n"
+	"--.......-..o.-\n"
+	"-......t.-....-\n"
+	"--.....-.----.-\n"
+	"--....-r...p..-\n"
+	"--....-r......-\n"
+	"---------------\n";
+
+	scene5: =
+	"------------\n"
+	"-....-----p-\n"
+	"-....-----.-\n"
+	"-.t..----.d-\n"
+	"-....----.d-\n"
+	"-....----.d-\n"
+	"--.-------.-\n"
+	"--.-.-----.-\n"
+	"--...-----o-\n"
+	"----.-lllll-\n"
+	"----.----..-\n"
+	"-.llllll...-\n"
+	"-....o..----\n"
+	"-.......----\n"
+	"-.......----\n"
+	"------------\n";
+
+	scene6: =
+	"-------------\n"
+	"-.....--d-..-\n"
+	"-..t..--d-.p-\n"
+	"--.-----d-..-\n"
+	"--.--...d...-\n"
+	"-r....--d-o.-\n"
+	"---...--d-.--\n"
+	"---d.---d-..-\n"
+	"---d.---d...-\n"
+	"-......-....-\n"
+	"-.....o.-----\n"
+	"-.......-----\n"
+	"-------------\n";
+
+	scene7: =
+	"-------------\n"
+	"---.......-t-\n"
+	"--....o...-1-\n"
+	"--...o......-\n"
+	".--iiii---..-\n"
+	"..-0...-.-..-\n"
+	"..-...-..-..-\n"
+	"..-....-.-.--\n"
+	".--.o.----.--\n"
+	"-p.iiiiii..r-\n"
+	"---o.----...-\n"
+	"---.........-\n"
+	"-------------\n";
+	ctx: context;
+	AssignCtxAddr(&ctx);
+	InitMemAlloc(&ctx.alloc);
+
+
+	//dyn: dyn_array(u32);
+	//dyn.ctx = &ctx;
+	//dyn_init(&dyn, 4);
+
+	AssignTexFolder("../images");
+
+	ctx.frames_max = 4;
+	ctx.frames = cast(*frame_info)heap_alloc(&ctx.alloc, ctx.frames_max * sizeof(frame_info));
+	memset(cast(*u8)ctx.frames, 0, sizeof(frame_info));
+
+	ctx.scenes_max = 32;
+	ctx.scenes = cast(*scene_info)heap_alloc(&ctx.alloc, ctx.scenes_max * sizeof(scene_info));
+	memset(cast(*u8)ctx.scenes, 0, sizeof(scene_info));
+
+	ctx.undos_max = 8;
+	ctx.undos_cur = 0;
+	ctx.undos = cast(*undo_state)heap_alloc(&ctx.alloc, ctx.undos_max * sizeof(undo_state));
+	memset(cast(*u8)ctx.undos, 0, sizeof(undo_state));
+
+	scn_cur: = ptr_offset(ctx.scenes, 0, scene_info);
+	scn_cur.str = scene1;
+	//scn_cur.ending = true;
+	scn_cur.next = ptr_offset(ctx.scenes, 1, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 1, scene_info);
+	scn_cur.str = scene2;
+	scn_cur.next = ptr_offset(ctx.scenes, 2, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 2, scene_info);
+	scn_cur.str = scene3;
+	scn_cur.next = ptr_offset(ctx.scenes, 3, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 3, scene_info);
+	scn_cur.str = scene4;
+	scn_cur.next = ptr_offset(ctx.scenes, 4, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 4, scene_info);
+	scn_cur.str = scene5;
+	scn_cur.next = ptr_offset(ctx.scenes, 5, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 5, scene_info);
+	scn_cur.str = scene6;
+	scn_cur.next = ptr_offset(ctx.scenes, 6, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 6, scene_info);
+	scn_cur.str = scene7;
+	scn_cur.next = ptr_offset(ctx.scenes, 7, scene_info);
+
+	scn_cur = ptr_offset(ctx.scenes, 7, scene_info);
+	scn_cur.ending = true;
+	scn_cur.next = nil;
+
+	scn_cur = ptr_offset(ctx.scenes, 0, scene_info);
+
+
+	
+	window := OpenWindow();
+	ctx.window = window;
+
+	LoadClip(&ctx, "sprite_sheet.png", 0, 32, 32, 32, 3, 1.0, &ctx.flow_h_clip);
+	ctx.flow_h_clip.loop = true;
+
+	LoadClip(&ctx, "sprite_sheet.png", 0, (32 * 3), 32, 32, 3, 1.0, &ctx.flow_v_clip);
+	ctx.flow_v_clip.loop = true;
+
+	LoadClip(&ctx, "sprite_sheet.png", 0, 64, 32, 32, 2, 1.0, &ctx.lever_clip);
+	ctx.lever_clip.loop = false;
+
+	LoadClip(&ctx, "frog.png", 32 * 4, 0, 32, 32, 1, 1.0, &ctx.walk_h);
+	ctx.walk_h.loop = false;
+
+	LoadClip(&ctx, "frog.png", (32 * 3) * 4, 0, 32, 32, 1, 1.0, &ctx.walk_v);
+	ctx.walk_v.loop = false;
+
+	LoadClip(&ctx, "frog.png", 0, 0, 32, 32, 1, 1.0, &ctx.idle_h);
+	ctx.idle_h.loop = false;
+
+	LoadClip(&ctx, "frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
+	ctx.idle_v.loop = false;
+
+	LoadClip(&ctx, "frog.png", (32 * 2) * 4, 0, 32, 32, 1, 1.0, &ctx.idle_v);
+	ctx.idle_v.loop = false;
+
+
+	ctx.solid_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32) * 4, 0, 32, 32);
+	ctx.empty_cel_tex = LoadTex(&ctx, "sprite_sheet.png", 0, 0, 32, 32);
+	ctx.door_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32 * 2) * 4, (32 * 2), 32, 32);
+	ctx.target_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32 * 2) * 4, 0, 32, 32);
+	ctx.movable_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32 * 3) * 4, 32, 32, 32);
+	ctx.rubber_cel_tex = LoadTex(&ctx, "sprite_sheet.png", (32 * 3) * 4, 0, 32, 32);
+	ctx.ending_tex = LoadTex(&ctx, "ending.png", 0, 0, 0, 0);
+
+	scn:scene;
+	ctx.scn = &scn;
+	scn.total_movs = 32;
+	scn.movs = cast(*movable)heap_alloc(&ctx.alloc, scn.total_movs * sizeof(movable));
+	memset(cast(*u8)scn.movs, 0, scn.total_movs * sizeof(movable));
+
+	ctx.scn.max_levers = 4;
+	ctx.scn.levers = cast(*lever_info)heap_alloc(&ctx.alloc, ctx.scn.max_levers * sizeof(lever_info));
+	memset(cast(*u8)ctx.scn.levers, 0, sizeof(*cel_info));
+
+	scn.cam_size = 8.0;
+	src_cel: = ptr_offset(scn.cels, 0 + 6 * scn.width, cel_info);
+	scn.scn_info = scn_cur;
+	//pos:v2;
+
+	CreateScene(&ctx, scn_cur.str, &scn, &ctx.player_pos);
+	//play
+	aoeu: = src_cel.type == cel_type.SOLID;
+	//WasmDbg(&ctx);
+
+	p_dir: player_dir;
+	ctx.cur_clip = &ctx.idle_h;
+	ctx.can_move = true;
+
+	//blocks_jmp: = 2.0;
+	ctx.player_size.x = 1.0;
+	ctx.player_size.y = 1.0;
+
+	//start_pos.x += 0.5 + map_start_pos.x;
+	//start_pos.y += 0.5 + map_start_pos.y;
+
+	//player_pos.x = 0.5;
+	//player_pos.y = 0.5;
+	//player_pos.y = 0.0;
+	ctx.final_pos = ctx.player_pos;
+	main_loop(&ctx);
+
+}

@@ -1,3 +1,5 @@
+import "../../../core";
+
 scene_info:struct
 {
 	str : str_lit,
@@ -1048,7 +1050,7 @@ AddNewUndo::fn(ctx : *context) !*undo_state
 	//__dbg_break;
 	if ret.states.cap == 0
 	{
-		ret.states.ctx = ctx;
+		ret.states.alloc = &ctx.alloc;
 		dyn_init(&ret.states, 2);
 	}
 

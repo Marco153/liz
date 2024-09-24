@@ -5646,6 +5646,77 @@ node* MakeMemCpyCall(lang_state *lang_stat, node *lhs, node *rhs, int size)
 	return call_nd;
 }
 
+void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own_std::vector<char *>* file_names)
+{
+	WIN32_FIND_DATA ffd;
+	char buffer[128];
+
+	HANDLE hFind = FindFirstFile((dir + "\\*").c_str(), &ffd);
+
+	if(hFind == INVALID_HANDLE_VALUE)
+	{
+		printf("directory \"%s\" not found", dir.c_str());
+		ASSERT(0);
+		return;
+	}
+	BOOL found_file = 1;
+	FindNextFile(hFind, &ffd);
+	while (true)
+	{
+		found_file = FindNextFile(hFind, &ffd);
+		if (!found_file)
+			break;
+		int read = 0;
+		//char *data = ReadEntireFileLang(ffd.cFileName, &read);
+		//contents->emplace_back(std::string(data, read));
+		int len = strlen(ffd.cFileName) + 1;
+		char* name = heap_alloc((mem_alloc *)__lang_globals.data, len);
+		memcpy(name, ffd.cFileName, len);
+		file_names->emplace_back(name);
+	}
+}
+void AddFolderToScope(lang_state * lang_stat, scope *scp, std::string folder, import_type imp_type, std::string imp_name)
+{
+	own_std::vector<std::string> file_contents;
+	own_std::vector<char *> file_names;
+
+	GetFilesInDirectory(lang_stat->work_dir+"/"+ folder, nullptr, &file_names);
+
+	own_std::vector<unit_file*> files_added;
+	std::string prev_work_dir = lang_stat->work_dir;
+	lang_stat->work_dir +=  "/"+folder;
+	FOR_VEC(str, file_names)
+	{
+		files_added.emplace_back(AddNewFile(lang_stat, *str));
+	}
+	lang_stat->work_dir = prev_work_dir;
+
+	FOR_VEC(f, files_added)
+	{
+		type2 tp;
+		tp.type = enum_type2::TYPE_IMPORT;
+		tp.imp = NewImport(lang_stat, imp_type, imp_name, *f);
+
+		scp->imports.emplace_back(NewDecl(lang_stat, "__import", tp));
+	}
+
+	//printf("files added");
+	FOR_VEC(f1, files_added)
+	{
+		type2 tp;
+		tp.type = enum_type2::TYPE_IMPORT;
+		tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", *f1);
+		FOR_VEC(f2, files_added)
+		{
+			if (*f1 == *f2)
+				continue;
+
+
+			(*f2)->global->imports.emplace_back(NewDecl(lang_stat, "__import", tp));
+		}
+	}
+}
+
 // $DescendNameFinding
 decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 {
@@ -5931,6 +6002,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			}
 			if (was_added == false)
 			{
+				AddFolderToScope(lang_stat, scp, imp_name, import_type::IMP_BY_ALIAS, alias);
+				/*
 				auto ret_fl = AddNewFile(lang_stat, imp_name);
 				type2 tp;
 				tp.type = enum_type2::TYPE_IMPORT;
@@ -5940,6 +6013,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				std::string name = std::string("imp_") + alias;
 
 				scp->imports.emplace_back(NewDecl(lang_stat, name, tp));
+				*/
 
 			}
 		}
@@ -5954,14 +6028,10 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			}
 			if (was_added == false)
 			{
-				auto ret_fl = AddNewFile(lang_stat, n->r->t->str);
-				type2 tp;
-				tp.type = enum_type2::TYPE_IMPORT;
-				tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", ret_fl);
-
-				scp->imports.emplace_back(NewDecl(lang_stat, "__import", tp));
+				AddFolderToScope(lang_stat, scp, n->r->t->str, import_type::IMP_IMPLICIT_NAME, "");
 			}
 		}
+		n->type = N_EMPTY;
 	}break;
 	case node_type::N_FUNC_DEF:
 	case node_type::N_FUNC_DECL:
@@ -9367,7 +9437,7 @@ unit_file* AddNewFile(lang_state *lang_stat, std::string name)
 		new_f->name = name.substr();
 
 	bar_idx = dir.find_last_of("\\/");
-	new_f->path = lang_stat->exe_dir + dir.substr(0, bar_idx);
+	new_f->path = dir.substr(0, bar_idx);
 
 	new_f->contents = file;
 	new_f->contents_sz = read;

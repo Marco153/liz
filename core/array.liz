@@ -3,7 +3,7 @@ dyn_array: struct(T)
 	data : *T,
 	count : u64,
 	cap : u64,
-	ctx : *context,
+	alloc : *mem_alloc,
 }
 operator []{ T }(dyn : *dyn_array(T), idx : u64) !*T
 {
@@ -16,7 +16,7 @@ dyn_clear::fn{ T }(dyn : *dyn_array(T))
 }
 dyn_init::fn{ T }(dyn : *dyn_array(T), cap : u64)
 {
-	dyn.data = cast(*T)heap_alloc(&dyn.ctx.alloc, cast(u32)(cap * sizeof(T)));
+	dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)(cap * sizeof(T)));
 	dyn.count = 0;
 	dyn.cap = cap;
 }
@@ -26,7 +26,7 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 	{
 		aux_data: = dyn.data;
 		dyn.cap = dyn.cap * 2;
-		dyn.data = heap_alloc(&dyn.ctx.alloc, cast(u32)dyn.cap * sizeof(T));
+		dyn.data = heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
 		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
 	}
 	else
@@ -34,14 +34,14 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 }
 dyn_add::fn{ T }(dyn : *dyn_array(T), data : *T)
 {
-	ASSERT(dyn.cap > 0 && dyn.ctx != nil);
+	ASSERT(dyn.cap > 0 && dyn.alloc != nil);
 
 	if (dyn.count + 1) >= dyn.cap
 	{
 		aux_data: = dyn.data;
 		dyn.cap = dyn.cap * 2;
-		heap_free(&dyn.ctx.alloc, cast(*u8)aux_data);
-		dyn.data = heap_alloc(&dyn.ctx.alloc, cast(u32)dyn.cap * sizeof(T));
+		heap_free(dyn.alloc, cast(*u8)aux_data);
+		dyn.data = heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
 		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
 	}
 

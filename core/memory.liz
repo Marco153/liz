@@ -989,16 +989,6 @@ tests :: fn(ret : *u32)
 	if fval > 1.1 || fval < 0.9
 		debug_break();
 
-	c:cel_info;
-	c.movable_on_water = true;
-
-	if c.movable_on_water != true
-		debug_break();
-	c_ptr:cel_info;
-	c_ptr.movable_on_water = false;
-
-	if c_ptr.movable_on_water != false
-		debug_break();
 
 	ar: dyn_array(u32);
 

@@ -6336,9 +6336,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = nullptr;
-		//cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+		cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
-		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
@@ -8166,33 +8166,22 @@ void AssignOutsiderFunc(lang_state* lang_stat, std::string name, OutsiderFuncTyp
 }
 
 char* heap_alloc(mem_alloc* alloc, int size);//, mem_chunk **out = nullptr)
-void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own_std::vector<char *>* file_names)
+void AddFolder(lang_state* lang_stat, std::string folder)
 {
-	WIN32_FIND_DATA ffd;
-	char buffer[128];
+	own_std::vector<std::string> file_contents;
+	own_std::vector<char *> file_names;
+	GetFilesInDirectory(lang_stat->exe_dir+folder, nullptr, &file_names);
 
-	HANDLE hFind = FindFirstFile((dir + "\\*").c_str(), &ffd);
-
-	if(hFind == INVALID_HANDLE_VALUE)
+	if (file_names.size() == 0)
 	{
-		printf("directory \"%s\" not found", dir.c_str());
-		ASSERT(0);
-		return;
+		printf("no files found in the specified directory");
+		ExitProcess(0);
 	}
-	BOOL found_file = 1;
-	FindNextFile(hFind, &ffd);
-	while (true)
+
+
+	FOR_VEC(str, file_names)
 	{
-		found_file = FindNextFile(hFind, &ffd);
-		if (!found_file)
-			break;
-		int read = 0;
-		//char *data = ReadEntireFileLang(ffd.cFileName, &read);
-		//contents->emplace_back(std::string(data, read));
-		int len = strlen(ffd.cFileName) + 1;
-		char* name = heap_alloc((mem_alloc *)__lang_globals.data, len);
-		memcpy(name, ffd.cFileName, len);
-		file_names->emplace_back(name);
+		AddNewFile(lang_stat, *str);
 	}
 }
 int Compile(lang_state* lang_stat, compile_options *opts)
@@ -8215,42 +8204,18 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", base_fl);
 	//lang_stat->base_lang = NewDecl(lang_stat, "base", tp);
 
-	own_std::vector<std::string> file_contents;
-	own_std::vector<char *> file_names;
-	GetFilesInDirectory(lang_stat->exe_dir+file, nullptr, &file_names);
-
-	if (file_names.size() == 0)
-	{
-		printf("no files found in the specified directory");
-		ExitProcess(0);
-	}
-	//printf("dir added");
-
 	type2 dummy_type;
 	decl2* release = FindIdentifier("RELEASE", lang_stat->root, &dummy_type);
 	release->type.i = lang_stat->release;
 
-	/*
-	node* mod = new_node(lang_stat);
 	
-	if (file_contents.size() == 1)
-	{
-		
-	}
-	if (file_contents.size() == 2)
-	{
 
-	}
-	else
-		ASSERT(0);
-	*/
+	TCHAR buffer[MAX_PATH] = { 0 };
+	GetFullPathName(file.c_str(), MAX_PATH, buffer, nullptr);
+	lang_stat->work_dir = buffer;
 
-	lang_stat->work_dir = file;
+	AddFolder(lang_stat, file);
 
-	FOR_VEC(str, file_names)
-	{
-		AddNewFile(lang_stat, *str);
-	}
 	if (lang_stat->files.size() == 0)
 	{
 		printf("no files to be compiled, will exit\n");

@@ -824,7 +824,7 @@ void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 		}
 		else
 		{
-			char reg = reg;
+			char reg = AllocReg(lang_stat);
 			ir.bin.lhs.type = IR_TYPE_REG;
 			ir.bin.lhs.reg = reg;
 			ir.bin.lhs.reg_sz = 8;

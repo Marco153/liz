@@ -867,8 +867,13 @@ node* node_iter::parse_func_like()
 	}
 
 	ExpectTkn(tkn_type2::T_OPEN_PARENTHESES);
+	get_tkn();
 	// args
-	n->l->l->r = parse_expr();
+	if(peek_tkn()->type != T_CLOSE_PARENTHESES)
+		n->l->l->r = parse_(PREC_CLOSE_PARENTHESES, parser_cond::EQUAL);
+		//n->l->l->r = parse_expr();
+	ExpectTkn(tkn_type2::T_CLOSE_PARENTHESES);
+	get_tkn();
 
 
 	// return type
@@ -951,9 +956,16 @@ node* node_iter::parse_strct_like()
 	n->flags = n->r->flags;
 	n->r->flags = 0;
 
-	//lang_stat->flags &= ~PSR_FLAGS_ON_STRUCT_DECL;
 	lang_stat->flags = before_flags;
-	lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
+	//lang_stat->flags &= ~PSR_FLAGS_ON_STRUCT_DECL;
+	if (peek_tkn()->type == T_SEMI_COLON)
+	{
+		//get_tkn();
+	}
+	else
+	{
+		lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
+	}
 	return n;
 }
 void CheckParenthesesLevel(lang_state *lang_stat, token2* tkn)
@@ -1471,12 +1483,20 @@ node* node_iter::parse_expr()
 			ReportMessage(lang_stat, peek_tkn(), "Too many parentheses were closed");
 			ExitProcess(1);
 		}
+
 		get_tkn();
+
 		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_ON_FUNC_CALL) && IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD) && peek_tkn()->type == T_OPEN_CURLY)
 		{
-
 			ReportMessage(lang_stat, cur_tkn, "It seems like you're trying to declare a function but you forgot to type this part '::fn(..)");
 		}
+		if (n && n->type == N_BINOP && n->t->type == T_COMMA)
+		{
+			n->flags |= NODE_FLAGS_COMMA_INSIDE_PARENTHESES;
+			int a = 0;
+		}
+
+
 	}break;
 	case tkn_type2::T_OPEN_CURLY:
 	{
@@ -1796,8 +1816,15 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 				int last_flags = lang_stat->flags;
 				lang_stat->flags |= PSR_FLAGS_ON_FUNC_CALL;
 
+				get_tkn();
 				cur_node->type = node_type::N_CALL;
-				cur_node->r = parse_expr();
+				if(peek_tkn()->type != T_CLOSE_PARENTHESES)
+					cur_node->r = parse_(PREC_CLOSE_PARENTHESES, parser_cond::EQUAL);
+
+				ExpectTkn(T_CLOSE_PARENTHESES);
+				get_tkn();
+
+
 
 				lang_stat->flags = last_flags;
 
@@ -2180,7 +2207,7 @@ type2 DescendNode(lang_state *, node* n, scope* given_scp);
 #define COMMA_RET_EXPR  0
 void DescendComma(lang_state *lang_stat, node* n, scope* scp, own_std::vector<comma_ret>& ret)
 {
-	if (IS_COMMA(n))
+	if (IS_COMMA(n) && IS_FLAG_OFF(n->flags, NODE_FLAGS_COMMA_INSIDE_PARENTHESES))
 	{
 		DescendComma(lang_stat, n->l, scp, ret);
 
@@ -3696,6 +3723,8 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	{
 		if (!NameFindingGetType(lang_stat, n->l, scp, ret_type))
 			return false;
+		if (ret_type.type == TYPE_STRUCT_TYPE)
+			ret_type.type = TYPE_STRUCT;
 	}break;
 	case node_type::N_CAST:
 	{
@@ -4018,6 +4047,90 @@ node* CreateNewVarArgCall(lang_state *lang_stat, node* val, node* expr, int ptr,
 	return MakeFuncCallArgs(lang_stat, "new_var_arg", nullptr, var_args_params, ncall->l->t);
 }
 
+decl2 *CreateStructTuple(lang_state* lang_stat, node* n, scope* scp)
+{
+
+	type2 dummy;
+	own_std::vector<comma_ret> commas;
+
+	auto prev_flags = n->flags;
+	n->flags &= ~NODE_FLAGS_COMMA_INSIDE_PARENTHESES;
+	DescendComma(lang_stat, n, scp, commas);
+	n->flags = prev_flags;
+
+	std::string tuple_name = "tuple_";
+
+	bool all_builtin = true;
+	FOR_VEC(c, commas)
+	{
+		type2 tp;
+		NameFindingGetType(lang_stat, c->n, scp, tp);
+		tuple_name += TypeToString(tp) + "_";
+		if (c->decl.type.type == TYPE_STRUCT_TYPE)
+			all_builtin = false;
+	}
+	tuple_name.pop_back();
+
+	decl2* tuple_exist = nullptr;
+	if (all_builtin)
+		tuple_exist = FindIdentifier(tuple_name, lang_stat->root, &dummy);
+	else
+		tuple_exist = FindIdentifier(tuple_name, scp, &dummy);
+
+
+	decl2* ret = nullptr;
+	if (!tuple_exist)
+	{
+		//memset(new_decl, 0, sizeof(decl2));
+		type_struct2* tstrct = (type_struct2*)AllocMiscData(lang_stat, sizeof(type_struct2));
+		memset(tstrct, 0, sizeof(type_struct2));
+
+		n->type = N_SCOPE;
+		scope* child_scp = GetScopeFromParent(lang_stat, n, scp);
+		n->type = N_BINOP;
+		n->scp = nullptr;
+		tstrct->name = std::string(tuple_name);
+
+		child_scp->flags = SCOPE_INSIDE_STRUCT;
+		int i = 0;
+		FOR_VEC(c, commas)
+		{
+			decl2* d = DeclareDeclToScopeAndMaybeToFunc(lang_stat, "", &c->decl.type, child_scp, n);
+			if (c->type == COMMA_RET_COLON)
+			{
+			}
+			else
+			{
+				d->name = std::string("t") + std::to_string(i);
+			}
+
+			i++;
+		}
+		child_scp->tstrct = tstrct;
+		//ret_type.strct = tstrct;
+
+		scope* dst_scp = scp;
+		if (all_builtin)
+			dst_scp = lang_stat->root;
+		decl2* tuple_decl = DeclareDeclToScopeAndMaybeToFunc(lang_stat, tuple_name, &dummy, dst_scp, n);
+
+		//ret_type.type = enum_type2::TYPE_STRUCT_TYPE;
+
+		//ret_type.strct->this_decl = tuple_decl;
+		tstrct->strct_node = n;
+		tstrct->scp = child_scp;
+		tstrct->flags |= TP_STRCT_TUPLE;
+		tstrct->this_decl = tuple_decl;
+		tuple_decl->type.strct = tstrct;
+		tuple_decl->type.type = TYPE_STRUCT_TYPE;
+		ret = tuple_decl;
+
+		tstrct->size = SetVariablesAddress(&tstrct->scp->vars, 0, &tstrct->biggest_type);
+	}
+	else
+		ret = tuple_exist;
+	return ret;
+}
 //$CallNode
 bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, decl2* decl_func)
 {
@@ -4179,6 +4292,26 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				{
 					ASSERT(FindIdentifier(t->decl.name, scp, &t->decl.type))
 				}
+				// a tuple
+				else if (t->type == COMMA_RET_EXPR && IS_COMMA(t->n))
+				{
+					decl2 *tuple_decl = CreateStructTuple(lang_stat, t->n, scp);
+					node* struct_constr = new_node(lang_stat, t->n->t);
+
+					struct_constr->type = N_STRUCT_CONSTRUCTION;
+					struct_constr->l = NewIdentNode(lang_stat, tuple_decl->name, t->n->t);
+					struct_constr->r = new_node(lang_stat, t->n);
+					struct_constr->r->flags = 0;
+					DescendNameFinding(lang_stat, struct_constr, scp);
+
+					node *bin = NewTypeNode(lang_stat, nullptr, N_UNOP, struct_constr, ncall->t);
+					bin->t->type = T_AMPERSAND;
+					memcpy(t->n, bin, sizeof(node));
+
+					t->decl.type = DescendNode(lang_stat, t->n, scp);
+					//t->decl.type.type = FromTypeToVarType(t->decl.type.type);
+
+				}
 				/*
 				else if (t->type == COMMA_RET_EXPR)
 					t->decl.type = t->;
@@ -4295,11 +4428,15 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 					if (f_arg->type.strct->constructors.size() == 0)
 					{
-						return false;
-						REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
-							VAR_ARGS("struct '%s' doesn't have any constructors", f_arg->type.strct->name.c_str())
-						);
-						ExitProcess(1);
+						if(IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+							return false;
+						else
+						{
+							REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
+								VAR_ARGS("struct '%s' doesn't have any constructors for '%s'", f_arg->type.strct->name.c_str(), TypeToString(t->decl.type).c_str())
+							);
+							ExitProcess(1);
+						}
 					}
 
 					auto constr = f_arg->type.strct->FindExistingOverload(lang_stat, &f_arg->type.strct->constructors, (void*)&f_arg->type, &tp_ar, true);
@@ -4696,6 +4833,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 				{
 					t->decl.type.type = FromTypeToVarType(t->decl.type.type);
 				}
+
 				new_decl->type = t->decl.type;
 				new_decl->name = "unamed";
 
@@ -4726,6 +4864,10 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 				new_decl->type = t->decl.type;
 				new_decl->name = "unamed_arg";
 				//child_scp->vars.emplace_back(NewDecl(lang_stat, "unamed", t->tp));
+			}
+			if (t->decl.type.type == TYPE_STRUCT && IS_FLAG_ON(t->decl.type.strct->flags, TP_STRCT_TUPLE))
+			{
+				new_decl->type.ptr = 1;
 			}
 			// making struct values to be ptrs
 			CheckStructValToFunc(fdecl, &new_decl->type);
@@ -5058,22 +5200,30 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 		}
 		else
 		{
-
-
-			type2 dummy;
-			ret = FindIdentifier(n->r->t->str, lhs->type.strct->scp, &dummy);
-
-			if (!ret)
+			if (n->r->type == N_INT)
 			{
-				REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
-					VAR_ARGS("'%s' is not part of struct '%s'\n",
-						n->r->t->str.c_str(), lhs->type.strct->name.c_str()
-					)
-				)
-					ExitProcess(1);
+				ASSERT(IS_FLAG_ON(lhs->type.strct->flags, TP_STRCT_TUPLE));
+				ret = lhs->type.strct->scp->vars[n->r->t->i];
+
 			}
-			ASSERT(ret)
-				* ret_tp = ret->type;
+			else
+			{
+				type2 dummy;
+				ret = FindIdentifier(n->r->t->str, lhs->type.strct->scp, &dummy);
+
+
+				if (!ret)
+				{
+					REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
+						VAR_ARGS("'%s' is not part of struct '%s'\n",
+							n->r->t->str.c_str(), lhs->type.strct->name.c_str()
+						)
+					)
+						ExitProcess(1);
+				}
+			}
+			ASSERT(ret);
+			*ret_tp = ret->type;
 			return ret;
 		}
 
@@ -6971,8 +7121,23 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						}
 						colon->decl_nd = n;
 						ret_type = colon->type;
+					}break;
+					// TUPLE
+					case T_COMMA:
+					{
+						if (!DescendNameFinding(lang_stat, n->r, scp))
+							return nullptr;
+						//snode->tstrct = snode->tstrct == nullptr ? new type_struct2() : snode->tstrct;
 
+						decl2 *tuple = CreateStructTuple(lang_stat, n->r, scp);
 
+						n->r->type = N_IDENTIFIER;
+						n->r->t->str = std::string(tuple->name);
+
+						type_struct2 *tstrct = tuple->type.strct;
+
+						ret_type.strct = tstrct;
+						ret_type.type = TYPE_STRUCT_TYPE;
 					}break;
 					default:
 					{
@@ -7214,29 +7379,46 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case N_STRUCT_CONSTRUCTION:
 	{
-		if (n->l != nullptr && !DescendNameFinding(lang_stat, n->l, scp))
+		if (n->l == nullptr)
 			return nullptr;
 
+		//decl2* strct = DescendNameFinding(lang_stat, n->l, scp);
+		decl2* strct = FindIdentifier(n->l->t->str, scp, &ret_type);
 		NameFindingGetType(lang_stat, n->l, scp, ret_type);
 
 		if (!n->scp)
 		{
-			decl2* strct = FindIdentifier(n->l->t->str, scp, &ret_type);
 			scope* strct_scp = strct->type.strct->scp;
 			scope *new_scp = NewScope(lang_stat, scp);
 			new_scp->vars = strct_scp->vars;
 
 			n->exprs = (own_std::vector<comma_ret> *)AllocMiscData(lang_stat, sizeof(own_std::vector<comma_ret>));
 			n->scp = new_scp;
-			DescendComma(lang_stat, n->r->r, new_scp, *n->exprs);
+			node* descend = n->r;
+			if (n->r->type == N_SCOPE)
+				descend = descend->r;
+
+			DescendComma(lang_stat, descend, new_scp, *n->exprs);
 		}
 		
 
-		FOR_VEC(c, *n->exprs)
+		if (IS_FLAG_ON(strct->type.strct->flags, TP_STRCT_TUPLE))
 		{
-			if (!DescendNameFinding(lang_stat, c->n->l, n->scp))
-				return 0;
-			//if()
+			FOR_VEC(c, *n->exprs)
+			{
+				if (!DescendNameFinding(lang_stat, c->n, n->scp))
+					return 0;
+				//if()
+			}
+		}
+		else
+		{
+			FOR_VEC(c, *n->exprs)
+			{
+				if (!DescendNameFinding(lang_stat, c->n->l, n->scp))
+					return 0;
+				//if()
+			}
 		}
 		
 		int a = 0;
@@ -8777,11 +8959,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					}
 					*/
 				}
-
-
 			}
-
-
 		}break;
 		case tkn_type2::T_COLON:
 		{

@@ -234,13 +234,25 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				{
 					first_node = *(node_stack.begin() + i);
 
-					decl2* is_struct = FindIdentifier(first_node->r->t->str, strct->type.strct->scp, &dummy_type);
+					decl2* is_struct = nullptr;
+					bool is_tuple = IS_FLAG_ON(strct->type.strct->flags, TP_STRCT_TUPLE);
+					if (is_tuple)
+					{
+						is_struct = strct->type.strct->scp->vars[first_node->t->i];
+					}
+					else
+						is_struct = FindIdentifier(first_node->r->t->str, strct->type.strct->scp, &dummy_type);
 					ASSERT(is_struct);
 					if (is_struct)
 					{
 						aux.decl_strct = is_struct;
 						aux.exp = AstFromNode(lang_stat, first_node->r, strct->type.strct->scp);
-
+						if (is_tuple)
+						{
+							aux.exp->type = AST_IDENT;
+							aux.exp->decl = is_struct;
+						}
+				
 						strct = aux.decl_strct;
 						rhs->decl = is_struct;
 					}
@@ -404,12 +416,22 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		lang_stat->cur_func->strct_constrct_size_per_statement = max(cur_sz, lang_stat->cur_strct_constrct_size_per_statement);
 
 		type_struct2* strct =  ret->strct_constr.strct;
+		int i = 0;
 		FOR_VEC(c, *n->exprs)
 		{
 			ast_struct_construct_info info;
-			info.var = strct->FindDecl(c->n->l->t->str);
-			info.exp = AstFromNode(lang_stat, c->n->r, scp);
+			if (IS_FLAG_ON(strct->flags, TP_STRCT_TUPLE))
+			{
+				info.var = strct->scp->vars[i];
+				info.exp = AstFromNode(lang_stat, c->n, scp);
+			}
+			else
+			{
+				info.var = strct->FindDecl(c->n->l->t->str);
+				info.exp = AstFromNode(lang_stat, c->n->r, scp);
+			}
 			ret->strct_constr.commas.emplace_back(info);
+			i++;
 		}
 		lang_stat->cur_strct_constrct_size_per_statement -= tp_size;
 	}break;

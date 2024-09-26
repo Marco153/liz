@@ -1038,7 +1038,7 @@ int main(int argc, char* argv[])
 
 		AssignDbgFile(&lang_stat, (opts.wasm_dir + opts.folder_name + ".dbg").c_str());
 		//AssignDbgFile(&lang_stat, opts);
-		//RunDbgFunc(&lang_stat, "tests", args, 1);
+		RunDbgFunc(&lang_stat, "tests", args, 1);
 		lang_stat.winterp->dbg->data = (void*)&gl_state;
 		RunDbgFunc(&lang_stat, "main", args, 1);
 

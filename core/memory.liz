@@ -635,7 +635,6 @@ ret_v3::fn() !v3
 }
 tuple_arg_fn ::fn(arg : (s32, s32)) ! s32
 {
-	__dbg_break;
 	return arg.0;
 }
 tests :: fn(ret : *u32)
@@ -1011,9 +1010,40 @@ tests :: fn(ret : *u32)
 	if st_tuple.0 != 4
 		debug_break();
 
-	__dbg_break;
 	test_u32 := tuple_arg_fn((4, 0));
 
 	if test_u32 != 4
 		debug_break();
+	
+
+	val_test := 0;
+	for idx : u32 in 0..5
+	{
+		val_test++;
+	}
+
+	if val_test != 5
+		debug_break();
+
+
+	val_test = 0;
+	limit := 10;
+	for idx : u32 in 0..limit
+	{
+		val_test++;
+	}
+
+	if val_test != limit
+		debug_break();
+
+	limit = 0;
+	//val_test = 5;
+	__dbg_break;
+	for rev val_test in 5..limit
+	{
+
+	}
+	if val_test != limit
+		debug_break();
+
 }

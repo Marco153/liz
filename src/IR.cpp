@@ -5,6 +5,7 @@ decl2* PointLogic(lang_state* lang_stat, node* n, scope* scp, type2* ret_tp);
 bool NameFindingGetType(lang_state* lang_stat, node* n, scope* scp, type2& ret_type, int);
 void GenStackThenIR(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val* dst_val, ir_val *i=nullptr);
 void CreateOppositeRegAssigmentAfterCondChecking(lang_state* lang_stat, own_std::vector<ir_rep>* out, int sub_if_idx, int if_idx, int reg);
+bool IsNodeOperator(node* nd, tkn_type2 tkn);
 
 
 #define STACK_PTR_REG 8
@@ -40,6 +41,18 @@ bool CheckStmntWithoutSemicolon(lang_state* lang_stat, own_std::vector<ast_rep *
 
 	}
 	return false;
+}
+
+ast_rep* CreateAstBin(lang_state* lang_stat, tkn_type2 op, ast_rep *lhs, ast_rep *rhs, node *lhs_n, scope *scp)
+{
+	ast_rep* ret = NewAst();
+	ret->type = AST_BINOP;
+	ret->op = op;
+	ret->lhs_tp = DescendNode(lang_stat, lhs_n, scp);
+	ret->expr.emplace_back(lhs);
+	ret->expr.emplace_back(rhs);
+
+	return ret;
 }
 ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 {
@@ -553,6 +566,63 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			*/
 
         }
+	}break;
+	case N_FOR:
+	{
+		ret->type = AST_FOR;
+		node* for_nd = n;
+		scp = n->r->scp;
+		bool is_rev = false;
+		if (n->l->type == N_KEYWORD && n->l->kw == KW_REV)
+		{
+			is_rev = true;
+			n = n->l->r;
+		}
+		else
+			n = n->l;
+		if (IsNodeOperator(n, T_IN))
+		{
+			node* var_name_nd = n->l;
+			ast_rep* var_name = AstFromNode(lang_stat, var_name_nd, scp);
+			if (IsNodeOperator(n->r, T_TWO_POINTS))
+			{
+				node* start_val_nd = n->r->l;
+				node* end_val_nd = n->r->r;
+				ast_rep* start_val = AstFromNode(lang_stat, start_val_nd, scp);
+				ast_rep* end_val = AstFromNode(lang_stat, end_val_nd, scp);
+				
+				ret->for_info.start_stat = CreateAstBin(lang_stat, T_EQUAL, var_name, start_val, start_val_nd, scp);
+				ast_rep* inc_val = NewAst();
+				tkn_type2 cmp_op;
+
+				if (is_rev)
+				{
+					inc_val->type = AST_MINUS_MINUS;
+					cmp_op = T_GREATER_THAN;
+				}
+				else
+				{
+					inc_val->type = AST_PLUS_PLUS;
+					cmp_op = T_LESSER_THAN;
+				}
+
+				ret->for_info.cond_stat = CreateAstBin(lang_stat, cmp_op, var_name, end_val, end_val_nd, scp);
+				inc_val->unop_assign.ast = var_name;
+				inc_val->unop_assign.tp = DescendNode(lang_stat, var_name_nd, scp);
+
+				ret->for_info.at_loop_end_stat = inc_val;
+			}
+			else
+			{
+				ASSERT(0)
+			}
+
+		}
+		else
+		{
+			ASSERT(0)
+		}
+		ret->for_info.scope = AstFromNode(lang_stat, for_nd->r, scp);
 	}break;
 	case N_APOSTROPHE:
 	{
@@ -2612,6 +2682,31 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 	{
 		ir.type = IR_BREAK;
 		out->emplace_back(ir);
+	}break;
+	case AST_FOR:
+	{
+		bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
+		lang_stat->ir_in_stmnt = false;
+		GetIRFromAst(lang_stat, ast->for_info.start_stat, out);
+		int block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_BLOCK);
+		int loop_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_LOOP_BLOCK);
+		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
+		//int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+		GetIRCond(lang_stat, ast->for_info.cond_stat, out);
+		IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+
+		if (ast->for_info.scope)
+		{
+			GetIRFromAst(lang_stat, ast->for_info.scope, out);
+		}
+
+		GetIRFromAst(lang_stat, ast->for_info.at_loop_end_stat, out);
+		//IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_IF_BLOCK);
+		IRCreateEndBlock(lang_stat, loop_idx, out, IR_END_LOOP_BLOCK);
+		IRCreateEndBlock(lang_stat, block_idx, out, IR_END_BLOCK);
+
+		lang_stat->ir_in_stmnt = prev_is_in_stmnt;
+
 	}break;
 	case AST_IF:
     {

@@ -941,6 +941,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 		if (GetWordStr(input, input_sz, i, &tkn.str))
 		{
 			i += tkn.str.length();
+			if (tkn.str == "in")
+			{
+				tkn.type = T_IN;
+			}
+
 			tkns->emplace_back(tkn);
 			continue;
 		}

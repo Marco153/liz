@@ -111,6 +111,7 @@ enum keyword
 	KW_REL,
 	KW_TYPEDEF,
 	KW_CONSTRUCTOR,
+	KW_REV,
 };
 enum node_type
 {

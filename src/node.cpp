@@ -348,6 +348,16 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 		*precedence = PREC_SEMI_COLON;
 		return true;
 	}
+	if (IsTknWordStr(peek_tkn(), "in"))
+	{
+		*precedence = PREC_PLUS;
+		return true;
+	}
+	if (IsTknWordStr(peek_tkn(), "rev"))
+	{
+		*precedence = PREC_PLUS;
+		return true;
+	}
 	if (IsTknWordStr(peek_tkn(), "as"))
 	{
 		*precedence = PREC_PLUS;
@@ -381,6 +391,7 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 	case tkn_type2::T_MINUS:
 	case tkn_type2::T_COLON:
 	case tkn_type2::T_PERCENT:
+	case tkn_type2::T_IN:
 	case tkn_type2::T_PLUS:
 	case tkn_type2::T_PIPE:
 	case tkn_type2::T_PLUS_PLUS:
@@ -1114,6 +1125,14 @@ node* node_iter::parse_expr()
 		if (GetTypeFromTkns(cur_tkn, n->decl_type))
 		{
 			n->type = node_type::N_TYPE;
+		}
+		else if (cur_tkn->str == "rev")
+		{
+			n->type = node_type::N_KEYWORD;
+			n->kw = keyword::KW_REV;
+
+			if (peek_tkn()->type != T_SEMI_COLON)
+				n->r = parse_(0, parser_cond::LESSER_EQUAL);
 		}
 		else if (cur_tkn->str == "continue")
 		{
@@ -7197,6 +7216,11 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_FOR:
 	{
+		if (!n->r->scp)
+			n->r->scp = GetScopeFromParent(lang_stat, n->r, scp);
+		scope* for_scope = n->r->scp;
+		DescendNameFinding(lang_stat, n->l, for_scope);
+		DescendNameFinding(lang_stat, n->r, for_scope);
 		/*
 		lang_stat->flags |= PSR_FLAGS_INSIDER_FOR_DECL;
 		if (n->l != nullptr && !DescendNameFinding(lang_stat, n->l, scp) && scp->parent != nullptr)
@@ -7626,6 +7650,11 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	case node_type::N_FOR:
 	{
 		//scp = GetScopeFromParent(n->r, given_scp);
+		if (IsNodeOperator(n->l, T_IN) && IsNodeOperator(n->l->r, T_TWO_POINTS)
+			|| n->l->type == N_KEYWORD && n->l->kw == KW_REV)
+		{
+			return ret_type;
+		}
 
 		std::string iterated = n->l->l->t->str;
 

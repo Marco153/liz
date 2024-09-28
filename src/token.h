@@ -97,6 +97,7 @@ enum tkn_type2
 	T_APOSTROPHE,
 
 	T_TWO_POINTS,
+	T_IN,
 
 	T_THREE_POINTS,
 

@@ -1682,7 +1682,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 
 
 	auto begin_tkn = peek_tkn();
-	if (begin_tkn->type == T_CLOSE_PARENTHESES || begin_tkn->type == T_CLOSE_CURLY || begin_tkn->type == T_CLOSE_BRACKETS)
+	if (begin_tkn->type == T_CLOSE_PARENTHESES || begin_tkn->type == T_CLOSE_CURLY)
 	{
 		ReportMessageOne(lang_stat, begin_tkn, "Unexpected token", nullptr);
 	}

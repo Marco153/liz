@@ -37,7 +37,7 @@
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 2048
-#define DATA_SECT_OFFSET 130000
+#define DATA_SECT_OFFSET 180000
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 //#define DEBUG_GLOBAL_NOT_FOUND 
@@ -502,6 +502,8 @@ struct lang_state
 	char* misc_arena;
 	int cur_misc;
 	int max_misc;
+
+	node* zero_int_node;
 
 	char* GetCodeAddr(int offset)
 	{
@@ -4468,7 +4470,62 @@ void WasmOnArgs(dbg_state* dbg)
 		{
 			int i = 1;
 			ASSERT(tkns[1].type == T_WORD);
-			if (tkns[i].str == "ex")
+			if (tkns[i].str == "wasm")
+			{
+				i++;
+				bool can_break = false;
+
+				func_decl* fdecl = dbg->cur_func;
+				wasm_bc* cur_bc = *dbg->cur_bc;
+				stmnt_dbg* cur_st = dbg->cur_st;
+
+				int lines = -1;
+				if (tkns[i].type == T_INT)
+				{
+					lines = tkns[i].i;
+					can_break = true;
+				}
+				bool print_bc = true;
+				while (!can_break)
+				{
+					can_break = true;
+					if (tkns[i].str == "func")
+					{
+						i++;
+
+						ASSERT(tkns[i].type == T_WORD);
+						fdecl = FuncAddedWasmInterp(dbg->lang_stat->winterp, tkns[i].str);
+						cur_st = fdecl->wasm_stmnts.begin();
+						cur_bc = dbg->bcs.begin() + cur_st->start;
+						i++;
+					}
+					else if (tkns[i].str == "ir")
+					{
+						i++;
+						ASSERT(tkns[i].type == T_INT);
+
+						print_bc = false;
+						lines = tkns[i].i;
+					}
+					else if (tkns[i].str == "lines")
+					{
+						i++;
+						ASSERT(tkns[i].type == T_INT);
+
+						lines = tkns[i].i;
+					}
+
+					if (tkns[i].type == T_COMMA)
+					{
+						can_break = false;
+						i++;
+					}
+				}
+
+				std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines, true, print_bc);
+				printf("%s\n", ret.c_str());
+			}
+			else if (tkns[i].str == "ex")
 			{
 				i++;
 				std::string exp_str = "";

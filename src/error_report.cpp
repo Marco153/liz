@@ -35,7 +35,7 @@ void ReportError(lang_state *lang_stat, int line, int line_offset, char *str, in
 	printf("%s\n", (char*)((*lines)[line - 1]));
 	
 	// drawing the up arrow to say which token wasnt found
-	for (int i = 0; i < line_offset + line_idx_len; i++)
+	for (int i = 0; i < line_offset; i++)
 	{
 		if (cur_line[i] == '\t')
 			printf("\t");

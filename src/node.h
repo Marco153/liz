@@ -26,6 +26,7 @@
 #define NODE_FLAGS_POINT_FROM_USING 0x200000
 #define NODE_FLAGS_STMNT_WITHOUT_SEMICOLON 0x400000
 #define NODE_FLAGS_CALL_WAS_MACRO 0x800000
+#define NODE_FLAGS_COMMA_INSIDE_PARENTHESES 0x1000000
 
 #define ASSIGN_VEC(v1, v2) v1.assign(v2.begin(), v2. end())
 #define INSERT_VEC(v1, v2) v1.insert(v1.end(), v2.begin(), v2.end())
@@ -110,11 +111,13 @@ enum keyword
 	KW_REL,
 	KW_TYPEDEF,
 	KW_CONSTRUCTOR,
+	KW_REV,
 };
 enum node_type
 {
 	N_EMPTY,
 	N_BINOP,
+	N_TUPLE,
 	N_SCOPE,
 	N_STMNT,
 	N_UNOP,

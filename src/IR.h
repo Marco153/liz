@@ -22,6 +22,7 @@ enum ast_type
     AST_ELSE,
     AST_INDEX,
     AST_WHILE,
+    AST_FOR,
     AST_CALL,
     AST_CAST,
     AST_STRUCT_COSTRUCTION,
@@ -58,6 +59,13 @@ struct ast_bool_exp
     own_std::vector<ir_rep *> false_conds;
     own_std::vector<ir_rep *> true_conds;
 
+};
+struct ast_for
+{
+	ast_rep* start_stat;
+	ast_rep* cond_stat;
+	ast_rep* at_loop_end_stat;
+	ast_rep* scope;
 };
 struct ast_index
 {
@@ -182,6 +190,7 @@ struct ast_rep
         ast_loop loop;
         ast_call call;
         ast_cast cast;
+        ast_for for_info;
 		ast_opposite opposite;
         ast_deref deref;
         ast_struct_construct strct_constr;

@@ -97,6 +97,7 @@ enum tkn_type2
 	T_APOSTROPHE,
 
 	T_TWO_POINTS,
+	T_IN,
 
 	T_THREE_POINTS,
 
@@ -524,6 +525,7 @@ std::string OvrldOpToStr(overload_op op);
 #define TP_STRCT_TEMPLATED 1
 #define TP_STRCT_STRUCT_NOT_NODE 2
 #define TP_STRCT_STRUCT_SERIALIZED 4
+#define TP_STRCT_TUPLE 8
 //#define TP_STRCT_DONE 8
 struct type_struct2
 {

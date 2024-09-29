@@ -5,6 +5,7 @@ decl2* PointLogic(lang_state* lang_stat, node* n, scope* scp, type2* ret_tp);
 bool NameFindingGetType(lang_state* lang_stat, node* n, scope* scp, type2& ret_type, int);
 void GenStackThenIR(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val* dst_val, ir_val *i=nullptr);
 void CreateOppositeRegAssigmentAfterCondChecking(lang_state* lang_stat, own_std::vector<ir_rep>* out, int sub_if_idx, int if_idx, int reg);
+bool IsNodeOperator(node* nd, tkn_type2 tkn);
 
 
 #define STACK_PTR_REG 8
@@ -40,6 +41,18 @@ bool CheckStmntWithoutSemicolon(lang_state* lang_stat, own_std::vector<ast_rep *
 
 	}
 	return false;
+}
+
+ast_rep* CreateAstBin(lang_state* lang_stat, tkn_type2 op, ast_rep *lhs, ast_rep *rhs, node *lhs_n, scope *scp)
+{
+	ast_rep* ret = NewAst();
+	ret->type = AST_BINOP;
+	ret->op = op;
+	ret->lhs_tp = DescendNode(lang_stat, lhs_n, scp);
+	ret->expr.emplace_back(lhs);
+	ret->expr.emplace_back(rhs);
+
+	return ret;
 }
 ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 {
@@ -234,13 +247,25 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				{
 					first_node = *(node_stack.begin() + i);
 
-					decl2* is_struct = FindIdentifier(first_node->r->t->str, strct->type.strct->scp, &dummy_type);
+					decl2* is_struct = nullptr;
+					bool is_tuple = IS_FLAG_ON(strct->type.strct->flags, TP_STRCT_TUPLE);
+					if (is_tuple)
+					{
+						is_struct = strct->type.strct->scp->vars[first_node->t->i];
+					}
+					else
+						is_struct = FindIdentifier(first_node->r->t->str, strct->type.strct->scp, &dummy_type);
 					ASSERT(is_struct);
 					if (is_struct)
 					{
 						aux.decl_strct = is_struct;
 						aux.exp = AstFromNode(lang_stat, first_node->r, strct->type.strct->scp);
-
+						if (is_tuple)
+						{
+							aux.exp->type = AST_IDENT;
+							aux.exp->decl = is_struct;
+						}
+				
 						strct = aux.decl_strct;
 						rhs->decl = is_struct;
 					}
@@ -404,12 +429,22 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		lang_stat->cur_func->strct_constrct_size_per_statement = max(cur_sz, lang_stat->cur_strct_constrct_size_per_statement);
 
 		type_struct2* strct =  ret->strct_constr.strct;
+		int i = 0;
 		FOR_VEC(c, *n->exprs)
 		{
 			ast_struct_construct_info info;
-			info.var = strct->FindDecl(c->n->l->t->str);
-			info.exp = AstFromNode(lang_stat, c->n->r, scp);
+			if (IS_FLAG_ON(strct->flags, TP_STRCT_TUPLE))
+			{
+				info.var = strct->scp->vars[i];
+				info.exp = AstFromNode(lang_stat, c->n, scp);
+			}
+			else
+			{
+				info.var = strct->FindDecl(c->n->l->t->str);
+				info.exp = AstFromNode(lang_stat, c->n->r, scp);
+			}
 			ret->strct_constr.commas.emplace_back(info);
+			i++;
 		}
 		lang_stat->cur_strct_constrct_size_per_statement -= tp_size;
 	}break;
@@ -531,6 +566,142 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			*/
 
         }
+	}break;
+	case N_FOR:
+	{
+		ret->type = AST_FOR;
+		node* for_nd = n;
+		scp = n->r->scp;
+		bool is_rev = false;
+		if (n->l->type == N_KEYWORD && n->l->kw == KW_REV)
+		{
+			is_rev = true;
+			n = n->l->r;
+		}
+		else
+			n = n->l;
+		if (IsNodeOperator(n, T_IN))
+		{
+			node* var_name_nd = n->l;
+			ast_rep* var_name = AstFromNode(lang_stat, var_name_nd, scp);
+			ast_rep* var_name_og = var_name;
+			if (IsNodeOperator(n->r, T_TWO_POINTS))
+			{
+				type2 var_type = DescendNode(lang_stat, var_name_nd, scp);
+
+				node* start_val_nd = n->r->l;
+				node* end_val_nd = n->r->r;
+				ast_rep* start_val = AstFromNode(lang_stat, start_val_nd, scp);
+				ast_rep* end_val = AstFromNode(lang_stat, end_val_nd, scp);
+
+				tkn_type2 cmp_op;
+
+				if (var_type.ptr > 0)
+				{
+					ast_rep* address = NewAst();
+					address->type = AST_ADDRESS_OF;
+					address->ast = var_name;
+					address->line_number = n->t->line;
+
+					ast_rep* cast_to_ptr_u64 = NewAst();
+					cast_to_ptr_u64->type = AST_CAST;
+					cast_to_ptr_u64->cast.casted = address;
+					cast_to_ptr_u64->cast.type.type = TYPE_U64;
+					cast_to_ptr_u64->cast.type.ptr = 1;
+					cast_to_ptr_u64->line_number = n->t->line;
+					var_name = cast_to_ptr_u64;
+
+					cast_to_ptr_u64 = NewAst();
+					cast_to_ptr_u64->type = AST_CAST;
+					cast_to_ptr_u64->cast.casted = start_val;
+					cast_to_ptr_u64->cast.type.type = TYPE_U64;
+					cast_to_ptr_u64->cast.type.ptr = 1;
+					cast_to_ptr_u64->line_number = n->t->line;
+					start_val = cast_to_ptr_u64;
+
+
+					cast_to_ptr_u64 = NewAst();
+					cast_to_ptr_u64->type = AST_CAST;
+					cast_to_ptr_u64->cast.casted = end_val;
+					cast_to_ptr_u64->cast.type.type = TYPE_U64;
+					cast_to_ptr_u64->cast.type.ptr = 1;
+					cast_to_ptr_u64->line_number = n->t->line;
+					end_val = cast_to_ptr_u64;
+
+					// cast(*u64)&var_name = cast(*64)(cast(u64)var_name + sizeof(type))
+					ast_rep *cast_to_u64 = NewAst();
+					cast_to_u64->type = AST_CAST;
+					cast_to_u64->cast.casted = var_name_og;
+					cast_to_u64->cast.type.type = TYPE_U64;
+					cast_to_u64->cast.type.ptr = 0;
+
+					ast_rep *type_size = NewAst();
+					type_size->type = AST_INT;
+					var_type.ptr--;
+					type_size->num = GetTypeSize(&var_type);
+					var_type.ptr++;
+
+					ast_rep *bin_plus = NewAst();
+					bin_plus->type = AST_BINOP;
+					bin_plus->op = T_PLUS;
+					bin_plus->lhs_tp = var_type;
+					bin_plus->expr.emplace_back(cast_to_u64);
+					bin_plus->expr.emplace_back(type_size);
+
+					if (is_rev)
+						bin_plus->op = T_MINUS;
+
+					ast_rep *equal = NewAst();
+					equal->type = AST_BINOP;
+					equal->op = T_EQUAL;
+					equal->lhs_tp = var_type;
+					equal->expr.emplace_back(var_name);
+					equal->expr.emplace_back(bin_plus);
+					ret->for_info.at_loop_end_stat = equal;
+					equal->line_number = n->t->line;
+
+				}
+				else
+				{
+					ast_rep* inc_val = NewAst();
+
+					if (is_rev)
+					{
+						inc_val->type = AST_MINUS_MINUS;
+					}
+					else
+					{
+						inc_val->type = AST_PLUS_PLUS;
+					}
+					inc_val->unop_assign.ast = var_name;
+					inc_val->unop_assign.tp = var_type;
+					ret->for_info.at_loop_end_stat = inc_val;
+				}
+				
+				if (is_rev)
+				{
+					cmp_op = T_GREATER_THAN;
+				}
+				else
+				{
+					cmp_op = T_LESSER_THAN;
+				}
+				ret->for_info.start_stat = CreateAstBin(lang_stat, T_EQUAL, var_name, start_val, start_val_nd, scp);
+
+				ret->for_info.cond_stat = CreateAstBin(lang_stat, cmp_op, var_name, end_val, end_val_nd, scp);
+
+			}
+			else
+			{
+				ASSERT(0)
+			}
+
+		}
+		else
+		{
+			ASSERT(0)
+		}
+		ret->for_info.scope = AstFromNode(lang_stat, for_nd->r, scp);
 	}break;
 	case N_APOSTROPHE:
 	{
@@ -912,6 +1083,7 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 	case AST_INT:
 	case AST_FLOAT:
 	case AST_STR_LIT:
+	case AST_CHAR:
 	case AST_IDENT:
 	{
 		out->emplace_back(ast);
@@ -1407,7 +1579,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		{
 			ir_val* top = &stack[stack.size() - 1];
 
-			top->ptr = -1;
 
 			//ASSERT(top->type == IR_TYPE_DECL);
 			//ASSERT(top->ptr > 0);
@@ -1428,6 +1599,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				//ir.assign.lhs.ptr = e->deref.times;
 				out->emplace_back(ir);
 			}
+			top->ptr = -1;
 
 			if (top->type == IR_TYPE_REG)
 			{
@@ -1630,15 +1802,12 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir_val* top = &stack[stack.size() - 1];
 
 			char add = 0;
-			if (e->cast.type.ptr == 0 && top->type == IR_TYPE_DECL)
+			bool is_int = e->cast.type.type == TYPE_U32 || e->cast.type.type == TYPE_S32 || e->cast.type.type == TYPE_S64 || e->cast.type.type == TYPE_U64;
+			if (e->cast.type.ptr >= 1 && is_int && top->ptr == -1)
 			{
-				//top->deref = 1 - top->ptr > 0 ? 1 :0;
+				top->deref = 1;
 				//ASSERT()
-				//top->type = IR_TYPE_REG;
-				//top->reg = ir.assign.to_assign.reg;
-				//out->emplace_back(ir);
 			}
-			bool is_int = e->cast.type.type == TYPE_U32 || e->cast.type.type == TYPE_S32;
 			if (is_int && top->is_float == true)
 			{
 				ir = {};
@@ -1695,6 +1864,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 		}break;
 		case AST_INT:
+		case AST_CHAR:
 		case AST_STR_LIT:
 		case AST_FLOAT:
 		case AST_IDENT:
@@ -2068,6 +2238,7 @@ int GetAstTypeSize(lang_state* lang_stat, ast_rep* ast)
 {
 	switch (ast->type)
 	{
+	case AST_ARRAY_COSTRUCTION:
 	case AST_ADDRESS_OF:
 	{
 		return 8;
@@ -2149,7 +2320,7 @@ void GenLhsEqual(lang_state* lang_stat, ast_rep* lhs_ast, type2 *lhs_tp, own_std
 	// 
 	ir.assign.to_assign.deref = -1;
 
-	ir.assign.to_assign.reg_sz = GetTypeSize(lhs_tp);
+	ir.assign.to_assign.reg_sz = min(8, GetTypeSize(lhs_tp));
 	ASSERT(ir.assign.to_assign.reg_sz != 0);
 
 	GenStackThenIR(lang_stat, lhs_ast, out, &ir.assign.to_assign, &ir.assign.to_assign);
@@ -2157,7 +2328,7 @@ void GenLhsEqual(lang_state* lang_stat, ast_rep* lhs_ast, type2 *lhs_tp, own_std
 		ir.assign.to_assign.deref = 0;
 
 
-	ir.assign.to_assign.reg_sz = GetTypeSize(lhs_tp);
+	ir.assign.to_assign.reg_sz = min(8, GetTypeSize(lhs_tp));
 	ASSERT(ir.assign.to_assign.reg_sz != 0);
 
 	char final_deref = -1;
@@ -2383,6 +2554,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			case AST_CALL:
 			case AST_BINOP:
 			case AST_CAST:
+			case AST_INDEX:
 			case AST_DEREF: 
 			case AST_NEGATIVE: 
 			case AST_ARRAY_COSTRUCTION:
@@ -2590,6 +2762,31 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 	{
 		ir.type = IR_BREAK;
 		out->emplace_back(ir);
+	}break;
+	case AST_FOR:
+	{
+		bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
+		lang_stat->ir_in_stmnt = false;
+		GetIRFromAst(lang_stat, ast->for_info.start_stat, out);
+		int block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_BLOCK);
+		int loop_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_LOOP_BLOCK);
+		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
+		//int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+		GetIRCond(lang_stat, ast->for_info.cond_stat, out);
+		IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+
+		if (ast->for_info.scope)
+		{
+			GetIRFromAst(lang_stat, ast->for_info.scope, out);
+		}
+
+		GetIRFromAst(lang_stat, ast->for_info.at_loop_end_stat, out);
+		//IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_IF_BLOCK);
+		IRCreateEndBlock(lang_stat, loop_idx, out, IR_END_LOOP_BLOCK);
+		IRCreateEndBlock(lang_stat, block_idx, out, IR_END_BLOCK);
+
+		lang_stat->ir_in_stmnt = prev_is_in_stmnt;
+
 	}break;
 	case AST_IF:
     {

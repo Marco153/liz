@@ -374,6 +374,7 @@ texture_raw* HasRawTexture(open_gl_state* gl_state, std::string name)
 	unsigned char* src = nullptr;
 	stbi_set_flip_vertically_on_load(true);
 	src = stbi_load((char*)(gl_state->texture_folder + name).c_str(), &width, &height, &nrChannels, 0);
+	ASSERT(src);
 	gl_state->textures_raw.emplace_back(texture_raw());
 	texture_raw* new_tex = &gl_state->textures_raw.back();
 	//new_tex->name = "";
@@ -382,6 +383,7 @@ texture_raw* HasRawTexture(open_gl_state* gl_state, std::string name)
 	new_tex->width = width;
 	new_tex->height = height;
 	new_tex->channels = nrChannels;
+	//ASSERT()
 	//gl_state->textures_raw.emplace_back(new_tex);
 	return new_tex;
 }
@@ -1038,7 +1040,7 @@ int main(int argc, char* argv[])
 
 		AssignDbgFile(&lang_stat, (opts.wasm_dir + opts.folder_name + ".dbg").c_str());
 		//AssignDbgFile(&lang_stat, opts);
-		//RunDbgFunc(&lang_stat, "tests", args, 1);
+		RunDbgFunc(&lang_stat, "tests", args, 1);
 		lang_stat.winterp->dbg->data = (void*)&gl_state;
 		RunDbgFunc(&lang_stat, "main", args, 1);
 

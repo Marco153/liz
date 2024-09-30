@@ -953,9 +953,9 @@ int main(int argc, char* argv[])
 	gl_state.lang_stat = &lang_stat;
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 
-	own_std::string exe_dir = lang_stat.exe_dir.c_str();
-	int last_bar = exe_dir.find_last_of("/\\");
-	own_std::string dir = exe_dir.substr(0, last_bar + 1);
+	own_std::string oexe_dir = lang_stat.exe_dir.c_str();
+	last_bar = oexe_dir.find_last_of("/\\");
+	own_std::string dir = oexe_dir.substr(0, last_bar + 1);
 
 
 	compile_options opts = {};

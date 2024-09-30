@@ -189,7 +189,7 @@ namespace own_std
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			string new_one;
 			memcpy(buffer, data_ + idx, size);
-			new_one.data_;
+			new_one.data_ = buffer;
 			new_one.len = size;
 
 			return new_one;

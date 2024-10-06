@@ -37,7 +37,7 @@
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 2048
-#define DATA_SECT_OFFSET 180000
+#define DATA_SECT_OFFSET 200000
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 //#define DEBUG_GLOBAL_NOT_FOUND 
@@ -4306,10 +4306,16 @@ void WasmOnArgs(dbg_state* dbg)
 			}
 			else if (tkns[i].str == "callstack")
 			{
+				int idx = dbg->func_stack.size() - 1;
 				FOR_VEC(func, dbg->func_stack)
 				{
 					func_decl* f = *func;
+					wasm_bc* ret_bc = dbg->return_stack[idx];
+					int ret_bc_idx = (ret_bc - &dbg->bcs[0]);
+					stmnt_dbg *ret_st = GetStmntBasedOnOffset(&f->wasm_stmnts, ret_bc_idx);
+					//printf("func %s, ln: %d\n", f->name.c_str(), ret_st->line);
 					printf("func %s\n", f->name.c_str());
+					idx--;
 				}
 			}
 		}
@@ -5031,6 +5037,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_STR_LIT:
 		case TYPE_ENUM_IDX_32:
 		case TYPE_U32_TYPE:
+		case TYPE_S32_TYPE:
 		case TYPE_CHAR:
 		case TYPE_ENUM:
 		
@@ -5413,6 +5420,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_VOID:
 		case TYPE_U64:
 		case TYPE_U32_TYPE:
+		case TYPE_S32_TYPE:
 			break;
 		default:
 			ASSERT(0);

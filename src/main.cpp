@@ -957,6 +957,11 @@ int main(int argc, char* argv[])
 	last_bar = oexe_dir.find_last_of("/\\");
 	own_std::string dir = oexe_dir.substr(0, last_bar + 1);
 
+	dir = "hello";
+	dir = dir + "jij";
+
+	ASSERT(dir == "hellojij");
+
 
 	compile_options opts = {};
 	//opts.file = "../lang2/files";

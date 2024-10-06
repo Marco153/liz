@@ -543,6 +543,7 @@ struct type_struct2
 	own_std::vector<template_expr> templates;
 	own_std::vector<template_to_be_assigned> temps_to_be_assigned;
 	own_std::vector<func_decl *> op_overloads;
+	own_std::vector<func_decl *> this_funcs;
 	own_std::vector<decl2 *> op_overloads_funcs;
 	own_std::vector<func_overload_strct> op_overloads_intern;
 	own_std::vector<func_overload_strct> constructors;

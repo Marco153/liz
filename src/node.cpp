@@ -46,6 +46,7 @@ void ReportMessageOne(lang_state*, token2* tkn, char* msg, void* data);
 void CheckDeclNodeAndMaybeAddEqualZero(lang_state*, node* n, scope* scp);
 void DescendComma(lang_state*, node* n, scope* scp, own_std::vector<comma_ret>& ret);
 bool CheckOverloadFunction(lang_state*, func_decl* f);
+node* NewUnOpNode(lang_state* lang_stat, tkn_type2 t, node* rhs);
 
 /*
 int max(int a, int b)
@@ -5027,6 +5028,26 @@ node* NewUnopNode(lang_state *lang_stat, node* lhs, tkn_type2 t, node* rhs)
 
 	return un;
 }
+node* NewUnOpNode(lang_state *lang_stat, tkn_type2 t, node* rhs, token2 *tkn)
+{
+	auto new_t = (token2*)AllocMiscData(lang_stat, sizeof(token2));
+	memset(new_t, 0, sizeof(token2));
+
+	new_t->type = t;
+
+
+	new_t->line = tkn->line;
+	new_t->line_offset = tkn->line_offset;
+	new_t->line_str = tkn->line_str;
+
+	auto bin = new_node(lang_stat, tkn);
+
+	bin->type = node_type::N_UNOP;
+	bin->t = new_t;
+	bin->r = rhs;
+
+	return bin;
+}
 node* NewBinOpNode(lang_state *lang_stat, node* lhs, tkn_type2 t, node* rhs)
 {
 	auto new_t = (token2*)AllocMiscData(lang_stat, sizeof(token2));
@@ -7261,6 +7282,30 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					ret_type.type = FromVarTypeToType(ret_type.type);
 					ret_type.ptr++;
 				}
+				if (ret_type.type == TYPE_STRUCT)
+				{
+					node* ident_nd = n->l;
+					node* ident_it_start_node = NewIdentNode(lang_stat, "it_start", n->t);
+					node* ident_it_end_node = NewIdentNode(lang_stat, "it_end", n->t);
+					node* ident_address_of = NewUnOpNode(lang_stat, T_AMPERSAND, new_node(lang_stat, n->r), n->t);
+					node* ident_it_start_call_node = NewTypeNode(lang_stat, ident_it_start_node, N_CALL, ident_address_of, n->t);
+					node* ident_it_end_call_node = NewTypeNode(lang_stat, ident_it_end_node, N_CALL, ident_address_of, n->t);
+
+
+					node* two_points_bin_nd = NewBinOpNode(lang_stat, ident_it_start_call_node, T_TWO_POINTS, ident_it_end_call_node);
+					memcpy(n->r, two_points_bin_nd, sizeof(node));
+
+					if (!DescendNameFinding(lang_stat, ident_it_start_call_node, scp))
+						return nullptr;
+					if (!DescendNameFinding(lang_stat, ident_it_end_call_node, scp))
+						return nullptr;
+
+					ret_type = DescendNode(lang_stat, ident_it_start_call_node, scp);
+
+					ret_type.type = FromVarTypeToType(ret_type.type);
+					//ret_type.ptr++;
+					ASSERT(ret_type.ptr > 0)
+				}
 				if (ret_type.type == TYPE_INT)
 					ret_type.type = TYPE_S32_TYPE;
 
@@ -7709,6 +7754,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			type2 rhs = DescendNode(lang_stat, n->l->r, scp);
 
+			// transforming a 'x in array' into 'x in array[0].. array[end]'
 			if (rhs.type == TYPE_STATIC_ARRAY)
 			{
 				node* len_nd = NewIntNode(lang_stat, rhs.i, n->t);
@@ -7718,6 +7764,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 				node* two_points_bin_nd = NewBinOpNode(lang_stat, index_start_nd, T_TWO_POINTS, index_end_nd);
 				memcpy(n->l->r, two_points_bin_nd, sizeof(node));
+			}
+			else if (rhs.type == TYPE_STRUCT)
+			{
 			}
 			else
 			{

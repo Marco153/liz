@@ -885,15 +885,17 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 	//ir.assign.to_assign.reg = AllocReg(lang_stat);
 
 
-	ir.bin.lhs.type = IR_TYPE_REG;
-	ir.bin.lhs.reg_sz = 8;
-	ir.bin.lhs.reg = AllocReg(lang_stat);
+
 
 	ir.bin.rhs.type = IR_TYPE_REG;
 	ir.bin.rhs.reg_sz = 8;
 	ir.bin.rhs.reg = AllocReg(lang_stat);
-	GenStackThenIR(lang_stat, ast_bin->expr[0], out, &ir.bin.lhs, &ir.bin.lhs);
 	GenStackThenIR(lang_stat, ast_bin->expr[1], out, &ir.bin.rhs, &ir.bin.rhs);
+
+	ir.bin.lhs.type = IR_TYPE_REG;
+	ir.bin.lhs.reg_sz = 8;
+	ir.bin.lhs.reg = AllocReg(lang_stat);
+	GenStackThenIR(lang_stat, ast_bin->expr[0], out, &ir.bin.lhs, &ir.bin.lhs);
 
 	ir.bin.rhs.is_unsigned = ir.bin.lhs.is_unsigned;
 
@@ -2562,7 +2564,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			{
 				ir.assign.lhs.type = IR_TYPE_REG;
 				ir.assign.lhs.reg = AllocReg(lang_stat);
-				ir.assign.lhs.reg_sz = GetAstTypeSize(lang_stat, rhs_ast);
+				ir.assign.lhs.reg_sz = GetTypeSize(&ast->lhs_tp);
 				ir.assign.only_lhs = true;
 				GenStackThenIR(lang_stat, rhs_ast, out, &ir.assign.lhs, &rhs_top);
 				ir.assign.lhs.deref = 0;

@@ -5,6 +5,14 @@ dyn_array: struct(T)
 	cap : u64,
 	alloc : *mem_alloc,
 }
+it_start::fn{T}(dyn : *dyn_array(T)) ! *T
+{
+	return dyn[0];
+}
+it_end::fn{T}(dyn : *dyn_array(T)) ! *T
+{
+	return ptr_offset(dyn.data, dyn.count, T);
+}
 operator []{ T }(dyn : *dyn_array(T), idx : u64) !*T
 {
 	ASSERT(idx < dyn.count);

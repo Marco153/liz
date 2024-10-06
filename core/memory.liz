@@ -1055,4 +1055,18 @@ tests :: fn(ret : *u32)
 	if val_test != 10
 		debug_break();
 
+	dyn_test :dyn_array(s32);
+	dyn_test.data = s32_ar[0];
+	dyn_test.cap = 5;
+	dyn_test.count = 5;
+
+	val_test = 0;
+	for cur in dyn_test
+	{
+		aux := *cur;
+		val_test += *cur;
+	}
+	if val_test != 10
+		debug_break();
+
 }

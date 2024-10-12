@@ -233,6 +233,30 @@ int FromGameToGLFWKey(int in)
 	}
 	return key;
 }
+void IsMouseDown(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	int state = 0;
+	if(mouse == 0)
+		state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+	else if(mouse == 1)
+		state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
+	else
+		ASSERT(0)
+
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	if (state == GLFW_PRESS)
+	{
+		* addr = 1;
+	}
+	else
+		* addr = 0;
+}
 void IsKeyDown(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -928,6 +952,35 @@ std::string GetFolderName(std::string path)
 
 	return path.substr(last_bar + 1);
 }
+void GetMouseScreenPosY(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+	double ypos, xpos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+
+	ypos /= gl_state->height;
+	ypos = ypos * 2 - 1;
+	ypos *= 10;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
+
+}
+void GetMouseScreenPosX(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	double xpos, ypos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+	float ratio = (float)gl_state->height / (float)gl_state->width;
+	xpos /= gl_state->width;
+	ypos /= gl_state->height;
+	xpos = xpos * 2 - 1;
+	xpos *= 10 / ratio;
+	ypos *= 10;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
+
+}
 int main(int argc, char* argv[])
 {
 	TCHAR buffer[MAX_PATH] = { 0 };
@@ -1040,6 +1093,9 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "PrintV3", (OutsiderFuncType)PrintV3);
 	AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
 	AssignOutsiderFunc(&lang_stat, "AssignTexFolder", (OutsiderFuncType)AssignTexFolder);
+	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX", (OutsiderFuncType)GetMouseScreenPosX);
+	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
+	AssignOutsiderFunc(&lang_stat, "IsMouseDown", (OutsiderFuncType)IsMouseDown);
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	Compile(&lang_stat, &opts);

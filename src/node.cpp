@@ -4228,7 +4228,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		if (!is_var_args)
 		{
 			int required_args_count = lhs->type.fdecl->args.size();
-			if (required_args_count != args.size())
+			if (required_args_count != args.size() && lhs->type.type != TYPE_OVERLOADED_FUNCS)
 			{
 				auto fdecl = lhs->type.fdecl;
 				int func_ln = fdecl->func_node->t->line - 1;
@@ -4298,7 +4298,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			ret_type->type = enum_type2::TYPE_INT;
 			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
 		}
-		else if (IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_MACRO))
+		else if (IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && lhs->type.type != TYPE_OVERLOADED_FUNCS)
 		{
 			int cur_arg = 0;
 			FOR_VEC(a, args)
@@ -4367,7 +4367,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					return false;
 
 				fdecl = gotten_func;
-				ncall->r->t->str = fdecl->name.substr();
+				ncall->l->t->str = fdecl->name;
 			}
 
 			// func instantiation
@@ -5534,19 +5534,16 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 		auto op_str = OvrldOpToStr(f->op_overload);
 		auto op_str_len = op_str.size();
 
-		// popping the operator string from the end of the name
-		for (int i = 0; i < op_str_len; i++)
-		{
-			f->name.pop_back();
-		}
-		f->name = MangleFuncNameWithArgs(lang_stat, f, f->name, 1) + op_str;
+		f->name = MangleFuncNameWithArgs(lang_stat, f, f->name, 0);
 	}
 
 
 	type2 tp = {};
 	tp.type = TYPE_FUNC;
 	tp.fdecl = f;
-	lang_stat->cur_file->global->vars.emplace_back(NewDecl(lang_stat, f->name, tp));
+	decl2* d = NewDecl(lang_stat, f->name, tp);
+	lang_stat->cur_file->global->vars.emplace_back(d);
+	lang_stat->funcs_scp->vars.emplace_back(d);
 
 	decl_exist->type.overload_funcs->fdecls.emplace_back(f);
 	decl_exist->type.type = enum_type2::TYPE_OVERLOADED_FUNCS;
@@ -6843,30 +6840,30 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			func_overload_strct* overload_strct = nullptr;
 
 			// assigning to overloaded funcs
-			if (decl_exist && decl_exist->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
+			if (decl_exist)
 			{
-
-				overload_strct = decl_exist->type.overload_funcs;
-			}
-
-			if (decl_exist != nullptr && IS_FLAG_OFF(decl_exist->flags, DECL_NOT_DONE))
-			{
-				// variable was already declared
-				if (decl_exist->decl_nd != n)
+				if(decl_exist->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
+					overload_strct = decl_exist->type.overload_funcs;
+				else if (IS_FLAG_OFF(decl_exist->flags, DECL_NOT_DONE))
 				{
-					ReportDeclaredTwice(lang_stat, n, decl_exist);
-					/*
-					int decl_exist_ln = decl_exist->decl_nd->t->line;
-					REPORT_ERROR(n->l->t->line, n->l->t->line_offset,
-						VAR_ARGS("variable '%s' declred here:\n\n%d|%s\n\nHas the same name as this one\n",
-							decl_exist->name.c_str(), decl_exist_ln, GetFileLn(decl_exist_ln - 1)
+					// variable was already declared
+					if (decl_exist->decl_nd != n)
+					{
+						ReportDeclaredTwice(lang_stat, n, decl_exist);
+						/*
+						int decl_exist_ln = decl_exist->decl_nd->t->line;
+						REPORT_ERROR(n->l->t->line, n->l->t->line_offset,
+							VAR_ARGS("variable '%s' declred here:\n\n%d|%s\n\nHas the same name as this one\n",
+								decl_exist->name.c_str(), decl_exist_ln, GetFileLn(decl_exist_ln - 1)
+							)
 						)
-					)
-					*/
-					ExitProcess(1);
+						*/
+						ExitProcess(1);
+					}
+					return decl_exist;
 				}
-				return decl_exist;
 			}
+
 
 			bool can_declare = false;
 
@@ -7136,6 +7133,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					case tkn_type2::T_COLON:
 					{
 						node* cnode = n->r->r;
+						bool first_time = false;
 						switch (cnode->type)
 						{
 						case node_type::N_STRUCT_DECL:
@@ -7161,10 +7159,20 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 								ret_type.fdecl = cnode->fdecl;
 								decl_exist = DeclareDeclToScopeAndMaybeToFunc(lang_stat, decl_name.substr(), &ret_type, scp, n);
 								decl_exist->flags = DECL_NOT_DONE;
+								first_time = true;
 							}
 						}break;
 						}
 						auto colon = DescendNameFinding(lang_stat, n->r, scp);
+						if (overload_strct && first_time)
+						{
+							decl_name = MangleFuncNameWithArgs(lang_stat, ret_type.fdecl, decl_name, 0);
+							ret_type.fdecl->name = decl_name;
+							overload_strct->fdecls.emplace_back(ret_type.fdecl);
+							decl2 *d = DeclareDeclToScopeAndMaybeToFunc(lang_stat, decl_name.substr(), &ret_type, scp, n);
+							lang_stat->funcs_scp->vars.emplace_back(d);
+
+						}
 
 						if (colon == nullptr)
 						{
@@ -7178,7 +7186,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 #endif
 							return nullptr;
 						}
-						colon->decl_nd = n;
+						if(!colon->decl_nd)
+							colon->decl_nd = n;
 						ret_type = colon->type;
 					}break;
 					// TUPLE
@@ -7214,15 +7223,9 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			if (decl_exist)
 				decl_exist->flags &= ~DECL_NOT_DONE;
 
-			if (IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_DONT_DECLARE_VARIABLES) && decl_exist == nullptr)
+			if (IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_DONT_DECLARE_VARIABLES) && decl_exist == nullptr )
 			{
 				// adding the new func to the overloaded array
-				if (overload_strct)
-				{
-					decl_name = MangleFuncNameWithArgs(lang_stat, ret_type.fdecl, decl_name, 0);
-					ret_type.fdecl->name = decl_name;
-					overload_strct->fdecls.emplace_back(ret_type.fdecl);
-				}
 				// we only want to declare functions and structs. We're not interested in its contents
 				return DeclareDeclToScopeAndMaybeToFunc(lang_stat, decl_name.substr(), &ret_type, scp, n);
 			}

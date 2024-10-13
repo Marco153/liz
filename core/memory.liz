@@ -637,6 +637,14 @@ tuple_arg_fn ::fn(arg : (s32, s32)) ! s32
 {
 	return arg.0;
 }
+overload_func ::fn(a : s32, b : s32) ! s32
+{
+	return a + b;
+}
+overload_func ::fn(a : s32) ! s32
+{
+	return a;
+}
 tests :: fn(ret : *u32)
 {
 	i:= 7;
@@ -1069,4 +1077,13 @@ tests :: fn(ret : *u32)
 	if val_test != 10
 		debug_break();
 
+	i = overload_func(1, 2);
+
+	if i != 3
+		debug_break();
+
+	i = overload_func(2);
+
+	if i != 2
+		debug_break();
 }

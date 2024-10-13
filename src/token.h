@@ -1123,14 +1123,28 @@ struct comma_ret
 	~comma_ret(){
 	}
 };
+
+bool CompareTypes(type2* lhs, type2* rhs, bool assert);
 func_decl *type2::ChooseFuncOverload(lang_state *lang_stat, own_std::vector<type2> *tps)
 {
-	std::string name = FuncNameWithTempls(lang_stat, overload_funcs->name, tps);;
-
 	FOR_VEC(f, overload_funcs->fdecls)
 	{
-		if((*f)->name == name)
-			return *f;
+		if ((*f)->args.size() == tps->size())
+		{
+			int i = 0;
+			bool matches = true;
+			FOR_VEC(t, (*tps))
+			{
+				if (!CompareTypes(&(*f)->args[i]->type, t, false))
+				{
+					matches = false;
+					break;
+				}
+			}
+			if(matches)
+				return (*f);
+
+		}
 	}
 	return nullptr;
 } 

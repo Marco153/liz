@@ -5036,6 +5036,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_FUNC_TYPE:
 		case TYPE_STR_LIT:
 		case TYPE_ENUM_IDX_32:
+		case TYPE_OVERLOADED_FUNCS:
 		case TYPE_U32_TYPE:
 		case TYPE_S32_TYPE:
 		case TYPE_CHAR:
@@ -5172,6 +5173,8 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 
 	FOR_VEC(decl, wasm_state->lang_stat->funcs_scp->vars)
 	{
+		if ((*decl)->type.type == TYPE_OVERLOADED_FUNCS)
+			continue;
 		func_decl* f = (*decl)->type.fdecl;
 		auto fdbg = (func_dbg *)(ser_state.func_sect.begin() + f->func_dbg_idx);
 		//fdbg->ir_offset = ser_state.ir_sect.size();
@@ -5407,6 +5410,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_ENUM_IDX_32:
 		case TYPE_ENUM_TYPE:
 		case TYPE_STR_LIT:
+		case TYPE_OVERLOADED_FUNCS:
 		case TYPE_CHAR:
 		case TYPE_ENUM:
 		{
@@ -7501,6 +7505,34 @@ void WasmInsertSectSizeAndType(own_std::vector<unsigned char>* out, char type)
 	unsigned char sect_type = type;
 	out->insert(0, sect_type);
 }
+void WasmAppendFunc(own_std::vector<unsigned char> &type_sect, func_decl*fdecl)
+{
+	// func type
+	type_sect.emplace_back(0x60);
+
+	int num_of_args = 0;//fdecl->args.size();
+
+	type_sect.emplace_back(num_of_args);
+	/*
+	FOR_VEC(arg, fdecl->args)
+	{
+		decl2* a = *arg;
+		// for now we pushing all args as int
+		type_sect.emplace_back(0x7f);
+	}
+	*/
+	// no return type
+	type_sect.emplace_back(0);
+	/*
+	if (fdecl->ret_type.type != TYPE_VOID)
+	{
+		// only one return type
+		type_sect.emplace_back(0x01);
+		// an int
+		type_sect.emplace_back(0x7f);
+	}
+	*/
+}
 void GenWasm(web_assembly_state* wasm_state)
 {
 	//ASSERT(func->func_bcode);
@@ -7572,35 +7604,13 @@ void GenWasm(web_assembly_state* wasm_state)
 		decl2* tp = *t;
 		switch (tp->type.type)
 		{
+		case TYPE_OVERLOADED_FUNCS:
+		{
+		}break;
 		case TYPE_FUNC_PTR:
 		case TYPE_FUNC:
 		{
-			// func type
-			type_sect.emplace_back(0x60);
-
-			func_decl* fdecl = tp->type.fdecl;
-			int num_of_args = 0;//fdecl->args.size();
-
-			type_sect.emplace_back(num_of_args);
-			/*
-			FOR_VEC(arg, fdecl->args)
-			{
-				decl2* a = *arg;
-				// for now we pushing all args as int
-				type_sect.emplace_back(0x7f);
-			}
-			*/
-			// no return type
-			type_sect.emplace_back(0);
-			/*
-			if (fdecl->ret_type.type != TYPE_VOID)
-			{
-				// only one return type
-				type_sect.emplace_back(0x01);
-				// an int
-				type_sect.emplace_back(0x7f);
-			}
-			*/
+			WasmAppendFunc(type_sect, tp->type.fdecl);
 		}break;
 		default:
 			ASSERT(0)

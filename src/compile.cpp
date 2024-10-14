@@ -2178,14 +2178,17 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		{
 			switch (cur_ir->bin.rhs.reg_sz)
 			{
+			case 8:
 			case 4:
 			{
 				code_sect.emplace_back(0xb2);
 			}break;
+			/*
 			case 8:
 			{
 				code_sect.emplace_back(0xb7);
 			}break;
+			*/
 			default:
 				ASSERT(0)
 			}
@@ -6167,9 +6170,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = nullptr;
-		//cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+		cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
-		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;

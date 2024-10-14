@@ -1778,8 +1778,12 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir_val* top = &stack[stack.size() - 1];
 			ir.type = IR_ASSIGNMENT;
 			ir.assign.op = T_MUL;
-			ir.assign.to_assign = *top;
-			ir.assign.to_assign.deref--;
+			ir.assign.to_assign.type = IR_TYPE_REG;
+			ir.assign.to_assign.reg = AllocReg(lang_stat);
+			ir.assign.to_assign.reg_sz = 8;
+			ir.assign.to_assign.is_float = top->is_float;
+			ir.assign.to_assign.is_unsigned = top->is_unsigned;
+			//ir.assign.to_assign.deref--;
 			ir.assign.lhs = *top;
 			ir.assign.lhs.deref++;
 			ir.assign.rhs.type = IR_TYPE_INT;
@@ -1796,6 +1800,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.rhs.is_float = false;
 				ir.assign.rhs.i = -1;
 			}
+			*top = ir.assign.to_assign;
 			out->emplace_back(ir);
 			//top->reg_sz = e->cast.type;
 		}break;
@@ -2805,8 +2810,9 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		if(is_stmnt_without_semicolon)
 			stmnt_without_semicolon_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_EXPR_BLOCK, (void *)(long long)ast->line_number);
 		*/
-
-		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
+		int stmnt_idx = 0;
+		if(!lang_stat->ir_in_stmnt)
+			stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
         int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
 
         bool has_elses = ast->cond.elses.size();
@@ -2817,7 +2823,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 
 		int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
 		GetIRCond(lang_stat, ast->cond.cond, out);
-		IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+		if(!lang_stat->ir_in_stmnt)
+			IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
         //GetIRFromAst(lang_stat, ast->cond.cond, out);
 		IRCreateEndBlock(lang_stat,cond_idx, out, IR_END_COND_BLOCK);
 

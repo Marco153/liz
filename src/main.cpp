@@ -98,9 +98,7 @@ struct draw_info
 
 	float cam_size;
 
-	float cam_pos_x;
-	float cam_pos_y;
-	float cam_pos_z;
+	unsigned long long cam_pos_addr;
 
 	int flags;
 };
@@ -170,10 +168,11 @@ void Draw(dbg_state* dbg)
 	}
 	glUniform1f(screen_ratio_u, screen_ratio);
 
-	//draw->cam_pos_x = draw->cam_pos_x;
-	//draw->cam_pos_y = draw->cam_pos_y
+	float cam_pos_x = *(float*)&dbg->mem_buffer[draw->cam_pos_addr];
+	float cam_pos_y = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 4];
+	float cam_pos_z = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 8];
 	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
-	glUniform3f(cam_pos_u, draw->cam_pos_x, draw->cam_pos_y, draw->cam_pos_z);
+	glUniform3f(cam_pos_u, cam_pos_x, cam_pos_y, cam_pos_z);
 
 	int ent_size_u = glGetUniformLocation(prog, "ent_size");
 	glUniform3f(ent_size_u, draw->ent_size_x, draw->ent_size_y, draw->ent_size_z);
@@ -233,7 +232,7 @@ int FromGameToGLFWKey(int in)
 	}
 	return key;
 }
-void IsMouseDown(dbg_state* dbg)
+void IsMouseHeld(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
@@ -914,6 +913,16 @@ void PrintStr(dbg_state* dbg)
 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
+void PrintV3Int(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int x = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int y = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int z = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	printf("x: %d, y: %d, z: %d\n", x, y, z);
+
+	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
+}
 void PrintV3(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -961,7 +970,7 @@ void GetMouseScreenPosY(dbg_state *dbg)
 
 	ypos /= gl_state->height;
 	ypos = ypos * 2 - 1;
-	ypos *= 10;
+	//ypos *= 10;
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
 
 }
@@ -976,8 +985,8 @@ void GetMouseScreenPosX(dbg_state *dbg)
 	xpos /= gl_state->width;
 	ypos /= gl_state->height;
 	xpos = xpos * 2 - 1;
-	xpos *= 10 / ratio;
-	ypos *= 10;
+	xpos /= ratio;
+	//ypos *= ;
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
 
 }
@@ -1091,11 +1100,12 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "AssignCtxAddr", (OutsiderFuncType)Stub);
 	AssignOutsiderFunc(&lang_stat, "WasmDbg", (OutsiderFuncType)Stub);
 	AssignOutsiderFunc(&lang_stat, "PrintV3", (OutsiderFuncType)PrintV3);
+	AssignOutsiderFunc(&lang_stat, "PrintV3Int", (OutsiderFuncType)PrintV3Int);
 	AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
 	AssignOutsiderFunc(&lang_stat, "AssignTexFolder", (OutsiderFuncType)AssignTexFolder);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX", (OutsiderFuncType)GetMouseScreenPosX);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
-	AssignOutsiderFunc(&lang_stat, "IsMouseDown", (OutsiderFuncType)IsMouseDown);
+	AssignOutsiderFunc(&lang_stat, "IsMouseHeld", (OutsiderFuncType)IsMouseHeld);
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	Compile(&lang_stat, &opts);

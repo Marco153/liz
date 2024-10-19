@@ -256,6 +256,8 @@ struct lang_state
 	decl2* void_decl;
 	decl2* char_decl;
 
+	decl2* func_ptr_decl;
+
 
 	node* node_arena;
 	int cur_nd;
@@ -8202,17 +8204,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		lang_stat->call_regs_used = 0;
 		DescendNode(lang_stat, fdecl->func_node, fdecl->scp);
 
-        lang_stat->call_regs_used = 0;
-        own_std::vector<func_byte_code*> func_byte_code;
-        GenFuncByteCode(lang_stat, fdecl, func_byte_code);
+		AstFromNode(lang_stat, fdecl->func_node, fdecl->scp);
 
-		fdecl->code = (machine_code*)__lang_globals.alloc(__lang_globals.data, sizeof(machine_code));
-		memset(fdecl->code, 0, sizeof(machine_code));
-        FromByteCodeToX64(lang_stat, &func_byte_code, *fdecl->code);
-
-
-        CompleteMachineCode(lang_stat, *fdecl->code);
-        int a = 0;
 
         //print_key_value(key, value);
     }
@@ -8426,6 +8419,8 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 
 	tp.type = enum_type2::TYPE_U64;
 	lang_stat->u64_decl = NewDecl(lang_stat, "u64", tp);
+
+	lang_stat->func_ptr_decl = NewDecl(lang_stat, "func_ptr_decl", tp);
 
 	tp.type = enum_type2::TYPE_S64;
 	lang_stat->s64_decl = NewDecl(lang_stat, "s64", tp);

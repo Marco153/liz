@@ -82,6 +82,7 @@ char* std_str_to_heap(lang_state*, std::string* str);
 #define PSR_FLAGS_COMP_TIME 0x80000
 #define PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND 0x100000
 #define PSR_FLAGS_RET_NIL_EVEN_WHEN_PTR_TO_STRUCT_NOT_DONE 0x200000
+#define PSR_FLAGS_ON_ARRAY 0x400000
 
 
 #define PREC_SEMI_COLON 0
@@ -915,8 +916,12 @@ node* node_iter::parse_func_like()
 	// scope
 	if (t_tp == tkn_type2::T_OPEN_CURLY)
 	{
-		ASSERT(is_outsider == false)
-			n->r = parse_expr();
+		ASSERT(is_outsider == false);
+
+		auto prev_flags = lang_stat->flags;
+		lang_stat->flags &= ~PSR_FLAGS_ON_ARRAY;
+		n->r = parse_expr();
+		lang_stat->flags = prev_flags;
 
 		n->type = node_type::N_FUNC_DECL;
 		int save_flags = n->flags;
@@ -924,7 +929,8 @@ node* node_iter::parse_func_like()
 		n->r->flags = 0;
 
 		// being able calling the func decl without having to create a statetemnt
-		if(peek_tkn()->type != T_OPEN_PARENTHESES && peek_tkn()->type != T_SEMI_COLON)
+		if(peek_tkn()->type != T_OPEN_PARENTHESES && peek_tkn()->type != T_SEMI_COLON 
+			&& IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_ON_ARRAY))
 			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		else
 			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
@@ -1593,6 +1599,7 @@ node* node_iter::parse_expr()
 	// array type
 	case tkn_type2::T_OPEN_BRACKETS:
 	{
+		lang_stat->flags |= PSR_FLAGS_ON_ARRAY;
 		n->flags |= NODE_FLAGS_INDEX_IS_TYPE;
 		n->type = node_type::N_INDEX;
 		if (peek_tkn()->type != tkn_type2::T_CLOSE_BRACKETS)
@@ -1614,6 +1621,7 @@ node* node_iter::parse_expr()
 			n->type = N_ARRAY_CONSTRUCTION;
 
 		}
+		lang_stat->flags &= ~PSR_FLAGS_ON_ARRAY;
 	}break;
 	}
 
@@ -6153,9 +6161,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		default:
 		{
-
-			if (!DescendNameFinding(lang_stat, n->r, scp))
-				return nullptr;
+			return DescendNameFinding(lang_stat, n->r, scp);
 		}break;
 		}
 	}break;
@@ -6496,7 +6502,14 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							return lhs_type.tp->strct->this_decl;
 					}
 
-					return FromBuiltinTypeToDecl(lang_stat, lhs_type.tp->type);
+					if (lhs_type.tp->type == TYPE_FUNC_PTR)
+					{
+						lang_stat->func_ptr_decl->type.type = TYPE_FUNC_PTR;
+						lang_stat->func_ptr_decl->type = *lhs_type.tp;
+						return lang_stat->func_ptr_decl;
+					}
+					else
+						return FromBuiltinTypeToDecl(lang_stat, lhs_type.tp->type);
 				}break;
 				case enum_type2::TYPE_STRUCT:
 				{
@@ -7479,6 +7492,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	{
 		if (n->l != nullptr && !DescendNameFinding(lang_stat, n->l, scp))
 			return nullptr;
+		if (n->r != nullptr && !DescendNameFinding(lang_stat, n->r, scp))
+			return nullptr;
 
 		if (!n->scp)
 		{
@@ -8188,6 +8203,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				case enum_type2::TYPE_STRUCT:
 				case enum_type2::TYPE_VOID:
 				case enum_type2::TYPE_CHAR:
+				case enum_type2::TYPE_FUNC_PTR:
 					should_deref = true;
 					break;
 				default:
@@ -8859,10 +8875,15 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			type2 ltp = DescendNode(lang_stat, n->l, scp);
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
 
+			if ((ltp.type == TYPE_F32_RAW || ltp.type == TYPE_INT)  && rtp.type != ltp.type)
+				ltp.type = rtp.type;
+
 			ModifyNodeIntOrFloat(ltp, n->l);
 			ModifyNodeIntOrFloat(rtp, n->r);
+			
 
 			ret_type = ltp;
+
 			if (ltp.type == TYPE_INT && rtp.type == TYPE_INT)
 			{
 				n->type = N_INT;
@@ -9179,6 +9200,22 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	case N_ARRAY_CONSTRUCTION:
 	{
 		NameFindingGetType(lang_stat, n->l, scp, ret_type);
+
+
+		if (ret_type.type == TYPE_STATIC_ARRAY_TYPE && ret_type.tp->type == TYPE_FUNC_PTR)
+		{
+			ret_type.tp->fdecl->scp->flags |= SCOPE_SKIP_SERIALIZATION;
+		}
+		//if(ret_type )
+		FOR_VEC(it, *n->exprs)
+		{
+			if (ret_type.type == TYPE_STATIC_ARRAY_TYPE && ret_type.tp->type == TYPE_FUNC_PTR)
+			{
+				type2 dummy_type = DescendNode(lang_stat, it->n, scp);
+
+				ModifyFuncDeclToName(lang_stat, dummy_type.fdecl, it->n, scp);
+			}
+		}
 		//FindIdentifier(n->l->t->str, scp, &ret_type);
 	}break;
 	case N_STRUCT_CONSTRUCTION:

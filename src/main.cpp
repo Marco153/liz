@@ -793,6 +793,16 @@ void OpenWindow(dbg_state* dbg)
 		//"vec4 tex_col =  texture(tex, uv);\n"
 		"FragColor =  tex_col * color;\n"
 		"}\n";
+	const char* fragmentShaderSourceLight = "#version 330 core\n"
+		"out vec4 FragColor;\n"
+		"in vec2 TexCoord;\n"
+		"uniform vec4 color;\n"
+		"uniform sampler2D tex;\n"
+		"void main(){\n"
+		"vec4 tex_col =  texture(tex, TexCoord);\n"
+		//"vec4 tex_col =  texture(tex, uv);\n"
+		"FragColor =  tex_col * color;\n"
+		"}\n";
 
 	unsigned int fragmentShader = CompileShader((char*)fragmentShaderSource, GL_FRAGMENT_SHADER);
 	unsigned int fragmentNoTextureShader = CompileShader((char*)fragmentShaderNoTextureSource, GL_FRAGMENT_SHADER);

@@ -12,6 +12,37 @@ v3 : struct
 	z : f32,
 }
 sqrt::fn outsider(f32) !f32;
+
+
+operator *(self : *v4, f : f32) !v4
+{
+	ret:v4;
+	ret.x = self.x * f;
+	ret.y = self.y * f;
+	ret.z = self.z * f;
+	ret.w = self.w * f;
+	return ret;
+}
+operator -(self : *v4, rhs : *v4) !v4
+{
+	ret:v4;
+	ret.x = self.x - rhs.x;
+	ret.y = self.y - rhs.y;
+	ret.z = self.z - rhs.z;
+	ret.w = self.w - rhs.w;
+	return ret;
+}
+operator +(self : *v4, rhs : *v4) !v4
+{
+	ret:v4;
+	ret.x = self.x + rhs.x;
+	ret.y = self.y + rhs.y;
+	ret.z = self.z + rhs.z;
+	ret.w = self.w + rhs.w;
+	return ret;
+}
+
+
 operator *(self : *v3, f : f32) !v3
 {
 	ret:v3;
@@ -68,12 +99,36 @@ sign_v3::fn(a : *v3) !v3
 
 	return aux;
 }
+len_v4::fn(a : *v4) ! f32
+{
+	return sqrt(dot_v4(a, a));
+}
+len_v3::fn(a : *v3) ! f32
+{
+	return sqrt(dot_v3(a, a));
+}
+normalize_v4::fn(a : *v4) !v4
+{
+	len: = sqrt(dot_v4(a, a));
+	ret:v4;
+	ret.x = a.x / len;
+	ret.y = a.y / len;
+	ret.z = a.z / len;
+	ret.w = a.w / len;
+	return ret;
+}
 normalize_v3::fn(a : *v3) !v3
 {
 	len: = sqrt(dot_v3(a, a));
 	ret:v3;
 	ret.x = a.x / len;
 	ret.y = a.y / len;
+	ret.z = a.z / len;
+	return ret;
+}
+dot_v4::fn(a : *v4, b : *v4) ! f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 	return ret;
 }
 dot_v3::fn(a : *v3, b : *v3) ! f32

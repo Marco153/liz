@@ -148,7 +148,7 @@ void Draw(dbg_state* dbg)
 	glBindVertexArray(gl_state->vao);
 
 	gl_state->color_u = glGetUniformLocation(prog, "color");
-	glUniform4f(gl_state->color_u, draw->color_r, draw->color_b, draw->color_g, 1.0f);
+	glUniform4f(gl_state->color_u, draw->color_r, draw->color_b, draw->color_g, draw->color_a);
 
 	gl_state->pos_u = glGetUniformLocation(prog, "pos");
 	glUniform3f(gl_state->pos_u, draw->pos_x, draw->pos_y, draw->pos_z);
@@ -168,9 +168,15 @@ void Draw(dbg_state* dbg)
 	}
 	glUniform1f(screen_ratio_u, screen_ratio);
 
-	float cam_pos_x = *(float*)&dbg->mem_buffer[draw->cam_pos_addr];
-	float cam_pos_y = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 4];
-	float cam_pos_z = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 8];
+	float cam_pos_x = 0;
+	float cam_pos_y = 0;
+	float cam_pos_z = 0;
+	if (draw->cam_pos_addr != 0)
+	{
+		cam_pos_x = *(float*)&dbg->mem_buffer[draw->cam_pos_addr];
+		cam_pos_y = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 4];
+		cam_pos_z = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 8];
+	}
 	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
 	glUniform3f(cam_pos_u, cam_pos_x, cam_pos_y, cam_pos_z);
 
@@ -1000,6 +1006,17 @@ void GetMouseScreenPosX(dbg_state *dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
 
 }
+
+void ScreenRatio(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	float ratio = (float)gl_state->height / (float)gl_state->width;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ratio;
+}
+
 int main(int argc, char* argv[])
 {
 	TCHAR buffer[MAX_PATH] = { 0 };
@@ -1116,6 +1133,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX", (OutsiderFuncType)GetMouseScreenPosX);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
 	AssignOutsiderFunc(&lang_stat, "IsMouseHeld", (OutsiderFuncType)IsMouseHeld);
+	AssignOutsiderFunc(&lang_stat, "ScreenRatio", (OutsiderFuncType)ScreenRatio);
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	Compile(&lang_stat, &opts);

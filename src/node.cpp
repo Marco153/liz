@@ -47,6 +47,10 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state*, node* n, scope* scp);
 void DescendComma(lang_state*, node* n, scope* scp, own_std::vector<comma_ret>& ret);
 bool CheckOverloadFunction(lang_state*, func_decl* f);
 node* NewUnOpNode(lang_state* lang_stat, tkn_type2 t, node* rhs);
+void WasmIrInterp(dbg_state* dbg, own_std::vector<int>* ar);
+void CompileDo(lang_state* lang_stat, node* n, scope* scp);
+void AstCreateCode(lang_state* lang_stat, node* n, scope* scp, own_std::vector<int>* ir);
+int WasmGetMemOffsetVal(dbg_state* dbg, unsigned int offset);
 
 /*
 int max(int a, int b)
@@ -308,8 +312,11 @@ void InsertIntoCharVector(own_std::vector<char>* vec, void* src, int size)
 }
 int AddDataSectSizeRetPrevSize(lang_state *lang_stat, int sz)
 {
-	int prev_sz = lang_stat->data_sect.size();
-	lang_stat->data_sect.resize(lang_stat->data_sect.size() + sz, 0);
+	int prev_sz = lang_stat->globals_sect.size();
+	// GLOBALS_OFFSET is at offset 11000 and MEM_PTR_CUR_ADDR is at 20000
+	// so we need to be sure it is lower
+	ASSERT((lang_stat->globals_sect.size() + sz) < 9000)
+	lang_stat->globals_sect.make_count(lang_stat->globals_sect.size() + sz);
 	return prev_sz;
 }
 void InsertIntoDataSect(lang_state *lang_stat, void* src, int size)
@@ -1025,7 +1032,43 @@ node* node_iter::parse_expr()
 	case tkn_type2::T_HASHTAG:
 	{
 		n->type = N_HASHTAG;
-		n->r = parse_(0, parser_cond::LESSER_EQUAL);
+		auto peek = peek_tkn();
+		if (peek->str == "do")
+		{
+			get_tkn();
+			n->r = new_node(lang_stat, peek);
+			n->r->type = N_IDENTIFIER;
+			n->r->t = peek;
+
+			n->r->r = parse_(0, parser_cond::LESSER_EQUAL);
+		}
+		else if(peek->str == "const_decl")
+		{
+			get_tkn();
+			n->type = N_CONST_DECL;
+
+			ExpectTkn(T_OPEN_PARENTHESES);
+			get_tkn();
+
+			ExpectTkn(T_WORD);
+
+			n->l = new_node(lang_stat, get_tkn());
+			n->l->type = N_IDENTIFIER;
+
+			ExpectTkn(T_CLOSE_PARENTHESES);
+			get_tkn();
+		}
+		else if(peek->str == "when_used")
+		{
+			get_tkn();
+			n->type = N_WHEN_USED;
+			n->l = new_node(lang_stat, get_tkn());
+			n->l->type = N_IDENTIFIER;
+
+			n->r = parse_expr();
+		}
+		else
+			n->r = parse_(0, parser_cond::LESSER_EQUAL);
 	}break;
 	case tkn_type2::T_TWO_POINTS:
 	{
@@ -1468,6 +1511,12 @@ node* node_iter::parse_expr()
 			// asserting we have a return type
 			ASSERT(n->l->r)
 				n->t = cur_tkn;
+		}
+		else if (cur_tkn->str == "global")
+		{
+			n->type = N_IDENTIFIER;
+			n->r = parse_expr();
+			n->t = cur_tkn;
 		}
 		else if (cur_tkn->str == "fn")
 		{
@@ -3077,6 +3126,7 @@ int GetExpressionVal(node* n, scope* scp)
 {
 	switch (n->type)
 	{
+	case node_type::N_FLOAT:	return n->t->f;
 	case node_type::N_INT:	return n->t->i;
 	case node_type::N_IDENTIFIER:
 	{
@@ -3728,16 +3778,27 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	}break;
 	case node_type::N_IDENTIFIER:
 	{
-		int f = (flags & NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE) * FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE;
-		auto ident = FindIdentifier(n->t->str, scp, &ret_type, f);
-		if (ident == nullptr)
+		if (n->t->str == "global")
 		{
-			if (IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
-				ReportUndeclaredIdentifier(lang_stat, n->t);
-			return false;
+			if (!NameFindingGetType(lang_stat, n->r, scp, ret_type))
+				return false;
+
+			ret_type.flags |= TYPE_IS_GLOBAL;
+			
+		}
+		else
+		{
+			int f = (flags & NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE) * FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE;
+			auto ident = FindIdentifier(n->t->str, scp, &ret_type, f);
+			if (ident == nullptr)
+			{
+				if (IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+					ReportUndeclaredIdentifier(lang_stat, n->t);
+				return false;
+			}
+			ret_type.e_decl = ident;
 		}
 
-		ret_type.e_decl = ident;
 	}break;
 	case node_type::N_INT:
 	{
@@ -5433,7 +5494,7 @@ decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, std::string name,
 		scp->fdecl->vars.emplace_back(new_decl);
 
 	// adding the data sect size
-	if (IS_FLAG_ON(scp->flags, SCOPE_IS_GLOBAL))
+	if (IS_FLAG_ON(scp->flags, SCOPE_IS_GLOBAL) || IS_FLAG_ON(tp->flags, TYPE_IS_GLOBAL))
 	{
 		if (CanAddToDataSect(new_decl->type.type))
 		{
@@ -5706,7 +5767,7 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node* n, scope* sc
 		type2 dummy_tp;
 		decl2* decl = FindIdentifier(n->l->t->str, scp, &dummy_tp);
 
-		if (decl->type.type == TYPE_STATIC_ARRAY || decl->type.ptr > 0)
+		if (decl->type.type == TYPE_STATIC_ARRAY || decl->type.ptr > 0 || IS_FLAG_ON(decl->flags, DECL_IS_GLOBAL))
 			return;
 
 		ASSERT(decl)
@@ -5931,6 +5992,8 @@ bool IsKeyword(node* n, keyword kw)
 {
 	return n->type == N_KEYWORD && n->kw == kw;
 }
+
+
 // $DescendNameFinding
 decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 {
@@ -5968,6 +6031,33 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}
 	switch (n->type)
 	{
+	case N_CONST_DECL:
+	{
+
+		return FindIdentifier(n->l->t->str, scp, &ret_type);
+	}break;
+	case N_WHEN_USED:
+	{
+		if(IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2))
+			return (decl2*)1;
+
+		decl2* ident = DescendNameFinding(lang_stat, n->l, scp);
+
+		if (!DescendNameFinding(lang_stat, n->r, scp))
+			return (decl2*)0;
+
+		DescendNode(lang_stat, n->r, scp);
+
+		auto prev_fdecl = lang_stat->cur_func;
+		lang_stat->cur_func = scp->fdecl;
+		
+		ident->when_used_code = (own_std::vector<int> *)AllocMiscData(lang_stat, sizeof(own_std::vector<int>));
+		AstCreateCode(lang_stat, n->r, scp, ident->when_used_code);
+
+		lang_stat->cur_func = prev_fdecl;
+		//n->type = N_EMPTY;
+		n->flags |= NODE_FLAGS_IS_PROCESSED2;
+	}break;
 	case node_type::N_HASHTAG:
 	{
 		switch (n->r->type)
@@ -5990,6 +6080,33 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				cur = cur->r;
 			} while (cur->type == N_ELSE || cur->type == N_ELSE_IF);
 		}break;
+		case N_IDENTIFIER:
+		{
+			if (n->r->t->str == "do")
+			{
+				if(IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2))
+					return (decl2*)1;
+
+				if (!DescendNameFinding(lang_stat, n->r->r, scp))
+					return (decl2*)0;
+
+				DescendNode(lang_stat, n->r->r, scp);
+
+				auto prev_fdecl = lang_stat->cur_func;
+				lang_stat->cur_func = scp->fdecl;
+				CompileDo(lang_stat, n->r->r, scp);
+				lang_stat->cur_func = prev_fdecl;
+				//n->type = N_EMPTY;
+				n->flags |= NODE_FLAGS_IS_PROCESSED2;
+			}
+			else if (n->r->t->str == "when_used")
+			{
+			}
+			else
+				ASSERT(0);
+		}break;
+		default:
+			ASSERT(0);
 		}
 	}break;
 	case node_type::N_KEYWORD:
@@ -7733,6 +7850,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 	switch (n->type)
 	{
+	case N_CONST_DECL:
+	{
+
+		decl2* ident = FindIdentifier(n->l->t->str, scp, &ret_type);;
+		ret_type.type = TYPE_S32;
+		//ret_type = TYPE_S32;
+	}break;
 	case node_type::N_APOSTROPHE:
 	{
 		ret_type.type = enum_type2::TYPE_CHAR;
@@ -8374,18 +8498,31 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_IDENTIFIER:
 	{
-		auto decl = FindIdentifier(n->t->str, scp, &ret_type);
-		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl)
-			ReportUndeclaredIdentifier(lang_stat, n->t);
-
-		if (decl->type.type == TYPE_INT)
+		if (n->t->str == "global")
 		{
-			ASSERT(decl->type.is_const);
-			n->type = N_INT;
-			n->t->i = decl->type.i;
-			ret_type.type = TYPE_INT;
-			ret_type.i = decl->type.i;
+			ret_type = DescendNode(lang_stat, n->r, scp);
+		}
+		else
+		{
+			auto decl = FindIdentifier(n->t->str, scp, &ret_type);
+			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl)
+				ReportUndeclaredIdentifier(lang_stat, n->t);
 
+			if (decl->type.type == TYPE_INT)
+			{
+				ASSERT(decl->type.is_const);
+				n->type = N_INT;
+				n->t->i = decl->type.i;
+				ret_type.type = TYPE_INT;
+				ret_type.i = decl->type.i;
+
+
+				if (decl->when_used_code)
+				{
+					WasmIrInterp(lang_stat->dstate, decl->when_used_code);
+					int a = 0;
+				}
+			}
 		}
 
 	}break;
@@ -9223,6 +9360,10 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		NameFindingGetType(lang_stat, n->l, scp, ret_type);
 		//FindIdentifier(n->l->t->str, scp, &ret_type);
 	}break;
+	case N_WHEN_USED:
+	case N_HASHTAG:
+	{
+	}break;
 	default:
 	{
 		if (n->l != nullptr)
@@ -9239,7 +9380,10 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 		FOR_VEC(it, fdecl->plugins)
 		{
-			auto f = *it;
+			func_decl *f = *it;
+
+			WasmIrInterp(lang_stat->dstate, &f->ir);
+			/*
 			ASSERT(f->code);
 
 			comp_time_type_info type_info = {};
@@ -9269,6 +9413,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				n->flags &= ~NODE_FLAGS_WAS_MODIFIED;
 			}
 			int a = 0;
+			*/
 		}
 	}
 

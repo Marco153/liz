@@ -40,6 +40,13 @@
 #define DATA_SECT_OFFSET 200000
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
+#define STACK_PTR_REG 8
+#define BASE_STACK_PTR_REG 9
+#define RET_1_REG 10
+#define RET_2_REG 11
+#define FILTER_PTR 12
+#define GLOBALS_OFFSET 11000
+
 //#define DEBUG_GLOBAL_NOT_FOUND 
 
 struct comp_time_type_info
@@ -187,6 +194,7 @@ struct lang_state
 	std::string liz_file_path;
 
 	wasm_interp* winterp;
+	dbg_state* dstate;
 
 
 	own_std::vector<unit_file*> files;
@@ -199,6 +207,7 @@ struct lang_state
 	int scopes_opened;
 
 	own_std::vector<char> data_sect;
+	own_std::vector<char> globals_sect;
 	own_std::vector<char> type_sect;
 	own_std::vector<unsigned char, 1> code_sect;
 
@@ -1760,6 +1769,10 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 			{
 				WasmPushConst(WASM_LOAD_INT, 0, val->decl->offset, &code_sect);
 			}
+			else if (IS_FLAG_ON(val->decl->flags, DECL_IS_GLOBAL))
+			{
+				WasmPushConst(WASM_LOAD_INT, 0, GLOBALS_OFFSET + val->decl->offset, &code_sect);
+			}
 			else
 			{
 				//int idx = decl_to_local_idx[val->decl];
@@ -2130,6 +2143,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_DECLARE_LOCAL:
 	{
+		if (IS_FLAG_ON(cur_ir->decl->flags, DECL_IS_GLOBAL))
+			break;
 		decl_to_local_idx[cur_ir->decl] = total_of_args + total_of_locals;
 		total_of_locals++;
 		int to_sum = GetTypeSize(&cur_ir->decl->type);
@@ -3988,12 +4003,17 @@ dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
 	return WasmGetExprFromTkns(dbg, &tkns);
 }
 
-int WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
+template <typename T>
+T WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
 {
-	int ret = 0;
+	T ret = 0;
 	char ptr = val->deref;
 	switch (val->type)
 	{
+	case IR_TYPE_F32:
+	{
+		ret = val->f32;
+	}break;
 	case IR_TYPE_INT:
 	{
 		ret = val->i;
@@ -4010,6 +4030,11 @@ int WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
 			ret = WasmGetRegVal(dbg, val->decl->offset);
 			ptr--;
 		}
+		else if (val->decl->type.is_const)
+		{
+			ret = val->decl->type.i;
+			ptr--;
+		}
 		else 
 			ASSERT(0);
 	}break;
@@ -4019,20 +4044,110 @@ int WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
 	//ptr--;
 	if (val->type == IR_TYPE_REG)
 		ptr--;
-	while (ptr > 0 && val->type != IR_TYPE_INT)
+	while (ptr > 0 && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32)
 	{
 		ret = WasmGetMemOffsetVal(dbg, ret);
 		ptr--;
 	}
 	return ret;
 }
-void WasmIrInterp(dbg_state* dbg, own_std::vector<ir_rep>* ir_ar)
+template<typename T>
+void WasmIrInterpAssign(dbg_state* dbg, own_std::vector<int>* ar, ir_rep *ir)
 {
+	T final_val = 0;
+	if (ir->assign.only_lhs)
+	{
+		final_val = WasmIrInterpGetIrVal<T>(dbg, &ir->assign.lhs);
+	}
+	else
+	{
+		T lhs_val = WasmIrInterpGetIrVal<T>(dbg, &ir->assign.lhs);
+		if (ir->assign.op == T_POINT)
+			final_val = lhs_val + ir->assign.rhs.decl->offset;
+
+		else
+		{
+			T rhs_val = WasmIrInterpGetIrVal<T>(dbg, &ir->assign.rhs);
+			final_val = GetExpressionValT<T>(ir->assign.op, lhs_val, rhs_val);
+		}
+	}
+
+	switch (ir->assign.to_assign.type)
+	{
+	case IR_TYPE_DECL:
+	case IR_TYPE_REG:
+	{
+		int offset = 0;
+		int sz = 0;
+		if (ir->assign.to_assign.type == IR_TYPE_REG)
+		{
+			offset = ir->assign.to_assign.reg * 8;
+			sz = ir->assign.to_assign.reg_sz;
+		}
+		else if (ir->assign.to_assign.type == IR_TYPE_DECL)
+		{
+			decl2* d = ir->assign.to_assign.decl;
+			offset = d->offset;
+			if (IS_FLAG_ON(d->flags, DECL_IS_GLOBAL))
+				offset += GLOBALS_OFFSET;
+
+			sz = GetTypeSize(&d->type);
+			if (d->type.is_const)
+			{
+				d->type.i = final_val;
+				break;
+			}
+		}
+
+		switch (ir->assign.to_assign.reg_sz)
+		{
+		case 1:
+		{
+			char* reg = (char*)&dbg->mem_buffer[offset];
+			*reg = final_val;
+		}break;
+		case 2:
+		{
+			short* reg = (short*)&dbg->mem_buffer[offset];
+			*reg = final_val;
+		}break;
+		case 4:
+		{
+			T* reg = (T*)&dbg->mem_buffer[offset];
+			*reg = final_val;
+		}break;
+		case 8:
+		{
+			long long* reg = (long long*)&dbg->mem_buffer[offset];
+			*reg = final_val;
+		}break;
+		default:
+			ASSERT(0);
+		}
+	}break;
+	case IR_TYPE_RET_REG:
+	{
+		int* reg = (int*)dbg->mem_buffer[(RET_1_REG + ir->assign.to_assign.reg) * 8];
+		*reg = final_val;
+	}break;
+	default:
+		ASSERT(0);
+	}
+
+}
+void WasmIrInterp(dbg_state* dbg, own_std::vector<int>* ar)
+{
+	auto ir_ar = (own_std::vector<ir_rep>*)ar;
 	ir_rep* ir = ir_ar->begin();
 	while (ir < ir_ar->end())
 	{
 		switch (ir->type)
 		{
+		case IR_END_STMNT:
+		case IR_BEGIN_STMNT:
+		{
+
+		}break;
 		case IR_RET:
 		{
 			if (ir->ret.no_ret_val)
@@ -4041,7 +4156,7 @@ void WasmIrInterp(dbg_state* dbg, own_std::vector<ir_rep>* ir_ar)
 			}
 			else
 			{
-				int final_val = WasmIrInterpGetIrVal(dbg, &ir->ret.assign.lhs);
+				int final_val = WasmIrInterpGetIrVal<int>(dbg, &ir->ret.assign.lhs);
 				int* reg = (int*)&dbg->mem_buffer[(RET_1_REG + ir->ret.assign.to_assign.reg) * 8];
 				*reg = final_val;
 
@@ -4049,42 +4164,10 @@ void WasmIrInterp(dbg_state* dbg, own_std::vector<ir_rep>* ir_ar)
 		}break;
 		case IR_ASSIGNMENT:
 		{
-			int final_val = 0;
-			if (ir->assign.only_lhs)
-			{
-				final_val = WasmIrInterpGetIrVal(dbg, &ir->assign.lhs);
-			}
+			if (ir->assign.to_assign.is_float || ir->assign.to_assign.type == IR_TYPE_DECL && ir->assign.to_assign.decl->type.type == TYPE_F32)
+				WasmIrInterpAssign<float>(dbg, ar, ir);
 			else
-			{
-				int lhs_val = WasmIrInterpGetIrVal(dbg, &ir->assign.lhs);
-				if (ir->assign.op == T_POINT)
-					final_val = lhs_val + ir->assign.rhs.decl->offset;
-
-				else
-				{
-					int rhs_val = WasmIrInterpGetIrVal(dbg, &ir->assign.rhs);
-					final_val = GetExpressionValT(ir->assign.op, lhs_val, rhs_val);
-				}
-
-
-
-			}
-
-			switch (ir->assign.to_assign.type)
-			{
-			case IR_TYPE_REG:
-			{
-				int* reg = (int*)&dbg->mem_buffer[ir->assign.to_assign.reg * 8];
-				*reg = final_val;
-			}break;
-			case IR_TYPE_RET_REG:
-			{
-				int* reg = (int*)dbg->mem_buffer[(RET_1_REG + ir->assign.to_assign.reg) * 8];
-				*reg = final_val;
-			}break;
-			default:
-				ASSERT(0);
-			}
+				WasmIrInterpAssign<int>(dbg, ar, ir);
 		}break;
 		default:
 			ASSERT(0);
@@ -4386,7 +4469,9 @@ void WasmOnArgs(dbg_state* dbg)
 					int* reg = (int*)&dbg->mem_buffer[FILTER_PTR * 8];
 					*reg = cur_offset;
 					//wasm_bc *bc = exp->f
-					WasmIrInterp(dbg, &exp->filter_cond);
+
+					ASSERT(0)
+					WasmIrInterp(dbg, (own_std::vector<int>*)&exp->filter_cond);
 
 					char ret = WasmGetRegVal(dbg, RET_1_REG);
 					if (ret == 1)
@@ -4766,7 +4851,9 @@ struct dbg_file_seriealize
 	int ir_sect;
 	int files_sect;
 	int data_sect;
+	int globals_sect;
 	int data_sect_size;
+	int globals_sect_size;
 	int total_files;
 
 	dbg_code_type code_type;
@@ -5245,6 +5332,11 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	auto casted_ar = (own_std::vector<unsigned char> *) &wasm_state->lang_stat->data_sect;
 	final_buffer.insert(final_buffer.end(), casted_ar->begin(), casted_ar->end());
 	file.data_sect_size = wasm_state->lang_stat->data_sect.size();
+
+	file.globals_sect = final_buffer.size();
+	casted_ar = (own_std::vector<unsigned char> *) &wasm_state->lang_stat->globals_sect;
+	final_buffer.insert(final_buffer.end(), casted_ar->begin(), casted_ar->end());
+	file.globals_sect_size = casted_ar->size();
 
 	file.total_files = wasm_state->lang_stat->files.size();
 
@@ -6341,7 +6433,9 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	//int point_idx = file_name.find_last_of('.');
 	//std::string data_file_name = file_name.substr(0, point_idx)+"_data.dbg";
 	auto file_data_sect = (char*)data + file->data_sect;
+	auto globals_sect = (char*)data + file->globals_sect;
 	lang_stat->data_sect.insert(lang_stat->data_sect.begin(), file_data_sect, file_data_sect + file->data_sect_size);
+	lang_stat->globals_sect.insert(lang_stat->globals_sect.begin(), globals_sect, globals_sect + file->globals_sect_size);
 
 	lang_stat->files.clear();
 
@@ -7950,12 +8044,6 @@ void CreateAstFromFunc(lang_state* lang_stat, web_assembly_state* wasm_state, fu
 	ASSERT(ast->type == AST_FUNC);
 	own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & f->ir;
 	GetIRFromAst(lang_stat, ast, ir);
-
-	//auto func = (int(*)(int)) lang_stat->GetCodeAddr(f->code_start_idx);
-	//auto ret =func(2);
-	//f->wasm_scp = NewScope(lang_stat, f->scp->parent);
-	//AddFuncToWasm(f);
-
 }
 
 struct compile_options
@@ -7972,6 +8060,7 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 	int read;
 	web_assembly_state *wasm_state = lang_stat->wasm_state;
 	lang_stat->data_sect.clear();
+	lang_stat->globals_sect.clear();
 	wasm_state->lang_stat = lang_stat;
 	wasm_state->funcs.clear();
 	wasm_state->imports.clear();
@@ -7998,6 +8087,7 @@ void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int to
 
 	ASSERT(lang_stat->data_sect.size() < DATA_SECT_MAX);
 	memcpy(&buffer[DATA_SECT_OFFSET], lang_stat->data_sect.begin(), lang_stat->data_sect.size());
+	memcpy(&buffer[GLOBALS_OFFSET], lang_stat->globals_sect.begin(), lang_stat->globals_sect.size());
 	WasmInterpRun(lang_stat->winterp, buffer, mem_size, func.c_str(), args, total_args);
 	__lang_globals.free(__lang_globals.data, buffer);
 
@@ -8204,7 +8294,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		lang_stat->call_regs_used = 0;
 		DescendNode(lang_stat, fdecl->func_node, fdecl->scp);
 
-		AstFromNode(lang_stat, fdecl->func_node, fdecl->scp);
+		ast_rep * ast = AstFromNode(lang_stat, fdecl->func_node, fdecl->scp);
+		GetIRFromAst(lang_stat, ast, (own_std::vector<ir_rep> *)& fdecl->ir);
 
 
         //print_key_value(key, value);
@@ -8239,6 +8330,11 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		//auto exec_funcs = CompleteMachineCode(lang_stat, code);
 	}
 
+
+
+	char* start_dbg_global_buffer = &lang_stat->dstate->mem_buffer[GLOBALS_OFFSET];
+	char* start_vector_global_buffer = lang_stat->globals_sect.data();
+	memcpy(start_vector_global_buffer, start_dbg_global_buffer, lang_stat->globals_sect.size());
 	
 
 	char msg_hdr[256];
@@ -8341,6 +8437,13 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->winterp = (wasm_interp *) AllocMiscData(lang_stat, sizeof(wasm_interp));
 	new(&lang_stat->winterp->outsiders) std::unordered_map<std::string, OutsiderFuncType>();
 	lang_stat->wasm_state = (web_assembly_state *) AllocMiscData(lang_stat, sizeof(web_assembly_state));
+	lang_stat->dstate = (dbg_state *) AllocMiscData(lang_stat, sizeof(dbg_state));
+	lang_stat->dstate->mem_size = 128000;
+	lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size);
+	lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size);
+	int stack_offset = 10000;
+	*(int*)&lang_stat->dstate->mem_buffer[STACK_PTR_REG * 8] = stack_offset;
+	*(int*)&lang_stat->dstate->mem_buffer[BASE_STACK_PTR_REG * 8] = stack_offset;
 	//lang_stat->wasm_state->folder_name = 
 
 

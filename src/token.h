@@ -226,6 +226,7 @@ struct func_overload_strct
 #define TYPE_NOT_INSTANTIATED_YET 0x20
 #define TYPE_FLAGS_AUTO_CAST 0x40
 #define TYPE_FUNC_RECURSIVE 8
+#define TYPE_IS_GLOBAL 0x10
 struct type2
 {
 	enum_type2 type;
@@ -493,6 +494,7 @@ struct decl2
     int wasm_type_idx;
     int func_arg_idx;
 	int serialized_type_idx;
+	own_std::vector<int>* when_used_code;
 
 	node *using_node;
 	node *bottom_n;

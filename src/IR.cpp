@@ -8,11 +8,6 @@ void CreateOppositeRegAssigmentAfterCondChecking(lang_state* lang_stat, own_std:
 bool IsNodeOperator(node* nd, tkn_type2 tkn);
 
 
-#define STACK_PTR_REG 8
-#define BASE_STACK_PTR_REG 9
-#define RET_1_REG 10
-#define RET_2_REG 11
-#define FILTER_PTR 12
 
 #define MAKE_DST_IR_VAL(ir_tp, ptr) (((short)ir_tp) | (((int)ptr)<<16))
 #define MAKE_DST_IR_VAL(ir_tp, ptr) (((short)ir_tp) | (((int)ptr)<<16))
@@ -312,6 +307,16 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
     {
         ret->type = AST_INT;
         ret->num = n->t->i;
+    }break;
+	case N_CONST_DECL:
+    {
+        ret->type = AST_IDENT;
+        type2 ret_type;
+		ret->decl = FindIdentifier(n->l->t->str, scp, &ret_type);
+		if (!ret->decl)
+		{
+			ret->str = n->t->str.substr();
+		}
     }break;
 	case node_type::N_IDENTIFIER:
     {
@@ -703,6 +708,11 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		}
 		ret->for_info.scope = AstFromNode(lang_stat, for_nd->r, scp);
 	}break;
+	case N_WHEN_USED:
+	case N_HASHTAG:
+	{
+
+	}break;
 	case N_APOSTROPHE:
 	{
 		ret->type = AST_CHAR;
@@ -798,9 +808,9 @@ void IRCreateEndBlock(lang_state *lang_stat, int begin_sub_if_idx, own_std::vect
     ir.type = type;
     ir.block.other_idx = begin_sub_if_idx;
 
-    ir_rep *begin = &(*out)[begin_sub_if_idx];
 
     out->emplace_back(ir);
+    ir_rep *begin = &(*out)[begin_sub_if_idx];
 
 
 	begin->block.other_idx = out->size();
@@ -1906,10 +1916,13 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir.assign.to_assign.reg_sz = 8;
 			ir.assign.op = T_PLUS;
 
+			/*
 			if (top->type != IR_TYPE_REG)
 				ir.assign.to_assign.reg = AllocReg(lang_stat);
 			else
 				ir.assign.to_assign.reg = top->reg;
+				*/
+			ir.assign.to_assign.reg = offset_reg;
 
 			ir.assign.rhs.type = IR_TYPE_REG;
 			ir.assign.rhs.reg = offset_reg;
@@ -2880,3 +2893,18 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
     }
 }
 
+void AstCreateCode(lang_state* lang_stat, node* n, scope* scp, own_std::vector<int> *ir)
+{
+	ast_rep *ast = AstFromNode(lang_stat, n, scp);
+	//auto irs = (own_std::vector<ir_rep> *) ir;
+	GetIRFromAst(lang_stat, ast, (own_std::vector<ir_rep> *) ir);
+	//WasmIrInterp(lang_stat->dstate, ir);
+}
+void CompileDo(lang_state* lang_stat, node* n, scope* scp)
+{
+	ast_rep *ast = AstFromNode(lang_stat, n, scp);
+	own_std::vector<ir_rep> irs;
+	GetIRFromAst(lang_stat, ast, &irs);
+	WasmIrInterp(lang_stat->dstate, (own_std::vector<int>  *)&irs);
+
+}

@@ -1775,6 +1775,10 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 			}
 			else
 			{
+				// if the deref is less or equal than the ptr 
+				if (val->decl->type.ptr >= val->deref && IsIrValFloat(val))
+					val->is_float = false;
+
 				//int idx = decl_to_local_idx[val->decl];
 				WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
 				WasmPushConst(WASM_LOAD_INT, 0, val->decl->offset, &code_sect);
@@ -1787,12 +1791,16 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		ASSERT(0)
 	}
 	int deref_times = val->deref;
+	bool is_decl = val->type == IR_TYPE_DECL;
+	bool is_decl_not_ptr = is_decl && val->decl->type.ptr == 0;
 	while ((deref_times > 0) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32 && val->type != IR_TYPE_STR_LIT)
 	{
 
 		int reg_sz = val->reg_sz;
 		int inst = WASM_LOAD_OP;
-		if (IsIrValFloat(val) && deref_times == 1)
+		//if (IsIrValFloat(val) && deref_times == 1)
+
+		if (IsIrValFloat(val) && deref_times == 1 && (is_decl_not_ptr || !is_decl_not_ptr && val->deref > val->ptr || !is_decl))
 			inst = WASM_LOAD_F32_OP;
 		if (deref_times > 1)
 		{
@@ -1883,6 +1891,21 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		code_sect.emplace_back(0xc);
 		WasmPushImm(depth, &code_sect);
     }break;
+	case IR_CONTINUE:
+	{
+		int depth = 0;
+
+		block_linked *aux = *cur;
+		while (aux->parent)
+		{
+			if (aux->ir->type == IR_BEGIN_LOOP_BLOCK)
+                break;
+			depth++;
+			aux = aux->parent;
+		}
+		code_sect.emplace_back(0xc);
+		WasmPushImm(depth, &code_sect);
+	}break;
 	case IR_BEGIN_STMNT:
 	{
 		cur_ir->block.stmnt.code_start = code_sect.size();
@@ -2177,6 +2200,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		{
 			switch (cur_ir->bin.rhs.reg_sz)
 			{
+			case 1:
 			case 4:
 			case 8:
 			{
@@ -2982,6 +3006,10 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	case IR_CAST_F32_TO_INT:
 	{
 		ret = "cast f32 to int\n";
+	}break;
+	case IR_CONTINUE:
+	{
+		ret = "continue";
 	}break;
 	case IR_END_IF_BLOCK:
 	{
@@ -4030,6 +4058,10 @@ T WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
 			ret = WasmGetRegVal(dbg, val->decl->offset);
 			ptr--;
 		}
+		else if (IS_FLAG_ON(val->decl->flags, DECL_IS_GLOBAL))
+		{
+			ret = val->decl->offset + GLOBALS_OFFSET;
+		}
 		else if (val->decl->type.is_const)
 		{
 			ret = val->decl->type.i;
@@ -4079,6 +4111,7 @@ void WasmIrInterpAssign(dbg_state* dbg, own_std::vector<int>* ar, ir_rep *ir)
 	{
 		int offset = 0;
 		int sz = 0;
+		char ptr = ir->assign.to_assign.ptr;
 		if (ir->assign.to_assign.type == IR_TYPE_REG)
 		{
 			offset = ir->assign.to_assign.reg * 8;
@@ -4097,9 +4130,18 @@ void WasmIrInterpAssign(dbg_state* dbg, own_std::vector<int>* ar, ir_rep *ir)
 				d->type.i = final_val;
 				break;
 			}
+			ptr--;
 		}
 
-		switch (ir->assign.to_assign.reg_sz)
+		while (ptr > 0)
+		{
+			offset = WasmGetMemOffsetVal(dbg, offset);
+			ptr--;
+		}
+
+		if (ir->assign.to_assign.is_float)
+			sz = 4;
+		switch (sz)
 		{
 		case 1:
 		{

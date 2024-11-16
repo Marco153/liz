@@ -11,7 +11,28 @@ v3 : struct
 	y : f32,
 	z : f32,
 }
+mat4x4 : struct
+{
+	vals : [4 * 4] f32,
+}
 sqrt::fn outsider(f32) !f32;
+
+operator *(self : *mat4x4, vec : *v3) !v3
+{
+    ret: v3;
+	ret.x = vec.x * *self.vals[0] +
+			vec.y * *self.vals[1] +
+			vec.z * *self.vals[2];
+
+	ret.y = vec.x * *self.vals[4] +
+			vec.y * *self.vals[5] +
+			vec.z * *self.vals[6];
+
+	ret.z = vec.x * *self.vals[8] +
+			vec.y * *self.vals[9] +
+			vec.z * *self.vals[10];
+	return ret;
+}
 
 
 operator *(self : *v4, f : f32) !v4
@@ -88,6 +109,15 @@ square_normalize::fn(a : *v3) !v3
 		aux.y = 1.0;
 	else if aux.y <= -epsilon
 		aux.y = -1.0;
+	return aux;
+}
+mul_v3::fn(a : *v3, b : *v3) !v3
+{
+	aux:v3;
+    aux.x = a.x * b.x;
+    aux.y = a.y * b.y;
+    aux.z = a.z * b.z;
+
 	return aux;
 }
 sign_v3::fn(a : *v3) !v3

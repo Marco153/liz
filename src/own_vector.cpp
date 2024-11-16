@@ -489,6 +489,10 @@ namespace own_std
 		{
 			regrow(len);
 		}
+		unsigned int length()
+		{
+			return ar.length;
+		}
 		unsigned int size()
 		{
 			return ar.count;
@@ -504,6 +508,13 @@ namespace own_std
 			return ar.start;
 		}
 
+		void remove(int idx)
+		{
+			int sz = ar.count - idx;
+			ASSERT(sz > 0)
+			memmove(ar.start + idx, ar.start + idx + 1, sz * sizeof(T));
+			ar.count--;
+		}
 		void insert(T* at, T* start, T* end)
 		{
 			int a = at - ar.start;

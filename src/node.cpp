@@ -6573,16 +6573,16 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				type2 lhs_type;
 				NameFindingGetType(lang_stat, n->l, scp, lhs_type);
 
+				if (lhs_type.ptr > 0)
+				{
+					REPORT_ERROR(n->t->line, n->t->line,
+						VAR_ARGS("variable '%s' is pointer, and pointers cannot be indexed\n", lhs->name.c_str())
+					);
+					ExitProcess(1);
+				}
 				if (!lhs_type.IsStrct(nullptr) && lhs_type.type != TYPE_STATIC_ARRAY)
 				{
-					if (lhs_type.ptr > 0)
-					{
-						REPORT_ERROR(n->t->line, n->t->line,
-							VAR_ARGS("variable '%s' is pointer, and pointers cannot be indexed\n", lhs->name.c_str())
-						);
-						ExitProcess(1);
-					}
-					else if (lhs_type.ptr == 0)
+					if (lhs_type.ptr == 0)
 					{
 						REPORT_ERROR(n->t->line, n->t->line,
 							VAR_ARGS("variable '%s' cannot be indexed\n", lhs->name.c_str())
@@ -7408,6 +7408,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			var_decl = DescendNameFinding(lang_stat, n->l, for_scope);
 			if (!var_decl)
 			{
+				if (!DescendNameFinding(lang_stat, n->r, for_scope))
+					return nullptr;
 				ret_type = DescendNode(lang_stat, n->r, for_scope);
 				if (ret_type.type == TYPE_STATIC_ARRAY)
 				{
@@ -9337,15 +9339,25 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	case N_ARRAY_CONSTRUCTION:
 	{
 		NameFindingGetType(lang_stat, n->l, scp, ret_type);
-
+		
 
 		if (ret_type.type == TYPE_STATIC_ARRAY_TYPE && ret_type.tp->type == TYPE_FUNC_PTR)
 		{
 			ret_type.tp->fdecl->scp->flags |= SCOPE_SKIP_SERIALIZATION;
 		}
+
+		//ret_type = *ret_type.tp;
+
 		//if(ret_type )
 		FOR_VEC(it, *n->exprs)
 		{
+			type2 aux;
+			NameFindingGetType(lang_stat, it->n, scp, aux);
+
+			if (!CompareTypes(ret_type.tp, &aux))
+			{
+				ReportTypeMismatch(lang_stat, it->n->t, ret_type.tp, &aux);
+			}
 			if (ret_type.type == TYPE_STATIC_ARRAY_TYPE && ret_type.tp->type == TYPE_FUNC_PTR)
 			{
 				type2 dummy_type = DescendNode(lang_stat, it->n, scp);

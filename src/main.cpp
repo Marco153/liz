@@ -6,6 +6,14 @@
 #include <stb_image.h> 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h> 
+#include <iostream>
+#include <vector>
+#include <sndfile.h>  // Library for reading WAV files
+#include <dsound.h>
+#include <xaudio2.h>
+#define DR_FLAC_IMPLEMENTATION
+#include "dr_flac.h"
+#include <fstream>
 
 #include "../include/GLFW/glfw3.h"
 
@@ -13,11 +21,17 @@
 #define KEY_DOWN 2
 #define KEY_UP   4
 #define KEY_RECENTLY_DOWN   8
+#define PI   3.141592
 
 #define TOTAL_KEYS   255
 #define TOTAL_TEXTURES   32
 
+struct AudioClip;
+struct sound_state;
 void GetMem(dbg_state* dbg);
+
+AudioClip* CreateNewAudioClip(char* name);
+
 struct texture_info
 {
 	bool used;
@@ -50,7 +64,63 @@ struct open_gl_state
 
 	void* glfw_window;
 	lang_state* lang_stat;
+	sound_state* sound;
 };
+
+class XAudioClass;
+typedef struct  WAV_HEADER {
+	char                RIFF[4];        // RIFF Header      Magic header
+	unsigned long       ChunkSize;      // RIFF Chunk Size  
+	char                WAVE[4];        // WAVE Header      
+	char                fmt[4];         // FMT header       
+	unsigned long       Subchunk1Size;  // Size of the fmt chunk                                
+	unsigned short      AudioFormat;    // Audio format 1=PCM,6=mulaw,7=alaw, 257=IBM Mu-Law, 258=IBM A-Law, 259=ADPCM 
+	unsigned short      NumOfChan;      // Number of channels 1=Mono 2=Sterio                   
+	unsigned long       SamplesPerSec;  // Sampling Frequency in Hz                             
+	unsigned long       bytesPerSec;    // bytes per second 
+	unsigned short      blockAlign;     // 2=16-bit mono, 4=16-bit stereo 
+	unsigned short      bitsPerSample;  // Number of bits per sample      
+	char                Subchunk2ID[4]; // "data"  string   
+	unsigned long       Subchunk2Size;  // Sampled data length    
+
+}wav_hdr;
+#define AUDIO_CLIP_FLAGS_LOOP 1
+struct AudioClip
+{
+	own_std::string name;
+	own_std::vector<short> buffer;
+	float time;
+};
+struct AudioClipQueued
+{
+	AudioClip* clip;
+	unsigned int cur_idx;
+
+	int flags;
+};
+struct sound_state
+{
+	int samples_per_sec = 44100;
+	int samples_in_buffer = 1;
+	int hz = 440;
+	unsigned long long running_idx = 0;
+	char* harmonics_buffer;
+	IXAudio2SourceVoice* pSourceVoice;
+	XAUDIO2_BUFFER buffers[2];
+	unsigned char cur_buffer_to_submit = 0;
+	XAudioClass *audio_class;
+	own_std::vector<AudioClip *> audio_clips_src;
+	own_std::vector<AudioClipQueued> audio_clips_to_play;
+
+};
+
+
+void AddAudioClipToPlay(sound_state* sound, AudioClip* clip)
+{
+	AudioClipQueued q = {};
+	q.clip = clip;
+	sound->audio_clips_to_play.emplace_back(q);
+}
 enum key_enum
 {
 	_KEY_LEFT,
@@ -61,6 +131,145 @@ enum key_enum
 	_KEY_ACT1,
 	_KEY_ACT2,
 	_KEY_ACT3,
+};
+void FillBuffer(sound_state *sound, char* buffer, int total_samples_in_buffer, int bytes_per_sample, int hz_arg)
+{
+	int count = total_samples_in_buffer * bytes_per_sample;
+
+	short* sample = (short*)buffer;
+	int wave_period = sound->samples_per_sec / hz_arg;
+	int idx_that_was_period_complete = -1;
+	int volume = 3000;
+
+	/*
+	timer t;
+	InitTimer(&t);
+	StartTimer(&t);
+	*/
+
+
+	char b[256];
+
+	for (int i = 0; i < count; i += bytes_per_sample)
+	{
+
+		unsigned int cur_idx = sound->running_idx % wave_period;
+		float last_sin = (float)(cur_idx) / (float)wave_period;
+
+		float sin_fundamental = sinf(last_sin * 2 * PI);
+		short val = sin_fundamental * volume;
+		/*
+		int possible_harmonics = 8;
+
+		for (int h = 0; h < possible_harmonics; h++)
+		{
+			bool harmonic_on = ((1 << h) & harmonics) != 0;
+
+			short h_plus_one = h + 1;
+
+
+			float sine_h = harmonic_on ? sinf((last_sin * 2 * PI) * h_plus_one) : 0;
+
+			float wave_period_max = (possible_harmonics * wave_period);
+			float cur_h_wave_period = (wave_period * h_plus_one);
+
+			short h_squared = (h_plus_one * h_plus_one);
+			short new_harmonic_val = (short)((sine_h) * (float)(volume / h_squared));
+
+			float t = GetVolumeFromControls(cur_h_wave_period);
+			new_harmonic_val = (short)((float)new_harmonic_val * t);
+
+			val += new_harmonic_val;
+
+		}
+		*/
+
+		*sample++ = val;
+		*sample++ = val;
+		sound->running_idx++;
+	}
+	/*
+	EndTimer(&t);
+
+	//PushBufferToQueue((short *) buffer, samples_per_sec);
+
+	__int64 ms = GetTimerMS(&t);
+	__int64 cycles = GetCyclesElapsed(&t);
+	int a = 0;
+	*/
+}
+
+
+class XAudioClass : public IXAudio2VoiceCallback
+{
+public :
+	sound_state* sound;
+	void XAudioClass::OnLoopEnd(void* data)
+	{
+
+		//FillBuffer((char *)data, 48000, 4, hz);
+	}
+	void XAudioClass::OnVoiceProcessingPassStart(UINT32)
+	{
+	}
+	void XAudioClass::OnVoiceProcessingPassEnd(void)
+	{
+	}
+	void XAudioClass::OnStreamEnd(void)
+	{
+	}
+	void XAudioClass::OnBufferStart(void*)
+	{
+		HRESULT hr;
+		sound->cur_buffer_to_submit++;
+		sound->cur_buffer_to_submit %= 2;
+		XAUDIO2_BUFFER* picked_buffer = &sound->buffers[sound->cur_buffer_to_submit];
+		int total_sounds = sound->audio_clips_to_play.size();
+		short* start = (short *)picked_buffer->pAudioData;
+		memset(start, 0, picked_buffer->AudioBytes);
+		FOR_VEC(it, sound->audio_clips_to_play)
+		{
+			start = (short *)picked_buffer->pAudioData;
+			AudioClip* clip_ptr = it->clip;
+			short* src_buffer = clip_ptr->buffer.data();
+			if (it->cur_idx >= clip_ptr->buffer.size())
+				continue;
+			short* dbg = &src_buffer[it->cur_idx + 1];
+			for (int i = 0; i < sound->samples_in_buffer * 4; i += 4)
+			{
+				float p = (float)it->cur_idx / (float)clip_ptr->buffer.size();
+				*start += src_buffer[it->cur_idx];
+				start++;
+				*start += src_buffer[it->cur_idx + 1];
+				start++;
+				it->cur_idx += 2;
+			}
+		}
+		int i = 0;
+		FOR_VEC(it, sound->audio_clips_to_play)
+		{
+			AudioClip* clip_ptr = it->clip;
+			if (it->cur_idx >= clip_ptr->buffer.size())
+			{
+				sound->audio_clips_to_play.remove(i);
+			}
+			i++;
+		}
+		///sound->audio_clips_to_play.
+		//FillBuffer(sound, (char*)picked_buffer->pAudioData, sound->samples_in_buffer, 4, 440);
+		if (FAILED(hr = sound->pSourceVoice->SubmitSourceBuffer(picked_buffer, nullptr)))
+		{
+			ASSERT(false);
+		}
+
+
+	}
+	void XAudioClass::OnBufferEnd(void*)
+	{
+	}
+	void XAudioClass::OnVoiceError(void*, HRESULT)
+	{
+	}
 };
 
 void Print(dbg_state* dbg)
@@ -581,6 +790,57 @@ void ImageFolderToFile(std::string folder)
 
 	WriteFileLang("../web/images.data", (void *)images_encoded_str.data(), images_encoded_str.size());
 }
+
+void FromGamePlayAudio(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	auto gl_state = (open_gl_state*)dbg->data;
+	AudioClip* clip = nullptr;
+	FOR_VEC(it, gl_state->sound->audio_clips_src)
+	{
+		if ((*it)->name == name_str)
+		{
+			clip = *it;
+			break;
+		}
+	}
+	ASSERT(clip);
+	AudioClipQueued q = {};
+	q.clip = clip;
+	gl_state->sound->audio_clips_to_play.emplace_back(q);
+}
+
+void AssignSoundFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	
+	///gl_state->texture_folder = name_str;
+	std::string work_dir = dbg->cur_func->from_file->name;
+	int last_bar = work_dir.find_last_of('/');
+	work_dir = work_dir.substr(0, last_bar + 1);
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	std::string sound_folder;
+	sound_folder = work_dir + name_str;
+	MaybeAddBarToEndOfStr(&(gl_state->texture_folder));
+
+	own_std::vector<char*> file_names;
+	GetFilesInDirectory((char *)sound_folder.c_str(), nullptr, &file_names);
+
+	FOR_VEC(str_ptr, file_names)
+	{
+		gl_state->sound->audio_clips_src.emplace_back(CreateNewAudioClip(*str_ptr));
+	}
+
+	//ImageFolderToFile(gl_state->texture_folder);
+
+}
 void AssignTexFolder(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -949,6 +1209,13 @@ void PrintV3(dbg_state* dbg)
 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
+void Cos(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = cosf(val);
+}
 void Sin(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1017,6 +1284,133 @@ void ScreenRatio(dbg_state* dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ratio;
 }
 
+
+HRESULT InitXAudio2(sound_state &sound, bool start_playing)
+{
+	sound.harmonics_buffer = (char*)malloc(sound.samples_in_buffer * 4 * 4);
+	memset(sound.buffers, 0, sizeof(sound.buffers));
+	void *src = &sound.harmonics_buffer[sound.samples_in_buffer * 4];
+	void *dst = sound.harmonics_buffer;
+
+	HRESULT hr;
+	hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	if (FAILED(hr))
+		return hr;
+
+	IXAudio2* pXAudio2 = nullptr;
+	if (FAILED(hr = XAudio2Create(&pXAudio2, 0,  XAUDIO2_DEFAULT_PROCESSOR | XAUDIO2_DEBUG_ENGINE)))
+		return hr;
+
+
+	XAUDIO2_EFFECT_CHAIN chain = {};
+
+	IXAudio2MasteringVoice* pMasterVoice = nullptr;
+	if (FAILED(hr = pXAudio2->CreateMasteringVoice(&pMasterVoice)))
+		return hr;
+
+	WAVEFORMATEX wave_format = {};
+
+	wave_format.wFormatTag = WAVE_FORMAT_PCM;
+	wave_format.nChannels = 2;
+	wave_format.nSamplesPerSec = sound.samples_per_sec;
+	wave_format.wBitsPerSample = 16;
+	wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
+	wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
+
+
+	if (FAILED(hr = pXAudio2->CreateSourceVoice(&sound.pSourceVoice, (WAVEFORMATEX*)&wave_format, XAUDIO2_VOICE_NOPITCH, XAUDIO2_MAX_FREQ_RATIO, sound.audio_class, nullptr, nullptr)))
+		return hr;
+
+
+	XAUDIO2_BUFFER& xaudio_buff = sound.buffers[0];
+	xaudio_buff.Flags = 0;
+	xaudio_buff.AudioBytes = sound.samples_in_buffer * 4;
+	xaudio_buff.pAudioData = (BYTE*)src;
+	xaudio_buff.PlayLength = 0;
+
+
+	XAUDIO2_BUFFER& xaudio_buff2 = sound.buffers[1];
+	memcpy((void*)&xaudio_buff2, (void*)&xaudio_buff, sizeof(XAUDIO2_BUFFER));
+	xaudio_buff2.pAudioData = (BYTE*)dst;
+
+	if (FAILED(hr = sound.pSourceVoice->SubmitSourceBuffer(&sound.buffers[sound.cur_buffer_to_submit], nullptr)))
+	{
+	}
+	//cpy_thread = CreateThread(NULL, 0, ThreadProc, nullptr, 0, nullptr);
+
+	if (start_playing)
+	{
+		if (FAILED(hr = sound.pSourceVoice->Start(0)))
+			return hr;
+	}
+	return 0;
+}
+
+bool fileExists(const char* filename) {
+	std::ifstream file(filename);
+	return file.is_open();
+}
+void* alloc_own(int size, mem_alloc* alloc)
+{
+	return heap_alloc(alloc, size);
+}
+void free_own(char* ptr, mem_alloc* alloc)
+{
+	heap_free(alloc, ptr);
+}
+void* realloc_own(char* ptr, int size, mem_alloc* alloc)
+{
+	void* ret = heap_alloc(alloc, size);
+	auto chunk = (mem_chunk *)alloc->in_use.Get(ptr);
+
+
+	memcpy(ret, ptr, min(chunk->size * BYTES_PER_CHUNK, size));
+
+	heap_free(alloc, ptr);
+	return ret;
+}
+AudioClip* CreateNewAudioClip(char* name)
+{
+	if (!fileExists(name)) {
+		std::cerr << "File could not be opened or does not exist: " << name << std::endl;
+		ASSERT(false);
+		return nullptr;
+	}
+
+	auto ret = (AudioClip *)__lang_globals.alloc(__lang_globals.data, sizeof(AudioClip));
+	memset(ret, 0, sizeof(AudioClip));
+	ret->name = name;
+	memset(&ret->buffer, 0, sizeof(own_std::vector<int>));
+
+	unsigned int channels;
+	unsigned int sampleRate;
+	drflac_uint64 totalPCMFrameCount;
+	//dr
+	drflac_int32* pSampleData = drflac_open_file_and_read_pcm_frames_s32(name, &channels, &sampleRate, &totalPCMFrameCount, NULL);
+
+
+	ret->buffer.make_count(totalPCMFrameCount * channels);
+	ret->time = (float)(totalPCMFrameCount ) / (float)sampleRate;
+	int sz = totalPCMFrameCount * channels;
+
+	for (int i = 0; i < sz; i++)
+	{
+
+		ret->buffer[i] = pSampleData[i] >> 16;
+	}
+	//memcpy(&ret->buffer[0], pSampleData, sz);
+	free(pSampleData);
+
+	/*
+	drflac* pFlac = drflac_open_file("01.flac", &allocationCallbacks);
+	int sampleRate, channels;
+	short* buffer;
+	//int res = stb_vorbis_decode_filename(name, channels, &sampleRate, &buffer);
+	*/
+	return ret;
+
+}
+
 int main(int argc, char* argv[])
 {
 	TCHAR buffer[MAX_PATH] = { 0 };
@@ -1030,6 +1424,13 @@ int main(int argc, char* argv[])
 	mem_alloc alloc;
 	InitMemAlloc(&alloc);
 
+
+	sound_state sound;
+	sound.audio_class = new XAudioClass();
+	//memset(sound.audio_class, 0, sizeof(sound.audio_class));
+	sound.audio_class->sound = &sound;
+
+	InitXAudio2(sound, true);
 	/*
 	auto addr = heap_alloc(&alloc, 12);
 	auto addr2 = heap_alloc(&alloc, 12);
@@ -1039,8 +1440,12 @@ int main(int argc, char* argv[])
 
 
 	open_gl_state gl_state = {};
+	gl_state.sound = &sound;
 	gl_state.lang_stat = &lang_stat;
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
+
+	//sound.audio_clips_src.emplace_back(CreateNewAudioClip("02.flac"));
+	//AddAudioClipToPlay(&sound, sound.audio_clips_src[0]);
 
 	own_std::string oexe_dir = lang_stat.exe_dir.c_str();
 	last_bar = oexe_dir.find_last_of("/\\");
@@ -1134,8 +1539,11 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
 	AssignOutsiderFunc(&lang_stat, "IsMouseHeld", (OutsiderFuncType)IsMouseHeld);
 	AssignOutsiderFunc(&lang_stat, "ScreenRatio", (OutsiderFuncType)ScreenRatio);
+	AssignOutsiderFunc(&lang_stat, "AssignSoundFolder", (OutsiderFuncType)AssignSoundFolder);
+	AssignOutsiderFunc(&lang_stat, "PlayAudio", (OutsiderFuncType)FromGamePlayAudio);
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
+	AssignOutsiderFunc(&lang_stat, "cos", (OutsiderFuncType)Cos);
 	Compile(&lang_stat, &opts);
 	if (!opts.release)
 	{

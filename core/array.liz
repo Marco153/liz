@@ -7,7 +7,7 @@ dyn_array: struct(T)
 }
 it_start::fn{T}(dyn : *dyn_array(T)) ! *T
 {
-	return dyn[0];
+	return (*dyn)[0];
 }
 it_end::fn{T}(dyn : *dyn_array(T)) ! *T
 {

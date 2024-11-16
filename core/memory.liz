@@ -633,21 +633,21 @@ ret_v3::fn() !v3
 	ret.y = 2.0;
 	return ret;
 }
-tuple_arg_fn ::fn(arg : (s32, s32)) ! s32
+tuple_arg_fn::fn(arg : (s32, s32)) !s32
 {
 	return arg.0;
 }
-overload_func ::fn(a : s32, b : s32) ! s32
+overload_func::fn(a : s32, b : s32) !s32
 {
 	return a + b;
 }
-overload_func ::fn(a : s32) ! s32
+overload_func::fn(a : s32) !s32
 {
 	return a;
 }
-func_with_global::fn() ! s32
+func_with_global::fn() !s32
 {
-	val : global s32;
+	val: global s32;
 
 	#do
 	{
@@ -655,6 +655,22 @@ func_with_global::fn() ! s32
 	}
 	val++;
 	return val;
+}
+ret_f32_summed_with_one::fn(a : f32)!f32
+{
+	return a + 1.0;
+}
+modify_f32::fn(a : *f32)
+{
+	*a = 1.0;
+}
+modify_f32_as_s32::fn(a : *f32)
+{
+	*cast(*s32)a = 0x40400000;
+}
+ret_sum_one_with_f32_ptr::fn(a : *f32) !f32
+{
+	return *a + 1.0;
 }
 tests :: fn(ret : *u32)
 {
@@ -880,6 +896,32 @@ tests :: fn(ret : *u32)
 	
 	fsum: = test_sum_float(1.0, 2.0);
 	if fsum < 2.0  || fsum > 4.0
+		debug_break();
+
+	fsum = 1.0;
+	testt: = [3]f32{ ret_f32_summed_with_one(fsum), ret_f32_summed_with_one(fsum), 3.0 };
+	fsum = *testt[0] + *testt[1] + *testt[2];
+	
+	if fsum < 6.9 || fsum > 7.1
+		debug_break();
+
+	modify_f32(&fsum);
+
+	if fsum < 0.9 || fsum > 1.1
+		debug_break();
+
+	*cast(*s32)&fsum = 0x40000000;
+
+	if fsum < 1.9 || fsum > 2.1
+		debug_break();
+	
+	modify_f32_as_s32(&fsum);
+	if fsum < 2.9 || fsum > 3.1
+		debug_break();
+	// struct construction
+	fsum = 3.0;
+	fsum = ret_sum_one_with_f32_ptr(&fsum);
+	if fsum < 3.9 || fsum > 4.1
 		debug_break();
 
 	chunk: = mem_chunk{ next: nil, prev : cast(*mem_chunk)7 };

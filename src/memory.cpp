@@ -367,7 +367,7 @@ void InitMemAlloc(mem_alloc *alloc)
 
 	long long total_size = all_chunks_sz + chunks_total_size + in_use_hash_sz + unallocated_sz;
 
-	char* start = (char *)VirtualAlloc(0, total_size, MEM_COMMIT, PAGE_READWRITE);
+	char* start = (char *)VirtualAlloc(0, total_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 	char* buffer = start;
 	memset(start, 0, total_size);
 

@@ -161,12 +161,16 @@ dot_v4::fn(a : *v4, b : *v4) ! f32
 	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 	return ret;
 }
-dot_v3::fn(a : *v3, b : *v3) ! f32
+dot_v3::fn outsider(a : *v3, b : *v3) !f32;
+/*
+dot_v3::fn(a : *v3, b : *v3) !f32
 {
 	ret := a.x * b.x + a.y * b.y + a.z * b.z;
 	return ret;
 }
+*/
 DOT_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+
 {
 	
 	dst = a.x * b.x + a.y * b.y + a.z * b.z;

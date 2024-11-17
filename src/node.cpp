@@ -707,7 +707,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 			);
 		break;
 	case enum_type2::TYPE_VOID:
-		cond = lhs->ptr > 0 && rhs->ptr > 0;
+		cond = lhs->ptr > 0 && rhs->ptr > 0 || rhs->type == lhs->type;
 
 		break;
 	case enum_type2::TYPE_BOOL:
@@ -878,6 +878,11 @@ node* node_iter::parse_func_like()
 	{
 		get_tkn();
 		n->flags |= NODE_FLAGS_ALIGN_STACK_WHEN_CALL;
+	}
+	if (IsTknWordStr(peek_tkn(), "x64"))
+	{
+		get_tkn();
+		n->flags |= NODE_FLAGS_FUNC_X64;
 	}
 	// template
 	if (peek_tkn()->type == tkn_type2::T_OPEN_CURLY)
@@ -1643,7 +1648,7 @@ node* node_iter::parse_expr()
 	{
 		n->type = node_type::N_UNOP;
 		CheckTwoBinaryOparatorsTogether(n);
-		n->r = parse_(PREC_MUL, parser_cond::LESSER);
+		n->r = parse_(PREC_MUL, parser_cond::LESSER_EQUAL);
 	}break;
 	// array type
 	case tkn_type2::T_OPEN_BRACKETS:
@@ -4845,6 +4850,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_COMP) ? FUNC_DECL_COMP : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_TEST) ? FUNC_DECL_TEST : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_ALIGN_STACK_WHEN_CALL) ? FUNC_DECL_ALIGN_STACK_WHEN_CALL : 0;
+	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_X64) ? FUNC_DECL_X64 : 0;
 
 	fdecl->from_file = lang_stat->cur_file;
 
@@ -5760,8 +5766,8 @@ node* NewThreeArgNd2(std::string name, void* arg1, int arg1_type, void* arg2, in
 
 void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node* n, scope* scp)
 {
-	if (IsNodeOperator(n, T_COLON) && IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION) && n->r->type != N_STRUCT_DECL
-		//&& IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2)
+	if (IsNodeOperator(n, T_COLON) && IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION) && n->r->type != N_STRUCT_DECL && 
+		IS_FLAG_OFF(n->flags, NODE_FLAGS_NO_ZERO_INITIALIZATION)//&& IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2)
 		)
 	{
 		type2 dummy_tp;
@@ -6866,6 +6872,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					// assignment and the decl into two different stmnts
 					if (IsNodeOperator(n->l, tkn_type2::T_COLON))
 					{
+						n->l->flags |= NODE_FLAGS_NO_ZERO_INITIALIZATION;
 						// lhs = rhs;	
 						auto new_equal = NewBinOpNode(lang_stat,
 							n->l->l,
@@ -8602,6 +8609,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			if (n->r != nullptr)
 				ret_type = DescendNode(lang_stat, n->r, scp);
+			else
+				ret_type.type = TYPE_VOID;
 
 			if (IS_FLAG_OFF(scp->flags, SCOPE_INSIDE_FUNCTION))
 			{
@@ -8619,7 +8628,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 						fdecl->ret_type = ret_type;
 						fdecl->ret_type.type = FromTypeToVarType(fdecl->ret_type.type);
 					}
-					else if (!CompareTypes(&fdecl->ret_type, &ret_type) && fdecl->ret_type.type != enum_type2::TYPE_TEMPLATE && fdecl->ret_type.type != enum_type2::TYPE_VOID)
+					else if (!CompareTypes(&fdecl->ret_type, &ret_type) && fdecl->ret_type.type != enum_type2::TYPE_TEMPLATE)
 					{
 
 						auto fdecl = scp->fdecl;

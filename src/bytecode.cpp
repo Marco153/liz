@@ -220,6 +220,7 @@ char FromAsmRegToWasmReg(unsigned char bc_reg)
 	}
 	return -1;
 }
+#define PRE_X64_RSP_REG 5
 char FromBCRegToAsmReg(char bc_reg)
 {
 	switch(bc_reg)
@@ -625,10 +626,834 @@ void AddLeaInst(machine_code &ret, char reg_dst)
 	ret.code.emplace_back(0x5 | (reg_dst << 3));
 	AddImm(0, 4, ret);
 }
+//mov rax, rcx
+//mov rcx, qword[rax]
+//mov rdx, qword[rax + 8]
+//mov r8, qword[rax + 16]
+//mov r9, qword[rax + 24]
+
+char *distribute_regs_from_interpreter_bytes= "\x48\x89\xC8"
+                  "\x48\x8B\x08"
+                  "\x48\x8B\x50\x08"
+                  "\x4C\x8B\x40\x10"
+                  "\x4C\x8B\x48\x18";
+void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_code& ret)
+{
+#define CHANGE_JMP_DST_BC ret.jmp_rels.back().dst_bc = &bcodes[i + bc->val + 1];
+	int i = 0;
+	int on_stack_args = (max(lang_stat->cur_func->args.size() - 4, 0));
+	ret.code.insert(ret.code.begin(), (unsigned char *)distribute_regs_from_interpreter_bytes, (unsigned char *)distribute_regs_from_interpreter_bytes + strlen(distribute_regs_from_interpreter_bytes));
+	if (on_stack_args)
+	{
+		for (int i = 0; i < on_stack_args; i++)
+		{
+			//mov rbx, qword[rax + 4]
+			//mov qword[rsp + 32], rbx
+			char aux[] = {0x48, 0x8B, 0x58, 0x00, 0x48, 0x89, 0x5C, 0x24, 0x00};
+			aux[3] = 32 + i * 8;
+			aux[8] = 32 + (i + 1) * 8;
+
+			ret.code.insert(ret.code.begin(), (unsigned char *)aux, (unsigned char *)aux + strlen(aux));
+		}
+	}
+	FOR_VEC(bc, bcodes)
+	{
+
+		char* data = (char*)ret.code.data();
+		bc->machine_code_idx = ret.code.size();
+		switch(bc->type)
+		{
+		case ASSIGN_FUNC_SIZE:
+		{
+			//bc->fdecl->code_size = (ret.code.size() + sum_of_onter_insts) - bc->fdecl->code_start_idx;
+		}break;
+		case CVTSD_REG_2_SS:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
+			ret.code.emplace_back(0xf2);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(mod);
+		}break;
+		case INT3:
+			ret.code.emplace_back(0xcc);
+		break;
+		case MOVSX_R:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
+			if(bc->bin.rhs.reg_sz == 4)
+			{
+				ret.code.emplace_back(0x48);
+				ret.code.emplace_back(0x63);
+				ret.code.emplace_back(mod);
+			}
+			else
+			{
+				char i_sz = bc->bin.rhs.reg_sz == 1 ? 0xbe : 0xbf;
+
+				ret.code.emplace_back(0x48);
+				ret.code.emplace_back(0x0f);
+				ret.code.emplace_back(i_sz);
+				ret.code.emplace_back(mod);
+
+			}
+		}break;
+		case MOVZX_R:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
+			if(bc->bin.rhs.reg_sz == 4)
+			{
+				char lhs_r = bc->bin.lhs.reg;
+				// mov edi, rhs
+				bc->bin.lhs.reg = 7;
+				bc->bin.lhs.reg_sz = 4;
+				bc->bin.rhs.reg_sz = 4;
+				bc->bin.rhs.reg_sz = 4;
+				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+
+				// mov lhs, edi
+				bc->bin.lhs.reg = lhs_r;
+				bc->bin.lhs.reg_sz = 4;
+				bc->bin.rhs.reg_sz = 7;
+				bc->bin.rhs.reg_sz = 4;
+				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+
+			}
+			else
+			{
+				char i_sz = bc->bin.rhs.reg_sz == 1 ? 0xb6 : 0xb7;
+
+				ret.code.emplace_back(0x48);
+				ret.code.emplace_back(0x0f);
+				ret.code.emplace_back(i_sz);
+				ret.code.emplace_back(mod);
+
+			}
+		}break;
+		case MOVSX_M:
+		{
+			char mod = MakeModRM(false, 0, 4, bc->bin.lhs.reg);
+			if (bc->bin.rhs.reg_sz == 4)
+			{
+				CreateMemToReg(&*bc, 0x63, 0x63, false, ret);
+				//ret.code.emplace_back(0x48);
+				//ret.code.emplace_back(0x63);
+				//ret.code.emplace_back(mod);
+			}
+			else
+				Create0FMemToReg(&*bc, 0xbe, &ret);
+			
+		}break;
+		case MOVZX_M:
+		{
+			Create0FMemToReg(&*bc, 0xb6, &ret);
+		}break;
+		case RELOC:
+		{
+			bool is_rel_func = bc->rel.type == rel_type::REL_FUNC;
+			bool is_get_func_addr = bc->rel.type == rel_type::REL_GET_FUNC_ADDR;
+
+			if (is_rel_func || is_get_func_addr)
+			{
+				auto fdecl = bc->rel.call_func;
+				
+				if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTERNAL))
+				{
+
+					ASSERT(lang_stat->internal_funcs_addr.find(fdecl->name.c_str()) != lang_stat->internal_funcs_addr.end())
+				}
+				else
+				{
+					auto found_ptr_func = IsThereAFunction(lang_stat, (char *)bc->rel.call_func->name.c_str());
+
+					// asserting that the function was already compiled
+					ASSERT(found_ptr_func && IS_FLAG_ON(fdecl->flags, FUNC_DECL_CODE_WAS_GENERATED))
+
+				}
+
+				int offset_addr = is_rel_func ? 1 : 3;
+				auto fdecl_flags = bc->rel.call_func->flags;
+
+				// check if function is defined by the compiler, by means of testing if the fdecl has a body
+				if(!IS_FLAG_ON(fdecl_flags, FUNC_DECL_EXTERN) 
+					&& !IS_FLAG_ON(fdecl_flags, FUNC_DECL_IS_OUTSIDER)
+					&& !IS_FLAG_ON(fdecl_flags, FUNC_DECL_LINK_NAME))
+				{
+					ret.call_rels.emplace_back(call_rel(ret.code.size() + offset_addr, bc->rel.call_func));
+				}
+				else
+					ret.rels.emplace_back(machine_reloc(INSIDE_FUNC, ret.code.size() + offset_addr, bc->rel.name));
+
+				if(is_rel_func)
+				{
+					ret.code.emplace_back(0xe8);
+					AddImm(0, 4, ret);
+				}
+				else
+					AddLeaInst(ret, bc->rel.reg_dst);
+
+			}
+			else if (bc->rel.type == rel_type::REL_TYPE)
+			{
+				std::string name = std::string("$$") + bc->rel.name;
+
+				// puttinf the name into the heap
+				char *new_str = std_str_to_heap(lang_stat, &name);
+
+				ret.rels.emplace_back(machine_reloc(machine_rel_type::TYPE_DATA, ret.code.size() + 3, new_str));
+
+				ASSERT((unsigned char)bc->rel.reg_dst < 7)
+
+				// emplacing a lea instruction here
+				AddLeaInst(ret, bc->rel.reg_dst);
+				/*
+				ret.code.emplace_back(0x48);
+				ret.code.emplace_back(0x8d);
+				ret.code.emplace_back(0x5 | (bc->rel.reg_dst << 3));
+				AddImm(0, 4, ret);
+				*/
+
+			}
+			else if (bc->rel.type == rel_type::REL_DATA)
+			{
+				char* data_sym_name = (char*)AllocMiscData(lang_stat, 16);
+				snprintf(data_sym_name, 16, "$%d", ret.generated_data_symbols++);
+				
+				ret.symbols.emplace_back(machine_sym(lang_stat, machine_sym_type::SYM_DATA, bc->rel.offset, data_sym_name));
+				// float 
+				if(IS_FLAG_ON(bc->rel.reg_dst, 0x40))
+				{
+					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 4, data_sym_name));
+
+					// movssinstruction here
+					ret.code.emplace_back(0xf3);
+					ret.code.emplace_back(0x0f);
+					ret.code.emplace_back(0x10);
+					ret.code.emplace_back(0x5 | ((bc->rel.reg_dst &0xf) << 3));
+					AddImm(0, 4, ret);
+				}
+				else
+				{
+					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 3, data_sym_name));
+
+					// emplacing a lea instruction here
+					AddLeaInst(ret, bc->rel.reg_dst);
+					/*
+					ret.code.emplace_back(0x48);
+					ret.code.emplace_back(0x8d);
+					ret.code.emplace_back(0x5 | (bc->rel.reg_dst << 3));
+					AddImm(0, 4, ret);
+					*/
+				}
+			}
+		}break;
+		case INST_CALL_OUTSIDER:
+		{
+			
+			machine_rel_type r_type = bc->out_func.is_link_name ? DLL_FUNC :DLL_FUNC_NO_IMP_ADDING; 
+
+			ret.rels.emplace_back(machine_reloc(DLL_FUNC, ret.code.size() + 2, bc->name));
+
+			ret.code.emplace_back(0xff);
+			ret.code.emplace_back(0x15);
+			AddImm(0, 4, ret);
+		}break;
+		case JMP_E:
+			//int jmp_sz = (bc->val * 4) > 0xff ? 4 : 1;
+			AddJump(&*bc, 0x74, ret);
+			CHANGE_JMP_DST_BC
+			//ret.jmp_rels.emplace_back(jmp_sz
+			break;
+		case JMP_NE:
+			AddJump(&*bc, 0x75, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		//unsigned
+		case JMP_B:
+			AddJump(&*bc, 0x72, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_BE:
+			AddJump(&*bc, 0x76, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_A:
+			AddJump(&*bc, 0x77, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_AE:
+			AddJump(&*bc, 0x73, ret);
+			CHANGE_JMP_DST_BC
+		break;
+		//signed
+		case JMP_L:
+			AddJump(&*bc, 0x7c, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_LE:
+			AddJump(&*bc, 0x7e, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_G:
+			AddJump(&*bc, 0x7d, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_GE:
+			AddJump(&*bc, 0x7d, ret);
+			CHANGE_JMP_DST_BC
+		break;
+		case MOV_F_2_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+				CreateSSERegToSSEReg(&*bc, 0x10, &ret);
+			else
+				CreateSSERegToMem(&*bc, 0x11, &ret);
+		}break;
+		case MOV_R_2_SSE:
+		case MOV_SSE_2_R:
+		{
+			CreateSSERegToSSEReg(&*bc, 0x2c, &ret);
+		}break;
+		case MOV_SSE_2_SSE:
+		{
+			CreateSSERegToSSEReg(&*bc, 0x10, &ret);
+			//CreateMemToSSE(&*bc, 0x10, &ret);
+		}break;
+		case MOV_M_2_SSE:
+		{
+			CreateMemToSSE(&*bc, 0x10, &ret);
+		}break;
+		
+		case MOV_SSE_2_RM:
+			CreateSSERegToMem(&*bc, 0x11, &ret, bc->bin.lhs.reg, false);
+		break;
+		case MOV_SSE_2_MEM:
+		{
+			CreateSSERegToMem(&*bc, 0x11, &ret);
+		}break;
+		case MOV_SSE_2_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+			{
+				bc->bin.lhs.reg = bc->bin.lhs.reg - 6;
+				CreateSSERegToSSEReg(&*bc, 0x10, &ret);
+			}
+			else
+			{
+				bc->bin.lhs.reg = 5;
+				CreateSSERegToMem(&*bc, 0x11, &ret);
+			}
+		}break;
+		case POP_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+			{
+				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
+			}
+			else
+			{
+				StoreMemToMem(&*bc, bc->bin.rhs.voffset, ret);
+			}
+		}break;
+		case PUSH_REG_PARAM:
+		{
+			if (bc->bin.rhs.reg <= 9)
+			{
+				CreateRegToMem(&*bc, 0x88, 0x89, ret);
+			}
+			else
+			{
+				StoreMemToMem(&*bc, bc->bin.lhs.voffset, ret);
+			}
+		}break;
+		case MOV_R_2_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+			{
+				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+				bool base_reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
+
+				char src_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
+				bool src_reg_is_rex = IS_FLAG_ON(src_reg, 0x800);
+
+				char rex = ((char)base_reg_is_rex << 1) | ((char)src_reg_is_rex);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x88, 0x89, rex, ret.code);
+
+				base_reg &= 0xf;
+				src_reg &= 0xf;
+				char inst = (3 << 6) | (base_reg) | (src_reg << 3);
+				ret.code.emplace_back(inst);
+			}
+			if (bc->bin.lhs.reg > 9)
+			{
+				char stack_reg = ((short)bc->bin.lhs.reg - 10) * 8 + 32;
+				auto bin = bc->bin;
+				bc->bin.lhs.reg = 5;
+				bc->bin.lhs.voffset  = stack_reg;
+				bc->bin.lhs.var_size = 8;
+				CreateRegToMem(&*bc, 0x88, 0x89, ret);
+				bc->bin = bin;
+			}
+		}break;
+		case MOV_M_2_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+			{
+				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
+			}
+			if (bc->bin.lhs.reg > 9)
+			{
+				char stack_reg = (short)bc->bin.lhs.reg - 10;
+				StoreMemToMem(&*bc, stack_reg * 8 + 32, ret);
+			}
+		}break;
+		case MOV_I_2_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+			{
+				char dst_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+				bool reg_is_rex = IS_FLAG_ON(dst_reg, 0x800);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, ((char)reg_is_rex) << 1, ret.code);
+				ret.code.emplace_back(0xc0 + (char)(dst_reg & 0xf));
+				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
+			}
+			if (bc->bin.lhs.reg > 9)
+			{
+				char stack_reg = (short)bc->bin.lhs.reg - 10;
+				bc->bin.lhs.voffset = stack_reg * 8 + 32;
+				bc->bin.lhs.var_size = bc->bin.lhs.reg_sz;
+				bc->bin.lhs.reg = 5;
+				CreateStoreImmToMem(&*bc, ret);
+			}
+		}break;
+		case STORE_REG_PARAM:
+		{
+			if ((bc->bin.rhs.reg & 0xf)<= 9)
+			{
+				bool is_sse = IS_FLAG_ON(bc->bin.rhs.reg, 0x10);
+				if (is_sse)
+				{
+					bc->bin.rhs.reg &= 0xf;
+					CreateSSERegToMem(&*bc, 0x11, &ret);
+				}
+				else
+					CreateRegToMem(&*bc, 0x88, 0x89, ret);
+			}
+		}break;
+		case JMP:
+		{
+			int jmp = (int)bc->val * 4;
+			if ((unsigned int)jmp <= 0x80)
+			{
+				ret.jmp_rels.emplace_back(jmp_rel(1, ret.code.size() + 1, &*bc));
+				CHANGE_JMP_DST_BC
+
+				ret.code.emplace_back(0xeb);
+				ret.code.emplace_back(0x00);
+			}
+			else
+			{
+				ret.jmp_rels.emplace_back(jmp_rel(4, ret.code.size() + 1, &*bc));
+				CHANGE_JMP_DST_BC
+
+				ret.code.emplace_back(0xe9);
+
+				ret.code.emplace_back(0x00);
+				ret.code.emplace_back(0x00);
+				ret.code.emplace_back(0x00);
+				ret.code.emplace_back(0x00);
+			}
+		}break;
+
+
+		case CMP_R_2_M:
+		{
+			CreateRegToMem(&*bc, 0x38, 0x39, ret);
+		}break;
+		case CMP_R_2_R:
+		{
+			CreateRegToReg(&*bc, 0x38, 0x39, &ret);
+		}break;
+		case CMP_I_2_RM:
+		{
+			CreateImmToMem(&*bc, 7, ret);
+		}break;
+		//
+		case CMP_MEM_2_SSE:
+		{
+			// we moving the mem to reg 4, so the lhs sse must be a different reg
+			ASSERT(bc->bin.rhs.reg != 4)
+
+			auto last_lhs = bc->bin.lhs;
+			
+			// first we're moving the mem to xmm4
+			bc->bin.lhs.reg = 4;
+
+			// movss xmm4, mem
+			CreateMemToSSE(&*bc, 0x10, &ret);
+
+			bc->bin.lhs = last_lhs;
+			bc->bin.rhs.reg = 4;
+
+			// comiss xmm?, xmm4
+			Create0FMemToReg(&*bc, 0x2f, &ret);
+		}break;
+		case CMP_SSE_2_MEM:
+			// not handled
+			ASSERT(false)
+			CreateSSERegToMem(&*bc, 0x58, &ret);
+		break;
+		case CMP_SSE_2_RMEM:
+			// not handled
+			ASSERT(false)
+			break;
+		case CMP_SSE_2_SSE:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.rhs.reg, bc->bin.lhs.reg);
+
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x2f);
+			ret.code.emplace_back(mod);
+		}break;
+		//
+		case CMP_I_2_M:
+		{
+			CreateImmToMem(&*bc, 7, ret);
+		}break;
+		case CMP_M_2_R:
+			CreateMemToReg(&*bc, 0x3a, 0x3b, false, ret);
+			break;
+		case CMP_I_2_R:
+			CreateImmToReg(0x3c, 0x3d, 7, &*bc, ret);
+			break;
+
+		case STORE_RM_2_R:
+		case INST_LEA:
+		{
+			char base_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_base);
+			char dst_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_dst);
+
+			AddPreMemInsts(bc->bin.rhs.lea.size, 0x8d, 0x8d, false, ret.code);
+			//ret.code.emplace_back(byte);
+
+			AddModRM(true, bc->bin.rhs.lea.offset, base_reg, dst_reg, ret);
+			if(bc->bin.rhs.lea.offset != 0)
+				AddImm(bc->bin.rhs.lea.offset, ((unsigned int)bc->bin.rhs.lea.offset) < DISP_BYTE_MAX ? 1 : 4, ret);
+		}break;
+		case COMMENT:
+		{
+			/*if (f->name == "it_init{entity}")
+				int a = 0;
+				*/
+		}
+			break;
+		case MOV_R:
+		{
+			CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+		}break;
+		case MOV_RM:
+		{
+			CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret, bc->bin.rhs.reg);
+		}break;
+		case MOV_M:
+		{
+			CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
+		}break;
+		case STORE_R_2_RM:
+		{
+			CreateRegToMem(&*bc, 0x88, 0x89, ret, bc->bin.lhs.reg);
+		}break;
+		case STORE_RM_2_M:
+		case STORE_R_2_M:
+		{
+
+			CreateRegToMem(&*bc, 0x88, 0x89, ret);
+
+		}break;
+		case STORE_I_2_M:
+		{
+			CreateStoreImmToMem(&*bc, ret);
+		}break;
+		case REP_B:
+		{
+			ret.code.emplace_back(0xf3);
+			ret.code.emplace_back(0xa4);
+		}break;
+		case NOT_M:
+		{
+			ASSERT(false)
+		}break;
+		case NOT_R:
+		{
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char mod = MakeModRM(false,0, dst, 2);
+			ret.code.emplace_back(mod);
+		}break;
+		case NEG_M:
+		{
+			ASSERT(false)
+		}break;
+		case NEG_R:
+		{
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char mod = MakeModRM(false,0, dst, 3);
+			ret.code.emplace_back(mod);
+		}break;
+
+		case DIV_R:
+		{
+			// multiplying rax by src
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			char mod = MakeModRM(false,0, src, 7);
+			ret.code.emplace_back(mod);
+		}break;
+		case DIV_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x5e, &ret);
+			break;
+		case DIV_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x5e, &ret);
+			break;
+		case DIV_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x5e, &ret, bc->bin.lhs.reg, false);
+			break;
+		case DIV_SSE_2_SSE:
+			CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
+			break;
+
+		case XOR_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x57, &ret);
+			break;
+		case XOR_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x57, &ret);
+			break;
+		case XOR_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x57, &ret, bc->bin.lhs.reg, false);
+			break;
+		case XOR_SSE_2_SSE:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x57);
+			ret.code.emplace_back(mod);
+
+		}break;
+
+		case MUL_R_2_R:
+		{
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			dst &= 0xf;
+			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
+			src &= 0xf;
+
+			
+			// moving dst to rax
+			bc->bin.lhs.reg = 0;
+			bc->bin.rhs.reg = dst;
+
+			if (bc->bin.lhs.reg != bc->bin.rhs.reg)
+				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+			
+
+			// multiplying rax by src
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+
+			//  I'm not sure why the third byte reg should be 4
+			char mod = MakeModRM(false,0, src, 4);
+			ret.code.emplace_back(mod);
+		
+			// moving rax to dst
+			bc->bin.lhs.reg = dst;
+			bc->bin.rhs.reg = 0;
+			if (bc->bin.lhs.reg != bc->bin.rhs.reg)
+				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+
+		}break;
+		case MUL_I_2_R:
+		{
+			char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			base_reg &= 0xf;
+			bool less_than_byte = bc->bin.rhs.u32 < 0x80;
+
+			if(less_than_byte)
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x6b, 0x6b, false, ret.code);
+			else
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x69, 0x69, false, ret.code);
+
+			char r = (3 << 6) | (base_reg << 3) | base_reg;
+
+			ret.code.emplace_back(r);
+
+			AddImm(bc->bin.rhs.u32, less_than_byte ? 1 : 4, ret);
+		}break;
+		case MUL_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x59, &ret);
+			break;
+		case MUL_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x59, &ret);
+			break;
+		case MUL_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x59, &ret, bc->bin.lhs.reg, false);
+			break;
+		case MUL_SSE_2_SSE:
+			CreateSSERegToSSEReg(&*bc, 0x59, &ret);
+			break;
+
+
+		case MOV_I:
+		{
+				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+				bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, reg_is_rex, ret.code);
+				ret.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
+				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
+		}break;
+
+		
+		case MOV_ABS:
+		{
+				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+				bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
+				AddPreMemInsts(8, 0xb8, 0xb8, reg_is_rex, ret.code);
+				AddImm(bc->bin.rhs.u64, 4, ret);
+				AddImm(bc->bin.rhs.u64 >> 32, 4, ret);
+		}break;
+
+		case AND_I_2_R:
+			CreateImmToReg(0x24, 0x25, 4, &*bc, ret);
+			break;
+		case AND_R_2_R:
+			CreateRegToReg(&*bc, 0x20, 0x21, &ret);
+		break;
+
+
+		case SUB_I_2_M:
+			CreateImmToMem(&*bc, 0x5, ret);
+			break;
+		case SUB_R_2_M:
+			CreateRegToMem(&*bc, 0x28, 0x29, ret);
+			break;
+		case SUB_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x5c, &ret);
+			break;
+		case SUB_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x5c, &ret);
+			break;
+		case SUB_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x5c, &ret, bc->bin.lhs.reg, false);
+			break;
+		case SUB_SSE_2_SSE:
+			CreateSSERegToSSEReg(&*bc, 0x5c, &ret);
+			break;
+		case SUB_M_2_R:
+			CreateMemToReg(&*bc, 0x2a, 0x2b, false, ret);
+			break;
+		case SUB_R_2_R:
+			CreateRegToReg(&*bc, 0x28, 0x29, &ret);
+			break;
+		case SUB_I_2_R:
+			CreateImmToReg(0x2c, 0x2d, 5, &*bc, ret);
+			break;
+
+
+
+		case ADD_R_2_RM:
+			CreateRegToMem(&*bc, 0x0, 0x1, ret, bc->bin.lhs.reg);
+		break;
+		case ADD_I_2_M:
+			CreateImmToMem(&*bc, 0x0, ret);
+		break;
+		case ADD_R_2_M:
+			CreateRegToMem(&*bc, 0x0, 0x1, ret);
+		break;
+		case ADD_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x58, &ret);
+		break;
+		case ADD_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x58, &ret);
+		break;
+		case ADD_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x58, &ret, bc->bin.lhs.reg, false);
+			break;
+		case ADD_SSE_2_SSE:
+			CreateSSERegToSSEReg(&*bc, 0x58, &ret);
+		break;
+		case ADD_M_2_R:
+			CreateMemToReg(&*bc, 0x2, 0x3, false, ret);
+			break;
+		case ADD_R_2_R:
+			CreateRegToReg(&*bc, 0x0, 0x1, &ret);
+			break;
+		case ADD_I_2_RM:
+			CreateImmToMem(&*bc, 0x0, ret, bc->bin.lhs.reg);
+			break;
+		case ADD_I_2_R:
+			CreateImmToReg(0x4, 0x5, 0, &*bc, ret);
+			break;
+
+		case OR_R_2_RM:
+			CreateRegToMem(&*bc, 0x08, 0x9, ret, bc->bin.lhs.reg);
+		break;
+		case OR_I_2_M:
+			CreateImmToMem(&*bc, 0x1, ret);
+		break;
+		case OR_R_2_M:
+			CreateRegToMem(&*bc, 0x8, 0x9, ret);
+		break;
+		case OR_M_2_R:
+			CreateMemToReg(&*bc, 0xa, 0xb, false, ret);
+			break;
+		case OR_R_2_R:
+			CreateRegToReg(&*bc, 0x8, 0x9, &ret);
+			break;
+		case OR_I_2_RM:
+			CreateImmToMem(&*bc, 0x1, ret, bc->bin.lhs.reg);
+			break;
+		case OR_I_2_R:
+			CreateImmToReg(0xc, 0xd, 1, &*bc, ret);
+			break;
+		case INST_CALL_REG:
+		{
+			ret.code.emplace_back(0xff);
+			ret.code.emplace_back(0xd0 + bc->val);
+		}break;
+
+		case POP_STACK_SIZE:
+		case X64_WASM_BEGIN_BLOCK:
+		case X64_WASM_END_BLOCK:
+		case PUSH_STACK_SIZE:
+		{
+		}break;
+		case PUSH_R:
+		{
+			char reg = FromBCRegToAsmReg(bc->val);
+			ret.code.emplace_back(0x50 + (reg & 0xf));
+		}break;
+		case RET:
+		{
+			ret.code.emplace_back(0xc3);
+		}break;
+		case POP_R:
+		{
+			char reg = FromBCRegToAsmReg(bc->val);
+			ret.code.emplace_back(0x58 + (reg & 0xf));
+		}break;
+		default:
+		{
+			ASSERT(false)
+		}break;
+		}
+		i++;
+	}
+	
+}
 void FromByteCodeToX64(lang_state *lang_stat, own_std::vector<func_byte_code *> *funcs, machine_code &ret)
 {
 // we're adding one because we're getting the difference for the jmp, with the offset of the next inst
-#define CHANGE_JMP_DST_BC ret.jmp_rels.back().dst_bc = &f->bcodes[i + bc->val + 1];
 	ret.code.reserve(128);
 
 	FOR_VEC(func, *funcs)
@@ -683,798 +1508,7 @@ void FromByteCodeToX64(lang_state *lang_stat, own_std::vector<func_byte_code *> 
 		int sum_of_onter_insts = lang_stat->code_sect.size() - lang_stat->already_inserted_of_type_sect_in_code_sect;;
 		f->fdecl->code_start_idx = ret.code.size() + sum_of_onter_insts;
 		
-		FOR_VEC(bc, f->bcodes)
-		{
-
-			char* data = (char*)ret.code.data();
-			bc->machine_code_idx = ret.code.size();
-			switch(bc->type)
-			{
-			case ASSIGN_FUNC_SIZE:
-			{
-				bc->fdecl->code_size = (ret.code.size() + sum_of_onter_insts) - bc->fdecl->code_start_idx;
-			}break;
-			case CVTSD_REG_2_SS:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-				ret.code.emplace_back(0xf2);
-				ret.code.emplace_back(0x0f);
-				ret.code.emplace_back(0x5a);
-				ret.code.emplace_back(mod);
-			}break;
-			case INT3:
-				ret.code.emplace_back(0xcc);
-			break;
-			case MOVSX_R:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-				if(bc->bin.rhs.reg_sz == 4)
-				{
-					ret.code.emplace_back(0x48);
-					ret.code.emplace_back(0x63);
-					ret.code.emplace_back(mod);
-				}
-				else
-				{
-					char i_sz = bc->bin.rhs.reg_sz == 1 ? 0xbe : 0xbf;
-
-					ret.code.emplace_back(0x48);
-					ret.code.emplace_back(0x0f);
-					ret.code.emplace_back(i_sz);
-					ret.code.emplace_back(mod);
-
-				}
-			}break;
-			case MOVZX_R:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-				if(bc->bin.rhs.reg_sz == 4)
-				{
-					char lhs_r = bc->bin.lhs.reg;
-					// mov edi, rhs
-					bc->bin.lhs.reg = 7;
-					bc->bin.lhs.reg_sz = 4;
-					bc->bin.rhs.reg_sz = 4;
-					bc->bin.rhs.reg_sz = 4;
-					CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-
-					// mov lhs, edi
-					bc->bin.lhs.reg = lhs_r;
-					bc->bin.lhs.reg_sz = 4;
-					bc->bin.rhs.reg_sz = 7;
-					bc->bin.rhs.reg_sz = 4;
-					CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-
-				}
-				else
-				{
-					char i_sz = bc->bin.rhs.reg_sz == 1 ? 0xb6 : 0xb7;
-
-					ret.code.emplace_back(0x48);
-					ret.code.emplace_back(0x0f);
-					ret.code.emplace_back(i_sz);
-					ret.code.emplace_back(mod);
-
-				}
-			}break;
-			case MOVSX_M:
-			{
-				char mod = MakeModRM(false, 0, 4, bc->bin.lhs.reg);
-				if (bc->bin.rhs.reg_sz == 4)
-				{
-					CreateMemToReg(&*bc, 0x63, 0x63, false, ret);
-					//ret.code.emplace_back(0x48);
-					//ret.code.emplace_back(0x63);
-					//ret.code.emplace_back(mod);
-				}
-				else
-					Create0FMemToReg(&*bc, 0xbe, &ret);
-				
-			}break;
-			case MOVZX_M:
-			{
-				Create0FMemToReg(&*bc, 0xb6, &ret);
-			}break;
-			case RELOC:
-			{
-				bool is_rel_func = bc->rel.type == rel_type::REL_FUNC;
-				bool is_get_func_addr = bc->rel.type == rel_type::REL_GET_FUNC_ADDR;
-
-				if (is_rel_func || is_get_func_addr)
-				{
-                    auto fdecl = bc->rel.call_func;
-                    
-                    if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTERNAL))
-                    {
-
-                        ASSERT(lang_stat->internal_funcs_addr.find(fdecl->name.c_str()) != lang_stat->internal_funcs_addr.end())
-                    }
-                    else
-                    {
-                        auto found_ptr_func = IsThereAFunction(lang_stat, (char *)bc->rel.call_func->name.c_str());
-
-                        // asserting that the function was already compiled
-                        ASSERT(found_ptr_func && IS_FLAG_ON(fdecl->flags, FUNC_DECL_CODE_WAS_GENERATED))
-
-                    }
-
-					int offset_addr = is_rel_func ? 1 : 3;
-					auto fdecl_flags = bc->rel.call_func->flags;
-
-					// check if function is defined by the compiler, by means of testing if the fdecl has a body
-					if(!IS_FLAG_ON(fdecl_flags, FUNC_DECL_EXTERN) 
-						&& !IS_FLAG_ON(fdecl_flags, FUNC_DECL_IS_OUTSIDER)
-						&& !IS_FLAG_ON(fdecl_flags, FUNC_DECL_LINK_NAME))
-					{
-						ret.call_rels.emplace_back(call_rel(ret.code.size() + offset_addr, bc->rel.call_func));
-					}
-					else
-						ret.rels.emplace_back(machine_reloc(INSIDE_FUNC, ret.code.size() + offset_addr, bc->rel.name));
-
-					if(is_rel_func)
-					{
-						ret.code.emplace_back(0xe8);
-						AddImm(0, 4, ret);
-					}
-					else
-						AddLeaInst(ret, bc->rel.reg_dst);
-
-				}
-				else if (bc->rel.type == rel_type::REL_TYPE)
-				{
-					std::string name = std::string("$$") + bc->rel.name;
-
-					// puttinf the name into the heap
-					char *new_str = std_str_to_heap(lang_stat, &name);
-
-					ret.rels.emplace_back(machine_reloc(machine_rel_type::TYPE_DATA, ret.code.size() + 3, new_str));
-
-					ASSERT((unsigned char)bc->rel.reg_dst < 7)
-
-					// emplacing a lea instruction here
-					AddLeaInst(ret, bc->rel.reg_dst);
-					/*
-					ret.code.emplace_back(0x48);
-					ret.code.emplace_back(0x8d);
-					ret.code.emplace_back(0x5 | (bc->rel.reg_dst << 3));
-					AddImm(0, 4, ret);
-					*/
-
-				}
-				else if (bc->rel.type == rel_type::REL_DATA)
-				{
-					char* data_sym_name = (char*)AllocMiscData(lang_stat, 16);
-					snprintf(data_sym_name, 16, "$%d", ret.generated_data_symbols++);
-					
-					ret.symbols.emplace_back(machine_sym(lang_stat, machine_sym_type::SYM_DATA, bc->rel.offset, data_sym_name));
-					// float 
-					if(IS_FLAG_ON(bc->rel.reg_dst, 0x40))
-					{
-						ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 4, data_sym_name));
-
-						// movssinstruction here
-						ret.code.emplace_back(0xf3);
-						ret.code.emplace_back(0x0f);
-						ret.code.emplace_back(0x10);
-						ret.code.emplace_back(0x5 | ((bc->rel.reg_dst &0xf) << 3));
-						AddImm(0, 4, ret);
-					}
-					else
-					{
-						ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 3, data_sym_name));
-
-						// emplacing a lea instruction here
-						AddLeaInst(ret, bc->rel.reg_dst);
-						/*
-						ret.code.emplace_back(0x48);
-						ret.code.emplace_back(0x8d);
-						ret.code.emplace_back(0x5 | (bc->rel.reg_dst << 3));
-						AddImm(0, 4, ret);
-						*/
-					}
-				}
-			}break;
-			case INST_CALL_OUTSIDER:
-			{
-				
-				machine_rel_type r_type = bc->out_func.is_link_name ? DLL_FUNC :DLL_FUNC_NO_IMP_ADDING; 
-
-				ret.rels.emplace_back(machine_reloc(DLL_FUNC, ret.code.size() + 2, bc->name));
-
-				ret.code.emplace_back(0xff);
-				ret.code.emplace_back(0x15);
-				AddImm(0, 4, ret);
-			}break;
-			case JMP_E:
-				//int jmp_sz = (bc->val * 4) > 0xff ? 4 : 1;
-				AddJump(&*bc, 0x74, ret);
-				CHANGE_JMP_DST_BC
-				//ret.jmp_rels.emplace_back(jmp_sz
-				break;
-			case JMP_NE:
-				AddJump(&*bc, 0x75, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			//unsigned
-			case JMP_B:
-				AddJump(&*bc, 0x72, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_BE:
-				AddJump(&*bc, 0x76, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_A:
-				AddJump(&*bc, 0x77, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_AE:
-				AddJump(&*bc, 0x73, ret);
-				CHANGE_JMP_DST_BC
-			break;
-			//signed
-			case JMP_L:
-				AddJump(&*bc, 0x7c, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_LE:
-				AddJump(&*bc, 0x7e, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_G:
-				AddJump(&*bc, 0x7d, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_GE:
-				AddJump(&*bc, 0x7d, ret);
-				CHANGE_JMP_DST_BC
-			break;
-			case MOV_F_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-					CreateSSERegToSSEReg(&*bc, 0x10, &ret);
-				else
-					CreateSSERegToMem(&*bc, 0x11, &ret);
-			}break;
-			case MOV_R_2_SSE:
-			case MOV_SSE_2_R:
-			{
-				CreateSSERegToSSEReg(&*bc, 0x2c, &ret);
-			}break;
-			case MOV_SSE_2_SSE:
-			{
-				CreateSSERegToSSEReg(&*bc, 0x10, &ret);
-				//CreateMemToSSE(&*bc, 0x10, &ret);
-			}break;
-			case MOV_M_2_SSE:
-			{
-				CreateMemToSSE(&*bc, 0x10, &ret);
-			}break;
-			
-			case MOV_SSE_2_RM:
-				CreateSSERegToMem(&*bc, 0x11, &ret, bc->bin.lhs.reg, false);
-			break;
-			case MOV_SSE_2_MEM:
-			{
-				CreateSSERegToMem(&*bc, 0x11, &ret);
-			}break;
-			case MOV_SSE_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					bc->bin.lhs.reg = bc->bin.lhs.reg - 6;
-					CreateSSERegToSSEReg(&*bc, 0x10, &ret);
-				}
-				else
-				{
-					bc->bin.lhs.reg = 5;
-					CreateSSERegToMem(&*bc, 0x11, &ret);
-				}
-			}break;
-			case POP_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
-				}
-				else
-				{
-					StoreMemToMem(&*bc, bc->bin.rhs.voffset, ret);
-				}
-			}break;
-			case PUSH_REG_PARAM:
-			{
-				if (bc->bin.rhs.reg <= 9)
-				{
-					CreateRegToMem(&*bc, 0x88, 0x89, ret);
-				}
-				else
-				{
-					StoreMemToMem(&*bc, bc->bin.lhs.voffset, ret);
-				}
-			}break;
-			case MOV_R_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-					bool base_reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
-
-					char src_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
-					bool src_reg_is_rex = IS_FLAG_ON(src_reg, 0x800);
-
-					char rex = ((char)base_reg_is_rex << 1) | ((char)src_reg_is_rex);
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0x88, 0x89, rex, ret.code);
-
-					base_reg &= 0xf;
-					src_reg &= 0xf;
-					char inst = (3 << 6) | (base_reg) | (src_reg << 3);
-					ret.code.emplace_back(inst);
-				}
-				if (bc->bin.lhs.reg > 9)
-				{
-					char stack_reg = ((short)bc->bin.lhs.reg - 10) * 8 + 32;
-					auto bin = bc->bin;
-					bc->bin.lhs.reg = 5;
-					bc->bin.lhs.voffset  = stack_reg;
-					bc->bin.lhs.var_size = 8;
-					CreateRegToMem(&*bc, 0x88, 0x89, ret);
-					bc->bin = bin;
-				}
-			}break;
-			case MOV_M_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
-				}
-				if (bc->bin.lhs.reg > 9)
-				{
-					char stack_reg = (short)bc->bin.lhs.reg - 10;
-					StoreMemToMem(&*bc, stack_reg * 8 + 32, ret);
-				}
-			}break;
-			case MOV_I_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					char dst_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-					bool reg_is_rex = IS_FLAG_ON(dst_reg, 0x800);
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, ((char)reg_is_rex) << 1, ret.code);
-					ret.code.emplace_back(0xc0 + (char)(dst_reg & 0xf));
-					AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
-				}
-				if (bc->bin.lhs.reg > 9)
-				{
-					char stack_reg = (short)bc->bin.lhs.reg - 10;
-					bc->bin.lhs.voffset = stack_reg * 8 + 32;
-					bc->bin.lhs.var_size = bc->bin.lhs.reg_sz;
-					bc->bin.lhs.reg = 5;
-					CreateStoreImmToMem(&*bc, ret);
-				}
-			}break;
-			case STORE_REG_PARAM:
-			{
-				if ((bc->bin.rhs.reg & 0xf)<= 9)
-				{
-					bool is_sse = IS_FLAG_ON(bc->bin.rhs.reg, 0x10);
-					if (is_sse)
-					{
-						bc->bin.rhs.reg &= 0xf;
-						CreateSSERegToMem(&*bc, 0x11, &ret);
-					}
-					else
-						CreateRegToMem(&*bc, 0x88, 0x89, ret);
-				}
-			}break;
-			case JMP:
-			{
-				int jmp = (int)bc->val * 4;
-				if ((unsigned int)jmp <= 0x80)
-				{
-					ret.jmp_rels.emplace_back(jmp_rel(1, ret.code.size() + 1, &*bc));
-					CHANGE_JMP_DST_BC
-
-					ret.code.emplace_back(0xeb);
-					ret.code.emplace_back(0x00);
-				}
-				else
-				{
-					ret.jmp_rels.emplace_back(jmp_rel(4, ret.code.size() + 1, &*bc));
-					CHANGE_JMP_DST_BC
-
-					ret.code.emplace_back(0xe9);
-
-					ret.code.emplace_back(0x00);
-					ret.code.emplace_back(0x00);
-					ret.code.emplace_back(0x00);
-					ret.code.emplace_back(0x00);
-				}
-			}break;
-
-
-			case CMP_R_2_M:
-			{
-				CreateRegToMem(&*bc, 0x38, 0x39, ret);
-			}break;
-			case CMP_R_2_R:
-			{
-				CreateRegToReg(&*bc, 0x38, 0x39, &ret);
-			}break;
-			case CMP_I_2_RM:
-			{
-				CreateImmToMem(&*bc, 7, ret);
-			}break;
-			//
-			case CMP_MEM_2_SSE:
-			{
-				// we moving the mem to reg 4, so the lhs sse must be a different reg
-				ASSERT(bc->bin.rhs.reg != 4)
-
-				auto last_lhs = bc->bin.lhs;
-				
-				// first we're moving the mem to xmm4
-				bc->bin.lhs.reg = 4;
-
-				// movss xmm4, mem
-				CreateMemToSSE(&*bc, 0x10, &ret);
-
-				bc->bin.lhs = last_lhs;
-				bc->bin.rhs.reg = 4;
-
-				// comiss xmm?, xmm4
-				Create0FMemToReg(&*bc, 0x2f, &ret);
-			}break;
-			case CMP_SSE_2_MEM:
-				// not handled
-				ASSERT(false)
-				CreateSSERegToMem(&*bc, 0x58, &ret);
-			break;
-			case CMP_SSE_2_RMEM:
-				// not handled
-				ASSERT(false)
-				break;
-			case CMP_SSE_2_SSE:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.rhs.reg, bc->bin.lhs.reg);
-
-				ret.code.emplace_back(0x0f);
-				ret.code.emplace_back(0x2f);
-				ret.code.emplace_back(mod);
-			}break;
-			//
-			case CMP_I_2_M:
-			{
-				CreateImmToMem(&*bc, 7, ret);
-			}break;
-			case CMP_M_2_R:
-				CreateMemToReg(&*bc, 0x3a, 0x3b, false, ret);
-				break;
-			case CMP_I_2_R:
-				CreateImmToReg(0x3c, 0x3d, 7, &*bc, ret);
-				break;
-
-			case STORE_RM_2_R:
-			case INST_LEA:
-			{
-				char base_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_base);
-				char dst_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_dst);
-
-				AddPreMemInsts(bc->bin.rhs.lea.size, 0x8d, 0x8d, false, ret.code);
-				//ret.code.emplace_back(byte);
-
-				AddModRM(true, bc->bin.rhs.lea.offset, base_reg, dst_reg, ret);
-				if(bc->bin.rhs.lea.offset != 0)
-					AddImm(bc->bin.rhs.lea.offset, ((unsigned int)bc->bin.rhs.lea.offset) < DISP_BYTE_MAX ? 1 : 4, ret);
-			}break;
-			case COMMENT:
-			{
-				if(f->name == "it_init{entity}")
-					int a = 0;
-			}
-				break;
-			case MOV_R:
-			{
-				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-			}break;
-			case MOV_RM:
-			{
-				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret, bc->bin.rhs.reg);
-			}break;
-			case MOV_M:
-			{
-				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
-			}break;
-			case STORE_R_2_RM:
-			{
-				CreateRegToMem(&*bc, 0x88, 0x89, ret, bc->bin.lhs.reg);
-			}break;
-			case STORE_RM_2_M:
-			case STORE_R_2_M:
-			{
-
-				CreateRegToMem(&*bc, 0x88, 0x89, ret);
-
-			}break;
-			case STORE_I_2_M:
-			{
-				CreateStoreImmToMem(&*bc, ret);
-			}break;
-			case REP_B:
-			{
-				ret.code.emplace_back(0xf3);
-				ret.code.emplace_back(0xa4);
-			}break;
-			case NOT_M:
-			{
-				ASSERT(false)
-			}break;
-			case NOT_R:
-			{
-				char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
-				char mod = MakeModRM(false,0, dst, 2);
-				ret.code.emplace_back(mod);
-			}break;
-			case NEG_M:
-			{
-				ASSERT(false)
-			}break;
-			case NEG_R:
-			{
-				char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
-				char mod = MakeModRM(false,0, dst, 3);
-				ret.code.emplace_back(mod);
-			}break;
-
-			case DIV_R:
-			{
-				// multiplying rax by src
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
-				char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
-
-				char mod = MakeModRM(false,0, src, 7);
-				ret.code.emplace_back(mod);
-			}break;
-			case DIV_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x5e, &ret);
-				break;
-			case DIV_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x5e, &ret);
-				break;
-			case DIV_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x5e, &ret, bc->bin.lhs.reg, false);
-				break;
-			case DIV_SSE_2_SSE:
-				CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
-				break;
-
-			case XOR_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x57, &ret);
-				break;
-			case XOR_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x57, &ret);
-				break;
-			case XOR_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x57, &ret, bc->bin.lhs.reg, false);
-				break;
-			case XOR_SSE_2_SSE:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-				ret.code.emplace_back(0x0f);
-				ret.code.emplace_back(0x57);
-				ret.code.emplace_back(mod);
-
-			}break;
-
-			case MUL_R_2_R:
-			{
-				char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-				dst &= 0xf;
-				char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
-				src &= 0xf;
-
-				
-				// moving dst to rax
-				bc->bin.lhs.reg = 0;
-				bc->bin.rhs.reg = dst;
-
-				if (bc->bin.lhs.reg != bc->bin.rhs.reg)
-					CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-				
-
-				// multiplying rax by src
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
-
-				//  I'm not sure why the third byte reg should be 4
-				char mod = MakeModRM(false,0, src, 4);
-				ret.code.emplace_back(mod);
-			
-				// moving rax to dst
-				bc->bin.lhs.reg = dst;
-				bc->bin.rhs.reg = 0;
-				if (bc->bin.lhs.reg != bc->bin.rhs.reg)
-					CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-
-			}break;
-			case MUL_I_2_R:
-			{
-				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-
-				base_reg &= 0xf;
-				bool less_than_byte = bc->bin.rhs.u32 < 0x80;
-
-				if(less_than_byte)
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0x6b, 0x6b, false, ret.code);
-				else
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0x69, 0x69, false, ret.code);
-
-				char r = (3 << 6) | (base_reg << 3) | base_reg;
-
-				ret.code.emplace_back(r);
-
-				AddImm(bc->bin.rhs.u32, less_than_byte ? 1 : 4, ret);
-			}break;
-			case MUL_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x59, &ret);
-				break;
-			case MUL_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x59, &ret);
-				break;
-			case MUL_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x59, &ret, bc->bin.lhs.reg, false);
-				break;
-			case MUL_SSE_2_SSE:
-				CreateSSERegToSSEReg(&*bc, 0x59, &ret);
-				break;
-
-
-			case MOV_I:
-			{
-					char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-					bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, reg_is_rex, ret.code);
-					ret.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
-					AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
-			}break;
-
-			
-			case MOV_ABS:
-			{
-					char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-					bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
-					AddPreMemInsts(8, 0xb8, 0xb8, reg_is_rex, ret.code);
-					AddImm(bc->bin.rhs.u64, 4, ret);
-					AddImm(bc->bin.rhs.u64 >> 32, 4, ret);
-			}break;
-
-			case AND_I_2_R:
-				CreateImmToReg(0x24, 0x25, 4, &*bc, ret);
-				break;
-			case AND_R_2_R:
-				CreateRegToReg(&*bc, 0x20, 0x21, &ret);
-			break;
-
-
-			case SUB_I_2_M:
-				CreateImmToMem(&*bc, 0x5, ret);
-				break;
-			case SUB_R_2_M:
-				CreateRegToMem(&*bc, 0x28, 0x29, ret);
-				break;
-			case SUB_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x5c, &ret);
-				break;
-			case SUB_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x5c, &ret);
-				break;
-			case SUB_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x5c, &ret, bc->bin.lhs.reg, false);
-				break;
-			case SUB_SSE_2_SSE:
-				CreateSSERegToSSEReg(&*bc, 0x5c, &ret);
-				break;
-			case SUB_M_2_R:
-				CreateMemToReg(&*bc, 0x2a, 0x2b, false, ret);
-				break;
-			case SUB_R_2_R:
-				CreateRegToReg(&*bc, 0x28, 0x29, &ret);
-				break;
-			case SUB_I_2_R:
-				CreateImmToReg(0x2c, 0x2d, 5, &*bc, ret);
-				break;
-
-
-
-			case ADD_R_2_RM:
-				CreateRegToMem(&*bc, 0x0, 0x1, ret, bc->bin.lhs.reg);
-			break;
-			case ADD_I_2_M:
-				CreateImmToMem(&*bc, 0x0, ret);
-			break;
-			case ADD_R_2_M:
-				CreateRegToMem(&*bc, 0x0, 0x1, ret);
-			break;
-			case ADD_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x58, &ret);
-			break;
-			case ADD_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x58, &ret);
-			break;
-			case ADD_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x58, &ret, bc->bin.lhs.reg, false);
-				break;
-			case ADD_SSE_2_SSE:
-				CreateSSERegToSSEReg(&*bc, 0x58, &ret);
-			break;
-			case ADD_M_2_R:
-				CreateMemToReg(&*bc, 0x2, 0x3, false, ret);
-				break;
-			case ADD_R_2_R:
-				CreateRegToReg(&*bc, 0x0, 0x1, &ret);
-				break;
-			case ADD_I_2_RM:
-				CreateImmToMem(&*bc, 0x0, ret, bc->bin.lhs.reg);
-				break;
-			case ADD_I_2_R:
-				CreateImmToReg(0x4, 0x5, 0, &*bc, ret);
-				break;
-
-			case OR_R_2_RM:
-				CreateRegToMem(&*bc, 0x08, 0x9, ret, bc->bin.lhs.reg);
-			break;
-			case OR_I_2_M:
-				CreateImmToMem(&*bc, 0x1, ret);
-			break;
-			case OR_R_2_M:
-				CreateRegToMem(&*bc, 0x8, 0x9, ret);
-			break;
-			case OR_M_2_R:
-				CreateMemToReg(&*bc, 0xa, 0xb, false, ret);
-				break;
-			case OR_R_2_R:
-				CreateRegToReg(&*bc, 0x8, 0x9, &ret);
-				break;
-			case OR_I_2_RM:
-				CreateImmToMem(&*bc, 0x1, ret, bc->bin.lhs.reg);
-				break;
-			case OR_I_2_R:
-				CreateImmToReg(0xc, 0xd, 1, &*bc, ret);
-				break;
-			case INST_CALL_REG:
-			{
-				ret.code.emplace_back(0xff);
-				ret.code.emplace_back(0xd0 + bc->val);
-			}break;
-
-			case POP_STACK_SIZE:
-			case X64_WASM_BEGIN_BLOCK:
-			case X64_WASM_END_BLOCK:
-			case PUSH_STACK_SIZE:
-			{
-			}break;
-			case PUSH_R:
-			{
-				char reg = FromBCRegToAsmReg(bc->val);
-				ret.code.emplace_back(0x50 + (reg & 0xf));
-			}break;
-			case RET:
-			{
-				ret.code.emplace_back(0xc3);
-			}break;
-			case POP_R:
-			{
-				char reg = FromBCRegToAsmReg(bc->val);
-				ret.code.emplace_back(0x58 + (reg & 0xf));
-			}break;
-			default:
-			{
-				ASSERT(false)
-			}break;
-			}
-			i++;
-		}
+		GenX64(lang_stat, f->bcodes, ret);
 		
 	}
 }
@@ -2299,6 +2333,39 @@ own_std::vector<descend_func_ret> DescendCommaFunc(lang_state *lang_stat, func_b
 		
 	}
 	return ret;
+}
+void EmplaceCondJmpInst2(tkn_type2 t, int offset, own_std::vector<byte_code> &ret, bool is_unsigned)
+{
+	byte_code bc;
+
+	if(is_unsigned)
+	{
+		switch(t)
+		{
+		case tkn_type2::T_EXCLAMATION:
+		case tkn_type2::T_COND_EQ: bc.type = byte_code_enum::JMP_E; break;
+		case tkn_type2::T_COND_NE: bc.type = byte_code_enum::JMP_NE; break;
+		case tkn_type2::T_LESSER_THAN: bc.type = byte_code_enum::JMP_B; break;
+		case tkn_type2::T_LESSER_EQ: bc.type = byte_code_enum::JMP_BE; break;
+		case tkn_type2::T_GREATER_THAN: bc.type = byte_code_enum::JMP_A; break;
+		case tkn_type2::T_GREATER_EQ: bc.type = byte_code_enum::JMP_AE; break;
+		}
+	}
+	else
+	{
+		switch(t)
+		{
+		case tkn_type2::T_EXCLAMATION:
+		case tkn_type2::T_COND_EQ: bc.type = byte_code_enum::JMP_E; break;
+		case tkn_type2::T_COND_NE: bc.type = byte_code_enum::JMP_NE; break;
+		case tkn_type2::T_LESSER_THAN: bc.type = byte_code_enum::JMP_L; break;
+		case tkn_type2::T_LESSER_EQ: bc.type = byte_code_enum::JMP_LE; break;
+		case tkn_type2::T_GREATER_THAN: bc.type = byte_code_enum::JMP_G; break;
+		case tkn_type2::T_GREATER_EQ: bc.type = byte_code_enum::JMP_GE; break;
+		}
+	}
+	bc.jmp_rel = offset;
+	ret.emplace_back(bc);
 }
 void EmplaceCondJmpInst(tkn_type2 t, int offset, descend_func_ret *out, bool is_unsigned)
 {
@@ -3278,6 +3345,19 @@ void GenCall(lang_state *lang_stat, func_byte_code *final_func, node *n, scope *
 		
 		
 #endif
+}
+void EmplaceLeaInst2(char reg_dst, char reg_base, int offset, char reg_sz, own_std::vector<byte_code> &ret)
+{
+	if (reg_dst == reg_base && offset == 0)
+		return;
+	byte_code lea;
+	lea.type = byte_code_enum::INST_LEA;
+	lea.bin.lhs.reg = reg_dst;
+	lea.bin.rhs.lea.reg_dst = reg_dst;
+	lea.bin.rhs.lea.reg_base = reg_base;
+	lea.bin.rhs.lea.size = 8;
+	lea.bin.rhs.lea.offset = offset;
+	ret.emplace_back(lea);
 }
 void EmplaceLeaInst(char reg_dst, char reg_base, int offset, char reg_sz, descend_func_ret *out)
 {
@@ -5317,10 +5397,10 @@ own_std::vector<decl2 *> GetScopeDecls(scope *scp)
 	own_std::vector<decl2 *> ret;
 	return ret;
 }
-void ParametersToStack(func_byte_code *final_func, func_decl *fdecl, descend_func_ret *out)
+void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 {
 	int cur_arg = 6;
-	descend_func_ret sp;
+	//descend_func_ret sp;
 	
 	// byte code stack
 	if (false)
@@ -5340,7 +5420,7 @@ void ParametersToStack(func_byte_code *final_func, func_decl *fdecl, descend_fun
 				reg.type = fret_type::R_PARAM_REG;
 
 			// bool param is if the reg is lhs or not
-			out->bcodes.emplace_back(ReturnBCode(byte_code_instr::BC_EQUAL, &var, &reg));
+			//out->bcodes.emplace_back(ReturnBCode(byte_code_instr::BC_EQUAL, &var, &reg));
 			//EmplaceInstRegToMem(final_func, cur_arg, a, byte_code_instr::BC_EQUAL, out);
 
 			cur_arg++;
@@ -5379,7 +5459,7 @@ void ParametersToStack(func_byte_code *final_func, func_decl *fdecl, descend_fun
 
 			bc.bin.rhs.reg_sz = 8;
 			// bool param is if the reg is lhs or not
-			out->bcodes.emplace_back(bc);
+			out->emplace_back(bc);
 
 			// bool param is if the reg is lhs or not
 			//out->bcodes.emplace_back(byte_code(STORE_REG_PARAM, false, (char) 6 + i, (char)8, (int)offset, (int)8));
@@ -5418,7 +5498,7 @@ func_byte_code *GetFunc(lang_state *lang_stat, func_decl *fdecl)
 
 	
 	
-	ParametersToStack(final_func, fdecl, &ret_bcode);
+	ParametersToStack(fdecl, &ret_bcode.bcodes);
 
 	// making the stack 16 byte aligned
 	EmplaceInstImmToReg(final_func, 5, 0xf0, byte_code_instr::BC_AND, &ret_bcode, 1);

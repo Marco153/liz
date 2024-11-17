@@ -1209,6 +1209,92 @@ void PrintV3(dbg_state* dbg)
 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
+void MemCpy(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int c_ptr = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int *a = (int*)&dbg->mem_buffer[a_ptr];
+	int *b = (int*)&dbg->mem_buffer[b_ptr];
+	memcpy(a, b, c_ptr);
+
+}
+struct v3
+{
+	float x;
+	float y;
+	float z;
+
+	v3 mul(float m)
+	{
+		v3 ret;
+		ret.x = x * m;
+		ret.y = y * m;
+		ret.z = z * m;
+		return ret;
+	}
+	float dot(v3& other)
+	{
+		return x * other.x + y * other.y + z * other.y;
+	}
+	float len(v3& other)
+	{
+		return sqrtf(this->dot(*this));
+	}
+};
+void PointLineDistance(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int c_ptr = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int d_ptr = *(int*)&dbg->mem_buffer[base_ptr + 32];
+
+	auto a = (v3*)&dbg->mem_buffer[a_ptr];
+	auto b = (v3*)&dbg->mem_buffer[b_ptr];
+	auto p = (v3*)&dbg->mem_buffer[c_ptr];
+	auto closest_point = (v3*)&dbg->mem_buffer[d_ptr];
+
+	v3 ab;
+	ab.x = b->x - a->x;
+	ab.y = b->y - a->y;
+	ab.z = b->z - a->z;
+
+	v3 ap;
+	ap.x = p->x - a->x;
+	ap.y = p->y - a->y;
+	ap.z = p->z - a->z;
+
+	float proj = ab.dot(ap);
+	float d = proj / ab.dot(ab);
+	if (d <= 0)
+	{
+		*closest_point = *a;
+	}
+	else if (d >= 1)
+	{
+		*closest_point = *b;
+	}
+	else
+	{
+		//*closest_point = *a + ab.mul(d);
+	}
+	v3 ret;
+	//ret.x = closest_point->x - 
+	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = 
+}
+void DotV3(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	float *a = (float*)&dbg->mem_buffer[a_ptr];
+	float *b = (float*)&dbg->mem_buffer[b_ptr];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+}
 void Cos(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1430,7 +1516,7 @@ int main(int argc, char* argv[])
 	//memset(sound.audio_class, 0, sizeof(sound.audio_class));
 	sound.audio_class->sound = &sound;
 
-	InitXAudio2(sound, true);
+	InitXAudio2(sound, false);
 	/*
 	auto addr = heap_alloc(&alloc, 12);
 	auto addr2 = heap_alloc(&alloc, 12);
@@ -1544,6 +1630,9 @@ int main(int argc, char* argv[])
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	AssignOutsiderFunc(&lang_stat, "cos", (OutsiderFuncType)Cos);
+	AssignOutsiderFunc(&lang_stat, "dot_v3", (OutsiderFuncType)DotV3);
+	AssignOutsiderFunc(&lang_stat, "memcpy", (OutsiderFuncType)MemCpy);
+	AssignOutsiderFunc(&lang_stat, "PointLineDistance", (OutsiderFuncType)PointLineDistance);
 	Compile(&lang_stat, &opts);
 	if (!opts.release)
 	{

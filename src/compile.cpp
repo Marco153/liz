@@ -1271,6 +1271,10 @@ static std::string base64_decode(const std::string& in) {
 	return out;
 }
 
+struct x64_rel_info
+{
+	int bc;
+};
 struct block_linked
 {
 	bool used;
@@ -1284,6 +1288,7 @@ struct block_linked
 		ir_rep* ir;
 		int begin;
 	};
+	own_std::vector<x64_rel_info> rels;
 };
 void FreeBlock(block_linked* block)
 {
@@ -1991,8 +1996,9 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			}
 		}
 
+		tkn_type2 opposite = cur_ir->bin.op;
 		if (cur_ir->bin.it_is_jmp_if_true != val)
-			cur_ir->bin.op = OppositeCondCmp(cur_ir->bin.op);
+			opposite = OppositeCondCmp(opposite);
 
 
 		int depth = 0;
@@ -2011,7 +2017,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			aux = aux->parent;
 		}
 
-		WasmPushMultiple(gen_state, cur_ir->bin.only_lhs, cur_ir->bin.lhs, cur_ir->bin.rhs, last_on_stack, cur_ir->bin.op, code_sect, true);
+		WasmPushMultiple(gen_state, cur_ir->bin.only_lhs, cur_ir->bin.lhs, cur_ir->bin.rhs, last_on_stack, opposite, code_sect, true);
 		//WasmPushConst(WASM_TYPE_INT, 0, 7, &code_sect);
 		// br if
 		code_sect.emplace_back(0xd);
@@ -3605,6 +3611,17 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 		{
 			switch (expr_val.type.type)
 			{
+			case TYPE_STATIC_ARRAY:
+			{
+				val = expr_val.offset;
+
+				exp->type = DBG_EXPR_SHOW_VAL_X_TIMES;
+				ast_rep* ast = NewAst();
+				ast->type = AST_INT;
+				ast->num = expr_val.type.ar_size;
+				exp->x_times.clear();
+				exp->x_times.emplace_back(ast);
+			}break;
 			case TYPE_CHAR:
 			{
 				val = WasmGetMemOffsetVal(dbg, expr_val.offset) & 0xff;
@@ -3634,8 +3651,6 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 			}
 			str_val = WasmNumToString(dbg, val, -1, print_type);
 		}
-
-
 	
 		snprintf(buffer, 512, "addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), str_val.c_str());
 	}
@@ -3659,14 +3674,19 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 	{
 		typed_stack_val x_times;
 		WasmFromAstArrToStackVal(dbg, exp->x_times, &x_times);
-		ASSERT(expr_val.type.ptr > 0);
+		ASSERT(expr_val.type.ptr > 0 || expr_val.type.type == TYPE_STATIC_ARRAY);
 		ASSERT(x_times.type.ptr == 0);
 
 		void *ptr_buffer = &dbg->mem_buffer[expr_val.offset];
 		std::string show = "";
-		if (expr_val.type.ptr == 1)
+		if (expr_val.type.ptr == 1 || expr_val.type.type == TYPE_STATIC_ARRAY)
 		{
-			ptr_buffer = &dbg->mem_buffer[*(int*)ptr_buffer];
+			if(expr_val.type.type != TYPE_STATIC_ARRAY)
+				ptr_buffer = &dbg->mem_buffer[*(int*)ptr_buffer];
+			else
+			{
+				expr_val.type = *expr_val.type.tp;
+			}
 			switch (expr_val.type.type)
 			{
 			case TYPE_U8:
@@ -4770,6 +4790,7 @@ struct var_dbg
 	enum_type2 type;
 	int type_idx;
 	int offset;
+	int ar_size;
 	char ptr;
 	decl2* decl;
 };
@@ -5157,6 +5178,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_STATIC_ARRAY:
 		{
 			vdbg->type_idx = WasmSerializeType(wasm_state, ser_state, d->type.tp);
+			vdbg->ar_size = d->type.ar_size;
 		}break;
 		case TYPE_BOOL:
 		case TYPE_INT:
@@ -5538,11 +5560,13 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			tp.strct = strct;
 
 		}break;
+		case TYPE_STATIC_ARRAY:
+			tp.ar_size = cur_var->ar_size;
+			break;
 		case TYPE_AUTO:
 		case TYPE_TEMPLATE:
 		case TYPE_FUNC_TYPE:
 		case TYPE_FUNC:
-		case TYPE_STATIC_ARRAY:
 		case TYPE_BOOL:
 		case TYPE_INT:
 		case TYPE_MACRO_EXPR:
@@ -6306,9 +6330,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = nullptr;
-		cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+		//cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
-		cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
@@ -7674,6 +7698,434 @@ void WasmAppendFunc(own_std::vector<unsigned char> &type_sect, func_decl*fdecl)
 	}
 	*/
 }
+
+void PreX64ImmToReg(own_std::vector<byte_code>& ret, long long imm, char imm_sz, short reg, char reg_sz)
+{
+	EmplaceLeaInst2(reg, reg, imm, reg_sz, ret);
+}
+void FromIrValToBytecodeReg(ir_val *val, byte_code::operand*o) 
+{
+	o->reg = val->reg;
+	o->reg_sz = val->reg_sz;
+}
+
+void PreX64Deref(lang_state* lang_stat, short reg, char deref, own_std::vector<byte_code>& ret)
+{
+	byte_code bc;
+	while (deref > 0)
+	{
+		bc.type = MOV_M;
+		bc.bin.lhs.reg = reg;
+		bc.bin.lhs.reg_sz = 8;
+		bc.bin.rhs.reg = reg;
+		bc.bin.rhs.reg_sz = 8;
+		ret.emplace_back(bc);
+	}
+}
+
+void GenX64ImmToReg(own_std::vector<byte_code>& ret, short reg, char reg_sz, int imm, byte_code_enum inst)
+{
+	byte_code bc;
+	bc.type = inst;
+	bc.bin.lhs.reg = reg;
+	bc.bin.lhs.reg_sz = reg_sz;
+	bc.bin.rhs.i = imm;
+	ret.emplace_back(bc);
+}
+
+void GenX64MemToReg(own_std::vector<byte_code>& ret, short reg, char reg_sz, int mem_offset, short mem_reg, byte_code_enum inst)
+{
+	byte_code bc;
+	bc.type = inst;
+	bc.bin.lhs.reg = reg;
+	bc.bin.lhs.reg_sz = reg_sz;
+	bc.bin.rhs.reg = mem_reg;
+	bc.bin.rhs.reg_sz = reg_sz;
+	ret.emplace_back(bc);
+}
+
+void GenX64RegToMem(own_std::vector<byte_code>& ret, short reg, char reg_sz, int mem_offset, short mem_reg, byte_code_enum inst)
+{
+	byte_code bc;
+	bc.type = inst;
+	bc.bin.lhs.reg = mem_reg;
+	bc.bin.lhs.voffset = mem_offset;
+	bc.bin.lhs.reg_sz = 8;
+	bc.bin.rhs.reg = reg;
+	bc.bin.rhs.reg_sz = reg_sz;
+	ret.emplace_back(bc);
+}
+void GenX64RegToReg(lang_state* lang_stat, own_std::vector<byte_code>& ret, short reg_dst, char reg_sz, short reg_src, byte_code_enum inst)
+{
+	byte_code bc;
+	bc.type = inst;
+	bc.bin.lhs.reg = reg_dst;
+	bc.bin.lhs.reg_sz = reg_sz;
+	bc.bin.rhs.reg = reg_src;
+	bc.bin.rhs.reg_sz = reg_sz;
+	ret.emplace_back(bc);
+}
+int GenX64DeclAndIntOperationToReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_rep * ir, byte_code_enum mem_int_inst, byte_code_enum mem_reg_inst, byte_code_enum reg_int_inst, short reg_dst, char reg_sz, char deref)
+{
+	byte_code bc;
+	char reg = 0;
+	// lea
+	if (ir->bin.lhs.deref == 0)
+	{
+		reg = reg_dst;
+		char reg_sz = reg_sz;
+		bc.type = INST_LEA;
+		bc.bin.rhs.lea.reg_base = PRE_X64_RSP_REG;
+		bc.bin.rhs.lea.offset = ir->bin.lhs.decl->offset;
+		bc.bin.rhs.lea.reg_dst = reg;
+		bc.bin.rhs.lea.size = reg_sz;
+		
+		ret.emplace_back(bc);
+
+		//GenX64RegToMem(ret, reg, reg_sz, mem_offset, short mem_reg, byte_code_enum inst)
+		GenX64ImmToReg(ret, reg, reg_sz, ir->bin.rhs.i, reg_int_inst);
+		//FreeSpecificReg(lang_stat, reg);
+	}
+	else if (ir->bin.lhs.deref == 1)
+	{
+		GenX64MemToReg(ret, reg, reg_sz, ir->assign.to_assign.decl->offset, PRE_X64_RSP_REG, mem_reg_inst);
+		GenX64ImmToReg(ret, reg, reg_sz, ir->assign.rhs.i, reg_int_inst);
+	}
+	else
+	{
+		reg = reg_dst;
+		char reg_sz = reg_sz;
+		bc.type = MOV_M;
+		bc.bin.lhs.reg = PRE_X64_RSP_REG;
+		bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
+		bc.bin.lhs.reg_sz = reg_sz;
+		bc.bin.rhs.reg = reg;
+		ret.emplace_back(bc);
+
+		PreX64Deref(lang_stat, ir->ret.assign.lhs.reg, ir->ret.assign.lhs.deref - 1, ret);
+		GenX64ImmToReg(ret, reg, reg_sz, ir->bin.rhs.i, reg_int_inst);
+		//FreeSpecificReg(lang_stat, reg);
+	}
+
+	return reg;
+}
+int GenX64DeclAndIntOperation(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_rep * ir, byte_code_enum mem_int_inst, byte_code_enum reg_int_inst)
+{
+	byte_code bc;
+	char reg = 0;
+	// lea
+	if (ir->bin.lhs.deref == 0)
+	{
+		reg = AllocReg(lang_stat);
+		char reg_sz = ir->bin.lhs.reg_sz;
+		bc.type = INST_LEA;
+		bc.bin.rhs.lea.reg_base = PRE_X64_RSP_REG;
+		bc.bin.rhs.lea.offset = ir->bin.lhs.decl->offset;
+		bc.bin.rhs.lea.reg_dst = reg;
+		bc.bin.rhs.lea.size = reg_sz;
+		
+		ret.emplace_back(bc);
+
+		//GenX64RegToMem(ret, reg, reg_sz, mem_offset, short mem_reg, byte_code_enum inst)
+		GenX64ImmToReg(ret, reg, reg_sz, ir->bin.rhs.i, reg_int_inst);
+		FreeSpecificReg(lang_stat, reg);
+	}
+	else if (ir->bin.lhs.deref == 1)
+	{
+		bc.type = mem_int_inst;
+		bc.bin.lhs.reg = PRE_X64_RSP_REG;
+		bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
+		bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+		bc.bin.rhs.i = ir->bin.rhs.i;
+		ret.emplace_back(bc);
+	}
+	else
+	{
+		reg = AllocReg(lang_stat);
+		char reg_sz = ir->bin.lhs.reg_sz;
+		bc.type = MOV_M;
+		bc.bin.lhs.reg = PRE_X64_RSP_REG;
+		bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
+		bc.bin.lhs.reg_sz = reg_sz;
+		bc.bin.rhs.reg = reg;
+		ret.emplace_back(bc);
+
+		PreX64Deref(lang_stat, ir->ret.assign.lhs.reg, ir->ret.assign.lhs.deref - 1, ret);
+		GenX64ImmToReg(ret, reg, reg_sz, ir->bin.rhs.i, reg_int_inst);
+		FreeSpecificReg(lang_stat, reg);
+	}
+
+	return reg;
+}
+void GenX64RetGroup(lang_state *lang_stat, int stack_size, own_std::vector<byte_code>& ret)
+{
+
+	byte_code bc;
+	GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, ADD_I_2_R);
+	bc.type = RET;
+	ret.emplace_back(bc);
+}
+void GenX64BytecodeFromIR(lang_state *lang_stat, 
+						  own_std::vector<byte_code>& ret,
+						  own_std::vector<ir_rep>& irs,
+						  wasm_gen_state *gen_state)
+{
+	auto cur = (block_linked*)malloc(sizeof(block_linked));
+	int args = gen_state->cur_func->args.size() - 4;
+	int on_stack_args = max(args, 0);
+
+	unsigned int stack_size = 32 + on_stack_args * 8;
+	int total_args = 0;
+	FOR_VEC(ir, irs)
+	{
+		ir_rep* cur_ir = ir;
+		byte_code bc;
+		switch (ir->type)
+		{
+		case IR_STACK_END:
+		{
+			GenX64RetGroup(lang_stat, stack_size, ret);
+		}break;
+		case IR_STACK_BEGIN:
+		{
+			gen_state->strcts_construct_stack_offset = stack_size;
+			cur_ir->fdecl->strct_constrct_at_offset = stack_size;
+			stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
+
+			gen_state->to_spill_offset = stack_size;
+			cur_ir->fdecl->to_spill_offset = stack_size;
+			stack_size += cur_ir->fdecl->to_spill_size * 8;
+
+			gen_state->strcts_ret_stack_offset = stack_size;
+			cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;
+			stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
+
+			stack_size += cur_ir->fdecl->biggest_call_args * 8;
+			ParametersToStack(cur_ir->fdecl, &ret);
+
+			GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
+
+		}break;
+		case IR_BEGIN_STMNT:
+			FreeAllRegs(lang_stat);
+		case IR_END_STMNT:
+		{
+		}break;
+		case IR_DECLARE_LOCAL:
+		{
+			if (IS_FLAG_ON(cur_ir->decl->flags, DECL_IS_GLOBAL))
+				break;
+			int to_sum = GetTypeSize(&cur_ir->decl->type);
+			stack_size += to_sum <= 4 ? 4 : to_sum;
+			cur_ir->decl->offset = stack_size;
+		}break;
+		case IR_DECLARE_ARG:
+		{
+			cur_ir->decl->offset = 32 + total_args * 8;
+			total_args++;
+		}break;
+		case IR_RET:
+		{
+
+			if (!ir->ret.no_ret_val)
+			{
+				switch (ir->ret.assign.lhs.type)
+				{
+				case IR_TYPE_INT:
+				{
+					bc.type = MOV_I;
+					bc.bin.lhs.reg = ir->ret.assign.to_assign.reg;
+					bc.bin.lhs.reg_sz = 8;
+					bc.bin.rhs.i = ir->ret.assign.lhs.i;
+					ret.emplace_back(bc);
+				}break;
+				case IR_TYPE_REG:
+				{
+					PreX64Deref(lang_stat, ir->ret.assign.lhs.reg, ir->ret.assign.lhs.deref - 1, ret);
+					PreX64Deref(lang_stat, ir->ret.assign.rhs.reg, ir->ret.assign.rhs.deref - 1, ret);
+					bc.type = MOV_R;
+					bc.bin.lhs.reg_sz = ir->ret.assign.lhs.reg_sz;
+					bc.bin.lhs.reg = ir->ret.assign.to_assign.reg;
+
+					FromIrValToBytecodeReg(&ir->ret.assign.lhs, &bc.bin.rhs);
+					ret.emplace_back(bc);
+				}break;
+				default:
+					ASSERT(false);
+				}
+			}
+
+			GenX64RetGroup(lang_stat, stack_size, ret);
+		}break;
+		case IR_CMP_NE:
+		{
+			if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
+			{
+				GenX64DeclAndIntOperation(lang_stat, ret, ir, CMP_I_2_M, CMP_I_2_R);
+			}
+			else
+				ASSERT(false);
+
+			ir_rep* cur_ir = ir;
+			ir_rep* next = cur_ir + 1;
+			bool val = cur_ir->bin.it_is_jmp_if_true;
+
+			if (cur_ir->bin.it_is_jmp_if_true)
+			{
+				if (next->type == IR_END_COND_BLOCK || next->type == IR_END_AND_BLOCK)
+				{
+					val = false;
+				}
+			}
+			else
+			{
+				if (next->type == IR_END_OR_BLOCK)
+				{
+					val = true;
+				}
+			}
+			
+			tkn_type2 opposite = cur_ir->bin.op;
+			if (cur_ir->bin.it_is_jmp_if_true != val)
+				opposite = OppositeCondCmp(opposite);
+
+
+			int depth = 0;
+
+			block_linked* aux = cur;
+			while (aux->parent)
+			{
+				if (!val && (aux->ir->type == IR_BEGIN_LOOP_BLOCK))
+					depth++;
+					//break;
+				if (!val && (aux->ir->type == IR_BEGIN_OR_BLOCK || aux->ir->type == IR_BEGIN_SUB_IF_BLOCK || aux->ir->type == IR_BEGIN_IF_BLOCK || aux->ir->type == IR_BEGIN_LOOP_BLOCK))
+					break;
+				if (val && (aux->ir->type == IR_BEGIN_AND_BLOCK || aux->ir->type == IR_BEGIN_COND_BLOCK))
+					break;
+				depth++;
+				aux = aux->parent;
+			}
+
+			EmplaceCondJmpInst2(opposite, 0, ret, false);
+			x64_rel_info rel;
+			rel.bc = ret.size() - 1;
+			aux->rels.emplace_back(rel);
+		}break;
+		case IR_ASSIGNMENT:
+		{
+			if (ir->assign.only_lhs)
+			{
+				switch (ir->assign.to_assign.type)
+				{
+				case IR_TYPE_REG:
+				{
+					AllocSpecificReg(lang_stat, ir->assign.to_assign.reg);
+					PreX64Deref(lang_stat, ir->assign.to_assign.reg, ir->assign.to_assign.deref - 1, ret);
+					switch (ir->assign.lhs.type)
+					{
+					case IR_TYPE_REG:
+					{
+						PreX64Deref(lang_stat, ir->assign.lhs.reg, ir->assign.lhs.deref - 1, ret);
+						int deref = ir->assign.lhs.deref - 1;
+
+						bc.type = MOV_R;
+						FromIrValToBytecodeReg(&ir->assign.lhs, &bc.bin.rhs);
+						FromIrValToBytecodeReg(&ir->assign.to_assign, &bc.bin.lhs);
+						ret.emplace_back(bc);
+					}break;
+					default:
+						ASSERT(false);
+					}
+				}break;
+				default:
+					ASSERT(false);
+				}
+			}
+			else
+			{
+				//if(AreIRValsEqual(&ir->assign.to_assign, ir->assign))
+				// lea inst shortcut
+				//if(ir->assign.lhs.type == IR_TYPE_REG)
+
+				switch (ir->assign.to_assign.type)
+				{
+				case IR_TYPE_REG:
+				{
+					if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_INT)
+					{
+						byte_code_enum base_inst;
+						switch (ir->assign.op)
+						{
+						case T_PLUS:
+							base_inst = ADD_M_2_M;
+
+						break;
+						case T_MINUS:
+							base_inst = SUB_M_2_M;
+							break;
+						default:
+							ASSERT(false);
+						}
+						GenX64DeclAndIntOperationToReg(lang_stat, ret, ir, (byte_code_enum)(base_inst + 4), 
+												(byte_code_enum)(base_inst + 2), (byte_code_enum)(base_inst + 3),
+												ir->assign.to_assign.reg, 
+												ir->assign.to_assign.reg_sz, 
+												ir->assign.to_assign.deref);
+					}
+					else
+						ASSERT(false)
+				}break;
+				default:
+					ASSERT(false)
+				}
+
+			}
+		}break;
+		case IR_BREAK_OUT_IF_BLOCK:
+		{
+			int depth = 0;
+
+			block_linked* aux = cur;
+			while (aux->parent)
+			{
+				if (aux->ir->type == IR_BEGIN_IF_BLOCK || aux->ir->type == IR_BEGIN_LOOP_BLOCK)
+					break;
+				depth++;
+				aux = aux->parent;
+			}
+		}break;
+
+		case IR_BEGIN_SUB_IF_BLOCK:
+		case IR_BEGIN_AND_BLOCK:
+		case IR_BEGIN_OR_BLOCK:
+		case IR_BEGIN_COND_BLOCK:
+		case IR_BEGIN_IF_BLOCK:
+		{
+			cur = NewBlock(cur);
+			cur->ir = ir;
+		}break;
+
+		case IR_END_SUB_IF_BLOCK:
+		case IR_END_AND_BLOCK:
+		case IR_END_OR_BLOCK:
+		case IR_END_COND_BLOCK:
+		case IR_END_IF_BLOCK:
+		{
+			FOR_VEC(r, cur->rels)
+			{
+				byte_code* bc = &ret[r->bc];
+				bc->val = (ret.size()-1) - r->bc;
+			}
+			FreeBlock(cur);
+			cur = cur->parent;
+			//code_sect.emplace_back(0xb);
+		}break;
+		default:
+			ASSERT(false)
+		}
+	}
+	free(cur);
+}
 void GenWasm(web_assembly_state* wasm_state)
 {
 	//ASSERT(func->func_bcode);
@@ -7952,6 +8404,21 @@ void GenWasm(web_assembly_state* wasm_state)
 			WasmFromSingleIR(decl_to_local_idx, total_of_args, total_of_locals, cur_ir, code_sect, &stack_size, ir, &cur, &last_on_stack, &gen);
 
 			cur_ir = cur_ir + (1 + (gen.advance_ptr));
+		}
+
+		if (IS_FLAG_ON(func->flags, FUNC_DECL_X64))
+		{
+			machine_code mcode;
+			wasm_gen_state state = {};
+			own_std::vector<byte_code> x64_bytecode;
+			state.cur_func = func;
+			GenX64BytecodeFromIR(wasm_state->lang_stat, x64_bytecode, *ir, &state);
+			wasm_state->lang_stat->cur_func = func;
+			GenX64(wasm_state->lang_stat, x64_bytecode, mcode);
+			ResolveJmpInsts(&mcode);
+
+			int a = 1;
+			((int(*)(int *))(mcode.code.data()))(&a);
 		}
 		func->stack_size = stack_size;
 		//WasmPushConst(WASM_TYPE_INT, 0, 3, &code_sect);

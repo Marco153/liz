@@ -671,6 +671,33 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 
 					found_char = false;
 				}
+				// block comment
+				if (ch[1] == '*')
+				{
+					int block_level = 1;
+					
+					i += 2;
+					while (i < input_sz)
+					{
+						if (input[i] == '/' && input[i + 1] == '*')
+						{
+							i++;
+							block_level++;
+						}
+						else if (input[i] == '*' && input[i + 1] == '/')
+						{
+							i++;
+							block_level--;
+							if (block_level == 0)
+							{
+								i++;
+								break;
+							}
+						}
+						i++;
+					}
+					found_char = false;
+				}
 				else
 				{
 					tkn.type = T_DIV;

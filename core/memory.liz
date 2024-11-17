@@ -93,6 +93,8 @@ _own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 		i++;
 	}
 }
+memcpy::fn outsider(dst : *void, src : *void, sz : u64) !void;
+/*
 memcpy::fn(dst : *void, src : *void, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
@@ -103,6 +105,7 @@ memcpy::fn(dst : *void, src : *void, sz : u64) !void
 		i++;
 	}
 }
+*/
 memset::fn(dst : *u8, val : u8, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128);
@@ -613,6 +616,12 @@ nil_ptr_ret::fn() !*void
 {
 	return nil;
 }
+simple_strct_f32: struct
+{
+	a: f32,
+	b: f32,
+	c: f32,
+}
 simple_strct: struct
 {
 	a : u32,
@@ -672,6 +681,18 @@ ret_sum_one_with_f32_ptr::fn(a : *f32) !f32
 {
 	return *a + 1.0;
 }
+
+modify_ar_strct::fn(strct : *simple_strct_f32)
+{
+	val:simple_strct_f32;
+	val.a = 3.5;
+	*ptr_offset(strct, 0, simple_strct_f32) = val;
+}
+modify_static_ar_through_void_ptr::fn(ar : *void)
+{
+	*ptr_offset(ar, 0, f32) = 1.5;
+}
+
 tests :: fn(ret : *u32)
 {
 	i:= 7;
@@ -918,6 +939,7 @@ tests :: fn(ret : *u32)
 	modify_f32_as_s32(&fsum);
 	if fsum < 2.9 || fsum > 3.1
 		debug_break();
+
 	// struct construction
 	fsum = 3.0;
 	fsum = ret_sum_one_with_f32_ptr(&fsum);
@@ -926,6 +948,25 @@ tests :: fn(ret : *u32)
 
 	chunk: = mem_chunk{ next: nil, prev : cast(*mem_chunk)7 };
 	if cast(u64)chunk.prev != 7
+		debug_break();
+
+	// static array stuff
+	ar_strct:[4]simple_strct_f32;
+	modify_ar_strct(ar_strct);
+	if ar_strct[0].a < 3.4 || ar_strct[0].a > 3.6
+		debug_break();
+
+	modify_static_ar_through_void_ptr(cast(*void)ar_strct);
+	if ar_strct[0].a < 1.4 || ar_strct[0].a > 1.6
+		debug_break();
+
+
+	ar_strct_ar::struct
+	{
+		ar: [4] f32;
+	}
+	modify_static_ar_through_void_ptr(cast(*void)ar_strct_ar.ar);
+	if *ar_strct_ar.ar[0] < 1.4 || *ar_strct_ar.ar[0] > 1.6
 		debug_break();
 
 	i = 5;

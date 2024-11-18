@@ -8044,7 +8044,7 @@ void GenX64ToIrValReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir
 	aux->is_float = ir->is_float;
 	GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, aux->reg);
 }
-void GenX64ToIrValDecl(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address)
+void GenX64ToIrValDecl(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address, short reg_dst = -1)
 {
 	aux->type = ir->type;
 	aux->reg = PRE_X64_RSP_REG;
@@ -8052,7 +8052,7 @@ void GenX64ToIrValDecl(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 	aux->voffset = ir->decl->offset;
 	aux->deref = ir->deref;
 	aux->is_float = ir->is_float;
-	GenX64AutomaticDeclDeref(lang_stat, ret, aux->deref, &aux->reg, &aux->voffset, aux->reg_sz, aux->is_float, address);
+	GenX64AutomaticDeclDeref(lang_stat, ret, aux->deref, &aux->reg, &aux->voffset, aux->reg_sz, aux->is_float, address, reg_dst);
 	if (aux->reg != PRE_X64_RSP_REG)
 		aux->type = IR_TYPE_REG;
 }
@@ -8101,6 +8101,15 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 			bc.bin.lhs.reg_sz = lhs->reg_sz;
 			bc.bin.lhs.voffset = lhs->voffset;
 			bc.bin.rhs.i = rhs->i;
+		}break;
+		case IR_TYPE_REG:
+		{
+			bc.bin.lhs.reg = lhs->reg;
+			bc.bin.lhs.reg_sz = lhs->reg_sz;
+			bc.bin.lhs.voffset = lhs->voffset;
+
+			bc.bin.rhs.reg = rhs->reg;
+			bc.bin.rhs.reg_sz = rhs->reg_sz;
 		}break;
 		default:
 			ASSERT(false)
@@ -8157,7 +8166,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_BEGIN_STMNT:
 		{
 			FreeAllRegs(lang_stat);
-			cur_line = ir->num;
+			cur_line = ir->block.stmnt.line;
 		}break;
 		case IR_END_STMNT:
 		{
@@ -8193,6 +8202,13 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					bc.bin.lhs.reg_sz = 8;
 					bc.bin.rhs.i = ir->ret.assign.lhs.i;
 					ret.emplace_back(bc);
+				}break;
+				case IR_TYPE_DECL:
+				{
+					ir_val* d = &ir->ret.assign.lhs;
+					ir_val_aux lhs;
+					GenX64ToIrValDecl(lang_stat, ret, &lhs, d, false, ir->ret.assign.to_assign.reg);
+					//GenX64AutomaticDeclDeref(lang_stat, ret, d->deref, &d-> )
 				}break;
 				case IR_TYPE_REG:
 				{
@@ -8392,16 +8408,56 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				// lea inst shortcut
 				//if(ir->assign.lhs.type == IR_TYPE_REG)
 
+				byte_code_enum base_inst;
+				byte_code_enum base_inst_sse;
+				switch (ir->assign.op)
+				{
+				case T_MUL:
+					base_inst = MUL_M_2_M;
+					base_inst_sse = MUL_SSE_2_SSE;
+
+				break;
+				case T_PERCENT:
+					base_inst = MOD_M_2_M;
+				break;
+				case T_PLUS:
+					base_inst = ADD_M_2_M;
+					base_inst_sse = ADD_SSE_2_SSE;
+
+				break;
+				case T_MINUS:
+					base_inst = SUB_M_2_M;
+					base_inst_sse = SUB_SSE_2_SSE;
+					break;
+				default:
+					ASSERT(false);
+				}
+				byte_code_enum correct_inst = base_inst;
+				if (ir->bin.lhs.is_float)
+					correct_inst = base_inst_sse;
 				switch (ir->assign.to_assign.type)
 				{
+
 				case IR_TYPE_DECL:
 				{
-					short reg_dst = PRE_X64_RSP_REG;
-					char reg_sz_dst = ir->assign.to_assign.reg_sz;
-					int voffset_dst = ir->assign.to_assign.decl->offset;
-					char deref_dst = ir->assign.to_assign.deref;
-					GenX64AutomaticDeclDeref(lang_stat, ret, deref_dst, &reg_dst, &voffset_dst, reg_sz_dst, ir->assign.to_assign.is_float, true);
-					if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_F32)
+					ir_val_aux decl;
+					if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_INT)
+					{
+						ir_val_aux imm;
+						GenX64ToIrValImm(lang_stat, ret, &imm, &ir->assign.rhs);
+
+						ir_val_aux lhs;
+						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false);
+
+						GenX64BinInst(lang_stat, ret, &lhs, &imm, (byte_code_enum)(correct_inst + 3));
+
+						GenX64ToIrValDecl(lang_stat, ret, &decl, &ir->assign.to_assign, true);
+						byte_code_enum inst = STORE_R_2_M;
+						GenX64BinInst(lang_stat, ret, &decl, &lhs, inst);
+
+
+					}
+					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_F32)
 					{
 						short reg = PRE_X64_RSP_REG;
 						char reg_sz = ir->assign.lhs.reg_sz;
@@ -8420,6 +8476,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						default:
 							ASSERT(false)
 						}
+						GenX64ToIrValDecl(lang_stat, ret, &decl, &ir->assign.to_assign, true);
 
 						bc.type = base_inst;
 						bc.bin.lhs.reg = reg;
@@ -8429,11 +8486,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						ret.emplace_back(bc);
 
 						bc.type = MOV_SSE_2_MEM;
-						bc.bin.lhs.reg = reg_dst;
-						bc.bin.lhs.voffset = voffset_dst;
-						bc.bin.lhs.reg_sz = reg_sz_dst;
+						bc.bin.lhs.reg = decl.reg;
+						bc.bin.lhs.voffset = decl.voffset;
+						bc.bin.lhs.reg_sz = decl.reg_sz;
 						bc.bin.rhs.reg = reg;
-						bc.bin.rhs.reg_sz = reg_sz_dst;
+						bc.bin.rhs.reg_sz = decl.reg_sz;
 						ret.emplace_back(bc);
 
 					}
@@ -8442,30 +8499,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				}break;
 				case IR_TYPE_REG:
 				{
-					byte_code_enum base_inst;
-					byte_code_enum base_inst_sse;
-					switch (ir->assign.op)
-					{
-					case T_MUL:
-						base_inst = MUL_M_2_M;
-						base_inst_sse = MUL_SSE_2_SSE;
-
-					break;
-					case T_PERCENT:
-						base_inst = MOD_M_2_M;
-					break;
-					case T_PLUS:
-						base_inst = ADD_M_2_M;
-						base_inst_sse = ADD_SSE_2_SSE;
-
-					break;
-					case T_MINUS:
-						base_inst = SUB_M_2_M;
-						base_inst_sse = SUB_SSE_2_SSE;
-						break;
-					default:
-						ASSERT(false);
-					}
 					if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_INT)
 					{
 
@@ -8473,9 +8506,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false);
 						AllocSpecificReg(lang_stat, lhs.reg);
 
-						byte_code_enum correct_inst = base_inst;
-						if (ir->bin.lhs.is_float)
-							correct_inst = base_inst_sse;
 
 						ir_val_aux rhs;
 						GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->assign.rhs);
@@ -8591,13 +8621,29 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		{
 			cur = NewBlock(cur);
 			cur->ir = ir;
+			cur->bc_idx = ret.size();
+		}break;
+
+		case IR_END_LOOP_BLOCK:
+		{
+			bc.type = JMP;
+			bc.val = cur->bc_idx - (ret.size() + 1);
+			ret.emplace_back(bc);
+			FOR_VEC(r, cur->rels)
+			{
+				byte_code* bc = &ret[r->bc];
+				bc->val = (ret.size()-1) - r->bc;
+			}
+			//EmplaceJmp
+			FreeBlock(cur);
+			cur = cur->parent;
+
 		}break;
 
 		case IR_END_SUB_IF_BLOCK:
 		case IR_END_AND_BLOCK:
 		case IR_END_OR_BLOCK:
 		case IR_END_COND_BLOCK:
-		case IR_END_LOOP_BLOCK:
 		case IR_END_IF_BLOCK:
 		{
 			FOR_VEC(r, cur->rels)
@@ -8609,6 +8655,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			cur = cur->parent;
 			//code_sect.emplace_back(0xb);
 		}break;
+		case IR_END_BLOCK:
 		case IR_BEGIN_BLOCK:
 			break;
 		default:

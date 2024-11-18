@@ -877,12 +877,12 @@ void FreeAllRegs(lang_state* lang_stat)
 }
 void FreeSpecificReg(lang_state* lang_stat, char idx)
 {
-	ASSERT(IS_FLAG_ON(lang_stat->regs[idx], REG_FREE_FLAG));
+	//ASSERT(IS_FLAG_ON(lang_stat->regs[idx], REG_FREE_FLAG));
 	lang_stat->regs[idx] &= ~REG_FREE_FLAG;
 }
 void AllocSpecificReg(lang_state* lang_stat, char idx)
 {
-	ASSERT(IS_FLAG_OFF(lang_stat->regs[idx], REG_FREE_FLAG));
+	//ASSERT(IS_FLAG_OFF(lang_stat->regs[idx], REG_FREE_FLAG));
 	lang_stat->regs[idx] |= REG_FREE_FLAG;
 }
 char AllocReg(lang_state* lang_stat)

@@ -4274,6 +4274,16 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	else
 		lhs = decl_func;
 
+	if (IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_X64) && decl_func && IS_FLAG_OFF(decl_func->type.fdecl->flags, FUNC_DECL_X64))
+	{
+		REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
+			VAR_ARGS("function '%s' is x64, but the call to the function '%s' is not.",
+				lang_stat->cur_func->name.c_str(), decl_func->type.fdecl->name.c_str()
+			)
+		)
+		ExitProcess(1);
+	}
+
 	//if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 //		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
 
@@ -4820,6 +4830,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 		fnode->fdecl->from_file = lang_stat->cur_file;
 	}
 	func_decl* fdecl = fnode->fdecl;
+	lang_stat->cur_func = fdecl;
 	fdecl->func_node = fnode;
 	fdecl->scp = child_scp;
 	child_scp->flags |= SCOPE_INSIDE_FUNCTION;
@@ -6762,6 +6773,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		type2 r;
 		if (!CallNode(lang_stat, n, scp, &r))
 			return nullptr;
+
 
 	}break;
 	case node_type::N_BINOP:

@@ -637,6 +637,16 @@ char *distribute_regs_from_interpreter_bytes= "\x48\x89\xC8"
                   "\x48\x8B\x50\x08"
                   "\x4C\x8B\x40\x10"
                   "\x4C\x8B\x48\x18";
+void MovImmToReg(machine_code &m, short reg, char reg_sz, long long imm)
+{
+	char base_reg = FromBCRegToAsmReg(reg);
+	bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
+	AddPreMemInsts(reg_sz, 0xc6, 0xc7, reg_is_rex, m.code);
+	m.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
+	AddImm(imm, reg_sz, m);
+
+}
+
 void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_code& ret)
 {
 #define CHANGE_JMP_DST_BC ret.jmp_rels.back().dst_bc = &bcodes[i + bc->val + 1];
@@ -667,12 +677,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			//bc->fdecl->code_size = (ret.code.size() + sum_of_onter_insts) - bc->fdecl->code_start_idx;
 		}break;
+		case CVTSD_MEM_2_SS:
+		{
+			Create0FMemToReg(&*bc, 0x2a, &ret);
+		}break;
 		case CVTSD_REG_2_SS:
 		{
 			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-			ret.code.emplace_back(0xf2);
+			ret.code.emplace_back(0xf3);
 			ret.code.emplace_back(0x0f);
-			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(0x2a);
 			ret.code.emplace_back(mod);
 		}break;
 		case INT3:
@@ -1202,6 +1216,44 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			ret.code.emplace_back(mod);
 		}break;
 
+		case MOD_I_2_R:
+		{
+			// xor rdx, rdx
+			byte_code aux;
+			aux.bin.lhs.reg = 2;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			CreateRegToReg(&aux, 0x30, 0x31, &ret);
+
+			if (bc->bin.lhs.reg != 0)
+			{
+				// moving register to rax
+				aux.bin.lhs.reg = 0;
+				aux.bin.lhs.reg_sz = 8;
+				aux.bin.rhs.reg = bc->bin.lhs.reg;
+				aux.bin.rhs.reg_sz = bc->bin.lhs.reg_sz;
+				CreateRegToReg(&aux, 0x88, 0x89, &ret);
+			}
+
+
+			MovImmToReg(ret, 3, 4, bc->bin.rhs.u64);
+
+			// multiplying rax by src
+
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			char mod = MakeModRM(false, 0, 3, 7);
+			ret.code.emplace_back(mod);
+
+			// moving the the remainign rdx to dst reg
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			aux.bin.lhs.reg = bc->bin.lhs.reg;
+			aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
+			CreateRegToReg(&aux, 0x88, 0x89, &ret);
+		}break;
 		case DIV_R:
 		{
 			// multiplying rax by src
@@ -1306,11 +1358,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 
 		case MOV_I:
 		{
+				MovImmToReg(ret, bc->bin.lhs.reg, bc->bin.lhs.reg_sz, bc->bin.rhs.u64);
+				/*
 				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 				bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
 				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, reg_is_rex, ret.code);
 				ret.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
 				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
+				*/
 		}break;
 
 		
@@ -2422,6 +2477,14 @@ void MovStrLitToReg(lang_state *lang_stat, char reg, std::string str, descend_fu
 	EmplaceDataSectReloc(reg, (int)lang_stat->data_sect.size(), ret);
 	//ret->bcodes.emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), (char)reg));
 	InsertIntoDataSect(lang_stat, (void *)str_data, str_sz + 1);
+}
+void MovFloatToSSEReg2(lang_state *lang_stat, char reg, float f, own_std::vector<byte_code> *ret)
+{
+	char xmm_r = reg | (1 << 6);
+
+	// this will insert a movss instruction to xmm0
+	ret->emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), xmm_r));
+	InsertIntoDataSect(lang_stat, (void *)&f, sizeof(float));
 }
 void MovFloatToSSEReg(lang_state *lang_stat, char reg, float f, descend_func_ret *ret)
 {

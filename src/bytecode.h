@@ -139,6 +139,16 @@ enum byte_code_enum
 	SUB_SSE_2_MEM,
 	SUB_SSE_2_RMEM,
 
+
+	MOD_M_2_M,
+	MOD_R_2_M,
+	MOD_M_2_R,
+	MOD_I_2_R,
+	MOD_I_2_M,
+	MOD_I_2_RM,
+	MOD_R_2_RM,
+	MOD_R_2_R,
+
 	ADD_M_2_M,
 	ADD_R_2_M,
 	ADD_M_2_R,

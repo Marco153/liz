@@ -2435,12 +2435,26 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			if (a->type.type == TYPE_TEMPLATE)
 				continue;
             ir.fdecl = ast->func.fdecl;
-			if(IS_FLAG_ON(a->flags, DECL_IS_ARG))
-				ir.type = IR_DECLARE_ARG;
-			else 
+			if (IS_FLAG_OFF(a->flags, DECL_IS_ARG))
+			{
 				ir.type = IR_DECLARE_LOCAL;
-			ir.decl = a;
-			out->emplace_back(ir);
+				ir.decl = a;
+				out->emplace_back(ir);
+			}
+		}
+		FOR_VEC(arg, ast->func.fdecl->vars)
+		{
+			decl2* a = *arg;
+			if (a->type.type == TYPE_TEMPLATE)
+				continue;
+            ir.fdecl = ast->func.fdecl;
+			if (IS_FLAG_ON(a->flags, DECL_IS_ARG))
+			{
+				ir.type = IR_DECLARE_ARG;
+
+				ir.decl = a;
+				out->emplace_back(ir);
+			}
 		}
         ir.type = IR_STACK_BEGIN;
 		ir.fdecl = ast->func.fdecl;

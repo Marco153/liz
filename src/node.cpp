@@ -4274,11 +4274,11 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	else
 		lhs = decl_func;
 
-	if (IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_X64) && decl_func && IS_FLAG_OFF(decl_func->type.fdecl->flags, FUNC_DECL_X64))
+	if (IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_X64) && lhs && lhs->type.type == TYPE_FUNC && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_X64 | FUNC_DECL_MACRO | FUNC_DECL_INTERNAL))
 	{
 		REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 			VAR_ARGS("function '%s' is x64, but the call to the function '%s' is not.",
-				lang_stat->cur_func->name.c_str(), decl_func->type.fdecl->name.c_str()
+				lang_stat->cur_func->name.c_str(), lhs->type.fdecl->name.c_str()
 			)
 		)
 		ExitProcess(1);
@@ -5886,6 +5886,8 @@ void EnumToTypeSect(lang_state *lang_stat, std::string enum_name, scope* scp)
 void AddStructMembersToScopeWithUsing(lang_state *lang_stat, decl2 *decl, scope *scp, node *by_name_nd)
 {
 	ASSERT(decl->type.type = TYPE_STRUCT);
+	if (!decl->type.strct)
+		return;
 
 	// adding every var from struct to scope, and rearranging 
 	// to tree, so that later this tree will be used to get the correct var
@@ -10021,7 +10023,7 @@ func_decl* type_struct2::CreateNewOpOverload(lang_state *lang_stat, func_decl* o
 	// creating overloaded function for this struct
 	auto new_func = original->new_func();
 	new_func->func_node = original->func_node->NewTree(lang_stat);
-	new_func->flags = FUNC_DECL_IS_OP_OVERLOAD;
+	new_func->flags = FUNC_DECL_IS_OP_OVERLOAD | (original->flags & FUNC_DECL_X64);
 
 	new_func->op_overload = tp;
 

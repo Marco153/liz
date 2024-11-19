@@ -83,7 +83,7 @@ is_flag_on::fn macro(val : _expr, flag : _expr)
 {
 	((val & flag) != 0)
 }
-_own_memset::fn(dst : *u8, val : u8, sz : u64) !void
+_own_memset::fn x64(dst : *u8, val : u8, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128);
 	i:u64 = 0;
@@ -93,9 +93,8 @@ _own_memset::fn(dst : *u8, val : u8, sz : u64) !void
 		i++;
 	}
 }
-memcpy::fn outsider(dst : *void, src : *void, sz : u64) !void;
-/*
-memcpy::fn(dst : *void, src : *void, sz : u64) !void
+//memcpy::fn outsider(dst : *void, src : *void, sz : u64) !void;
+memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
@@ -105,7 +104,6 @@ memcpy::fn(dst : *void, src : *void, sz : u64) !void
 		i++;
 	}
 }
-*/
 memset::fn(dst : *u8, val : u8, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128);

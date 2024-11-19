@@ -15,7 +15,10 @@ mat4x4 : struct
 {
 	vals : [4 * 4] f32,
 }
-sqrt::fn outsider(f32) !f32;
+sqrt::fn x64(a : f32) !f32
+{
+	return 1.0;
+}
 
 operator *(self : *mat4x4, vec : *v3) !v3
 {
@@ -64,7 +67,7 @@ operator +(self : *v4, rhs : *v4) !v4
 }
 
 
-operator *(self : *v3, f : f32) !v3
+operator * x64(self : *v3, f : f32) !v3
 {
 	ret:v3;
 	ret.x = self.x * f;
@@ -72,7 +75,7 @@ operator *(self : *v3, f : f32) !v3
 	ret.z = self.z * f;
 	return ret;
 }
-operator -(self : *v3, rhs : *v3) !v3
+operator - x64(self : *v3, rhs : *v3) !v3
 {
 	ret:v3;
 	ret.x = self.x - rhs.x;
@@ -80,7 +83,7 @@ operator -(self : *v3, rhs : *v3) !v3
 	ret.z = self.z - rhs.z;
 	return ret;
 }
-operator +(self : *v3, rhs : *v3) !v3
+operator + x64(self : *v3, rhs : *v3) !v3
 {
 	ret:v3;
 	ret.x = self.x + rhs.x;
@@ -133,7 +136,7 @@ len_v4::fn(a : *v4) ! f32
 {
 	return sqrt(dot_v4(a, a));
 }
-len_v3::fn(a : *v3) ! f32
+len_v3::fn x64(a : *v3) ! f32
 {
 	return sqrt(dot_v3(a, a));
 }
@@ -161,14 +164,12 @@ dot_v4::fn(a : *v4, b : *v4) ! f32
 	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 	return ret;
 }
-dot_v3::fn outsider(a : *v3, b : *v3) !f32;
-/*
-dot_v3::fn(a : *v3, b : *v3) !f32
+//dot_v3::fn outsider(a : *v3, b : *v3) !f32;
+dot_v3::fn x64(a : *v3, b : *v3) !f32
 {
 	ret := a.x * b.x + a.y * b.y + a.z * b.z;
 	return ret;
 }
-*/
 DOT_V3::fn macro(dst : _expr, a : _expr, b : _expr)
 
 {

@@ -392,6 +392,24 @@ void CreateRegToMem(byte_code* bc, char byte, char greater_byte, machine_code& r
 	if(bc->bin.lhs.voffset > 0)
 		AddImm(bc->bin.lhs.voffset, bc->bin.lhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
 }
+void CreateMemToMem(byte_code *bc, char byte, char greater_byte, machine_code &ret)
+{
+	byte_code aux = *bc;
+		
+	aux.bin.lhs.reg = 0;
+	aux.bin.lhs.reg_sz = bc->bin.rhs.reg_sz;
+	aux.bin.rhs.reg = bc->bin.rhs.reg;
+	aux.bin.rhs.reg_sz = bc->bin.rhs.reg_sz;
+	aux.bin.rhs.voffset = bc->bin.rhs.voffset;
+
+	CreateMemToReg(&aux, 0x8a, 0x8b, false, ret);
+	aux.bin.rhs.reg = 0;
+	aux.bin.rhs.reg_sz = bc->bin.rhs.reg_sz;
+	aux.bin.lhs.reg = bc->bin.lhs.reg;
+	aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
+	aux.bin.lhs.voffset = bc->bin.lhs.voffset;
+	CreateRegToMem(&aux, byte, greater_byte, ret);
+}
 void CreateStoreImmToMem(byte_code *bc, machine_code &ret)
 {
 	char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
@@ -647,25 +665,35 @@ void MovImmToReg(machine_code &m, short reg, char reg_sz, long long imm)
 
 }
 
+int GetArgRegIdx(int reg)
+{
+	short final_reg = 0;
+	switch (reg)
+	{
+	case 0:
+		final_reg = 1;
+		break;
+	case 1:
+		final_reg = 2;
+		break;
+	case 2:
+		final_reg = 1 | (1 << 7);
+		break;
+	case 3:
+		final_reg = 2 | (1 << 7);
+		break;
+	default:
+		final_reg = reg;
+	}
+	return final_reg;
+
+}
 void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_code& ret)
 {
 #define CHANGE_JMP_DST_BC ret.jmp_rels.back().dst_bc = &bcodes[i + bc->val + 1];
 	int i = 0;
-	int on_stack_args = (max(lang_stat->cur_func->args.size() - 4, 0));
-	ret.code.insert(ret.code.begin(), (unsigned char *)distribute_regs_from_interpreter_bytes, (unsigned char *)distribute_regs_from_interpreter_bytes + strlen(distribute_regs_from_interpreter_bytes));
-	if (on_stack_args)
-	{
-		for (int i = 0; i < on_stack_args; i++)
-		{
-			//mov rbx, qword[rax + 4]
-			//mov qword[rsp + 32], rbx
-			char aux[] = {0x48, 0x8B, 0x58, 0x00, 0x48, 0x89, 0x5C, 0x24, 0x00};
-			aux[3] = 32 + i * 8;
-			aux[8] = 32 + (i + 1) * 8;
 
-			ret.code.insert(ret.code.begin(), (unsigned char *)aux, (unsigned char *)aux + strlen(aux));
-		}
-	}
+
 	FOR_VEC(bc, bcodes)
 	{
 
@@ -673,6 +701,30 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		bc->machine_code_idx = ret.code.size();
 		switch(bc->type)
 		{
+		case BEGIN_FUNC:
+		{
+			func_decl* fdecl = bc->fdecl;
+			fdecl->for_interpreter_code_start_idx = ret.code.size();
+
+			int on_stack_args = (max(fdecl->args.size() - 4, 0));
+			ret.code.insert(ret.code.end(), (unsigned char *)distribute_regs_from_interpreter_bytes, (unsigned char *)distribute_regs_from_interpreter_bytes + strlen(distribute_regs_from_interpreter_bytes));
+			if (on_stack_args)
+			{
+				for (int i = 0; i < on_stack_args; i++)
+				{
+					//mov rbx, qword[rax + 4]
+					//mov qword[rsp + 32], rbx
+					char aux[] = {0x48, 0x8B, 0x58, 0x00, 0x48, 0x89, 0x5C, 0x24, 0x00};
+					aux[3] = 32 + i * 8;
+					aux[8] = 32 + (i + 1) * 8;
+
+					ret.code.insert(ret.code.end(), (unsigned char *)aux, (unsigned char *)aux + strlen(aux));
+				}
+			}
+
+			fdecl->code_start_idx = ret.code.size();
+
+		}break;
 		case ASSIGN_FUNC_SIZE:
 		{
 			//bc->fdecl->code_size = (ret.code.size() + sum_of_onter_insts) - bc->fdecl->code_start_idx;
@@ -982,9 +1034,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case MOV_R_2_REG_PARAM:
 		{
-			if (bc->bin.lhs.reg <= 9)
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			if (bc->bin.lhs.reg < 4)
 			{
-				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+				char base_reg = final_reg;
 				bool base_reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
 
 				char src_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
@@ -1000,7 +1053,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			if (bc->bin.lhs.reg > 9)
 			{
-				char stack_reg = ((short)bc->bin.lhs.reg - 10) * 8 + 32;
+				char stack_reg = (final_reg) * 8 + 32;
 				auto bin = bc->bin;
 				bc->bin.lhs.reg = 5;
 				bc->bin.lhs.voffset  = stack_reg;
@@ -1011,29 +1064,32 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case MOV_M_2_REG_PARAM:
 		{
-			if (bc->bin.lhs.reg <= 9)
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			if (bc->bin.lhs.reg < 4)
 			{
+				bc->bin.lhs.reg = final_reg;
 				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
 			}
-			if (bc->bin.lhs.reg > 9)
+			else
 			{
-				char stack_reg = (short)bc->bin.lhs.reg - 10;
+				char stack_reg = (short)(stack_reg * 8 + 32);
 				StoreMemToMem(&*bc, stack_reg * 8 + 32, ret);
 			}
 		}break;
 		case MOV_I_2_REG_PARAM:
 		{
-			if (bc->bin.lhs.reg <= 9)
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			if (bc->bin.lhs.reg < 4)
 			{
-				char dst_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+				char dst_reg = final_reg;
 				bool reg_is_rex = IS_FLAG_ON(dst_reg, 0x800);
 				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, ((char)reg_is_rex) << 1, ret.code);
 				ret.code.emplace_back(0xc0 + (char)(dst_reg & 0xf));
 				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
 			}
-			if (bc->bin.lhs.reg > 9)
+			else
 			{
-				char stack_reg = (short)bc->bin.lhs.reg - 10;
+				char stack_reg = final_reg;
 				bc->bin.lhs.voffset = stack_reg * 8 + 32;
 				bc->bin.lhs.var_size = bc->bin.lhs.reg_sz;
 				bc->bin.lhs.reg = 5;
@@ -1216,6 +1272,52 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			ret.code.emplace_back(mod);
 		}break;
 
+		case MOD_M_2_R:
+		{
+			// xor rdx, rdx
+			byte_code aux;
+			aux.bin.lhs.reg = 2;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			CreateRegToReg(&aux, 0x30, 0x31, &ret);
+
+			if (bc->bin.lhs.reg != 0)
+			{
+				// moving register to rax
+				aux.bin.lhs.reg = 0;
+				aux.bin.lhs.reg_sz = 8;
+				aux.bin.rhs.reg = bc->bin.lhs.reg;
+				aux.bin.rhs.reg_sz = bc->bin.lhs.reg_sz;
+				CreateRegToReg(&aux, 0x88, 0x89, &ret);
+			}
+
+
+			// moving mem to rbx
+			aux.bin.lhs.reg = 3;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = bc->bin.rhs.reg;
+			aux.bin.rhs.reg_sz = bc->bin.rhs.reg_sz;
+			aux.bin.rhs.voffset = bc->bin.rhs.voffset;
+			CreateMemToReg(&aux, 0x8a, 0x8b, false, ret);
+
+			MovImmToReg(ret, 3, 4, bc->bin.rhs.u64);
+
+			// multiplying rax by src
+
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			char mod = MakeModRM(false, 0, 3, 7);
+			ret.code.emplace_back(mod);
+
+			// moving the the remainign rdx to dst reg
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			aux.bin.lhs.reg = bc->bin.lhs.reg;
+			aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
+			CreateRegToReg(&aux, 0x88, 0x89, &ret);
+		}break;
 		case MOD_I_2_R:
 		{
 			// xor rdx, rdx
@@ -1416,6 +1518,9 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 
 
 
+		case ADD_M_2_M:
+			CreateMemToMem(&*bc, 0x0, 0x1, ret);
+		break;
 		case ADD_R_2_RM:
 			CreateRegToMem(&*bc, 0x0, 0x1, ret, bc->bin.lhs.reg);
 		break;

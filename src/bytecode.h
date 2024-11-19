@@ -278,10 +278,15 @@ struct reg_strct
 	{
 	}
 };
+struct ir_rep;
 struct byte_code
 {
 	byte_code_enum type;
-	node* nd;
+	union
+	{
+		ir_rep* ir;
+		node* nd;
+	};
 	struct operand
 	{
 		union
@@ -701,6 +706,7 @@ struct machine_code
 	own_std::vector<machine_sym> symbols;
 	own_std::vector<jmp_rel> jmp_rels;
 	own_std::vector<call_rel> call_rels;
+	own_std::vector<byte_code> bcs;
 
     int executable;
 

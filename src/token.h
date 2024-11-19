@@ -396,6 +396,7 @@ struct func_decl
     machine_code *code;
 
 	int code_start_idx;
+	int for_interpreter_code_start_idx;
 	int code_size;
 
     int wasm_func_sect_idx;

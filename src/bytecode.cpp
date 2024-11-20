@@ -425,7 +425,8 @@ void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, char base_reg =
 {
 	base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
-	if (bc->bin.rhs.u64 <= 0xff)
+	char one_byte_imm = bc->bin.rhs.u64 < 0x80 ? 1 : 4;
+	if (one_byte_imm == 1)
 		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, false, ret.code);
 	else
 		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x81, false, ret.code);
@@ -441,7 +442,7 @@ void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, char base_reg =
 		AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
 
 	// adding imm
-	AddImm(bc->bin.rhs.u64, bc->bin.rhs.u64 <= 0xff ? 1 : 4, ret);
+	AddImm(bc->bin.rhs.u64, one_byte_imm, ret);
 
 }
 void AddJump(byte_code *bc, char jmp, machine_code& ret)
@@ -578,10 +579,10 @@ void Create0FMemToReg(byte_code *bc, char op, machine_code *ret)
 
 	AddPreMemInsts(8, 0x0f, 0x0f, false, ret->code);
 
-	if (bc->bin.rhs.reg_sz == 2)
+	if (bc->bin.rhs.reg_sz == 2 || bc->bin.rhs.reg_sz == 8)
 		ret->code.emplace_back(op + 1);
 
-	else if(bc->bin.rhs.reg_sz == 1)
+	else if(bc->bin.rhs.reg_sz == 1 || bc->bin.rhs.reg_sz == 4)
 		ret->code.emplace_back(op);
 
 	else
@@ -677,10 +678,10 @@ int GetArgRegIdx(int reg)
 		final_reg = 2;
 		break;
 	case 2:
-		final_reg = 1 | (1 << 7);
+		final_reg = 0 | (1 << 7);
 		break;
 	case 3:
-		final_reg = 2 | (1 << 7);
+		final_reg = 1 | (1 << 7);
 		break;
 	default:
 		final_reg = reg;
@@ -694,6 +695,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 	int i = 0;
 
 
+	int cur_func_start = 0;
 	FOR_VEC(bc, bcodes)
 	{
 
@@ -705,6 +707,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			func_decl* fdecl = bc->fdecl;
 			fdecl->for_interpreter_code_start_idx = ret.code.size();
+			cur_func_start = ret.code.size();
 
 			int on_stack_args = (max(fdecl->args.size() - 4, 0));
 			ret.code.insert(ret.code.end(), (unsigned char *)distribute_regs_from_interpreter_bytes, (unsigned char *)distribute_regs_from_interpreter_bytes + strlen(distribute_regs_from_interpreter_bytes));
@@ -1425,6 +1428,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			if (bc->bin.lhs.reg != bc->bin.rhs.reg)
 				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
 
+		}break;
+		case MUL_M_2_R:
+		{
+			int code = ret.code.size();
+			Create0FMemToReg(&*bc, 0xaf, &ret);
 		}break;
 		case MUL_I_2_R:
 		{

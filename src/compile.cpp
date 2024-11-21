@@ -12,6 +12,8 @@
 #include "Array.cpp"
 #include "rel_utils.h"
 
+#define AUX_DECL_REG 3
+
 #define ANSI_RESET   "\033[0m"
 #define ANSI_BLACK     "\033[30m"
 #define ANSI_RED     "\033[31m"
@@ -153,6 +155,7 @@ struct wasm_interp;
 struct lang_state
 {
 	int cur_idx;
+	int execute_id;
 	int flags;
 
 	bool something_was_declared;
@@ -2063,8 +2066,10 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
 		WasmPushMultiple(gen_state, cur_ir->assign.only_lhs, *lhs, *rhs, last_on_stack, cur_ir->assign.op, code_sect, true);
 
+		/*
 		if(!cur_ir->assign.only_lhs && cur_ir->assign.op != T_POINT)
 			ASSERT(cur_ir->assign.rhs.is_float == cur_ir->assign.lhs.is_float);
+			*/
 		/*
 		for(int i = 2; i < gen_state->similar.size();i++)
 		{
@@ -2795,7 +2800,7 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 	std::string ret = "";
 	char buffer[32];
 	int ptr = 0;
-	if(ptr == -1)
+	if(val->deref == -1)
 	{
 		ret += "&";
 	}
@@ -2835,7 +2840,7 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 		case ON_STACK_STRUCT_CONSTR:
 		{
 			stack_type_name = "struct constr";
-			base_ptr -= dbg->cur_func->strct_constrct_at_offset;
+			base_ptr = dbg->cur_func->strct_constrct_at_offset + val->i;
 		}break;
 		case ON_STACK_SPILL:
 		{
@@ -2914,7 +2919,7 @@ std::string WasmIrAssignment(dbg_state* dbg, assign_info* assign)
 		snprintf(buffer, 128, "%s = %s %s %s", to_assign.c_str(), lhs.c_str(), op.c_str(), rhs.c_str());
 	}
 	ret = buffer;
-	ret += "\n";
+	//ret += "\n";
 	return ret;
 
 }
@@ -7798,13 +7803,13 @@ void GenX64DeclWithDeref(lang_state *lang_stat, own_std::vector<byte_code>& ret,
 	bc.type = MOV_M;
 	bc.bin.rhs.reg = PRE_X64_RSP_REG;
 	bc.bin.rhs.voffset = var_offset;
-	bc.bin.rhs.reg_sz = reg_sz;
+	bc.bin.rhs.reg_sz = 8;
 	bc.bin.lhs.reg = reg;
-	bc.bin.lhs.reg_sz = reg_sz;
+	bc.bin.lhs.reg_sz = 8;
 	ret.emplace_back(bc);
-	deref--;
 
 	PreX64Deref(lang_stat, reg, deref, ret);
+	deref--;
 }
 /*
 int GenX64DeclAndRegOperationToReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_rep * ir, byte_code_enum mem_reg_inst, byte_code_enum reg_reg_inst, short reg_dst, char reg_sz, char deref)
@@ -7956,7 +7961,7 @@ void GenX64AutomaticAddress(lang_state* lang_stat, own_std::vector<byte_code>& r
 			{
 				if (*reg == PRE_X64_RSP_REG)
 				{
-					reg_dst = AllocReg(lang_stat);
+					reg_dst = AUX_DECL_REG;
 				}
 				else
 					reg_dst = *reg;
@@ -7977,46 +7982,51 @@ void GenX64AutomaticAddress(lang_state* lang_stat, own_std::vector<byte_code>& r
 
 void GenX64AutomaticRegDeref(lang_state* lang_stat, own_std::vector<byte_code>& ret, char deref, short* reg, char reg_sz, bool is_float, bool address, short reg_dst = -1)
 {
+	int offset = 0;
+	while (deref >= 0)
+	{
+		if (deref > 0)
+		{
+			GenX64AutomaticAddress(lang_stat, ret, deref, reg, &offset, reg_sz, false, false, reg_dst);
+		}
+		else
+		{
+			 if(!address)
+				GenX64AutomaticAddress(lang_stat, ret, deref, reg, &offset, reg_sz, is_float, address, reg_dst);
+			 else
+				GenX64AutomaticAddress(lang_stat, ret, deref, reg, &offset, reg_sz, false, false, reg_dst);
+		}
+
+		deref--;
+	}
+	/*
 	byte_code bc;
 	if (deref > 1)
 	{
 		PreX64Deref(lang_stat, *reg, deref, ret);
 	}
-	else if (deref == 0 || deref == 1)
-	{
-	}
-	else
-		ASSERT(false);
-	int offset = 0;
-	if(deref > 0)
+	if(deref >= 0)
 		GenX64AutomaticAddress(lang_stat, ret, deref, reg, &offset, reg_sz, is_float, address, reg_dst);
+	*/
 }
 void GenX64AutomaticDeclDeref(lang_state* lang_stat, own_std::vector<byte_code>& ret, char deref, short *reg, int *voffset, char reg_sz, bool is_float, bool address, short reg_dst = -1)
 {
-	byte_code bc;
-	if (deref > 1)
+	while (deref >= 0)
 	{
-		*reg = AllocReg(lang_stat);
+		if (deref > 0)
+		{
+			GenX64AutomaticAddress(lang_stat, ret, deref, reg, voffset, reg_sz, false, false, reg_dst);
+		}
+		else
+		{
+			 if(!address)
+				GenX64AutomaticAddress(lang_stat, ret, deref, reg, voffset, reg_sz, is_float, address, reg_dst);
+			 else
+				GenX64AutomaticAddress(lang_stat, ret, deref, reg, voffset, reg_sz, false, false, reg_dst);
+		}
+
 		deref--;
-		GenX64DeclWithDeref(lang_stat, ret, *reg, reg_sz, *voffset, deref);
-		FreeSpecificReg(lang_stat, *reg);
-		*voffset = 0;
 	}
-	else if (deref == 0)
-	{
-		*reg = AllocReg(lang_stat);
-		EmplaceLeaInst2(*reg, PRE_X64_RSP_REG, *voffset, 8, ret);
-		*voffset = 0;
-
-		return;
-	}
-	else if (deref == 1)
-	{
-	}
-	else
-		ASSERT(false);
-		GenX64AutomaticAddress(lang_stat, ret, deref, reg, voffset, reg_sz, is_float, address, reg_dst);
-
 }
 
 byte_code_enum DetermineMovBcBasedOnDeref(char deref, bool is_float)
@@ -8067,7 +8077,7 @@ void GenX64ToIrValReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir
 	aux->type = ir->type;
 	aux->reg = ir->reg;
 	aux->reg_sz = ir->reg_sz;
-	aux->deref = max(ir->deref, 0);
+	aux->deref = ir->deref;
 	aux->is_float = ir->is_float;
 	GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, aux->reg);
 }
@@ -8079,20 +8089,30 @@ void GenX64ToIrValFloatRaw(lang_state* lang_stat, own_std::vector<byte_code>& re
 	aux->is_float = ir->is_float;
 
 	MovFloatToSSEReg2(lang_stat, reg_dst, ir->f32, &ret);
-
 }
+
 void GenX64ToIrValDecl(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address, short reg_dst = -1)
 {
 	aux->type = ir->type;
 	aux->reg = PRE_X64_RSP_REG;
 	aux->reg_sz = ir->reg_sz;
 	if(ir->type == IR_TYPE_ON_STACK)
-		aux->voffset = ir->i;
+		aux->voffset = ir->i + lang_stat->cur_func->strct_constrct_at_offset;
 	else
 		aux->voffset = ir->decl->offset;
 	aux->deref = ir->deref;
 	aux->is_float = ir->is_float;
-	GenX64AutomaticDeclDeref(lang_stat, ret, aux->deref, &aux->reg, &aux->voffset, aux->reg_sz, aux->is_float, address, reg_dst);
+	byte_code bc;
+	if (ir->ptr == -1)
+	{
+		aux->reg = AllocReg(lang_stat);
+		EmplaceLeaInst2(aux->reg, PRE_X64_RSP_REG, aux->voffset, 8, ret);
+		aux->voffset = 0;
+	}
+	else
+	{
+		GenX64AutomaticDeclDeref(lang_stat, ret, aux->deref, &aux->reg, &aux->voffset, aux->reg_sz, aux->is_float, address, reg_dst);
+	}
 	if (aux->reg != PRE_X64_RSP_REG)
 		aux->type = IR_TYPE_REG;
 }
@@ -8103,6 +8123,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 	switch (lhs->type)
 	{
 	case IR_TYPE_ARG_REG:
+	case IR_TYPE_RET_REG:
 	case IR_TYPE_REG:
 	{
 		switch (rhs->type)
@@ -8115,6 +8136,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 		}break;
 		case IR_TYPE_F32:
 		case IR_TYPE_REG:
+		case IR_TYPE_RET_REG:
 		case IR_TYPE_ARG_REG:
 		{
 			bc.bin.lhs.reg = lhs->reg;
@@ -8208,6 +8230,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	int total_args = 0;
 	int cur_line = 0;
 	int start = ret.size();
+	lang_stat->dstate->cur_func = gen_state->cur_func;
+	lang_stat->cur_func = gen_state->cur_func;
 	ret.emplace_back(byte_code(byte_code_enum::BEGIN_FUNC, gen_state->cur_func));
 	int idx = 0;
 	FOR_VEC(ir, irs)
@@ -8285,7 +8309,12 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				{
 					ir_val* d = &ir->ret.assign.lhs;
 					ir_val_aux lhs;
-					GenX64ToIrValDecl(lang_stat, ret, &lhs, d, false, ir->ret.assign.to_assign.reg);
+					GenX64ToIrValDecl(lang_stat, ret, &lhs, d, false);
+
+					if (lhs.reg == PRE_X64_RSP_REG)
+						GenX64MemToReg(ret, 0, lhs.reg_sz, lhs.voffset, lhs.reg, MOV_M);
+					else
+						GenX64RegToReg(lang_stat, ret, 0, lhs.reg_sz, lhs.reg, MOV_M);
 					//GenX64AutomaticDeclDeref(lang_stat, ret, d->deref, &d-> )
 				}break;
 				case IR_TYPE_RET_REG:
@@ -8322,7 +8351,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ir_val_aux rhs;
 				GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->bin.rhs);
 
-				if (lhs.reg == PRE_X64_RSP_REG)
+				if (lhs.reg == PRE_X64_RSP_REG || lhs.deref >= 0)
 				{
 					GenX64ImmToMem(ret, lhs.reg, lhs.voffset, lhs.reg_sz, rhs.i, CMP_I_2_M);
 				}
@@ -8351,7 +8380,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_F32)
 			{
 				ir_val_aux lhs;
+				ir->bin.lhs.deref++;
 				GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+				ir->bin.lhs.deref--;
 				AllocSpecificReg(lang_stat, lhs.reg);
 
 				char sse_reg = 0;
@@ -8382,7 +8413,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ir_val_aux lhs;
 				GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, true);
 
-				if (ir->bin.lhs.deref > 0)
+				if (ir->bin.lhs.deref >= 0)
 					GenX64ImmToMem(ret, lhs.reg, 0, lhs.reg_sz, ir->bin.rhs.i, CMP_I_2_M);
 				else
 					GenX64ImmToReg(ret, lhs.reg, lhs.reg_sz, ir->bin.rhs.i, CMP_I_2_R);
@@ -8424,11 +8455,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_DECL)
 			{
 				ir_val_aux lhs;
-				GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+				ir->bin.lhs.deref++;
+				GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, true);
+				ir->bin.lhs.deref--;
 				AllocSpecificReg(lang_stat, lhs.reg);
 
 				ir_val_aux rhs;
-				GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, true);
+				ir->bin.rhs.deref--;
+				GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, false);
+				ir->bin.rhs.deref++;
 
 				
 				GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, CMP_M_2_R);
@@ -8487,6 +8522,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		// X64 =
 		case IR_ASSIGNMENT:
 		{
+			int target_break = 242;
+			if (cur_line == target_break)
+			{
+			}
 			if (ir->assign.only_lhs)
 			{
 				switch (ir->assign.to_assign.type)
@@ -8496,16 +8535,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					switch (ir->assign.lhs.type)
 					{
 					case IR_TYPE_ON_STACK:
-					{
-						bc.type = MOV_M_2_REG_PARAM;
-						bc.bin.lhs.reg = ir->assign.to_assign.reg;
-						bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
-						bc.bin.rhs.reg = PRE_X64_RSP_REG;
-						bc.bin.rhs.reg_sz = ir->assign.lhs.reg_sz;
-						bc.bin.rhs.voffset = ir->assign.lhs.i;
-
-						ret.emplace_back(bc);
-					}break;
 					case IR_TYPE_DECL:
 					{
 						ir_val_aux lhs;
@@ -8560,12 +8589,12 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					char deref = ir->assign.to_assign.deref;
 
 					if(ir->assign.to_assign.type == IR_TYPE_ON_STACK)
-						voffset = ir->assign.to_assign.i;
+						voffset = ir->assign.to_assign.i + gen_state->cur_func->strct_constrct_at_offset;
 					else
 						voffset = ir->assign.to_assign.decl->offset;
 					
-					if(deref > 0)
-						GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true);
+					GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true);
+
 
 					switch (ir->assign.lhs.type)
 					{
@@ -8587,6 +8616,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 							GenX64RegToMem(ret, lhs.reg, reg_sz, voffset, reg, STORE_R_2_M);
 						}
 					}break;
+					case IR_TYPE_RET_REG:
 					case IR_TYPE_REG:
 					{
 						short src_reg = ir->assign.lhs.reg;
@@ -8602,7 +8632,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						}
 						else
 						{
-							GenX64RegToMem(ret, src_reg, reg_sz, voffset, reg, STORE_R_2_M);
+							ir_val_aux lhs;
+							GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.lhs, false);
+							GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, voffset, reg, STORE_R_2_M);
 						}
 					}break;
 					case IR_TYPE_INT:
@@ -8661,14 +8693,16 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					case IR_TYPE_INT:
 					{
 						ir_val_aux lhs;
+						ir->assign.to_assign.deref--;
 						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
+						ir->assign.to_assign.deref++;
 
 						ir_val_aux rhs;
 						GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->bin.lhs);
 
 
 						byte_code_enum inst;
-						if (lhs.deref > 0)
+						if (ir->assign.to_assign.deref >= 0)
 							inst = STORE_I_2_M;
 						else
 							inst = MOV_I;
@@ -8682,7 +8716,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					{
 						short reg_dst = ir->assign.to_assign.reg;
 						short reg_dst_sz = ir->assign.to_assign.reg_sz;
-						short reg_dst_deref = max(ir->assign.to_assign.deref, 0 );
+						short reg_dst_deref = ir->assign.to_assign.deref;
 						bool reg_dst_float = ir->assign.to_assign.is_float;
 						GenX64AutomaticRegDeref(lang_stat, ret, reg_dst_deref, &reg_dst, reg_dst_sz, ir->assign.to_assign.is_float, true, reg_dst);
 						AllocSpecificReg(lang_stat, reg_dst);
@@ -8692,7 +8726,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false);
 						ASSERT(lhs.type == IR_TYPE_REG)
 
-						if (reg_dst_deref == 0)
+						if (reg_dst != PRE_X64_RSP_REG)
 						{
 							GenX64RegToReg(lang_stat, ret, reg_dst, reg_dst_sz, lhs.reg, MOV_R);
 						}
@@ -8705,15 +8739,30 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					case IR_TYPE_RET_REG:
 					case IR_TYPE_REG:
 					{
+						ir_val_aux lhs;
+						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
+
+						ir_val_aux rhs;
+						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->assign.lhs, false);
+
+						byte_code_enum inst;
+						if (lhs.deref > 0)
+							inst = STORE_R_2_M;
+						else
+							inst = MOV_R;
+
+						GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
+
+
 						short reg_dst = ir->assign.to_assign.reg;
 						short reg_dst_sz = ir->assign.to_assign.reg_sz;
-						short reg_dst_deref = max(ir->assign.to_assign.deref - 1, 0 );
+						short reg_dst_deref = max(ir->assign.to_assign.deref, 0 );
 						bool reg_dst_float = ir->assign.to_assign.is_float;
 						GenX64AutomaticRegDeref(lang_stat, ret, reg_dst_deref, &reg_dst, reg_dst_sz, ir->assign.to_assign.is_float, true, reg_dst);
 
 						short reg_src = ir->assign.lhs.reg;
 						short reg_src_sz = ir->assign.lhs.reg_sz;
-						short reg_src_deref = max(ir->assign.lhs.deref - 1, 0);
+						short reg_src_deref = max(ir->assign.lhs.deref, 0);
 						bool reg_src_float = ir->assign.lhs.is_float;
 						GenX64AutomaticRegDeref(lang_stat, ret, reg_src_deref, &reg_src, reg_src_sz, ir->assign.lhs.is_float, false, reg_src);
 
@@ -8879,7 +8928,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					{
 
 						ir_val_aux lhs;
+						ir->assign.lhs.deref++;
 						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false);
+						ir->assign.lhs.deref--;
+						ASSERT(lhs.reg != PRE_X64_RSP_REG)
+						//if()
 						AllocSpecificReg(lang_stat, lhs.reg);
 
 
@@ -8986,11 +9039,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_DECL)
 					{
 						ir_val_aux lhs;
+						ir->bin.lhs.deref++;
 						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+						ir->bin.lhs.deref--;
 						AllocSpecificReg(lang_stat, lhs.reg);
 
 						ir_val_aux rhs;
-						GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, true);
+						ir->bin.rhs.deref--;
+						GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, true, 0);
+						ir->bin.rhs.deref++;
 
 						correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
 
@@ -9161,11 +9218,19 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				aux = aux->parent;
 			}
 
+
 			bc.type = JMP;
 			ret.emplace_back(bc);
 			x64_rel_info rel;
 			rel.bc = ret.size() - 1;
 			aux->rels.emplace_back(rel);
+
+			FOR_VEC(r, cur->rels)
+			{
+				byte_code* bc = &ret[r->bc];
+				bc->val = (ret.size()-1) - r->bc;
+				auto a = 0;
+			}
 
 			FreeBlock(cur);
 			cur = cur->parent;
@@ -9179,6 +9244,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 				byte_code* bc = &ret[r->bc];
 				bc->val = (ret.size()-1) - r->bc;
+				auto a = 0;
 			}
 			FreeBlock(cur);
 			cur = cur->parent;
@@ -9479,7 +9545,7 @@ void GenWasm(web_assembly_state* wasm_state)
 		ir_rep* cur_ir = ir->begin();
 		while (cur_ir < ir->end())
 		{
-			WasmFromSingleIR(decl_to_local_idx, total_of_args, total_of_locals, cur_ir, code_sect, &stack_size, ir, &cur, &last_on_stack, &gen);
+			//WasmFromSingleIR(decl_to_local_idx, total_of_args, total_of_locals, cur_ir, code_sect, &stack_size, ir, &cur, &last_on_stack, &gen);
 
 			cur_ir = cur_ir + (1 + (gen.advance_ptr));
 		}
@@ -9731,11 +9797,194 @@ void AddFolder(lang_state* lang_stat, std::string folder)
 		AddNewFile(lang_stat, *str);
 	}
 }
+struct code_info
+{
+	lang_state* lang_stat;
+	wasm_gen_state* gen_state;
+	own_std::vector<ir_rep> ir;
+	own_std::vector<byte_code> bcs;
+	machine_code mcode;
+};
+
+int ExecuteString(code_info *info, std::string str, int param)
+{
+	info->bcs.clear();
+	info->ir.clear();
+	info->mcode.call_rels.clear();
+	info->mcode.code.clear();
+	info->mcode.rels.clear();
+	info->mcode.symbols.clear();
+	info->mcode.jmp_rels.clear();
+	info->lang_stat->data_sect.clear();
+	info->lang_stat->type_sect.clear();
+	info->lang_stat->code_sect.clear();
+
+	scope* scp = NewScope(info->lang_stat, nullptr);
+	scope* root = scp;
+	node *stat1 = ParseString(info->lang_stat, str);
+
+	int its = 0;
+	while (true)
+	{
+		if (DescendNameFinding(info->lang_stat, stat1, scp))
+			break;
+		its++;
+		if (its > 5)
+			break;
+	}
+	DescendNode(info->lang_stat, stat1, scp);
+
+	func_decl* fdecl = scp->vars[0]->type.fdecl;
+	ast_rep *ast = AstFromNode(info->lang_stat, stat1->r->r, scp);
+	GetIRFromAst(info->lang_stat, ast, &info->ir);
+
+	info->lang_stat->dstate->print_numbers_format = dbg_print_numbers_format::DBG_PRINT_HEX;
+	std::string all;
+	for (int i = 0; i < info->ir.size(); i++)
+	{
+
+		char buffer[512];
+		std::string ir_str = WasmIrToString(info->lang_stat->dstate, info->ir.data() + i);
+		if (ir_str.size() != 0)
+		{
+			snprintf(buffer, 512, "%d: %s", i, ir_str.c_str());
+			all += buffer;
+		}
+	}
+	printf("\n\n*******\n%s", all.c_str());
+	
+	info->gen_state->cur_func = fdecl;
+	GenX64BytecodeFromIR(info->lang_stat, info->bcs, info->ir, info->gen_state);
+	GenX64(info->lang_stat, info->bcs, info->mcode);
+
+	CompleteMachineCode(info->lang_stat, info->mcode);
+	int reached = 0;
+	int func_addr_int = fdecl->code_start_idx;
+	char* func_addr = (char *)(info->lang_stat->code_sect.data() + info->lang_stat->type_sect.size() + func_addr_int);
+	return ((int(*)(int))func_addr)(param);
+}
+
+
+void AssertFuncByteCode(lang_state* lang_stat)
+{
+	code_info info;
+	wasm_gen_state gen_state;
+	info.gen_state = &gen_state;
+	info.lang_stat = lang_stat;
+	int val = 0;
+
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+			d: = 0;\n\
+			sz : = 4;\n\
+			while d < sz{\n\
+				d++;\n\
+			}\n\
+			__dbg_break;\n\
+			if !(d == sz && d == 4){\n\
+				return -1;\n\
+			}\n\
+		return a;\n\
+	}", 1);
+	ASSERT(val == 1)
+
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		a = 0x100;\n\
+		c: = &a;\n\
+		e: = *cast(*u8)(cast(u64)(c) + 1);\n\
+		return cast(s32)e\n;\
+	}", 0);
+
+	ASSERT(val == 1)
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		c := 0;\n\
+		ptr := &c;\n\
+		*cast(*s32) (cast(u64)ptr + 2 * 1) = 4;\n\
+		if c != 0x40000{\n\
+			return -1;\n\
+		}\n\
+		return a + 4;\n\
+	}\n\
+", 1);
+	ASSERT(val == 5)
+
+
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
+		ptr := &a;\
+		*ptr = 5;\
+		return a;\
+	}", 1);
+	ASSERT(val == 5)
+
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{return a;}", 1);
+	ASSERT(val == 1)
+
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
+		b := a + 1;\
+		return b;\
+	}", 1);
+	ASSERT(val == 2)
+
+	info.lang_stat->execute_id = 4;
+
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		if a == 0{\n\
+			a++;\n\
+		}\n\
+		if a == 2{a = 5;}\n\
+		else{ a = 4;}\n\
+		return a\n;\
+	}", 0);
+	ASSERT(val == 4)
+
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		f:=1.0;\n\
+		if f < 0.9 || f > 1.0{\n\
+			return -1;\n\
+		}\n\
+		return 1\n;\
+	}", 0);
+	ASSERT(val == 1)
+
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		i:=0;\n\
+		while i < a{\n\
+			i++;\n\
+		}\n\
+		return i;\n\
+	}", 4);
+	ASSERT(val == 4)
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		i:=0;\n\
+		d:= 1;\n\
+		c:= a + 1;\n\
+		while i < c{\n\
+			i++;\n\
+		}\n\
+		return i;\n\
+	}", 4);
+	ASSERT(val == 5)
+
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		c := cast(*s32)7;\n\
+		if cast(u64)c != 7{\n\
+			return -1;\n\
+		}\n\
+		return cast(s32)cast(u64)(c) + a;\n\
+	}", 1);
+	ASSERT(val == 8)
+
+
+	int a = 0;
+	//GenX64()
+
+	
+}
 int Compile(lang_state* lang_stat, compile_options *opts)
 {
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
+	AssertFuncByteCode(lang_stat);
 	
 	int i = 0;
 	std::string file = opts->file;

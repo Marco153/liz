@@ -6113,7 +6113,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 				auto prev_fdecl = lang_stat->cur_func;
 				lang_stat->cur_func = scp->fdecl;
-				CompileDo(lang_stat, n->r->r, scp);
+				//CompileDo(lang_stat, n->r->r, scp);
 				lang_stat->cur_func = prev_fdecl;
 				//n->type = N_EMPTY;
 				n->flags |= NODE_FLAGS_IS_PROCESSED2;
@@ -8542,7 +8542,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 				if (decl->when_used_code)
 				{
-					WasmIrInterp(lang_stat->dstate, decl->when_used_code);
+					//WasmIrInterp(lang_stat->dstate, decl->when_used_code);
 					int a = 0;
 				}
 			}

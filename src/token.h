@@ -96,6 +96,8 @@ enum tkn_type2
 	T_STR_LIT,
 	T_APOSTROPHE,
 
+	T_QUESTION_MARK,
+
 	T_TWO_POINTS,
 	T_IN,
 

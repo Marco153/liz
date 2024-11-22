@@ -622,6 +622,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				found_char = true;
 				tkn.type = T_TILDE;
 			}break;
+			case '?':
+			{
+				found_char = true;
+				tkn.type = T_QUESTION_MARK;
+			}break;
 			case '}':
 			{
 				found_char = true;

@@ -694,6 +694,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 #define CHANGE_JMP_DST_BC ret.jmp_rels.back().dst_bc = &bcodes[i + bc->val + 1];
 	int i = 0;
 
+	func_decl* cur_func = nullptr;
 
 	int cur_func_start = 0;
 	FOR_VEC(bc, bcodes)
@@ -706,6 +707,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case BEGIN_FUNC:
 		{
 			func_decl* fdecl = bc->fdecl;
+			cur_func = fdecl;
+
 			fdecl->for_interpreter_code_start_idx = ret.code.size();
 			cur_func_start = ret.code.size();
 

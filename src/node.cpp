@@ -1034,6 +1034,10 @@ node* node_iter::parse_expr()
 	n->t = cur_tkn;
 	switch (cur_tkn->type)
 	{
+	case tkn_type2::T_QUESTION_MARK:
+	{
+		n->type = N_QUESTION_MARK;
+	}break;
 	case tkn_type2::T_HASHTAG:
 	{
 		n->type = N_HASHTAG;
@@ -6881,12 +6885,19 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					}
 
 					node* equal_stmnt = n;
+					bool zero_initialization = true;
+					if (n->r->type == N_QUESTION_MARK)
+					{
+						n->l->flags |= NODE_FLAGS_NO_ZERO_INITIALIZATION;
+						zero_initialization = false;
+					}
 
 					// if we have a var decl before the assignment, and the decl is a struct, we have to split the 
 					// assignment and the decl into two different stmnts
 					if (IsNodeOperator(n->l, tkn_type2::T_COLON))
 					{
 						n->l->flags |= NODE_FLAGS_NO_ZERO_INITIALIZATION;
+						zero_initialization = false;
 						// lhs = rhs;	
 						auto new_equal = NewBinOpNode(lang_stat,
 							n->l->l,
@@ -6909,7 +6920,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						node* bool_expr = CreateBoolExpression(lang_stat, equal_stmnt->l, equal_stmnt->r, scp);
 						memcpy(equal_stmnt, bool_expr, sizeof(node));
 					}
-					else if (is_struct_val)
+					else if (is_struct_val && zero_initialization)
 					{
 						decl2* memcpy_func = FindIdentifier("memcpy", scp, &ret_type);
 						if (!memcpy_func)
@@ -9208,8 +9219,11 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					{
 						if (!op_func)
 						{
-							node * call = MakeMemCpyCall(lang_stat, n->l, n->r, ltp.strct->size);
-							memcpy(n, call, sizeof(node));
+							if(n->r->type != N_QUESTION_MARK)
+							{
+								node* call = MakeMemCpyCall(lang_stat, n->l, n->r, ltp.strct->size);
+								memcpy(n, call, sizeof(node));
+							}
 							/*
 							//auto arg1 
 							REPORT_ERROR(n->l->t->line, n->l->t->line_offset,

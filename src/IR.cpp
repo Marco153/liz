@@ -16,7 +16,7 @@ bool IsNodeOperator(node* nd, tkn_type2 tkn);
 #define IR_VAL_FROM_STATIC_AR 0x200
 bool CheckIrValIsPointIncDeref(ir_val *val)
 {
-	if (IS_FLAG_ON(val->reg_ex, IR_VAL_FROM_POINT) && val->type != IR_TYPE_DECL || val->type == IR_TYPE_REG && val->ptr > 0)
+	if (IS_FLAG_ON(val->reg_ex, IR_VAL_FROM_POINT) && val->type != IR_TYPE_DECL && val->deref < 0)
 	{
 		val->deref++;
 	}
@@ -984,11 +984,11 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 		ASSERT(0);
 	}
 	//if(ir.bin.lhs.type == IR_TYPE_DECL)
-	ir.bin.lhs.deref--;
+	//ir.bin.lhs.deref--;
 	//if (ir.bin.lhs.type == IR_TYPE_REG && (IS_FLAG_ON(ir.bin.lhs.reg_ex, IR_VAL_FROM_POINT) || ir.bin.lhs.ptr > 0))
 		//ir.bin.lhs.deref += 1;
 	CheckIrValIsPointIncDeref(&ir.bin.lhs);
-	ir.bin.rhs.deref--;
+	//ir.bin.rhs.deref--;
 	CheckIrValIsPointIncDeref(&ir.bin.rhs);
 
 	bool lhs_reg_ptr_1 = ir.bin.lhs.type == IR_TYPE_REG && ir.bin.lhs.ptr == 1;
@@ -1777,6 +1777,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				//ASSERT(top->ptr <= 0);
 			}
 			top->deref++;
+			top->ptr = max(top->ptr - 1, 0);
 			top->reg_sz = GetTypeSize(&e->deref.type);
 			top->reg_sz = min(top->reg_sz, 8);
 
@@ -2823,7 +2824,13 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			ir.assign.to_assign.deref--;
 
 
-			CheckIrValIsPointIncDeref(&ir.assign.to_assign);
+			//CheckIrValIsPointIncDeref(&ir.assign.to_assign);
+			if (IS_FLAG_ON(ir.assign.to_assign.reg_ex, IR_VAL_FROM_POINT) && ir.assign.to_assign.type != IR_TYPE_DECL 
+				|| ir.assign.to_assign.type == IR_TYPE_REG && ir.assign.to_assign.deref < 0)
+			{
+				ir.assign.to_assign.deref++;
+			}
+
 
 			//ir.assign.to_assign.deref += ir.assign.to_assign.ptr;
 			//GenLhsEqual(lang_stat, lhs_ast, &ast->lhs_tp, out, &ir.assign.to_assign);

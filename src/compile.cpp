@@ -1555,6 +1555,18 @@ void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>
 	}
 }
 
+void WasmIrIncDerefsPushBin(ir_val &lhs, ir_val &rhs)
+{
+	bool can_inc = !((lhs.type == IR_TYPE_RET_REG || lhs.type == IR_TYPE_REG) && rhs.type == IR_TYPE_INT);
+	can_inc = can_inc || (lhs.type == IR_TYPE_DECL && rhs.type == IR_TYPE_INT);
+	if (can_inc)
+		lhs.deref++;
+
+	if (lhs.deref < 0)
+		lhs.deref = 0;
+	if (rhs.deref < 0)
+		rhs.deref = 0;
+}
 void WasmPushMultiple(wasm_gen_state* gen_state, bool only_lhs, ir_val& lhs, ir_val& rhs, ir_val* last_on_stack, tkn_type2 op, own_std::vector<unsigned char>& code_sect, bool deref = false)
 {
 	if (only_lhs)
@@ -1564,6 +1576,11 @@ void WasmPushMultiple(wasm_gen_state* gen_state, bool only_lhs, ir_val& lhs, ir_
 	}
 	else
 	{
+		char prev_deref_lhs = lhs.deref;
+		char prev_deref_rhs = rhs.deref;
+		
+		//WasmIrIncDerefsPushBin(lhs, rhs);
+
 		wstack_val_type type = WSTACK_VAL_INT;
 		if (lhs.is_float)
 			type = WSTACK_VAL_F32;
@@ -1577,7 +1594,7 @@ void WasmPushMultiple(wasm_gen_state* gen_state, bool only_lhs, ir_val& lhs, ir_
 		if (op == T_POINT)
 		{
 			WasmPushIRVal(gen_state, &lhs, code_sect, deref);
-			WasmPushConst(WASM_LOAD_INT, 0, rhs.decl->offset, &code_sect);
+			WasmPushConst(WASM_LOAD_INT, 0, rhs.i, &code_sect);
 			WasmPushInst(op, lhs.is_unsigned, code_sect);
 
 			//if (deref && rhs.ptr != -1)
@@ -1596,7 +1613,12 @@ void WasmPushMultiple(wasm_gen_state* gen_state, bool only_lhs, ir_val& lhs, ir_
 		bool is_decl = lhs.type == IR_TYPE_DECL;
 		bool is_struct = is_decl && lhs.decl->type.IsStrct(nullptr);
 		bool is_float = is_decl && lhs.decl->type.type == TYPE_F32;
-		ASSERT( lhs.is_unsigned == rhs.is_unsigned || is_struct || is_float);
+		if(rhs.type != IR_TYPE_INT)
+			ASSERT( lhs.is_unsigned == rhs.is_unsigned  || is_struct || is_float);
+
+		lhs.deref = prev_deref_lhs;
+		rhs.deref = prev_deref_rhs;
+
 
 	}
 }
@@ -1756,6 +1778,8 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	case IR_TYPE_RET_REG:
 	{
 		WasmPushConst(WASM_LOAD_INT, 0, (RET_1_REG + val->reg) * 8, &code_sect);
+		deref_times++;
+
 	}break;
 	case IR_TYPE_ARG_REG:
 	{
@@ -1790,6 +1814,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 			}
 			else
 			{
+				bool prev_val = val->is_float;
 				// if the deref is less or equal than the ptr 
 				if (val->decl->type.ptr >= val->deref && IsIrValFloat(val))
 					val->is_float = false;
@@ -1798,6 +1823,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 				WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
 				WasmPushConst(WASM_LOAD_INT, 0, val->decl->offset, &code_sect);
 				code_sect.emplace_back(0x6a);
+				val->is_float = prev_val;
 			}
 		}
 		deref = false;
@@ -1807,16 +1833,16 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	}
 	bool is_decl = val->type == IR_TYPE_DECL;
 	bool is_decl_not_ptr = is_decl && val->decl->type.ptr == 0;
-	while ((deref_times > 0) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32 && val->type != IR_TYPE_STR_LIT)
+	while ((deref_times >= 0) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32 && val->type != IR_TYPE_STR_LIT)
 	{
 
 		int reg_sz = val->reg_sz;
 		int inst = WASM_LOAD_OP;
 		//if (IsIrValFloat(val) && deref_times == 1)
 
-		if (IsIrValFloat(val) && deref_times == 1 && (is_decl_not_ptr || !is_decl_not_ptr && val->deref > val->ptr || !is_decl))
+		if (IsIrValFloat(val) && deref_times == 0 && (is_decl_not_ptr || !is_decl_not_ptr && val->deref > val->ptr || !is_decl))
 			inst = WASM_LOAD_F32_OP;
-		if (deref_times > 1)
+		if (deref_times > 0)
 		{
 			reg_sz = 8;
 			if(gen_state->wasm_state->lang_stat->release)
@@ -1850,6 +1876,7 @@ void WasmPushRegister(wasm_gen_state* state, int reg, own_std::vector<unsigned c
 	WasmStoreInst(lang_stat, code_sect, 0, WASM_LOAD_OP);
 	WasmStoreInst(lang_stat, code_sect, 0, WASM_STORE_OP);
 }
+
 void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx, 
 					  int &total_of_args, int &total_of_locals, 
 				      ir_rep *cur_ir, own_std::vector<unsigned char> &code_sect, 
@@ -2026,7 +2053,16 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			aux = aux->parent;
 		}
 
+		char prev_deref_lhs = cur_ir->bin.lhs.deref;
+		char prev_deref_rhs = cur_ir->bin.rhs.deref;
+		
+		WasmIrIncDerefsPushBin(cur_ir->bin.lhs, cur_ir->bin.rhs);
+
 		WasmPushMultiple(gen_state, cur_ir->bin.only_lhs, cur_ir->bin.lhs, cur_ir->bin.rhs, last_on_stack, opposite, code_sect, true);
+
+		cur_ir->bin.lhs.deref = prev_deref_lhs;
+		cur_ir->bin.rhs.deref = prev_deref_rhs;
+
 		//WasmPushConst(WASM_TYPE_INT, 0, 7, &code_sect);
 		// br if
 		code_sect.emplace_back(0xd);
@@ -2059,14 +2095,33 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		*/
 
 		int prev_reg_sz = cur_ir->assign.to_assign.reg_sz;
-		if (cur_ir->assign.to_assign.type == IR_TYPE_REG && cur_ir->assign.to_assign.deref > 0)
+		if (cur_ir->assign.to_assign.type == IR_TYPE_REG && cur_ir->assign.to_assign.deref >= 0)
 			cur_ir->assign.to_assign.reg_sz = 8;
-			
+		
+
 		WasmPushIRVal(gen_state, &cur_ir->assign.to_assign, code_sect, false);
 
 		cur_ir->assign.to_assign.reg_sz = prev_reg_sz;
+		char prev_deref = lhs->deref;
+		if (lhs->ptr < 0)
+			lhs->deref = -1;
+
+		char prev_lhs_deref = cur_ir->assign.lhs.deref;
+		char prev_rhs_deref = cur_ir->assign.rhs.deref;
+
+		if (cur_ir->assign.lhs.ptr >= 0 && cur_ir->assign.lhs.deref < 0)
+			cur_ir->assign.lhs.deref++;
+		if (cur_ir->assign.rhs.ptr >= 0 && cur_ir->assign.rhs.deref < 0)
+			cur_ir->assign.rhs.deref++;
 
 		WasmPushMultiple(gen_state, cur_ir->assign.only_lhs, *lhs, *rhs, last_on_stack, cur_ir->assign.op, code_sect, true);
+
+		cur_ir->assign.lhs.deref = prev_lhs_deref;
+		cur_ir->assign.rhs.deref = prev_rhs_deref;
+
+
+		if (lhs->ptr < 0)
+			lhs->deref = prev_deref;
 
 		/*
 		if(!cur_ir->assign.only_lhs && cur_ir->assign.op != T_POINT)
@@ -2119,6 +2174,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	case IR_CALL:
 	{
 		int idx = 0;
+
 		ASSERT(FuncAddedWasm(gen_state->wasm_state, cur_ir->call.fdecl->name, &idx));
 		WasmPushRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
 		//WasmPushRegister(gen_state, 0, code_sect);
@@ -2188,8 +2244,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		decl_to_local_idx[cur_ir->decl] = total_of_args + total_of_locals;
 		total_of_locals++;
 		int to_sum = GetTypeSize(&cur_ir->decl->type);
+		cur_ir->decl->offset = *stack_size;
 		*stack_size += to_sum <= 4 ? 4 : to_sum;
-		cur_ir->decl->offset = -*stack_size;
 		
         //gen_state->cur_func->wasm_scp->vars.emplace_back(cur_ir->decl);
 
@@ -4893,6 +4949,8 @@ struct func_dbg
 	int strct_constr_offset;
 	int strct_ret_offset;
 	int to_spill_offset;
+	int for_interpreter_x64_code_start;
+	int x64_code_start;
 };
 struct serialize_state
 {
@@ -4906,6 +4964,7 @@ struct serialize_state
 	own_std::vector<unsigned char> ir_sect;
 	own_std::vector<unsigned char> file_sect;
 	own_std::vector<unsigned char> data_sect;
+	own_std::vector<unsigned char> x64_code;
 
 	unsigned int f32_type_offset;
 	unsigned int u32_type_offset;
@@ -4926,11 +4985,18 @@ struct dbg_file_seriealize
 	int code_sect;
 	int ir_sect;
 	int files_sect;
-	int data_sect;
+
 	int globals_sect;
-	int data_sect_size;
 	int globals_sect_size;
+
+	int data_sect;
+	int data_sect_size;
+
+	int x64_code_sect;
+	int x64_code_sect_size;
+
 	int total_files;
+
 
 	dbg_code_type code_type;
 };
@@ -5064,6 +5130,8 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 	fdbg->strct_constr_offset = f->strct_constrct_at_offset;
 	fdbg->strct_ret_offset = f->strct_ret_size_per_statement_offset;
 	fdbg->to_spill_offset = f->to_spill_offset;
+	fdbg->for_interpreter_x64_code_start = f->for_interpreter_code_start_idx;
+	fdbg->x64_code_start = f->code_start_idx;
 	WasmSerializePushString(ser_state, &f->name, &fdbg->name);
 
 	f->func_dbg_idx = func_offset;
@@ -5403,6 +5471,10 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 
 	file.files_sect = final_buffer.size();
 	INSERT_VEC(final_buffer, ser_state.file_sect);
+
+	file.x64_code_sect = final_buffer.size();
+	INSERT_VEC(final_buffer, wasm_state->lang_stat->code_sect);
+	file.x64_code_sect_size = wasm_state->lang_stat->code_sect.size();
 
 	file.data_sect = final_buffer.size();
 
@@ -8396,9 +8468,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_F32)
 			{
 				ir_val_aux lhs;
-				ir->bin.lhs.deref++;
+				//ir->bin.lhs.deref++;
 				GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-				ir->bin.lhs.deref--;
+				//ir->bin.lhs.deref--;
 
 				char sse_reg = 0;
 				if (lhs.reg == 0)
@@ -8637,7 +8709,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					case IR_TYPE_DECL:
 					{
 						ir_val_aux lhs;
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false);
+						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false, 4);
 						if (ir->assign.lhs.is_float)
 						{
 							bc.type = MOV_SSE_2_MEM;
@@ -9603,11 +9675,13 @@ void GenWasm(web_assembly_state* wasm_state)
 		gen.cur_func = func;
 		gen.similar.reserve(8);
 		ir_rep* cur_ir = ir->begin();
+		int i = 0;
 		while (cur_ir < ir->end())
 		{
-			//WasmFromSingleIR(decl_to_local_idx, total_of_args, total_of_locals, cur_ir, code_sect, &stack_size, ir, &cur, &last_on_stack, &gen);
+			WasmFromSingleIR(decl_to_local_idx, total_of_args, total_of_locals, cur_ir, code_sect, &stack_size, ir, &cur, &last_on_stack, &gen);
 
 			cur_ir = cur_ir + (1 + (gen.advance_ptr));
+			i++;
 		}
 
 
@@ -9868,17 +9942,6 @@ struct code_info
 
 int ExecuteString(code_info *info, std::string str, int param)
 {
-	info->bcs.clear();
-	info->ir.clear();
-	info->mcode.call_rels.clear();
-	info->mcode.code.clear();
-	info->mcode.rels.clear();
-	info->mcode.symbols.clear();
-	info->mcode.jmp_rels.clear();
-	info->lang_stat->data_sect.clear();
-	info->lang_stat->type_sect.clear();
-	info->lang_stat->code_sect.clear();
-	info->lang_stat->global_funcs.clear();
 
 	scope* scp = NewScope(info->lang_stat, info->lang_stat->root);
 	scp->flags |= SCOPE_IS_GLOBAL;
@@ -9921,6 +9984,8 @@ int ExecuteString(code_info *info, std::string str, int param)
 				snprintf(buffer, 512, "\t%d: %s", ir_cur->idx, ir_str.c_str());
 				all += buffer;
 			}
+			if (ir_cur->type == IR_BEGIN_STMNT)
+				all += "\n";
 			info->lang_stat->cur_idx++;
 		}
 		printf("\n\n*******\nfunc_name: %s\n%s", fdecl->name.c_str(), all.c_str());
@@ -9948,6 +10013,19 @@ int ExecuteString(code_info *info, std::string str, int param)
 	int reached = 0;
 	int func_addr_int = start_func->code_start_idx;
 	char* func_addr = (char *)(info->lang_stat->code_sect.data() + info->lang_stat->type_sect.size() + func_addr_int);
+	info->bcs.clear();
+	info->ir.clear();
+	info->mcode.call_rels.clear();
+	info->mcode.code.clear();
+	info->mcode.rels.clear();
+	info->mcode.symbols.clear();
+	info->mcode.jmp_rels.clear();
+	info->lang_stat->data_sect.clear();
+	info->lang_stat->type_sect.clear();
+	info->lang_stat->code_sect.clear();
+	info->lang_stat->global_funcs.clear();
+	info->lang_stat->funcs_scp->vars.clear();
+	info->lang_stat->global_funcs.clear();
 	return ((int(*)(int))func_addr)(param);
 }
 
@@ -9980,7 +10058,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	}", 2);
 	ASSERT(val == 18)
 
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 			d: = 0;\n\
 			sz : = 4;\n\
 			while d < sz{\n\
@@ -9993,7 +10071,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	}", 1);
 	ASSERT(val == 1)
 
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 		a = 0x100;\n\
 		c: = &a;\n\
 		e: = *cast(*u8)(cast(u64)(c) + 1);\n\
@@ -10001,7 +10079,8 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	}", 0);
 
 	ASSERT(val == 1)
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 		c := 0;\n\
 		ptr := &c;\n\
 		*cast(*s32) (cast(u64)ptr + 2 * 1) = 4;\n\
@@ -10014,25 +10093,33 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	ASSERT(val == 5)
 
 
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
 		ptr := &a;\
 		*ptr = 5;\
 		return a;\
 	}", 1);
 	ASSERT(val == 5)
 
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{return a;}", 1);
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
+		ptr := &a;\
+		b := 3;\
+		*ptr = b;\
+		return a;\
+	}", 1);
+	ASSERT(val == 3)
+
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{return a;}", 1);
 	ASSERT(val == 1)
 
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
 		b := a + 1;\
 		return b;\
 	}", 1);
 	ASSERT(val == 2)
 
-	info.lang_stat->execute_id = 4;
+		info.lang_stat->execute_id = 4;
 
-		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 		if a == 0{\n\
 			a++;\n\
 		}\n\
@@ -10051,7 +10138,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	}", 0);
 	ASSERT(val == 1)
 
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 		i:=0;\n\
 		while i < a{\n\
 			i++;\n\
@@ -10059,7 +10146,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		return i;\n\
 	}", 4);
 	ASSERT(val == 4)
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 		i:=0;\n\
 		d:= 1;\n\
 		c:= a + 1;\n\
@@ -10070,7 +10157,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	}", 4);
 	ASSERT(val == 5)
 
-	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 		c := cast(*s32)7;\n\
 		if cast(u64)c != 7{\n\
 			return -1;\n\
@@ -10079,7 +10166,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	}", 1);
 	ASSERT(val == 8)
 
-	val = ExecuteString(&info, "\
+		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
 			d := 2;\n\
 			ModifyPtr(&d);\n\
@@ -10092,7 +10179,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 4)
 
-	val = ExecuteString(&info, "\
+		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
 			d := 0;\n\
 			c := &d;\n\
@@ -10106,7 +10193,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 1)
 
-	val = ExecuteString(&info, "\
+		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
 			d:= 0x100;\n\
 			g:= 0x100;\n\
@@ -10121,15 +10208,14 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 1)
 
-	// HERE
-	val = ExecuteString(&info, "\
+		// HERE
+		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
 			d:= 0;\n\
 			g:= 4;\n\
 			ptr: = &d;\n\
 			c := &g;\n\
 			*cast(*u8)(cast(u64)(ptr) + 2) = *cast(*u8)(cast(u64)(c) + 0);\n\
-			__dbg_break;\n\
 			if *cast(*u8)(cast(u64)(ptr) + 2) != 4\n\
 			{\n\
 				return -1;\n\
@@ -10139,7 +10225,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 1)
 
-	val = ExecuteString(&info, "\
+		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
 			d := 2;\n\
 			ModifyPtrArbitraryByte(&d, 1, 3);\n\
@@ -10152,7 +10238,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 0x303)
 
-	val = ExecuteString(&info, "\
+		val = ExecuteString(&info, "\
 		test_strct:struct\n\
 		{\n\
 			f : f32,\n\
@@ -10173,7 +10259,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 1)
 
-	val = ExecuteString(&info, "\
+		val = ExecuteString(&info, "\
 		other_strct:struct\n\
 		{\n\
 			b : f32,\n\
@@ -10194,6 +10280,11 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			}\n\
 			s.a.b = 5.0;\n\
 			if s.a.b < 4.9 || s.a.b > 5.1\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			s.ptr = nil;\n\
+			if s.ptr != nil\n\
 			{\n\
 				return -1;\n\
 			}\n\
@@ -10250,6 +10341,26 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 5)
 
+	val = ExecuteString(&info, "\
+		st :struct\n\
+		{\n\
+			ptr : *u8,\n\
+		}\n\
+		test::fn() !*s32\n\
+		{\n\
+			return cast(*s32)2;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			b :st= ?;\n\
+			b.ptr = cast(*u8)test();\n\
+			if cast(u64)b.ptr != 2\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			return a;\n\
+		}\n\
+		", 3);
+	ASSERT(val == 3)
 
 	int a = 0;
 }
@@ -10258,7 +10369,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	//AssertFuncByteCode(lang_stat);
+	AssertFuncByteCode(lang_stat);
+	ASSERT(false);
 	
 	int i = 0;
 	std::string file = opts->file;

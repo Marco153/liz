@@ -2053,15 +2053,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			aux = aux->parent;
 		}
 
-		char prev_deref_lhs = cur_ir->bin.lhs.deref;
-		char prev_deref_rhs = cur_ir->bin.rhs.deref;
-		
-		WasmIrIncDerefsPushBin(cur_ir->bin.lhs, cur_ir->bin.rhs);
 
 		WasmPushMultiple(gen_state, cur_ir->bin.only_lhs, cur_ir->bin.lhs, cur_ir->bin.rhs, last_on_stack, opposite, code_sect, true);
-
-		cur_ir->bin.lhs.deref = prev_deref_lhs;
-		cur_ir->bin.rhs.deref = prev_deref_rhs;
 
 		//WasmPushConst(WASM_TYPE_INT, 0, 7, &code_sect);
 		// br if
@@ -2106,19 +2099,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		if (lhs->ptr < 0)
 			lhs->deref = -1;
 
-		char prev_lhs_deref = cur_ir->assign.lhs.deref;
-		char prev_rhs_deref = cur_ir->assign.rhs.deref;
-
-		if (cur_ir->assign.lhs.ptr >= 0 && cur_ir->assign.lhs.deref < 0)
-			cur_ir->assign.lhs.deref++;
-		if (cur_ir->assign.rhs.ptr >= 0 && cur_ir->assign.rhs.deref < 0)
-			cur_ir->assign.rhs.deref++;
-
 		WasmPushMultiple(gen_state, cur_ir->assign.only_lhs, *lhs, *rhs, last_on_stack, cur_ir->assign.op, code_sect, true);
-
-		cur_ir->assign.lhs.deref = prev_lhs_deref;
-		cur_ir->assign.rhs.deref = prev_rhs_deref;
-
 
 		if (lhs->ptr < 0)
 			lhs->deref = prev_deref;
@@ -2244,8 +2225,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		decl_to_local_idx[cur_ir->decl] = total_of_args + total_of_locals;
 		total_of_locals++;
 		int to_sum = GetTypeSize(&cur_ir->decl->type);
-		cur_ir->decl->offset = *stack_size;
 		*stack_size += to_sum <= 4 ? 4 : to_sum;
+		cur_ir->decl->offset = -*stack_size;
 		
         //gen_state->cur_func->wasm_scp->vars.emplace_back(cur_ir->decl);
 
@@ -8449,6 +8430,24 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				case IR_TYPE_RET_REG:
 				case IR_TYPE_REG:
 				{
+					ir_val_aux lhs;
+					GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->ret.assign.lhs, true);
+
+					ir_val_aux dst = {};
+					dst.type = IR_TYPE_RET_REG;;
+					dst.reg = ir->ret.assign.to_assign.reg;
+					dst.reg_sz = ir->ret.assign.to_assign.reg_sz;
+
+
+					bool dst_float = ir->ret.assign.to_assign.is_float;
+					bc = {};
+					byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+
+					/*
+					FreeSpecificReg(lang_stat, lhs.reg);
+					if(ir->assign.to_assign.is_float)
+						GenX64RegToReg(lang_stat, ret, ir->assign.to_assign.reg, ir->assign.to_assign.reg_sz, ir->assign.lhs.reg_sz, )
 					PreX64Deref(lang_stat, ir->ret.assign.lhs.reg, ir->ret.assign.lhs.deref - 1, ret);
 					PreX64Deref(lang_stat, ir->ret.assign.rhs.reg, ir->ret.assign.rhs.deref - 1, ret);
 					bc.type = MOV_R;
@@ -8457,6 +8456,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 					FromIrValToBytecodeReg(&ir->ret.assign.lhs, &bc.bin.rhs);
 					ret.emplace_back(bc);
+					*/
 				}break;
 				default:
 					ASSERT(false);
@@ -8481,7 +8481,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ir_val_aux rhs;
 				GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->bin.rhs);
 
-				if (lhs.reg == PRE_X64_RSP_REG || lhs.deref >= 0)
+				if (lhs.reg == PRE_X64_RSP_REG)
 				{
 					GenX64ImmToMem(ret, lhs.reg, lhs.voffset, lhs.reg_sz, rhs.i, CMP_I_2_M);
 				}
@@ -8566,7 +8566,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_REG)
 			{
 				ir_val_aux lhs;
-				GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, true);
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, true);
 				AllocSpecificReg(lang_stat, lhs.reg);
 
 				ir_val_aux rhs;
@@ -8683,6 +8683,17 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						bc.bin.rhs.reg = lhs.reg;
 						bc.bin.rhs.reg_sz = lhs.reg_sz;
 						bc.bin.rhs.voffset = lhs.reg_sz;
+
+						ret.emplace_back(bc);
+					}break;
+					case IR_TYPE_F32:
+					{
+						char sse_reg = 0;
+						MovFloatToSSEReg2(lang_stat, sse_reg, ir->assign.lhs.f32, &ret);
+						bc.type = MOV_SSE_2_REG_PARAM;
+						bc.bin.lhs.reg = ir->assign.to_assign.reg;
+						bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
+						bc.bin.rhs.reg = sse_reg;
 
 						ret.emplace_back(bc);
 					}break;
@@ -8862,7 +8873,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 						ir_val_aux lhs;
 
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false);
+						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
 						ASSERT(lhs.type == IR_TYPE_REG)
 
 						if (reg_dst_deref < 0)
@@ -8887,10 +8898,20 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->assign.lhs, false);
 
 						byte_code_enum inst;
-						if (ir->assign.to_assign.deref >= 0)
-							inst = STORE_R_2_M;
+						if (ir->assign.to_assign.is_float)
+						{
+							if (ir->assign.to_assign.deref >= 0)
+								inst = MOV_SSE_2_MEM;
+							else
+								inst = MOV_SSE_2_SSE;
+						}
 						else
-							inst = MOV_R;
+						{
+							if (ir->assign.to_assign.deref >= 0)
+								inst = STORE_R_2_M;
+							else
+								inst = MOV_R;
+						}
 
 						GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
 					}break;
@@ -9064,6 +9085,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					else
 						ASSERT(false);
 				}break;
+				// BIN 2REG
 				case IR_TYPE_REG:
 				{
 					if (ir->assign.to_assign.is_float)
@@ -9073,9 +9095,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					{
 
 						ir_val_aux lhs;
-						ir->assign.lhs.deref++;
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-						ir->assign.lhs.deref--;
+						//ir->assign.lhs.deref++;
+						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
+						//ir->assign.lhs.deref--;
 						ASSERT(lhs.reg != PRE_X64_RSP_REG)
 						//if()
 						AllocSpecificReg(lang_stat, lhs.reg);
@@ -9193,15 +9215,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_DECL)
 					{
 						ir_val_aux lhs;
-						ir->bin.lhs.deref++;
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						ir->bin.lhs.deref--;
+						//ir->bin.lhs.deref++;
+						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+						//ir->bin.lhs.deref--;
 						AllocSpecificReg(lang_stat, lhs.reg);
 
 						ir_val_aux rhs;
-						ir->bin.rhs.deref--;
-						GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, true, 0);
-						ir->bin.rhs.deref++;
+						//ir->bin.rhs.deref--;
+						GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, true, 0);
+						//ir->bin.rhs.deref++;
 
 						correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
 
@@ -9221,6 +9243,30 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 						if (lhs.reg != PRE_X64_RSP_REG)
 							FreeSpecificReg(lang_stat, lhs.reg);
+					}
+					else if (ir->assign.lhs.type == IR_TYPE_REG && ir->assign.rhs.type == IR_TYPE_F32)
+					{
+						ir_val_aux lhs;
+						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+						//AllocSpecificReg(lang_stat, lhs.reg);
+
+						char sse_reg = 0;
+						if (lhs.reg == 0)
+							sse_reg++;
+						ir_val_aux rhs;
+						GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &ir->assign.rhs, sse_reg);
+
+						correct_inst = base_inst_sse;
+
+						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+						ir_val_aux dst;
+						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
+						
+						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+						//FreeSpecificReg(lang_stat, lhs.reg);
+
 					}
 					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_F32)
 					{
@@ -9250,9 +9296,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					{
 				
 						ir_val_aux lhs;
-						ir->bin.lhs.deref++;
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						ir->bin.lhs.deref--;
+						//ir->bin.lhs.deref++;
+						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+						//ir->bin.lhs.deref--;
 
 						ir_val_aux rhs;
 						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
@@ -10135,6 +10181,24 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	}", 1);
 	ASSERT(val == 3)
 
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
+		ptr := &a;\
+		b := 3;\
+		*ptr = b;\
+		if *ptr != 3\n\
+			return -1;\n\
+		return a;\
+	}", 1);
+
+		val = ExecuteString(&info, "start::fn(a : s32) ! s32{\
+		ptr := &a;\
+		if ptr != &a\n\
+			return -1;\n\
+		return a;\
+	}", 1);
+
+	ASSERT(val == 1)
+
 		val = ExecuteString(&info, "start::fn(a : s32) ! s32{return a;}", 1);
 	ASSERT(val == 1)
 
@@ -10334,7 +10398,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		start::fn(a : s32) ! s32{\n\
 			f32_ar: = []f32{ 1.0, 2.0, 3.0 };\n\
-			__dbg_break;\n\
 			f := *f32_ar[0] + *f32_ar[1] + *f32_ar[2];\n\
 			if f < 5.9 || f > 6.1\n\
 			{\n\
@@ -10390,6 +10453,60 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 3);
 	ASSERT(val == 3)
 
+	val = ExecuteString(&info, "\
+		test::fn(f : f32) ! f32\n\
+		{\n\
+			return f + 1.0;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			f := test(1.0);\n\
+			if f < 1.9 || f > 2.1\n\
+				return -1;\n\
+			f = test(f);\n\
+			if f < 2.9 || f > 3.1\n\
+				return -1;\n\
+			return 1;\n\
+		}\n\
+		", 0);
+	ASSERT(val == 1)
+
+		val = ExecuteString(&info, "\
+		st :struct\n\
+		{\n\
+			f1 : f32,\n\
+			f2 : f32,\n\
+		}\n\
+		test::fn(v : *st) ! f32\n\
+		{\n\
+			return v.f1 * v.f2;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			v : st=?;\n\
+			v.f1 = 2.0;\n\
+			v.f2 = 2.0;\n\
+			f: = test(&v);\n\
+			if f < 3.9 || f > 4.0\n\
+				return -1;\n\
+			return 1;\n\
+		}\n\
+		", 0);
+	ASSERT(val == 1)
+
+		val = ExecuteString(&info, "\
+		test::fn(v : *f32) ! f32\n\
+		{\n\
+			return *v + 1.0;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			f1: = 2.0;\n\
+			f1 = test(&f1);\n\
+			if f1 < 2.9 || f1 > 3.1\n\
+				return -1;\n\
+			return 1;\n\
+		}\n\
+		", 0);
+	ASSERT(val == 1)
+	ASSERT(false);
 	int a = 0;
 }
 int Compile(lang_state* lang_stat, compile_options *opts)
@@ -10397,8 +10514,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	AssertFuncByteCode(lang_stat);
-	ASSERT(false);
+	//AssertFuncByteCode(lang_stat);
+	
 	
 	int i = 0;
 	std::string file = opts->file;

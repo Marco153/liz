@@ -108,13 +108,11 @@ memset::fn(dst : *u8, val : u8, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128);
 	i:u64 = 0;
-	__dbg_break;
 	while i < sz
 	{
 		*ptr_offset(dst, i, u8) = val;
 		i++;
 	}
-	__dbg_break;
 
 }
 
@@ -518,6 +516,7 @@ test_ptr::fn(alloc : *mem_alloc, ret : *u32)
 
 	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
 	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
+	__dbg_break;
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
 
 
@@ -768,7 +767,6 @@ tests :: fn(ret : *u32)
 	if *ptr_offset(alloc.buffer, 1, u8) != 7
 		debug_break();
 
-	__dbg_break;
 	memset(alloc.buffer, 0, 8);
 
 	if *ptr_offset(alloc.buffer, 1, u8) != 0

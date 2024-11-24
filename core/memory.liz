@@ -926,8 +926,8 @@ tests :: fn(ret : *u32)
 		debug_break();
 
 	fsum = 1.0;
-	debug_break();
 	testt: = [3]f32{ ret_f32_summed_with_one(fsum), ret_f32_summed_with_one(fsum), 3.0 };
+	debug_break();
 	fsum = *testt[0] + *testt[1] + *testt[2];
 	
 	if fsum < 6.9 || fsum > 7.1

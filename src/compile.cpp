@@ -47,6 +47,7 @@
 #define RET_1_REG 10
 #define RET_2_REG 11
 #define FILTER_PTR 12
+#define FLOAT_REG_0 13
 #define GLOBALS_OFFSET 11000
 
 //#define DEBUG_GLOBAL_NOT_FOUND 
@@ -1719,6 +1720,9 @@ void WasmPushIRAddress(wasm_gen_state *gen_state, ir_val *val, own_std::vector<u
 void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsigned char> &code_sect, bool deref)
 {
 	int deref_times = val->deref;
+	int prev_reg = val->reg;
+	if (val->type == IR_TYPE_REG && val->is_float && val->deref < 0)
+		val->reg = val->reg + FLOAT_REG_0;
 	switch (val->type)
 	{
 	case IR_TYPE_STR_LIT:
@@ -1763,7 +1767,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		}
 		
 		int offset = val->i;
-		WasmPushConst(WASM_LOAD_INT, 0, -(base_offset + offset), &code_sect);
+		WasmPushConst(WASM_LOAD_INT, 0, -(base_offset - offset), &code_sect);
 		code_sect.emplace_back(0x6a);
 	}break;
 	case IR_TYPE_REG:
@@ -1832,8 +1836,11 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	default:
 		ASSERT(0)
 	}
+	val->reg = prev_reg;
+
 	bool is_decl = val->type == IR_TYPE_DECL;
 	bool is_decl_not_ptr = is_decl && val->decl->type.ptr == 0;
+
 	while ((deref_times >= 0) && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32 && val->type != IR_TYPE_STR_LIT)
 	{
 
@@ -2089,16 +2096,19 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		*/
 
 		int prev_reg_sz = cur_ir->assign.to_assign.reg_sz;
+		int prev_reg = cur_ir->assign.to_assign.reg;
 		if (cur_ir->assign.to_assign.type == IR_TYPE_REG && cur_ir->assign.to_assign.deref >= 0)
 			cur_ir->assign.to_assign.reg_sz = 8;
+
+		//if (cur_ir->assign.to_assign.is_float && cur_ir->assign.to_assign.deref < 0)
+			//cur_ir->assign.to_assign.reg = FLOAT_REG_0;
 		
 
 		WasmPushIRVal(gen_state, &cur_ir->assign.to_assign, code_sect, false);
 
 		cur_ir->assign.to_assign.reg_sz = prev_reg_sz;
+		cur_ir->assign.to_assign.reg = prev_reg;
 		char prev_deref = lhs->deref;
-		if (lhs->ptr < 0)
-			lhs->deref = -1;
 		if (lhs->deref < -1)
 			lhs->deref = -1;
 
@@ -2884,12 +2894,12 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 		case ON_STACK_STRUCT_CONSTR:
 		{
 			stack_type_name = "struct constr";
-			base_ptr = dbg->cur_func->strct_constrct_at_offset + val->i;
+			base_ptr = (base_ptr - dbg->cur_func->strct_constrct_at_offset) + val->i;
 		}break;
 		case ON_STACK_SPILL:
 		{
 			stack_type_name = "spill";
-			base_ptr -= dbg->cur_func->to_spill_offset;
+			base_ptr = (base_ptr - dbg->cur_func->to_spill_offset) + val->i;
 		}break;
 		default:
 			ASSERT(0);
@@ -3318,6 +3328,7 @@ struct typed_stack_val
 	bool decl;
 	int offset;
 	type2 type;
+	bool no_deref;
 };
 
 int WasmGetMemOffsetVal(dbg_state* dbg, unsigned int offset)
@@ -3418,6 +3429,9 @@ void WasmFromAstArrToStackVal(dbg_state* dbg, own_std::vector<ast_rep *> expr, t
 			val.type = a->cast.type;
 			//val.type.type = FromTypeToVarType(a->cast.type.type)
 			val.type.e_decl = d;
+
+			if (a->cast.type.ptr > 0 && top->type.type == TYPE_S32)
+				val.no_deref = true;
 
 			val.offset = top->offset;
 		}break;
@@ -3727,15 +3741,20 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 	{
 		typed_stack_val x_times;
 		WasmFromAstArrToStackVal(dbg, exp->x_times, &x_times);
-		ASSERT(expr_val.type.ptr > 0 || expr_val.type.type == TYPE_STATIC_ARRAY);
+		ASSERT(expr_val.type.ptr > 0  || expr_val.type.ptr == -1 || expr_val.type.type == TYPE_STATIC_ARRAY);
 		ASSERT(x_times.type.ptr == 0);
 
-		void *ptr_buffer = &dbg->mem_buffer[expr_val.offset];
+		void *ptr_buffer = (void *) & dbg->mem_buffer[expr_val.offset];
+		//if(1expr_val.no_deref)
+		//ptr_buffer = *) & dbg->mem_buffer[expr_val.offset];
 		std::string show = "";
 		if (expr_val.type.ptr == 1 || expr_val.type.type == TYPE_STATIC_ARRAY)
 		{
-			if(expr_val.type.type != TYPE_STATIC_ARRAY)
-				ptr_buffer = &dbg->mem_buffer[*(int*)ptr_buffer];
+			if (expr_val.type.type != TYPE_STATIC_ARRAY)
+			{
+				if (!expr_val.no_deref)
+					ptr_buffer = &dbg->mem_buffer[*(int*)ptr_buffer];
+			}
 			else
 			{
 				expr_val.type = *expr_val.type.tp;
@@ -10437,9 +10456,9 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		start::fn(a : s32) ! s32{\n\
 			b :st= ?;\n\
-			__dbg_break;\n\
 			ret := test(&b, &b, &b);\n\
 			ptr := &b;\n\
+			__dbg_break;\n\
 			ret += test(ptr, ptr, &b);\n\
 			return ret + ptr.d;\n\
 		}\n\
@@ -10573,7 +10592,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	AssertFuncByteCode(lang_stat);
+	//AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;

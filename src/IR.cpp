@@ -1476,7 +1476,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						ir.assign.to_assign.i = cur_spill_offset;
 						ir.assign.only_lhs = true;
 						ir.assign.lhs = *to_spill;
-						ir.assign.lhs.deref = 1;
+						//ir.assign.lhs.deref = 1;
 						out->emplace_back(ir);
 
 
@@ -1530,7 +1530,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.type = IR_INDIRECT_CALL;
 				ir.bin.lhs.type = IR_TYPE_DECL;
 				ir.bin.lhs.decl = e->call.func_ptr_var;
-				ir.bin.lhs.deref = 1;
+				ir.bin.lhs.deref = 0;
 				ir.bin.lhs.is_float = false;
 			}
 			/*
@@ -1649,7 +1649,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						ir.assign.only_lhs = true;
 						ir.assign.lhs.type = IR_TYPE_ON_STACK;
 						ir.assign.lhs.on_stack_type = ON_STACK_SPILL;
-						ir.assign.lhs.deref = 1;
+						//ir.assign.lhs.deref = 1;
 						ir.assign.lhs.i = cur_spill_offset;
 						ir.assign.lhs.reg_sz = 8;
 						out->emplace_back(ir);
@@ -2983,8 +2983,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 					ir.bin.lhs.type = IR_TYPE_REG;
 					ir.bin.lhs.reg_sz = 8;
 					ir.bin.lhs.reg = AllocReg(lang_stat);
-					GenStackThenIR(lang_stat, e, out, &ir.bin.lhs, nullptr);
-					ir.bin.lhs.deref++;
+					GenStackThenIR(lang_stat, e, out, &ir.bin.lhs, &ir.bin.lhs);
+					//ir.bin.lhs.deref++;
 					ir.bin.rhs.type = IR_TYPE_INT;
 					ir.bin.rhs.i = 1;
 					ir.type = IR_CMP_NE;

@@ -1800,6 +1800,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 			int idx = 0;
 			ASSERT(FuncAddedWasm(gen_state->wasm_state, val->decl->name, &idx));
 			WasmPushConst(WASM_LOAD_INT, 0, idx, &code_sect);
+			deref_times = -1;
 
 		}
 		else
@@ -2183,7 +2184,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		//WasmPushConst(WASM_TYPE_INT, 0, idx, &code_sect);
 		WasmPushRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
 		//WasmPushRegister(gen_state, 0, code_sect);
-		WasmPushIRVal(gen_state, &cur_ir->bin.lhs, code_sect);
+		WasmPushIRVal(gen_state, &cur_ir->bin.lhs, code_sect, true);
 		code_sect.emplace_back(0x11);
 		code_sect.emplace_back(0x0);
 		code_sect.emplace_back(0x0);
@@ -10572,7 +10573,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	//AssertFuncByteCode(lang_stat);
+	AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;

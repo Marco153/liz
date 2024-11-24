@@ -689,6 +689,10 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 							i++;
 							block_level++;
 						}
+						else if (input[i] == '\n')
+						{
+							line++;
+						}
 						else if (input[i] == '*' && input[i + 1] == '/')
 						{
 							i++;

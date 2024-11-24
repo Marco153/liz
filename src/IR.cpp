@@ -2740,7 +2740,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			//ir.ret.assign.lhs.reg = AllocReg(lang_stat);
 			ir.ret.assign.lhs.reg_sz = 8;
 
-			GenStackThenIR(lang_stat, rhs_ast, out, &ir.ret.assign.lhs);
+			GenStackThenIR(lang_stat, rhs_ast, out, &ir.ret.assign.lhs, &ir.ret.assign.lhs);
 		}break;
 		case AST_IDENT:
 		case AST_INT:
@@ -2763,8 +2763,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		else
 			ir.ret.assign.lhs.deref += 1;
 			*/
-		if(ir.ret.assign.lhs.type == IR_TYPE_REG)
-			ir.ret.assign.lhs.deref--;
+		//if(ir.ret.assign.lhs.type == IR_TYPE_REG)
+		//ir.ret.assign.lhs.deref--;
 
 
 		ir.ret.assign.lhs.is_float = ir.ret.assign.to_assign.is_float;

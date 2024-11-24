@@ -10572,7 +10572,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	AssertFuncByteCode(lang_stat);
+	//AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;

@@ -10458,7 +10458,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			b :st= ?;\n\
 			ret := test(&b, &b, &b);\n\
 			ptr := &b;\n\
-			__dbg_break;\n\
 			ret += test(ptr, ptr, &b);\n\
 			return ret + ptr.d;\n\
 		}\n\
@@ -10541,6 +10540,21 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 0);
 	ASSERT(val == 1)
 
+	val = ExecuteString(&info, "\
+		test::fn(v : *f32)\n\
+		{\n\
+			*v = 1.0;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			f1: = 2.0;\n\
+			test(&f1);\n\
+			if f1 < 0.9 || f1 > 1.1\n\
+				return -1;\n\
+			return 1;\n\
+		}\n\
+		", 0);
+	ASSERT(val == 1)
+
 		val = ExecuteString(&info, "\
 		st :struct\n\
 		{\n\
@@ -10592,7 +10606,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	//AssertFuncByteCode(lang_stat);
+	AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;

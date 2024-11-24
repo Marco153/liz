@@ -670,6 +670,7 @@ ret_f32_summed_with_one::fn(a : f32)!f32
 }
 modify_f32::fn(a : *f32)
 {
+	__dbg_break;
 	*a = 1.0;
 }
 modify_f32_as_s32::fn(a : *f32)
@@ -927,12 +928,12 @@ tests :: fn(ret : *u32)
 
 	fsum = 1.0;
 	testt: = [3]f32{ ret_f32_summed_with_one(fsum), ret_f32_summed_with_one(fsum), 3.0 };
-	debug_break();
 	fsum = *testt[0] + *testt[1] + *testt[2];
 	
 	if fsum < 6.9 || fsum > 7.1
 		debug_break();
 
+	debug_break();
 	modify_f32(&fsum);
 
 	if fsum < 0.9 || fsum > 1.1

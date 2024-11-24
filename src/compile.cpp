@@ -1903,7 +1903,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		if (!cur_ir->ret.no_ret_val)
 		{
 			WasmPushConst(WASM_TYPE_INT, 0, (RET_1_REG + cur_ir->ret.assign.to_assign.reg) * 8, &code_sect);
-			WasmPushMultiple(gen_state, cur_ir->ret.assign.only_lhs, cur_ir->ret.assign.lhs, cur_ir->ret.assign.rhs, last_on_stack, cur_ir->ret.assign.op, code_sect);
+			WasmPushMultiple(gen_state, cur_ir->ret.assign.only_lhs, cur_ir->ret.assign.lhs, cur_ir->ret.assign.rhs, last_on_stack, cur_ir->ret.assign.op, code_sect, true);
 			//WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
 			int inst = WASM_STORE_OP;
 			if(cur_ir->ret.assign.to_assign.is_float)
@@ -2097,6 +2097,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		cur_ir->assign.to_assign.reg_sz = prev_reg_sz;
 		char prev_deref = lhs->deref;
 		if (lhs->ptr < 0)
+			lhs->deref = -1;
+		if (lhs->deref < -1)
 			lhs->deref = -1;
 
 		WasmPushMultiple(gen_state, cur_ir->assign.only_lhs, *lhs, *rhs, last_on_stack, cur_ir->assign.op, code_sect, true);
@@ -8129,6 +8131,16 @@ void GenX64ToIrValImm(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir
 		aux->i = ir->i;
 	aux->is_float = ir->is_float;
 }
+void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address)
+{
+	aux->type = ir->type;
+	aux->reg = ir->reg;
+	aux->reg_sz = ir->reg_sz;
+	aux->deref = ir->deref;
+	aux->is_float = ir->is_float;
+	if(address && aux->deref > 0 || !address)
+		GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, aux->reg);
+}
 void GenX64ToIrValReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address)
 {
 	aux->type = ir->type;
@@ -8424,7 +8436,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					if (lhs.reg == PRE_X64_RSP_REG)
 						GenX64MemToReg(ret, 0, lhs.reg_sz, lhs.voffset, lhs.reg, MOV_M);
 					else
-						GenX64RegToReg(lang_stat, ret, 0, lhs.reg_sz, lhs.reg, MOV_M);
+						GenX64RegToReg(lang_stat, ret, 0, lhs.reg_sz, lhs.reg, MOV_R);
 					//GenX64AutomaticDeclDeref(lang_stat, ret, d->deref, &d-> )
 				}break;
 				case IR_TYPE_RET_REG:
@@ -8841,16 +8853,16 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					case IR_TYPE_INT:
 					{
 						ir_val_aux lhs;
-						ir->assign.to_assign.deref--;
-						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
-						ir->assign.to_assign.deref++;
+						//ir->assign.to_assign.deref--;
+						GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
+						//ir->assign.to_assign.deref++;
 
 						ir_val_aux rhs;
 						GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->bin.lhs);
 
 
 						byte_code_enum inst;
-						if (ir->assign.to_assign.deref >= 0)
+						if (lhs.deref >= 0)
 							inst = STORE_I_2_M;
 						else
 							inst = MOV_I;
@@ -8890,9 +8902,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					case IR_TYPE_REG:
 					{
 						ir_val_aux lhs;
-						ir->assign.to_assign.deref--;
-						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
-						ir->assign.to_assign.deref++;
+						//ir->assign.to_assign.deref--;
+						GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
+						//ir->assign.to_assign.deref++;
 
 						ir_val_aux rhs;
 						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->assign.lhs, false);
@@ -8907,7 +8919,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						}
 						else
 						{
-							if (ir->assign.to_assign.deref >= 0)
+							if (lhs.deref >= 0)
 								inst = STORE_R_2_M;
 							else
 								inst = MOV_R;
@@ -9030,9 +9042,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					else if (ir->assign.lhs.type == IR_TYPE_DECL && (ir->assign.rhs.type == IR_TYPE_REG || ir->assign.rhs.type == IR_TYPE_RET_REG))
 					{
 						ir_val_aux lhs;
-						ir->bin.lhs.deref++;
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						ir->bin.lhs.deref--;
+						//ir->bin.lhs.deref++;
+						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+						//ir->bin.lhs.deref--;
 
 						ir_val_aux rhs;
 						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
@@ -10424,6 +10436,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		start::fn(a : s32) ! s32{\n\
 			b :st= ?;\n\
+			__dbg_break;\n\
 			ret := test(&b, &b, &b);\n\
 			ptr := &b;\n\
 			ret += test(ptr, ptr, &b);\n\
@@ -10435,6 +10448,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	val = ExecuteString(&info, "\
 		st :struct\n\
 		{\n\
+			a : s32,\n\
 			ptr : *u8,\n\
 		}\n\
 		test::fn() !*s32\n\
@@ -10443,7 +10457,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		start::fn(a : s32) ! s32{\n\
 			b :st= ?;\n\
-			b.ptr = cast(*u8)test();\n\
+			(cast(*st)(cast(u64)&b)).ptr = cast(*u8)test();\n\
 			if cast(u64)b.ptr != 2\n\
 			{\n\
 				return -1;\n\
@@ -10506,6 +10520,50 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		", 0);
 	ASSERT(val == 1)
+
+		val = ExecuteString(&info, "\
+		st :struct\n\
+		{\n\
+			a : s32,\n\
+			ptr : **st,\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			b :st= ?;\n\
+			c :st= ?;\n\
+			buffer : u64= cast(u64)&b;\n\
+			c.ptr = cast(**st)&buffer;\n\
+			c.ptr.a = 3;\n\
+			if b.a != 3\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			return a + c.ptr.a;\n\
+		}\n\
+		", 1);
+	ASSERT(val == 4)
+
+		val = ExecuteString(&info, "\
+		st :struct\n\
+		{\n\
+			a : s32,\n\
+			ptr : **st,\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			b :st= ?;\n\
+			c :st= ?;\n\
+			buffer : u64= cast(u64)&b;\n\
+			c.ptr = cast(**st)&buffer;\n\
+			b.a = 5;\n\
+			(cast(**st)(cast(u64)c.ptr)).a = 3;\n\
+			if b.a != 3\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			return a + c.ptr.a;\n\
+		}\n\
+		", 1);
+	ASSERT(val == 4)
+
 	ASSERT(false);
 	int a = 0;
 }
@@ -10514,7 +10572,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	//AssertFuncByteCode(lang_stat);
+	AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;

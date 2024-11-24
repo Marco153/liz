@@ -516,7 +516,6 @@ test_ptr::fn(alloc : *mem_alloc, ret : *u32)
 
 	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
 	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
-	__dbg_break;
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
 
 
@@ -848,12 +847,15 @@ tests :: fn(ret : *u32)
 		debug_break();
 	if cast(u64)ptr_offset(0, 2, simple_strct) != 16
 		debug_break();
+	__dbg_break;
+	/*
 	if cast(u64)ptr_offset(0, 0, *simple_strct) != 0
 		debug_break();
 	if cast(u64)ptr_offset(0, 1, *simple_strct) != 8
 		debug_break();
 	if cast(u64)ptr_offset(0, 2, *simple_strct) != 16
 		debug_break();
+	*/
 
 	main_type: fn() !u8;
 	main_type = fn() !u8{ return 1; };

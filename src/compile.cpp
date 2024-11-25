@@ -763,7 +763,7 @@ char* CompleteMachineCode(lang_state* lang_stat, machine_code& code)
 
 	int data_sect_start = lang_stat->code_sect.size();
 	lang_stat->code_sect.insert(lang_stat->code_sect.end(), (unsigned char*)lang_stat->data_sect.begin(), (unsigned char*)lang_stat->data_sect.end());
-	lang_stat->data_sect.clear();
+	//lang_stat->data_sect.clear();
 
 	char* exec_funcs = (char*)lang_stat->code_sect.data() + code.executable + lang_stat->type_sect.size();
 
@@ -1782,7 +1782,8 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	case IR_TYPE_RET_REG:
 	{
 		WasmPushConst(WASM_LOAD_INT, 0, (RET_1_REG + val->reg) * 8, &code_sect);
-		deref_times++;
+		if(deref)
+			deref_times++;
 
 	}break;
 	case IR_TYPE_ARG_REG:
@@ -1831,7 +1832,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 				val->is_float = prev_val;
 			}
 		}
-		deref = false;
+		//deref = false;
 	}break;
 	default:
 		ASSERT(0)
@@ -1848,7 +1849,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		int inst = WASM_LOAD_OP;
 		//if (IsIrValFloat(val) && deref_times == 1)
 
-		if (IsIrValFloat(val) && deref_times == 0 && (is_decl_not_ptr || !is_decl_not_ptr && val->deref > val->ptr || !is_decl))
+		if (IsIrValFloat(val) && deref_times == 0 && (is_decl_not_ptr || !is_decl_not_ptr && val->deref > val->ptr || !is_decl) && deref)
 			inst = WASM_LOAD_F32_OP;
 		if (deref_times > 0)
 		{
@@ -1859,7 +1860,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		WasmStoreInst(gen_state->wasm_state->lang_stat, code_sect, reg_sz, inst);
 		//if(!deref)
 			deref_times--;
-		deref = false;
+		//deref = false;
 	}
 }
 
@@ -2104,7 +2105,10 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			//cur_ir->assign.to_assign.reg = FLOAT_REG_0;
 		
 
+		bool float_val = cur_ir->assign.to_assign.is_float;
+		//cur_ir->assign.to_assign.is_float = false;
 		WasmPushIRVal(gen_state, &cur_ir->assign.to_assign, code_sect, false);
+		//cur_ir->assign.to_assign.is_float = float_val;
 
 		cur_ir->assign.to_assign.reg_sz = prev_reg_sz;
 		cur_ir->assign.to_assign.reg = prev_reg;
@@ -2143,7 +2147,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		case IR_TYPE_DECL:
 		{
 			int inst = WASM_STORE_OP;
-			if (cur_ir->assign.lhs.is_float)
+			if (cur_ir->assign.to_assign.is_float)
 				inst = WASM_STORE_F32_OP;
 			WasmStoreInst(lang_stat, code_sect, r_sz, inst);
 		}break;
@@ -10598,6 +10602,28 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 4)
 
+		val = ExecuteString(&info, "\
+		start::fn(a : s32) ! s32{\n\
+		fsum := 0.0;\n\
+		*cast(*s32)&fsum = 0x40000000;\n\
+		if fsum < 1.9 || fsum > 2.1\n\
+			return -1;\n\
+		return a;\n\
+		}\n\
+		", 1);
+	ASSERT(val == 1)
+
+		val = ExecuteString(&info, "\
+		start::fn(a : s32) ! s32{\n\
+		fsum := 0.0;\n\
+		fptr := &fsum;\n\
+		*cast(*s32)fptr = 0x40000000;\n\
+		if fsum < 1.9 || fsum > 2.1\n\
+			return -1;\n\
+		return a;\n\
+		}\n\
+		", 2);
+	ASSERT(val == 2)
 	ASSERT(false);
 	int a = 0;
 }
@@ -10606,7 +10632,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	AssertFuncByteCode(lang_stat);
+	//AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;

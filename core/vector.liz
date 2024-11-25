@@ -117,14 +117,15 @@ square_normalize::fn(a : *v3) !v3
 mul_v3::fn(a : *v3, b : *v3) !v3
 {
 	aux:v3;
-    aux.x = a.x * b.x;
-    aux.y = a.y * b.y;
-    aux.z = a.z * b.z;
+	aux.x = a.x * b.x;
+	aux.y = a.y * b.y;
+	aux.z = a.z * b.z;
 
 	return aux;
 }
 sign_v3::fn(a : *v3) !v3
 {
+	__dbg_break;
 	aux: = *a;
 	aux.x = if a.x > 0.0 1.0 else - 1.0;
 	aux.y = if a.y > 0.0 1.0 else - 1.0;

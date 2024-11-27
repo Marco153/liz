@@ -15,9 +15,10 @@ mat4x4 : struct
 {
 	vals : [4 * 4] f32,
 }
+__sqrt::fn intrinsic(a : f32) !f32;
 sqrt::fn x64(a : f32) !f32
 {
-	return 1.0;
+	return __sqrt(a);
 }
 
 operator *(self : *mat4x4, vec : *v3) !v3
@@ -125,7 +126,6 @@ mul_v3::fn(a : *v3, b : *v3) !v3
 }
 sign_v3::fn(a : *v3) !v3
 {
-	__dbg_break;
 	aux: = *a;
 	aux.x = if a.x > 0.0 1.0 else - 1.0;
 	aux.y = if a.y > 0.0 1.0 else - 1.0;
@@ -133,11 +133,11 @@ sign_v3::fn(a : *v3) !v3
 
 	return aux;
 }
-len_v4::fn(a : *v4) ! f32
+len_v4::fn(a : *v4) !f32
 {
 	return sqrt(dot_v4(a, a));
 }
-len_v3::fn x64(a : *v3) ! f32
+len_v3::fn x64(a : *v3) !f32
 {
 	return sqrt(dot_v3(a, a));
 }
@@ -153,16 +153,17 @@ normalize_v4::fn(a : *v4) !v4
 }
 normalize_v3::fn(a : *v3) !v3
 {
-	len: = sqrt(dot_v3(a, a));
+	dot: = dot_v3(a, a);
+	len: = sqrt(dot);
 	ret:v3;
 	ret.x = a.x / len;
 	ret.y = a.y / len;
 	ret.z = a.z / len;
 	return ret;
 }
-dot_v4::fn(a : *v4, b : *v4) ! f32
+dot_v4::fn(a : *v4, b : *v4) !f32
 {
-	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	ret: = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 	return ret;
 }
 //dot_v3::fn outsider(a : *v3, b : *v3) !f32;

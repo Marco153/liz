@@ -869,6 +869,11 @@ node* node_iter::parse_func_like()
 
 		n->flags |= NODE_FLAGS_FUNC_LINK_NAME;
 	}
+	else if (IsTknWordStr(peek_tkn(), "intrinsic"))
+	{
+		get_tkn();
+		n->flags |= NODE_FLAGS_FUNC_INTRINSIC;
+	}
 	else if (IsTknWordStr(peek_tkn(), "internal"))
 	{
 		get_tkn();
@@ -4860,6 +4865,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_CONSTRUCTOR) ? FUNC_DECL_CONSTRUCTOR : 0;
 
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_INTERNAL) ? FUNC_DECL_INTERNAL : 0;
+	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_INTRINSIC) ? FUNC_DECL_INTRINSIC : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_MACRO) ? FUNC_DECL_MACRO : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_THIS) ? FUNC_DECL_THIS : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_COMP) ? FUNC_DECL_COMP : 0;
@@ -6117,7 +6123,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 				auto prev_fdecl = lang_stat->cur_func;
 				lang_stat->cur_func = scp->fdecl;
-				//CompileDo(lang_stat, n->r->r, scp);
+				CompileDo(lang_stat, n->r->r, scp);
 				lang_stat->cur_func = prev_fdecl;
 				//n->type = N_EMPTY;
 				n->flags |= NODE_FLAGS_IS_PROCESSED2;
@@ -8449,6 +8455,11 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			else
 				ASSERT(0);
 		}
+		else if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTRINSIC))
+		{
+			if (IS_FLAG_OFF(lang_stat->cur_func->flags, FUNC_DECL_X64))
+				ReportMessage(lang_stat, n->t, "intrinsic functions can only be called from a x64 function");
+		}
 
 
 		switch (ltp.type)
@@ -8886,6 +8897,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				lang_stat->plugins_for_func = n->fdecl;
 
 			}
+			lang_stat->cur_func = n->fdecl;
 
 			DescendNode(lang_stat, n->r, scp);
 

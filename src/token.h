@@ -357,6 +357,7 @@ struct template_to_be_assigned
 #define FUNC_DECL_THIS 0x40000
 #define FUNC_DECL_SERIALIZED 0x80000
 #define FUNC_DECL_X64 0x100000
+#define FUNC_DECL_INTRINSIC 0x200000
 
 struct stmnt_dbg
 {

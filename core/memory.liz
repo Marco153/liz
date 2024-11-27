@@ -1068,7 +1068,6 @@ tests :: fn(ret : *u32)
 	v1.x = 5.0;
 	v1.y = -6.0;
 
-	__dbg_break;
 	v1 = sign_v3(&v1);
 
 	if v1.x > 1.1 || v1.x < 0.9 || v1.y < -1.0 || v1.y > -0.9
@@ -1110,6 +1109,7 @@ tests :: fn(ret : *u32)
 	if ar[0] != cast(*u32)0
 		debug_break();
 
+	__dbg_break;
 	if ar[1] != cast(*u32)4
 		debug_break();
 

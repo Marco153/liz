@@ -32,6 +32,7 @@ enum byte_code_enum
 	NOP, 
 
 	NEW_LINE,
+	BEGIN_FUNC_FOR_INTERPRETER,
 	BEGIN_FUNC,
 	END_FUNC,
 	BEGIN_SCP,
@@ -235,6 +236,8 @@ enum byte_code_enum
 	MOVSX_R,
 	MOVZX_R,
 	MOVZX_M,
+
+	SQRT_SSE,
 
 	REP_B,
 

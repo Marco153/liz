@@ -707,28 +707,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case BEGIN_FUNC:
 		{
 			func_decl* fdecl = bc->fdecl;
+			fdecl->code_start_idx = ret.code.size();
 			cur_func = fdecl;
+		}break;
+		case BEGIN_FUNC_FOR_INTERPRETER:
+		{
+			func_decl* fdecl = bc->fdecl;
 
 			fdecl->for_interpreter_code_start_idx = ret.code.size();
-			cur_func_start = ret.code.size();
-
-			int on_stack_args = (max(fdecl->args.size() - 4, 0));
-			ret.code.insert(ret.code.end(), (unsigned char *)distribute_regs_from_interpreter_bytes, (unsigned char *)distribute_regs_from_interpreter_bytes + strlen(distribute_regs_from_interpreter_bytes));
-			if (on_stack_args)
-			{
-				for (int i = 0; i < on_stack_args; i++)
-				{
-					//mov rbx, qword[rax + 4]
-					//mov qword[rsp + 32], rbx
-					char aux[] = {0x48, 0x8B, 0x58, 0x00, 0x48, 0x89, 0x5C, 0x24, 0x00};
-					aux[3] = 32 + i * 8;
-					aux[8] = 32 + (i + 1) * 8;
-
-					ret.code.insert(ret.code.end(), (unsigned char *)aux, (unsigned char *)aux + strlen(aux));
-				}
-			}
-
-			fdecl->code_start_idx = ret.code.size();
 
 		}break;
 		case ASSIGN_FUNC_SIZE:
@@ -815,6 +801,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			else
 				Create0FMemToReg(&*bc, 0xbe, &ret);
 			
+		}break;
+		case SQRT_SSE:
+		{
+			// movssinstruction here
+			char mod = 0xc0 | ((bc->bin.lhs.reg & 0xf) << 3) | ((bc->bin.rhs.reg & 0xf));
+			ret.code.emplace_back(0xf3);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x51);
+			ret.code.emplace_back(mod);
+
 		}break;
 		case MOVZX_M:
 		{
@@ -1073,8 +1069,19 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
 			if (bc->bin.lhs.reg < 4)
 			{
-				bc->bin.lhs.reg = final_reg;
-				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
+				auto saved_reg = bc->bin.lhs.reg;
+				if (IS_FLAG_ON(final_reg, 1 << 7))
+				{
+					bc->bin.lhs.reg = (bc->bin.lhs.reg % 2) + 8;
+					CreateMemToReg(&*bc, 0x8a, 0x8b, true, ret);
+				}
+				else
+				{
+					bc->bin.lhs.reg = (bc->bin.lhs.reg % 2) + 1;
+					CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
+				}
+
+				bc->bin.lhs.reg = saved_reg;
 			}
 			else
 			{
@@ -1225,6 +1232,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			break;
 		case MOV_R:
 		{
+			if (bc->bin.lhs.reg == bc->bin.rhs.reg)
+				break;
 			CreateRegToReg(&*bc, 0x88, 0x89, &ret);
 		}break;
 		case MOV_RM:
@@ -5663,6 +5672,7 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 		
 		//if(final_func->fdecl->name == "entry")
 			//offset -= 8;
+		int float_reg = 0;
 			
 		for(int i = 3; i >= 0; i--)
 		{
@@ -5681,8 +5691,9 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 
 			if(a && (a->type.IsFloat() && a->type.ptr == 0))
 			{
-				bc.bin.rhs.reg = i;
+				bc.bin.rhs.reg = float_reg;
 				bc.bin.rhs.reg |= 1 << 4;
+				float_reg++;
 			}
 
 			bc.bin.rhs.reg_sz = 8;

@@ -1484,7 +1484,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		{
 
 			int cur_biggest = e->call.in_func->biggest_call_args;
-			e->call.in_func->biggest_call_args = max(cur_biggest, e->call.fdecl->args.size());
+			lang_stat->cur_func->biggest_call_args = max(cur_biggest, e->call.fdecl->args.size());
 
 			
 			int more_stack_vals = stack.size() - e->call.args.size();
@@ -1497,7 +1497,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 				e->call.in_func->to_spill_size = max(cur_biggest, more_stack_vals);
 
-				int cur_spill_offset = 8;
+				int cur_spill_offset = 0;
 
 				while (more_stack_vals > 0)
 				{
@@ -1695,7 +1695,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			{
 				ir_val* begin = stack.begin();
 
-				int cur_spill_offset = 8;
+				int cur_spill_offset = 0;
 				while (begin < stack.end())
 				{
 					if (begin->type == IR_TYPE_REG)
@@ -2020,6 +2020,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			{
 				ir.type = IR_CAST_INT_TO_INT;
 				ir.bin.lhs.type = IR_TYPE_REG;
+				ir.bin.lhs.deref = -1;
 				ir.bin.lhs.reg_sz = top->reg_sz;
 				if (top->type == IR_TYPE_REG)
 					ir.bin.lhs.reg = top->reg;
@@ -2029,7 +2030,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.bin.rhs = *top;
 				out->emplace_back(ir);
 				*top = ir.bin.lhs;
-				top->deref = -1;
 			}
 			else if (e->cast.type.type == TYPE_F32 && top->is_float == false && e->cast.type.ptr == 0)
 			{

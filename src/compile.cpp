@@ -873,9 +873,9 @@ struct wasm_gen_state
 {
 	own_std::vector<ir_val*> similar;
 	int advance_ptr;
-	int strcts_construct_stack_offset;
-	int strcts_ret_stack_offset;
-	int to_spill_offset;
+	//int strcts_construct_stack_offset;
+	//int strcts_ret_stack_offset;
+	//int to_spill_offset;
 
 	func_decl* cur_func;
 	web_assembly_state* wasm_state;
@@ -1683,47 +1683,6 @@ bool AreIRValsEqual(ir_val* lhs, ir_val* rhs)
 
 
 
-void WasmPushIRAddress(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsigned char> &code_sect)
-{
-	switch (val->type)
-	{
-	case IR_TYPE_ON_STACK:
-	{
-		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
-		WasmPushConst(WASM_LOAD_INT, 0, gen_state->strcts_construct_stack_offset + val->i, &code_sect);
-		code_sect.emplace_back(0x6a);
-	}break;
-	case IR_TYPE_REG:
-	{
-		WasmPushConst(WASM_LOAD_INT, 0, val->reg * 8, &code_sect);
-	}break;
-	case IR_TYPE_RET_REG:
-	{
-		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, (RET_1_REG + val->reg) * 8 , &code_sect);
-	}break;
-	case IR_TYPE_ARG_REG:
-	{
-		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, STACK_PTR_REG * 8, &code_sect);
-		WasmPushConst(WASM_LOAD_INT, 0, val->reg * 8, &code_sect);
-		code_sect.emplace_back(0x6a);
-	}break;
-	case IR_TYPE_PARAM_REG:
-	{
-		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
-		WasmPushConst(WASM_LOAD_INT, 0, val->reg * 8, &code_sect);
-		code_sect.emplace_back(0x6a);
-	}break;
-	case IR_TYPE_DECL:
-	{
-		//int idx = decl_to_local_idx[val->decl];
-		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
-		WasmPushConst(WASM_LOAD_INT, 0, val->decl->offset, &code_sect);
-		code_sect.emplace_back(0x6a);
-	}break;
-	default:
-		ASSERT(0)
-	}
-}
 void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsigned char> &code_sect, bool deref)
 {
 	int deref_times = val->deref;
@@ -1759,15 +1718,15 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		{
 		case ON_STACK_STRUCT_RET:
 		{
-			base_offset = gen_state->strcts_ret_stack_offset;
+			base_offset = gen_state->cur_func->strct_ret_size_per_statement_offset;
 		}break;
 		case ON_STACK_STRUCT_CONSTR:
 		{
-			base_offset = gen_state->strcts_construct_stack_offset;
+			base_offset = gen_state->cur_func->strct_constrct_at_offset;
 		}break;
 		case ON_STACK_SPILL:
 		{
-			base_offset = gen_state->to_spill_offset;
+			base_offset = gen_state->cur_func->to_spill_offset;
 		}break;
 		default:
 			ASSERT(0)
@@ -2223,23 +2182,59 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_STACK_BEGIN:
 	{
-		//*stack_size = cur_ir->num;
-		// sub inst
-		gen_state->strcts_construct_stack_offset = *stack_size;
+
+		/*
+		//gen_state->strcts_construct_stack_offset = *stack_size;
 		cur_ir->fdecl->strct_constrct_at_offset = *stack_size;
 		*stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
 
-		gen_state->to_spill_offset = *stack_size;
+		//gen_state->to_spill_offset = *stack_size;
 		cur_ir->fdecl->to_spill_offset = *stack_size;
 		*stack_size += cur_ir->fdecl->to_spill_size * 8;
 
-		gen_state->strcts_ret_stack_offset = *stack_size;
+		//gen_state->strcts_ret_stack_offset = *stack_size;
 		cur_ir->fdecl->strct_ret_size_per_statement_offset = *stack_size;
 		*stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
 
 		*stack_size += cur_ir->fdecl->biggest_call_args * 8;
+		*/
 
 		// 8 bytes for saving rbs
+		//*stack_size += 8;
+
+		//*stack_size = cur_ir->num;
+		// sub inst
+		//gen_state->strcts_construct_stack_offset = *stack_size;
+		*stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
+		cur_ir->fdecl->strct_constrct_at_offset = *stack_size;
+
+		*stack_size += cur_ir->fdecl->to_spill_size * 8;
+		cur_ir->fdecl->to_spill_offset = *stack_size;
+
+		*stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
+		cur_ir->fdecl->strct_ret_size_per_statement_offset = *stack_size;
+
+		*stack_size += cur_ir->fdecl->biggest_call_args * 8;
+		/*
+		int start_aux = *stack_size;
+		*stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
+		*stack_size += cur_ir->fdecl->to_spill_size * 8;
+		*stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
+		*stack_size += cur_ir->fdecl->biggest_call_args * 8;
+		//*stack_size += 64;
+
+		cur_ir->fdecl->strct_constrct_at_offset = cur_ir->fdecl->biggest_call_args * 8 - start_aux;
+		cur_ir->fdecl->to_spill_offset = cur_ir->fdecl->strct_constrct_at_offset - cur_ir->fdecl->strct_constrct_size_per_statement;
+		cur_ir->fdecl->strct_ret_size_per_statement_offset = cur_ir->fdecl->to_spill_offset - cur_ir->fdecl->to_spill_size * 8;
+
+		//gen_state->to_spill_offset = *stack_size;
+		//cur_ir->fdecl->to_spill_offset = *stack_size;
+
+		//gen_state->strcts_ret_stack_offset = *stack_size;
+
+
+		// 8 bytes for saving rbs
+		*/
 		//*stack_size += 8;
 
 		WasmBeginStack(lang_stat, code_sect, *stack_size);
@@ -2365,7 +2360,6 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_CAST_INT_TO_INT:
 	{
-		break;
 		WasmPushIRVal(gen_state, &cur_ir->bin.lhs, code_sect, false);
 		WasmPushIRVal(gen_state, &cur_ir->bin.rhs, code_sect, true);
 
@@ -2376,7 +2370,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_BEGIN_COMPLEX:
 	{
-		WasmPushIRAddress(gen_state, &cur_ir->complx.dst, code_sect);
+		//WasmPushIRAddress(gen_state, &cur_ir->complx.dst, code_sect);
 
 		ir_rep* original_ir = cur_ir;
 
@@ -2553,7 +2547,11 @@ struct dbg_state
 	char* mem_buffer;
 	int mem_size;
 	func_decl* cur_func;
-	func_decl* next_stat_break_func;
+	union
+	{
+		func_decl* next_stat_break_func;
+		func_decl* info_cur_func;
+	};
 	stmnt_dbg* cur_st;
 	own_std::vector<func_decl*> func_stack;
 	own_std::vector<block_linked *> block_stack;
@@ -2924,12 +2922,12 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 		case ON_STACK_STRUCT_CONSTR:
 		{
 			stack_type_name = "struct constr";
-			base_ptr = (base_ptr - dbg->cur_func->strct_constrct_at_offset) + val->i;
+			base_ptr = base_ptr - (dbg->cur_func->strct_constrct_at_offset - val->i);
 		}break;
 		case ON_STACK_SPILL:
 		{
 			stack_type_name = "spill";
-			base_ptr = (base_ptr - dbg->cur_func->to_spill_offset) + val->i;
+			base_ptr = base_ptr - (dbg->cur_func->to_spill_offset - val->i);
 		}break;
 		default:
 			ASSERT(0);
@@ -3045,7 +3043,7 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	{
 		std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
 		std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
-		snprintf(buffer, 64, "cast int to int: %s = %s", lhs.c_str(), rhs.c_str());
+		snprintf(buffer, 64, "cast int to int: %s = %s\n", lhs.c_str(), rhs.c_str());
 		ret = buffer;
 	}break;
 	case IR_CMP_NE:
@@ -4740,6 +4738,29 @@ void WasmOnArgs(dbg_state* dbg)
 		{
 			dbg->break_type = DBG_NO_BREAK;
 			args_break = true;
+		}
+		else if (args[0] == "abs")
+		{
+			if (args.size() == 1)
+			{
+				continue;
+			}
+			int offset = atof(args[1].c_str());
+			void *addr = dbg->mem_buffer + offset;
+			printf("\naddr: %p", (void *)addr);
+		}
+		else if (args[0] == "babsi")
+		{
+			if (args.size() == 1)
+			{
+				continue;
+			}
+			int offset = atof(args[1].c_str());
+			auto ir = (own_std::vector<ir_rep>*) &dbg->cur_func->ir;
+			ir_rep* i = &((*ir)[offset]);
+			int bc_idx = i->start;
+			wasm_bc* wbc = &dbg->bcs[bc_idx];
+			wbc->dbg_brk = true;
 		}
 		else if (args[0] == "brelw")
 		{
@@ -6529,9 +6550,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = nullptr;
-		cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+		//cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
-		cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
@@ -8295,8 +8316,24 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	aux->type = ir->type;
 	aux->reg = PRE_X64_RSP_REG;
 	aux->reg_sz = ir->reg_sz;
-	if(ir->type == IR_TYPE_ON_STACK)
-		aux->voffset = ir->i + lang_stat->cur_func->strct_constrct_at_offset;
+	if (ir->type == IR_TYPE_ON_STACK)
+	{
+		switch (ir->on_stack_type)
+		{
+		case ON_STACK_SPILL:
+			aux->voffset = ir->i + lang_stat->cur_func->to_spill_offset;
+			break;
+		case ON_STACK_STRUCT_CONSTR:
+			aux->voffset = ir->i + lang_stat->cur_func->strct_constrct_at_offset;
+			break;
+		case ON_STACK_STRUCT_RET:
+			aux->voffset = ir->i + lang_stat->cur_func->strct_ret_size_per_statement_offset;
+			break;
+		default:
+			ASSERT(false)
+		}
+		
+	}
 	else
 		aux->voffset = ir->decl->offset;
 	aux->deref = ir->deref;
@@ -8553,15 +8590,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_STACK_BEGIN:
 		{
 			//stack_size += 32 + on_stack_args * 8;
-			gen_state->strcts_construct_stack_offset = stack_size;
+			//gen_state->strcts_construct_stack_offset = stack_size;
 			cur_ir->fdecl->strct_constrct_at_offset = stack_size;
 			stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
 
-			gen_state->to_spill_offset = stack_size;
+			//gen_state->to_spill_offset = stack_size;
 			cur_ir->fdecl->to_spill_offset = stack_size;
 			stack_size += cur_ir->fdecl->to_spill_size * 8;
 
-			gen_state->strcts_ret_stack_offset = stack_size;
+			//gen_state->strcts_ret_stack_offset = stack_size;
 			cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;
 			stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
 
@@ -9637,7 +9674,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
 					bc.bin.rhs.reg = ir->bin.rhs.reg;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
-					//ret.emplace_back(bc);
+					ret.emplace_back(bc);
 				}break;
 				case IR_TYPE_DECL:
 				{
@@ -9646,7 +9683,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					bc.bin.rhs.reg = PRE_X64_RSP_REG;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
 					bc.bin.rhs.voffset = ir->bin.rhs.decl->offset;
-					//ret.emplace_back(bc);
+					ret.emplace_back(bc);
 				}break;
 				default:
 					ASSERT(false);
@@ -10315,6 +10352,7 @@ int ExecuteString(code_info *info, std::string str, int param)
 	scp->flags |= SCOPE_IS_GLOBAL;
 	scope* root = scp;
 	node *stat1 = ParseString(info->lang_stat, str);
+	info->lang_stat->cur_file->global = scp;
 
 	int its = 0;
 	while (true)
@@ -10339,7 +10377,25 @@ int ExecuteString(code_info *info, std::string str, int param)
 		auto ir = (own_std::vector<ir_rep>*) &fdecl->ir;
 		GetIRFromAst(info->lang_stat, ast, ir);
 
+		info->lang_stat->global_funcs.emplace_back(fdecl);
+
+		if (fdecl->name == "start")
+			start_func = fdecl;
+	}
+	FOR_VEC(decl, scp->vars)
+	{
+		auto d = *decl;
+		if (d->type.type != TYPE_FUNC)
+			continue;
+
+		func_decl* fdecl = d->type.fdecl;
+		info->gen_state->cur_func = fdecl;
+		GenX64BytecodeFromIR(info->lang_stat, info->bcs, *(own_std::vector<ir_rep>*)&fdecl->ir, info->gen_state);
+		fdecl->flags |= FUNC_DECL_CODE_WAS_GENERATED;
+		auto ir = (own_std::vector<ir_rep>*) &fdecl->ir;
+
 		info->lang_stat->dstate->print_numbers_format = dbg_print_numbers_format::DBG_PRINT_HEX;
+		info->lang_stat->dstate->cur_func = fdecl;
 		std::string all;
 		for (int i = 0; i < ir->size(); i++)
 		{
@@ -10358,21 +10414,6 @@ int ExecuteString(code_info *info, std::string str, int param)
 		}
 		printf("\n\n*******\nfunc_name: %s\n%s", fdecl->name.c_str(), all.c_str());
 
-		info->lang_stat->global_funcs.emplace_back(fdecl);
-
-		if (fdecl->name == "start")
-			start_func = fdecl;
-	}
-	FOR_VEC(decl, scp->vars)
-	{
-		auto d = *decl;
-		if (d->type.type != TYPE_FUNC)
-			continue;
-
-		func_decl* fdecl = d->type.fdecl;
-		info->gen_state->cur_func = fdecl;
-		GenX64BytecodeFromIR(info->lang_stat, info->bcs, *(own_std::vector<ir_rep>*)&fdecl->ir, info->gen_state);
-		fdecl->flags |= FUNC_DECL_CODE_WAS_GENERATED;
 	}
 	GenX64(info->lang_stat, info->bcs, info->mcode);
 
@@ -10409,6 +10450,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	lang_stat->cur_idx = 0;
 	lang_stat->gen_type = gen_enum::GEN_X64;
 
+	lang_stat->cur_file = new unit_file();
 
 
 	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
@@ -10964,6 +11006,59 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		", 1);
 	ASSERT(val == 1)
+
+		val = ExecuteString(&info, "\
+		v3 : struct\n\
+		{\n\
+			x : f32,\n\
+			y : f32,\n\
+			z : f32,\n\
+		}\n\
+		operator + x64(self : *v3, rhs : *v3) !v3\n\
+		{\n\
+			ret:v3=?;\n\
+			ret.x = self.x + rhs.x;\n\
+			ret.y = self.y + rhs.y;\n\
+			ret.z = self.z + rhs.z;\n\
+			return ret;\n\
+		}\n\
+		operator * x64(self : *v3, f : f32) !v3\n\
+		{\n\
+			ret:v3=?;\n\
+			ret.x = self.x * f;\n\
+			ret.y = self.y * f;\n\
+			ret.z = self.z * f;\n\
+			return ret;\n\
+		}\n\
+		memcpy::fn(dst : *void, src : *void, sz : u64) !void\n\
+		{\n\
+			i:u64 = 0;\n\
+			while i < sz\n\
+			{\n\
+				*cast(*u8)(cast(u64)(dst) + i) = *cast(*u8)(cast(u64)(src) + i);\n\
+				i++;\n\
+			}\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			v1:v3=?;\n\
+			v2:v3=?;\n\
+			v1.x = 1.0;\n\
+			v2.x = 1.0;\n\
+			v1_ptr:= &v1;\n\
+			v2_ptr:= &v2;\n\
+			v3_:v3=?;\n\
+			v3_= *v1_ptr + *v2_ptr;\n\
+			if v3_.x < 1.9 || v3_.x > 2.1\n\
+				return -1;\n\
+			__dbg_break;\n\
+			v3_= v1 + v2 * 3.0;\n\
+			if v3_.x < 3.9 || v3_.x > 4.1\n\
+				return -1;\n\
+			return a;\n\
+		}\n\
+		", 1);
+	ASSERT(val == 1)
+
 
 	ASSERT(false);
 	int a = 0;

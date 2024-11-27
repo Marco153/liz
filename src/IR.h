@@ -222,6 +222,7 @@ enum ir_type
 
     IR_CAST_INT_TO_F32,
     IR_CAST_F32_TO_INT,
+    IR_CAST_INT_TO_INT,
 
     IR_SPILL_REG,
     IR_UNSPILL_REG,

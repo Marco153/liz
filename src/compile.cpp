@@ -2363,6 +2363,17 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		code_sect.emplace_back(0xc);
 		WasmPushImm(depth, &code_sect);
 	}break;
+	case IR_CAST_INT_TO_INT:
+	{
+		break;
+		WasmPushIRVal(gen_state, &cur_ir->bin.lhs, code_sect, false);
+		WasmPushIRVal(gen_state, &cur_ir->bin.rhs, code_sect, true);
+
+		if (gen_state->wasm_state->lang_stat->release && cur_ir->bin.rhs.reg_sz == 8)
+			cur_ir->bin.rhs.reg_sz = 4;
+
+		WasmStoreInst(lang_stat, code_sect, 4, WASM_STORE_OP);
+	}break;
 	case IR_BEGIN_COMPLEX:
 	{
 		WasmPushIRAddress(gen_state, &cur_ir->complx.dst, code_sect);
@@ -3029,6 +3040,13 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	case IR_BEGIN_CALL:
 	{
 		ret = "beginning call to "+ir->call.fdecl->name + " \n";
+	}break;
+	case IR_CAST_INT_TO_INT:
+	{
+		std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
+		std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		snprintf(buffer, 64, "cast int to int: %s = %s", lhs.c_str(), rhs.c_str());
+		ret = buffer;
 	}break;
 	case IR_CMP_NE:
 	case IR_CMP_GT:
@@ -6511,9 +6529,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = nullptr;
-		//cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+		cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
-		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
@@ -9604,6 +9622,40 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			}
 		}break;
 
+		case IR_CAST_INT_TO_INT:
+		{
+			switch (ir->bin.lhs.type)
+			{
+			case IR_TYPE_REG:
+			{
+				switch (ir->bin.rhs.type)
+				{
+				case IR_TYPE_REG:
+				{
+					bc.type = MOVZX_R;
+					bc.bin.lhs.reg = ir->bin.lhs.reg;
+					bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+					bc.bin.rhs.reg = ir->bin.rhs.reg;
+					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+					//ret.emplace_back(bc);
+				}break;
+				case IR_TYPE_DECL:
+				{
+					bc.type = MOVZX_M;
+					bc.bin.lhs.reg = ir->bin.lhs.reg;
+					bc.bin.rhs.reg = PRE_X64_RSP_REG;
+					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+					bc.bin.rhs.voffset = ir->bin.rhs.decl->offset;
+					//ret.emplace_back(bc);
+				}break;
+				default:
+					ASSERT(false);
+				}
+			}break;
+			default:
+				ASSERT(false);
+			}
+		}break;
 		case IR_BEGIN_SUB_IF_BLOCK:
 		case IR_BEGIN_AND_BLOCK:
 		case IR_BEGIN_OR_BLOCK:
@@ -10892,7 +10944,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		start::fn(a : s32) ! s32{\n\
 			ar:= []s32{1, 2, 3, 4};\n\
 			ret:= 0;\n\
-			__dbg_break;\n\
 			for i in ar\n\
 			{\n\
 				ret += *i;\n\
@@ -10901,6 +10952,18 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		", 1);
 	ASSERT(val == 10)
+
+		val = ExecuteString(&info, "\
+		start::fn(a : s32) ! s32{\n\
+			v1:= 1;\n\
+			v2:= 2;\n\
+			v3 := cast(u64)v1;\n\
+			if v3 != 1\n\
+				return -1;\n\
+			return a;\n\
+		}\n\
+		", 1);
+	ASSERT(val == 1)
 
 	ASSERT(false);
 	int a = 0;

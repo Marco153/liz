@@ -1109,7 +1109,6 @@ tests :: fn(ret : *u32)
 	if ar[0] != cast(*u32)0
 		debug_break();
 
-	__dbg_break;
 	if ar[1] != cast(*u32)4
 		debug_break();
 

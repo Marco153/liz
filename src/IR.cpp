@@ -497,15 +497,25 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 	case node_type::N_CALL:
 	{
 		ret->type = AST_CALL;
-		decl2* decl = FindIdentifier(n->l->t->str, scp, &dummy_type);
-		ret->call.fdecl = decl->type.fdecl;
-		ret->call.in_func = scp->fdecl;
 
-		ret->call.indirect = false;
-		if (decl->type.type == TYPE_FUNC_PTR)
+		ret->call.in_func = scp->fdecl;
+		if (n->l->type != N_IDENTIFIER)
 		{
+			ret->call.lhs = AstFromNode(lang_stat, n->l, scp);
 			ret->call.indirect = true;
-			ret->call.func_ptr_var = decl;
+			ret->call.fdecl = DescendNode(lang_stat, n->l, scp).fdecl;
+		}
+		else
+		{
+			decl2* decl = FindIdentifier(n->l->t->str, scp, &dummy_type);
+			ret->call.fdecl = decl->type.fdecl;
+
+			ret->call.indirect = false;
+			if (decl->type.type == TYPE_FUNC_PTR)
+			{
+				ret->call.indirect = true;
+				ret->call.func_ptr_var = decl;
+			}
 		}
 
 		func_decl* f = ret->call.fdecl;
@@ -1158,6 +1168,8 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 		{
 			PushAstsInOrder(lang_stat, (*arg), out);
 		}
+		if(ast->call.lhs)
+			PushAstsInOrder(lang_stat, ast->call.lhs, out);
 		out->emplace_back(ast);
 	}break;
 	case AST_INT:
@@ -1482,7 +1494,13 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		{
 		case AST_CALL:
 		{
-
+			
+			ir_val lhs_expr = {};
+			if (e->call.lhs)
+			{
+				lhs_expr = stack.back();
+				//stack.pop_back();
+			}
 			int cur_biggest = e->call.in_func->biggest_call_args;
 			lang_stat->cur_func->biggest_call_args = max(cur_biggest, e->call.fdecl->args.size());
 
@@ -1570,8 +1588,18 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			if (e->call.indirect)
 			{
 				ir.type = IR_INDIRECT_CALL;
-				ir.bin.lhs.type = IR_TYPE_DECL;
-				ir.bin.lhs.decl = e->call.func_ptr_var;
+				if (e->call.lhs)
+				{
+					ir.bin.lhs.type = IR_TYPE_REG;
+					ir.bin.lhs.deref = -1;
+					ir.bin.lhs = lhs_expr;
+					ir.bin.lhs.decl = e->call.fdecl->this_decl;
+				}
+				else
+				{
+					ir.bin.lhs.type = IR_TYPE_DECL;
+					ir.bin.lhs.decl = e->call.func_ptr_var;
+				}
 				ir.bin.lhs.deref = 0;
 				ir.bin.lhs.is_float = false;
 			}
@@ -2402,6 +2430,8 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 			ast_rep* a = *arg;
 			PushAstsInOrder(lang_stat, a, &exps);
 		}
+		if(ast->call.lhs)
+			PushAstsInOrder(lang_stat, ast->call.lhs, &exps);
 		exps.emplace_back(ast);
 	}break;
 	case AST_CAST:

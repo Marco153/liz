@@ -5152,9 +5152,18 @@ void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 		{
 		case IR_INDIRECT_CALL:
 		{
-			decl2* decl = ir->bin.lhs.decl;
-			ASSERT(IS_FLAG_ON(decl->flags, DECL_IS_SERIALIZED));
-			ir->call.i = decl->serialized_type_idx;
+			if (ir->bin.lhs.type == IR_TYPE_DECL)
+			{
+				decl2* decl = ir->bin.lhs.decl;
+				ASSERT(IS_FLAG_ON(decl->flags, DECL_IS_SERIALIZED));
+				ir->call.i = decl->serialized_type_idx;
+			}
+			else
+			{
+				//decl2* decl = ir->bin.lhs.decl;
+				//ASSERT(IS_FLAG_ON(decl->flags, DECL_IS_SERIALIZED));
+				ir->call.i = 0;
+			}
 		}break;
 		case IR_CALL:
 		{
@@ -6550,9 +6559,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		wasm_stack_val val = {};
 		stmnt_dbg* cur_st = nullptr;
-		//cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+		cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		ir_rep* cur_ir = nullptr;
-		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+		cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
 		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;

@@ -87,6 +87,7 @@ struct ast_call
 	decl2 *func_ptr_var;
     func_decl *fdecl;
     func_decl *in_func;
+    ast_rep* lhs;
 };
 struct ast_struct_construct_info
 {
@@ -307,9 +308,9 @@ struct ir_val
     char ptr;
 	char deref;
     char reg_sz;
+	decl2 *decl;
     union
     {
-        decl2 *decl;
 		struct
 		{
 			on_stack_type on_stack_type;

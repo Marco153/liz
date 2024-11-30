@@ -1,7 +1,16 @@
-#include "compile.cpp"
-#include "memory.cpp"
 #include <glad/glad.h> 
 #include <glad/glad.c> 
+#include "imgui.h"
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3.h"
+#include "../include/GLFW/glfw3.h"
+
+#if defined(_MSC_VER) && (_MSC_VER >= 1900) && !defined(IMGUI_DISABLE_WIN32_FUNCTIONS)
+#pragma comment(lib, "legacy_stdio_definitions")
+#endif
+#include "compile.cpp"
+#include "memory.cpp"
+
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h> 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -15,15 +24,15 @@
 #include "dr_flac.h"
 #include <fstream>
 
-#include "../include/GLFW/glfw3.h"
 
 #define KEY_HELD 1
 #define KEY_DOWN 2
 #define KEY_UP   4
 #define KEY_RECENTLY_DOWN   8
+#define KEY_REPEAT   0x10
 #define PI   3.141592
 
-#define TOTAL_KEYS   255
+#define TOTAL_KEYS   GLFW_KEY_LAST
 #define TOTAL_TEXTURES   32
 
 struct AudioClip;
@@ -131,6 +140,7 @@ enum key_enum
 	_KEY_ACT1,
 	_KEY_ACT2,
 	_KEY_ACT3,
+	_KEY_JMP,
 };
 void FillBuffer(sound_state *sound, char* buffer, int total_samples_in_buffer, int bytes_per_sample, int hz_arg)
 {
@@ -438,6 +448,10 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_Z;
 	}break;
+	case _KEY_JMP:
+	{
+		key = GLFW_KEY_SPACE;
+	}break;
 	case _KEY_LEFT:
 	{
 		key = GLFW_KEY_A;
@@ -471,6 +485,24 @@ void IsMouseHeld(dbg_state* dbg)
 	else
 		* addr = 0;
 }
+void IsKeyUp(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	key = FromGameToGLFWKey(key);
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_UP))
+	{
+		*addr = 1;
+	}
+	else
+		*addr = 0;
+
+}
 void IsKeyDown(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -489,6 +521,30 @@ void IsKeyDown(dbg_state* dbg)
 	}
 	else
 		*addr = 0;
+
+}
+bool IsKeyRepeat(void *data, int key)
+{
+	auto gl_state = (open_gl_state*)data;
+	//key = FromGameToGLFWKey(key);
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN | KEY_REPEAT))
+	{
+		return true;
+	}
+	return false;
+
+}
+bool IsKeyDown(void *data, int key)
+{
+	auto gl_state = (open_gl_state*)data;
+	//key = FromGameToGLFWKey(key);
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN))
+	{
+		return true;
+	}
+	return false;
 
 }
 void IsKeyHeld(dbg_state* dbg)
@@ -516,6 +572,7 @@ void GetDeltaTime(dbg_state* dbg)
 
 	auto ret = (float*)&dbg->mem_buffer[RET_1_REG * 8];
 	*ret = glfwGetTime() - gl_state->last_time;
+	*ret = max(*ret, 0.02);
 	gl_state->last_time = glfwGetTime();
 }
 void EndFrame(dbg_state* dbg)
@@ -529,21 +586,13 @@ void EndFrame(dbg_state* dbg)
 	//gl_state->last_time = glfwGetTime();
 	glfwSwapBuffers(wnd);
 }
-void ShouldClose(dbg_state* dbg)
+void ClearKeys(void *data)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
-	long long wnd = *(long long*)&dbg->mem_buffer[base_ptr + 8];
-
-	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow*)(long long)wnd);
-
-
-
-	auto gl_state = (open_gl_state*)dbg->data;
-
+	auto gl_state = (open_gl_state*)data;
 	for (int i = 0; i < TOTAL_KEYS; i++)
 	{
 		int retain_flags = gl_state->buttons[i] & KEY_HELD;
-		gl_state->buttons[i] &= ~(KEY_DOWN | KEY_UP);
+		gl_state->buttons[i] &= ~(KEY_DOWN | KEY_UP | KEY_REPEAT);
 		gl_state->buttons[i] |= retain_flags;
 
 		if (IS_FLAG_ON(gl_state->buttons[i], KEY_RECENTLY_DOWN))
@@ -562,6 +611,20 @@ void ShouldClose(dbg_state* dbg)
 		}
 	}
 
+}
+void ShouldClose(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	long long wnd = *(long long*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow*)(long long)wnd);
+
+
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	ClearKeys(gl_state);
+
 	glfwPollEvents();
 }
 void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -576,6 +639,10 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 	{
 		gl_state->buttons[key] &= ~KEY_HELD;
 		gl_state->buttons[key] |= KEY_UP;
+	}
+	else if (action == GLFW_REPEAT)
+	{
+		gl_state->buttons[key] |= KEY_REPEAT;
 	}
 }
 struct clip
@@ -946,6 +1013,11 @@ void OpenWindow(dbg_state* dbg)
 	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
+	if (gl_state->glfw_window)
+	{
+		*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)gl_state->glfw_window;
+		return;
+	}
 
 	GLFWwindow* window;
 
@@ -957,6 +1029,15 @@ void OpenWindow(dbg_state* dbg)
 	gl_state->width = 1200;
 	gl_state->height = 1000;
 	/* Create a windowed mode window and its OpenGL context */
+	const char* glsl_version = "#version 100";
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
+
+	glfwWindowHint(GLFW_REFRESH_RATE, 60);
+
 	window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World", NULL, NULL);
 	if (!window)
 	{
@@ -983,6 +1064,22 @@ void OpenWindow(dbg_state* dbg)
 		0, 1, 3,   // first triangle
 		1, 2, 3    // second triangle
 	};
+
+	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+	// Setup Dear ImGui style
+	ImGui::StyleColorsDark();
+	//ImGui::StyleColorsLight();
+
+
+	// Setup Platform/Renderer backends
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	ImGui_ImplOpenGL3_Init(glsl_version);
 
 	int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
 	unsigned int VAO;
@@ -1161,7 +1258,7 @@ void GetMem(dbg_state* dbg)
 	ASSERT((addr + sz) < DATA_SECT_OFFSET);
 	//*max += sz;
 
-	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
+	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
 
 }
 
@@ -1609,6 +1706,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
+	AssignOutsiderFunc(&lang_stat, "IsKeyUp", (OutsiderFuncType)IsKeyUp);
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
 	AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
@@ -1640,8 +1738,8 @@ int main(int argc, char* argv[])
 
 		AssignDbgFile(&lang_stat, (opts.wasm_dir + opts.folder_name + ".dbg").c_str());
 		//AssignDbgFile(&lang_stat, opts);
-		RunDbgFunc(&lang_stat, "tests", args, 1);
 		lang_stat.winterp->dbg->data = (void*)&gl_state;
+		RunDbgFunc(&lang_stat, "tests", args, 1);
 		RunDbgFunc(&lang_stat, "main", args, 1);
 
 		int ret_val = *(int*)&lang_stat.winterp->dbg->mem_buffer[RET_1_REG * 8];

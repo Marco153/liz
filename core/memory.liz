@@ -509,7 +509,6 @@ test_sum_float::fn(f1 : f32, f2 : f32) !f32
 
 test_ptr::fn(alloc : *mem_alloc, ret : *u32)
 {
-
 	test_change_heap_hash(&alloc.in_use);
 	if (cast(u64)alloc.in_use.data) != 100
 		debug_break();
@@ -1161,6 +1160,17 @@ tests :: fn(ret : *u32)
 		val_test += *cur;
 	}
 	if val_test != 10
+		debug_break();
+
+	val_test = 0;
+	__dbg_break;
+	for cur in s32_ar
+	{
+		if* cur == 4
+			continue;
+		val_test += *cur;
+	}
+	if val_test != 6
 		debug_break();
 
 	dyn_test :dyn_array(s32);

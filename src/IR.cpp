@@ -1499,7 +1499,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			if (e->call.lhs)
 			{
 				lhs_expr = stack.back();
-				//stack.pop_back();
+				stack.pop_back();
 			}
 			int cur_biggest = e->call.in_func->biggest_call_args;
 			lang_stat->cur_func->biggest_call_args = max(cur_biggest, e->call.fdecl->args.size());
@@ -3238,8 +3238,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
 		lang_stat->ir_in_stmnt = false;
 		GetIRFromAst(lang_stat, ast->for_info.start_stat, out);
-		int block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_BLOCK);
 		int loop_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_LOOP_BLOCK);
+		int block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_BLOCK);
 		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
 		//int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
 		GetIRCond(lang_stat, ast->for_info.cond_stat, out);
@@ -3250,10 +3250,13 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			GetIRFromAst(lang_stat, ast->for_info.scope, out);
 		}
 
+		ir_rep* for_ir = &(*out)[loop_idx];
+		for_ir->block.is_for_loop = true;
+		for_ir->block.for_loop_end_stat = out->size();
+		IRCreateEndBlock(lang_stat, block_idx, out, IR_END_BLOCK);
 		GetIRFromAst(lang_stat, ast->for_info.at_loop_end_stat, out);
 		//IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_IF_BLOCK);
 		IRCreateEndBlock(lang_stat, loop_idx, out, IR_END_LOOP_BLOCK);
-		IRCreateEndBlock(lang_stat, block_idx, out, IR_END_BLOCK);
 
 		lang_stat->ir_in_stmnt = prev_is_in_stmnt;
 
@@ -3340,8 +3343,10 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
     }break;
 	case AST_CONTINUE:
 	{
+		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
 		ir.type = IR_CONTINUE;
 		out->emplace_back(ir);
+		IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
 	}break;
     default:
         ASSERT(0)

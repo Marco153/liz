@@ -7007,6 +7007,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			}
 			func_overload_strct* overload_strct = nullptr;
 
+			decl2* prev_decl = decl_exist;
 			// assigning to overloaded funcs
 			if (decl_exist)
 			{
@@ -7062,6 +7063,15 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					node* ncall = n->r;
 					if (!CallNode(lang_stat, n->r, scp, &ret_type))
 						return nullptr;
+					if (decl_exist && decl_exist->type.type == TYPE_OVERLOADED_FUNCS && ret_type.type != TYPE_FUNC)
+					{
+						REPORT_ERROR(n->t->line, n->t->line_offset,
+							VAR_ARGS("'%s' is a function, declared here:\n\n%s\n\nbut you are trying to overload it with something that is not a function\n",
+								prev_decl->name.c_str(), GetFileLn(lang_stat, prev_decl->decl_nd->t->line - 1, prev_decl->from_file)
+							)
+						);
+						ExitProcess(1);
+					}
 
 				}break;;
 				case node_type::N_IDENTIFIER:

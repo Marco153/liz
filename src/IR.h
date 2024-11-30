@@ -369,7 +369,9 @@ struct ir_rep
                 int code_start;
                 int line;
             }stmnt;
+            bool is_for_loop;
             int other_idx;
+            int for_loop_end_stat;
         }block;
         struct
         {

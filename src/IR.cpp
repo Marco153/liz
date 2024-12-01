@@ -849,9 +849,15 @@ void IRCreateEndBlock(lang_state *lang_stat, int begin_sub_if_idx, own_std::vect
 	begin->block.other_idx = out->size();
 	switch (type)
 	{
+	case IR_BEGIN_STMNT:
+	{
+		ASSERT(!lang_stat->in_ir_stmnt);
+		lang_stat->in_ir_stmnt = true;
+	}break;
 	case IR_END_STMNT:
 	{
 		ASSERT(begin->type == IR_BEGIN_STMNT);
+		lang_stat->in_ir_stmnt = false;
 	}break;
 	}
 }
@@ -1083,18 +1089,14 @@ void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 		}
 		else
 		{
-			char reg = AllocReg(lang_stat);
-			ir.bin.lhs.type = IR_TYPE_REG;
-			ir.bin.lhs.reg = reg;
-			ir.bin.lhs.reg_sz = 8;
 
-			GenStackThenIR(lang_stat, ast->opposite.exp, out, &ir.bin.lhs);
+			GenStackThenIR(lang_stat, ast->opposite.exp, out, &ir.bin.lhs, &ir.bin.lhs);
 			ir.type = IR_CMP_NE;
 			ir.bin.op = T_COND_NE;
-			ir.bin.lhs.type = IR_TYPE_REG;
-			ir.bin.lhs.reg = reg;
-			ir.bin.lhs.reg_sz  = 8;
-			ir.bin.lhs.deref  = -1;
+			if (IS_FLAG_ON(ir.bin.lhs.reg_ex, IR_VAL_FROM_POINT) && ir.bin.lhs.type == IR_TYPE_REG)
+			{
+				ir.bin.lhs.deref = 0;
+			}
 			ir.bin.rhs.type = IR_TYPE_INT;
 			ir.bin.rhs.i = 0;
 			out->emplace_back(ir);
@@ -2923,7 +2925,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ASSERT(!lang_stat->ir_in_stmnt)
 				lang_stat->ir_in_stmnt = true;
 
-				bool can_emplace_stmnt = s->type != AST_IDENT;
+				bool can_emplace_stmnt = s->type != AST_IDENT && s->type != AST_FOR;
 				int stmnt_idx = 0;
 				if(can_emplace_stmnt)
 					stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)s->line_number);
@@ -2961,6 +2963,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		ir.assign.rhs.type = IR_TYPE_INT;
 		ir.assign.rhs.i = 1;
 
+		if (ir.assign.to_assign.type == IR_TYPE_REG)
+			ir.assign.to_assign.deref++;
 		if (IsIrValFloat(&ir.assign.lhs))
 			ir.assign.to_assign.is_float = true;
 
@@ -3225,7 +3229,11 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		if (lang_stat->release)
 			ir.type = IR_NOP;
 		else
+		{
+			//int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
 			ir.type = IR_DBG_BREAK;
+			//IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+		}
 		out->emplace_back(ir);
 	}break;
 	case AST_BREAK:
@@ -3237,10 +3245,10 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 	{
 		bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
 		lang_stat->ir_in_stmnt = false;
+		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
 		GetIRFromAst(lang_stat, ast->for_info.start_stat, out);
 		int loop_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_LOOP_BLOCK);
 		int block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_BLOCK);
-		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
 		//int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
 		GetIRCond(lang_stat, ast->for_info.cond_stat, out);
 		IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
@@ -3343,10 +3351,10 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
     }break;
 	case AST_CONTINUE:
 	{
-		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
+		//int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
 		ir.type = IR_CONTINUE;
 		out->emplace_back(ir);
-		IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+		//IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
 	}break;
     default:
         ASSERT(0)

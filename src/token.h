@@ -366,6 +366,8 @@ struct stmnt_dbg
 {
 	int start;
 	int end;
+	int start_ir;
+	int end_ir;
 	int line;
 };
 struct func_decl
@@ -484,6 +486,7 @@ struct func_decl
 #define DECL_IS_GLOBAL  0x10
 #define DECL_IS_SERIALIZED  0x20
 #define DECL_ABSOLUTE_ADDRESS  0x40
+#define DECL_PTR_HAS_LEN  0x80
 
 struct decl2
 {
@@ -508,6 +511,11 @@ struct decl2
 	node *bottom_n;
 
 	node *decl_nd;
+	union
+	{
+		decl2* len_for_ptr;
+		std::string len_for_ptr_name;
+	};
 
 	unit_file *from_file;
 

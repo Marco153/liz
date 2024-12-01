@@ -155,6 +155,13 @@ enum gen_enum
 	GEN_WASM,
 	GEN_X64,
 };
+
+struct ptr_decl_that_have_len
+{
+	decl2* decl;
+	scope* scp;
+};
+
 struct web_assembly_state;
 struct wasm_interp;
 #define MAX_ARGS 32
@@ -165,6 +172,7 @@ struct lang_state
 	int flags;
 
 	bool something_was_declared;
+	bool in_ir_stmnt;
 	scope* root;
 
 	node* not_found_nd;
@@ -197,6 +205,7 @@ struct lang_state
 	own_std::vector<func_decl*> func_ptrs_decls;
 	own_std::vector<func_decl*> outsider_funcs;
 	own_std::vector<own_std::vector<token2>*> allocated_vectors;
+	own_std::vector<ptr_decl_that_have_len> ptrs_have_len;
 	func_decl* plugins_for_func;
 	std::unordered_map<func_decl*, func_decl*> comp_time_funcs;
 	std::unordered_map<std::string, unsigned int> symbols_offset_on_type_sect;
@@ -448,6 +457,7 @@ struct wasm_bc
 	wasm_bc_enum type;
 	bool dbg_brk;
 	bool one_time_dbg_brk;
+	bool break_on_first_loop_bc;
 	bool dont_dbg_brk;
 	int start_code;
 	int end_code;
@@ -1857,8 +1867,14 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 					  int &total_of_args, int &total_of_locals, 
 				      ir_rep *cur_ir, own_std::vector<unsigned char> &code_sect, 
 					  int *stack_size, own_std::vector<ir_rep> *irs, block_linked **cur,
-					  ir_val *last_on_stack, wasm_gen_state *gen_state)
+					  ir_val *last_on_stack, wasm_gen_state *gen_state, int ir_idx)
 {
+#define PUSH_IMM(i) \
+		code_sect.emplace_back(i & 0xff);\
+		code_sect.emplace_back(i >> 8);\
+		code_sect.emplace_back(i >> 16);\
+		code_sect.emplace_back(i >> 24);
+
 	cur_ir->idx = cur_ir - irs->begin();
 	gen_state->advance_ptr = 0;
 	cur_ir->start = code_sect.size();
@@ -1928,6 +1944,13 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	{
 		cur_ir->block.stmnt.code_start = code_sect.size();
 		gen_state->cur_line = cur_ir->block.stmnt.line;
+		code_sect.emplace_back(0x01);
+		code_sect.emplace_back(0x23);
+		code_sect.emplace_back(0x45);
+		code_sect.emplace_back(0x67);
+		
+		int line = cur_ir->block.stmnt.line;
+		PUSH_IMM(line);
 
 	}break;
 	case IR_END_STMNT:
@@ -1936,11 +1959,21 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		ir_rep* begin = irs->begin() + cur_ir->block.other_idx;
 		ASSERT(begin->type == IR_BEGIN_STMNT);
 		st.start = begin->block.stmnt.code_start;
-		st.end = code_sect.size() - 1;
+		st.end = max(st.start, code_sect.size() - 1);
+		st.start_ir = cur_ir->block.other_idx;
+		st.end_ir = ir_idx;
 		st.line = begin->block.stmnt.line;
+		ASSERT(st.end >= st.start);
+		ASSERT(st.end_ir >= st.start_ir && st.end_ir >= 0);
 
 		//if(st.start != st.end)
 		gen_state->cur_func->wasm_stmnts.emplace_back(st);
+		code_sect.emplace_back(0x10);
+		code_sect.emplace_back(0x32);
+		code_sect.emplace_back(0x54);
+		code_sect.emplace_back(0x86);
+		PUSH_IMM(st.start_ir);
+		PUSH_IMM(st.end_ir);
 
 	}break;
 	case IR_BEGIN_LOOP_BLOCK:
@@ -2019,8 +2052,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		block_linked* aux = *cur;
 		while (aux->parent)
 		{
-			if (!val && (aux->ir->type == IR_BEGIN_LOOP_BLOCK))
-				depth++;
+			//if (!val && (aux->ir->type == IR_BEGIN_LOOP_BLOCK))
+				//depth++;
 				//break;
 			if (!val && (aux->ir->type == IR_BEGIN_OR_BLOCK || aux->ir->type == IR_BEGIN_SUB_IF_BLOCK || aux->ir->type == IR_BEGIN_IF_BLOCK || aux->ir->type == IR_BEGIN_LOOP_BLOCK))
 				break;
@@ -2184,29 +2217,6 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_STACK_BEGIN:
 	{
-
-		/*
-		//gen_state->strcts_construct_stack_offset = *stack_size;
-		cur_ir->fdecl->strct_constrct_at_offset = *stack_size;
-		*stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
-
-		//gen_state->to_spill_offset = *stack_size;
-		cur_ir->fdecl->to_spill_offset = *stack_size;
-		*stack_size += cur_ir->fdecl->to_spill_size * 8;
-
-		//gen_state->strcts_ret_stack_offset = *stack_size;
-		cur_ir->fdecl->strct_ret_size_per_statement_offset = *stack_size;
-		*stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
-
-		*stack_size += cur_ir->fdecl->biggest_call_args * 8;
-		*/
-
-		// 8 bytes for saving rbs
-		//*stack_size += 8;
-
-		//*stack_size = cur_ir->num;
-		// sub inst
-		//gen_state->strcts_construct_stack_offset = *stack_size;
 		*stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
 		cur_ir->fdecl->strct_constrct_at_offset = *stack_size;
 
@@ -2217,27 +2227,6 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		cur_ir->fdecl->strct_ret_size_per_statement_offset = *stack_size;
 
 		*stack_size += cur_ir->fdecl->biggest_call_args * 8;
-		/*
-		int start_aux = *stack_size;
-		*stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
-		*stack_size += cur_ir->fdecl->to_spill_size * 8;
-		*stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
-		*stack_size += cur_ir->fdecl->biggest_call_args * 8;
-		//*stack_size += 64;
-
-		cur_ir->fdecl->strct_constrct_at_offset = cur_ir->fdecl->biggest_call_args * 8 - start_aux;
-		cur_ir->fdecl->to_spill_offset = cur_ir->fdecl->strct_constrct_at_offset - cur_ir->fdecl->strct_constrct_size_per_statement;
-		cur_ir->fdecl->strct_ret_size_per_statement_offset = cur_ir->fdecl->to_spill_offset - cur_ir->fdecl->to_spill_size * 8;
-
-		//gen_state->to_spill_offset = *stack_size;
-		//cur_ir->fdecl->to_spill_offset = *stack_size;
-
-		//gen_state->strcts_ret_stack_offset = *stack_size;
-
-
-		// 8 bytes for saving rbs
-		*/
-		//*stack_size += 8;
 
 		WasmBeginStack(lang_stat, code_sect, *stack_size);
 	}break;
@@ -2336,12 +2325,17 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_BEGIN_BLOCK:
 	{
+		*cur = NewBlock(*cur);
+		(*cur)->ir = cur_ir;
+
 		code_sect.emplace_back(0x2);
 		code_sect.emplace_back(0x40);
 	}break;
 	case IR_END_BLOCK:
 	{
 
+		FreeBlock(*cur);
+		*cur = (*cur)->parent;
 		code_sect.emplace_back(0xb);
 	}break;
 	case IR_BREAK:
@@ -2570,6 +2564,7 @@ struct dbg_state
 
 
 	bool some_bc_modified;
+	bool *can_execute;
 
 	void* data;
 };
@@ -3294,6 +3289,19 @@ long long WasmInterpGetReVal(char* mem_buffer, int reg, bool deref)
 	return ptr;
 }
 
+ir_rep* GetIrBasedOnOffset(dbg_state* dbg, int offset, int start_ir, int end_ir)
+{
+	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &dbg->cur_func->ir;
+	ir_rep* ir = ir_ar->begin() + start_ir;
+	ir_rep* end = ir_ar->begin() + end_ir;
+	while(ir < end)
+	{
+		if (offset == ir->start)
+			return ir;
+		ir++;
+	}
+	return nullptr;
+}
 ir_rep *GetIrBasedOnOffset(dbg_state *dbg, int offset)
 {
 	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &dbg->cur_func->ir;
@@ -3313,7 +3321,7 @@ stmnt_dbg* GetStmntBasedOnOffset(own_std::vector<stmnt_dbg>* ar, int offset)
 	stmnt_dbg* end = ar->end();
 	while(st < end)
 	{
-		if (offset >= st->start && offset <= st->end)
+		if (offset >= st->start && offset < st->end)
 			return st;
 		st++;
 	}
@@ -4925,10 +4933,12 @@ struct struct_dbg
 struct var_dbg
 {
 	str_dbg name;
+	str_dbg ptr_has_len_var_name;
 	enum_type2 type;
 	int type_idx;
 	int offset;
 	int ar_size;
+	int flags;
 	char ptr;
 	decl2* decl;
 };
@@ -5088,11 +5098,15 @@ var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state*
 			WasmSerializeStructType(wasm_state, ser_state, strct);
 		}
 		var_ser->type_idx = strct->serialized_type_idx;
-
+	}
+	if(IS_FLAG_ON(var->flags, DECL_PTR_HAS_LEN))
+	{
+		WasmSerializePushString(ser_state, &var->len_for_ptr->name, &var_ser->ptr_has_len_var_name);
 	}
 	var_ser->type = var->type.type;
 	var_ser->ptr = var->type.ptr;
 	var_ser->offset = var->offset;
+	var_ser->flags = var->flags;
 	WasmSerializePushString(ser_state, &var->name, &var_ser->name);
 	return var_ser;
 }
@@ -5807,6 +5821,16 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			ar_tp->strct = type->strct;
 			d->type.tp = ar_tp;
 		}
+		d->flags = cur_var->flags;
+		if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
+		{
+			std::string ptr_len_name = std::string((const char *)string_sect + cur_var->ptr_has_len_var_name.name_on_string_sect, cur_var->ptr_has_len_var_name.name_len);
+			d->len_for_ptr_name = ptr_len_name.substr();
+			ptr_decl_that_have_len ptr_decl;
+			ptr_decl.decl = d;
+			ptr_decl.scp = scp_final;
+			lang_stat->ptrs_have_len.emplace_back(ptr_decl);
+		}
 
 		cur_var->decl = d;
 		cur_var++;
@@ -5934,7 +5958,13 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		}
 		if ((*cur)->wbc->type == WASM_INST_LOOP)
 		{
+			wasm_bc* prev_bc = (*cur_bc);
 			(*cur_bc) = (*cur)->wbc + 1;
+			if (prev_bc->break_on_first_loop_bc || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && dbg.next_stat_break_func == dbg.cur_func)
+			{
+				(*cur_bc)->one_time_dbg_brk = true;
+				prev_bc->break_on_first_loop_bc = false;
+			}
 			return true;
 		}
 		if (!(*cur))
@@ -5966,7 +5996,13 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 			can_break = true;
 			break;
 		}
+		wasm_bc* prev_bc = (*cur_bc);
 		(*cur_bc) = (*cur)->wbc->block_end;
+		if (prev_bc->break_on_first_loop_bc || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && dbg.next_stat_break_func == dbg.cur_func)
+		{
+			((*cur_bc) + 1)->one_time_dbg_brk = true;
+			prev_bc->break_on_first_loop_bc = false;
+		}
 		return true;
 	}break;
 	case WASM_INST_INDIRECT_CALL:
@@ -6053,7 +6089,13 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 			(*cur) = (*cur)->parent;
 
 		}
+		func_decl* prev_func = dbg.cur_func;
 		dbg.cur_func = dbg.func_stack.back();
+
+		if (prev_func == dbg.next_stat_break_func)
+		{
+			dbg.next_stat_break_func = dbg.cur_func;
+		}
 		
 		(*cur_bc) = dbg.return_stack.back();
 		dbg.return_stack.pop_back();
@@ -6516,81 +6558,139 @@ void ExitDebugger(scope **cur_scp, wasm_bc **bc)
 	wasm_bc* prev_bc = *bc;
 	prev_bc->one_time_dbg_brk = false;
 }
-void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_ptr)
-{
-		// Call ImGui::TreeNodeEx() recursively to populate each level of children
-		FOR_VEC(decl, cur_scp->vars)
-		{
-			decl2* d = *decl;
-			if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
-			{
-				int offset = base_ptr + d->offset;
-				char ptr = d->type.ptr;
 
-				while (ptr > 0)
+void ImGuiPrintScopeVars(char* name, dbg_state& dbg, scope* cur_scp, int base_ptr);
+void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl)
+{
+	char buffer[64];
+	if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
+	{
+		int offset = base_ptr;
+		char ptr = ptr_decl;
+
+		std::string name = d->name;
+		std::string ptr_str = "";
+
+		if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN) && ptr_decl > 0)
+		{
+			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+			int len_offset = base_ptr + d->len_for_ptr->offset;
+			int len = *(int*)&dbg.mem_buffer[len_offset];
+			int addr = *(int*)&dbg.mem_buffer[base_ptr];
+			char prev_ptr = d->type.ptr;
+			d->type.ptr = ptr_decl;
+			int tp_sz = GetTypeSize(&d->type);
+			d->flags &= ~DECL_PTR_HAS_LEN;
+			for (int i = 0; i < len; i++)
+			{
+				int cur_addr = addr + i * tp_sz;
+				snprintf(buffer, 64, "[%d]##%d", i,cur_addr);
+				/*
+				if (d->type.type == TYPE_STRUCT && ptr_decl > 1)
 				{
-					offset = WasmGetMemOffsetVal(&dbg, offset);
-					ptr--;
+					if (ImGui::TreeNodeEx(buffer, flag))
+					{
+						ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, cur_addr);
+						ImGui::TreePop();  // This is required at the end of the if block
+					}
 				}
-				std::string name = d->name;
-				if (d->type.ptr > 0)
-				{
-					name += " to " + WasmNumToString(&dbg, offset);
-				}
+				else
+				*/
+
+				ImGuiPrintVar(buffer, dbg, d, cur_addr, ptr_decl - 1);
+
+			}
+			d->flags |= DECL_PTR_HAS_LEN;
+			d->type.ptr = prev_ptr;
+		}
+		else
+		{
+			/*
+			if(ptr_str.empty())
+				snprintf(buffer, 64, "%s##%d", name.c_str(), base_ptr);
+			else
+				snprintf(buffer, 64, "%s(%s)##%d", name.c_str(), ptr_str.c_str(), base_ptr);
+				*/
+
+			if (ptr_decl == 0)
+			{
+				snprintf(buffer, 64, "%s##%d",  name.c_str(), base_ptr);
 				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-				if (ImGui::TreeNodeEx(name.c_str(), flag))
+				if (ImGui::TreeNodeEx(buffer, flag))
 				{
-					ImGuiPrintScopeVars((char*)name.c_str(), dbg, d->type.strct->scp, offset);
+					ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, offset);
 					ImGui::TreePop();  // This is required at the end of the if block
 				}
-				//ImGui::Text("%s", d->name.c_str());
-			}
-			else if (d->type.type == TYPE_STATIC_ARRAY)
-			{
-				ImGui::Text("static ar %s", d->name.c_str());
-			}
-			else if (d->type.type == TYPE_TEMPLATE || d->type.type == TYPE_FUNC || d->type.type == TYPE_IMPORT || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_OVERLOADED_FUNCS)
-			{
-				//ImGui::Text("template %s", d->name.c_str());
 			}
 			else
 			{
-				int offset = base_ptr + d->offset;
-				long long val = 0;
-				print_num_type ptype = PRINT_INT;
-				if (d->type.IsFloat())
-				{
-					ptype = PRINT_FLOAT;
-					val = *(int*)&dbg.mem_buffer[offset];
-				}
-				else
-				{
-					switch (GetTypeSize(&d->type))
-					{
-					case 1:
-					{
-						val = *(char*)&dbg.mem_buffer[offset];
-					}break;
-					case 2:
-					{
-						val = *(short*)&dbg.mem_buffer[offset];
-					}break;
-					case 4:
-					{
-						val = *(int*)&dbg.mem_buffer[offset];
-					}break;
-					case 8:
-					{
-						val = *(long long*)&dbg.mem_buffer[offset];
-					}break;
-					default:
-						ASSERT(false);
-					}
-				}
+				int addr = *(int*)&dbg.mem_buffer[base_ptr];
+				snprintf(buffer, 64, "%d->%d", base_ptr, addr);
+				ImGui::Text(buffer);
+				ImGui::SameLine();
+				ImGuiPrintVar(buffer, dbg, d, addr, ptr_decl - 1);
+			}
 
-				ImGui::Text("%s, %s", d->name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
+		}
+		//ImGui::Text("%s", d->name.c_str());
+	}
+	else if (d->type.type == TYPE_STATIC_ARRAY)
+	{
+		ImGui::Text("static ar %s", d->name.c_str());
+	}
+	else if (d->type.type == TYPE_TEMPLATE || d->type.type == TYPE_FUNC || d->type.type == TYPE_IMPORT || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_OVERLOADED_FUNCS)
+	{
+		//ImGui::Text("template %s", d->name.c_str());
+	}
+	else
+	{
+		int offset = base_ptr;
+		long long val = 0;
+		print_num_type ptype = PRINT_INT;
+		if (d->type.IsFloat())
+		{
+			ptype = PRINT_FLOAT;
+			val = *(int*)&dbg.mem_buffer[offset];
+		}
+		else
+		{
+			switch (GetTypeSize(&d->type))
+			{
+			case 1:
+			{
+				val = *(char*)&dbg.mem_buffer[offset];
+			}break;
+			case 2:
+			{
+				val = *(short*)&dbg.mem_buffer[offset];
+			}break;
+			case 4:
+			{
+				val = *(int*)&dbg.mem_buffer[offset];
+			}break;
+			case 8:
+			{
+				val = *(long long*)&dbg.mem_buffer[offset];
+			}break;
+			default:
+				ASSERT(false);
 			}
 		}
+
+		ImGui::Text("%s, %s", d->name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
+	}
+
+}
+
+void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_ptr)
+{
+	char buffer[64];
+	// Call ImGui::TreeNodeEx() recursively to populate each level of children
+	FOR_VEC(decl, cur_scp->vars)
+	{
+		decl2* d = *decl;
+		ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
+	}
 }
 
 std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, int limit, int mem_wnd_show_type)
@@ -6599,6 +6699,7 @@ std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, in
 	for (int i = 0; i < limit; i += type_sz)
 	{
 		long long val = 0;
+		print_num_type ptype = PRINT_INT;
 		switch (mem_wnd_show_type)
 		{
 			// u8
@@ -6639,10 +6740,15 @@ std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, in
 		{
 			*(unsigned long long*)& val = *(unsigned long long*) & dbg.mem_buffer[mem_wnd_offset + i];
 		}break;
+		case 8:
+		{
+			*(float *)& val = *(float *) &dbg.mem_buffer[mem_wnd_offset + i];
+			ptype = PRINT_FLOAT;
+		}break;
 		default:
 			ASSERT(0);
 		}
-		ret += WasmNumToString(&dbg, val) + " ";
+		ret += WasmNumToString(&dbg, val, -1, ptype) + " ";
 	}
 	return ret;
 }
@@ -6705,6 +6811,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 	bool can_break = false;
 	bool can_execute = true;
+	dbg.can_execute = &can_execute;
 	dbg.break_type = DBG_BREAK_ON_NEXT_STAT;
 
 	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &cur_func->ir;
@@ -6724,8 +6831,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	bool res = true;
 	int mem_wnd_offset = 0;
 	int mem_wnd_show_type = 0;
-	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64"};
-	int wasm_bcs_to_show = 50;
+	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32"};
+	int wasm_bcs_to_show = 200;
 	//int total_wasm_bcs = 100;
 	while(!can_break)
 	{
@@ -6762,23 +6869,26 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		//bool res = WasmBcLogic(winterp, dbg, &bc, mem_buffer, &cur, can_break);
 
 
-		if((!bc->dbg_brk || bc->dont_dbg_brk) && !bc->one_time_dbg_brk && can_execute)
+		if((!bc->dbg_brk || bc->dont_dbg_brk) && !bc->one_time_dbg_brk && can_execute && !is_different_stmnt_same_func)
 			res = WasmBcLogic(winterp, dbg, &bc, mem_buffer, &cur, can_break);
 
 		//IrLogic(dbg_state* dbg, ir_rep* ir)
-		if(is_different_stmnt_same_func || bc->type == WASM_INST_DBG_BREAK || bc->dbg_brk && !bc->dont_dbg_brk || bc->one_time_dbg_brk || dbg.break_type == DBG_BREAK_ON_NEXT_BC && dbg.cur_func == dbg.next_stat_break_func && !bc->dont_dbg_brk)
+		if(is_different_stmnt_same_func || !can_execute|| bc->type == WASM_INST_DBG_BREAK || bc->dbg_brk && !bc->dont_dbg_brk || bc->one_time_dbg_brk || dbg.break_type == DBG_BREAK_ON_NEXT_BC && dbg.cur_func == dbg.next_stat_break_func && !bc->dont_dbg_brk)
 		{
 			//bc->dbg_brk = true;
 			can_execute = false;
 			if (!cur_scp)
 			{
+				bc_idx = (long long)(bc - &bcs[0]);
 				cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
-				if (!cur_st)
-					continue;
-				cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
-				cur_scp = FindScpWithLine(dbg.cur_func, cur_st->line);
-				auto a = 0;
-				dbg.cur_st = cur_st;
+				if (cur_st)
+				{
+					cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+					cur_scp = FindScpWithLine(dbg.cur_func, cur_st->line);
+					auto a = 0;
+					dbg.cur_st = cur_st;
+				}
+
 				//dbg.cu = cur_st;
 			}
 			glfwPollEvents();
@@ -6797,60 +6907,77 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			ImGui::Selectable("wasm", &show_wasm);
 
 			ImGui::BeginChild("code", ImVec2(500, 200));
-			if (cur_st)
-			{
+			//if (cur_st)
+			//{
 				if (show_wasm)
 				{
-					ImGui::Text("%s", GetFileLn(dbg.lang_stat, cur_st->line - 1, dbg.cur_func->from_file));
+					if (cur_st)
+					{
+						ImGui::Text("%s", GetFileLn(dbg.lang_stat, cur_st->line - 1, dbg.cur_func->from_file));
 
+						
+					}
 					std::string wstr = "";
 					ir_rep *cur_ir_aux = cur_ir;
 
-					while (cur_ir && cur_ir_aux->end <= (cur_st->start + wasm_bcs_to_show))
+					wasm_bc* aux_bc = bc;
+
+					int cur_tab = 0;
+					for (int i = 0; i < wasm_bcs_to_show; i++)
 					{
-						while (wstr.empty() && cur_ir_aux->start == cur_ir_aux->end)
+						cur_ir = GetIrBasedOnOffset(&dbg, aux_bc->start_code, cur_st->start_ir, cur_st->end_ir);
+						if(cur_ir)
+							ImGui::Text("%s", WasmIrToString(&dbg, cur_ir).c_str());
+
+						if (aux_bc->type == WASM_INST_BLOCK || aux_bc->type == WASM_INST_LOOP)
 						{
-							cur_ir_aux++;
+							cur_tab++;
 						}
-						wstr = WasmIrToString(&dbg, cur_ir_aux);
-						ImGui::Text("%s", wstr.c_str());
-						for (int i = cur_ir_aux->start; i <= (cur_ir_aux->end + 1); i++)
+						if (aux_bc->type == WASM_INST_END)
 						{
-							wstr = WasmGetBCString(&dbg, dbg.cur_func, &bcs[i], &bcs) + "\n";
-							
-
-							snprintf(buffer, 64, "O##%d", i);
-							wasm_bc* cur_bc = &bcs[i];
-							bool before_val = cur_bc->dbg_brk;
-		
-							if(cur_bc->dbg_brk)
-								ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(255, 0, 0)));
-
-							if (ImGui::Button(buffer, ImVec2(20, 15)))
-							{
-								cur_bc->dbg_brk = !cur_bc->dbg_brk;
-							}
-							if(before_val)
-								ImGui::PopStyleColor();
-
-							ImGui::SameLine();
-							if((bc) == &bcs[i])
-								ImGui::TextColored(ImVec4(ImColor(255, 255, 0)), (char*)wstr.c_str());
-							else
-								ImGui::Text((char*)wstr.c_str());
-
+							cur_tab--;
 						}
-						cur_ir_aux++;
+
+						for (int tab = 0; tab < cur_tab; tab++)
+						{
+							buffer[tab] = ' ';
+						}
+						buffer[max(cur_tab, 0)] = 0;
+						wstr = std::string(buffer) + WasmGetBCString(&dbg, dbg.cur_func, aux_bc, &bcs) + "\n";
+						
+
+						snprintf(buffer, 64, "O##%d", i);
+						wasm_bc* cur_bc = &aux_bc[i];
+						bool before_val = cur_bc->dbg_brk;
+	
+						if(cur_bc->dbg_brk)
+							ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(255, 0, 0)));
+
+						if (ImGui::Button(buffer, ImVec2(20, 15)))
+						{
+							cur_bc->dbg_brk = !cur_bc->dbg_brk;
+						}
+						if(before_val)
+							ImGui::PopStyleColor();
+
+						ImGui::SameLine();
+						if((bc) == &bcs[i])
+							ImGui::TextColored(ImVec4(ImColor(255, 255, 0)), (char*)wstr.c_str());
+						else
+							ImGui::Text((char*)wstr.c_str());
+						aux_bc++;
+
 					}
+						//cur_ir_aux++;
 
 				}
-				else
+				else if(cur_st)
 				{
 					ImGui::Text("%s", GetFileLn(dbg.lang_stat, cur_st->line - 2, dbg.cur_func->from_file));
 					ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%s", GetFileLn(dbg.lang_stat, cur_st->line - 1, dbg.cur_func->from_file));
 					ImGui::Text("%s", GetFileLn(dbg.lang_stat, cur_st->line, dbg.cur_func->from_file));
 				}
-			}
+			//}
 			ImGui::EndChild();
 
 			ImGui::SameLine();
@@ -6880,22 +7007,25 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 			
 			int base_ptr = WasmGetRegVal(&dbg, BASE_STACK_PTR_REG);
-
 			ImGui::BeginChild("locals", ImVec2(500, 400));
-			scope* aux_scp = cur_scp;
-			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-			if (ImGui::TreeNodeEx("root", flag))
+			if (cur_scp)
 			{
-				while (aux_scp && IS_FLAG_OFF(aux_scp->flags, SCOPE_IS_GLOBAL))
+
+				scope* aux_scp = cur_scp;
+				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+				if (ImGui::TreeNodeEx("root", flag))
 				{
-					ImGuiPrintScopeVars("root", dbg, aux_scp, base_ptr);
-					aux_scp = aux_scp->parent;
+					while (aux_scp && IS_FLAG_OFF(aux_scp->flags, SCOPE_IS_GLOBAL))
+					{
+						ImGuiPrintScopeVars("root", dbg, aux_scp, base_ptr);
+						aux_scp = aux_scp->parent;
+					}
+					ImGui::TreePop();  // This is required at the end of the if block
 				}
-				ImGui::TreePop();  // This is required at the end of the if block
 			}
 			ImGui::EndChild();
-
 			ImGui::SameLine();
+
 
 			ImGui::BeginChild("mem", ImVec2(500, 400));
 
@@ -6970,6 +7100,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				bool was_brk = bc->dbg_brk;
 				//bc->dbg_brk = false;
 				bc->one_time_dbg_brk = false;
+				bc->break_on_first_loop_bc = true;
 				ExitDebugger(&cur_scp, &bc);
 				if ((bc->type == WASM_INST_DBG_BREAK || dbg.break_type == DBG_BREAK_ON_NEXT_BC) && !was_one_time && !was_brk)
 					bc++;
@@ -7217,8 +7348,16 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	scope* root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, false);
 	root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, true);
 	std::string scp_pre_str = PrintScpPre(data + file->scopes_sect, scp_pre);
+
 	//printf("\nscop 3:\n%s", root->Print(0).c_str());
 
+	type2 dummy_type;
+	FOR_VEC(pinfo, lang_stat->ptrs_have_len)
+	{
+		decl2 *d = FindIdentifier(pinfo->decl->len_for_ptr_name, pinfo->scp, &dummy_type);
+		ASSERT(d);
+		pinfo->decl->len_for_ptr = d;
+	}
 	for (int i = 0; i < file->total_funcs; i++)
 	{
 		auto fdbg = (func_dbg*)(data + file->func_sect + i * sizeof(func_dbg));
@@ -7322,6 +7461,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 
 		cur_f->wasm_code_sect_idx = bcs.size();
+		cur_f->wasm_stmnts.clear();
 
 		while (ptr < next_func)
 		{
@@ -7329,9 +7469,31 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 			int cur_ptr = (ptr - fi);
 			bc.start_code = cur_ptr;
-			if (cur_ptr == cur_st->start)
+			unsigned int* int_op = (unsigned int*)&code[ptr];
+			if (*int_op == 0x67452301)
 			{
-				cur_st->start = bcs.size();
+				stmnt_dbg st;
+				st.start = bcs.size();
+
+				unsigned int* line = (unsigned int*)(int_op + 1);
+				st.line = *line;
+				cur_f->wasm_stmnts.emplace_back(st);
+				ptr += 8;
+				continue;
+
+			}
+			if (*int_op == 0x86543210)
+			{
+				stmnt_dbg &st = cur_f->wasm_stmnts.back();
+				st.end = bcs.size();
+				st.start_ir = *(int_op + 1);
+				st.end_ir = *(int_op + 2);
+
+				ASSERT(st.start_ir >= 0 && st.end_ir >= 0);
+
+				ptr += 12;
+				continue;
+
 			}
 
 
@@ -7649,12 +7811,6 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			}
 			// decrementing because the statement counts only the end of the instructions, and not the beginning of the next one
 			cur_ptr = (ptr - fi) - 1;
-			if (cur_ptr == cur_st->end)
-			{
-				cur_st->end = bcs.size();
-
-				cur_st++;
-			}
 			bc.end_code = cur_ptr + 1;
 			bcs.emplace_back(bc);
 
@@ -8099,7 +8255,6 @@ void WasmInterp(own_std::vector<unsigned char>& code, char* mem_buffer, int size
 			}
 			if (cur->wbc->type == WASM_INST_LOOP)
 			{
-				bc = cur->wbc + 1;
 				continue;
 			}
 			bc = cur->wbc->block_end;
@@ -10529,7 +10684,7 @@ void GenWasm(web_assembly_state* wasm_state)
 		int i = 0;
 		while (cur_ir < ir->end())
 		{
-			WasmFromSingleIR(decl_to_local_idx, total_of_args, total_of_locals, cur_ir, code_sect, &stack_size, ir, &cur, &last_on_stack, &gen);
+			WasmFromSingleIR(decl_to_local_idx, total_of_args, total_of_locals, cur_ir, code_sect, &stack_size, ir, &cur, &last_on_stack, &gen, i);
 
 			cur_ir = cur_ir + (1 + (gen.advance_ptr));
 			i++;

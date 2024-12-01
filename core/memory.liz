@@ -1163,7 +1163,6 @@ tests :: fn(ret : *u32)
 		debug_break();
 
 	val_test = 0;
-	__dbg_break;
 	for cur in s32_ar
 	{
 		if* cur == 4

@@ -442,11 +442,11 @@ int FromGameToGLFWKey(int in)
 	}break;
 	case _KEY_ACT1:
 	{
-		key = GLFW_KEY_R;
+		key = GLFW_KEY_J;
 	}break;
 	case _KEY_ACT0:
 	{
-		key = GLFW_KEY_Z;
+		key = GLFW_KEY_K;
 	}break;
 	case _KEY_JMP:
 	{
@@ -566,14 +566,12 @@ void IsKeyHeld(dbg_state* dbg)
 		*addr = 0;
 
 }
-void GetDeltaTime(dbg_state* dbg)
+void GetTime(dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 
 	auto ret = (float*)&dbg->mem_buffer[RET_1_REG * 8];
-	*ret = glfwGetTime() - gl_state->last_time;
-	*ret = max(*ret, 0.02);
-	gl_state->last_time = glfwGetTime();
+	*ret = glfwGetTime();
 }
 void EndFrame(dbg_state* dbg)
 {
@@ -1705,11 +1703,12 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ClearBackground", (OutsiderFuncType)ClearBackground);
 	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
+	AssignOutsiderFunc(&lang_stat, "GetTime", (OutsiderFuncType)GetTime);
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
 	AssignOutsiderFunc(&lang_stat, "IsKeyUp", (OutsiderFuncType)IsKeyUp);
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
-	AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
+	//AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
 	AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
 	AssignOutsiderFunc(&lang_stat, "GetTimeSinceStart", (OutsiderFuncType)GetTimeSinceStart);
 	AssignOutsiderFunc(&lang_stat, "sqrt", (OutsiderFuncType)Sqrt);

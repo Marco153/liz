@@ -396,6 +396,9 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 		*precedence = PREC_MUL;
 		return true;
 	}break;
+	case tkn_type2::T_AT:
+		*precedence = PREC_PLUS + 1;
+		return true;
 	case tkn_type2::T_AMPERSAND:
 	case tkn_type2::T_MINUS:
 	case tkn_type2::T_COLON:
@@ -1071,6 +1074,13 @@ node* node_iter::parse_expr()
 
 			ExpectTkn(T_CLOSE_PARENTHESES);
 			get_tkn();
+		}
+		else if(peek->str == "make_ptr_len")
+		{
+			get_tkn();
+			n->type = N_MAKE_PTR_LEN;
+			n->r = parse_expr();
+			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		}
 		else if(peek->str == "when_used")
 		{
@@ -6064,6 +6074,15 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	{
 
 		return FindIdentifier(n->l->t->str, scp, &ret_type);
+	}break;
+	case N_MAKE_PTR_LEN:
+	{
+		decl2* ptr_decl = FindIdentifier(n->r->l->t->str, scp, &ret_type);
+		decl2* len_decl = FindIdentifier(n->r->r->t->str, scp, &ret_type);
+
+		ASSERT(ptr_decl && len_decl);
+		ptr_decl->len_for_ptr = len_decl;
+		ptr_decl->flags |= DECL_PTR_HAS_LEN;
 	}break;
 	case N_WHEN_USED:
 	{

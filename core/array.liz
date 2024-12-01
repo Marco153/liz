@@ -2,6 +2,7 @@ dyn_array: struct(T)
 {
 	data : *T,
 	count : u64,
+	#make_ptr_len(data, count)
 	cap : u64,
 	alloc : *mem_alloc,
 }

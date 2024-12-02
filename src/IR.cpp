@@ -188,7 +188,9 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		if (n->r->type == N_QUESTION_MARK)
 			return nullptr;
 		//ret->t = n->l->t;
-        if(n->t->type == T_COLON)
+		if(n->r->type == N_SCOPE)
+            return AstFromNode(lang_stat, n->r, scp);
+        if(n->t->type == T_COLON || n->r->type == N_SCOPE)
             return AstFromNode(lang_stat, n->l, scp);
 
         ret->type = AST_BINOP;
@@ -3008,6 +3010,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			case AST_CAST:
 			case AST_INDEX:
 			case AST_DEREF: 
+			case AST_OPPOSITE: 
 			case AST_NEGATIVE: 
 			case AST_ARRAY_COSTRUCTION:
 			case AST_ADDRESS_OF: 
@@ -3143,7 +3146,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
             FOR_VEC(expr, ast->expr)
             {
                 ast_rep *e = *expr;
-                if((idx == (ast->expr.size() - 1)) && e->type == AST_BINOP && e->op == T_COND_AND)
+				bool last = idx == (ast->expr.size() - 1);
+                if(last && e->type == AST_BINOP && e->op == T_COND_AND)
                 {
                     GetIRFromAst(lang_stat, e, out);
                 }
@@ -3156,9 +3160,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
                     IRCreateBeginBlock(lang_stat, out, IR_END_OR_BLOCK);
 
                 }
-				else if (e->type == AST_BINOP)
+				else if (e->type == AST_BINOP && e->op != T_POINT)
 				{
-					//ASSERT(e->op == T_COND_NE || e->op == T_COND_EQ || e-);
 					tkn_type2 op = e->op;
 					if (idx == (ast->expr.size() - 1))
 					{
@@ -3176,12 +3179,18 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 					ir.bin.lhs.type = IR_TYPE_REG;
 					ir.bin.lhs.reg_sz = 8;
 					ir.bin.lhs.reg = AllocReg(lang_stat);
-					GenStackThenIR(lang_stat, e, out, &ir.bin.lhs, nullptr);
+					GenStackThenIR(lang_stat, e, out, &ir.bin.lhs, &ir.bin.lhs);
 					ir.bin.rhs.type = IR_TYPE_INT;
+					ir.bin.it_is_jmp_if_true = true;
 					ir.bin.rhs.i = 1;
 					ir.type = IR_CMP_EQ;
-					ir.bin.it_is_jmp_if_true = true;
 					ir.bin.op = T_COND_EQ;
+					if (last)
+					{
+						ir.bin.it_is_jmp_if_true = false;
+						ir.type = IR_CMP_NE;
+						ir.bin.op = T_COND_NE;
+					}
 					out->emplace_back(ir);
                 }
 				idx++;

@@ -461,6 +461,7 @@ struct wasm_bc
 	bool dont_dbg_brk;
 	int start_code;
 	int end_code;
+	wasm_bc* jmps_to;
 	union
 	{
 		wasm_bc* block_end;
@@ -2445,6 +2446,8 @@ struct wasm_stack_val
 		float f32;
 		unsigned int u32;
 		int s32;
+		char s8;
+		short s16;
 		unsigned long long u64;
 		long long s64;
 		wasm_reg reg;
@@ -5935,6 +5938,25 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 
 	return ret_scp;
 }
+
+inline bool GetWasmBcsBlockJmpsTo(own_std::vector<wasm_bc> *ar)
+{
+	auto cur = NewBlock(nullptr);
+	FOR_VEC(bc, *ar)
+	{
+		if (bc->type == WASM_INST_BLOCK)
+		{
+			cur = NewBlock(cur);
+
+			//cur->
+		}
+		if (bc->type == WASM_INST_END)
+		{
+			cur = cur->parent;
+		}
+	}
+
+}
 inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigned char* mem_buffer, block_linked** cur, bool &can_break)
 {
 	own_std::vector<wasm_stack_val> &wasm_stack = dbg.wasm_stack;
@@ -6634,9 +6656,20 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		}
 		//ImGui::Text("%s", d->name.c_str());
 	}
+	else if (d->type.type == TYPE_STR_LIT)
+	{
+		int offset = base_ptr;
+		offset = *(int*)&dbg.mem_buffer[offset];
+		auto ptr = (char*)&dbg.mem_buffer[offset];
+		if (ptr == nullptr)
+		{
+			ptr = "";
+		}
+		ImGui::Text("%s(%d): %s", d->name.c_str(), offset, ptr);
+	}
 	else if (d->type.type == TYPE_STATIC_ARRAY)
 	{
-		ImGui::Text("static ar %s", d->name.c_str());
+		ImGui::Text("static ar %s (%d)", d->name.c_str(), base_ptr);
 	}
 	else if (d->type.type == TYPE_TEMPLATE || d->type.type == TYPE_FUNC || d->type.type == TYPE_IMPORT || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_OVERLOADED_FUNCS)
 	{
@@ -6689,7 +6722,8 @@ void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_pt
 	FOR_VEC(decl, cur_scp->vars)
 	{
 		decl2* d = *decl;
-		ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
+		if (IS_FLAG_OFF(d->flags, DECL_FROM_USING))
+			ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
 	}
 }
 
@@ -6753,6 +6787,51 @@ std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, in
 	return ret;
 }
 
+void BeginLocalsChild(dbg_state &dbg, int base_ptr, scope *cur_scp)
+{
+	ImGui::BeginChild("locals", ImVec2(500, 400));
+	if (cur_scp)
+	{
+
+		scope* aux_scp = cur_scp;
+		ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+		if (ImGui::TreeNodeEx("root", flag))
+		{
+			while (aux_scp && IS_FLAG_OFF(aux_scp->flags, SCOPE_IS_GLOBAL))
+			{
+				ImGuiPrintScopeVars("root", dbg, aux_scp, base_ptr);
+				aux_scp = aux_scp->parent;
+			}
+			ImGui::TreePop();  // This is required at the end of the if block
+		}
+	}
+	ImGui::EndChild();
+}
+void ImGuiDrawSquare(dbg_state &dbg, int addr, ImU32 col_a)
+{
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	auto sqr1_left_bottom = (v3 *)&dbg.mem_buffer[addr];
+	auto sqr1_left_top = sqr1_left_bottom + 1;
+	auto sqr1_right_top = sqr1_left_bottom + 2;
+	auto sqr1_right_bottom = sqr1_left_bottom + 3;
+
+	auto s1_lb_2_lt = *sqr1_left_top - *sqr1_left_bottom;
+	auto s1_lt_2_rt = *sqr1_right_top - *sqr1_left_top;
+	auto s1_rt_2_rb = *sqr1_right_bottom - *sqr1_right_top;
+	auto s1_rb_2_lb = *sqr1_left_bottom - *sqr1_right_bottom;
+
+	float mul = 200;
+	ImVec2 im_s1_lb(100, 100);
+	ImVec2 im_s1_lt(100 + s1_lb_2_lt.x * mul, 100 + s1_lb_2_lt.y * mul);
+	ImVec2 im_s1_rt(im_s1_lt.x + s1_lt_2_rt.x * mul, im_s1_lt.y + s1_lt_2_rt.y * mul);
+	ImVec2 im_s1_rb(im_s1_rt.x + s1_rt_2_rb.x * mul, im_s1_rt.y + s1_rt_2_rb.y * mul);
+
+	draw_list->AddLine(im_s1_lb, im_s1_lt, col_a, 1.0);
+	draw_list->AddLine(im_s1_lt, im_s1_rt, col_a, 1.0);
+	draw_list->AddLine(im_s1_rt, im_s1_rb, col_a, 1.0);
+	draw_list->AddLine(im_s1_rb, im_s1_lb, col_a, 1.0);
+
+}
 void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int len, std::string func_start, long long* args, int total_args)
 {
 	char buffer[64];
@@ -6786,7 +6865,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	wasm_bc *bc = &bcs[cur_func->wasm_code_sect_idx];
 	//bc->one_time_dbg_brk = true;
 
-	int stack_offset = 10000;
+	int stack_offset = 20000;
 	*(int*)&mem_buffer[STACK_PTR_REG * 8] = stack_offset;
 	*(int*)&mem_buffer[BASE_STACK_PTR_REG * 8] = stack_offset;
 	*(int*)&mem_buffer[stack_offset + 8] = 5000;
@@ -6833,6 +6912,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	int mem_wnd_show_type = 0;
 	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32"};
 	int wasm_bcs_to_show = 200;
+
+	int square_1_addr = 0;
+	int square_2_addr = 0;
 	//int total_wasm_bcs = 100;
 	while(!can_break)
 	{
@@ -6897,6 +6979,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				ImGui_ImplGlfw_Sleep(10);
 				continue;
 			}
+			ImGui::Render();
 
 			// Start the Dear ImGui frame
 			ImGui_ImplOpenGL3_NewFrame();
@@ -6923,50 +7006,63 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 					wasm_bc* aux_bc = bc;
 
 					int cur_tab = 0;
-					for (int i = 0; i < wasm_bcs_to_show; i++)
+					if (cur_st)
 					{
-						cur_ir = GetIrBasedOnOffset(&dbg, aux_bc->start_code, cur_st->start_ir, cur_st->end_ir);
-						if(cur_ir)
-							ImGui::Text("%s", WasmIrToString(&dbg, cur_ir).c_str());
-
-						if (aux_bc->type == WASM_INST_BLOCK || aux_bc->type == WASM_INST_LOOP)
+						for (int i = 0; i < wasm_bcs_to_show; i++)
 						{
-							cur_tab++;
+							cur_ir = GetIrBasedOnOffset(&dbg, aux_bc->start_code, cur_st->start_ir, cur_st->end_ir);
+							if (cur_ir)
+								ImGui::Text("%s", WasmIrToString(&dbg, cur_ir).c_str());
+
+							if (aux_bc->type == WASM_INST_BLOCK || aux_bc->type == WASM_INST_LOOP)
+							{
+								cur_tab++;
+							}
+							if (aux_bc->type == WASM_INST_END)
+							{
+								cur_tab--;
+							}
+
+							for (int tab = 0; tab < cur_tab; tab++)
+							{
+								buffer[tab] = ' ';
+							}
+							buffer[max(cur_tab, 0)] = 0;
+							wstr = std::string(buffer) + WasmGetBCString(&dbg, dbg.cur_func, aux_bc, &bcs) + "\n";
+
+
+							snprintf(buffer, 64, "O##%d", i);
+							wasm_bc* cur_bc = &aux_bc[i];
+							bool before_val = cur_bc->dbg_brk;
+
+							if (cur_bc->dbg_brk)
+								ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(255, 0, 0)));
+
+							if (ImGui::Button(buffer, ImVec2(20, 15)))
+							{
+								cur_bc->dbg_brk = !cur_bc->dbg_brk;
+							}
+							if (before_val)
+								ImGui::PopStyleColor();
+
+							ImGui::SameLine();
+							ImGui::Text(" %d ", aux_bc->start_code);
+							ImGui::SameLine();
+
+							if ((bc) == &bcs[i])
+								ImGui::TextColored(ImVec4(ImColor(255, 255, 0)), (char*)wstr.c_str());
+							else
+								ImGui::Text((char*)wstr.c_str());
+
+							if (aux_bc->type == WASM_INST_BREAK || aux_bc->type == WASM_INST_BREAK_IF)
+							{
+								ImGui::SameLine();
+								ImGui::Text(" jmps to %d", aux_bc->jmps_to->start_code);
+
+							}
+							aux_bc++;
+
 						}
-						if (aux_bc->type == WASM_INST_END)
-						{
-							cur_tab--;
-						}
-
-						for (int tab = 0; tab < cur_tab; tab++)
-						{
-							buffer[tab] = ' ';
-						}
-						buffer[max(cur_tab, 0)] = 0;
-						wstr = std::string(buffer) + WasmGetBCString(&dbg, dbg.cur_func, aux_bc, &bcs) + "\n";
-						
-
-						snprintf(buffer, 64, "O##%d", i);
-						wasm_bc* cur_bc = &aux_bc[i];
-						bool before_val = cur_bc->dbg_brk;
-	
-						if(cur_bc->dbg_brk)
-							ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(255, 0, 0)));
-
-						if (ImGui::Button(buffer, ImVec2(20, 15)))
-						{
-							cur_bc->dbg_brk = !cur_bc->dbg_brk;
-						}
-						if(before_val)
-							ImGui::PopStyleColor();
-
-						ImGui::SameLine();
-						if((bc) == &bcs[i])
-							ImGui::TextColored(ImVec4(ImColor(255, 255, 0)), (char*)wstr.c_str());
-						else
-							ImGui::Text((char*)wstr.c_str());
-						aux_bc++;
-
 					}
 						//cur_ir_aux++;
 
@@ -7007,23 +7103,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 			
 			int base_ptr = WasmGetRegVal(&dbg, BASE_STACK_PTR_REG);
-			ImGui::BeginChild("locals", ImVec2(500, 400));
-			if (cur_scp)
-			{
-
-				scope* aux_scp = cur_scp;
-				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-				if (ImGui::TreeNodeEx("root", flag))
-				{
-					while (aux_scp && IS_FLAG_OFF(aux_scp->flags, SCOPE_IS_GLOBAL))
-					{
-						ImGuiPrintScopeVars("root", dbg, aux_scp, base_ptr);
-						aux_scp = aux_scp->parent;
-					}
-					ImGui::TreePop();  // This is required at the end of the if block
-				}
-			}
-			ImGui::EndChild();
+			BeginLocalsChild(dbg, base_ptr, cur_scp);
 			ImGui::SameLine();
 
 
@@ -7063,6 +7143,18 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				ImGui::Text("arg_reg[%d]: %s", r, mem_val.c_str());
 			}
 			ImGui::Separator();
+			ImGui::EndChild();
+
+			ImDrawList* draw_list = ImGui::GetWindowDrawList();
+			ImVec2 p0 = ImGui::GetCursorScreenPos();
+
+			ImGui::BeginChild("col", ImVec2(500, 400));
+			ImGui::Text("draw cols");
+			ImGui::InputInt("sqr 1: ", &square_1_addr);
+			ImGui::InputInt("sqr 2: ", &square_2_addr);
+			
+			ImGuiDrawSquare(dbg, square_1_addr, ImGui::GetColorU32(IM_COL32(0, 255, 0, 255)));
+			ImGuiDrawSquare(dbg, square_2_addr, ImGui::GetColorU32(IM_COL32(0, 255, 0, 255)));
 			ImGui::EndChild();
 
 			// Rendering
@@ -7876,6 +7968,46 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			{
 				FreeBlock(cur);
 				cur->wbc->block_end = bc;
+				cur = cur->parent;
+			}
+
+		}break;
+		}
+	}
+	__lang_globals.cur_block = 0;
+	cur = nullptr;
+	FOR_VEC(bc, bcs)
+	{
+		switch (bc->type)
+		{
+		case WASM_INST_LOOP:
+		case WASM_INST_BLOCK:
+		{
+			cur = NewBlock(cur);
+			cur->wbc = bc;
+		}break;
+		case WASM_INST_BREAK_IF:
+		case WASM_INST_BREAK:
+		{
+			int i = 0;
+			wasm_bc* label;
+			block_linked *aux_block = cur;
+			while (i < bc->i)
+			{
+				aux_block = aux_block->parent;
+				i++;
+			}
+			if (aux_block)
+			{
+				bc->jmps_to = aux_block->wbc->block_end;
+			}
+		}break;
+		case WASM_INST_END:
+		{
+			if (cur)
+			{
+				FreeBlock(cur);
+				//cur->wbc->block_end = bc;
 				cur = cur->parent;
 			}
 

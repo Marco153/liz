@@ -8,7 +8,7 @@
 
 #define CMP_NTYPE(a, t) ((a)->type == node_type::t)
 
-void AddStructMembersToScopeWithUsing(lang_state*, decl2* decl, scope* scp, node* by_name_nd);
+void AddStructMembersToScopeWithUsing(lang_state*, type_struct2* decl, scope* scp, node* by_name_nd);
 node* parse_expression(own_std::vector<token2>* tkns, int precedence);
 node* parse(own_std::vector<token2>* tkns, tkn_type2 target);
 bool IsNodeOperator(node* nd, tkn_type2 tkn);
@@ -1777,7 +1777,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		else if (peek_tkn()->type == T_OPEN_CURLY && cur_node->l->type == N_STMNT)
 		{
 			auto last_tp = (peek_tkn() - 1)->type;
-			if (last_tp != T_SEMI_COLON && last_tp != T_CLOSE_CURLY)
+			if (last_tp != T_SEMI_COLON && last_tp != T_CLOSE_CURLY && last_tp != T_POINT)
 			{
 				ReportMessage(lang_stat, peek_tkn(), "unexpected token");
 				ExitProcess(1);
@@ -2020,15 +2020,26 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		auto tt = peek_tkn();
 		// checking the the first tkn is'nt an unary one
 		// because we dont want to get its precedence
-		if (peek_tkn()->type != tkn_type2::T_MUL && peek_tkn()->type != tkn_type2::T_MINUS)
-		{
-			PARSER_CHECK
-		}
 
 		ASSERT(cur_node->r == nullptr);
 
 
-		cur_node->r = parse_(cur_prec, parser_cond::LESSER_EQUAL);
+		if (tt->type == T_OPEN_CURLY && cur_node->type == N_BINOP && cur_node->t->type == T_POINT)
+		{
+			cur_node->r = parse_expr();
+			ExpectTkn(T_SEMI_COLON);
+			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
+			//return cur_node;
+		}
+		else
+		{
+			if (peek_tkn()->type != tkn_type2::T_MUL && peek_tkn()->type != tkn_type2::T_MINUS)
+			{
+				PARSER_CHECK
+			}
+			cur_node->r = parse_(cur_prec, parser_cond::LESSER_EQUAL);
+		}
+
 
 
 	double_colon_scope_label:
@@ -3439,6 +3450,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	char msg_hdr[256];
 	switch (n->type)
 	{
+	case node_type::N_FOR:
 	case node_type::N_WHILE:
 	{
 		ret_type.type = TYPE_VOID;
@@ -5045,7 +5057,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 			fdecl->args.assign(child_scp->vars.begin() + template_end_idx, child_scp->vars.end());
 
 		if(normal_func_first_arg_decl_with_using)
-			AddStructMembersToScopeWithUsing(lang_stat, normal_func_first_arg_decl_with_using, fdecl->scp, NewIdentNode(lang_stat, normal_func_first_arg_decl_with_using->name, n->t));
+			AddStructMembersToScopeWithUsing(lang_stat, normal_func_first_arg_decl_with_using->type.strct, fdecl->scp, NewIdentNode(lang_stat, normal_func_first_arg_decl_with_using->name, n->t));
 		//fdecl->vars.assign(child_scp->vars.begin() + template_end_idx, child_scp->vars.end());
 	}
 	fdecl->flags |= FUNC_DECL_ARGS_GOTTEN;
@@ -5329,6 +5341,16 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 	}break;
 	case enum_type2::TYPE_STRUCT:
 	{
+		if (n->r->type == N_SCOPE)
+		{
+			if(!n->r->scp)
+				n->r->scp = GetScopeFromParent(lang_stat, n->r, scp);
+			AddStructMembersToScopeWithUsing(lang_stat, lhs->type.strct, n->r->scp, n->l);
+			if (!DescendNameFinding(lang_stat, n->r, scp))
+				return nullptr;
+			return (decl2 *)1;
+			
+		}
 		// maybe modifying the tree for members that are being used with "using" keyword
 		auto ret = DescendNameFinding(lang_stat, n->r, lhs->type.strct->scp);
 		// correcting the tree that was modified
@@ -5903,15 +5925,15 @@ void EnumToTypeSect(lang_state *lang_stat, std::string enum_name, scope* scp)
 	type_sect->insert(type_sect->begin(), buffer.begin(), buffer.end());
 }
 
-void AddStructMembersToScopeWithUsing(lang_state *lang_stat, decl2 *decl, scope *scp, node *by_name_nd)
+void AddStructMembersToScopeWithUsing(lang_state *lang_stat, type_struct2 *strct, scope *scp, node *by_name_nd)
 {
-	ASSERT(decl->type.type = TYPE_STRUCT);
-	if (!decl->type.strct)
-		return;
+	//ASSERT(strct->type = TYPE_STRUCT);
+	//if (!decl->type.strct)
+		//return;
 
 	// adding every var from struct to scope, and rearranging 
 	// to tree, so that later this tree will be used to get the correct var
-	FOR_VEC(v, decl->type.strct->scp->vars)
+	FOR_VEC(v, strct->scp->vars)
 	{
 		auto new_decl = (decl2*)AllocMiscData(lang_stat, sizeof(decl2));
 		memcpy(new_decl, *v, sizeof(decl2));
@@ -6210,7 +6232,9 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			if (!decl)
 				return nullptr;
 
-			AddStructMembersToScopeWithUsing(lang_stat, decl, scp, by_name_nd);
+			ASSERT(decl->type.type == TYPE_STRUCT);
+
+			AddStructMembersToScopeWithUsing(lang_stat, decl->type.strct, scp, by_name_nd);
 
 			n->r->flags |= NODE_FLAGS_IS_PROCESSED;
 		}break;
@@ -6708,6 +6732,12 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_IDENTIFIER:
 	{
+		if (n->t->str == "__LINE__")
+		{
+			n->t->i = n->t->line;
+			n->type = node_type::N_INT;
+			break;
+		}
 		auto ident = FindIdentifier(n->t->str, scp, &ret_type);
 		if (ident && IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_DECLARE_ONLY_TYPE_PARAMTS))
 		{

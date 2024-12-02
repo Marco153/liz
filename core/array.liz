@@ -31,7 +31,7 @@ dyn_init::fn{ T }(dyn : *dyn_array(T), cap : u64)
 }
 regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 {
-	if ((dyn.count + sz) >= dyn.cap)
+	if (sz >= dyn.cap)
 	{
 		aux_data: = dyn.data;
 		dyn.cap = dyn.cap * 2;
@@ -39,7 +39,26 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
 	}
 	else
-		dyn.count = dyn.count + sz;
+		dyn.count = sz;
+}
+dyn_rem::fn{ T }(dyn : *dyn_array(T), idx : u32)
+{
+	ASSERT(idx >= 0);
+	if dyn.count == 0
+		return;
+
+	start: = ptr_offset(dyn.data, idx, T);
+	next: = ptr_offset(dyn.data, idx + 1, T);
+	len: = dyn.count - (idx + 1);
+	aux := heap_alloc(dyn.alloc, len * sizeof(T));
+	memcpy(cast(*void)aux, cast(*void)next, len * sizeof(T));
+	memcpy(cast(*void)start, cast(*void)aux, len * sizeof(T));
+	dyn.count--;
+	heap_free(dyn.alloc, cast(*u8)aux);
+
+	//start: = ptr_offset(dyn.data, dyn.count, T);
+	//memcpy(dyn)
+
 }
 dyn_add::fn{ T }(dyn : *dyn_array(T), data : *T)
 {

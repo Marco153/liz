@@ -5,6 +5,57 @@
 #include "backends/imgui_impl_opengl3.h"
 #include "../include/GLFW/glfw3.h"
 
+struct v3
+{
+	float x;
+	float y;
+	float z;
+
+	v3 mul(float m)
+	{
+		v3 ret;
+		ret.x = x * m;
+		ret.y = y * m;
+		ret.z = z * m;
+		return ret;
+	}
+	v3 operator *(float f)
+	{
+		v3 ret;
+		ret.x = this->x * f;
+		ret.y = this->y + f;
+		return ret;
+	}
+	v3 operator -(v3& other)
+	{
+		v3 ret;
+		ret.x = this->x - other.x;
+		ret.y = this->y - other.y;
+		return ret;
+	}
+	v3 operator +(v3& other)
+	{
+		v3 ret;
+		ret.x = this->x + other.x;
+		ret.y = this->y + other.y;
+		return ret;
+	}
+	ImVec2 IM()
+	{
+		ImVec2 ret;
+		ret.x = this->x;
+		ret.y = this->y;
+		return ret;
+	}
+	float dot(v3& other)
+	{
+		return x * other.x + y * other.y + z * other.y;
+	}
+	float len(v3& other)
+	{
+		return 1.0;
+	}
+};
 #if defined(_MSC_VER) && (_MSC_VER >= 1900) && !defined(IMGUI_DISABLE_WIN32_FUNCTIONS)
 #pragma comment(lib, "legacy_stdio_definitions")
 #endif
@@ -293,6 +344,7 @@ void Print(dbg_state* dbg)
 }
 #define DRAW_INFO_HAS_TEXTURE 1
 #define DRAW_INFO_NO_SCREEN_RATIO 2
+#define DRAW_INFO_LINE 4
 struct draw_info
 {
 	float pos_x;
@@ -318,6 +370,7 @@ struct draw_info
 	float cam_size;
 
 	unsigned long long cam_pos_addr;
+	unsigned long long cam_rot_addr;
 
 	int flags;
 };
@@ -399,12 +452,30 @@ void Draw(dbg_state* dbg)
 	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
 	glUniform3f(cam_pos_u, cam_pos_x, cam_pos_y, cam_pos_z);
 
+	float cam_rot_x = 0;
+	float cam_rot_y = 0;
+	float cam_rot_z = 0;
+	if (draw->cam_rot_addr != 0)
+	{
+		cam_rot_x = *(float*)&dbg->mem_buffer[draw->cam_rot_addr];
+		cam_rot_y = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 4];
+		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
+	}
+	int cam_rot_u = glGetUniformLocation(prog, "cam_rot");
+	glUniform3f(cam_rot_u, cam_rot_x, cam_rot_y, cam_rot_z);
+
+
 	int ent_size_u = glGetUniformLocation(prog, "ent_size");
 	glUniform3f(ent_size_u, draw->ent_size_x, draw->ent_size_y, draw->ent_size_z);
 
 
 
-	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+	{
+		glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+	}
+	else
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 	//glDrawArrays(GL_TRIANGLES, 0, 3);
 	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
 }
@@ -582,6 +653,13 @@ void EndFrame(dbg_state* dbg)
 	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
 	//gl_state->last_time = glfwGetTime();
+	ImGui::Render();
+	//int display_w, display_h;
+	//glfwGetFramebufferSize(window, &display_w, &display_h);
+	//glViewport(0, 0, display_w, display_h);
+	//glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+	//glClear(GL_COLOR_BUFFER_BIT);
+	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	glfwSwapBuffers(wnd);
 }
 void ClearKeys(void *data)
@@ -624,6 +702,10 @@ void ShouldClose(dbg_state* dbg)
 	ClearKeys(gl_state);
 
 	glfwPollEvents();
+
+	ImGui_ImplOpenGL3_NewFrame();
+	ImGui_ImplGlfw_NewFrame();
+	ImGui::NewFrame();
 }
 void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
@@ -1108,17 +1190,22 @@ void OpenWindow(dbg_state* dbg)
 		"uniform float screen_ratio;\n"
 		"uniform vec3 ent_size;\n"
 		"uniform vec3 cam_pos;\n"
+		"uniform vec3 cam_rot;\n"
 		"out vec2 TexCoord;\n"
 		"void main()\n"
 		"{\n"
+		"	mat3 A = mat3(cos(cam_rot.z), -sin(cam_rot.z), 0.0,\n"
+		"		 sin(cam_rot.z), cos(cam_rot.z), 0.0,\n"
+		"		 0.0, 0.0, 1.0);\n"
 		"   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
 		"   gl_Position.xy -= pivot.xy;\n"
 		"   gl_Position.xy *= ent_size.xy;\n"
 		"   gl_Position.xy += pos.xy;\n"
 		"   gl_Position.xy -= cam_pos.xy;\n"
 		"   gl_Position.xy /= cam_size;\n"
+		"   gl_Position = vec4(A * gl_Position.xyz, 1.0);\n"
 		"   gl_Position.x *= screen_ratio;\n"
-		//"   gl_Position = ition / cam_size + cam_size;\n"
+
 		"   TexCoord = uv;\n"
 		"}\0";
 
@@ -1135,6 +1222,7 @@ void OpenWindow(dbg_state* dbg)
 	{
 		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
 		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+		ASSERT(false);
 	}
 	const char* fragmentShaderNoTextureSource = "#version 330 core\n"
 		"out vec4 FragColor;\n"
@@ -1304,6 +1392,19 @@ void PrintV3(dbg_state* dbg)
 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
+void OpenLocalsWindow(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
+	int stack_base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int line = *(int*)&dbg->mem_buffer[stack_base_ptr + 8];
+
+
+	scope *scp = FindScpWithLine(dbg->cur_func, line);
+	ASSERT(scp);
+	BeginLocalsChild(*dbg, base_ptr, scp);
+	//ImGui::Text("AOe");
+	///glfwSwapBuffers(window);
+}
 void MemCpy(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1315,29 +1416,6 @@ void MemCpy(dbg_state* dbg)
 	memcpy(a, b, c_ptr);
 
 }
-struct v3
-{
-	float x;
-	float y;
-	float z;
-
-	v3 mul(float m)
-	{
-		v3 ret;
-		ret.x = x * m;
-		ret.y = y * m;
-		ret.z = z * m;
-		return ret;
-	}
-	float dot(v3& other)
-	{
-		return x * other.x + y * other.y + z * other.y;
-	}
-	float len(v3& other)
-	{
-		return sqrtf(this->dot(*this));
-	}
-};
 void PointLineDistance(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1730,6 +1808,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "dot_v3", (OutsiderFuncType)DotV3);
 	AssignOutsiderFunc(&lang_stat, "memcpy", (OutsiderFuncType)MemCpy);
 	AssignOutsiderFunc(&lang_stat, "PointLineDistance", (OutsiderFuncType)PointLineDistance);
+	AssignOutsiderFunc(&lang_stat, "OpenLocalsWindow", (OutsiderFuncType)OpenLocalsWindow);
+
 	Compile(&lang_stat, &opts);
 	if (!opts.release)
 	{

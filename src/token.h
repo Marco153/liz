@@ -1114,6 +1114,8 @@ bool is_type_unsigned(enum_type2 tp)
 	case enum_type2::TYPE_S8:
 		return false;
 	}
+
+	return false;
 }
 struct comma_ret
 {

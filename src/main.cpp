@@ -1,3 +1,5 @@
+typedef unsigned long long u64;
+typedef long long s64;
 #include <glad/glad.h> 
 #include <glad/glad.c> 
 #include "imgui.h"
@@ -387,6 +389,7 @@ int GetTextureSlotId(open_gl_state* gl_state)
 		}
 	}
 	ASSERT(0);
+	return -1;
 }
 #define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {ASSERT(0)}
 void Draw(dbg_state* dbg)
@@ -1669,6 +1672,7 @@ AudioClip* CreateNewAudioClip(char* name)
 	return ret;
 
 }
+
 
 int main(int argc, char* argv[])
 {

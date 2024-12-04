@@ -65,7 +65,7 @@ struct dbg_state;
 struct block_linked;
 
 typedef void* (*FreeTypeFunc)(void* this_ptr, void* ptr);
-typedef void* (*AllocTypeFunc)(void* this_ptr, int sz);
+typedef void* (*AllocTypeFunc)(void* this_ptr, u64 sz);
 
 struct global_variables_lang
 {
@@ -1691,6 +1691,7 @@ bool AreIRValsEqual(ir_val* lhs, ir_val* rhs)
 		ASSERT(0)
 	}
 
+	return false;
 }
 
 
@@ -3102,6 +3103,10 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	case IR_CAST_INT_TO_F32:
 	{
 		ret = "cast int to f32\n";
+		std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
+		std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		snprintf(buffer, 64, "cast int to f32: %s = %s\n", lhs.c_str(), rhs.c_str());
+		ret = buffer;
 	}break;
 	case IR_END_COND_BLOCK:
 	{
@@ -3109,7 +3114,10 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	}break;
 	case IR_CAST_F32_TO_INT:
 	{
-		ret = "cast f32 to int\n";
+		std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
+		std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		snprintf(buffer, 64, "cast f32 to int: %s = %s\n", lhs.c_str(), rhs.c_str());
+		ret = buffer;
 	}break;
 	case IR_CONTINUE:
 	{
@@ -3917,33 +3925,7 @@ void WasmBreakOnNextStmnt(dbg_state* dbg, bool *args_break)
 
 	*args_break = true;
 }
-void getConsoleLine(int line, int length) {
-    // Get the console output handle
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
-    // Get console screen buffer info
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    GetConsoleScreenBufferInfo(hConsole, &csbi);
-
-    // Allocate space for the characters to read
-    CHAR_INFO* buffer = new CHAR_INFO[length];
-    COORD bufferSize = {length, 1};  // Width x Height
-    COORD bufferCoord = {0, 0};
-    SMALL_RECT readRegion = {0, line, static_cast<SHORT>(length - 1), line};
-
-    // Read the console output into the buffer
-    ReadConsoleOutput(hConsole, buffer, bufferSize, bufferCoord, &readRegion);
-
-    // Print out the characters
-    std::cout << "Line " << line << ": ";
-    for (int i = 0; i < length; ++i) {
-        std::cout << buffer[i].Char.AsciiChar;
-    }
-    std::cout << std::endl;
-
-    // Clean up
-    delete[] buffer;
-}
 void printInput(const std::string& input, size_t cursorPos) {
 	std::cout << "\033[2K\r" << input<<"\r";  // Clear the current line and print the input
 	if(cursorPos > 0)
@@ -5371,6 +5353,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_INT:
 		case TYPE_F32:
 		case TYPE_U8:
+		case TYPE_S8:
 		case TYPE_S32:
 		case TYPE_U32:
 		case TYPE_S64:
@@ -5793,6 +5776,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		}break;
 		case TYPE_F32:
 		case TYPE_U8:
+		case TYPE_S8:
 		case TYPE_S32:
 		case TYPE_U32:
 		case TYPE_S64:
@@ -5957,7 +5941,52 @@ inline bool GetWasmBcsBlockJmpsTo(own_std::vector<wasm_bc> *ar)
 	}
 
 }
-inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigned char* mem_buffer, block_linked** cur, bool &can_break)
+
+#pragma optimize("", off)
+void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer, func_decl *call_f)
+{
+	int tsize = winterp->dbg->lang_stat->type_sect.size();
+	unsigned char *cdata = winterp->dbg->lang_stat->code_sect.data();
+	cdata += tsize;
+	unsigned char* func_code = cdata + call_f->for_interpreter_code_start_idx;
+	int base_ptr = *(int*)&dbg.mem_buffer[STACK_PTR_REG * 8];
+	void *a_ptr = (void*)&dbg.mem_buffer[base_ptr + 8];
+
+	void* addr = nullptr;
+	if(call_f->ret_type.IsFloat() && call_f->ret_type.ptr == 0)
+		*(float *)&addr = (((float(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
+	else
+		addr = (((void *(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
+	if (!((call_f->ret_type.type == TYPE_VOID || call_f->ret_type.type == TYPE_AUTO) && call_f->ret_type.ptr <= 0))
+	{
+		call_f->ret_type.ptr--;
+		if (call_f->ret_type.ptr < 0)
+		{
+			void* final_val = addr;
+			if (call_f->ret_type.type == TYPE_STRUCT)
+			{
+				memcpy(&dbg.mem_buffer[2000], addr, GetTypeSize(&call_f->ret_type));
+				final_val = (void *)(long long)2000;
+			}
+			*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) final_val;
+
+		}
+		else
+		{
+			if(addr > dbg.mem_buffer)
+				*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) ((unsigned char *)addr - (unsigned char *)dbg.mem_buffer);
+			else
+				*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) (addr);
+		}
+		call_f->ret_type.ptr++;
+	}
+
+
+	auto a = 0;
+}
+#pragma optimize("", on)
+
+bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigned char* mem_buffer, block_linked** cur, bool &can_break)
 {
 	own_std::vector<wasm_stack_val> &wasm_stack = dbg.wasm_stack;
 	wasm_stack_val val = {};
@@ -5972,16 +6001,18 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 	{
 		int i = 0;
 		wasm_bc *label;
+		/*
 		while (i < (*cur_bc)->i)
 		{
 			(*cur) = (*cur)->parent;
 			FreeBlock((*cur));
 			i++;
 		}
-		if ((*cur)->wbc->type == WASM_INST_LOOP)
+		*/
+		if ((*cur_bc)->jmps_to->type == WASM_INST_LOOP)
 		{
 			wasm_bc* prev_bc = (*cur_bc);
-			(*cur_bc) = (*cur)->wbc + 1;
+			(*cur_bc) = prev_bc->jmps_to + 1;
 			if (prev_bc->break_on_first_loop_bc || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && dbg.next_stat_break_func == dbg.cur_func)
 			{
 				(*cur_bc)->one_time_dbg_brk = true;
@@ -5989,12 +6020,8 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 			}
 			return true;
 		}
-		if (!(*cur))
-		{
-			can_break = true;
-			break;
-		}
-		(*cur_bc) = (*cur)->wbc->block_end;
+
+		(*cur_bc) = (*cur_bc)->jmps_to;
 		return true;
 		
 	}break;
@@ -6007,19 +6034,16 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 			break;
 		wasm_bc *label;
 		int i = 0;
+		/*
 		while (i < (*cur_bc)->i)
 		{
 			(*cur) = (*cur)->parent;
 			FreeBlock((*cur));
 			i++;
 		}
-		if (!(*cur))
-		{
-			can_break = true;
-			break;
-		}
+		*/
 		wasm_bc* prev_bc = (*cur_bc);
-		(*cur_bc) = (*cur)->wbc->block_end;
+		(*cur_bc) = prev_bc->jmps_to;
 		if (prev_bc->break_on_first_loop_bc || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && dbg.next_stat_break_func == dbg.cur_func)
 		{
 			((*cur_bc) + 1)->one_time_dbg_brk = true;
@@ -6050,44 +6074,7 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 		}
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
 		{
-			int tsize = winterp->dbg->lang_stat->type_sect.size();
-			unsigned char *cdata = winterp->dbg->lang_stat->code_sect.data();
-			cdata += tsize;
-			unsigned char* func_code = cdata + call_f->for_interpreter_code_start_idx;
-			int base_ptr = *(int*)&dbg.mem_buffer[STACK_PTR_REG * 8];
-			void *a_ptr = (void*)&dbg.mem_buffer[base_ptr + 8];
-
-			void* addr = nullptr;
-			if(call_f->ret_type.IsFloat() && call_f->ret_type.ptr == 0)
-				*(float *)&addr = (((float(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
-			else
-				addr = (((void *(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
-			if (!((call_f->ret_type.type == TYPE_VOID || call_f->ret_type.type == TYPE_AUTO) && call_f->ret_type.ptr <= 0))
-			{
-				call_f->ret_type.ptr--;
-				if (call_f->ret_type.ptr < 0)
-				{
-					void* final_val = addr;
-					if (call_f->ret_type.type == TYPE_STRUCT)
-					{
-						memcpy(&dbg.mem_buffer[2000], addr, GetTypeSize(&call_f->ret_type));
-						final_val = (void *)(long long)2000;
-					}
-					*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) final_val;
-
-				}
-				else
-				{
-					if(addr > dbg.mem_buffer)
-						*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) ((unsigned char *)addr - (unsigned char *)dbg.mem_buffer);
-					else
-						*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) (addr);
-				}
-				call_f->ret_type.ptr++;
-			}
-
-
-			auto a = 0;
+			WasmCallX64(winterp, dbg, mem_buffer, call_f);
 		}
 		else
 		{
@@ -6436,8 +6423,8 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 	case WASM_INST_LOOP:
 	case WASM_INST_BLOCK:
 	{
-		(*cur) = NewBlock((*cur));
-		(*cur)->wbc = (*cur_bc);
+		//(*cur) = NewBlock((*cur));
+		//(*cur)->wbc = (*cur_bc);
 	}break;
 	case WASM_INST_I32_OR:
 	{
@@ -6552,11 +6539,13 @@ inline bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, 
 	}break;
 	case WASM_INST_END:
 	{
+		/*
 		if ((*cur))
 		{
 			FreeBlock((*cur));
 			(*cur) = (*cur)->parent;
 		}
+		*/
 
 	}break;
 	default:
@@ -6598,6 +6587,11 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 			int len_offset = base_ptr + d->len_for_ptr->offset;
 			int len = *(int*)&dbg.mem_buffer[len_offset];
+			if (len > 1000)
+			{
+				ImGui::Text("more than 1000 items");
+				return;
+			}
 			int addr = *(int*)&dbg.mem_buffer[base_ptr];
 			char prev_ptr = d->type.ptr;
 			d->type.ptr = ptr_decl;
@@ -7999,7 +7993,14 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			}
 			if (aux_block)
 			{
-				bc->jmps_to = aux_block->wbc->block_end;
+				if (aux_block->wbc->type == WASM_INST_LOOP && bc->type == WASM_INST_BREAK)
+				{
+					bc->jmps_to = aux_block->wbc;
+				}
+				else
+				{
+					bc->jmps_to = aux_block->wbc->block_end;
+				}
 			}
 		}break;
 		case WASM_INST_END:
@@ -8801,7 +8802,7 @@ int GenX64DeclAndIntOperationToReg(lang_state *lang_stat, own_std::vector<byte_c
 	if (ir->bin.lhs.deref == 0)
 	{
 		reg = reg_dst;
-		char reg_sz = reg_sz;
+		//char reg_sz = reg_sz;
 		bc.type = INST_LEA;
 		bc.bin.rhs.lea.reg_base = PRE_X64_RSP_REG;
 		bc.bin.rhs.lea.offset = ir->bin.lhs.decl->offset;
@@ -8822,7 +8823,7 @@ int GenX64DeclAndIntOperationToReg(lang_state *lang_stat, own_std::vector<byte_c
 	else
 	{
 		reg = reg_dst;
-		char reg_sz = reg_sz;
+		//char reg_sz = reg_sz;
 		GenX64DeclWithDeref(lang_stat, ret, reg, reg_sz, ir->bin.lhs.decl->offset, ir->ret.assign.lhs.deref - 1);
 		GenX64ImmToReg(ret, reg, reg_sz, ir->bin.rhs.i, reg_int_inst);
 		//FreeSpecificReg(lang_stat, reg);
@@ -8887,10 +8888,14 @@ void GenX64AutomaticAddress(lang_state* lang_stat, own_std::vector<byte_code>& r
 	{
 		if (is_float)
 		{
-			if(reg_dst == -1)
+			short sse_reg = reg_dst;
+			if (reg_dst == -1)
+			{
 				reg_dst = 0;
+				sse_reg = AllocFloatReg(lang_stat);
+			}
+			
 
-			short sse_reg = AllocFloatReg(lang_stat);
 			bc.type = MOV_M_2_SSE;
 			bc.bin.lhs.reg = sse_reg;
 			bc.bin.rhs.reg = *reg;
@@ -9015,15 +9020,17 @@ void GenX64ToIrValImm(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir
 		aux->i = ir->i;
 	aux->is_float = ir->is_float;
 }
-void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address)
+void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address, char reg_dst = -1)
 {
 	aux->type = ir->type;
-	aux->reg = ir->reg;
 	aux->reg_sz = ir->reg_sz;
 	aux->deref = ir->deref;
+	aux->reg = ir->reg;
 	aux->is_float = ir->is_float;
-	if(address && aux->deref > 0 || !address)
-		GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, aux->reg);
+	if (address && aux->deref > 0 || !address)
+	{
+		GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, reg_dst);
+	}
 }
 void GenX64ToIrValReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address)
 {
@@ -9072,6 +9079,7 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	aux->deref = ir->deref;
 	aux->is_float = ir->is_float;
 	byte_code bc;
+
 	if (ir->ptr == -1)
 	{
 		aux->reg = AllocReg(lang_stat);
@@ -9080,6 +9088,8 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	}
 	else if(address && aux->deref > 0 || !address)
 	{
+		if (address)
+			aux->deref--;
 		GenX64AutomaticDeclDeref(lang_stat, ret, aux->deref, &aux->reg, &aux->voffset, aux->reg_sz, aux->is_float, address, reg_dst);
 	}
 	if (aux->reg != PRE_X64_RSP_REG)
@@ -9243,7 +9253,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						  wasm_gen_state *gen_state)
 {
 	auto cur = (block_linked*)malloc(sizeof(block_linked));
-	int args = gen_state->cur_func->args.size() - 4;
+	int args = gen_state->cur_func->biggest_call_args - 4;
 	int on_stack_args = max(args, 0);
 
 	unsigned int stack_size = 32 + on_stack_args * 8;
@@ -9264,10 +9274,14 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	int float_reg = 0;
 	// moving args to rbx
 	GenX64RegToReg(lang_stat, ret, rbx_reg, 8, 2, MOV_R);
-	for (int i = 0; i < fdecl->args.size(); i++)
+	//GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, 8, SUB_I_2_R);
+	for (int a = 0; a < fdecl->args.size(); a++)
 	{
 		byte_code bc = {};
+		int i = a;
 		decl2* d = fdecl->args[i];
+		if (i >= 4)
+			i++;
 		if (d->type.ptr <= 0)
 		{
 			if (d->type.IsFloat())
@@ -9284,7 +9298,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			}
 			bc.bin.rhs.reg = rbx_reg;
 			bc.bin.rhs.reg_sz = 8;
-			bc.bin.rhs.voffset = i * 8;
+			bc.bin.rhs.voffset = a * 8;
 			ret.emplace_back(bc);
 		}
 		else
@@ -9294,7 +9308,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			bc.bin.lhs.reg_sz = 8;
 			bc.bin.rhs.reg = rbx_reg;
 			bc.bin.rhs.reg_sz = 8;
-			bc.bin.rhs.voffset = i * 8;
+			bc.bin.rhs.voffset = a * 8;
 
 			ret.emplace_back(bc);
 
@@ -9308,6 +9322,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			ret.emplace_back(bc);
 		}
 	}
+	//GenX64ImmToReg( ret, PRE_X64_RSP_REG, 8, 8, ADD_I_2_R);
 	ret.emplace_back(byte_code(byte_code_enum::BEGIN_FUNC, gen_state->cur_func));
 	int idx = 0;
 	FOR_VEC(ir, irs)
@@ -9449,7 +9464,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ir_val_aux rhs;
 				GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->bin.rhs);
 
-				if (lhs.reg == PRE_X64_RSP_REG)
+				if (lhs.deref >= 0)
 				{
 					GenX64ImmToMem(ret, lhs.reg, lhs.voffset, lhs.reg_sz, rhs.i, CMP_I_2_M);
 				}
@@ -9635,6 +9650,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				{
 				case IR_TYPE_ARG_REG:
 				{
+					FreeSpecificFloatReg(lang_stat, ir->assign.to_assign.reg);
 					switch (ir->assign.lhs.type)
 					{
 					case IR_TYPE_ON_STACK:
@@ -9678,14 +9694,21 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					case IR_TYPE_REG:
 					{
 						ir_val_aux lhs;
-						GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-						bc.type = MOV_R_2_REG_PARAM;
-						bc.bin.lhs.reg = ir->assign.to_assign.reg;
-						bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
-						bc.bin.rhs.reg = lhs.reg;
-						bc.bin.rhs.reg_sz = lhs.reg_sz;
+						if (ir->assign.lhs.is_float)
+						{
+							GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.lhs, false, ir->assign.to_assign.reg);
+						}
+						else
+						{
+							GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
+							bc.type = MOV_R_2_REG_PARAM;
+							bc.bin.lhs.reg = ir->assign.to_assign.reg;
+							bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
+							bc.bin.rhs.reg = lhs.reg;
+							bc.bin.rhs.reg_sz = lhs.reg_sz;
+							ret.emplace_back(bc);
+						}
 
-						ret.emplace_back(bc);
 					}break;
 					default:
 						ASSERT(false)
@@ -10260,6 +10283,32 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						if (lhs.reg != PRE_X64_RSP_REG)
 							FreeSpecificReg(lang_stat, lhs.reg);
 					}
+					else if (ir->assign.lhs.type == IR_TYPE_F32  && ir->assign.rhs.type == IR_TYPE_REG)
+					{
+						char sse_reg = 0;
+						ir_val_aux lhs;
+						GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &ir->assign.lhs, sse_reg);
+						lhs.type = IR_TYPE_REG;
+
+						if (lhs.reg == 0)
+							sse_reg++;
+						ir_val_aux rhs;
+						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
+						//AllocSpecificReg(lang_stat, lhs.reg);
+
+
+						correct_inst = base_inst_sse;
+
+						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+						ir_val_aux dst;
+						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
+						
+						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+						//FreeSpecificReg(lang_stat, lhs.reg);
+
+					}
 					else if (ir->assign.lhs.type == IR_TYPE_REG && ir->assign.rhs.type == IR_TYPE_F32)
 					{
 						ir_val_aux lhs;
@@ -10359,17 +10408,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 			case IR_TYPE_DECL:
 			{
-				short reg = PRE_X64_RSP_REG;
-				char reg_sz = ir->bin.rhs.reg_sz;
-				int voffset = ir->bin.rhs.decl->offset;
-				char deref = ir->bin.rhs.deref;
-				GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, ir->bin.rhs.is_float, true, ir->bin.lhs.reg);
+				ir_val_aux rhs;
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, true);
+
 
 				bc.type = CVTSD_MEM_2_SS;
 				FromIrValToBytecodeReg(&ir->bin.lhs, &bc.bin.lhs);
 				bc.bin.lhs.reg_sz = 4;
-				bc.bin.rhs.reg = reg;
-				bc.bin.rhs.voffset = voffset;
+				bc.bin.rhs.reg = rhs.reg;
+				bc.bin.rhs.voffset = rhs.voffset;
 				bc.bin.rhs.reg_sz = 1;
 				ret.emplace_back(bc);
 			}break;
@@ -10532,6 +10579,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	}
 	free(cur);
 }
+#pragma optimize("", off)
 void GenWasm(web_assembly_state* wasm_state)
 {
 	//ASSERT(func->func_bcode);
@@ -10893,9 +10941,13 @@ void GenWasm(web_assembly_state* wasm_state)
 	int reached = 0;
 	int func_addr_int = asm_test->code_start_idx;
 	char* func_addr = (char *)(wasm_state->lang_stat->code_sect.data() + wasm_state->lang_stat->type_sect.size() + func_addr_int);
-	int a = ((int(*)(int *))func_addr)(&reached);
-	if(a== -1)
+	uleb.clear();
+	int a = ((int(__cdecl*)(int *))func_addr)(&reached);
+	uleb.clear();
+	if (a == -1)
+	{
 		ASSERT(false)
+	}
 	uleb.clear();
 	// total funcs size
 	encodeSLEB128(&uleb, wasm_state->funcs.size());
@@ -10989,6 +11041,7 @@ Your browser does not support the audio element.\
 	//WriteFileLang("../../wabt/test.html", (void*)page.data(), page.size());
 	//void FromIRToAsm()
 }
+#pragma optimize("", on)
 
 void CreateAstFromFunc(lang_state* lang_stat, web_assembly_state* wasm_state, func_decl* f)
 {
@@ -11123,8 +11176,7 @@ int ExecuteString(code_info *info, std::string str, int param)
 
 		func_decl* fdecl = d->type.fdecl;
 		info->gen_state->cur_func = fdecl;
-		GenX64BytecodeFromIR(info->lang_stat, info->bcs, *(own_std::vector<ir_rep>*)&fdecl->ir, info->gen_state);
-		fdecl->flags |= FUNC_DECL_CODE_WAS_GENERATED;
+
 		auto ir = (own_std::vector<ir_rep>*) &fdecl->ir;
 
 		info->lang_stat->dstate->print_numbers_format = dbg_print_numbers_format::DBG_PRINT_HEX;
@@ -11146,6 +11198,9 @@ int ExecuteString(code_info *info, std::string str, int param)
 			info->lang_stat->cur_idx++;
 		}
 		printf("\n\n*******\nfunc_name: %s\n%s", fdecl->name.c_str(), all.c_str());
+
+		GenX64BytecodeFromIR(info->lang_stat, info->bcs, *(own_std::vector<ir_rep>*)&fdecl->ir, info->gen_state);
+		fdecl->flags |= FUNC_DECL_CODE_WAS_GENERATED;
 
 	}
 	GenX64(info->lang_stat, info->bcs, info->mcode);
@@ -11783,16 +11838,110 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			v3_= *v1_ptr + *v2_ptr;\n\
 			if v3_.x < 1.9 || v3_.x > 2.1\n\
 				return -1;\n\
-			__dbg_break;\n\
 			v3_= v1 + v2 * 3.0;\n\
 			if v3_.x < 3.9 || v3_.x > 4.1\n\
 				return -1;\n\
+			return a + 1;\n\
+		}\n\
+		", 1);
+	ASSERT(val == 2)
+
+		val = ExecuteString(&info, "\
+		ModifyStrctPtr::fn x64(a : u32, b : u32, c : u32, d : u32, e : u32, f : *f32)\n\
+		{\n\
+			*f = 3.0 + cast(f32)e;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			f : f32;\n\
+			ModifyStrctPtr(1, 2, 3, 4, 5, &f);\n\
+			if f < 7.9 || f > 8.1\n\
+			{\n\
+				return -1;\n\
+			}\n\
 			return a;\n\
 		}\n\
 		", 1);
 	ASSERT(val == 1)
 
+		val = ExecuteString(&info, "\
+		ModifyStrctPtr::fn x64(a : u32, b : u32, c : u32, d : u32, e : *u32, f : *f32)\n\
+		{\n\
+			*f = 3.0 + cast(f32)*e;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			f : f32;\n\
+			i :u32= 5;\n\
+			ModifyStrctPtr(1, 2, 3, 4, &i, &f);\n\
+			if f < 7.9 || f > 8.1\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			return a;\n\
+		}\n\
+		", 1);
+	ASSERT(val == 1)
 
+		val = ExecuteString(&info, "\
+		ModifyStrctPtr::fn x64(a : *u32) ! u32\n\
+		{\n\
+			if *a == 5\n\
+				return 1;\n\
+			return 2;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			i :u32= 5;\n\
+			ret := ModifyStrctPtr(&i);\n\
+			if ret != 1\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			i = 2;\n\
+			ret = ModifyStrctPtr(&i);\n\
+			if ret != 2\n\
+			{\n\
+				return -2;\n\
+			}\n\
+			return a;\n\
+		}\n\
+		", 3);
+	ASSERT(val == 3)
+
+		val = ExecuteString(&info, "\
+		v3 : struct\n\
+		{\n\
+			x : f32,\n\
+			y : f32,\n\
+			z : f32,\n\
+		}\n\
+		absf::fn x64(a :f32) !f32\n\
+		{\n\
+			if a < 0.0 return -a;\n\
+			return a;\n\
+		}\n\
+		NearlyEqualV3::fn x64(a: *v3, b : *v3) !bool\n\
+		{\n\
+			__dbg_break;\n\
+			return NearlyEqualF32(a.x, b.x) && NearlyEqualF32(a.y, b.y) && NearlyEqualF32(a.z, b.z);\n\
+		}\n\
+		NearlyEqualF32::fn x64(a:f32, b : f32) !bool\n\
+		{\n\
+			return absf(a - b) < 0.005;\n\
+		}\n\
+		start::fn(arg : s32) ! s32{\n\
+			a :v3=?;\n\
+			b :v3=?;\n\
+			a.x = 0.1;\n\
+			a.y = 0.1;\n\
+			a.z = 0.1;\n\
+			b.x = 0.100002;\n\
+			b.y = 0.1;\n\
+			b.z = 0.1;\n\
+			if !NearlyEqualV3(&a, &b)\n\
+				return -1;\n\
+			return arg;\n\
+		}\n\
+		", 3);
+	ASSERT(val == 3)
 	ASSERT(false);
 	int a = 0;
 	lang_stat->gen_type = gen_enum::GEN_WASM;

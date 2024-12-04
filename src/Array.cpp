@@ -113,7 +113,7 @@ T *LangArray<T>::AddVal(T a)
 }
 
 template <class T>
-T *LangArray<T>::operator[](int index)
+T *LangArray<T>::operator[](u64 index)
 {
 	ASSERT(index >= 0 && index <= this->length)
 	T *ret = this->start + index;

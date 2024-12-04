@@ -674,8 +674,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		break;
 	case enum_type2::TYPE_S8:
 		cond = (rhs->type == enum_type2::TYPE_S8 ||
-			(rhs->type == enum_type2::TYPE_INT &&
-				rhs->s64 >= -128 && rhs->s64 <= 127)
+			(rhs->type == enum_type2::TYPE_INT)
 			);
 		break;
 
@@ -3154,6 +3153,7 @@ T GetExpressionValT(tkn_type2 tp, T a, T b)
 	case tkn_type2::T_PIPE:	return (int)a | (int)b;
 	default:ASSERT(false)
 	}
+	return 0;
 
 
 }
@@ -6704,7 +6704,20 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				{
 					auto op_func = lhs_type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP);
 					if (!op_func)
-						return nullptr;
+					{
+						if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+						{
+							REPORT_ERROR(n->t->line, n->t->line_offset,
+								VAR_ARGS("struct '%s' doesnt have a [] operator overload/n",
+									lhs->name.c_str()
+								)
+							);
+							ExitProcess(1);
+							
+						}
+						else
+							return nullptr;
+					}
 				}break;
 				default:
 					// cannot index this type

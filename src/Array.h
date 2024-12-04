@@ -18,8 +18,8 @@ struct LangArray
 	T *start;
 	T *end;
 
-	int count;
-	int length;
+	u64 count;
+	u64 length;
 	FUNC_STRUCT_EXPORT T *Add();
 	void Init(char *buffer, int count);
 	FUNC_STRUCT_EXPORT void Init(int count);
@@ -39,7 +39,7 @@ struct LangArray
 	void Clear();
 	void CopyDataToAr(T *a, int count);
 	void CopyCreateAnotherAr(LangArray<T> *a, char *buffer);
-	FUNC_STRUCT_EXPORT T *operator[](int index);
+	FUNC_STRUCT_EXPORT T *operator[](u64 index);
 	T *operator[](char index);
 	void ReplaceLangArrayData(T *a, int count);
 	int GetTotalBytes();

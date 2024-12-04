@@ -6,13 +6,13 @@ namespace own_std
 	{
 		char* data_;
 		char** c_str_vec;
-		int c_str_vec_count;
-		int c_str_vec_len;
+		u64 c_str_vec_count;
+		u64 c_str_vec_len;
 		unsigned long long len;
 
-		bool contains_char_rev(char c, int* p)
+		bool contains_char_rev(char c, u64* p)
 		{
-			for (int i = (len - 1); i >= 0; i--)
+			for (unsigned long long i = (len - 1); i >= 0; i--)
 			{
 				if (data_[i] == c)
 				{
@@ -23,9 +23,9 @@ namespace own_std
 			return false;
 		}
 		/*
-		int insert(int offset, int sz)
+		u64 insert(u64 offset, u64 sz)
 		{
-			int total = len + sz;
+			u64 total = len + sz;
 			char* buffer = (char *)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, sz);
@@ -35,9 +35,9 @@ namespace own_std
 			len = total;
 		}
 		*/
-		int insert(int offset, own_std::string other)
+		u64 insert(u64 offset, own_std::string other)
 		{
-			int total = len + other.len;
+			u64 total = len + other.len;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, offset);
@@ -47,9 +47,9 @@ namespace own_std
 			data_ = buffer;
 			len = total;
 		}
-		int erase(int offset, int sz)
+		u64 erase(u64 offset, u64 sz)
 		{
-			int total = len - sz;
+			u64 total = len - sz;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, sz);
@@ -58,26 +58,26 @@ namespace own_std
 			data_ = buffer;
 			len = total;
 		}
-		int find_last_of(char ch)
+		s64 find_last_of(char ch)
 		{
-			int idx;
+			u64 idx;
 			if (contains_char_rev(ch, &idx))
 				return idx;
 			return -1;
 		}
-		int find_last_of(const char* chars)
+		s64 find_last_of(const char* chars)
 		{
-			int l = strlen(chars);
+			u64 l = strlen(chars);
 
-			for (int i = l; i >= 0; i--)
+			for (u64 i = l; i >= 0; i--)
 			{
-				int idx = 0;
+				u64 idx = 0;
 				if (contains_char_rev(chars[i], &idx))
 					return idx;
 			}
 			return -1;
 		}
-		void new_c_str_vec(int new_len)
+		void new_c_str_vec(u64 new_len)
 		{
 			auto prev = c_str_vec;
 			c_str_vec = (char**)__lang_globals.alloc(__lang_globals.data, new_len * 8);
@@ -111,7 +111,7 @@ namespace own_std
 		{
 			len--;
 		}
-		void reserve(int size)
+		void reserve(u64 size)
 		{
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			data_ = buffer;
@@ -138,7 +138,7 @@ namespace own_std
 		}
 		void operator =(string &src)
 		{
-			unsigned int l = src.len;
+			u64 l = src.len;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, l);
 			memcpy(buffer, src.data_, l);
 			data_ = buffer;
@@ -146,7 +146,7 @@ namespace own_std
 		}
 		void operator =(const char* src)
 		{
-			unsigned int l = strlen(src);
+			u64 l = strlen(src);
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, l);
 			memcpy(buffer, src, strlen(src));
 			data_ = buffer;
@@ -154,22 +154,22 @@ namespace own_std
 		}
 		string(const char* src)
 		{
-			unsigned int l = strlen(src);
+			u64 l = strlen(src);
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, l);
 			memcpy(buffer, src, strlen(src));
 			data_ = buffer;
 			len = l;
 		}
-		string(const char* src, int size)
+		string(const char* src, u64 size)
 		{
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			string new_one;
 			memcpy(buffer, src, size);
 			data_ = buffer;
 			len = size;
-			//printf("data_
+			//pru64f("data_
 		}
-		string(char* src, int size)
+		string(char* src, u64 size)
 		{
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			string new_one;
@@ -190,9 +190,9 @@ namespace own_std
 		{
 			return substr(0, len);
 		}
-		string substr(int idx)
+		string substr(u64 idx)
 		{
-			int new_l = len - idx;
+			u64 new_l = len - idx;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, new_l);
 			string new_one;
 			memcpy(buffer, data_ + idx, new_l);
@@ -201,7 +201,7 @@ namespace own_std
 
 			return new_one;
 		}
-		string substr(int idx, int size)
+		string substr(u64 idx, u64 size)
 		{
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			string new_one;
@@ -213,7 +213,7 @@ namespace own_std
 		}
 		void concat_in_place(string& other)
 		{
-			int total = other.len + len;
+			u64 total = other.len + len;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, len);
@@ -225,8 +225,8 @@ namespace own_std
 		}
 		void concat_in_place(const char* other_buffer)
 		{
-			int other_len = strlen(other_buffer);
-			int total = other_len + len;
+			u64 other_len = strlen(other_buffer);
+			u64 total = other_len + len;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, len);
@@ -237,9 +237,9 @@ namespace own_std
 			len = total;
 
 		}
-		void concat_in_place(char* other_buffer, int other_len)
+		void concat_in_place(char* other_buffer, u64 other_len)
 		{
-			int total = other_len + len;
+			u64 total = other_len + len;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, len);
@@ -259,9 +259,9 @@ namespace own_std
 			len = other.len;
 
 		}
-		string concat(char* other, int other_len)
+		string concat(char* other, u64 other_len)
 		{
-			int total = other_len + len; char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
+			u64 total = other_len + len; char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, len);
 			memcpy(buffer + len, other, other_len);
@@ -270,9 +270,9 @@ namespace own_std
 
 			return new_one;
 		}
-		string concat(const char* other, int other_len)
+		string concat(const char* other, u64 other_len)
 		{
-			int total = other_len + len;
+			u64 total = other_len + len;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, len);
@@ -284,7 +284,7 @@ namespace own_std
 		}
 		string concat(string& other)
 		{
-			int total = other.len + len;
+			u64 total = other.len + len;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
 			memcpy(buffer, data_, len);
@@ -363,22 +363,22 @@ namespace own_std
 			//ASSERT(0);
 			return concat(other);
 		}
-		char& operator [](int idx)
+		char& operator [](u64 idx)
 		{
 			if (idx >= len)
 			{
-				*(int*)0 = 0;
+				*(u64*)0 = 0;
 			}
 
 			return data_[idx];
 		}
 	};
 
-	template<typename T, int method = 0>
+	template<typename T, u64 method = 0>
 	struct vector
 	{
 		LangArray<T> ar;
-		void Init(int len)
+		void Init(u64 len)
 		{
 			if (__lang_globals.data == nullptr)
 				return;
@@ -392,7 +392,7 @@ namespace own_std
 			ar.count = 0;
 			ar.length = len;
 		}
-		vector(int len)
+		vector(u64 len)
 		{
 			memset(this, 0, sizeof(*this));
 			Init(len);
@@ -403,7 +403,7 @@ namespace own_std
 			Init(1);
 		}
 
-		T& operator [](int idx)
+		T& operator [](u64 idx)
 		{
 			return *ar[idx];
 		}
@@ -422,7 +422,7 @@ namespace own_std
 
 		void assign(T* start, T* end)
 		{
-			int count = end - start;
+			u64 count = end - start;
 
 			regrow(count);
 			ar.count = count;
@@ -441,12 +441,12 @@ namespace own_std
 				Init(1);
 			return ar.start;
 		}
-		void make_count(int new_size)
+		void make_count(u64 new_size)
 		{
 			regrow(new_size);
 			ar.count = new_size;
 		}
-		void regrow(int new_size)
+		void regrow(u64 new_size)
 		{
 			if (new_size < ar.length)
 			{
@@ -456,9 +456,9 @@ namespace own_std
 			else
 			{
 				T* aux = ar.start;
-				int before = ar.count;
+				u64 before = ar.count;
 
-				int prev_len = ar.length;
+				u64 prev_len = ar.length;
 				Init(new_size);
 				memcpy(ar.start, aux, prev_len * sizeof(T));
 
@@ -485,20 +485,20 @@ namespace own_std
 		{
 			return ar.count == 0;
 		}
-		void resize(unsigned int len, T&& val)
+		void resize(u64 len, T&& val)
 		{
 			regrow(len);
 		}
-		unsigned int length()
+		u64 length()
 		{
 			return ar.length;
 		}
-		unsigned int size()
+		u64 size()
 		{
 			return ar.count;
 		}
 
-		void reserve(int len)
+		void reserve(u64 len)
 		{
 			Init(len);
 		}
@@ -508,18 +508,18 @@ namespace own_std
 			return ar.start;
 		}
 
-		void remove(int idx)
+		void remove(u64 idx)
 		{
-			int sz = ar.count - idx;
+			u64 sz = ar.count - idx;
 			ASSERT(sz > 0)
 			memmove(ar.start + idx, ar.start + idx + 1, sz * sizeof(T));
 			ar.count--;
 		}
 		void insert(T* at, T* start, T* end)
 		{
-			int a = at - ar.start;
+			u64 a = at - ar.start;
 			ASSERT(a >= 0 && a <= this->ar.count && ar.start != nullptr)
-				int other_len = end - start;
+				u64 other_len = end - start;
 
 			if ((ar.count + other_len) >= ar.length)
 			{
@@ -528,7 +528,7 @@ namespace own_std
 			ar.count += other_len;
 			ar.end += other_len;
 
-			int diff = ar.count - a;
+			u64 diff = ar.count - a;
 			char* aux_buffer = (char*)__lang_globals.alloc(__lang_globals.data, diff * sizeof(T));
 			memcpy(aux_buffer, ar.start + a, sizeof(T) * diff);
 
@@ -541,25 +541,25 @@ namespace own_std
 				__lang_globals.free(__lang_globals.data, aux_buffer);
 		}
 
-		void insert(T* at, int count, T&& arg)
+		void insert(T* at, u64 count, T&& arg)
 		{
-			int a = at - ar.start;
+			u64 a = at - ar.start;
 			ASSERT(a >= 0 && a <= this->ar.count)
 
-				for (int i = 0; i < count; i++)
+				for (u64 i = 0; i < count; i++)
 				{
 					T val = arg;
 					insert(a, val);
 				}
 		}
-		T* insert(unsigned int a, T& arg)
+		T* insert(u64 a, T& arg)
 		{
 			ASSERT(a >= 0 && a <= this->ar.count)
 				ar.count += 1;
 			TestSizeAndRegrow();
 
 
-			int diff = ar.count - a;
+			u64 diff = ar.count - a;
 			char* aux_buffer = (char*)__lang_globals.alloc(__lang_globals.data, diff * sizeof(T));
 			memcpy(aux_buffer, ar.start + a, sizeof(T) * diff);
 

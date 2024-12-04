@@ -723,7 +723,22 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case CVTSD_MEM_2_SS:
 		{
-			Create0FMemToReg(&*bc, 0x2a, &ret);
+			ret.code.emplace_back(0xf3);
+			auto prev_size = bc->bin.rhs.reg_sz;
+
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			auto reg_base = FromBCRegToAsmReg(bc->bin.rhs.reg);
+
+			bc->bin.rhs.reg_sz = max(bc->bin.rhs.reg_sz, 4);
+			AddPreMemInsts(bc->bin.rhs.reg_sz, 0x0f, 0x0f, false, ret.code);
+			ret.code.emplace_back(0x2a);
+
+			AddModRM(true, bc->bin.rhs.voffset, reg_base, dst & 0xf, ret);
+			if(bc->bin.rhs.voffset != 0)
+				AddImm(bc->bin.rhs.voffset, (unsigned int) bc->bin.rhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
+
+			bc->bin.rhs.reg_sz = prev_size;
+
 		}break;
 		case CVTSD_REG_2_SS:
 		{
@@ -1053,9 +1068,9 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				char inst = (3 << 6) | (base_reg) | (src_reg << 3);
 				ret.code.emplace_back(inst);
 			}
-			if (bc->bin.lhs.reg > 9)
+			else
 			{
-				char stack_reg = (final_reg) * 8 + 32;
+				char stack_reg = (final_reg - 4) * 8 + 32;
 				auto bin = bc->bin;
 				bc->bin.lhs.reg = 5;
 				bc->bin.lhs.voffset  = stack_reg;
@@ -1085,8 +1100,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			else
 			{
-				char stack_reg = (short)(stack_reg * 8 + 32);
-				StoreMemToMem(&*bc, stack_reg * 8 + 32, ret);
+				int stack_reg = (int)((bc->bin.lhs.reg - 4) * 8 + 32);
+				StoreMemToMem(&*bc, stack_reg, ret);
 			}
 		}break;
 		case MOV_I_2_REG_PARAM:
@@ -1102,7 +1117,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			else
 			{
-				char stack_reg = final_reg;
+				char stack_reg = final_reg - 4;
 				bc->bin.lhs.voffset = stack_reg * 8 + 32;
 				bc->bin.lhs.var_size = bc->bin.lhs.reg_sz;
 				bc->bin.lhs.reg = 5;
@@ -3663,6 +3678,7 @@ decl2 *FromBuiltinTypeToDecl(lang_state *lang_stat, enum_type2 tp)
 	default:
 		ASSERT(false)
 	}
+	return nullptr;
 }
 
 decl2 *FromTypeToDecl(lang_state *lang_stat, type2 *tp)

@@ -469,4 +469,5 @@ tkn_type2 OppositeCondCmp(tkn_type2 t)
 	case tkn_type2::T_GREATER_EQ: return tkn_type2::T_LESSER_THAN; break;
 	default: ASSERT(false)
 	}
+	return tkn_type2::T_LESSER_THAN;
 }

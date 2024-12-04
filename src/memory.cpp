@@ -25,11 +25,6 @@ mem_chunk *GetUnallocatedChunk(mem_alloc *alloc)
 			mem_chunk* cur2 = &alloc->all[i + 2];
 			mem_chunk* cur3 = &alloc->all[i + 3];
 
-			int f1 = IS_FLAG_OFF(cur0->flags, CHUNK_ALLOCATED);
-			int f2 = IS_FLAG_OFF(cur1->flags, CHUNK_ALLOCATED);
-			int f3 = IS_FLAG_OFF(cur2->flags, CHUNK_ALLOCATED);
-			int f4 = IS_FLAG_OFF(cur3->flags, CHUNK_ALLOCATED);
-
 			// Prefetching the next cache lines
 			_mm_prefetch((char*)&alloc->all[(i + 4) % alloc->chunks_cap], _MM_HINT_T0);
 

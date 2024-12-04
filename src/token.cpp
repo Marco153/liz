@@ -164,6 +164,7 @@ int GetTypeSize(type2 *tp)
 		default:
 			ASSERT(false)
 	}
+	return false;
 }
 #endif
 

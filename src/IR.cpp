@@ -899,6 +899,7 @@ ir_type FromTokenOpToIRType(tkn_type2 op)
 	default:
 		ASSERT(0)
 	}
+	return IR_CMP_NE;
 }
 #define REG_FREE_FLAG 0x100
 #define REG_SPILLED 0x200
@@ -934,6 +935,8 @@ char AllocFloatReg(lang_state* lang_stat)
 		}
 	}
 	ASSERT(0);
+	return -1;
+
 }
 
 
@@ -2039,6 +2042,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir = {};
 				ir.type = IR_CAST_F32_TO_INT;
 				ir.bin.lhs.type = IR_TYPE_REG;
+				ir.bin.lhs.deref = -1;
 				ir.bin.lhs.reg = AllocReg(lang_stat);
 				ir.bin.lhs.is_float = false;
 				ir.bin.rhs = *top;
@@ -2068,6 +2072,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir = {};
 				ir.type = IR_CAST_INT_TO_F32;
 				ir.bin.lhs.type = IR_TYPE_REG;
+				ir.bin.lhs.deref = -1;
 				ir.bin.lhs.reg = AllocReg(lang_stat);
 				ir.bin.lhs.is_float = true;
 				ir.bin.rhs = *top;
@@ -2259,7 +2264,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.rhs.reg_sz = cur->reg_sz;
 					if (prev_ptr == 0)
 					{
-						ir.assign.rhs.is_float += cur->is_float;
+						ir.assign.rhs.is_float = cur->is_float;
 						ir.assign.rhs.i += cur->decl->offset;
 						added_final_ir = false;
 						if ((i + 1) < e->points.size() && next->ptr > 0)
@@ -3138,6 +3143,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
                     //GetIRFromAst(lang_stat, e, out);
                 }
 				FreeAllRegs(lang_stat);
+				FreeAllFloatRegs(lang_stat);
             }
 		}break;
         case T_COND_OR:
@@ -3195,6 +3201,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
                 }
 				idx++;
 				FreeAllRegs(lang_stat);
+				FreeAllFloatRegs(lang_stat);
             }
         }break;
 		case T_COND_NE:

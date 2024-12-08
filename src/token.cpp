@@ -692,7 +692,12 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 						}
 						else if (input[i] == '\n')
 						{
+							if (lines_out)
+								lines_out->emplace_back(line_str);
+							input[i] = 0;
 							line++;
+							line_str = (char*)(&input[i + 1]);
+
 						}
 						else if (input[i] == '*' && input[i + 1] == '/')
 						{

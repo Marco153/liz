@@ -2,9 +2,10 @@ dyn_array: struct(T)
 {
 	data : *T,
 	count : u64,
-	#make_ptr_len(data, count)
 	cap : u64,
 	alloc : *mem_alloc,
+
+	#make_ptr_len(data, count)
 }
 it_start::fn{T}(dyn : *dyn_array(T)) ! *T
 {
@@ -22,6 +23,13 @@ operator [] x64{ T }(dyn : *dyn_array(T), idx : u64) !*T
 dyn_clear::fn{ T }(dyn : *dyn_array(T))
 {
 	dyn.count = 0;
+}
+dyn_init2::fn{ T }(dyn : *dyn_array(T), cap : u64, alloc : *mem_alloc)
+{
+	dyn.alloc = alloc;
+	dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)(cap * sizeof(T)));
+	dyn.count = 0;
+	dyn.cap = cap;
 }
 dyn_init::fn{ T }(dyn : *dyn_array(T), cap : u64)
 {
@@ -59,6 +67,43 @@ dyn_rem::fn{ T }(dyn : *dyn_array(T), idx : u32)
 	//start: = ptr_offset(dyn.data, dyn.count, T);
 	//memcpy(dyn)
 
+}
+
+/*
+serialize_struct::fn(entity : *T, out : *dyn_array(u8))
+{
+
+}
+*/
+serialize_ar::fn{ T }(dyn : *dyn_array(T), out : *dyn_array(u8))
+{
+	if __is_struct(T) {
+		for t in* dyn
+		{
+		}
+	}
+	else
+	{
+		dyn_add_data(out, dyn.data, dyn.count * sizeof(T));
+	}
+}
+
+dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *u8, sz : u32)
+{
+	ASSERT(dyn.cap > 0 && dyn.alloc != nil);
+
+	if (dyn.count + sz) >= dyn.cap
+	{
+		aux_data: = dyn.data;
+		dyn.cap = dyn.cap * 2;
+		heap_free(dyn.alloc, cast(*u8)aux_data);
+		dyn.data = heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
+		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
+	}
+
+	memcpy(dst, data, sz);
+
+	dyn.count += sz;
 }
 dyn_add::fn{ T }(dyn : *dyn_array(T), data : *T)
 {

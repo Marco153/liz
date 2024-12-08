@@ -632,7 +632,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 	}break;
 	case enum_type2::TYPE_F32_RAW:
 	{
-		cond = rhs->type == enum_type2::TYPE_F32;
+		cond = rhs->type == enum_type2::TYPE_F32 || rhs->type == enum_type2::TYPE_F32_RAW;
 	}break;
 	case enum_type2::TYPE_ARRAY:
 	{
@@ -4407,6 +4407,12 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			}
 
 		}
+		else if (lhs->name == "__is_struct")
+		{
+			int a = 0;
+			ret_type->type = enum_type2::TYPE_BOOL;
+			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
+		}
 		else if (lhs->name == "sizeof")
 		{
 			int a = 0;
@@ -5397,13 +5403,19 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 
 				if (!ret)
 				{
-					REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
-						VAR_ARGS("'%s' is not part of struct '%s'\n",
-							n->r->t->str.c_str(), lhs->type.strct->name.c_str()
+					if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+					{
+						REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
+							VAR_ARGS("'%s' is not part of struct '%s'\n",
+								n->r->t->str.c_str(), lhs->type.strct->name.c_str()
+							)
 						)
-					)
-						ExitProcess(1);
+							ExitProcess(1);
+					}
+					else
+						return nullptr;
 				}
+
 			}
 			ASSERT(ret);
 			*ret_tp = ret->type;
@@ -6105,6 +6117,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		ASSERT(ptr_decl && len_decl);
 		ptr_decl->len_for_ptr = len_decl;
 		ptr_decl->flags |= DECL_PTR_HAS_LEN;
+		n->type = N_EMPTY;
 	}break;
 	case N_WHEN_USED:
 	{
@@ -7553,6 +7566,11 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				}
 				if (ret_type.type == TYPE_INT)
 					ret_type.type = TYPE_S32_TYPE;
+				else if (ret_type.type >= TYPE_U8 && ret_type.type <= TYPE_CHAR)
+				{
+					ret_type.type = FromVarTypeToType(ret_type.type);
+				}
+
 
 				var_decl = DeclareDeclToScopeAndMaybeToFunc(lang_stat, n->l->t->str, &ret_type, for_scope);
 			}
@@ -8524,6 +8542,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				ret_type.type = TYPE_INT;
 				ret_type.i = GetTypeSize(&args[0].decl.type);
 			}
+			else if (fdecl->name == "__is_struct")
+			{
+				ret_type.type = TYPE_BOOL;
+
+				//ret_type.i = GetTypeSize(&args[0].decl.type);
+			}
 			else
 				ASSERT(0);
 		}
@@ -9146,6 +9170,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				n->type = N_INT;
 				n->t->i = GetExpressionValT<int>(n->t->type, ltp.i, rtp.i);
 				ret_type.i = n->t->i;
+				//GetExpressionVal(n);
+			}
+			if (ltp.type == TYPE_F32_RAW && rtp.type == TYPE_F32_RAW)
+			{
+				n->type = N_FLOAT;
+				n->t->f = GetExpressionValT<float>(n->t->type, ltp.f, rtp.f);
+				ret_type.f = n->t->f;
 				//GetExpressionVal(n);
 			}
 

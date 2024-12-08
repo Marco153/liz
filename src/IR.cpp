@@ -531,6 +531,12 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				ret->num = GetTypeSize(&dummy_type);
 				
 			}
+			else if (f->name == "__is_struct")
+			{
+				dummy_type = DescendNode(lang_stat, n->r, scp);
+				ret->type = AST_INT;
+				ret->num = dummy_type.type == TYPE_STRUCT;
+			}
 			else
 				ASSERT(0);
 		}
@@ -3261,6 +3267,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 	{
 		bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
 		lang_stat->ir_in_stmnt = false;
+		int main_block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_BLOCK);
 		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
 		GetIRFromAst(lang_stat, ast->for_info.start_stat, out);
 		int loop_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_LOOP_BLOCK);
@@ -3281,6 +3288,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		GetIRFromAst(lang_stat, ast->for_info.at_loop_end_stat, out);
 		//IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_IF_BLOCK);
 		IRCreateEndBlock(lang_stat, loop_idx, out, IR_END_LOOP_BLOCK);
+
+		IRCreateEndBlock(lang_stat, main_block_idx, out, IR_END_BLOCK);
 
 		lang_stat->ir_in_stmnt = prev_is_in_stmnt;
 

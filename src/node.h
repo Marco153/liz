@@ -314,6 +314,7 @@ enum msg_type
  {
 	 SCP_TYPE_UNDEFINED,
 	 SCP_TYPE_STRUCT,
+	 SCP_TYPE_ENUM,
 	 SCP_TYPE_FUNC,
 	 SCP_TYPE_FILE,
  };
@@ -335,6 +336,7 @@ struct scope
 
 	func_decl *fdecl;
 	type_struct2 *tstrct;
+	decl2* e_decl;
 	unit_file *file;
 
 	decl2 *FindVariable(std::string name);

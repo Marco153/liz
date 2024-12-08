@@ -86,7 +86,7 @@ struct v3
 #define PI   3.141592
 
 #define TOTAL_KEYS   GLFW_KEY_LAST
-#define TOTAL_TEXTURES   32
+#define TOTAL_TEXTURES   64
 
 struct AudioClip;
 struct sound_state;

@@ -1168,6 +1168,19 @@ tests :: fn(ret : *u32)
 	val_test = 0;
 	for cur in s32_ar
 	{
+		for cur2 in s32_ar
+		{
+			if* cur2 == 2
+				break;
+			val_test += *cur2;
+		}
+	}
+	if val_test != 5
+		debug_break();
+
+	val_test = 0;
+	for cur in s32_ar
+	{
 		if* cur == 4
 			continue;
 		val_test += *cur;

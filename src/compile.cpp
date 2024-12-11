@@ -1830,12 +1830,12 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 
 		if (IsIrValFloat(val) && deref_times == 0 && (is_decl_not_ptr || !is_decl_not_ptr && val->deref > val->ptr || !is_decl) && deref)
 			inst = WASM_LOAD_F32_OP;
-		if (deref_times > 0)
+		if (deref_times > 0 || !deref)
 		{
 			reg_sz = 8;
-			if(gen_state->wasm_state->lang_stat->release)
-				reg_sz = 4;
 		}
+		if(gen_state->wasm_state->lang_stat->release)
+			reg_sz = 4;
 		WasmStoreInst(gen_state->wasm_state->lang_stat, code_sect, reg_sz, inst);
 		//if(!deref)
 			deref_times--;
@@ -6659,46 +6659,49 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		std::string name = d->name;
 		std::string ptr_str = "";
 
-		if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN) && ptr_decl > 0)
+		if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
 		{
-			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-			int len_offset = base_ptr + d->len_for_ptr->offset;
-			int len = *(int*)&dbg.mem_buffer[len_offset];
-			if (len > 1000)
+			if(ptr_decl > 0)
 			{
-				ImGui::Text("more than 1000 items");
-				return;
-			}
-			int addr = *(int*)&dbg.mem_buffer[base_ptr];
-			char prev_ptr = d->type.ptr;
-			d->type.ptr = ptr_decl;
-			d->type.ptr--;
-			int tp_sz = GetTypeSize(&d->type);
-			d->type.ptr++;
-			d->flags &= ~DECL_PTR_HAS_LEN;
-			for (int i = 0; i < len; i++)
-			{
-				int cur_addr = addr + i * tp_sz;
-				snprintf(buffer, 64, "[%d]##%d", i,cur_addr);
-				ImGui::Text("(%d)", cur_addr);
-				ImGui::SameLine();
-				/*
-				if (d->type.type == TYPE_STRUCT && ptr_decl > 1)
+				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+				int len_offset = base_ptr + d->len_for_ptr->offset;
+				int len = *(int*)&dbg.mem_buffer[len_offset];
+				if (len > 1000)
 				{
-					if (ImGui::TreeNodeEx(buffer, flag))
-					{
-						ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, cur_addr);
-						ImGui::TreePop();  // This is required at the end of the if block
-					}
+					ImGui::Text("more than 1000 items");
+					return;
 				}
-				else
-				*/
+				int addr = *(int*)&dbg.mem_buffer[base_ptr];
+				char prev_ptr = d->type.ptr;
+				d->type.ptr = ptr_decl;
+				d->type.ptr--;
+				int tp_sz = GetTypeSize(&d->type);
+				d->type.ptr++;
+				d->flags &= ~DECL_PTR_HAS_LEN;
+				for (int i = 0; i < len; i++)
+				{
+					int cur_addr = addr + i * tp_sz;
+					snprintf(buffer, 64, "[%d]##%d", i, cur_addr);
+					ImGui::Text("(%d)", cur_addr);
+					ImGui::SameLine();
+					/*
+					if (d->type.type == TYPE_STRUCT && ptr_decl > 1)
+					{
+						if (ImGui::TreeNodeEx(buffer, flag))
+						{
+							ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, cur_addr);
+							ImGui::TreePop();  // This is required at the end of the if block
+						}
+					}
+					else
+					*/
 
-				ImGuiPrintVar(buffer, dbg, d, cur_addr, ptr_decl - 1);
+					ImGuiPrintVar(buffer, dbg, d, cur_addr, ptr_decl - 1);
 
+				}
+				d->flags |= DECL_PTR_HAS_LEN;
+				d->type.ptr = prev_ptr;
 			}
-			d->flags |= DECL_PTR_HAS_LEN;
-			d->type.ptr = prev_ptr;
 		}
 		else
 		{
@@ -6736,8 +6739,12 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		int offset = base_ptr;
 		offset = *(int*)&dbg.mem_buffer[offset];
 
-		decl2* e_decl = d->type.from_enum->type.scp->vars[offset];
-		ImGui::Text("%s(%d): %s", d->name.c_str(), offset, e_decl->name.c_str());
+		scope* scp = d->type.from_enum->type.scp;
+		if (offset < scp->vars.size())
+		{
+			decl2* e_decl = scp->vars[offset];
+			ImGui::Text("%s(%d): %s", d->name.c_str(), offset, e_decl->name.c_str());
+		}
 	}
 	else if (d->type.type == TYPE_STR_LIT)
 	{
@@ -12021,7 +12028,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		NearlyEqualV3::fn x64(a: *v3, b : *v3) !bool\n\
 		{\n\
-			__dbg_break;\n\
 			return NearlyEqualF32(a.x, b.x) && NearlyEqualF32(a.y, b.y) && NearlyEqualF32(a.z, b.z);\n\
 		}\n\
 		NearlyEqualF32::fn x64(a:f32, b : f32) !bool\n\
@@ -12043,6 +12049,78 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		", 3);
 	ASSERT(val == 3)
+
+		val = ExecuteString(&info, "\
+		v3 : struct\n\
+		{\n\
+			x : f32,\n\
+			y : f32,\n\
+			z : f32,\n\
+		}\n\
+		DoTwoLinesIntersect::fn(startA : *v3, endA : *v3, startB : *v3, endB : *v3, p : *v3) !bool\n\
+		{\n\
+			x1:f32;\n\
+			x2:f32; \n\
+			y1:f32; \n\
+			y2:f32; \n\
+			x3:f32;\n\
+			x4:f32;\n\
+			y3:f32; \n\
+			y4:f32;\n\
+		\n\
+			x1 = startA.x;\n\
+			x2 = endA.x;\n\
+			y1 = startA.y;\n\
+			y2 = endA.y;\n\
+		\n\
+			x3 = startB.x;\n\
+			x4 = endB.x;\n\
+			y3 = startB.y;\n\
+			y4 = endB.y;\n\
+		\n\
+			den:= (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);\n\
+			if (den == 0.0)\n\
+			{\n\
+				return false;\n\
+			}\n\
+		\n\
+			t := ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;\n\
+		\n\
+			u := ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / den;\n\
+		\n\
+			if (t > 0.0 && t < 1.0 && u > 0.0 && u < 1.0)\n\
+			{\n\
+				p.x = startA.x + (endA.x - startA.x) * t;\n\
+				p.y = startA.y + (endA.y - startA.y) * t;\n\
+				return true;\n\
+			}\n\
+			return false;\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			i :u32= 5;\n\
+			startA :v3=?;\n\
+			endA :v3=?;\n\
+			startB :v3=?;\n\
+			endB :v3=?;\n\
+			p :v3=?;\n\
+			startA.x = 0.0;\n\
+			startA.y = 0.0;\n\
+			endA.x = 0.0;\n\
+			endA.y = 1.0;\n\
+			startB.x = 0.5;\n\
+			startB.y = 0.5;\n\
+			endB.x = -1.0;\n\
+			endB.y = 0.5;\n\
+__dbg_break;\n\
+			ret :=DoTwoLinesIntersect(&startA, &endA, &startB, &endB, &p);\n\
+			if ret != true\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			return a;\n\
+		}\n\
+		", 3);
+	ASSERT(val == 3)
 	ASSERT(false);
 	int a = 0;
 	lang_stat->gen_type = gen_enum::GEN_WASM;
@@ -12052,7 +12130,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	//AssertFuncByteCode(lang_stat);
+	AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;

@@ -1519,6 +1519,12 @@ void GetMouseScreenPosY(dbg_state *dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
 
 }
+void Rand01(dbg_state* dbg)
+{
+	auto r = ((unsigned int)rand()) % 2000;
+	double f = (double)r / 2000;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = f;
+}
 void GetMouseScreenPosX(dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -1813,6 +1819,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "memcpy", (OutsiderFuncType)MemCpy);
 	AssignOutsiderFunc(&lang_stat, "PointLineDistance", (OutsiderFuncType)PointLineDistance);
 	AssignOutsiderFunc(&lang_stat, "OpenLocalsWindow", (OutsiderFuncType)OpenLocalsWindow);
+	AssignOutsiderFunc(&lang_stat, "Rand01", (OutsiderFuncType)Rand01);
 
 	Compile(&lang_stat, &opts);
 	if (!opts.release)

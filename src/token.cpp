@@ -23,6 +23,7 @@ bool IsUnsigned(enum_type2 tp)
 		case enum_type2::TYPE_U32:
 		case enum_type2::TYPE_U64:
 		case enum_type2::TYPE_ENUM:
+		case enum_type2::TYPE_ENUM_TYPE:
 		case enum_type2::TYPE_CHAR:
 		case enum_type2::TYPE_BOOL:
 		case enum_type2::TYPE_F32:

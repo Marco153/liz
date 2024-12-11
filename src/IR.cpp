@@ -1795,6 +1795,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				out->emplace_back(ir);
 			}
 			top->ptr = -1;
+			top->reg_sz = 8;
 
 			if (top->type == IR_TYPE_REG)
 			{
@@ -1803,6 +1804,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				top->reg = saved;
 				top->deref = 0;
 			}
+			top->is_float = false;
 			top->deref = -1;
 
 		}break;
@@ -3084,6 +3086,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 					ir.assign.to_assign.is_float = true;
 				//ir.assign.rhs.ptr++////;
 			}
+			if (ir.assign.lhs.ptr == -1)
+				ir.assign.to_assign.is_float = false;
 			/*
 			if (ir.assign.to_assign.type == IR_TYPE_DECL && ir.assign.to_assign.decl->type.type == TYPE_FUNC_PTR)
 				ir.assign.lhs.deref = 0;
@@ -3354,7 +3358,13 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
                 sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
 
 			if (e->type == AST_ELSE_IF)
+			{
+				stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)e->line_number);
+				cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
 				GetIRCond(lang_stat, e->cond.cond, out);
+				IRCreateEndBlock(lang_stat,cond_idx, out, IR_END_COND_BLOCK);
+				IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+			}
 
             GetIRFromAst(lang_stat, e->cond.scope, out);
 

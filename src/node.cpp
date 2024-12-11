@@ -3305,6 +3305,20 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 
 
 	new_strct->vars.assign(new_scope->vars.begin() + templates_idx_end, new_scope->vars.end());
+	int i = 0;
+	FOR_VEC(cur_ptr, original->scp->vars)
+	{
+		decl2* cur = *cur_ptr;
+		if (IS_FLAG_ON(cur->flags, DECL_PTR_HAS_LEN))
+		{
+			decl2* dst = new_strct->vars[i];
+			ASSERT(dst->name == cur->name);
+			type2 dummy_tp;
+			dst->flags = cur->flags;
+			dst->len_for_ptr = FindIdentifier(cur->len_for_ptr->name, new_strct->scp, &dummy_tp);
+		}
+		i++;
+	}
 
 	new_strct->size = SetVariablesAddress(&new_strct->vars, 0, &new_strct->biggest_type);
 
@@ -4019,8 +4033,14 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 		return false;
 
 	found_decl->flags &= ~DECL_NOT_DONE;
+
+	unit_file* prev_file = lang_stat->cur_file;
+	lang_stat->cur_file = fdecl->from_file;
+
 	if (fdecl->func_node->r)
 		DescendNode(lang_stat, fdecl->func_node->r->r, fdecl->scp);
+
+	lang_stat->cur_file = prev_file;
 
 
 	if (fdecl_out)
@@ -5354,6 +5374,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 			AddStructMembersToScopeWithUsing(lang_stat, lhs->type.strct, n->r->scp, n->l);
 			if (!DescendNameFinding(lang_stat, n->r, scp))
 				return nullptr;
+			DescendNode(lang_stat, n->r, scp);
 			return (decl2 *)1;
 			
 		}
@@ -6117,7 +6138,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		ASSERT(ptr_decl && len_decl);
 		ptr_decl->len_for_ptr = len_decl;
 		ptr_decl->flags |= DECL_PTR_HAS_LEN;
-		n->type = N_EMPTY;
+		//n->type = N_EMPTY;
 	}break;
 	case N_WHEN_USED:
 	{
@@ -6912,6 +6933,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 								lhs->type.type = enum_type2::TYPE_STRUCT;
 							else if (lhs->type.type == enum_type2::TYPE_STATIC_ARRAY_TYPE)
 								lhs->type.type = enum_type2::TYPE_STATIC_ARRAY;
+							else if (lhs->type.type == enum_type2::TYPE_ENUM_IDX_32)
+								lhs->type.type = enum_type2::TYPE_ENUM;
 							else if (lhs->type.type == enum_type2::TYPE_F32_RAW)
 								lhs->type.type = enum_type2::TYPE_F32;
 							else if (lhs->type.type == enum_type2::TYPE_INT)
@@ -7215,7 +7238,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					lang_stat->flags |= PSR_FLAGS_ON_ENUM_DECL;
 					own_std::vector<comma_ret> names;
 					DescendComma(lang_stat, enode->r->r, child_scp, names);
-					lang_stat->flags &= PSR_FLAGS_ON_ENUM_DECL;
+					lang_stat->flags &= ~PSR_FLAGS_ON_ENUM_DECL;
 
 					int cur_idx = 0;
 
@@ -8664,8 +8687,11 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					int a = 0;
 				}
 			}
+			else if (decl->type.type == TYPE_ENUM)
+			{
+				ret_type.e_decl = ret_type.from_enum;
+			}
 		}
-
 	}break;
 	case node_type::N_LAMBDA:
 	{

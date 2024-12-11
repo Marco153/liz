@@ -1054,7 +1054,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
 			if (bc->bin.lhs.reg < 4)
 			{
-				char base_reg = final_reg;
+				short base_reg = final_reg;
 				bool base_reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
 
 				char src_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
@@ -1110,7 +1110,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			if (bc->bin.lhs.reg < 4)
 			{
 				char dst_reg = final_reg;
-				bool reg_is_rex = IS_FLAG_ON(dst_reg, 0x800);
+				bool reg_is_rex = IS_FLAG_ON(dst_reg, 0x80);
 				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, ((char)reg_is_rex) << 1, ret.code);
 				ret.code.emplace_back(0xc0 + (char)(dst_reg & 0xf));
 				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);

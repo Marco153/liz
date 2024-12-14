@@ -21,6 +21,30 @@ sqrt::fn x64(a : f32) !f32
 	return __sqrt(a);
 }
 
+clampu64::fn x64(val :u64, min : u64, max : u64) !u64
+{
+	if val <= min return min;
+	if val >= max return max;
+	return val
+}
+clampu32::fn x64(val :u32, min : u32, max : u32) !u32
+{
+	if val <= min return min;
+	if val >= max return max;
+	return val
+}
+clampi::fn x64(val :s32, min : s32, max : s32) !s32
+{
+	if val <= min return min;
+	if val >= max return max;
+	return val
+}
+clampf::fn x64(val :f32, min : f32, max : f32) !f32
+{
+	if val <= min return min;
+	if val >= max return max;
+	return val
+}
 operator *(self : *mat4x4, vec : *v3) !v3
 {
     ret: v3;
@@ -235,7 +259,9 @@ DoTwoLinesIntersect::fn x64(startA : *v3, endA : *v3, startB : *v3, endB : *v3, 
 
 	if (t > 0.0 && t < 1.0 && u > 0.0 && u < 1.0)
 	{
-		*p = *startA + (*endA - *startA) * t;
+		//*p = *startA + (*endA - *startA) * t;
+		p.x = startA.x + (endA.x - startA.x) * t;
+		p.y = startA.y + (endA.y - startA.y) * t;
 		return true;
 	}
 	return false;

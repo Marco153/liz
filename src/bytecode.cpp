@@ -238,9 +238,9 @@ char FromBCRegToAsmReg(char bc_reg)
 	case 5:
 		return 4;
 	case 6:
-		return 1;
+		return 2 | (1 << 7);
 	case 7:
-		return 2;
+		return 3 | (1 << 7);
 	case 8:
 		return 0 | (1 << 7);
 	case 9:
@@ -373,12 +373,14 @@ void CreateMemToReg(byte_code *bc, char byte, char greater_byte, bool is_rex_par
 	if(bc->bin.rhs.voffset > 0)
 		AddImm(bc->bin.rhs.voffset, bc->bin.rhs.voffset < 0x80 ? 1 : 4, ret);
 }
-void CreateRegToMem(byte_code* bc, char byte, char greater_byte, machine_code& ret, char base_reg = 5)
+void CreateRegToMem(byte_code* bc, char byte, char greater_byte, machine_code& ret, char base_reg = 5, bool rhs_is_final_reg = false)
 {
 	base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
 
-	char reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
+	char reg = bc->bin.rhs.reg;
+	if(!rhs_is_final_reg)
+		reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
 	
 	bc->bin.lhs.reg = base_reg;
 	bc->bin.rhs.reg = reg;
@@ -1055,10 +1057,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			if (bc->bin.lhs.reg < 4)
 			{
 				short base_reg = final_reg;
-				bool base_reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
+				bool base_reg_is_rex = IS_FLAG_ON(base_reg, 0x80);
 
 				char src_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
-				bool src_reg_is_rex = IS_FLAG_ON(src_reg, 0x800);
+				bool src_reg_is_rex = IS_FLAG_ON(src_reg, 0x80);
 
 				char rex = ((char)base_reg_is_rex << 1) | ((char)src_reg_is_rex);
 				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x88, 0x89, rex, ret.code);
@@ -1126,8 +1128,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case STORE_REG_PARAM:
 		{
-			if ((bc->bin.rhs.reg & 0xf)<= 9)
+			if ((bc->bin.rhs.reg & 0xf) < 4)
 			{
+				short final_reg = GetArgRegIdx(bc->bin.rhs.reg);
+				auto prev_reg = bc->bin.rhs.reg;
+				bc->bin.rhs.reg = final_reg;
 				bool is_sse = IS_FLAG_ON(bc->bin.rhs.reg, 0x10);
 				if (is_sse)
 				{
@@ -1135,8 +1140,19 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 					CreateSSERegToMem(&*bc, 0x11, &ret);
 				}
 				else
-					CreateRegToMem(&*bc, 0x88, 0x89, ret);
+				{
+					char stack_reg = (final_reg - 4) * 8 + 32;
+					auto bin = bc->bin;
+					bc->bin.rhs.reg = final_reg;
+					//bc->bin.rhs.voffset  = stack_reg;
+					//bc->bin.rhs.var_size = 8;
+					CreateRegToMem(&*bc, 0x88, 0x89, ret, 5, true);
+					bc->bin = bin;
+				}
+				bc->bin.lhs.reg = prev_reg;
 			}
+			else
+				ASSERT(false);
 		}break;
 		case JMP:
 		{
@@ -5703,7 +5719,7 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 			bc.bin.lhs.voffset = offset;
 			bc.bin.lhs.reg_sz = 8;
 			bc.bin.lhs.var_size= 8;
-			bc.bin.rhs.reg = 6 + i;
+			bc.bin.rhs.reg = i;
 
 			if(a && (a->type.IsFloat() && a->type.ptr == 0))
 			{

@@ -16,10 +16,10 @@ template <class T>
 struct LangArray
 {
 	T *start;
-	T *end;
 
 	u64 count;
 	u64 length;
+	T *end;
 	FUNC_STRUCT_EXPORT T *Add();
 	void Init(char *buffer, int count);
 	FUNC_STRUCT_EXPORT void Init(int count);

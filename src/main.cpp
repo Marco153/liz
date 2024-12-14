@@ -1,4 +1,6 @@
 typedef unsigned long long u64;
+typedef unsigned int u32;
+typedef unsigned char u8;
 typedef long long s64;
 #include <glad/glad.h> 
 #include <glad/glad.c> 
@@ -123,6 +125,7 @@ struct open_gl_state
 
 	int width;
 	int height;
+	int scroll;
 
 	void* glfw_window;
 	lang_state* lang_stat;
@@ -391,7 +394,7 @@ int GetTextureSlotId(open_gl_state* gl_state)
 	ASSERT(0);
 	return -1;
 }
-#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {ASSERT(0)}
+#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("gl error %d", glGetError()); ASSERT(0)}
 void Draw(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -621,6 +624,43 @@ bool IsKeyDown(void *data, int key)
 	return false;
 
 }
+void ImGuiImage(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int sz_x = (int)*(float*)&dbg->mem_buffer[base_ptr + 16];
+	int sz_y = (int)*(float*)&dbg->mem_buffer[base_ptr + 24];
+	ImGuiIO& io = ImGui::GetIO();
+	ImTextureID my_tex_id = io.Fonts->TexID;
+	//id = my_tex_id;
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	texture_info* t = &gl_state->textures[id];
+	ImGui::Image((ImTextureID)(intptr_t)t->id, ImVec2(sz_x, sz_y), ImVec2(0, 1), ImVec2(1, 0));
+
+}
+void ImGuiEndChild(dbg_state* dbg)
+{
+	ImGui::EndChild();
+
+}
+void ImGuiText(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	ImGui::Text(name_str);
+}
+void ImGuiBeginChild(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	float sz_x = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	float sz_y = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	ImGui::BeginChild(name_str, ImVec2(sz_x, sz_y));
+}
+
 void IsKeyHeld(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -664,6 +704,7 @@ void EndFrame(dbg_state* dbg)
 	//glClear(GL_COLOR_BUFFER_BIT);
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	glfwSwapBuffers(wnd);
+	gl_state->scroll = 0;
 }
 void ClearKeys(void *data)
 {
@@ -710,6 +751,13 @@ void ShouldClose(dbg_state* dbg)
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 }
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	gl_state->scroll = yoffset;
+}
+
 void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
@@ -775,6 +823,106 @@ texture_raw* HasRawTexture(open_gl_state* gl_state, std::string name)
 	//gl_state->textures_raw.emplace_back(new_tex);
 	return new_tex;
 }
+
+void CheckOpenGLError(const char* stmt, const char* fname, int line)
+{
+	GLenum err = glGetError();
+	if (err != GL_NO_ERROR)
+	{
+		printf("OpenGL error %08x, at %s:%i - for %s\n", err, fname, line, stmt);
+		abort();
+	}
+}
+
+#ifdef _DEBUG
+#define GL_CHECK(stmt) do { \
+            stmt; \
+            CheckOpenGLError(#stmt, __FILE__, __LINE__); \
+        } while (0)
+#else
+#define GL_CHECK(stmt) stmt
+#endif
+void UpdateTexture(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int x_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int y_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int width = *(int*)&dbg->mem_buffer[base_ptr + 32];
+	int height = *(int*)&dbg->mem_buffer[base_ptr + 40];
+	int data = *(int*)&dbg->mem_buffer[base_ptr + 48];
+	auto data_ptr = (char*)&dbg->mem_buffer[data];
+
+	texture_info* t = &gl_state->textures[tex_id];
+
+	glBindTexture(GL_TEXTURE_2D, t->id);
+	//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+	GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, x_offset, y_offset, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data_ptr));
+	stbi_write_png("dbg_img.png", width, height, 4, data_ptr, width * 4);
+
+	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData.data());
+
+
+
+}
+int GenRawTexture(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int sz_x = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int sz_y = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+
+	auto src = (unsigned char*)AllocMiscData(dbg->lang_stat, sz_x * sz_y * 4);
+	//memset(src, 0xffffff, 4 * 512);
+	//glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz_x, sz_y, 0, GL_RGBA, GL_UNSIGNED_BYTE, src));
+	//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
+
+	//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+	//stbi_write_png("dbg_img.png", width, height, 4, src, width * 4);
+	int idx = GetTextureSlotId(gl_state);
+	texture_info* tex = &gl_state->textures[idx];
+	tex->id = texture;
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
+
+	heap_free((mem_alloc*)__lang_globals.data, (char*)src);
+
+	return idx;
+}
+int GenTexture2(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* src, int x_offset, int y_offset, int width, int height, int sp_idx)
+{
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	//glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, src));
+	//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
+
+	//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+	//stbi_write_png("dbg_img.png", width, height, 4, src, width * 4);
+	int idx = GetTextureSlotId(gl_state);
+	texture_info* tex = &gl_state->textures[idx];
+	tex->id = texture;
+
+	//heap_free((mem_alloc*)__lang_globals.data, (char*)sp_data);
+
+	return idx;
+}
 int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* src, int sp_width, int sp_height, int x_offset, int y_offset, int width, int height, int sp_idx)
 {
 	unsigned int texture;
@@ -811,7 +959,7 @@ int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* sr
 	{
 		std::cout << "Failed to load texture" << std::endl;
 	}
-	stbi_write_png("dbg_img.png", sp_width, sp_height, 4, sp_data, sp_width * 4);
+	//stbi_write_png("dbg_img.png", sp_width, sp_height, 4, sp_data, sp_width * 4);
 	int idx = GetTextureSlotId(gl_state);
 	texture_info* tex = &gl_state->textures[idx];
 	tex->id = texture;
@@ -820,6 +968,113 @@ int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* sr
 
 	return idx;
 }
+
+int GetMem(dbg_state* dbg, int sz)
+{
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	*(int*)&dbg->mem_buffer[base_ptr + 8] = sz;
+	int idx = 0;
+
+	GetMem(dbg);
+	int offset = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] += 16;
+	return offset;
+}
+void MaybeAddBarToEndOfStr(std::string* str)
+{
+	if (str->size() != 0 && (*str)[str->size() - 1] != '/' && (*str)[str->size() - 1] != '\\')
+		(*str) += '/';
+
+}
+void LoadTexFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	auto folder_name = (char *)&dbg->mem_buffer[folder_name_offset];
+	auto ar = (own_std::vector<int> *)&dbg->mem_buffer[ar_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->texture_folder = folder_name;
+	std::string work_dir = dbg->cur_func->from_file->name;
+	int last_bar = work_dir.find_last_of('/');
+	work_dir = work_dir.substr(0, last_bar + 1);
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	gl_state->texture_folder = work_dir + gl_state->texture_folder;
+	MaybeAddBarToEndOfStr(&(gl_state->texture_folder));
+	
+	own_std::vector<char*> file_names;
+	GetFilesInDirectory(gl_state->texture_folder, nullptr, &file_names);
+
+	struct texture_info
+	{
+		u64 name;
+		u64 data;
+		u32 width;
+		u32 height;
+		u8 channels;
+		u64 idx;
+	};
+	int total_pngs = 0;
+	FOR_VEC(name_ptr, file_names)
+	{
+		char* name = *name_ptr;
+		std::string str = name;
+		int p_idx = str.find_last_of('.');
+		std::string ext = str.substr(p_idx + 1);
+		if (ext != "png")
+			continue;
+		total_pngs++;
+	}
+
+	int offset = GetMem(dbg, total_pngs * sizeof(texture_info));
+
+	ar->ar.start = (int *)(u64)offset;
+	ar->ar.count = total_pngs;
+
+	int i = 0;
+	auto cur_tex = (texture_info*)&dbg->mem_buffer[offset];
+	FOR_VEC(name_ptr, file_names)
+	{
+		char* name = *name_ptr;
+		std::string str = name;
+		int p_idx = str.find_last_of('.');
+		std::string ext = str.substr(p_idx + 1);
+		if (ext != "png")
+			continue;
+
+		texture_raw* tex_raw = HasRawTexture(gl_state, str);
+
+		int tex_idx = GenTexture2(dbg->lang_stat, gl_state, tex_raw->data, 0, 0, tex_raw->width, tex_raw->height, 0);
+
+		int len = strlen(name) + 1;
+		int name_offset = GetMem(dbg, len);
+		auto name_dst = (char*)&dbg->mem_buffer[name_offset];
+		memcpy(name_dst, name, len);
+
+		int sz = tex_raw->height * tex_raw->width * tex_raw->channels;
+		int data_offset = GetMem(dbg, sz);
+		memcpy(&dbg->mem_buffer[data_offset], tex_raw->data, sz);
+
+
+		cur_tex->name = name_offset;
+		cur_tex->data = data_offset;
+		cur_tex->width = tex_raw->width;
+		cur_tex->height = tex_raw->height;
+		cur_tex->channels = tex_raw->channels;
+		cur_tex->idx = tex_idx;
+
+		cur_tex++;
+
+		i++;
+	}
+
+}
+
 void LoadTex(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -849,12 +1104,6 @@ void LoadTex(dbg_state* dbg)
 	int idx = GenTexture(dbg->lang_stat, gl_state, src, info->sp_width, info->sp_height, info->x_offset, info->y_offset, width, height, 0);
 	auto ret = (int*)&dbg->mem_buffer[RET_1_REG * 8];
 	*ret = idx;
-}
-void MaybeAddBarToEndOfStr(std::string* str)
-{
-	if (str->size() != 0 && (*str)[str->size() - 1] != '/' && (*str)[str->size() - 1] != '\\')
-		(*str) += '/';
-
 }
 void ImageFolderToFile(std::string folder)
 {
@@ -1112,14 +1361,16 @@ void OpenWindow(dbg_state* dbg)
 	gl_state->width = 1200;
 	gl_state->height = 1000;
 	/* Create a windowed mode window and its OpenGL context */
-	const char* glsl_version = "#version 100";
+	const char* glsl_version = "#version 330";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+	//glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+	/*
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
+	*/
 
-	glfwWindowHint(GLFW_REFRESH_RATE, 60);
+	//glfwWindowHint(GLFW_REFRESH_RATE, 60);
 
 	window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World", NULL, NULL);
 	if (!window)
@@ -1134,6 +1385,7 @@ void OpenWindow(dbg_state* dbg)
 
 	glfwSetWindowUserPointer(window, (void*)gl_state);
 	glfwSetKeyCallback(window, KeyCallback);
+	glfwSetScrollCallback(window, scroll_callback);
 
 	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)window;
 	float vertices[] = {
@@ -1478,6 +1730,11 @@ void Cos(dbg_state* dbg)
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = cosf(val);
 }
+void GetMouseScroll(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->scroll;
+}
 void Sin(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1820,6 +2077,14 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "PointLineDistance", (OutsiderFuncType)PointLineDistance);
 	AssignOutsiderFunc(&lang_stat, "OpenLocalsWindow", (OutsiderFuncType)OpenLocalsWindow);
 	AssignOutsiderFunc(&lang_stat, "Rand01", (OutsiderFuncType)Rand01);
+	AssignOutsiderFunc(&lang_stat, "ImGuiBeginChild", (OutsiderFuncType)ImGuiBeginChild);
+	AssignOutsiderFunc(&lang_stat, "ImGuiEndChild", (OutsiderFuncType)ImGuiEndChild);
+	AssignOutsiderFunc(&lang_stat, "ImGuiText", (OutsiderFuncType)ImGuiText);
+	AssignOutsiderFunc(&lang_stat, "ImGuiImage", (OutsiderFuncType)ImGuiImage);
+	AssignOutsiderFunc(&lang_stat, "LoadTexFolder", (OutsiderFuncType)LoadTexFolder);
+	AssignOutsiderFunc(&lang_stat, "GenRawTexture", (OutsiderFuncType)GenRawTexture);
+	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);
+	AssignOutsiderFunc(&lang_stat, "GetMouseScroll", (OutsiderFuncType)GetMouseScroll);
 
 	Compile(&lang_stat, &opts);
 	if (!opts.release)

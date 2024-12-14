@@ -1,0 +1,11 @@
+language bugs:
+- need for doing a first dummy allocation, for the rest to work (at engine/main.liz:main())
+- unary operators dont work within scope without curly (ex: if a > 0 *ptr = 0;)
+- structures derived from using dont seem to work with operator overloading
+ex:	draw.{
+		pos = cam_pos;
+	};
+this one doesnt work, with pos and cam_pos being v3
+
+game bugs:
+- character speed is inconsistent between release and build mode

@@ -2127,6 +2127,22 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			}
 			if (top->type == IR_TYPE_REG && IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT))
 			{
+
+				if (top->reg_sz > GetTypeSize(&e->cast.type) && !top->is_float && !e->cast.type.IsFloat())
+				{
+					ir.type = IR_CAST_INT_TO_INT;
+					ir.bin.lhs.type = IR_TYPE_REG;
+					ir.bin.lhs.deref = -1;
+					ir.bin.lhs.reg_sz = top->reg_sz;
+					if (top->type == IR_TYPE_REG)
+						ir.bin.lhs.reg = top->reg;
+					else
+						ir.bin.lhs.reg = AllocReg(lang_stat);
+
+					ir.bin.rhs = *top;
+					out->emplace_back(ir);
+					*top = ir.bin.lhs;
+				}
 				top->deref = -1;
 			}
 			//top->deref = -1;

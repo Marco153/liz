@@ -39,7 +39,7 @@
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 2048
-#define DATA_SECT_OFFSET 200000
+#define DATA_SECT_OFFSET 1024 * 1024
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 #define STACK_PTR_REG 8
@@ -2288,6 +2288,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			switch (cur_ir->bin.rhs.reg_sz)
 			{
 			case 8:
+			case 1:
 			case 4:
 			{
 				code_sect.emplace_back(0xb2);
@@ -9801,6 +9802,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					case IR_TYPE_RET_REG:
 					case IR_TYPE_REG:
 					{
+						if (ir->assign.lhs.reg == 5)
+							ir->assign.lhs.reg++;
 						ir_val_aux lhs;
 						if (ir->assign.lhs.is_float)
 						{
@@ -9816,6 +9819,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 							bc.bin.rhs.reg_sz = lhs.reg_sz;
 							ret.emplace_back(bc);
 						}
+						if (ir->assign.lhs.reg == 5)
+							ir->assign.lhs.reg--;
 
 					}break;
 					default:
@@ -9867,11 +9872,13 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						short src_reg = ir->assign.lhs.reg;
 						if (ir->assign.lhs.is_float)
 						{
+							ir_val_aux lhs;
+							GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.lhs, false);
 							bc.type = MOV_SSE_2_MEM;
 							bc.bin.lhs.voffset = voffset;
 							bc.bin.lhs.reg = reg;
 							bc.bin.lhs.reg_sz = reg_sz;
-							bc.bin.rhs.reg = src_reg;
+							bc.bin.rhs.reg = lhs.reg;
 							ret.emplace_back(bc);
 
 						}
@@ -9913,6 +9920,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				case IR_TYPE_RET_REG:
 				case IR_TYPE_REG:
 				{
+					if (ir->assign.to_assign.reg == 5)
+						ir->assign.to_assign.reg++;
+
 					if (ir->assign.to_assign.is_float)
 						AllocSpecificFloatReg(lang_stat, ir->assign.to_assign.reg);
 					switch (ir->assign.lhs.type)
@@ -9989,6 +9999,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					case IR_TYPE_RET_REG:
 					case IR_TYPE_REG:
 					{
+						if (ir->assign.lhs.reg == 5)
+							ir->assign.lhs.reg++;
 						ir_val_aux lhs;
 						//ir->assign.to_assign.deref--;
 						GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
@@ -10014,10 +10026,14 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						}
 
 						GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
+						if (ir->assign.lhs.reg == 5)
+							ir->assign.lhs.reg--;
 					}break;
 					default:
 						ASSERT(false);
 					}
+					if (ir->assign.to_assign.reg == 5)
+						ir->assign.to_assign.reg--;
 				}break;
 				default:
 					ASSERT(false);
@@ -10944,7 +10960,7 @@ void GenWasm(web_assembly_state* wasm_state)
 	own_std::vector<func_decl*> x64_funcs;
 
 	machine_code mcode;
-	func_decl* asm_test;
+	func_decl* asm_test = nullptr;
 	// wasm
 	FOR_VEC(f, wasm_state->funcs)
 	{
@@ -11046,15 +11062,18 @@ void GenWasm(web_assembly_state* wasm_state)
 
 	}
 	*/
-	int reached = 0;
-	int func_addr_int = asm_test->code_start_idx;
-	char* func_addr = (char *)(wasm_state->lang_stat->code_sect.data() + wasm_state->lang_stat->type_sect.size() + func_addr_int);
-	uleb.clear();
-	int a = ((int(__cdecl*)(int *))func_addr)(&reached);
-	uleb.clear();
-	if (a == -1)
+	if (asm_test)
 	{
-		ASSERT(false)
+		int reached = 0;
+		int func_addr_int = asm_test->code_start_idx;
+		char* func_addr = (char*)(wasm_state->lang_stat->code_sect.data() + wasm_state->lang_stat->type_sect.size() + func_addr_int);
+		uleb.clear();
+		int a = ((int(__cdecl*)(int*))func_addr)(&reached);
+		uleb.clear();
+		if (a == -1)
+		{
+			ASSERT(false)
+		}
 	}
 	uleb.clear();
 	// total funcs size
@@ -12068,6 +12087,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			y3:f32; \n\
 			y4:f32;\n\
 		\n\
+			__dbg_break;\n\
 			x1 = startA.x;\n\
 			x2 = endA.x;\n\
 			y1 = startA.y;\n\
@@ -12079,6 +12099,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			y4 = endB.y;\n\
 		\n\
 			den:= (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);\n\
+			__dbg_break;\n\
 			if (den == 0.0)\n\
 			{\n\
 				return false;\n\
@@ -12111,7 +12132,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			startB.y = 0.5;\n\
 			endB.x = -1.0;\n\
 			endB.y = 0.5;\n\
-__dbg_break;\n\
 			ret :=DoTwoLinesIntersect(&startA, &endA, &startB, &endB, &p);\n\
 			if ret != true\n\
 			{\n\
@@ -12130,7 +12150,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	AssertFuncByteCode(lang_stat);
+	//AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;

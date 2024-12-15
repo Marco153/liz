@@ -42,9 +42,11 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 	if (sz >= dyn.cap)
 	{
 		aux_data: = dyn.data;
-		dyn.cap = dyn.cap * 2;
+		while dyn.cap < sz
+			dyn.cap = dyn.cap * 2;
 		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
 		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
+		heap_free(dyn.alloc, aux_data);
 	}
 	else
 		dyn.count = sz;
@@ -75,20 +77,9 @@ serialize_struct::fn(entity : *T, out : *dyn_array(u8))
 
 }
 */
-serialize_ar::fn{ T }(dyn : *dyn_array(T), out : *dyn_array(u8))
-{
-	if __is_struct(T) {
-		for t in* dyn
-		{
-		}
-	}
-	else
-	{
-		dyn_add_data(out, dyn.data, dyn.count * sizeof(T));
-	}
-}
 
-dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *u8, sz : u32)
+
+dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *void, sz : u32)
 {
 	ASSERT(dyn.cap > 0 && dyn.alloc != nil);
 
@@ -101,6 +92,7 @@ dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *u8, sz : u32)
 		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
 	}
 
+	dst: = cast(*void)(cast(u64)dyn.data + dyn.count * sizeof(T));
 	memcpy(dst, data, sz);
 
 	dyn.count += sz;

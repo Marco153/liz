@@ -4544,14 +4544,14 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 
 				auto last_fl = lang_stat->cur_file;
-				//lang_stat->cur_file = fdecl->from_file;
+				lang_stat->cur_file = fdecl->from_file;
 
 				if (!AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_stat, fdecl->name, scp, &templ_types, &new_func))
 				{
-					//lang_stat->cur_file = last_fl;
+					lang_stat->cur_file = last_fl;
 					return false;
 				}
-				//lang_stat->cur_file = last_fl;
+				lang_stat->cur_file = last_fl;
 
 				ret_type->type = enum_type2::TYPE_FUNC;
 				ret_type->fdecl = new_func;
@@ -6171,18 +6171,42 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			node* cur = n->r;
 			do 
 			{
-				if (!DescendNameFinding(lang_stat, cur, scp))
-					return (decl2*)0;
+				if (cur->type == N_IF || cur->type == N_ELSE_IF)
+				{
+					if (!DescendNameFinding(lang_stat, cur->l->l, scp))
+						return (decl2*)0;
+				}
+				else if (cur->type == N_ELSE)
+				{
+					if (!DescendNameFinding(lang_stat, cur->r, scp))
+						return (decl2*)0;
+				}
+				else
+					ASSERT(false);
 
 				if (cur->type == N_ELSE)
-					memcpy(n, cur->r, sizeof(node));
+				{
+					node* from = cur->r;
+					if (from->type == N_SCOPE)
+						from = from->r;
+					if (from->type == N_STMNT)
+						from = from->l;
+					memcpy(n, from, sizeof(node));
+				}
 				else if (GetExpressionVal(cur->l->l, scp) == 1)
 				{
-					memcpy(n, cur->l->r, sizeof(node));
+					node* from = cur->l->r;
+					if (from->type == N_SCOPE)
+						from = from->r;
+					if (from->type == N_STMNT)
+						from = from->l;
+					memcpy(n, from, sizeof(node));
 					break;
 				}
 				cur = cur->r;
 			} while (cur->type == N_ELSE || cur->type == N_ELSE_IF);
+			if (!DescendNameFinding(lang_stat, n, scp))
+				return (decl2*)0;
 		}break;
 		case N_IDENTIFIER:
 		{

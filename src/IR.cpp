@@ -988,6 +988,28 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 	ir.bin.rhs.reg = AllocReg(lang_stat);
 	GenStackThenIR(lang_stat, ast_bin->expr[1], out, &ir.bin.rhs, &ir.bin.rhs);
 
+	if (ir.bin.rhs.type == IR_TYPE_RET_REG)
+	{
+		//at the moment not allowing fonction calls at conds
+		//ASSERT(false);
+		ir_val saved = ir.bin.rhs;
+		ir.type = IR_ASSIGNMENT;
+		ir.assign.only_lhs = true;
+		ir.assign.lhs = ir.bin.rhs;
+		ir.assign.to_assign.type = IR_TYPE_REG;
+		ir.assign.to_assign.reg_sz = saved.reg_sz;
+		ir.assign.to_assign.is_float = saved.is_float;
+		ir.assign.to_assign.is_float = saved.is_float;
+		if (ir.bin.rhs.is_float)
+		{
+			ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
+		}
+		else
+			ir.assign.to_assign.reg = AllocReg(lang_stat);
+
+		out->emplace_back(ir);
+		ir.bin.rhs = ir.assign.to_assign;
+	}
 	ir.bin.lhs.type = IR_TYPE_REG;
 	ir.bin.lhs.reg_sz = 8;
 	ir.bin.lhs.reg = AllocReg(lang_stat);
@@ -2095,7 +2117,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 				*top = ir.bin.lhs;
 			}
-			else if (top->ptr > 0 && e->cast.type.ptr > 0 )
+			else if (top->ptr > 0 && e->cast.type.ptr > 0 && top->deref >= 0)
 			{
 				ir = {};
 				ir.type = IR_ASSIGNMENT;

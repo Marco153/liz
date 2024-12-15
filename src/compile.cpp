@@ -39,7 +39,7 @@
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 2048
-#define DATA_SECT_OFFSET 1024 * 1024
+#define DATA_SECT_OFFSET 1024 * 1024 * 4
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 #define STACK_PTR_REG 8
@@ -346,6 +346,7 @@ char* ReadEntireFileLang(char* name, int* read)
 void WriteFileLang(char* name, void* data, int size)
 {
 	HANDLE file = CreateFile(name, GENERIC_WRITE, FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
+	ASSERT(file != INVALID_HANDLE_VALUE);
 
 	int written;
 	WriteFile(file, data, size, (LPDWORD)&written, nullptr);
@@ -5395,6 +5396,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_OVERLOADED_FUNCS:
 		case TYPE_U32_TYPE:
 		case TYPE_S32_TYPE:
+		case TYPE_U8_TYPE:
 		case TYPE_CHAR:
 		
 		break;
@@ -5825,6 +5827,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_U64:
 		case TYPE_U32_TYPE:
 		case TYPE_S32_TYPE:
+		case TYPE_U8_TYPE:
 			break;
 		default:
 			ASSERT(0);

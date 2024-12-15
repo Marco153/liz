@@ -5,7 +5,7 @@ heap_hash : struct
 {
 	inner :struct
 	{
-		key : *u8,
+		key : *void,
 		value : *u8,
 	} 
 	data : *inner,
@@ -29,9 +29,9 @@ mem_alloc : struct
     probable_unallocated : **mem_chunk,
 }
 
-CHUNKS_CAP :const s32=  (2800);
+CHUNKS_CAP :const s32=  (8000);
 BYTES_PER_CHUNK : const s32= 8;
-HASH_TABLE_SIZE : const s32=  (2800);
+HASH_TABLE_SIZE : const s32=  (8000);
 UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 
 GetMem::fn outsider(sz:u64) ! *void;
@@ -105,14 +105,38 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 		i++;
 	}
 }
-memset::fn(dst : *u8, val : u8, sz : u64) !void
+MEM_TYPE: const s32 = 0;
+
+#if MEM_TYPE == 0
 {
-	ASSERT(cast(u64)dst > 128);
-	i:u64 = 0;
-	while i < sz
+	memset::fn outsider(dst : *u8, val : u8, sz : u64) !void;
+}
+else if MEM_TYPE == 1
+{
+	memset::fn x64(dst : *u8, val : u8, sz : u64) !void
 	{
-		*ptr_offset(dst, i, u8) = val;
-		i++;
+		ASSERT(cast(u64)dst > 128);
+		i:u64 = 0;
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = val;
+			i++;
+		}
+
+	}
+}
+else
+{
+	memset::fn(dst : *u8, val : u8, sz : u64) !void
+	{
+		ASSERT(cast(u64)dst > 128);
+		i:u64 = 0;
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = val;
+			i++;
+		}
+
 	}
 
 }
@@ -185,7 +209,7 @@ HHashClear :: fn(self : *heap_hash) ! void
 	using self;
 	memset(cast(*u8)data, 0, sizeof(inner) * HASH_TABLE_SIZE);
 }
-HHashGet :: fn (self: *heap_hash, key : *u8) ! *u8 
+HHashGet :: fn (self: *heap_hash, key : *void) ! *u8 
 {
 	using self;
 	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
@@ -208,7 +232,7 @@ HHashGet :: fn (self: *heap_hash, key : *u8) ! *u8
 	ASSERT(0 == 1);
 	return nil;
 }
-HHashRemove :: fn (self: *heap_hash, key : *u8)
+HHashRemove :: fn (self: *heap_hash, key : *void)
 {
 	using self;
 	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
@@ -288,7 +312,7 @@ heap_clear::fn(alloc : *mem_alloc)
 
 	alloc.head_free = free;
 }
-heap_free::fn(alloc : *mem_alloc, ptr : *u8)
+heap_free::fn(alloc : *mem_alloc, ptr : *void)
 {
     chunk_to_free:= cast(*mem_chunk)HHashGet(&alloc.in_use, ptr);
 	ASSERT(chunk_to_free != nil);
@@ -693,6 +717,7 @@ modify_static_ar_through_void_ptr::fn(ar : *void)
 {
 	*ptr_offset(ar, 0, f32) = 1.5;
 }
+
 
 tests :: fn(ret : *u32)
 {
@@ -1282,6 +1307,7 @@ tests :: fn(ret : *u32)
 		val = true;
 	if !val
 		debug_break();
+
 
 
 

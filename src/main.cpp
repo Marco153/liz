@@ -624,6 +624,85 @@ bool IsKeyDown(void *data, int key)
 	return false;
 
 }
+void ImGuiSetNextItemAllowOverlap(dbg_state* dbg)
+{
+	ImGui::SetNextItemAllowOverlap();
+}
+void ImGuiPopItemWidth(dbg_state* dbg)
+{
+	ImGui::PopItemWidth();
+}
+void ImGuiPushItemWidth(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float w = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	ImGui::PushItemWidth(w);
+}
+void ImGuiSameLine(dbg_state* dbg)
+{
+	ImGui::SameLine();
+}
+
+void ImGuiGetCursorScreenPosY(dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorScreenPos().y;
+}
+void ImGuiGetCursorScreenPosX(dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorScreenPos().x;
+}
+void ImGuiGetCursorPosY(dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorPosY();
+}
+void ImGuiGetCursorPosX(dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorPosX();
+}
+
+void ImGuiSelectable(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	bool selected = *(bool*)&dbg->mem_buffer[base_ptr + 16];
+	float w = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	float h = *(float*)&dbg->mem_buffer[base_ptr + 32];
+
+	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (ImGui::Selectable(name_str, selected, 0, ImVec2(w, h)))
+		*addr = true;
+	else
+		*addr = false;
+
+}
+
+void ImGuiHasFocus(dbg_state* dbg)
+{
+	auto& io = ImGui::GetIO(); 
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	if (io.WantCaptureMouse)
+		*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = true;
+	else
+		*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = false;
+}
+void ImGuiAddRect(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int this_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	float min_x = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	float min_y = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	float max_x = *(float*)&dbg->mem_buffer[base_ptr + 32];
+	float max_y = *(float*)&dbg->mem_buffer[base_ptr + 40];
+	int col = *(int*)&dbg->mem_buffer[base_ptr + 48];
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	draw_list->AddRect(ImVec2(min_x, min_y), ImVec2(max_x, max_y), col);
+}
 void ImGuiImage(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -787,7 +866,6 @@ struct clip
 };
 struct load_clip_args
 {
-	unsigned long long ctx;
 	unsigned char* file_name;
 	unsigned long long x_offset;
 	unsigned long long y_offset;
@@ -864,6 +942,29 @@ void UpdateTexture(dbg_state* dbg)
 	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData.data());
 
 
+
+}
+void CopyTextureToBuffer(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buffer_size = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	auto buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
+
+	texture_info* t = &gl_state->textures[tex_id];
+	glBindTexture(GL_TEXTURE_2D, t->id);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	int width, height;
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+
+	ASSERT((width * height * 4) <= buffer_size);
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer_ptr);
+
+	stbi_write_png("dbg_img.png", width, height, 4, buffer_ptr, width * 4);
 
 }
 int GenRawTexture(dbg_state* dbg)
@@ -1273,6 +1374,7 @@ void LoadClip(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 
 	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
+	base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	*(int*)&dbg->mem_buffer[base_ptr + 8] = info->total_sps * sizeof(int);
 	int idx = 0;
 
@@ -1406,6 +1508,10 @@ void OpenWindow(dbg_state* dbg)
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	io.ConfigWindowsMoveFromTitleBarOnly = true;
+
+
 
 	// Setup Dear ImGui style
 	ImGui::StyleColorsDark();
@@ -1660,6 +1766,16 @@ void OpenLocalsWindow(dbg_state* dbg)
 	//ImGui::Text("AOe");
 	///glfwSwapBuffers(window);
 }
+void MemSet(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int b = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int c = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int *a = (int*)&dbg->mem_buffer[a_ptr];
+	memset(a, b, c);
+
+}
 void MemCpy(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1723,6 +1839,28 @@ void DotV3(dbg_state* dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 }
+void WriteFileInterpreter(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buffer_sz = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	auto name_ptr = (char*)&dbg->mem_buffer[name_offset];
+	auto buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
+
+	std::string work_dir = dbg->cur_func->from_file->name;
+	int last_bar = work_dir.find_last_of('/');
+	work_dir = work_dir.substr(0, last_bar + 1);
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	work_dir = work_dir + name_ptr;
+	MaybeAddBarToEndOfStr(&work_dir);
+
+	WriteFileLang((char *)work_dir.c_str(), buffer_ptr, buffer_sz);
+
+}
 void Cos(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1763,7 +1901,7 @@ std::string GetFolderName(std::string path)
 
 	return path.substr(last_bar + 1);
 }
-void GetMouseScreenPosY(dbg_state *dbg)
+void GetMouseNormalizedPosY(dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
@@ -1776,13 +1914,7 @@ void GetMouseScreenPosY(dbg_state *dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
 
 }
-void Rand01(dbg_state* dbg)
-{
-	auto r = ((unsigned int)rand()) % 2000;
-	double f = (double)r / 2000;
-	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = f;
-}
-void GetMouseScreenPosX(dbg_state *dbg)
+void GetMouseNormalizedPosX(dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
@@ -1797,6 +1929,31 @@ void GetMouseScreenPosX(dbg_state *dbg)
 	//ypos *= ;
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
 
+}
+void GetMouseScreenPosY(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+	double ypos, xpos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
+
+}
+void GetMouseScreenPosX(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	double xpos, ypos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
+
+}
+void Rand01(dbg_state* dbg)
+{
+	auto r = ((unsigned int)rand()) % 2000;
+	double f = (double)r / 2000;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = f;
 }
 
 void ScreenRatio(dbg_state* dbg)
@@ -2063,6 +2220,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "PrintV3Int", (OutsiderFuncType)PrintV3Int);
 	AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
 	AssignOutsiderFunc(&lang_stat, "AssignTexFolder", (OutsiderFuncType)AssignTexFolder);
+	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosX", (OutsiderFuncType)GetMouseNormalizedPosX);
+	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosY", (OutsiderFuncType)GetMouseNormalizedPosY);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX", (OutsiderFuncType)GetMouseScreenPosX);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
 	AssignOutsiderFunc(&lang_stat, "IsMouseHeld", (OutsiderFuncType)IsMouseHeld);
@@ -2074,13 +2233,30 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "cos", (OutsiderFuncType)Cos);
 	AssignOutsiderFunc(&lang_stat, "dot_v3", (OutsiderFuncType)DotV3);
 	AssignOutsiderFunc(&lang_stat, "memcpy", (OutsiderFuncType)MemCpy);
+	AssignOutsiderFunc(&lang_stat, "memset", (OutsiderFuncType)MemSet);
 	AssignOutsiderFunc(&lang_stat, "PointLineDistance", (OutsiderFuncType)PointLineDistance);
 	AssignOutsiderFunc(&lang_stat, "OpenLocalsWindow", (OutsiderFuncType)OpenLocalsWindow);
 	AssignOutsiderFunc(&lang_stat, "Rand01", (OutsiderFuncType)Rand01);
+
 	AssignOutsiderFunc(&lang_stat, "ImGuiBeginChild", (OutsiderFuncType)ImGuiBeginChild);
 	AssignOutsiderFunc(&lang_stat, "ImGuiEndChild", (OutsiderFuncType)ImGuiEndChild);
 	AssignOutsiderFunc(&lang_stat, "ImGuiText", (OutsiderFuncType)ImGuiText);
 	AssignOutsiderFunc(&lang_stat, "ImGuiImage", (OutsiderFuncType)ImGuiImage);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSelectable", (OutsiderFuncType)ImGuiSelectable);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSameLine", (OutsiderFuncType)ImGuiSameLine);
+	AssignOutsiderFunc(&lang_stat, "ImGuiPushItemWidth", (OutsiderFuncType)ImGuiPushItemWidth);
+	AssignOutsiderFunc(&lang_stat, "ImGuiPopItemWidth", (OutsiderFuncType)ImGuiPopItemWidth);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSetNextItemAllowOverlap", (OutsiderFuncType)ImGuiSetNextItemAllowOverlap);
+	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorPosX", (OutsiderFuncType)ImGuiGetCursorPosX);
+	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorPosY", (OutsiderFuncType)ImGuiGetCursorPosY);
+	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosX", (OutsiderFuncType)ImGuiGetCursorScreenPosX);
+	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosY", (OutsiderFuncType)ImGuiGetCursorScreenPosY);
+	AssignOutsiderFunc(&lang_stat, "ImGuiAddRect", (OutsiderFuncType)ImGuiAddRect);
+	AssignOutsiderFunc(&lang_stat, "ImGuiHasFocus", (OutsiderFuncType)ImGuiHasFocus);
+
+	AssignOutsiderFunc(&lang_stat, "CopyTextureToBuffer", (OutsiderFuncType)CopyTextureToBuffer);
+	AssignOutsiderFunc(&lang_stat, "WriteFile", (OutsiderFuncType)WriteFileInterpreter);
+
 	AssignOutsiderFunc(&lang_stat, "LoadTexFolder", (OutsiderFuncType)LoadTexFolder);
 	AssignOutsiderFunc(&lang_stat, "GenRawTexture", (OutsiderFuncType)GenRawTexture);
 	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);

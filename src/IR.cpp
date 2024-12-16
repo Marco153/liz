@@ -2165,7 +2165,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					out->emplace_back(ir);
 					*top = ir.bin.lhs;
 				}
-				top->deref = -1;
+				if(top->ptr == 0)
+					top->deref = -1;
 			}
 			//top->deref = -1;
 			//if (top->ptr > e->cast.type.ptr && e->cast.type.ptr > 0)
@@ -2349,6 +2350,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					}
 
 					prev_ptr = cur->ptr;
+					if (cur->type == IR_TYPE_DECL && cur->decl->type.type == TYPE_STR_LIT)
+						prev_ptr = 1;
 					stack.pop_back();
 				}
 

@@ -87,6 +87,7 @@ char* std_str_to_heap(lang_state*, std::string* str);
 #define PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND 0x100000
 #define PSR_FLAGS_RET_NIL_EVEN_WHEN_PTR_TO_STRUCT_NOT_DONE 0x200000
 #define PSR_FLAGS_ON_ARRAY 0x400000
+#define PSR_FLAGS_DONT_ADD_TO_FUNC_VARS 0x800000
 
 
 #define PREC_SEMI_COLON 0
@@ -3703,6 +3704,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				case enum_type2::TYPE_F64:
 				case enum_type2::TYPE_STRUCT:
 				case enum_type2::TYPE_CHAR:
+				case enum_type2::TYPE_STR_LIT:
 				case enum_type2::TYPE_ENUM:
 				case enum_type2::TYPE_ARRAY:
 				case enum_type2::TYPE_STATIC_ARRAY:
@@ -4258,6 +4260,7 @@ decl2 *CreateStructTuple(lang_state* lang_stat, node* n, scope* scp)
 			decl2* d = DeclareDeclToScopeAndMaybeToFunc(lang_stat, "", &c->decl.type, child_scp, n);
 			if (c->type == COMMA_RET_COLON)
 			{
+				d->name = c->decl.name;
 			}
 			else
 			{
@@ -4729,6 +4732,17 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			if (t->type == COMMA_RET_IDENT)
 			{
 				ASSERT(FindIdentifier(t->decl.name, scp, &t->decl.type));
+			}
+			else if (t->type == COMMA_RET_EXPR && t->n->type == N_BINOP && t->n->t->type == T_COMMA)
+			{
+				if (!DescendNameFinding(lang_stat, t->n, scp))
+					return nullptr;
+				
+				decl2 *tuple = CreateStructTuple(lang_stat, t->n, scp);
+				t->type = COMMA_RET_IDENT;
+				memcpy(&t->decl, tuple, sizeof(decl2));
+
+
 			}
 			/*
 			else if (t->type == COMMA_RET_EXPR)
@@ -5582,7 +5596,7 @@ decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, std::string name,
 
 	lang_stat->something_was_declared = true;
 	// declaring variables to function vars
-	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
+	if (IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_DONT_ADD_TO_FUNC_VARS) && IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 		scp->fdecl->vars.emplace_back(new_decl);
 
 	// adding the data sect size
@@ -7356,9 +7370,14 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 					if (snode->l == nullptr)
 					{
+						lang_stat->flags |= PSR_FLAGS_DONT_ADD_TO_FUNC_VARS;
 						// scope
 						if (!DescendNameFinding(lang_stat, snode->r->r, child_scp))
+						{
+							lang_stat->flags &= ~PSR_FLAGS_DONT_ADD_TO_FUNC_VARS;
 							return nullptr;
+						}
+						lang_stat->flags &= ~PSR_FLAGS_DONT_ADD_TO_FUNC_VARS;
 
 						INSERT_VEC((tstrct->vars), child_scp->vars);
 

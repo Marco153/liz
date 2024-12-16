@@ -1000,7 +1000,7 @@ int GenRawTexture(dbg_state* dbg)
 
 	return idx;
 }
-int GenTexture2(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* src, int x_offset, int y_offset, int width, int height, int sp_idx)
+int GenTexture2(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* src, int width, int height)
 {
 	unsigned int texture;
 	glGenTextures(1, &texture);
@@ -1070,6 +1070,113 @@ int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* sr
 	return idx;
 }
 
+void MaybeAddBarToEndOfStr(std::string* str)
+{
+	if (str->size() != 0 && (*str)[str->size() - 1] != '/' && (*str)[str->size() - 1] != '\\')
+		(*str) += '/';
+
+}
+void CopyFromSrcImgToBuffer(char* src_img, char* buffer, int buffer_width, int buffer_height, int src_img_width)
+{
+	for (int y = 0; y < buffer_height; y++)
+	{
+		memcpy(buffer, src_img, buffer_width * 4);
+		buffer += buffer_width * 4;
+		src_img += src_img_width * 4;
+	}
+}
+int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, int *tex_height, int *channels, char **tex_data)
+{
+	int read;
+	char* file = ReadEntireFileLang((char *)sp_file_name.c_str(), &read);
+
+	struct sheet_file_header
+	{
+		u32 total_layers;
+		u32 str_tbl_offset;
+		u32 str_tbl_sz;
+	};
+	struct aux_layer_info_struct
+	{
+		u32 type;
+		u32 pixels_per_width;
+
+		u32 grid_x;
+		u32 grid_y;
+		u32 total_of_used_cells;
+	};
+	struct aux_cell_info
+	{
+		u64 tex_name;
+		u32 grid_x;
+		u32 grid_y;
+
+		u32 src_tex_offset_x;
+		u32 src_tex_offset_y;
+	};
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	auto hdr = (sheet_file_header*)file;
+	char* str_table = (file + hdr->str_tbl_offset);
+	
+	own_std::vector<char*> image_sprite_names;
+
+	u32 cur_ch = 0;
+
+	while (cur_ch < hdr->str_tbl_sz)
+	{
+		u32 start = cur_ch;
+		while (str_table[cur_ch] != 0)
+		{
+			cur_ch++;
+		}
+		image_sprite_names.emplace_back(&str_table[start]);
+		cur_ch++;
+
+	}
+
+	char* cur_ptr = (char*)(hdr + 1);
+	auto cur_layer = (aux_layer_info_struct*)cur_ptr;
+	int px_width = cur_layer->pixels_per_width;
+	char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
+	*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+	*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+	*tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width * *tex_height * 4);
+	
+	int tex_id = 0;
+	for (int i = 0; i < hdr->total_layers; i++)
+	{
+		auto cur_cell = (aux_cell_info *)(cur_layer + 1);
+		//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
+		tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8 *)*tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
+		texture_info* t = &gl_state->textures[tex_id];
+		glBindTexture(GL_TEXTURE_2D, t->id);
+
+		for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+		{
+			char* tex_name = str_table + cur_cell->tex_name;
+			texture_raw *tex_src = HasRawTexture(gl_state, tex_name);
+
+			int x_offset = cur_cell->src_tex_offset_x / px_width;
+			int y_offset = cur_cell->src_tex_offset_y / px_width;
+			auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
+			CopyFromSrcImgToBuffer((char *)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
+			//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+			GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, 
+				cur_cell->grid_x * px_width, 
+				cur_cell->grid_y * px_width, 
+				px_width, px_width, 
+				GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
+			);
+
+			cur_cell++;
+		}
+		cur_layer++;
+	}
+	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+	return tex_id;
+}
+
 int GetMem(dbg_state* dbg, int sz)
 {
 	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
@@ -1082,12 +1189,6 @@ int GetMem(dbg_state* dbg, int sz)
 
 	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] += 16;
 	return offset;
-}
-void MaybeAddBarToEndOfStr(std::string* str)
-{
-	if (str->size() != 0 && (*str)[str->size() - 1] != '/' && (*str)[str->size() - 1] != '\\')
-		(*str) += '/';
-
 }
 void LoadTexFolder(dbg_state* dbg)
 {
@@ -1127,7 +1228,7 @@ void LoadTexFolder(dbg_state* dbg)
 		std::string str = name;
 		int p_idx = str.find_last_of('.');
 		std::string ext = str.substr(p_idx + 1);
-		if (ext != "png")
+		if (!(ext == "png" || ext == "sp"))
 			continue;
 		total_pngs++;
 	}
@@ -1145,28 +1246,47 @@ void LoadTexFolder(dbg_state* dbg)
 		std::string str = name;
 		int p_idx = str.find_last_of('.');
 		std::string ext = str.substr(p_idx + 1);
-		if (ext != "png")
+
+		int tex_idx = 0;
+		int tex_width = 0;
+		int tex_height = 0;
+		int tex_channels = 4;
+		char *tex_data = nullptr;
+		if (ext == "sp")
+		{
+			tex_idx = LoadSpriteSheet(dbg, gl_state->texture_folder + name, &tex_width, &tex_height, &tex_channels, &tex_data);
+		}
+		else if (ext == "png")
+		{
+			texture_raw* tex_raw = HasRawTexture(gl_state, str);
+
+			tex_idx = GenTexture2(dbg->lang_stat, gl_state, tex_raw->data, tex_raw->width, tex_raw->height);
+			tex_width = tex_raw->width;
+			tex_height = tex_raw->height;
+			tex_channels = tex_raw->channels;
+			tex_data = (char *)tex_raw->data;
+		}
+		else
+		{
 			continue;
+		}
 
-		texture_raw* tex_raw = HasRawTexture(gl_state, str);
-
-		int tex_idx = GenTexture2(dbg->lang_stat, gl_state, tex_raw->data, 0, 0, tex_raw->width, tex_raw->height, 0);
 
 		int len = strlen(name) + 1;
 		int name_offset = GetMem(dbg, len);
 		auto name_dst = (char*)&dbg->mem_buffer[name_offset];
 		memcpy(name_dst, name, len);
 
-		int sz = tex_raw->height * tex_raw->width * tex_raw->channels;
+		int sz = tex_height * tex_width * tex_channels;
 		int data_offset = GetMem(dbg, sz);
-		memcpy(&dbg->mem_buffer[data_offset], tex_raw->data, sz);
+		memcpy(&dbg->mem_buffer[data_offset], tex_data, sz);
 
 
 		cur_tex->name = name_offset;
 		cur_tex->data = data_offset;
-		cur_tex->width = tex_raw->width;
-		cur_tex->height = tex_raw->height;
-		cur_tex->channels = tex_raw->channels;
+		cur_tex->width = tex_width;
+		cur_tex->height = tex_height;
+		cur_tex->channels = tex_channels;
 		cur_tex->idx = tex_idx;
 
 		cur_tex++;
@@ -1228,6 +1348,7 @@ void ImageFolderToFile(std::string folder)
 	own_std::vector<unsigned char> str_table;
 	GetFilesInDirectory((char *)folder.c_str(), nullptr, &file_names);
 
+	own_std::vector<char*> sprite_sheets;
 
 	int total_imgs = 0;
 	FOR_VEC(ptr, file_names)

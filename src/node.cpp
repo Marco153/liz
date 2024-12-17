@@ -555,6 +555,8 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		)
 		return true;
 
+	if(lhs->type == TYPE_VOID && lhs->ptr >0 && rhs->type == TYPE_STR_LIT)
+		return true;
 
 	cond = (lhs->ptr == rhs->ptr);
 
@@ -710,7 +712,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 			);
 		break;
 	case enum_type2::TYPE_VOID:
-		cond = lhs->ptr > 0 && rhs->ptr > 0 || rhs->type == lhs->type;
+		cond = lhs->ptr > 0 && rhs->ptr > 0 || rhs->type == lhs->type || lhs->ptr > 0 && rhs->type == TYPE_STR_LIT;
 
 		break;
 	case enum_type2::TYPE_BOOL:

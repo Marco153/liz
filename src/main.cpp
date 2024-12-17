@@ -87,7 +87,7 @@ struct v3
 #define KEY_REPEAT   0x10
 #define PI   3.141592
 
-#define TOTAL_KEYS   GLFW_KEY_LAST
+#define TOTAL_KEYS   (GLFW_KEY_LAST + 3)
 #define TOTAL_TEXTURES   64
 
 struct AudioClip;
@@ -122,9 +122,16 @@ struct open_gl_state
 	double last_time;
 
 	std::string texture_folder;
+	bool is_engine;
 
 	int width;
 	int height;
+
+	int scene_srceen_width;
+	int scene_srceen_height;
+	int frame_buffer;
+	int frame_buffer_tex;
+
 	int scroll;
 
 	void* glfw_window;
@@ -440,6 +447,10 @@ void Draw(dbg_state* dbg)
 	float screen_ratio = (float)gl_state->height / (float)gl_state->width;
 	int screen_ratio_u = glGetUniformLocation(prog, "screen_ratio");
 
+	if (gl_state->is_engine)
+	{
+		screen_ratio = (float)gl_state->scene_srceen_height / (float)gl_state->scene_srceen_width;
+	}
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_NO_SCREEN_RATIO))
 	{
 		screen_ratio = 1;
@@ -474,7 +485,18 @@ void Draw(dbg_state* dbg)
 	int ent_size_u = glGetUniformLocation(prog, "ent_size");
 	glUniform3f(ent_size_u, draw->ent_size_x, draw->ent_size_y, draw->ent_size_z);
 
+	if (gl_state->is_engine)
+	{
+		// Render to our framebuffer
+		//glBindFramebuffer(GL_FRAMEBUFFER, gl_state->frame_buffer);
+		//glViewport(0, 0, gl_state->scene_srceen_width, gl_state->scene_srceen_height); // Render on the whole framebuffer, complete from the lower left corner to the upper right
 
+		glViewport(0, gl_state->height - gl_state->scene_srceen_height, gl_state->scene_srceen_width, gl_state->scene_srceen_height); // Define the 640x480 region
+	}
+	else
+	{
+		//glViewport(0, 0, 640, 480);
+	}
 
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
 	{
@@ -493,11 +515,36 @@ void ClearBackground(dbg_state* dbg)
 	float g = *(float*)&dbg->mem_buffer[base_ptr + 8 * 2];
 	float b = *(float*)&dbg->mem_buffer[base_ptr + 8 * 3];
 
-	glClearColor(r, g, b, 1.0f);
-	glClearDepth(1.0f);
+	auto gl_state = (open_gl_state*)dbg->data;
+	if (gl_state->is_engine)
+	{
+		//glViewport(0, 0, 1000, 1000);
+		glClearColor(0, 0, 0, 1.0f); // Set the new color
+		glClearDepth(1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		// Step 2: Enable scissor testing
+		glEnable(GL_SCISSOR_TEST);
 
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
+		// Step 3: Define the area you want to clear with a different color
+		glScissor(0, gl_state->height - gl_state->scene_srceen_height,
+			gl_state->scene_srceen_width, gl_state->scene_srceen_height);
+		glClearColor(r, g, b, 1.0f); // Set the new color
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear only the scissor region
+
+		// Step 4: Disable scissor testing (optional)
+		glDisable(GL_SCISSOR_TEST);
+		//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
+	}
+	else
+	{
+		//glViewport(0, 0, 1000, 1000);
+		glClearColor(r, g, b, 1.0f); // Set the new color
+		glClearDepth(1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+		/*
+		*/
+	}
 }
 
 int FromGameToGLFWKey(int in)
@@ -537,6 +584,56 @@ int FromGameToGLFWKey(int in)
 		ASSERT(0);
 	}
 	return key;
+}
+
+void IsMouseDown(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	int state = 0;
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = 0;
+	if (mouse == 0)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST], KEY_DOWN))
+			*addr = 1;
+	}
+	else if (mouse == 1)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST + 1], KEY_DOWN))
+			*addr = 1;
+	}
+	else
+		ASSERT(0)
+
+}void IsMouseUp(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	int state = 0;
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = 0;
+	if (mouse == 0)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST], KEY_UP))
+			*addr = 1;
+	}
+	else if (mouse == 1)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST + 1], KEY_UP))
+			*addr = 1;
+	}
+	else
+		ASSERT(0)
+
 }
 void IsMouseHeld(dbg_state* dbg)
 {
@@ -682,6 +779,24 @@ void ImGuiSelectable(dbg_state* dbg)
 
 }
 
+void ImGuiTreePop(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	ImGui::TreePop();
+}
+
+void ImGuiTreeNodeEx(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	
+	ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+	bool ret = ImGui::TreeNodeEx(name_str, flag);
+
+	*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = ret;
+}
+
 void ImGuiHasFocus(dbg_state* dbg)
 {
 	auto& io = ImGui::GetIO(); 
@@ -718,17 +833,26 @@ void ImGuiImage(dbg_state* dbg)
 	ImGui::Image((ImTextureID)(intptr_t)t->id, ImVec2(sz_x, sz_y), ImVec2(0, 1), ImVec2(1, 0));
 
 }
-void ImGuiEndChild(dbg_state* dbg)
+void ImGuiEnd(dbg_state* dbg)
 {
-	ImGui::EndChild();
+	ImGui::End();
 
 }
-void ImGuiText(dbg_state* dbg)
+void ImGuiBegin(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
-	ImGui::Text(name_str);
+
+	int bool_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	bool *bool_ptr = (bool*)&dbg->mem_buffer[bool_offset];
+	int flags = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	ImGui::Begin(name_str, bool_ptr, flags);
+}
+void ImGuiEndChild(dbg_state* dbg)
+{
+	ImGui::EndChild();
+
 }
 void ImGuiBeginChild(dbg_state* dbg)
 {
@@ -740,6 +864,13 @@ void ImGuiBeginChild(dbg_state* dbg)
 	ImGui::BeginChild(name_str, ImVec2(sz_x, sz_y));
 }
 
+void ImGuiText(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	ImGui::Text(name_str);
+}
 void IsKeyHeld(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -824,6 +955,7 @@ void ShouldClose(dbg_state* dbg)
 
 	ClearKeys(gl_state);
 
+
 	glfwPollEvents();
 
 	ImGui_ImplOpenGL3_NewFrame();
@@ -837,6 +969,24 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 	gl_state->scroll = yoffset;
 }
 
+void MouseCallback(GLFWwindow* window, int button, int action, int mods)
+{
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	if (action == GLFW_PRESS)
+	{
+		gl_state->buttons[GLFW_KEY_LAST + button] = KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN;
+		//printf("key(%d) is %d", key, gl_state->buttons[key]);
+	}
+	else if (action == GLFW_RELEASE)
+	{
+		gl_state->buttons[GLFW_KEY_LAST + button] &= ~KEY_HELD;
+		gl_state->buttons[GLFW_KEY_LAST + button] |= KEY_UP;
+	}
+	else if (action == GLFW_REPEAT)
+	{
+		gl_state->buttons[GLFW_KEY_LAST + button] |= KEY_REPEAT;
+	}
+}
 void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
@@ -1562,6 +1712,67 @@ void UpdateLastTime(dbg_state* dbg)
 		gl_state->last_time = glfwGetTime();
 
 }
+
+void SetIsEngine(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->is_engine = true;
+
+
+	gl_state->scene_srceen_width = 640 + 200;
+	gl_state->scene_srceen_height = 480 + 200;
+
+	/*
+	GLuint fbo, texture, depthBuffer;
+
+	// Create and bind the framebuffer
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	gl_state->frame_buffer = fbo;
+
+	// Create the texture to render to
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	gl_state->frame_buffer_tex = texture;
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 
+		gl_state->scene_srceen_width, 
+		gl_state->scene_srceen_height, 
+		0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr
+	);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	// Attach the texture to the framebuffer's color attachment
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+	// Create and attach a depth buffer (optional, for 3D scenes)
+	glGenRenderbuffers(1, &depthBuffer);
+	glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 
+		gl_state->scene_srceen_width,
+		gl_state->scene_srceen_height
+	);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuffer);
+
+	auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+	// Check framebuffer completeness
+	if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
+		printf("Error: Framebuffer is not complete!\n");
+		ASSERT(false);
+	}
+
+	// Unbind the framebuffer for now
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// Set the list of draw buffers.
+	GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+	glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+	*/
+
+}
+
 void OpenWindow(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1581,7 +1792,7 @@ void OpenWindow(dbg_state* dbg)
 	if (!glfwInit())
 		return;
 
-	gl_state->width = 1200;
+	gl_state->width = 1700;
 	gl_state->height = 1000;
 	/* Create a windowed mode window and its OpenGL context */
 	const char* glsl_version = "#version 330";
@@ -1609,6 +1820,7 @@ void OpenWindow(dbg_state* dbg)
 	glfwSetWindowUserPointer(window, (void*)gl_state);
 	glfwSetKeyCallback(window, KeyCallback);
 	glfwSetScrollCallback(window, scroll_callback);
+	glfwSetMouseButtonCallback(window, MouseCallback);
 
 	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)window;
 	float vertices[] = {
@@ -1638,12 +1850,17 @@ void OpenWindow(dbg_state* dbg)
 	ImGui::StyleColorsDark();
 	//ImGui::StyleColorsLight();
 
-
 	// Setup Platform/Renderer backends
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init(glsl_version);
 
+
 	int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+
+
+
+
+
 	unsigned int VAO;
 	glGenVertexArrays(1, &VAO);
 	glBindVertexArray(VAO);
@@ -2029,7 +2246,16 @@ void GetMouseNormalizedPosY(dbg_state *dbg)
 	double ypos, xpos;
 	glfwGetCursorPos(window, &xpos, &ypos);
 
-	ypos /= gl_state->height;
+	if (gl_state->is_engine)
+	{
+		float ratio = (float)gl_state->scene_srceen_height / (float)gl_state->scene_srceen_width;
+		ypos /= gl_state->scene_srceen_height;
+	}
+	else
+	{
+		float ratio = (float)gl_state->height / (float)gl_state->width;
+		ypos /= gl_state->height;
+	}
 	ypos = ypos * 2 - 1;
 	//ypos *= 10;
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
@@ -2043,8 +2269,16 @@ void GetMouseNormalizedPosX(dbg_state *dbg)
 	double xpos, ypos;
 	glfwGetCursorPos(window, &xpos, &ypos);
 	float ratio = (float)gl_state->height / (float)gl_state->width;
-	xpos /= gl_state->width;
-	ypos /= gl_state->height;
+	if (gl_state->is_engine)
+	{
+		ratio = (float)gl_state->scene_srceen_height / (float)gl_state->scene_srceen_width;
+		xpos /= gl_state->scene_srceen_width;
+	}
+	else
+	{
+		//ratio = (float)gl_state->height / (float)gl_state->width;
+		xpos /= gl_state->width;
+	}
 	xpos = xpos * 2 - 1;
 	xpos /= ratio;
 	//ypos *= ;
@@ -2057,6 +2291,11 @@ void GetMouseScreenPosY(dbg_state *dbg)
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
 	double ypos, xpos;
 	glfwGetCursorPos(window, &xpos, &ypos);
+	if (gl_state->is_engine)
+	{
+		float ratio = (float)gl_state->height / (float)gl_state->scene_srceen_height;
+		//ypos *= ratio;
+	}
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
 
 }
@@ -2067,6 +2306,11 @@ void GetMouseScreenPosX(dbg_state *dbg)
 
 	double xpos, ypos;
 	glfwGetCursorPos(window, &xpos, &ypos);
+	if (gl_state->is_engine)
+	{
+		float ratio = (float)gl_state->width / (float)gl_state->scene_srceen_width;
+		//xpos *= ratio;
+	}
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
 
 }
@@ -2083,8 +2327,16 @@ void ScreenRatio(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
 
-	float ratio = (float)gl_state->height / (float)gl_state->width;
-	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ratio;
+	if (gl_state->is_engine)
+	{
+		float ratio = (float)gl_state->scene_srceen_height / (float)gl_state->scene_srceen_width;
+		*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ratio;
+	}
+	else
+	{
+		float ratio = (float)gl_state->height / (float)gl_state->width;
+		*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ratio;
+	}
 }
 
 
@@ -2325,10 +2577,12 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ShouldClose", (OutsiderFuncType)ShouldClose);
 	AssignOutsiderFunc(&lang_stat, "ClearBackground", (OutsiderFuncType)ClearBackground);
 	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
-	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
 	AssignOutsiderFunc(&lang_stat, "GetTime", (OutsiderFuncType)GetTime);
+
+	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
 	AssignOutsiderFunc(&lang_stat, "IsKeyUp", (OutsiderFuncType)IsKeyUp);
+
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
 	//AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
@@ -2337,15 +2591,22 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "sqrt", (OutsiderFuncType)Sqrt);
 	AssignOutsiderFunc(&lang_stat, "AssignCtxAddr", (OutsiderFuncType)Stub);
 	AssignOutsiderFunc(&lang_stat, "WasmDbg", (OutsiderFuncType)Stub);
+
 	AssignOutsiderFunc(&lang_stat, "PrintV3", (OutsiderFuncType)PrintV3);
 	AssignOutsiderFunc(&lang_stat, "PrintV3Int", (OutsiderFuncType)PrintV3Int);
 	AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
+
 	AssignOutsiderFunc(&lang_stat, "AssignTexFolder", (OutsiderFuncType)AssignTexFolder);
+
 	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosX", (OutsiderFuncType)GetMouseNormalizedPosX);
 	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosY", (OutsiderFuncType)GetMouseNormalizedPosY);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX", (OutsiderFuncType)GetMouseScreenPosX);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
+
 	AssignOutsiderFunc(&lang_stat, "IsMouseHeld", (OutsiderFuncType)IsMouseHeld);
+	AssignOutsiderFunc(&lang_stat, "IsMouseUp", (OutsiderFuncType)IsMouseUp);
+	AssignOutsiderFunc(&lang_stat, "IsMouseDown", (OutsiderFuncType)IsMouseDown);
+
 	AssignOutsiderFunc(&lang_stat, "ScreenRatio", (OutsiderFuncType)ScreenRatio);
 	AssignOutsiderFunc(&lang_stat, "AssignSoundFolder", (OutsiderFuncType)AssignSoundFolder);
 	AssignOutsiderFunc(&lang_stat, "PlayAudio", (OutsiderFuncType)FromGamePlayAudio);
@@ -2359,6 +2620,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "OpenLocalsWindow", (OutsiderFuncType)OpenLocalsWindow);
 	AssignOutsiderFunc(&lang_stat, "Rand01", (OutsiderFuncType)Rand01);
 
+	AssignOutsiderFunc(&lang_stat, "ImGuiBegin", (OutsiderFuncType)ImGuiBegin);
+	AssignOutsiderFunc(&lang_stat, "ImGuiEnd", (OutsiderFuncType)ImGuiEnd);
 	AssignOutsiderFunc(&lang_stat, "ImGuiBeginChild", (OutsiderFuncType)ImGuiBeginChild);
 	AssignOutsiderFunc(&lang_stat, "ImGuiEndChild", (OutsiderFuncType)ImGuiEndChild);
 	AssignOutsiderFunc(&lang_stat, "ImGuiText", (OutsiderFuncType)ImGuiText);
@@ -2374,6 +2637,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosY", (OutsiderFuncType)ImGuiGetCursorScreenPosY);
 	AssignOutsiderFunc(&lang_stat, "ImGuiAddRect", (OutsiderFuncType)ImGuiAddRect);
 	AssignOutsiderFunc(&lang_stat, "ImGuiHasFocus", (OutsiderFuncType)ImGuiHasFocus);
+	AssignOutsiderFunc(&lang_stat, "ImGuiTreeNodeEx", (OutsiderFuncType)ImGuiTreeNodeEx);
+	AssignOutsiderFunc(&lang_stat, "ImGuiTreePop", (OutsiderFuncType)ImGuiTreePop);
 
 	AssignOutsiderFunc(&lang_stat, "CopyTextureToBuffer", (OutsiderFuncType)CopyTextureToBuffer);
 	AssignOutsiderFunc(&lang_stat, "WriteFile", (OutsiderFuncType)WriteFileInterpreter);
@@ -2382,6 +2647,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GenRawTexture", (OutsiderFuncType)GenRawTexture);
 	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScroll", (OutsiderFuncType)GetMouseScroll);
+	AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
 
 	Compile(&lang_stat, &opts);
 	if (!opts.release)

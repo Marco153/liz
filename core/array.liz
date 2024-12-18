@@ -7,18 +7,22 @@ dyn_array: struct(T)
 
 	#make_ptr_len(data, count)
 }
-it_start::fn{T}(dyn : *dyn_array(T)) ! *T
+it_start::fn{ T }(dyn : *dyn_array(T)) !*T
 {
 	return (*dyn)[0];
 }
-it_end::fn{T}(dyn : *dyn_array(T)) ! *T
+it_end::fn{ T }(dyn : *dyn_array(T)) !*T
 {
 	return ptr_offset(dyn.data, dyn.count, T);
 }
-operator [] x64{ T }(dyn : *dyn_array(T), idx : u64) !*T
+operator []x64{ T }(dyn : *dyn_array(T), idx : u64) !*T
 {
 	ASSERT(idx < dyn.count);
 	return ptr_offset(dyn.data, idx, T);
+}
+dyn_last::fn{ T }(dyn : *dyn_array(T)) !*T
+{
+	return ptr_offset(dyn.data, dyn.count - 1, T);
 }
 dyn_clear::fn{ T }(dyn : *dyn_array(T))
 {

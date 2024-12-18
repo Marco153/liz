@@ -718,6 +718,24 @@ modify_static_ar_through_void_ptr::fn(ar : *void)
 	*ptr_offset(ar, 0, f32) = 1.5;
 }
 
+str_cmp::fn(a : str_lit, b : str_lit) !bool
+{
+	a_len: = str_ln(a);
+	b_len: = str_ln(b);
+	if a_len != b_len
+		return false;
+	
+	for i in 0..a_len
+	{
+		a_ch: = ptr_offset(a, cast(u64)i, u8);
+		b_ch: = ptr_offset(b, cast(u64)i, u8);
+
+		if* a_ch != *b_ch
+			return false;
+	}
+
+	return true;
+}
 
 tests :: fn(ret : *u32)
 {
@@ -1172,10 +1190,10 @@ tests :: fn(ret : *u32)
 		debug_break();
 
 	limit = 0;
-	//val_test = 5;
-	for rev val_test in 5..limit
+	val_test = 5;
+	for rev val_test1 in 5..limit
 	{
-
+		val_test--;
 	}
 	if val_test != limit
 		debug_break();
@@ -1307,8 +1325,4 @@ tests :: fn(ret : *u32)
 		val = true;
 	if !val
 		debug_break();
-
-
-
-
 }

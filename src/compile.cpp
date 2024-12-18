@@ -309,7 +309,7 @@ struct lang_state
 struct type_struct2;
 
 
-char* ReadEntireFileLang(char* name, int* read)
+HANDLE OpenFileLang(char* name)
 {
 	HANDLE file = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
 	if (file == nullptr )
@@ -329,7 +329,10 @@ char* ReadEntireFileLang(char* name, int* read)
 
 		ExitProcess(0);
 	}
-
+}
+char* ReadEntireFileLang(char* name, int* read)
+{
+	HANDLE file = OpenFileLang(name);
 	LARGE_INTEGER file_size;
 	GetFileSizeEx(file, &file_size);
 	char* f = (char*)__lang_globals.alloc(__lang_globals.data, file_size.QuadPart + 1);
@@ -6744,11 +6747,16 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		offset = *(int*)&dbg.mem_buffer[offset];
 
 		scope* scp = d->type.from_enum->type.scp;
-		if (offset < scp->vars.size())
+		if (!scp)
+		{
+			ImGui::Text("Error: no scp for this enum");
+		}
+		else if (offset < scp->vars.size())
 		{
 			decl2* e_decl = scp->vars[offset];
 			ImGui::Text("%s(%d): %s", d->name.c_str(), offset, e_decl->name.c_str());
 		}
+		
 	}
 	else if (d->type.type == TYPE_STR_LIT)
 	{

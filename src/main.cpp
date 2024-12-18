@@ -204,6 +204,18 @@ enum key_enum
 	_KEY_ACT2,
 	_KEY_ACT3,
 	_KEY_JMP,
+	_KEY_DEL,
+	_KEY_SHIFT,
+	_KEY_TAB,
+	_KEY_ALT,
+	_KEY_LCTRL,
+	_KEY_A,
+	_KEY_S,
+	_KEY_D,
+	_KEY_F,
+	_KEY_Q,
+	_KEY_E,
+	_KEY_W,
 };
 void FillBuffer(sound_state *sound, char* buffer, int total_samples_in_buffer, int bytes_per_sample, int hz_arg)
 {
@@ -575,6 +587,54 @@ int FromGameToGLFWKey(int in)
 	case _KEY_JMP:
 	{
 		key = GLFW_KEY_SPACE;
+	}break;
+	case _KEY_DEL:
+	{
+		key = GLFW_KEY_DELETE;
+	}break;
+	case _KEY_LCTRL:
+	{
+		key = GLFW_KEY_LEFT_CONTROL;
+	}break;
+	case _KEY_ALT:
+	{
+		key = GLFW_KEY_LEFT_ALT;
+	}break;
+	case _KEY_TAB:
+	{
+		key = GLFW_KEY_TAB;
+	}break;
+	case _KEY_SHIFT:
+	{
+		key = GLFW_KEY_LEFT_SHIFT;
+	}break;
+	case _KEY_A:
+	{
+		key = GLFW_KEY_A;
+	}break;
+	case _KEY_S:
+	{
+		key = GLFW_KEY_S;
+	}break;
+	case _KEY_D:
+	{
+		key = GLFW_KEY_D;
+	}break;
+	case _KEY_W:
+	{
+		key = GLFW_KEY_W;
+	}break;
+	case _KEY_E:
+	{
+		key = GLFW_KEY_E;
+	}break;
+	case _KEY_Q:
+	{
+		key = GLFW_KEY_Q;
+	}break;
+	case _KEY_F:
+	{
+		key = GLFW_KEY_F;
 	}break;
 	case _KEY_LEFT:
 	{
@@ -1235,35 +1295,84 @@ void CopyFromSrcImgToBuffer(char* src_img, char* buffer, int buffer_width, int b
 		src_img += src_img_width * 4;
 	}
 }
+struct sheet_file_header
+{
+	u32 total_layers;
+	u32 str_tbl_offset;
+	u32 str_tbl_sz;
+};
+struct aux_layer_info_struct
+{
+	u32 type;
+	u32 pixels_per_width;
+
+	u32 grid_x;
+	u32 grid_y;
+	u32 total_of_used_cells;
+};
+struct aux_cell_info
+{
+	u64 tex_name;
+	u32 grid_x;
+	u32 grid_y;
+
+	u32 src_tex_offset_x;
+	u32 src_tex_offset_y;
+};
+
+void LoadSheetFromLayer(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int layer_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	auto cur_layer = (aux_layer_info_struct*)&dbg->mem_buffer[layer_offset];
+	auto cur_cell = (aux_cell_info *)(cur_layer + 1);
+
+	int str_tbl_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	auto str_tbl = (char*)&dbg->mem_buffer[str_tbl_offset];
+
+	
+	int tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+	int tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+	auto tex_data = (char *) AllocMiscData(dbg->lang_stat, tex_width * tex_height * 4);
+	int px_width = cur_layer->pixels_per_width;
+	char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
+	//*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+	//*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+	//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
+	int tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8*)tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
+	texture_info* t = &gl_state->textures[tex_id];
+	glBindTexture(GL_TEXTURE_2D, t->id);
+
+	for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+	{
+		char* tex_name = str_tbl + cur_cell->tex_name;
+		texture_raw* tex_src = HasRawTexture(gl_state, tex_name);
+
+		int x_offset = cur_cell->src_tex_offset_x / px_width;
+		int y_offset = cur_cell->src_tex_offset_y / px_width;
+		auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
+		CopyFromSrcImgToBuffer((char*)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
+		//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+		GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0,
+			cur_cell->grid_x * px_width,
+			cur_cell->grid_y * px_width,
+			px_width, px_width,
+			GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
+		);
+
+		cur_cell++;
+	}
+	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = tex_id;
+}
 int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, int *tex_height, int *channels, char **tex_data)
 {
 	int read;
 	char* file = ReadEntireFileLang((char *)sp_file_name.c_str(), &read);
 
-	struct sheet_file_header
-	{
-		u32 total_layers;
-		u32 str_tbl_offset;
-		u32 str_tbl_sz;
-	};
-	struct aux_layer_info_struct
-	{
-		u32 type;
-		u32 pixels_per_width;
-
-		u32 grid_x;
-		u32 grid_y;
-		u32 total_of_used_cells;
-	};
-	struct aux_cell_info
-	{
-		u64 tex_name;
-		u32 grid_x;
-		u32 grid_y;
-
-		u32 src_tex_offset_x;
-		u32 src_tex_offset_y;
-	};
 
 	auto gl_state = (open_gl_state*)dbg->data;
 	auto hdr = (sheet_file_header*)file;
@@ -1286,47 +1395,108 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 	}
 
 	char* cur_ptr = (char*)(hdr + 1);
-	auto cur_layer = (aux_layer_info_struct*)cur_ptr;
-	int px_width = cur_layer->pixels_per_width;
-	char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
-	*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
-	*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
 	*tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width * *tex_height * 4);
 	
 	int tex_id = 0;
+	auto cur_layer = (aux_layer_info_struct*)cur_ptr;
+	auto cur_cell = (aux_cell_info *)(cur_layer + 1);
 	for (int i = 0; i < hdr->total_layers; i++)
 	{
-		auto cur_cell = (aux_cell_info *)(cur_layer + 1);
-		//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
-		tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8 *)*tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
-		texture_info* t = &gl_state->textures[tex_id];
-		glBindTexture(GL_TEXTURE_2D, t->id);
-
-		for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+		// sprites
+		switch(cur_layer->type)
 		{
-			char* tex_name = str_table + cur_cell->tex_name;
-			texture_raw *tex_src = HasRawTexture(gl_state, tex_name);
+		case 0:
+		{
+			int px_width = cur_layer->pixels_per_width;
+			char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
+			*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+			*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+			//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
+			tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8*)*tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
+			texture_info* t = &gl_state->textures[tex_id];
+			glBindTexture(GL_TEXTURE_2D, t->id);
 
-			int x_offset = cur_cell->src_tex_offset_x / px_width;
-			int y_offset = cur_cell->src_tex_offset_y / px_width;
-			auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
-			CopyFromSrcImgToBuffer((char *)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
-			//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
-			GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, 
-				cur_cell->grid_x * px_width, 
-				cur_cell->grid_y * px_width, 
-				px_width, px_width, 
-				GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
-			);
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				char* tex_name = str_table + cur_cell->tex_name;
+				texture_raw* tex_src = HasRawTexture(gl_state, tex_name);
 
-			cur_cell++;
+				int x_offset = cur_cell->src_tex_offset_x / px_width;
+				int y_offset = cur_cell->src_tex_offset_y / px_width;
+				auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
+				CopyFromSrcImgToBuffer((char*)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
+				//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+				GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0,
+					cur_cell->grid_x * px_width,
+					cur_cell->grid_y * px_width,
+					px_width, px_width,
+					GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
+				);
+
+				cur_cell++;
+			}
+			heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+		}break;
+		// colliders
+		case 1:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell++;
+			}
+		}break;
+		default:
+			ASSERT(false);
 		}
-		cur_layer++;
+		cur_ptr = (char*)cur_cell;
+		cur_layer = (aux_layer_info_struct*)cur_cell;
+		cur_cell = (aux_cell_info *)( cur_layer + 1);
 	}
-	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+	// end of layers
+	ASSERT(*(int*)cur_ptr == 0x1234);
 	return tex_id;
 }
+std::string GetWorkDir(unit_file *file, lang_state* lang_stat)
+{
+	std::string work_dir = file->name;
+	int last_bar = work_dir.find_last_of('/');
+	work_dir = work_dir.substr(0, last_bar + 1);
+	return work_dir;
+}
 
+void ReadFileInterp(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char* name = (char*)&dbg->mem_buffer[name_offset];
+
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	char *buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
+
+	int size;
+	std::string work_dir = GetWorkDir(dbg->cur_func->from_file, dbg->lang_stat);
+	work_dir = work_dir + name;
+	char *file = ReadEntireFileLang((char *)work_dir.c_str(), &size);
+	memcpy(buffer_ptr, file, size);
+}
+void GetFileSize(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char* name = (char*)&dbg->mem_buffer[name_offset];
+
+
+	LARGE_INTEGER file_size;
+	std::string work_dir = GetWorkDir(dbg->cur_func->from_file, dbg->lang_stat);
+	work_dir = work_dir + name;
+	HANDLE file = OpenFileLang((char*)work_dir.c_str());
+	BOOL val = GetFileSizeEx(file, &file_size);
+	auto err = GetLastError();
+	ASSERT(val != 0);
+
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = file_size.QuadPart;
+	CloseHandle(file);
+}
 int GetMem(dbg_state* dbg, int sz)
 {
 	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
@@ -2639,9 +2809,13 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ImGuiHasFocus", (OutsiderFuncType)ImGuiHasFocus);
 	AssignOutsiderFunc(&lang_stat, "ImGuiTreeNodeEx", (OutsiderFuncType)ImGuiTreeNodeEx);
 	AssignOutsiderFunc(&lang_stat, "ImGuiTreePop", (OutsiderFuncType)ImGuiTreePop);
-
 	AssignOutsiderFunc(&lang_stat, "CopyTextureToBuffer", (OutsiderFuncType)CopyTextureToBuffer);
+
+	AssignOutsiderFunc(&lang_stat, "LoadSheetFromLayer", (OutsiderFuncType)LoadSheetFromLayer);
+
 	AssignOutsiderFunc(&lang_stat, "WriteFile", (OutsiderFuncType)WriteFileInterpreter);
+	AssignOutsiderFunc(&lang_stat, "ReadFile", (OutsiderFuncType)ReadFileInterp);
+	AssignOutsiderFunc(&lang_stat, "GetFileSize", (OutsiderFuncType)GetFileSize);
 
 	AssignOutsiderFunc(&lang_stat, "LoadTexFolder", (OutsiderFuncType)LoadTexFolder);
 	AssignOutsiderFunc(&lang_stat, "GenRawTexture", (OutsiderFuncType)GenRawTexture);

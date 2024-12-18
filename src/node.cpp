@@ -555,7 +555,12 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		)
 		return true;
 
-	if(lhs->type == TYPE_VOID && lhs->ptr >0 && rhs->type == TYPE_STR_LIT)
+	bool is_void_ptr = lhs->type == TYPE_VOID && lhs->ptr > 0;
+
+	if(is_void_ptr && rhs->ptr > 0)
+		return true;
+
+	if(is_void_ptr && rhs->type == TYPE_STR_LIT)
 		return true;
 
 	cond = (lhs->ptr == rhs->ptr);
@@ -7639,8 +7644,12 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					ret_type.type = FromVarTypeToType(ret_type.type);
 				}
 
-
 				var_decl = DeclareDeclToScopeAndMaybeToFunc(lang_stat, n->l->t->str, &ret_type, for_scope);
+				n->l->flags |= NODE_FLAGS_IS_PROCESSED;
+			}
+			else if (IS_FLAG_OFF(n->l->flags, NODE_FLAGS_IS_PROCESSED))
+			{
+				ReportDeclaredTwice(lang_stat, n->l, var_decl);
 			}
 		}
 
@@ -8283,7 +8292,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_CAST:
 	{
-		auto lhs_type = DescendNode(lang_stat, n->l, scp);
+		type2 lhs_type;
+		NameFindingGetType(lang_stat, n->l, scp, lhs_type);
+		if(lhs_type.type == TYPE_STRUCT)
+		{
+			ReportMessage(lang_stat, n->t, "Only types are allowed on cast");
+		}
 		auto rhs_type = DescendNode(lang_stat, n->r, scp);
 
 		bool can_rhs_be_ptr = rhs_type.ptr > 0 || rhs_type.type == TYPE_STATIC_ARRAY

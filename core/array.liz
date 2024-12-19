@@ -51,6 +51,7 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
 		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
 		heap_free(dyn.alloc, aux_data);
+		dyn.count = sz;
 	}
 	else
 		dyn.count = sz;

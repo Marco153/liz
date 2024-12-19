@@ -2664,6 +2664,10 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	{
 		ret += "f32.div";
 	}break;
+	case WASM_INST_F32_NE:
+	{
+		ret += "f32.ne";
+	}break;
 	case WASM_INST_F32_LE:
 	{
 		ret += "f32.le";
@@ -5031,6 +5035,8 @@ struct func_dbg
 	int to_spill_offset;
 	int for_interpreter_x64_code_start;
 	int x64_code_start;
+
+	int line;
 };
 struct serialize_state
 {
@@ -5045,6 +5051,8 @@ struct serialize_state
 	own_std::vector<unsigned char> file_sect;
 	own_std::vector<unsigned char> data_sect;
 	own_std::vector<unsigned char> x64_code;
+
+	own_std::vector<func_decl*> serialized_funcs;
 
 	unsigned int f32_type_offset;
 	unsigned int u32_type_offset;
@@ -5195,6 +5203,19 @@ void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 	unsigned char* end = (unsigned char *)ir_ar->end();
 	ser_state->ir_sect.insert(ser_state->ir_sect.end(), start, end);
 }
+void TestFuncsWithSameName(own_std::vector<func_decl*> *funcs, std::string name, own_std::vector<int>* idxs)
+{
+	int i = 0;
+
+	FOR_VEC(f_ptr, *funcs)
+	{
+		if ((*f_ptr)->name == name)
+		{
+			idxs->emplace_back(i);
+		}
+		i++;
+	}
+}
 void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_state, func_decl *f)
 {
 	if (IS_FLAG_ON(f->flags, FUNC_DECL_SERIALIZED))
@@ -5217,6 +5238,7 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 
 	fdbg->scope = f->scp->serialized_offset;
 	fdbg->code_start = f->wasm_code_sect_idx;
+	fdbg->line = f->func_node->t->line;
 	fdbg->stmnts_offset = stmnt_offset;
 	fdbg->flags = f->flags;
 	fdbg->stmnts_len = f->wasm_stmnts.size();
@@ -5237,6 +5259,12 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 	f->func_dbg_idx = func_offset;
 	f->scp->type = SCP_TYPE_FUNC;
 	f->flags |= FUNC_DECL_SERIALIZED;
+
+	own_std::vector<int> idxs;
+	ser_state->serialized_funcs.emplace_back(f);
+	TestFuncsWithSameName(&ser_state->serialized_funcs, f->name, &idxs);
+	// functions with same name
+	ASSERT(idxs.size() == 1);
 }
 int WasmSerializeType(web_assembly_state* wasm_state, serialize_state* ser_state, type2 *tp)
 {
@@ -5670,6 +5698,7 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	auto fdecl = (func_decl* )AllocMiscData(lang_stat, sizeof(func_decl));
 	fdecl->code_start_idx = fdbg->code_start;
 	fdecl->flags = fdbg->flags;
+	fdecl->line = fdbg->line;
 
 	std::string fname = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
 	if (fname == "dyn_array_item[]")
@@ -5702,16 +5731,24 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 		fdecl->from_file = fl_dbg->fl;
 		ASSERT(fdecl->from_file);
 		winterp->funcs.emplace_back(fdecl);
+
+		own_std::vector<int> idxs;
+		TestFuncsWithSameName(&winterp->funcs, fdecl->name, &idxs);
+		// functions with same name
+		ASSERT(idxs.size() == 1);
 	}
 	fdecl->this_decl = d;
 	fdecl->strct_constrct_at_offset = fdbg->strct_constr_offset;
 	fdecl->strct_ret_size_per_statement_offset = fdbg->strct_ret_offset;
 	fdecl->to_spill_offset = fdbg->to_spill_offset;
-	fdecl->code_start_idx = fdbg->x64_code_start;
+	if(IS_FLAG_ON(fdbg->flags, FUNC_DECL_X64))
+		fdecl->code_start_idx = fdbg->x64_code_start;
 	fdecl->for_interpreter_code_start_idx = fdbg->for_interpreter_x64_code_start;
 
 	fdecl->ret_type.type = fdbg->ret_type;
 	fdecl->ret_type.ptr = fdbg->ret_ptr_type;
+
+	fdecl->flags = fdbg->flags;
 
 
 	if (fdecl->ret_type.type == TYPE_STRUCT)
@@ -5973,7 +6010,9 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 				ret_scp->vars.emplace_back(d);
 				child_scp->type = SCP_TYPE_ENUM;
 				child_scp->e_decl = d;
+
 				d->type.scp = child_scp;
+
 			}
 			if (cur_scp->type == SCP_TYPE_STRUCT)
 			{
@@ -5992,8 +6031,22 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 		}
 		cur_scp++;
 	}
-	if(create_vars)
+	if (create_vars)
+	{
 		WasmInterpBuildVarsForScope(data, len, lang_stat, file, scp_pre, ret_scp);
+		if (ret_scp->type == SCP_TYPE_ENUM)
+		{
+			decl2* d = ret_scp->e_decl;
+			d->type.enum_names = (own_std::vector<char*> *)AllocMiscData(lang_stat, sizeof(own_std::vector<int>));
+			auto ar = d->type.enum_names;
+
+			FOR_VEC(d_ptr, ret_scp->vars)
+			{
+				decl2* de = *d_ptr;
+				ar->emplace_back((char *)de->name.c_str());
+			}
+		}
+	}
 
 	if (ret_scp->type == SCP_TYPE_FILE)
 	{
@@ -6749,7 +6802,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		scope* scp = d->type.from_enum->type.scp;
 		if (!scp)
 		{
-			ImGui::Text("Error: no scp for this enum");
+			ImGui::Text("Error: no scp for this enum(but var val:%d)", offset);
 		}
 		else if (offset < scp->vars.size())
 		{
@@ -6782,6 +6835,13 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		int offset = base_ptr;
 		long long val = 0;
 		print_num_type ptype = PRINT_INT;
+
+		char ptr = d->type.ptr;
+		while (ptr > 0)
+		{
+			offset = *(int*)&dbg.mem_buffer[offset];
+			ptr--;
+		}
 		if (d->type.IsFloat())
 		{
 			ptype = PRINT_FLOAT;
@@ -6789,6 +6849,8 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		}
 		else
 		{
+			if (d->name == "window")
+				return;
 			switch (GetTypeSize(&d->type))
 			{
 			case 1:
@@ -7491,6 +7553,9 @@ std::string WasmCmdPrintWasmFuncAutoComplete(dbg_state* dbg, command_info_args *
 
 	return ret;
 }
+
+
+
 void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len, lang_state* lang_stat)
 {
 

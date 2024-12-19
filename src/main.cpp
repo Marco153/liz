@@ -789,6 +789,36 @@ void ImGuiPopItemWidth(dbg_state* dbg)
 {
 	ImGui::PopItemWidth();
 }
+void ImGuiEnumCombo(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name = (char *)&dbg->mem_buffer[name_offset];
+
+	int line = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	int var_addr_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int *var_addr = (int*)&dbg->mem_buffer[var_addr_offset];
+
+	scope *scp = FindScpWithLine(dbg->cur_func, line);
+	type2 dummy;
+	decl2 *e = FindIdentifier(name, scp, &dummy);
+	ASSERT(e);
+
+
+	own_std::vector<char*>* ar = e->type.enum_names;
+	if (ImGui::BeginCombo("type##obj_type", (*ar)[*var_addr]))
+	{
+		for (int i = 0; i < ar->size(); i++)
+		{
+			char* ptr = (*ar)[i];
+			if (ImGui::Selectable(ptr))
+				*var_addr = i;
+		}
+		ImGui::EndCombo();
+	}
+
+}
 void ImGuiPushItemWidth(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -2809,6 +2839,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ImGuiHasFocus", (OutsiderFuncType)ImGuiHasFocus);
 	AssignOutsiderFunc(&lang_stat, "ImGuiTreeNodeEx", (OutsiderFuncType)ImGuiTreeNodeEx);
 	AssignOutsiderFunc(&lang_stat, "ImGuiTreePop", (OutsiderFuncType)ImGuiTreePop);
+	AssignOutsiderFunc(&lang_stat, "ImGuiEnumCombo", (OutsiderFuncType)ImGuiEnumCombo);
+
 	AssignOutsiderFunc(&lang_stat, "CopyTextureToBuffer", (OutsiderFuncType)CopyTextureToBuffer);
 
 	AssignOutsiderFunc(&lang_stat, "LoadSheetFromLayer", (OutsiderFuncType)LoadSheetFromLayer);

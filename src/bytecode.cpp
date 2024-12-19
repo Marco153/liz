@@ -4452,7 +4452,7 @@ descend_func_ret DescendFunc(lang_state *lang_stat, func_byte_code *final_func, 
 		case enum_type2::TYPE_STRUCT:
 		{
 			// getting func op overload ret_type 
-			auto op = lhs.var->type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP);
+			auto op = lhs.var->type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n);
 			ret.var    = FromTypeToDecl(lang_stat, &op->ret_type);
 			lhs.reg_sz = GetTypeSize(&lhs.var->type);
 

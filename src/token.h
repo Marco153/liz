@@ -272,6 +272,7 @@ struct type2
 		{
 			scope *scp;
 			decl2 *e_decl;
+			own_std::vector<char*>* enum_names;
 		};
 
 		template_expr templ;
@@ -298,9 +299,6 @@ struct type2
 			int e_idx;
 		};
 	};
-	// ***
-	// DONT PUT ANY VARIABLES PAST THIS UNION
-	// ***
 
 #endif
 	decl2 *GetEnumDecl(std::string name);
@@ -399,6 +397,9 @@ struct func_decl
 
 	unit_file *from_file;
 
+	unit_file *templated_in_file;
+	int templated_in_file_line;
+
 	decl2 *this_decl;
 
     machine_code *code;
@@ -454,6 +455,7 @@ struct func_decl
 
 
 	int var_args_start_offset;
+	int line;
 	/*
 	func_decl *NewFuncComplete()
 	{
@@ -587,7 +589,7 @@ struct type_struct2
 	{
 		constructors[0].fdecls.emplace_back(fdecl);
 	}
-	void AddOpOverload(lang_state *lang_stat, func_decl *fdecl, overload_op op)
+	void AddOpOverload(lang_state *lang_stat, func_decl *fdecl, overload_op op, int line, int line_offset)
 	{
 		op_overloads.push_back(fdecl);
 
@@ -615,6 +617,7 @@ struct type_struct2
 			tp.fdecl = fdecl;
 			AddNewDeclToFileGlobalScope(lang_stat, NewDecl(lang_stat, fdecl->name, tp));
 			found_op->type.overload_funcs->fdecls.push_back(fdecl);
+			//lang_stat->fu
 		}
 		else
 		{
@@ -633,6 +636,8 @@ struct type_struct2
 
 			fdecl->this_decl->name = fname.substr();
 			fdecl->this_decl->type = f_tp;
+			fdecl->templated_in_file = lang_stat->cur_file;
+			fdecl->templated_in_file_line = line;
 			op_overloads_funcs.push_back(fdecl->this_decl);
 
 			NewDeclToCurFilseGlobalsScope(lang_stat, fdecl->this_decl);
@@ -640,8 +645,8 @@ struct type_struct2
 		fdecl->flags |= FUNC_DECL_NAME_INSERTED;
 	}
 #endif
-	func_decl *FindOpOverload(lang_state *, overload_op tp, own_std::vector<type2> * = nullptr);
-	func_decl *FindExistingOverload(lang_state*, own_std::vector<func_overload_strct> *funcs, void * op, own_std::vector<type2> *tps, bool search_operator_ovrld);
+	func_decl *FindOpOverload(lang_state *, overload_op tp, node *, own_std::vector<type2> * = nullptr);
+	func_decl *FindExistingOverload(lang_state*, own_std::vector<func_overload_strct> *funcs, void * op, own_std::vector<type2> *tps, bool search_operator_ovrld, node *);
 	decl2 *FindDecl(std::string name)
 	{
 #ifdef COMPILER

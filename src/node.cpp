@@ -3619,7 +3619,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			}break;
 			case enum_type2::TYPE_STRUCT:
 			{
-				auto index_op = lhs_type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP);
+				auto index_op = lhs_type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n);
 				if (!index_op && IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 				{
 					REPORT_ERROR(n->t->line, n->t->line_offset,
@@ -4625,7 +4625,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 						}
 					}
 
-					auto constr = f_arg->type.strct->FindExistingOverload(lang_stat, &f_arg->type.strct->constructors, (void*)&f_arg->type, &tp_ar, true);
+					auto constr = f_arg->type.strct->FindExistingOverload(lang_stat, &f_arg->type.strct->constructors, (void*)&f_arg->type, &tp_ar, true, ncall);
 					if (!constr)
 						return false;
 
@@ -5423,7 +5423,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 			// decl not found
 			ASSERT(ret);
 
-			auto op_func = lhs->type.strct->FindOpOverload(lang_stat, overload_op::DEREF_OP);
+			auto op_func = lhs->type.strct->FindOpOverload(lang_stat, overload_op::DEREF_OP, n);
 			ASSERT(op_func)
 				* ret_tp = ret->type;
 
@@ -6781,7 +6781,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				}break;
 				case enum_type2::TYPE_STRUCT:
 				{
-					auto op_func = lhs_type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP);
+					auto op_func = lhs_type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n);
 					if (!op_func)
 					{
 						if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
@@ -6909,7 +6909,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		// a strct ptr to struct, in case of templated strct, a ptr to the original one
 		// so that structs that were devired from that one can query its "mother" struct
 		// for ovoerloaded funcs
-		self->type.strct->AddOpOverload(lang_stat, n->fdecl, n->ovrld_op);
+		self->type.strct->AddOpOverload(lang_stat, n->fdecl, n->ovrld_op, n->t->line, n->t->line_offset);
 
 		//self->type.strct->op_overloads.emplace_back(n->fdecl);
 
@@ -8471,7 +8471,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			// overload mul deref when the struct is value
 			if (ret_type.type == enum_type2::TYPE_STRUCT && ret_type.ptr == 0)
 			{
-				auto op_func = ret_type.strct->FindOpOverload(lang_stat, overload_op::DEREF_OP);
+				auto op_func = ret_type.strct->FindOpOverload(lang_stat, overload_op::DEREF_OP, n);
 				ASSERT(op_func)
 					/*
 				bool is_correct_ovrld = CompareTypes(&op_func->args[0]->type, &ret_type);
@@ -8983,7 +8983,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			case enum_type2::TYPE_STRUCT:
 			{
 				//operator overload
-				auto op_func = lhs.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP);
+				auto op_func = lhs.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n);
 				if (!op_func)
 				{
 					REPORT_ERROR(n->l->t->line, n->l->t->line_offset,
@@ -9176,7 +9176,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				}
 				tp_ar.emplace_back(rtp);
 
-				auto op_func = ltp.strct->FindExistingOverload(lang_stat, nullptr, (void*)COND_EQ_OP, &tp_ar, false);
+				auto op_func = ltp.strct->FindExistingOverload(lang_stat, nullptr, (void*)COND_EQ_OP, &tp_ar, false, n);
 
 				if (!op_func)
 				{
@@ -9296,7 +9296,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				default:
 					ASSERT(0)
 				}
-				auto op_func = ret_type.strct->FindOpOverload(lang_stat, op);
+				auto op_func = ret_type.strct->FindOpOverload(lang_stat, op, n);
 				ASSERT(op_func)
 					/*
 				bool is_correct_ovrld = CompareTypes(&op_func->args[0]->type, &ret_type);
@@ -9400,7 +9400,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				ret_type = ltp;
 				if (ltp.type == enum_type2::TYPE_STRUCT && ltp.ptr == 0)
 				{
-					auto op_func = ltp.strct->FindOpOverload(lang_stat, overload_op::ASSIGN_OP);
+					auto op_func = ltp.strct->FindOpOverload(lang_stat, overload_op::ASSIGN_OP, n);
 					bool is_same_strct = rtp.type == enum_type2::TYPE_STRUCT && rtp.strct->name == ltp.strct->name;
 
 					//ASSERT(op_func)
@@ -9952,7 +9952,7 @@ std::string OvrldOpToStr(overload_op op)
 
 }
 
-func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::vector<func_overload_strct>* funcs, void* data, own_std::vector<type2>* tps, bool search_constructors)
+func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::vector<func_overload_strct>* funcs, void* data, own_std::vector<type2>* tps, bool search_constructors, node *n)
 {
 	if (search_constructors && funcs->size() > 0)
 	{
@@ -10044,7 +10044,7 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 						if (fdecl->op_overload == op)
 						{
 							ret = CreateNewOpOverload(lang_stat, fdecl, op);
-							AddOpOverload(lang_stat, ret, op);
+							AddOpOverload(lang_stat, ret, op, n->t->line, n->t->line_offset);
 						}
 					}
 					// TYPE_OVERLOAD_FUNCS
@@ -10053,7 +10053,7 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 						FOR_VEC(ovrld, (*f)->type.overload_funcs->fdecls)
 						{
 							ret = CreateNewOpOverload(lang_stat, (*ovrld), op);
-							AddOpOverload(lang_stat, ret, op);
+							AddOpOverload(lang_stat, ret, op, n->t->line, n->t->line_offset);
 						}
 					}
 				}
@@ -10070,7 +10070,7 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 	}
 	return nullptr;
 }
-func_decl* type_struct2::FindOpOverload(lang_state *lang_stat, overload_op tp, own_std::vector<type2>* tp_ptr)
+func_decl* type_struct2::FindOpOverload(lang_state *lang_stat, overload_op tp, node *n, own_std::vector<type2>* tp_ptr)
 {
 	/*
 	FOR_VEC(f, op_overloads_funcs)
@@ -10113,13 +10113,13 @@ func_decl* type_struct2::FindOpOverload(lang_state *lang_stat, overload_op tp, o
 	// the op overload was not instantiated yet for this struct
 	if (original_strct)
 	{
-		auto found_in_og = original_strct->FindOpOverload(lang_stat, tp);
+		auto found_in_og = original_strct->FindOpOverload(lang_stat, tp, n);
 		if (found_in_og)
 		{
 			std::string f_name = this->name.substr() + OvrldOpToStr(tp);
 
 			type2 dummy_tp;
-			auto found_f = FindIdentifier(f_name, lang_stat->root, &dummy_tp);
+			auto found_f = FindIdentifier(f_name, lang_stat->funcs_scp, &dummy_tp);
 
 			if (found_f)
 				return found_f->type.fdecl;
@@ -10156,7 +10156,7 @@ func_decl* type_struct2::FindOpOverload(lang_state *lang_stat, overload_op tp, o
 			new_func->op_overload = tp;
 			*/
 
-			this->AddOpOverload(lang_stat, new_func, tp);
+			this->AddOpOverload(lang_stat, new_func, tp, n->t->line, n->t->line_offset);
 			if (!CheckOverloadFunction(lang_stat, new_func))
 				return nullptr;
 

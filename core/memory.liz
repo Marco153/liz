@@ -314,6 +314,7 @@ heap_clear::fn(alloc : *mem_alloc)
 }
 heap_free::fn(alloc : *mem_alloc, ptr : *void)
 {
+	ASSERT(alloc.id == 0x1234);
     chunk_to_free:= cast(*mem_chunk)HHashGet(&alloc.in_use, ptr);
 	ASSERT(chunk_to_free != nil);
 	HHashRemove(&alloc.in_use, ptr);

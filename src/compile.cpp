@@ -7150,7 +7150,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			}
 			//ImGui::ImGuiContext& g = *ImGui::GImGui;
 			//if(g.WithinFrameScope)
-				ImGui::Render();
+				//ImGui::Render();
 
 			// Start the Dear ImGui frame
 			ImGui_ImplOpenGL3_NewFrame();
@@ -7242,9 +7242,16 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				}
 				else if(cur_st)
 				{
-					ImGui::Text("%s", GetFileLn(dbg.lang_stat, cur_st->line - 2, dbg.cur_func->from_file));
-					ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%s", GetFileLn(dbg.lang_stat, cur_st->line - 1, dbg.cur_func->from_file));
-					ImGui::Text("%s", GetFileLn(dbg.lang_stat, cur_st->line, dbg.cur_func->from_file));
+					
+					int sz = sprintf(buffer, "%d", cur_st->line);
+					memset(buffer, ' ', sz + 1);
+					buffer[sz + 1] = 0;
+
+					ImGui::Text("%s%s", buffer, GetFileLn(dbg.lang_stat, cur_st->line - 3, dbg.cur_func->from_file));
+					ImGui::Text("%s%s", buffer, GetFileLn(dbg.lang_stat, cur_st->line - 2, dbg.cur_func->from_file));
+					ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", cur_st->line, GetFileLn(dbg.lang_stat, cur_st->line - 1, dbg.cur_func->from_file));
+					ImGui::Text("%s%s", buffer, GetFileLn(dbg.lang_stat, cur_st->line, dbg.cur_func->from_file));
+					ImGui::Text("%s%s", buffer, GetFileLn(dbg.lang_stat, cur_st->line + 1, dbg.cur_func->from_file));
 				}
 			//}
 			ImGui::EndChild();

@@ -430,6 +430,7 @@ void Draw(dbg_state* dbg)
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
 	{
 		prog = gl_state->shader_program;
+		ASSERT(draw->texture_id < TOTAL_TEXTURES);
 		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
 		texture_info* t = &gl_state->textures[draw->texture_id];
 
@@ -1330,6 +1331,7 @@ struct sheet_file_header
 	u32 total_layers;
 	u32 str_tbl_offset;
 	u32 str_tbl_sz;
+	u32 cell_info_size;
 };
 struct aux_layer_info_struct
 {
@@ -1339,15 +1341,33 @@ struct aux_layer_info_struct
 	u32 grid_x;
 	u32 grid_y;
 	u32 total_of_used_cells;
+	u32 cell_sz;
 };
 struct aux_cell_info
 {
-	u64 tex_name;
-	u32 grid_x;
-	u32 grid_y;
+	union
+	{
+		struct
+		{
+			u64 tex_name;
+			u32 grid_x;
+			u32 grid_y;
 
-	u32 src_tex_offset_x;
-	u32 src_tex_offset_y;
+			u32 src_tex_offset_x;
+			u32 src_tex_offset_y;
+		};
+		struct
+		{
+			v3 pos;
+			v3 sz;
+		}col;
+		struct
+		{
+			u32 type;
+			v3 pos;
+			v3 sz;
+		}obj;
+	};
 };
 
 void LoadSheetFromLayer(dbg_state* dbg)
@@ -1392,7 +1412,7 @@ void LoadSheetFromLayer(dbg_state* dbg)
 			GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
 		);
 
-		cur_cell++;
+		cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
 	}
 	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
 
@@ -1406,6 +1426,13 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 
 	auto gl_state = (open_gl_state*)dbg->data;
 	auto hdr = (sheet_file_header*)file;
+
+	int cell_size = sizeof(aux_cell_info);
+	if(hdr->cell_info_size != cell_size)
+	{
+		printf("error file %s: cell sizes different, on file sz is %d, but on compiler is %d", sp_file_name.c_str(), hdr->cell_info_size, cell_size);
+		return -1;
+	}
 	char* str_table = (file + hdr->str_tbl_offset);
 	
 	own_std::vector<char*> image_sprite_names;
@@ -1425,11 +1452,58 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 	}
 
 	char* cur_ptr = (char*)(hdr + 1);
-	*tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width * *tex_height * 4);
-	
 	int tex_id = 0;
 	auto cur_layer = (aux_layer_info_struct*)cur_ptr;
 	auto cur_cell = (aux_cell_info *)(cur_layer + 1);
+	for (int i = 0; i < hdr->total_layers; i++)
+	{
+		// sprites
+		switch (cur_layer->type)
+		{
+		case 0:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+		}break;
+		// colliders
+		case 1:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+		}break;
+		// objs
+		case 2:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+		}break;
+		default:
+			printf("error file %s: layer type not known", sp_file_name.c_str(), cur_layer->type);
+			return -1;
+		}
+		cur_ptr = (char*)cur_cell;
+		cur_layer = (aux_layer_info_struct*)cur_cell;
+		cur_cell = (aux_cell_info*)(cur_layer + 1);
+	};
+	int val = *(int*)cur_ptr;
+	// end of layers
+	if(val != 0x1234)
+	{
+		printf("error file %s: value check at end of layers not matching, expected 0x%04x, found 0x%04x", sp_file_name.c_str(), 0x1234, val);
+		return -1;
+	}
+	cur_ptr = (char*)(hdr + 1);
+	*tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width * *tex_height * 4);
+	
+	tex_id = 0;
+	cur_layer = (aux_layer_info_struct*)cur_ptr;
+	cur_cell = (aux_cell_info *)(cur_layer + 1);
 	for (int i = 0; i < hdr->total_layers; i++)
 	{
 		// sprites
@@ -1463,7 +1537,7 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 					GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
 				);
 
-				cur_cell++;
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
 			}
 			heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
 		}break;
@@ -1472,7 +1546,15 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 		{
 			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
 			{
-				cur_cell++;
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+		}break;
+		// objs
+		case 2:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
 			}
 		}break;
 		default:
@@ -1482,8 +1564,6 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 		cur_layer = (aux_layer_info_struct*)cur_cell;
 		cur_cell = (aux_cell_info *)( cur_layer + 1);
 	}
-	// end of layers
-	ASSERT(*(int*)cur_ptr == 0x1234);
 	return tex_id;
 }
 std::string GetWorkDir(unit_file *file, lang_state* lang_stat)
@@ -1605,6 +1685,11 @@ void LoadTexFolder(dbg_state* dbg)
 		if (ext == "sp")
 		{
 			tex_idx = LoadSpriteSheet(dbg, gl_state->texture_folder + name, &tex_width, &tex_height, &tex_channels, &tex_data);
+			if(tex_idx == -1)
+			{
+				cur_tex->idx = -1;
+				continue;
+			}
 		}
 		else if (ext == "png")
 		{

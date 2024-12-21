@@ -2826,7 +2826,8 @@ int SetVariablesAddress(own_std::vector<decl2*>* ar, int start, int* in_out_bigg
 		//ASSERT(t->type == 1)
 
 
-		*in_out_biggest_type = CheckBiggestType(&t->type, *in_out_biggest_type);
+		int val_to_align = CheckBiggestType(&t->type, 0);
+		*in_out_biggest_type = max(val_to_align, *in_out_biggest_type);
 
 		/*
 		if(t->type.ptr > 0)
@@ -2854,7 +2855,7 @@ int SetVariablesAddress(own_std::vector<decl2*>* ar, int start, int* in_out_bigg
 		if(t->type.type == TYPE_STATIC_ARRAY)
 			t_sz = GetTypeSize(t->type.tp);
 
-		addr = get_even_address_with(t_sz, addr);
+		addr = get_even_address_with(val_to_align, addr);
 		//*in_out_biggest_type = other_biggest_type > cur_size ? other_biggest_type : cur_size;
 
 		t->offset = addr;
@@ -7411,6 +7412,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							tstrct->biggest_type = 0;
 							FOR_VEC(v, child_scp->vars)
 							{
+								if ((*v)->type.type == TYPE_STRUCT_TYPE)
+									continue;
 								int cur_vsize = GetTypeSize(&(*v)->type);
 								if (cur_vsize > biggest_var)
 									biggest_var = cur_vsize;

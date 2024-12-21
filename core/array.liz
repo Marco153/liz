@@ -9,10 +9,14 @@ dyn_array: struct(T)
 }
 it_start::fn{ T }(dyn : *dyn_array(T)) !*T
 {
+	if dyn.count == 0
+		return dyn.data;
 	return (*dyn)[0];
 }
 it_end::fn{ T }(dyn : *dyn_array(T)) !*T
 {
+	if dyn.count == 0
+		return dyn.data;
 	return ptr_offset(dyn.data, dyn.count, T);
 }
 operator []x64{ T }(dyn : *dyn_array(T), idx : u64) !*T
@@ -46,6 +50,8 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 	if (sz >= dyn.cap)
 	{
 		aux_data: = dyn.data;
+		if dyn.cap <= 0
+			dyn.cap = 1;
 		while dyn.cap < sz
 			dyn.cap = dyn.cap * 2;
 		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
@@ -91,6 +97,8 @@ dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *void, sz : u32)
 	if (dyn.count + sz) >= dyn.cap
 	{
 		aux_data: = dyn.data;
+		if dyn.cap <= 0
+			dyn.cap = 1;
 		while dyn.cap < (dyn.count + sz)
 			dyn.cap = dyn.cap * 2;
 		heap_free(dyn.alloc, cast(*u8)aux_data);

@@ -64,6 +64,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 {
     ast_rep *ret = NewAst();
 	ret->line_number = n->t->line;
+	ret->line_offset_start = n->t->line_offset;
 	type2 dummy_type;
     switch(n->type)
     {

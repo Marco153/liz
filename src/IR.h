@@ -149,10 +149,9 @@ struct ast_rep
     tkn_type2 op;
 	bool stmnt_without_semicolon;
 
-    union
-    {
-        int line_number;
-    };
+	int line_number;
+    int line_offset_start;
+    int line_offset_end;
 
     union
     {

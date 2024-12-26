@@ -12,7 +12,7 @@ namespace own_std
 
 		bool contains_char_rev(char c, u64* p)
 		{
-			for (unsigned long long i = (len - 1); i >= 0; i--)
+			for (long long i = (len - 1); i >= 0; i--)
 			{
 				if (data_[i] == c)
 				{

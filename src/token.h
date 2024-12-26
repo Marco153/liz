@@ -5,7 +5,6 @@
 #include "rel_utils.h"
 
 
-#define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
 
 struct decl2;
 struct node;
@@ -368,6 +367,7 @@ struct stmnt_dbg
 	int end_ir;
 	int line;
 };
+struct ast_rep;
 struct func_decl
 {
 	std::string name;
@@ -401,6 +401,8 @@ struct func_decl
 	int templated_in_file_line;
 
 	decl2 *this_decl;
+
+	ast_rep* ast;
 
     machine_code *code;
 
@@ -733,6 +735,7 @@ struct token2
 	tkn_type2 type;
 	int line;
 	int line_offset;
+	int line_offset_end;
 	char *line_str;
 	union
 	{
@@ -772,7 +775,7 @@ struct token2
 		{
 			ret->line = line;
 			ret->line_str = line_str;
-			ret->line_offset = line;
+			ret->line_offset = line_offset;
 			ret->str = str.substr();
 		}
 		else

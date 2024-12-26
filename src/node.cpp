@@ -4,6 +4,7 @@
 #include "bytecode.h"
 #include <algorithm>
 #include <time.h>
+#include <shlwapi.h>
 //#include "FileIO.cpp"
 
 #define CMP_NTYPE(a, t) ((a)->type == node_type::t)
@@ -17,7 +18,7 @@ enum_type2 FromTypeToVarType(enum_type2 tp);
 void ModifyFuncDeclToName(lang_state* lang_stat, func_decl* fdecl, node* n, scope* scp);
 std::string StringifyNode(node* n);
 bool CallNode(lang_state*, node* ncall, scope* scp, type2* ret_type, decl2* = nullptr);
-unit_file* AddNewFile(lang_state*, std::string name);
+unit_file* AddNewFile(lang_state*, std::string name, std::string path);
 bool NameFindingGetType(lang_state*, node* n, scope* scp, type2& ret_type, int = 0);
 decl2* PointLogic(lang_state*, node* n, scope* scp, type2* ret_tp);
 decl2* DescendNameFinding(lang_state*, node* n, scope* given_scp);
@@ -279,7 +280,7 @@ char* AllocMiscData(lang_state *lang_stat, int sz)
 char* std_str_to_heap(lang_state *lang_stat, std::string* str)
 {
 	int sz = str->size();
-	auto buffer = (char*)AllocMiscData(lang_stat, sz + 16);
+	auto buffer = (char*)AllocMiscData(lang_stat, sz);
 	memcpy(buffer, str->data(), sz);
 	buffer[sz] = 0;
 	return buffer;
@@ -485,7 +486,13 @@ token2* node_iter::peek_tkn()
 }
 token2* node_iter::get_tkn()
 {
-	return &(*this->tkns)[this->cur_idx++];
+	int idx = this->cur_idx;
+	if (rev)
+		cur_idx--;
+	else
+		cur_idx++;
+
+	return &(*this->tkns)[idx];
 }
 void node_iter::SetNodeScopeIdx(lang_state *lang_stat, node** nd, unsigned char val, int scope_start, int scope_end)
 {
@@ -838,6 +845,7 @@ node* node_iter::parse_func_like()
 
 	bool is_outsider = false;
 	auto tkn = peek_tkn();
+	int line_start = tkn->line;
 
 	lang_stat->flags |= PSR_FLAGS_ON_FUNC_DECL;
 	if (IsTknWordStr(peek_tkn(), "outsider"))
@@ -948,9 +956,12 @@ node* node_iter::parse_func_like()
 		auto prev_flags = lang_stat->flags;
 		lang_stat->flags &= ~PSR_FLAGS_ON_ARRAY;
 		n->r = parse_expr();
+		//n->scope_line_start = line_start;
+		//n->scope_line_end = (peek_tkn() - 1)->line;
 		lang_stat->flags = prev_flags;
 
 		n->type = node_type::N_FUNC_DECL;
+		
 		int save_flags = n->flags;
 		n->flags = n->r->flags | save_flags;
 		n->r->flags = 0;
@@ -1735,6 +1746,7 @@ if (is_operator(peek_tkn(), &cur_prec) || peek_tkn()->type == T_CLOSE_BRACKETS)\
 	case parser_cond::GREATER: { final_cond = cur_prec > prec; }break;\
 	case parser_cond::LESSER: { final_cond = cur_prec < prec; }break;\
 	case parser_cond::EQUAL: { final_cond = cur_prec == prec; }break;\
+	case parser_cond::NEQUAL: { final_cond = cur_prec != prec; }break;\
 	}\
 	if (final_cond || (peek_tkn()->type == tkn_type2::T_EOF) || peek_tkn()->type == T_CLOSE_BRACKETS)\
 	{\
@@ -2040,6 +2052,20 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		}
 		else
 		{
+			/*
+			if (lang_stat->is_lsp)
+			{
+				peek = peek_tkn();
+				if (cur_node->type == N_BINOP && cur_node->t->type == T_POINT &&
+					peek->type == T_CLOSE_CURLY)
+				{
+					cur_node->r = new_node(lang_stat, peek);
+					return cur_node;
+					//ASSERT(0);
+				}
+
+			}
+			*/
 			if (peek_tkn()->type != tkn_type2::T_MUL && peek_tkn()->type != tkn_type2::T_MINUS)
 			{
 				PARSER_CHECK
@@ -2047,12 +2073,24 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			cur_node->r = parse_(cur_prec, parser_cond::LESSER_EQUAL);
 		}
 
+		/*
+		if (lang_stat->is_lsp)
+		{
+			if (cur_node->type == N_BINOP && cur_node->t->type == T_POINT &&
+				cur_node->r->type == N_FOR)
+			{
+				//ASSERT(0);
+			}
+		}
+		*/
+
 
 
 	double_colon_scope_label:
 		auto nnode = new_node(lang_stat, cur_node->t);
 		nnode->l = cur_node;
 		cur_node = nnode;
+
 
 	}
 	return ret;
@@ -4463,6 +4501,11 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 			auto last_tkn = ncall->t;
 			BuildMacroTree(lang_stat, fdecl->scp, new_tree, ncall->t->line);
+			if (lang_stat->is_lsp)
+			{
+				new_tree->modified = true;
+				new_tree->original = ncall->NewTree(lang_stat);
+			}
 			memcpy(ncall, new_tree, sizeof(node));
 
 			ncall->flags = 0;
@@ -4814,6 +4857,11 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 			ret_type->type = enum_type2::TYPE_STRUCT_TYPE;
 		ret_type->strct = ret_strct;
+		if (lang_stat->is_lsp)
+		{
+			ncall->modified = true;
+			ncall->original = ncall->NewTree(lang_stat);
+		}
 
 		if (IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_DONT_CHANGE_TEMPL_STRCT_ND_NAME))
 		{
@@ -4907,6 +4955,8 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 		fnode->fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 		memset(fnode->fdecl, 0, sizeof(func_decl));
 		fnode->fdecl->from_file = lang_stat->cur_file;
+		child_scp->line_start = n->scope_line_start;
+		child_scp->line_end = n->scope_line_end;
 	}
 	func_decl* fdecl = fnode->fdecl;
 	lang_stat->cur_func = fdecl;
@@ -5685,6 +5735,7 @@ node* CreateNodeFromType(lang_state *lang_stat, type2* tp, token2 *t)
 		nd->decl_type = *tp;
 		nd->decl_type.type = FromVarTypeToType(nd->decl_type.type);
 	}
+	nd->modified = true;
 	return nd;
 }
 
@@ -5897,6 +5948,7 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node* n, scope* sc
 			lang_stat->void_decl->type.ptr--;
 
 			final_nd = NewThreeArgNd(lang_stat, "_own_memset", casted1, NewIntNode(lang_stat, 0, n->t), NewIntNode(lang_stat, decl->type.strct->size, n->t));
+			final_nd->modified = true;
 
 		}
 		else
@@ -5915,6 +5967,11 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node* n, scope* sc
 		}
 
 		auto stmnt_nd = NewTypeNode(lang_stat, new_node(lang_stat, n), node_type::N_STMNT, final_nd, n->t);
+		if (lang_stat->is_lsp)
+		{
+			stmnt_nd->modified = true;
+			stmnt_nd->original = n->NewTree(lang_stat);
+		}
 		memcpy(n, stmnt_nd, sizeof(node));
 		n->flags |= NODE_FLAGS_STMNT_ZERO_INITIALIZED;
 
@@ -6033,7 +6090,9 @@ node* MakeMemCpyCall(lang_state *lang_stat, node *lhs, node *rhs, int size)
 	return call_nd;
 }
 
-void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own_std::vector<char *>* file_names)
+#define GET_FILES_DIR_RECURSIVE 1
+#define GET_FILES_DIR_ADD_PATH_TO_FILE_NAME 2
+void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own_std::vector<char *>* file_names, int flags = 0)
 {
 	WIN32_FIND_DATA ffd;
 	char buffer[128];
@@ -6048,6 +6107,8 @@ void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own
 	}
 	BOOL found_file = 1;
 	FindNextFile(hFind, &ffd);
+	bool recursive = IS_FLAG_ON(flags, GET_FILES_DIR_RECURSIVE);
+	bool add_path_to_name = IS_FLAG_ON(flags, GET_FILES_DIR_ADD_PATH_TO_FILE_NAME);
 	while (true)
 	{
 		found_file = FindNextFile(hFind, &ffd);
@@ -6059,7 +6120,33 @@ void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own
 		int len = strlen(ffd.cFileName) + 1;
 		char* name = heap_alloc((mem_alloc *)__lang_globals.data, len);
 		memcpy(name, ffd.cFileName, len);
-		file_names->emplace_back(name);
+		if (add_path_to_name)
+		{
+			std::string name_with_path = dir+"/" + name;
+			int sz = name_with_path.size();
+			auto buffer = (char*)heap_alloc((mem_alloc *)__lang_globals.data, sz + 1);
+			memcpy(buffer, name_with_path.data(), sz);
+			buffer[sz] = 0;
+			file_names->emplace_back(buffer);
+		}
+		else
+			file_names->emplace_back(name);
+
+
+
+		if (recursive)
+		{
+			std::string name_str = name;
+			if (name_str == ".git" || name_str.empty())
+				continue;
+
+			std::string path = dir + name;
+			char* pcstr = (char *)path.c_str();
+			if (PathIsDirectory(pcstr))
+			{
+				GetFilesInDirectory(pcstr, nullptr, file_names, flags);
+			}
+		}
 	}
 }
 void AddFolderToScope(lang_state * lang_stat, scope *scp, std::string folder, import_type imp_type, std::string imp_name)
@@ -6071,10 +6158,10 @@ void AddFolderToScope(lang_state * lang_stat, scope *scp, std::string folder, im
 
 	own_std::vector<unit_file*> files_added;
 	std::string prev_work_dir = lang_stat->work_dir;
-	lang_stat->work_dir +=  "/"+folder;
+	lang_stat->work_dir +=  "/"+folder+"/";
 	FOR_VEC(str, file_names)
 	{
-		files_added.emplace_back(AddNewFile(lang_stat, *str));
+		files_added.emplace_back(AddNewFile(lang_stat, *str, lang_stat->work_dir));
 	}
 	lang_stat->work_dir = prev_work_dir;
 
@@ -6850,6 +6937,11 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			{
 				auto new_n = ident->using_node->NewTree(lang_stat);
 				new_n->flags |= NODE_FLAGS_POINT_FROM_USING;
+				if (lang_stat->is_lsp)
+				{
+					new_n->modified = true;
+					new_n->original = n->NewTree(lang_stat);
+				}
 				memcpy(n, new_n, sizeof(node));
 			}
 		}
@@ -7064,13 +7156,16 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					bool is_bool = lhs->type.type == TYPE_BOOL;
 					bool is_struct_val = lhs->type.type == TYPE_STRUCT && lhs->type.ptr == 0
 						&& IsNodeUnop(equal_stmnt->r, T_MUL);
+					if (lhs->type.type == TYPE_STRUCT && lhs->type.ptr == 0 && !zero_initialization)
+					{
+					}
 
 					if (is_bool && IS_FLAG_OFF(n->flags, NODE_FLAGS_IS_PROCESSED2) && equal_stmnt->r->type == N_BINOP && equal_stmnt->r->t->type != T_POINT)
 					{
 						node* bool_expr = CreateBoolExpression(lang_stat, equal_stmnt->l, equal_stmnt->r, scp);
 						memcpy(equal_stmnt, bool_expr, sizeof(node));
 					}
-					else if (is_struct_val && zero_initialization)
+					else if (is_struct_val && !zero_initialization)
 					{
 						decl2* memcpy_func = FindIdentifier("memcpy", scp, &ret_type);
 						if (!memcpy_func)
@@ -9027,7 +9122,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				auto call_nd = MakeFuncCallArgs(lang_stat, op_func->name, nullptr, args, n->t);
 				call_nd->t = n->t;
 
-
+				
+				if (lang_stat->is_lsp)
+				{
+					call_nd->modified = true;
+					call_nd->original = n->NewTree(lang_stat);
+				}
 
 				memcpy(n, call_nd, sizeof(node));
 
@@ -9424,6 +9524,16 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 						{
 							if(n->r->type != N_QUESTION_MARK)
 							{
+								if(CompareTypes(&ltp, &rtp))
+								{
+									ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
+								}
+								decl2* memcpy_func = FindIdentifier("memcpy", scp, &ret_type);
+								if (!memcpy_func)
+								{
+									ReportMessage(lang_stat, n->t, "Theres no 'memcpy' function to do a copy of a struct");
+								}
+
 								node* call = MakeMemCpyCall(lang_stat, n->l, n->r, ltp.strct->size);
 								memcpy(n, call, sizeof(node));
 							}
@@ -10176,14 +10286,24 @@ void CompileFile(lang_state *lang_stat, unit_file* fl)
 	fl->s = niter.parse_all();
 }
 
-unit_file* AddNewFile(lang_state *lang_stat, std::string name)
+unit_file* AddNewFile(lang_state *lang_stat, std::string name, std::string path)
 {
+	TCHAR name_buffer[MAX_PATH];
+	std::string dir = path + name;
+	for(int i= 0; i < dir.size(); i++)
+	{
+		if (dir[i] == '/')
+			dir[i] = '\\';
+	}
+	int res = GetFullPathName((char*)dir.c_str(), MAX_PATH, name_buffer, nullptr);
+	dir = name_buffer;
+
 	FOR_VEC(f, lang_stat->files)
 	{
-		if ((*f)->name == name)
+		if ((*f)->path + "\\" + (*f)->name == dir)
 			return *f;
 	}
-	std::string dir = lang_stat->work_dir + "\\" + name;
+	//dir = lang_stat->work_dir + "\\" + name;
 
 	int read;
 	char* file_cstr = (char*)dir.c_str();

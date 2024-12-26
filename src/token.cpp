@@ -672,6 +672,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 						j++;
 						//ch[i] = 0;
 					}
+					cur_line_start_ch = i + 1;
 					line++;
 
 					if (lines_out)
@@ -698,6 +699,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 								lines_out->emplace_back(line_str);
 							input[i] = 0;
 							line++;
+							cur_line_start_ch = i + 1;
 							line_str = (char*)(&input[i + 1]);
 
 						}
@@ -869,6 +871,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 						if (lines_out)
 							lines_out->emplace_back(line_str);
 						line++;
+						cur_line_start_ch = cur_idx + 1;
 					}
 
 					if (ch[cur_idx] == '\\')
@@ -975,6 +978,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			}break;
 		}
 		tkn.line_offset = i - cur_line_start_ch;
+		tkn.line_offset_end = i;
 		if (found_char)
 		{
 			tkns->emplace_back(tkn);

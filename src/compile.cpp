@@ -1,3 +1,8 @@
+typedef unsigned long long u64;
+typedef unsigned int u32;
+typedef unsigned char u8;
+typedef long long s64;
+#define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
 #include "compile.h"
 #include <windows.h>
 #include <iostream>
@@ -165,6 +170,16 @@ struct ptr_decl_that_have_len
 struct web_assembly_state;
 struct wasm_interp;
 #define MAX_ARGS 32
+
+enum lsp_stage_enum
+{
+	LSP_STAGE_PAUSE,
+	LSP_STAGE_ADD_FILES,
+	LSP_STAGE_NAME_FINDING,
+	LSP_STAGE_TYPE_CHECKING,
+	LSP_STAGE_GET_INTELISENSE,
+	LSP_STAGE_DONE,
+};
 struct lang_state
 {
 	int cur_idx;
@@ -173,8 +188,12 @@ struct lang_state
 
 	bool something_was_declared;
 	bool in_ir_stmnt;
+	bool is_lsp;
 	scope* root;
 
+	lsp_stage_enum lsp_stage;
+	lsp_intention_enum intentions_to_lsp;
+	int intention_state;
 	node* not_found_nd;
 #ifdef DEBUG_NAME
 	own_std::vector<node*> not_founds;
@@ -186,7 +205,7 @@ struct lang_state
 
 
 	
-	jmp_buf jump_buffer;
+	jmp_buf *jump_buffer;
 	bool ir_in_stmnt;
 	func_decl* cur_func;
 
@@ -4365,7 +4384,7 @@ void PrintExpressionTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 	InitMemAlloc(&temp_alloc);
 	void* prev_alloc = __lang_globals.data;
 	dbg_expr* exp = nullptr;
-	int val = setjmp(dbg->lang_stat->jump_buffer);
+	int val = setjmp(*dbg->lang_stat->jump_buffer);
 	if (val == 0)
 	{
 		dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -4613,7 +4632,7 @@ void WasmOnArgs(dbg_state* dbg)
 				InitMemAlloc(&temp_alloc);
 				void* prev_alloc = __lang_globals.data;
 				dbg_expr* exp = nullptr;
-				int val = setjmp(dbg->lang_stat->jump_buffer);
+				int val = setjmp(*dbg->lang_stat->jump_buffer);
 				if (val == 0)
 				{
 					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -4683,7 +4702,7 @@ void WasmOnArgs(dbg_state* dbg)
 				InitMemAlloc(&temp_alloc);
 				void* prev_alloc = __lang_globals.data;
 				dbg_expr* exp = nullptr;
-				int val = setjmp(dbg->lang_stat->jump_buffer);
+				int val = setjmp(*dbg->lang_stat->jump_buffer);
 				if (val == 0)
 				{
 					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -5082,6 +5101,7 @@ struct dbg_file_seriealize
 
 	int x64_code_sect;
 	int x64_code_sect_size;
+	int x64_code_type_sect_size;
 
 	int total_files;
 
@@ -5632,6 +5652,7 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	file.x64_code_sect = final_buffer.size();
 	INSERT_VEC(final_buffer, wasm_state->lang_stat->code_sect);
 	file.x64_code_sect_size = wasm_state->lang_stat->code_sect.size();
+	file.x64_code_type_sect_size = wasm_state->lang_stat->type_sect.size();
 
 	file.data_sect = final_buffer.size();
 
@@ -6692,7 +6713,6 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 	return false;
 }
 void OpenWindow(dbg_state* dbg);
-bool IsKeyDown(void* data, int key);
 bool IsKeyRepeat(void* data, int key);
 void ClearKeys(void* data);
 static void glfw_error_callback(int error, const char* description)
@@ -6707,189 +6727,6 @@ void ExitDebugger(scope **cur_scp, wasm_bc **bc)
 	prev_bc->one_time_dbg_brk = false;
 }
 
-void ImGuiPrintScopeVars(char* name, dbg_state& dbg, scope* cur_scp, int base_ptr);
-void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl)
-{
-	char buffer[64];
-	if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
-	{
-		int offset = base_ptr;
-		char ptr = ptr_decl;
-
-		std::string name = d->name;
-		std::string ptr_str = "";
-
-		if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
-		{
-			if(ptr_decl > 0)
-			{
-				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-				int len_offset = base_ptr + d->len_for_ptr->offset;
-				int len = *(int*)&dbg.mem_buffer[len_offset];
-				if (len > 1000)
-				{
-					ImGui::Text("more than 1000 items");
-					return;
-				}
-				int addr = *(int*)&dbg.mem_buffer[base_ptr];
-				char prev_ptr = d->type.ptr;
-				d->type.ptr = ptr_decl;
-				d->type.ptr--;
-				int tp_sz = GetTypeSize(&d->type);
-				d->type.ptr++;
-				d->flags &= ~DECL_PTR_HAS_LEN;
-				for (int i = 0; i < len; i++)
-				{
-					int cur_addr = addr + i * tp_sz;
-					snprintf(buffer, 64, "[%d]##%d", i, cur_addr);
-					ImGui::Text("(%d)", cur_addr);
-					ImGui::SameLine();
-					/*
-					if (d->type.type == TYPE_STRUCT && ptr_decl > 1)
-					{
-						if (ImGui::TreeNodeEx(buffer, flag))
-						{
-							ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, cur_addr);
-							ImGui::TreePop();  // This is required at the end of the if block
-						}
-					}
-					else
-					*/
-
-					ImGuiPrintVar(buffer, dbg, d, cur_addr, ptr_decl - 1);
-
-				}
-				d->flags |= DECL_PTR_HAS_LEN;
-				d->type.ptr = prev_ptr;
-			}
-		}
-		else
-		{
-			/*
-			if(ptr_str.empty())
-				snprintf(buffer, 64, "%s##%d", name.c_str(), base_ptr);
-			else
-				snprintf(buffer, 64, "%s(%s)##%d", name.c_str(), ptr_str.c_str(), base_ptr);
-				*/
-
-			if (ptr_decl == 0)
-			{
-				snprintf(buffer, 64, "%s##%d",  name.c_str(), base_ptr);
-				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-				if (ImGui::TreeNodeEx(buffer, flag))
-				{
-					ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, offset);
-					ImGui::TreePop();  // This is required at the end of the if block
-				}
-			}
-			else
-			{
-				int addr = *(int*)&dbg.mem_buffer[base_ptr];
-				snprintf(buffer, 64, "%d->%d", base_ptr, addr);
-				ImGui::Text(buffer);
-				ImGui::SameLine();
-				ImGuiPrintVar(buffer, dbg, d, addr, ptr_decl - 1);
-			}
-
-		}
-		//ImGui::Text("%s", d->name.c_str());
-	}
-	else if (d->type.type == TYPE_ENUM)
-	{
-		int offset = base_ptr;
-		offset = *(int*)&dbg.mem_buffer[offset];
-
-		scope* scp = d->type.from_enum->type.scp;
-		if (!scp)
-		{
-			ImGui::Text("Error: no scp for this enum(but var val:%d)", offset);
-		}
-		else if (offset < scp->vars.size())
-		{
-			decl2* e_decl = scp->vars[offset];
-			ImGui::Text("%s(%d): %s", d->name.c_str(), offset, e_decl->name.c_str());
-		}
-		
-	}
-	else if (d->type.type == TYPE_STR_LIT)
-	{
-		int offset = base_ptr;
-		offset = *(int*)&dbg.mem_buffer[offset];
-		auto ptr = (char*)&dbg.mem_buffer[offset];
-		if (ptr == nullptr)
-		{
-			ptr = "";
-		}
-		ImGui::Text("%s(%d): %s", d->name.c_str(), offset, ptr);
-	}
-	else if (d->type.type == TYPE_STATIC_ARRAY)
-	{
-		ImGui::Text("static ar %s (%d)", d->name.c_str(), base_ptr);
-	}
-	else if (d->type.type == TYPE_TEMPLATE || d->type.type == TYPE_FUNC || d->type.type == TYPE_IMPORT || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_OVERLOADED_FUNCS)
-	{
-		//ImGui::Text("template %s", d->name.c_str());
-	}
-	else
-	{
-		int offset = base_ptr;
-		long long val = 0;
-		print_num_type ptype = PRINT_INT;
-
-		char ptr = d->type.ptr;
-		while (ptr > 0)
-		{
-			offset = *(int*)&dbg.mem_buffer[offset];
-			ptr--;
-		}
-		if (d->type.IsFloat())
-		{
-			ptype = PRINT_FLOAT;
-			val = *(int*)&dbg.mem_buffer[offset];
-		}
-		else
-		{
-			if (d->name == "window")
-				return;
-			switch (GetTypeSize(&d->type))
-			{
-			case 1:
-			{
-				val = *(char*)&dbg.mem_buffer[offset];
-			}break;
-			case 2:
-			{
-				val = *(short*)&dbg.mem_buffer[offset];
-			}break;
-			case 4:
-			{
-				val = *(int*)&dbg.mem_buffer[offset];
-			}break;
-			case 8:
-			{
-				val = *(long long*)&dbg.mem_buffer[offset];
-			}break;
-			default:
-				ASSERT(false);
-			}
-		}
-
-		ImGui::Text("%s, %s", d->name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
-	}
-
-}
-
-void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_ptr)
-{
-	char buffer[64];
-	// Call ImGui::TreeNodeEx() recursively to populate each level of children
-	FOR_VEC(decl, cur_scp->vars)
-	{
-		decl2* d = *decl;
-		if (IS_FLAG_OFF(d->flags, DECL_FROM_USING))
-			ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
-	}
-}
 
 std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, int limit, int mem_wnd_show_type)
 {
@@ -6951,6 +6788,10 @@ std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, in
 	return ret;
 }
 
+#ifndef LANG_NO_ENGINE
+
+bool IsKeyDown(void* data, key_enum key);
+void ImGuiPrintScopeVars(char* name, dbg_state& dbg, scope* cur_scp, int base_ptr);
 void BeginLocalsChild(dbg_state &dbg, int base_ptr, scope *cur_scp)
 {
 	ImGui::BeginChild("locals", ImVec2(500, 400));
@@ -7382,7 +7223,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 				can_execute = true;
 			}
-			else if (IsKeyDown(dbg.data, GLFW_KEY_F11))
+			else if (IsKeyDown((void *)&dbg, _KEY_F11))
 			{
 				//bc->dbg_brk = false;
 				block_linked** cur_block = &cur;
@@ -7433,6 +7274,206 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 	}
 }
+void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int total_args)
+{
+
+
+	int mem_size = BUFFER_MEM_MAX;
+	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size);
+	lang_stat->winterp->dbg->mem_size = mem_size;
+	*(int*)&buffer[MEM_PTR_CUR_ADDR] = 20000;
+	*(int*)&buffer[MEM_PTR_MAX_ADDR] = 0;
+
+	ASSERT(lang_stat->data_sect.size() < DATA_SECT_MAX);
+	memcpy(&buffer[DATA_SECT_OFFSET], lang_stat->data_sect.begin(), lang_stat->data_sect.size());
+	memcpy(&buffer[GLOBALS_OFFSET], lang_stat->globals_sect.begin(), lang_stat->globals_sect.size());
+	WasmInterpRun(lang_stat->winterp, buffer, mem_size, func.c_str(), args, total_args);
+	__lang_globals.free(__lang_globals.data, buffer);
+
+}
+void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl)
+{
+	char buffer[64];
+	if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
+	{
+		int offset = base_ptr;
+		char ptr = ptr_decl;
+
+		std::string name = d->name;
+		std::string ptr_str = "";
+
+		if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
+		{
+			if(ptr_decl > 0)
+			{
+				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+				int len_offset = base_ptr + d->len_for_ptr->offset;
+				int len = *(int*)&dbg.mem_buffer[len_offset];
+				if (len > 1000)
+				{
+					ImGui::Text("more than 1000 items");
+					return;
+				}
+				int addr = *(int*)&dbg.mem_buffer[base_ptr];
+				char prev_ptr = d->type.ptr;
+				d->type.ptr = ptr_decl;
+				d->type.ptr--;
+				int tp_sz = GetTypeSize(&d->type);
+				d->type.ptr++;
+				d->flags &= ~DECL_PTR_HAS_LEN;
+				for (int i = 0; i < len; i++)
+				{
+					int cur_addr = addr + i * tp_sz;
+					snprintf(buffer, 64, "[%d]##%d", i, cur_addr);
+					ImGui::Text("(%d)", cur_addr);
+					ImGui::SameLine();
+					/*
+					if (d->type.type == TYPE_STRUCT && ptr_decl > 1)
+					{
+						if (ImGui::TreeNodeEx(buffer, flag))
+						{
+							ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, cur_addr);
+							ImGui::TreePop();  // This is required at the end of the if block
+						}
+					}
+					else
+					*/
+
+					ImGuiPrintVar(buffer, dbg, d, cur_addr, ptr_decl - 1);
+
+				}
+				d->flags |= DECL_PTR_HAS_LEN;
+				d->type.ptr = prev_ptr;
+			}
+		}
+		else
+		{
+			/*
+			if(ptr_str.empty())
+				snprintf(buffer, 64, "%s##%d", name.c_str(), base_ptr);
+			else
+				snprintf(buffer, 64, "%s(%s)##%d", name.c_str(), ptr_str.c_str(), base_ptr);
+				*/
+
+			if (ptr_decl == 0)
+			{
+				snprintf(buffer, 64, "%s##%d",  name.c_str(), base_ptr);
+				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+				if (ImGui::TreeNodeEx(buffer, flag))
+				{
+					ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, offset);
+					ImGui::TreePop();  // This is required at the end of the if block
+				}
+			}
+			else
+			{
+				int addr = *(int*)&dbg.mem_buffer[base_ptr];
+				snprintf(buffer, 64, "%d->%d", base_ptr, addr);
+				ImGui::Text(buffer);
+				ImGui::SameLine();
+				ImGuiPrintVar(buffer, dbg, d, addr, ptr_decl - 1);
+			}
+
+		}
+		//ImGui::Text("%s", d->name.c_str());
+	}
+	else if (d->type.type == TYPE_ENUM)
+	{
+		int offset = base_ptr;
+		offset = *(int*)&dbg.mem_buffer[offset];
+
+		scope* scp = d->type.from_enum->type.scp;
+		if (!scp)
+		{
+			ImGui::Text("Error: no scp for this enum(but var val:%d)", offset);
+		}
+		else if (offset < scp->vars.size())
+		{
+			decl2* e_decl = scp->vars[offset];
+			ImGui::Text("%s(%d): %s", d->name.c_str(), offset, e_decl->name.c_str());
+		}
+		
+	}
+	else if (d->type.type == TYPE_STR_LIT)
+	{
+		int offset = base_ptr;
+		offset = *(int*)&dbg.mem_buffer[offset];
+		auto ptr = (char*)&dbg.mem_buffer[offset];
+		if (ptr == nullptr)
+		{
+			ptr = "";
+		}
+		ImGui::Text("%s(%d): %s", d->name.c_str(), offset, ptr);
+	}
+	else if (d->type.type == TYPE_STATIC_ARRAY)
+	{
+		ImGui::Text("static ar %s (%d)", d->name.c_str(), base_ptr);
+	}
+	else if (d->type.type == TYPE_TEMPLATE || d->type.type == TYPE_FUNC || d->type.type == TYPE_IMPORT || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_OVERLOADED_FUNCS)
+	{
+		//ImGui::Text("template %s", d->name.c_str());
+	}
+	else
+	{
+		int offset = base_ptr;
+		long long val = 0;
+		print_num_type ptype = PRINT_INT;
+
+		char ptr = d->type.ptr;
+		while (ptr > 0)
+		{
+			offset = *(int*)&dbg.mem_buffer[offset];
+			ptr--;
+		}
+		if (d->type.IsFloat())
+		{
+			ptype = PRINT_FLOAT;
+			val = *(int*)&dbg.mem_buffer[offset];
+		}
+		else
+		{
+			if (d->name == "window")
+				return;
+			switch (GetTypeSize(&d->type))
+			{
+			case 1:
+			{
+				val = *(char*)&dbg.mem_buffer[offset];
+			}break;
+			case 2:
+			{
+				val = *(short*)&dbg.mem_buffer[offset];
+			}break;
+			case 4:
+			{
+				val = *(int*)&dbg.mem_buffer[offset];
+			}break;
+			case 8:
+			{
+				val = *(long long*)&dbg.mem_buffer[offset];
+			}break;
+			default:
+				ASSERT(false);
+			}
+		}
+
+		ImGui::Text("%s, %s", d->name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
+	}
+
+}
+
+void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_ptr)
+{
+	char buffer[64];
+	// Call ImGui::TreeNodeEx() recursively to populate each level of children
+	FOR_VEC(decl, cur_scp->vars)
+	{
+		decl2* d = *decl;
+		if (IS_FLAG_OFF(d->flags, DECL_FROM_USING))
+			ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
+	}
+}
+#endif
 func_decl* WasmInterpFindFunc(wasm_interp* winterp, std::string func_name)
 {
 	FOR_VEC(func, winterp->funcs)
@@ -7621,6 +7662,9 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 	}
 
+	lang_stat->code_sect.ar.start = data + file->x64_code_sect;
+	lang_stat->code_sect.ar.count = file->x64_code_sect;
+	lang_stat->type_sect.ar.count = file->x64_code_type_sect_size;
 
 	auto scp_pre = (scope_dbg*)(data + file->scopes_sect);
 	scope* root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, false);
@@ -11253,10 +11297,11 @@ Your browser does not support the audio element.\
 }
 #pragma optimize("", on)
 
-void CreateAstFromFunc(lang_state* lang_stat, web_assembly_state* wasm_state, func_decl* f)
+void CreateAstFromFunc(lang_state* lang_stat, func_decl* f)
 {
 	f->func_node->fdecl = f;
 	ast_rep* ast = AstFromNode(lang_stat, f->func_node, f->scp);
+	f->ast = ast;
 	ASSERT(ast->type == AST_FUNC);
 	own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & f->ir;
 	GetIRFromAst(lang_stat, ast, ir);
@@ -11291,23 +11336,6 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 	WasmInterpInit(&winterp, file, read, lang_stat);
 
 }
-void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int total_args)
-{
-
-
-	int mem_size = BUFFER_MEM_MAX;
-	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size);
-	lang_stat->winterp->dbg->mem_size = mem_size;
-	*(int*)&buffer[MEM_PTR_CUR_ADDR] = 20000;
-	*(int*)&buffer[MEM_PTR_MAX_ADDR] = 0;
-
-	ASSERT(lang_stat->data_sect.size() < DATA_SECT_MAX);
-	memcpy(&buffer[DATA_SECT_OFFSET], lang_stat->data_sect.begin(), lang_stat->data_sect.size());
-	memcpy(&buffer[GLOBALS_OFFSET], lang_stat->globals_sect.begin(), lang_stat->globals_sect.size());
-	WasmInterpRun(lang_stat->winterp, buffer, mem_size, func.c_str(), args, total_args);
-	__lang_globals.free(__lang_globals.data, buffer);
-
-}
 void AssignOutsiderFunc(lang_state* lang_stat, std::string name, OutsiderFuncType func)
 {
 	lang_stat->winterp->outsiders[name] = func;
@@ -11329,7 +11357,17 @@ void AddFolder(lang_state* lang_stat, std::string folder)
 
 	FOR_VEC(str, file_names)
 	{
-		AddNewFile(lang_stat, *str);
+		TCHAR name_buffer[MAX_PATH];
+		std::string dir = lang_stat->exe_dir + folder+"\\";
+		for(int i= 0; i < dir.size(); i++)
+		{
+			if (dir[i] == '/')
+				dir[i] = '\\';
+		}
+		int res = GetFullPathName((char*)dir.c_str(), MAX_PATH, name_buffer, nullptr);
+		dir = name_buffer;
+		
+		AddNewFile(lang_stat, *str, dir);
 	}
 }
 struct code_info
@@ -12233,7 +12271,6 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::vector<std::string> args;
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
-	//AssertFuncByteCode(lang_stat);
 	
 	
 	int i = 0;
@@ -12484,7 +12521,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 			continue;
 
 		AddFuncToWasm(&wasm_state, f->type.fdecl);
-		CreateAstFromFunc(lang_stat, &wasm_state, f->type.fdecl);
+		CreateAstFromFunc(lang_stat, f->type.fdecl);
 		int  a = 0;
 
 	}
@@ -12507,7 +12544,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 			continue;
 
 		AddFuncToWasm(&wasm_state, f);
-		CreateAstFromFunc(lang_stat, &wasm_state, f);
+		CreateAstFromFunc(lang_stat, f);
         //}
 
 		if (IS_FLAG_ON(f->flags, NODE_FLAGS_FUNC_TEST))
@@ -12546,9 +12583,11 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	__lang_globals.total_blocks = 258;
 	__lang_globals.blocks = (block_linked*)AllocMiscData(lang_stat, sizeof(block_linked) * __lang_globals.total_blocks);
 	__lang_globals.cur_block = 0;
-	auto test = lang_state();
-	*lang_stat = test;
+	//auto test = lang_state();
+	//*lang_stat = test;
+	new(lang_stat)lang_state();
 	lang_stat->code_sect.reserve(256);
+	lang_stat->jump_buffer = (jmp_buf*)AllocMiscData(lang_stat, sizeof(jmp_buf) * __lang_globals.total_blocks);
 
 	lang_stat->winterp = (wasm_interp *) AllocMiscData(lang_stat, sizeof(wasm_interp));
 	new(&lang_stat->winterp->outsiders) std::unordered_map<std::string, OutsiderFuncType>();
@@ -12563,21 +12602,6 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//lang_stat->wasm_state->folder_name = 
 
 
-	lang_stat->internal_funcs_addr["ForeignFuncAdd"] = (char *) ForeignFuncAdd;
-	lang_stat->internal_funcs_addr["get_node_type"] = (char *) GetNodeType;
-	lang_stat->internal_funcs_addr["is_node_type"] = (char *) IsNodeType;
-	lang_stat->internal_funcs_addr["get_node_l"] = (char *) GetNodeL;
-	lang_stat->internal_funcs_addr["get_node_r"] = (char *) GetNodeR;
-	lang_stat->internal_funcs_addr["set_node_ident"] = (char *) SetNodeIdent;
-	lang_stat->internal_funcs_addr["free"] = (char *) free;
-	lang_stat->internal_funcs_addr["malloc"] = (char *) malloc;
-	lang_stat->internal_funcs_addr["memcpy"] = (char *) memcpy;
-	lang_stat->internal_funcs_addr["memset"] = (char *) memset;
-	lang_stat->internal_funcs_addr["sqrtf"] = (char *) sqrtf;
-	lang_stat->internal_funcs_addr["pow"] = (char*)powf;
-	lang_stat->internal_funcs_addr["cosf"] = (char *) cosf;
-
-	lang_stat->internal_funcs_addr["get_node_type_checked2"] = (char *) GetProcessedNodeType;
 	//CreateWindowEx()
 	//glfwInit();
 	//HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -12588,9 +12612,9 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->max_nd = 20000 * 2;
 
 	//lang_stat->node_arena = InitSubSystems(64 * 1024 * 1024);
-	lang_stat->max_misc = 16 * 1024 * 1024;
-	lang_stat->misc_arena = (char*)VirtualAlloc(0, lang_stat->max_misc, MEM_COMMIT, PAGE_READWRITE);
-	lang_stat->node_arena = (node*)VirtualAlloc(0, lang_stat->max_nd * sizeof(node), MEM_COMMIT, PAGE_READWRITE);
+	//lang_stat->max_misc = 16 * 1024 * 1024;
+	//lang_stat->misc_arena = (char*)VirtualAlloc(0, lang_stat->max_misc, MEM_COMMIT, PAGE_READWRITE);
+	//lang_stat->node_arena = (node*)VirtualAlloc(0, lang_stat->max_nd * sizeof(node), MEM_COMMIT, PAGE_READWRITE);
     
 	/*
 	lang_stat->structs = (LangLangArray<type_struct2> *)malloc(sizeof(LangLangArray<int>));
@@ -12721,4 +12745,243 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//std::string file_name = file_name_dir.substr(last_bar_main+1);
 
     return 0;
+}
+
+func_decl *GetFuncWithLine(lang_state *lang_stat, int line)
+{
+
+	FOR_VEC(f_ptr, lang_stat->funcs_scp->vars)
+	{
+		if ((*f_ptr)->type.type != TYPE_FUNC)
+			continue;
+		func_decl* f = (*f_ptr)->type.fdecl;
+		if(line >= f->scp->line_start && line <= f->scp->line_end)
+		{
+			return f;
+		}
+	}
+	return nullptr;
+}
+
+bool GetDeclOnCursor(lang_state *lang_stat, int line, int offset, type2 *out)
+{
+	func_decl* found = GetFuncWithLine(lang_stat, line);
+	if (!found)
+		return false;
+
+	ast_rep* ast_stats = found->ast->ast;
+	ASSERT(found->ast && ast_stats->type == AST_STATS);
+	scope *scp = FindScpWithLine(found, line);
+	ASSERT(scp);
+
+	ast_rep* stat = nullptr;
+	FOR_VEC(ast, ast_stats->stats)
+	{
+		ast_rep* s = *ast;
+		if(s->line_number == line)
+		{
+			stat = s;
+			break;
+		}
+	}
+
+	if (!stat)
+		return false;
+
+	ast_rep* exp = nullptr;
+
+	FOR_VEC(ex, stat->expr)
+	{
+		ast_rep* e = *ex;
+		if(offset <= e->line_offset_start)
+		{
+			exp = e;
+		}
+	}
+	switch (exp->type)
+	{
+	case AST_IDENT:
+	{
+		*out = exp->decl->type;
+	}break;
+	default:
+		ASSERT(0);
+	}
+	//ASSERT(exp->type == AST_IDENT)
+	auto a = 0;
+
+	return true;
+
+}
+
+void LspAddFolder(lang_state *lang_stat, std::string folder)
+{
+	type2 dummy_type;
+	decl2* release = FindIdentifier("RELEASE", lang_stat->root, &dummy_type);
+	release->type.i = lang_stat->release;
+
+
+
+	TCHAR buffer[MAX_PATH] = { 0 };
+	GetFullPathName(folder.c_str(), MAX_PATH, buffer, nullptr);
+	lang_stat->work_dir = buffer;
+
+	AddFolder(lang_stat, folder);
+
+	if (lang_stat->files.size() == 0)
+	{
+		printf("no files to be compiled, will exit\n");
+		ExitProcess(0);
+	}
+	//printf("files added");
+	FOR_VEC(i1, lang_stat->files)
+	{
+		type2 tp;
+		tp.type = enum_type2::TYPE_IMPORT;
+		tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", *i1);
+		FOR_VEC(i2, lang_stat->files)
+		{
+			if (*i1 == *i2)
+				continue;
+
+
+			(*i2)->global->imports.emplace_back(NewDecl(lang_stat, "__import", tp));
+		}
+	}
+}
+void LspCompile(lang_state *lang_stat, std::string folder, int line, int line_offset, own_std::vector<decl2> *out_decls)
+{
+	switch (lang_stat->lsp_stage)
+	{
+	case LSP_STAGE_ADD_FILES:
+	{
+		lang_stat->lsp_stage = LSP_STAGE_NAME_FINDING;
+	}break;
+	case LSP_STAGE_NAME_FINDING:
+	{
+		int cur_f = 0;
+
+		int iterations = 0;
+		bool can_continue = false;
+		struct info_not_found
+		{
+			node* nd;
+			scope* scp;
+		};
+		type2 dummy;
+		while (true)
+		{
+
+			lang_stat->something_was_declared = false;
+
+			for (cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
+			{
+				can_continue = false;
+				lang_stat->flags &= ~PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND;
+				lang_stat->global_decl_not_found.clear();
+				auto f = lang_stat->files[cur_f];
+				lang_stat->work_dir = f->path;
+				lang_stat->cur_file = f;
+				if (!DescendNameFinding(lang_stat, f->s, f->global))
+					can_continue = true;
+
+			}
+			if (!lang_stat->something_was_declared && !can_continue || iterations > 4)
+				break;
+		}
+		if (lang_stat->something_was_declared)
+			break;
+		lang_stat->flags |= PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
+
+		int val = setjmp(*lang_stat->jump_buffer);
+		if (val == 0)
+		{
+			lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+			bool error = false;
+			for (cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
+			{
+				auto f = lang_stat->files[cur_f];
+				lang_stat->cur_file = f;
+				if (!DescendNameFinding(lang_stat, f->s, f->global))
+					error = true;
+			}
+			//DescendIndefinedIdents(s, &global);
+
+			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_ERRO_REPORTED))
+			{
+				break;
+			}
+			lang_stat->flags &= ~PSR_FLAGS_ON_JMP_WHEN_ERROR;
+			if(!error)
+				lang_stat->lsp_stage = LSP_STAGE_TYPE_CHECKING;
+		}
+		else
+		{
+			lang_stat->lsp_stage = LSP_STAGE_PAUSE;
+		}
+
+		lang_stat->flags |= PSR_FLAGS_ASSIGN_SAVED_REGS;
+		lang_stat->flags |= PSR_FLAGS_AFTER_TYPE_CHECK;
+
+	}break;
+	case LSP_STAGE_TYPE_CHECKING:
+	{
+		//CreateBaseFileCode(lang_stat);
+
+		int val = setjmp(*lang_stat->jump_buffer);
+		if (val == 0)
+		{
+			lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+			for (int cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
+			{
+				auto f = lang_stat->files[cur_f];
+				lang_stat->cur_file = f;
+				lang_stat->lhs_saved = 0;
+				lang_stat->call_regs_used = 0;
+				//std::string scp_str = lang_stat->root->Print(0);
+				//printf("file: %s, scp: \n %s", f->name.c_str(), scp_str.c_str());
+				DescendNode(lang_stat, f->s, f->global);
+				lang_stat->call_regs_used = 0;
+			}
+			lang_stat->flags &= ~PSR_FLAGS_ON_JMP_WHEN_ERROR;
+		}
+
+
+
+		/*
+		FOR_VEC(cur_f, lang_stat->funcs_scp->vars)
+		{
+			auto f = *cur_f;
+			if (f->type.type != TYPE_FUNC)
+				continue;
+			auto fdecl = f->type.fdecl;
+			if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_IS_OUTSIDER | FUNC_DECL_TEMPLATED | FUNC_DECL_INTRINSIC))
+				continue;
+
+			CreateAstFromFunc(lang_stat, f->type.fdecl);
+			int  a = 0;
+		}
+		*/
+		lang_stat->lsp_stage = LSP_STAGE_DONE;
+
+	}break;
+	}
+}
+
+void Write(HANDLE hFile, char *str, int sz)
+{
+	int dwBytesWritten = 0;
+	auto bErrorFlag = WriteFile(
+		hFile,           // open file handle
+		str,      // start of data to write
+		sz,  // number of bytes to write
+		(LPDWORD)&dwBytesWritten, // number of bytes that were written
+		NULL);           // no overlapped structure
+
+	/*
+	if (FALSE == bErrorFlag) {
+		//DisplayError(TEXT("WriteFile"));
+		printf("Terminal failure: Unable to write to file.\n");
+	} 
+	*/
 }

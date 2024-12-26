@@ -40,7 +40,7 @@ struct LangArray
 	void CopyDataToAr(T *a, int count);
 	void CopyCreateAnotherAr(LangArray<T> *a, char *buffer);
 	FUNC_STRUCT_EXPORT T *operator[](u64 index);
-	T *operator[](char index);
+	//T *operator[](char index);
 	void ReplaceLangArrayData(T *a, int count);
 	int GetTotalBytes();
 

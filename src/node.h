@@ -51,6 +51,7 @@ enum parser_cond
 	LESSER,
 	LESSER_EQUAL,
 	EQUAL,
+	NEQUAL,
 };
 
 struct node;
@@ -59,6 +60,7 @@ struct node_iter
 	own_std::vector<token2> *tkns;
 	int cur_idx;
 	int cur_scope_count;
+	bool rev;
 
     lang_state *lang_stat;
 
@@ -181,6 +183,9 @@ struct node
 	node *l;
 	node *r;
 
+	bool modified;
+	node* original;
+
     union
     {
         own_std::vector<node *> *extra;
@@ -196,6 +201,7 @@ struct node
 #endif
 	union
 	{
+
 		tkn_type2 op_type;
 		overload_op ovrld_op;
 		node_type extra_type;

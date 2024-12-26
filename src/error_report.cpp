@@ -52,7 +52,7 @@ void ReportError(lang_state *lang_stat, int line, int line_offset, char *str, in
 
 	if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_ON_JMP_WHEN_ERROR))
 	{
-		longjmp(lang_stat->jump_buffer, 1);
+		longjmp(*lang_stat->jump_buffer, 1);
 	}
 }
 

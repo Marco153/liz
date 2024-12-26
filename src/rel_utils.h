@@ -41,6 +41,13 @@ struct rel_array
 	}
 };
 
+struct rel_type2
+{
+	int name;
+	int name_len;
+	int type;
+};
+
 void rel_ptr<char, char *>::operator=(std::string &s)
 {
 	*this = (char *)s.data();

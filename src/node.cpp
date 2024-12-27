@@ -263,7 +263,7 @@ char* AllocMiscData(lang_state *lang_stat, int sz)
 {
 	//ASSERT((lang_stat->cur_misc + sz + 4) < lang_stat->max_misc);
 	//auto ret = (char *)__lang_globals.alloc(__lang_globals.data, sz + 16, 0);
-	auto ret = (char*)__lang_globals.alloc(__lang_globals.data, sz + 16);
+	auto ret = (char*)__lang_globals.alloc(__lang_globals.data, sz + 1);
 	memset(ret, 0, sz);
 	//auto ret = lang_stat->misc_arena + lang_stat->cur_misc;
 	//lang_stat->cur_misc += sz;
@@ -1830,6 +1830,11 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		{
 			return cur_node->l;
 		}
+		if (rev && cur->type == T_WORD && (cur->str == "return" || cur->str == "if" || cur->str == "else"))
+		{
+			return cur_node->l;
+		}
+
 
 
 
@@ -4536,6 +4541,11 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 					node *bin = NewTypeNode(lang_stat, nullptr, N_UNOP, struct_constr, ncall->t);
 					bin->t->type = T_AMPERSAND;
+					if (lang_stat->is_lsp)
+					{
+						bin->modified = true;
+						bin->original = t->n->NewTree(lang_stat);
+					}
 					memcpy(t->n, bin, sizeof(node));
 
 					t->decl.type = DescendNode(lang_stat, t->n, scp);
@@ -4562,7 +4572,13 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					return false;
 
 				fdecl = gotten_func;
+				if (lang_stat->is_lsp)
+				{
+					ncall->modified = true;
+					ncall->original = ncall->NewTree(lang_stat);
+				}
 				ncall->l->t->str = fdecl->name;
+
 			}
 
 			// func instantiation

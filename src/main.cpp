@@ -148,6 +148,7 @@ struct Buffer
 {
 	buffer_type type;
 	std::string name;
+	std::string name_without_path;
 	TextEditor* ed;
 };
 std::vector<Buffer> buffers;
@@ -157,6 +158,7 @@ struct WindowEditor
 	bool on_cmd;
 	Buffer* cur_buffer;
 	Buffer* cmd_buffer;
+	Buffer* prev_buffer;
 	ImVec2 main_buffer_sz;
 	own_std::vector<Buffer*>ed_buffers;
 	open_gl_state* gl_state;
@@ -203,10 +205,16 @@ struct open_gl_state
 
 	bool suggestion_accepted;
 
+	std::string  func_def_str;
+
 	std::string lsp_dir_to_compile;
+
+	float for_func_def_first_parentheses_pos_x;
+	float for_func_def_first_parentheses_pos_y;
 
 	int suggestion_cursor_line;
 	int suggestion_cursor_column;
+	int func_def_cursor_column;
 	int suggestion_cursor_column_end;
 	int selected_suggestion;
 	own_std::vector<decl2> intellisense_suggestion;
@@ -219,7 +227,6 @@ struct open_gl_state
 	/*
 	Buffer* cur_buffer;
 	Buffer* cmd_buffer;
-	Buffer* prev_buffer;
 	own_std::vector<Buffer*>ed_buffers;
 	*/
 	own_std::vector<RatedStuff<int>> rated_files;
@@ -663,6 +670,10 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_F10;
 	}break;
+	case _KEY_F:
+	{
+		key = GLFW_KEY_F;
+	}break;
 	case _KEY_K:
 	{
 		key = GLFW_KEY_K;
@@ -718,10 +729,6 @@ int FromGameToGLFWKey(int in)
 	case _KEY_Q:
 	{
 		key = GLFW_KEY_Q;
-	}break;
-	case _KEY_F:
-	{
-		key = GLFW_KEY_F;
 	}break;
 	case _KEY_LEFT:
 	{
@@ -1012,6 +1019,16 @@ void ImGuiSetWindowFontScale(dbg_state* dbg)
 	ImGui::SetWindowFontScale(fsz);
 
 }
+void GotoPrevBuffer(void* data)
+{
+	auto wnd = (WindowEditor*)data;
+	if (!wnd->prev_buffer)
+		return;
+	Buffer* aux = wnd->prev_buffer;
+	wnd->prev_buffer = wnd->cur_buffer;
+	wnd->cur_buffer = aux;
+	wnd->cur_buffer->ed->EnsureCursorVisible();
+}
 void GlobalExitCmdBuffer(void* data)
 {
 	auto wnd = (WindowEditor*)data;
@@ -1048,10 +1065,42 @@ void MoveSelectedIllisenseSuggestions(void* data, int add, bool absolute)
 	*selected = clamp(*selected, 0, wnd->gl_state->intellisense_suggestion.size() - 1);
 
 }
+void RenderFuncDef(void *data, float screen_x, float screen_y)
+{
+	auto wnd = (WindowEditor*)data;
+	open_gl_state* gl_state = wnd->gl_state;
+	int str_sz = wnd->gl_state->func_def_str.size();
+	if (str_sz == 0)
+		return;
+	ImVec2 min, max;
+	min.x = screen_x;
+	min.y = screen_y + 50.0;
+
+	max = min;
+	//max.x += 100.0;
+	max.y += 50.0;
+
+	ImVec2 prev_cursor = ImGui::GetCursorScreenPos();
+	ImGui::SetCursorScreenPos(min);
+
+	const float fontSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, "#", nullptr, nullptr).x;
+
+	//ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(100, 0, 100, 255));
+	ImGui::BeginChild("func def", ImVec2(str_sz * fontSize, 40));
+
+
+	char buffer[128];
+	int real_i = 0;
+	ImGui::PopStyleColor();
+	ImGui::EndChild();
+	ImGui::SetCursorScreenPos(prev_cursor);
+	//draw_list->AddRectFilled(min, max, IM_COL32(50, 50, 50, 255));
+}
 void RenderIntellisenseSuggestions(void *data, float screen_x, float screen_y)
 {
 	auto wnd = (WindowEditor*)data;
-	if (wnd->gl_state->intellisense_suggestion.size() == 0)
+	if (wnd->gl_state->intellisense_suggestion.size() == 0 && wnd->gl_state->func_def_str.size() == 0)
 		return;
 	ImDrawList* draw_list = ImGui::GetWindowDrawList();
 	ImVec2 min, max;
@@ -1063,10 +1112,24 @@ void RenderIntellisenseSuggestions(void *data, float screen_x, float screen_y)
 	max.y += 100.0;
 	ImGui::SetCursorScreenPos(min);
 
+	int str_sz = wnd->gl_state->func_def_str.size();
+	float width = 100.0;
+	const float fontSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, "#", nullptr, nullptr).x;
+	if (str_sz != 0)
+	{
+		width = str_sz * fontSize;
+	}
+
 	ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(100, 0, 100, 255));
-	ImGui::BeginChild("int sug", ImVec2(100, 100));
+	ImGui::BeginChild("int sug", ImVec2(width, 100));
 	//draw_list->AddRectFilled(min, max, IM_COL32(50, 50, 50, 255));
 
+
+	if (str_sz != 0)
+	{
+		ImGui::Text(wnd->gl_state->func_def_str.c_str());
+		ImGui::Separator();
+	}
 
 	char buffer[128];
 	int real_i = 0;
@@ -1094,6 +1157,7 @@ void ClearIntellisenseSeggestion(void* data)
 
 	wnd->gl_state->intellisense_suggestion.clear();
 	wnd->gl_state->intellisense_suggestion_aux.clear();
+	//wnd->gl_state->func_def_str.clear();
 
 }
 void AcceptIntellisenseSeggestion(void* data)
@@ -1103,8 +1167,11 @@ void AcceptIntellisenseSeggestion(void* data)
 	int start_line = wnd->gl_state->suggestion_cursor_line;
 	int start_column = wnd->gl_state->suggestion_cursor_column + 3;
 
-	TextEditor::Coordinates start(start_line, start_column);
-	TextEditor::Coordinates end(start_line, wnd->gl_state->suggestion_cursor_column_end);
+	TextEditor::Coordinates coor(ed->mState.mCursorPosition);
+	coor.mColumn = wnd->gl_state->suggestion_cursor_column;
+	TextEditor::Coordinates start = ed->FindWordStart(coor);
+	TextEditor::Coordinates end = ed->FindWordEnd(coor);
+
 	ed->DeleteRange(start, end);
 
 	int name_idx = wnd->gl_state->selected_suggestion;
@@ -1207,6 +1274,7 @@ void ShowFileAndCmdBuffer(WindowEditor *wnd)
 	bool focus_on_cmd = wnd->on_cmd;
 	int flags = focus_on_cmd * TEXT_ED_DONT_HAVE_CURSOR_FOCUS;
 	char buffer[32];
+	ImGui::Text(wnd->cur_buffer->name_without_path.c_str());
 	snprintf(buffer, 32, "editor##%p", wnd);
 	wnd->cur_buffer->ed->Render(buffer, wnd->main_buffer_sz, flags);
 	TextEditor* ed = wnd->cur_buffer->ed;
@@ -1297,6 +1365,10 @@ Buffer *AddFileToBuffer(dbg_state *dbg, std::string file_name, WindowEditor* wnd
 
 	buf->name = file_name;
 
+	int last_bar = file_name.find_last_of("\\/");
+
+	buf->name_without_path = file_name.substr(last_bar + 1);
+
 
 	std::ifstream t(file_name);
 	if (t.good())
@@ -1312,6 +1384,27 @@ Buffer *AddFileToBuffer(dbg_state *dbg, std::string file_name, WindowEditor* wnd
 	wnd->ed_buffers.emplace_back(buf);
 	return buf;
 }
+
+void LspGetFileSyntaxHightlighting(lang_state *lang_stat, std::string fname, open_gl_state *gl_state)
+{
+	LspHeader hdr;
+	hdr.magic = 0x77;
+	hdr.msg_type = lsp_msg_enum::LSP_SYNTAX;
+	hdr.msg_len = sizeof(LspHeader) + fname.size() + 1;
+	own_std::vector<char> buffer;
+	char* cstr = (char*)fname.c_str();
+	buffer.insert(buffer.end(), (char*)&hdr, (char*)(&hdr + 1));
+	buffer.insert(buffer.end(), cstr, cstr + fname.size() + 1);
+
+	Write(gl_state->hStdInWrite, buffer.data(), buffer.size());
+}
+
+void SetNewBuffer(WindowEditor* ed, Buffer* new_b)
+{
+	ed->prev_buffer = ed->cur_buffer;
+	ed->cur_buffer = new_b;
+}
+
 int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_state, int line, int line_offset)
 {
 	DWORD bytesRead;
@@ -1333,6 +1426,11 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 		auto hdr = (LspHeader*)aux_buffer;
 		switch(lang_stat->intentions_to_lsp)
 		{
+		case lsp_intention_enum::DECL_DEF_LINE:
+		{
+			char* line = (char*)(hdr + 1);
+			gl_state->func_def_str = line;
+		}break;
 		case lsp_intention_enum::WAITING_FOLDER_TO_COMPILE:
 		{
 			if (hdr->msg_type == lsp_msg_enum::LSP_TASK_DONE)
@@ -1340,15 +1438,7 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 
 				lang_stat->intentions_to_lsp = lsp_intention_enum::SYNTAX;
 				std::string fname = gl_state->main_ed.cur_buffer->name;
-				hdr->magic = 0x77;
-				hdr->msg_type = lsp_msg_enum::LSP_SYNTAX;
-				hdr->msg_len = sizeof(LspHeader) + fname.size() + 1;
-				own_std::vector<char> buffer;
-				char* cstr = (char*)fname.c_str();
-				buffer.insert(buffer.end(), (char*)hdr, (char*)(hdr + 1));
-				buffer.insert(buffer.end(), cstr, cstr + fname.size() + 1);
-
-				Write(gl_state->hStdInWrite, buffer.data(), buffer.size());
+				LspGetFileSyntaxHightlighting(lang_stat, fname, gl_state);
 			}
 		}break;
 		case lsp_intention_enum::SYNTAX:
@@ -1356,12 +1446,15 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 			if (hdr->msg_type == lsp_msg_enum::LSP_SYNTAX_RES)
 			{
 				Buffer* ed_buffer = gl_state->main_ed.cur_buffer;
-				FOR_VEC(cur_line, ed_buffer->ed->mLines)
+				for(int i = 0; i < ed_buffer->ed->mLines.size(); i++)
 				{
+					ed_buffer->ed->ColorizeLine(i);
+					/*
 					FOR_VEC(gl, *cur_line)
 					{
 						gl->color = 0xffffffff;
 					}
+					*/
 				}
 				char* cur_ptr = (char*)(hdr + 1);
 				auto syntax_hdr = (lsp_syntax_hightlight_hdr*)cur_ptr;
@@ -1405,7 +1498,12 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 
 				Buffer* buf = AddFileToBuffer(lang_stat->dstate, file_name, &gl_state->main_ed);
 
-				gl_state->main_ed.cur_buffer = buf;
+				if (file_name != gl_state->main_ed.cmd_buffer->name)
+				{
+					SetNewBuffer(&gl_state->main_ed, buf);
+					LspGetFileSyntaxHightlighting(lang_stat, file_name, gl_state);
+					lang_stat->intentions_to_lsp = lsp_intention_enum::SYNTAX;
+				}
 				TextEditor* ed = gl_state->main_ed.cur_buffer->ed;
 				ed->SetCursorPosition(TextEditor::Coordinates(goto_def->line.line - 1, goto_def->line.column));
 				
@@ -1554,6 +1652,28 @@ int CreateLspProcess(lang_state *lang_stat, open_gl_state *gl_state, std::string
 	return 0;
 }
 
+void LspSendCursorPosAndString(HANDLE hStdInWrite, lsp_msg_enum msg_type, int line, int column, std::string str)
+{
+	LspHeader hdr;
+	hdr.magic = 0x77;
+	hdr.msg_type = msg_type;
+	hdr.msg_len = sizeof(LspHeader) + sizeof(LspPos) + str.size();
+	LspPos int_info;
+	int_info.column = column;
+	int_info.line = line;
+
+
+	own_std::vector<char>buffer;
+	InsertIntoCharVector(&buffer, &hdr, sizeof(LspHeader));
+	InsertIntoCharVector(&buffer, &int_info, sizeof(LspPos));
+	InsertIntoCharVector(&buffer, (char *)str.data(), str.size() + 1);
+	//InsertIntoCharVector(&buffer, (void*)word.c_str(), word.size() + 1);
+
+	DWORD bytesWritten;
+	WriteFile(hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
+}
+
+
 void ImGuiRenderTextEditor(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1561,15 +1681,22 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 
 
 	ShowFileAndCmdBuffer(&gl_state->main_ed);
+	/*
+	if (gl_state->func_def_str.size() > 0)
+	{
+		RenderFuncDef(&gl_state->main_ed, gl_state->for_func_def_first_parentheses_pos_x, gl_state->for_func_def_first_parentheses_pos_y);
+	}
+	*/
 
 	TextEditor* ed = gl_state->main_ed.cur_buffer->ed;
 	if (ed->IsTextChanged())
 	{
-		if (gl_state->intellisense_suggestion.size() > 0)
+		bool has_suggestions = gl_state->intellisense_suggestion.size() > 0;
+		if (has_suggestions);
 		{
 
 			int start_line = gl_state->suggestion_cursor_line;
-			int start_column = gl_state->suggestion_cursor_column + 3;
+			int start_column = gl_state->suggestion_cursor_column;
 			//start_column = ed->GetCharacterIndex(TextEditor::Coordinates(start_line, start_column));
 			int end_line = gl_state->suggestion_cursor_line;
 			int end_column = ed->GetLineMaxColumn(start_line);
@@ -1599,10 +1726,47 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 			gl_state->selected_suggestion = 0;
 			auto a = 0;
 		}
-		if(ed->lastInsertedChar == '.')
+
+		TextEditor::Coordinates coor = ed->GetCursorPosition();
+		auto prevPos = ed->mState.mCursorPosition;
+		ed->MoveLeft(1);
+		std::string word_under_cursor = ed->GetWordUnderCursor();
+		ed->SetCursorPosition(prevPos);
+
+		bool can_get_all_scp_vars = word_under_cursor.size() == 1 && IsLetter(word_under_cursor[0]) && !has_suggestions;
+		if (ed->lastInsertedChar == ',')
+		{
+			ClearIntellisenseSeggestion(&gl_state->main_ed);
+		}
+		if (ed->lastInsertedChar == '(')
+		{
+			/*
+			int out_line, out_column;
+			if(CheckMatchLevelsOfChar('(', coor.mLine, coor.mColumn, int *out_line, int *out_column)
+			*/
+			ed->MoveLeft(2);
+			word_under_cursor = ed->GetWordUnderCursor();
+			ed->MoveRight(2);
+
+			gl_state->suggestion_cursor_line = coor.mLine;
+			gl_state->func_def_cursor_column = coor.mColumn;
+
+
+			ImVec2 cspos = ed->mCursorScreenPos;
+			gl_state->for_func_def_first_parentheses_pos_x = cspos.x;
+			gl_state->for_func_def_first_parentheses_pos_y = cspos.y;
+
+			LspSendCursorPosAndString(gl_state->hStdInWrite, lsp_msg_enum::LSP_DECL_DEF_LINE, coor.mLine + 1,
+								ed->GetCharacterIndex(coor), word_under_cursor);
+
+			gl_state->lang_stat->intentions_to_lsp = lsp_intention_enum::DECL_DEF_LINE;
+			gl_state->intellisense_suggestion.clear();
+			gl_state->intellisense_suggestion_aux.clear();
+
+		}
+		else if(ed->lastInsertedChar == '.' || can_get_all_scp_vars)
 		{
 			CheckLspProcess(dbg->lang_stat, gl_state);
-			TextEditor::Coordinates coor = ed->GetCursorPosition();
 
 			std::string line_str = ed->GetCurrentLineText();
 
@@ -1611,11 +1775,20 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 			hdr.msg_type = lsp_msg_enum::INTELLISENSE;
 			hdr.msg_len = sizeof(LspHeader) + sizeof(LspPos) + line_str.size() + 1;
 			LspPos int_info;
-			int_info.column = ed->GetCharacterIndex(coor);
+			int_info.column = ed->GetCharacterIndex(coor) - 1;
 			int_info.line = coor.mLine + 1;
 			gl_state->suggestion_cursor_line = int_info.line-1;
-			gl_state->suggestion_cursor_column = int_info.column;
-			gl_state->suggestion_cursor_column_end = int_info.column + 3;
+			if (can_get_all_scp_vars)
+			{
+				gl_state->suggestion_cursor_column = coor.mColumn - 1;
+				gl_state->suggestion_cursor_column_end = int_info.column;
+			}
+			else
+			{
+				gl_state->suggestion_cursor_column = coor.mColumn;
+				//gl_state->suggestion_cursor_column = int_info.column + 2;
+				gl_state->suggestion_cursor_column_end = int_info.column + 3;
+			}
 
 
 
@@ -1632,12 +1805,19 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 
 		}
 	}
+	if (ed->mState.mCursorPosition.mColumn < gl_state->func_def_cursor_column)
+	{
+		gl_state->func_def_str.clear();
+	}
 	if (ed->insertBuffer == "gd")
 	{
 		TextEditor::Coordinates coor = ed->FindWordEnd(ed->mState.mCursorPosition);
 		
 		//std::string word = ed->GetWordUnderCursor();
 		std::string line_str = ed->GetCurrentLineText();
+		LspSendCursorPosAndString(gl_state->hStdInWrite, lsp_msg_enum::LSP_GOTO_DEF, coor.mLine + 1,
+								ed->GetCharacterIndex(coor), line_str);
+		/*
 		LspHeader hdr;
 		hdr.magic = 0x77;
 		hdr.msg_type = lsp_msg_enum::LSP_GOTO_DEF;
@@ -1655,6 +1835,7 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 
 		DWORD bytesWritten;
 		WriteFile(gl_state->hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
+		*/
 		ed->insertBuffer.clear();
 		dbg->lang_stat->intentions_to_lsp = lsp_intention_enum::GOTO_DEF;
 	}
@@ -1663,6 +1844,12 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 		LspCompile(dbg->lang_stat, "../dev/engine/", gl_state, 0, 0);
 	}
 
+	/*
+	if (IsKeyHeld(dbg, _KEY_LCTRL) && IsKeyDown(dbg, _KEY_F))
+	{
+		bool CheckMatchLevelsOfChar(char target_ch, int line, int column, int *out_line, int *out_column)
+	}
+	*/
 	if (IsKeyHeld(dbg, _KEY_SHIFT) && IsKeyDown(dbg, _KEY_SPACE))
 	{
 		gl_state->file_window = !gl_state->file_window;
@@ -2408,7 +2595,6 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 		return -1;
 	}
 	cur_ptr = (char*)(hdr + 1);
-	*tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width * *tex_height * 4);
 	
 	tex_id = 0;
 	cur_layer = (aux_layer_info_struct*)cur_ptr;
@@ -2424,6 +2610,7 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 			char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
 			*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
 			*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+			*tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width * *tex_height * 4);
 			//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
 			tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8*)*tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
 			texture_info* t = &gl_state->textures[tex_id];
@@ -2598,11 +2785,13 @@ void LoadTexFolder(dbg_state* dbg)
 		{
 			texture_raw* tex_raw = HasRawTexture(gl_state, str);
 
+
 			tex_idx = GenTexture2(dbg->lang_stat, gl_state, tex_raw->data, tex_raw->width, tex_raw->height);
 			tex_width = tex_raw->width;
 			tex_height = tex_raw->height;
 			tex_channels = tex_raw->channels;
 			tex_data = (char *)tex_raw->data;
+			ASSERT(tex_data);
 		}
 		else
 		{

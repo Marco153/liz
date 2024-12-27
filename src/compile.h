@@ -5,6 +5,10 @@ enum class lsp_msg_enum
 	ADD_FOLDER,
 	INTELLISENSE,
 	LSP_TASK_DONE,
+
+	LSP_DECL_DEF_LINE,
+	LSP_DECL_DEF_LINE_RES,
+
 	LSP_GOTO_DEF,
 	LSP_GOTO_DEF_RES,
 	LSP_ERROR,
@@ -19,6 +23,7 @@ enum class lsp_intention_enum
 	WAITING_FOLDER_TO_COMPILE,
 	INTELLISENSE,
 	SYNTAX,
+	DECL_DEF_LINE,
 	GOTO_DEF,
 };
 struct LspHeader

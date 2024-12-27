@@ -134,6 +134,12 @@ public:
 		}
 	};
 
+	struct GotoMark
+	{
+		char ch;
+		Coordinates coor;
+	};
+
 	struct Identifier
 	{
 		Coordinates mLocation;
@@ -252,6 +258,23 @@ public:
 						(*level)--;
 					}
 				}break;
+				case '(':
+				{
+					if (gl->mChar == '(')
+					{
+						if (*level == 0)
+						{
+							*out_line = line;
+							*out_column = i;
+							return true;
+						}
+						(*level)++;
+					}
+					else if (gl->mChar == ')')
+					{
+						(*level)--;
+					}
+				}break;
 				case '{':
 				{
 					if (gl->mChar == '{')
@@ -284,11 +307,12 @@ public:
 		int level = 0;
 		switch(target_ch)
 		{
+		case '(':
 		case '{':
 		{
 			while (line > 0)
 			{
-				if(CheckMatchLevelsOfCharLogic('{', line, column, out_line, out_column, &level))
+				if(CheckMatchLevelsOfCharLogic(target_ch, line, column, out_line, out_column, &level))
 					return true;
 				line--;
 				int last_ch = GetLineMaxColumn(line);
@@ -462,6 +486,7 @@ public:
 
 	line_mode lnMode;
 	std::string insertBuffer;
+	bool firstChInInsertBufferIsC;
 	struct EditorState
 	{
 		Coordinates mSelectionStart;
@@ -475,6 +500,8 @@ public:
 	VIM_mode_enum mVimMode;
 	void* data;
 	char lastInsertedChar;
+
+	ImVec2 mCursorScreenPos;
 	
 
 
@@ -519,6 +546,7 @@ public:
 
 	void ProcessInputs();
 	void Colorize(int aFromLine = 0, int aCount = -1);
+	void ColorizeLine(int line);
 	void ColorizeRange(int aFromLine = 0, int aToLine = 0);
 	void ColorizeInternal();
 	float TextDistanceToLineStart(const Coordinates& aFrom) const;
@@ -587,5 +615,15 @@ public:
 	std::string mLineBuffer;
 	uint64_t mStartTime;
 
+	std::vector<GotoMark> gotoMarks;
+
 	float mLastClick;
+	bool IsLetter(char c)
+	{
+		return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z';
+	}
+	bool IsNumber(char c)
+	{
+		return c >= '0' && c <= '9';
+	}
 };

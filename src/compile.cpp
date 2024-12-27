@@ -2,7 +2,9 @@ typedef unsigned long long u64;
 typedef unsigned int u32;
 typedef unsigned char u8;
 typedef long long s64;
+#ifndef FOR_VEC
 #define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
+#endif // !1
 #include "compile.h"
 #include <windows.h>
 #include <iostream>

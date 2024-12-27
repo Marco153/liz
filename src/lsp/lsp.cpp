@@ -2,43 +2,11 @@
 #include <windows.h>
 #include <stdio.h>
 #include <string>
-#include "json.hpp"
 
 #define LANG_NO_ENGINE
 #include "../compile.cpp"
 
 
-std::string parseMessage(std::string &buffer) {
-    size_t header_end = buffer.find("\r\n\r\n");
-    if (header_end == std::string::npos) return "";  // Header not complete
-
-    size_t content_length_pos = buffer.find("Content-Length: ");
-    if (content_length_pos == std::string::npos) return "";
-
-    size_t start = content_length_pos + 16;  // Skip "Content-Length: "
-    size_t end = buffer.find("\r\n", start);
-    int content_length = std::stoi(buffer.substr(start, end - start));
-
-    size_t total_length = header_end + 4 + content_length;
-    if (buffer.size() < total_length) return "";  // Message not complete
-
-    std::string message = buffer.substr(header_end + 4, content_length);
-    //buffer = buffer.substr(total_length);  // Remove processed message
-    return message;
-}
-void sendResponse( nlohmann::json &response, std::string *out) {
-
-    std::string body = response.dump();
-    std::string header = "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n";
-
-	*out = header + body;
-	HANDLE hout = GetStdHandle(STD_OUTPUT_HANDLE);
-	Write(hout, (char *)out->c_str(), out->size());
-	CloseHandle(hout);
-	//W
-    //std::cout << header << body;
-	//std::cout << std::flush;
-}
 void Log(std::string message)
 {
 	HANDLE hFile;
@@ -82,6 +50,7 @@ void CreateSyntaxHighlightingNode(lang_state *lang_stat, node *n, scope *scp, ow
 		return;
 	type2 dummy_tp;
 	int func_names = 0xcccc44ff;
+	int struct_color = 0xff00ff00;
 	switch(n->type)
 	{
 	case N_CALL:
@@ -97,13 +66,22 @@ void CreateSyntaxHighlightingNode(lang_state *lang_stat, node *n, scope *scp, ow
 		decl2 *d = FindIdentifier(n->t->str, scp, &dummy_tp);
 		if (!d)
 			return;
-		InsertHightlightWord(n->t, out_buffer, 0xffccccff);
+		if(d->type.type == TYPE_STRUCT_TYPE)
+		{
+			InsertHightlightWord(n->t, out_buffer, struct_color);
+		}
+		else
+			InsertHightlightWord(n->t, out_buffer, 0xffccccff);
 
 	}break;
 	case N_SCOPE:
 	{
 		scope *new_scp = n->scp;
 		CreateSyntaxHighlightingNode(lang_stat, n->r, new_scp, out_buffer);
+	}break;
+	case N_UNOP:
+	{
+		CreateSyntaxHighlightingNode(lang_stat, n->r, scp, out_buffer);
 	}break;
 	case N_BINOP:
 	{
@@ -129,9 +107,13 @@ void CreateSyntaxHighlightingNode(lang_state *lang_stat, node *n, scope *scp, ow
 
 				if (d && d->type.type == TYPE_STRUCT_TYPE && !n->r->modified)
 				{
-					InsertHightlightWord(n->r->t, out_buffer, 0xff00ff00);
+					InsertHightlightWord(n->r->t, out_buffer, struct_color);
 				}
 
+			}break;
+			case N_UNOP:
+			{
+				CreateSyntaxHighlightingNode(lang_stat, n->r, scp, out_buffer);
 			}break;
 			}
 		}break;
@@ -143,9 +125,12 @@ void CreateSyntaxHighlightingNode(lang_state *lang_stat, node *n, scope *scp, ow
 		}
 	}break;
 	case N_STRUCT_DECL:
+		CreateSyntaxHighlightingNode(lang_stat, n->r, scp, out_buffer);
+		break;
 	case N_FUNC_DECL:
 	{
 		CreateSyntaxHighlightingNode(lang_stat, n->r, scp, out_buffer);
+		CreateSyntaxHighlightingNode(lang_stat, n->l->l->r, scp, out_buffer);
 	}break;
 	case N_STMNT:
 	{
@@ -222,6 +207,7 @@ node *GetPointNodeUpToChar(lang_state *lang_stat, char *cur_ptr)
 	int val = setjmp(*lang_stat->jump_buffer);
 	if (val == 0)
 	{
+		lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
 		node_iter niter(&tkns, lang_stat);
 		token2 eof;
 		eof.type = T_EOF;
@@ -242,9 +228,45 @@ node *GetPointNodeUpToChar(lang_state *lang_stat, char *cur_ptr)
 
 }
 
+void SendScopeVars(scope *scp, HANDLE hStdout, bool recursive)
+{
+	own_std::vector<char> buffer;
+	own_std::vector<char> str_tbl;
+	int total_decls = 0;
+	scope* cur_scp = scp;
+	do
+	{
+		FOR_VEC(d_ptr, cur_scp->vars)
+		{
+			decl2* d = *d_ptr;
+			rel_type2 rel_tp;
+			rel_tp.type = d->type.type;
+			rel_tp.name = str_tbl.size();
+			rel_tp.name_len = d->name.size();
+			buffer.insert(buffer.end(), (char*)&rel_tp, (char*)(&rel_tp + 1));
+			InsertIntoCharVector(&str_tbl, (char*)d->name.c_str(), d->name.size() + 1);
+			//rel_tp.name = d->type.type;
+
+		}
+		total_decls += cur_scp->vars.size();
+		cur_scp = cur_scp->parent;
+	} while (recursive && cur_scp);
+	buffer.insert(buffer.begin(), (char*)&total_decls, (char*)(&total_decls + 1));
+	buffer.insert(buffer.end(), str_tbl.begin(), str_tbl.end());
+
+	LspHeader hdr;
+	hdr.magic = 0x77;
+	hdr.msg_type = lsp_msg_enum::LSP_INTELLISENSE_RES;
+	hdr.msg_len = sizeof(LspHeader) + buffer.size();
+
+	buffer.insert(buffer.begin(), (char*)&hdr, (char*)(&hdr + 1));
+	
+	Write(hStdout, (char*)buffer.data(), buffer.size());
+
+}
+
 int main()
 {
-	using json = nlohmann::json;
 
 	HANDLE hFile;
 	char DataBuffer[] = "message from lsp";
@@ -318,6 +340,35 @@ int main()
 					//LspCompile(&lang_stat, folder, 0, 0, nullptr);
 					continue;
 				}
+				else if(hdr->msg_type == lsp_msg_enum::LSP_DECL_DEF_LINE)
+				{
+					auto intl = (LspPos*)(hdr + 1);
+					char* str = (char*)(intl + 1);
+					func_decl* found = GetFuncWithLine(&lang_stat, intl->line);
+					if (!found)
+						continue;
+
+					scope *scp = FindScpWithLine(found, intl->line);
+					type2 dummy;
+					decl2 *d = FindIdentifier(str, scp, &dummy);
+					if(d)
+					{
+						char* line = d->from_file->lines[d->decl_nd->t->line - 1];
+						int line_ln = strlen(line) + 1;
+
+						own_std::vector<char> buffer;
+
+						LspHeader hdr;
+						hdr.magic = 0x77;
+						hdr.msg_type = lsp_msg_enum::LSP_DECL_DEF_LINE_RES;
+						hdr.msg_len = sizeof(LspHeader) + line_ln;
+
+						buffer.insert(buffer.end(), (char*)&hdr, (char*)(&hdr + 1));
+						InsertIntoCharVector(&buffer, (char*)line, line_ln);
+						Write(hStdout, (char*)buffer.data(), buffer.size());
+					}
+
+				}
 				else if(hdr->msg_type == lsp_msg_enum::LSP_GOTO_DEF)
 				{
 					auto intl = (LspPos*)(hdr + 1);
@@ -389,64 +440,49 @@ int main()
 				{
 
 					auto intl = (LspPos*)(hdr + 1);
-					node *n = GetPointNodeUpToChar(&lang_stat, cur_ptr);
-					if (!n)
-						continue;
+					auto str_line = (char*)(intl + 1);
 
 					func_decl* found = GetFuncWithLine(&lang_stat, intl->line);
 					if (!found)
 						continue;
 
 					scope *scp = FindScpWithLine(found, intl->line);
-
-					type2 tp;
-					decl2* last_decl = nullptr;
-
-					if (n->type == N_BINOP && n->t->type == T_POINT)
+		
+					char ch = str_line[intl->column];
+					if(ch == '.')
 					{
-						last_decl = PointLogic(&lang_stat, n, scp, &tp);
-					}
-					else if(n->type == N_IDENTIFIER)
-					{
-						last_decl = FindIdentifier(n->t->str, scp, &tp);
+						node *n = GetPointNodeUpToChar(&lang_stat, cur_ptr);
+						if (!n)
+							continue;
+						type2 tp;
+						decl2* last_decl = nullptr;
+
+						if (n->type == N_BINOP && n->t->type == T_POINT)
+						{
+							last_decl = PointLogic(&lang_stat, n, scp, &tp);
+						}
+						else if(n->type == N_IDENTIFIER)
+						{
+							last_decl = FindIdentifier(n->t->str, scp, &tp);
+						}
+						else
+						{
+							continue;
+						}
+						tp = last_decl->type;
+
+						//std::vector<char> type_tbl;
+						if (tp.type == TYPE_STRUCT)
+						{
+							SendScopeVars(tp.strct->scp, hStdout, false);
+						}
 					}
 					else
 					{
-						continue;
+						SendScopeVars(scp, hStdout, true);
 					}
-					tp = last_decl->type;
 
-					own_std::vector<char> buffer;
-					own_std::vector<char> str_tbl;
-					//std::vector<char> type_tbl;
-					if (tp.type == TYPE_STRUCT)
-					{
-						type_struct2 *st = tp.strct;
-						FOR_VEC(d_ptr, st->scp->vars)
-						{
-							decl2* d = *d_ptr;
-							rel_type2 rel_tp;
-							rel_tp.type = d->type.type;
-							rel_tp.name = str_tbl.size();
-							rel_tp.name_len = d->name.size();
-							buffer.insert(buffer.end(), (char*)&rel_tp, (char*)(&rel_tp + 1));
-							InsertIntoCharVector(&str_tbl, (char *)d->name.c_str(), d->name.size() + 1);
-							//rel_tp.name = d->type.type;
 
-						}
-						int total_decls = st->scp->vars.size();
-						buffer.insert(buffer.begin(), (char*)&total_decls, (char*)(&total_decls + 1));
-						buffer.insert(buffer.end(), str_tbl.begin(), str_tbl.end());
-
-						LspHeader hdr;
-						hdr.magic = 0x77;
-						hdr.msg_type = lsp_msg_enum::LSP_INTELLISENSE_RES;
-						hdr.msg_len = sizeof(LspHeader) + buffer.size();
-
-						buffer.insert(buffer.begin(), (char*)&hdr, (char*)(&hdr + 1));
-						
-						Write(hStdout, (char*)buffer.data(), buffer.size());
-					}
 				}
 				else
 				{
@@ -459,10 +495,6 @@ int main()
 
 			}
 
-			tempBuffer[bytesRead] = '\0';
-			inputBuffer += tempBuffer;
-			inputBuffer += " yes i gotchu";
-			Write(hStdout, (char *)inputBuffer.data(), inputBuffer.size());
 			inputBuffer.clear();
 
 		}

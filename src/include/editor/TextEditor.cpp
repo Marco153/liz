@@ -9,6 +9,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h" // for imGui::GetCurrentWindow()
 
+#define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
 int clamp(int a, int b, int c)
 {
 	if (a <= b) return b;
@@ -714,6 +715,12 @@ void TextEditor::RemoveLine(int aIndex)
 	}
 	mBreakpoints = std::move(btmp);
 
+	FOR_VEC(m, gotoMarks)
+	{
+		if(m->coor.mLine >= aIndex)
+			m->coor.mLine--;
+	}
+
 	mLines.erase(mLines.begin() + aIndex);
 	assert(!mLines.empty());
 
@@ -735,6 +742,12 @@ TextEditor::Line& TextEditor::InsertLine(int aIndex)
 	for (auto i : mBreakpoints)
 		btmp.insert(i >= aIndex ? i + 1 : i);
 	mBreakpoints = std::move(btmp);
+
+	FOR_VEC(m, gotoMarks)
+	{
+		if(m->coor.mLine >= aIndex)
+			m->coor.mLine++;
+	}
 
 	return result;
 }
@@ -861,12 +874,15 @@ void TextEditor::InsertLineAddIndent(int line, int indentOfLine)
 	memset(buffer, '\t', indent);
 	buffer[indent] = 0;
 	InsertTextAt(Coordinates(line, 0), (const char *)buffer);
-	SetCursorPosition(Coordinates(line, indent));
+	int col = GetCharacterColumn(line, indent);
+	SetCursorPosition(Coordinates(line, col));
 	//mLines[line] += buffer;
 	mVimMode = VI_INSERT;
 }
 bool GlobalIsCurCmdBuffer(void *);
+void RenderFuncDef(void* data, float screen_x, float screen_y);
 void RenderIntellisenseSuggestions(void* data, float screen_x, float screen_y);
+void GotoPrevBuffer(void* data);
 bool OnIntellisenseSuggestions(void* data);
 void AcceptIntellisenseSeggestion(void* data);
 void ClearIntellisenseSeggestion(void* data);
@@ -877,6 +893,30 @@ void GlobalGetFileName(void *, std::string *);
 void GlobalGetCurBufferFileLines(void *, std::string *);
 void WriteFileLang(char* name, void* data, int size);
 void SaveFile(void*, char* contents, int size, std::string *file_name);
+
+void GetMarkPressKey(char &ch, bool &pressed)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	auto shift = io.KeyShift;
+	auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
+	auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
+	pressed = false;
+	if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_A))
+	{
+		pressed = true;
+		ch = 'a';
+	}
+	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_O))
+	{
+		pressed = true;
+		ch = 'o';
+	}
+	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_E))
+	{
+		pressed = true;
+		ch = 'e';
+	}
+}
 void TextEditor::HandleKeyboardInputs()
 {
 
@@ -884,6 +924,15 @@ void TextEditor::HandleKeyboardInputs()
 	auto shift = io.KeyShift;
 	auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
 	auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
+
+	bool bNotEmpty = insertBuffer.size() > 0;
+	bool isD = bNotEmpty && insertBuffer[0] == 'd';
+	bool isG = bNotEmpty && insertBuffer[0] == 'g';
+	bool isM = bNotEmpty && insertBuffer[0] == 'm';
+	bool isSlash = bNotEmpty && insertBuffer[0] == '/';
+	bool isApostrophe = bNotEmpty && insertBuffer[0] == '\'';
+	firstChInInsertBufferIsC = bNotEmpty && insertBuffer[0] == 'c';;
+
 	if (ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows))
 	{
 		if (ImGui::IsWindowHovered())
@@ -922,12 +971,103 @@ void TextEditor::HandleKeyboardInputs()
 		{
 			movAmount = atoi(insertBuffer.c_str());
 		}
+		if(isM)
+		{
+			bool pressed = false;
+			char ch = 0;
+			GetMarkPressKey(ch, pressed);
+			if(pressed)
+			{
+				GotoMark* mark = nullptr;
+				FOR_VEC(m, gotoMarks)
+				{
+					if (m->ch == ch)
+					{
+						mark = &*m;
+						break;
+					}
+				}
+				if(mark)
+				{
+					mark->coor = mState.mCursorPosition;
+				}
+				else
+				{
+					GotoMark m;
+					m.ch = ch;
+					m.coor = mState.mCursorPosition;
+					gotoMarks.emplace_back(m);
+				}
+				insertBuffer.clear();
+				return;
+			}
+		}
+		else if(isApostrophe)
+		{
+			bool pressed = false;
+			char ch = 0;
+			GetMarkPressKey(ch, pressed);
+			if (pressed)
+			{
+				GotoMark* mark = nullptr;
+				FOR_VEC(m, gotoMarks)
+				{
+					if (m->ch == ch)
+					{
+						mark = &*m;
+						break;
+					}
+				}
+				if(mark)
+				{
+					SetCursorPosition(mark->coor);
+				}
+				insertBuffer.clear();
+				return;
+			}
+		}
 		if (mVimMode == VI_NORMAL)
 		{
-			BasicMovs(movAmount);
-			bool bNotEmpty = insertBuffer.size() > 0;
-			bool isD = bNotEmpty && insertBuffer[0] == 'd';
-			bool isG = bNotEmpty && insertBuffer[0] == 'g';
+			if (!firstChInInsertBufferIsC)
+			{
+				BasicMovs(movAmount);
+				if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_I))
+				{
+					mVimMode = VI_INSERT;
+				}
+				else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Apostrophe))
+				{
+					if (isApostrophe)
+						insertBuffer.clear();
+					else
+						insertBuffer += '\'';
+				}
+				else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Slash))
+				{
+					insertBuffer += '/';
+					//mVimMode = VI_CMD;
+					if(!isCmdBuffer)
+						GlobalChangeToCmdBuffer(data);
+				}
+				else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_S))
+				{
+					Coordinates pos = mState.mCursorPosition;
+					pos.mColumn = 0;
+					pos = FindNextWord(pos);
+					MoveEnd();
+					DeleteRange(pos, mState.mCursorPosition);
+					mVimMode = VI_INSERT;
+				}
+				else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_A))
+				{
+					MoveEnd();
+					mVimMode = VI_INSERT;
+				}
+				else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_M))
+				{
+					insertBuffer = 'm';
+				}
+			}
 			if (!isD && !ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_V))
 			{
 				mVimMode = VI_VISUAL;
@@ -935,37 +1075,47 @@ void TextEditor::HandleKeyboardInputs()
 				mSelectionMode = SelectionMode::Normal;
 				SetSelection(mState.mCursorPosition, mState.mCursorPosition, mSelectionMode);
 			}
-			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_I))
-			{
-				mVimMode = VI_INSERT;
-			}
 			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Semicolon))
 			{
 				//mVimMode = VI_CMD;
 				if(!isCmdBuffer)
 					GlobalChangeToCmdBuffer(data);
 			}
+			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_W))
+			{
+				if(insertBuffer == "ci")
+				{
+					Coordinates start = FindWordStart(mState.mCursorPosition);
+					SelectWordUnderCursor();
+					Delete();
+					insertBuffer.clear();
+					SetCursorPosition(start);
+				}
+				else if(bNotEmpty)
+				{
+					insertBuffer += 'w';
+				}
+			}
+			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_I))
+			{
+				if(bNotEmpty)
+				{
+					insertBuffer += 'i';
+				}
+			}
+			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_C))
+			{
+				if(!bNotEmpty)
+				{
+					insertBuffer += 'c';
+				}
+			}
+			else if (ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_6))
+			{
+				GotoPrevBuffer(data);
+			}
 			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_U))
 				Undo();
-			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_A))
-			{
-				MoveRight(1);
-				mVimMode = VI_INSERT;
-			}
-			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_S))
-			{
-				Coordinates pos = mState.mCursorPosition;
-				pos.mColumn = 0;
-				pos = FindNextWord(pos);
-				MoveEnd();
-				DeleteRange(pos, mState.mCursorPosition);
-				mVimMode = VI_INSERT;
-			}
-			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_A))
-			{
-				MoveEnd();
-				mVimMode = VI_INSERT;
-			}
 			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_V))
 			{
 				mVimMode = VI_LINE_VISUAL;
@@ -1489,6 +1639,9 @@ void TextEditor::Render()
 
 						ImVec2 cstart(textScreenPos.x + cx, lineStartScreenPos.y);
 						ImVec2 cend(textScreenPos.x + cx + width, lineStartScreenPos.y + mCharAdvance.y);
+
+						if (firstChInInsertBufferIsC)
+							cstart.y += 10;
 						drawList->AddRectFilled(cstart, cend, mPalette[(int)PaletteIndex::Cursor]);
 						if (elapsed > 800)
 							mStartTime = timeEnd;
@@ -1603,13 +1756,16 @@ void TextEditor::Render()
 		ImGui::SetWindowFocus();
 		mScrollToCursor = false;
 	}
+
+	float y_pos = cursorScreenPos.y + mState.mCursorPosition.mLine * mCharAdvance.y;
+	ImVec2 lineStartScreenPos = ImVec2(cursorScreenPos.x, y_pos);
+	ImVec2 textScreenPos = ImVec2(lineStartScreenPos.x + mTextStart, lineStartScreenPos.y);
+	float cx = TextDistanceToLineStart(mState.mCursorPosition);
+	ImVec2 cstart(textScreenPos.x + cx, lineStartScreenPos.y);
+
+	mCursorScreenPos = cstart;
 	if (hasCursorFocus)
 	{
-		float y_pos = cursorScreenPos.y + mState.mCursorPosition.mLine * mCharAdvance.y;
-		ImVec2 lineStartScreenPos = ImVec2(cursorScreenPos.x, y_pos);
-		ImVec2 textScreenPos = ImVec2(lineStartScreenPos.x + mTextStart, lineStartScreenPos.y);
-		float cx = TextDistanceToLineStart(mState.mCursorPosition);
-		ImVec2 cstart(textScreenPos.x + cx, lineStartScreenPos.y);
 		RenderIntellisenseSuggestions(data, cstart.x, cstart.y);
 	}
 }
@@ -1653,8 +1809,120 @@ void TextEditor::Render(const char* aTitle, const ImVec2& aSize, int flags, bool
 	ImGui::PopStyleColor();
 
 	mWithinRender = false;
+
+
+	if(mTextChanged)
+		ColorizeLine(mState.mCursorPosition.mLine);
 }
 
+void TextEditor::ColorizeLine(int line)
+{
+	auto l = &mLines[line];
+	int lsz = l->size();
+	int start_word = 0;
+	if (lsz != 0)
+	{
+
+		Glyph* g = &(*l)[0];
+		for (int i = 0; i < lsz; i++)
+		{
+			g[i].color = 0xffffffff;
+			if(g[i].mChar == '/' && g[i + 1].mChar == '/')
+			{
+				for (;i < lsz; i++)
+				{
+					g[i].color = 0xff007700;
+				}
+
+			}
+			else if(g[i].mChar == '\"')
+			{
+				i++;
+				while (i < lsz && g[i].mChar != '\"')
+				{
+					g[i].color = IM_COL32(255, 244, 38, 255);
+					i++;
+				}
+				i++;
+
+			}
+			else if (IsNumber(g[i].mChar))
+			{
+				start_word = i;
+				i++;
+				if (g[i].mChar == 'x')
+					i++;
+				while (i < lsz && (IsNumber(g[i].mChar) || g[i].mChar == '.'))
+				{
+					i++;
+				}
+
+				int word_len = i - start_word;
+				for (int j = 0; j < word_len; j++)
+				{
+					g[start_word + j].color = IM_COL32(208, 150, 255, 255);;
+				}
+			}
+			else if (IsLetter(g[i].mChar))
+			{
+				start_word = i;
+				i++;
+				while (i < lsz && (IsLetter(g[i].mChar) || IsNumber(g[i].mChar) || g[i].mChar == '_'))
+				{
+					i++;
+				}
+
+				char buffer[256];
+
+				int word_len = i - start_word;
+				for (int j = 0; j < word_len; j++)
+				{
+					buffer[j] = g[start_word + j].mChar;
+				}
+
+				buffer[word_len] = 0;
+				if (strcmp("if", buffer) == 0 ||
+					strcmp("else", buffer) == 0||
+					strcmp("continue", buffer) == 0||
+					strcmp("return", buffer) == 0||
+					strcmp("while", buffer) == 0||
+					strcmp("for", buffer) == 0
+					)
+				{
+					for (int j = 0; j < word_len; j++)
+					{
+						g[start_word + j].color = IM_COL32(145, 200, 255, 255);
+					}
+				}
+				else if (strcmp("union", buffer) == 0 ||
+						 strcmp("struct", buffer) == 0 ||
+						 strcmp("import", buffer) == 0 ||
+						 strcmp("fn", buffer) == 0)
+				{
+					for (int j = 0; j < word_len; j++)
+					{
+						g[start_word + j].color = IM_COL32(145, 255, 184, 255);
+					}
+				}
+				else if (strcmp("u64", buffer) == 0 ||
+						 strcmp("s64", buffer) == 0 ||
+						 strcmp("u32", buffer) == 0 ||
+						 strcmp("s32", buffer) == 0 ||
+						 strcmp("u16", buffer) == 0 ||
+						 strcmp("s16", buffer) == 0 ||
+						 strcmp("u8", buffer) == 0 ||
+						 strcmp("s8", buffer) == 0
+						 )
+				{
+					for (int j = 0; j < word_len; j++)
+					{
+						g[start_word + j].color = IM_COL32(239, 255, 150, 255);
+					}
+				}
+			}
+		}
+	}
+}
 void TextEditor::SetText(const std::string & aText)
 {
 	mLines.clear();
@@ -1673,6 +1941,7 @@ void TextEditor::SetText(const std::string & aText)
 		}
 	}
 
+
 	mTextChanged = true;
 	mScrollToTop = true;
 
@@ -1680,6 +1949,15 @@ void TextEditor::SetText(const std::string & aText)
 	mUndoIndex = 0;
 
 	Colorize();
+
+	int l_idx = 0;
+	FOR_VEC(l, mLines)
+	{
+		int i = 0;
+		ColorizeLine(l_idx);
+		l_idx++;
+
+	}
 }
 
 void TextEditor::SetTextLines(const std::vector<std::string> & aLines)

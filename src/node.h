@@ -370,6 +370,7 @@ struct unit_file
 	own_std::vector<char *> lines;
 
 	scope *global;
+	scope *funcs_scp;
 	node *s;
 
 	int file_dbg_idx;

@@ -40,6 +40,17 @@ struct LspPos
 	int column;
 };
 
+struct ToLspGoto
+{
+	int line_str_offset;
+	int path_file_name_offset;
+};
+struct ToLspLineStr
+{
+	LspHeader hdr;
+	LspPos pos;
+	int line_str_len;
+};
 struct GotoDef
 {
 	LspPos line;

@@ -327,22 +327,35 @@ void InsertIntoDataSect(lang_state *lang_stat, void* src, int size)
 }
 
 
+node* new_node(lang_state *lang_stat, token2 *t)
+{
+	//auto cur_node = lang_stat->node_arena + lang_stat->cur_nd++;
+	node* cur_node = nullptr;
+	if (lang_stat->use_node_arena)
+	{
+		ASSERT((lang_stat->cur_nd + 1) < lang_stat->max_nd);
+		cur_node = lang_stat->node_arena + lang_stat->cur_nd;
+		memset(cur_node, 0, sizeof(node));
+		ASSERT(t);
+		cur_node->t = t;
+		lang_stat->cur_nd++;
+	}
+	else
+	{
+		cur_node = (node*)AllocMiscData(lang_stat, sizeof(node) * 2);
+		memset(cur_node, 0, sizeof(node));
+		ASSERT(t);
+		cur_node->t = t;
+	}
+	return cur_node;
+}
 node* new_node(lang_state *lang_stat, node* src)
 {
 	//ASSERT((lang_stat->cur_nd + 1) < lang_stat->max_nd);
-	auto cur_node = (node*)AllocMiscData(lang_stat, sizeof(node) * 2);
+
+	auto cur_node = new_node(lang_stat, src->t);
 	cur_node->t = src->t;
 	memcpy(cur_node, src, sizeof(node));
-	return cur_node;
-}
-node* new_node(lang_state *lang_stat, token2 *t)
-{
-	//ASSERT((lang_stat->cur_nd + 1) < lang_stat->max_nd);
-	//auto cur_node = lang_stat->node_arena + lang_stat->cur_nd++;
-	auto cur_node = (node*)AllocMiscData(lang_stat, sizeof(node) * 2);
-	memset(cur_node, 0, sizeof(node));
-	ASSERT(t);
-	cur_node->t = t;
 	return cur_node;
 }
 
@@ -956,8 +969,8 @@ node* node_iter::parse_func_like()
 		auto prev_flags = lang_stat->flags;
 		lang_stat->flags &= ~PSR_FLAGS_ON_ARRAY;
 		n->r = parse_expr();
-		//n->scope_line_start = line_start;
-		//n->scope_line_end = (peek_tkn() - 1)->line;
+		n->scope_line_start = line_start;
+		n->scope_line_end = (peek_tkn() - 1)->line;
 		lang_stat->flags = prev_flags;
 
 		n->type = node_type::N_FUNC_DECL;
@@ -2505,7 +2518,10 @@ scope* NewScope(lang_state *lang_stat, scope* scp)
 }
 decl2* NewDecl(lang_state *lang_stat, std::string name, type2 tp)
 {
-	auto ret = (decl2*)AllocMiscData(lang_stat, sizeof(decl2));
+	ASSERT(lang_stat->cur_decl + 1 < lang_stat->max_decl);
+	auto ret = lang_stat->decl_arena + lang_stat->cur_decl;
+	lang_stat->cur_decl++;
+	//auto ret = (decl2*)AllocMiscData(lang_stat, sizeof(decl2));
 	memset(ret, 0, sizeof(decl2));
 	ret->name = name.substr();
 	ret->type = tp;
@@ -5661,7 +5677,10 @@ decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, std::string name,
 		new_decl->type.fdecl->name = new_decl->name.substr();
 
 		if (IS_FLAG_OFF(new_decl->type.fdecl->flags, FUNC_DECL_TEMPLATED))
+		{
 			lang_stat->funcs_scp->vars.emplace_back(new_decl);
+			lang_stat->cur_file->funcs_scp->vars.emplace_back(new_decl);
+		}
 
 		scp->vars.emplace_back(new_decl);
 	}
@@ -6089,7 +6108,7 @@ void AddStructMembersToScopeWithUsing(lang_state *lang_stat, type_struct2 *strct
 		scp->vars.emplace_back(new_decl);
 	}
 }
-node* MakeMemCpyCall(lang_state *lang_stat, node *lhs, node *rhs, int size)
+node* MakeMemCpyCall(lang_state *lang_stat, node *lhs, node *rhs, node *top, int size)
 {
 	auto arg1 = NewUnopNode(lang_stat, nullptr, T_AMPERSAND, lhs);
 	auto arg2 = NewUnopNode(lang_stat, nullptr, T_AMPERSAND, rhs);
@@ -6103,6 +6122,11 @@ node* MakeMemCpyCall(lang_state *lang_stat, node *lhs, node *rhs, int size)
 	lang_stat->void_decl->type.ptr--;
 
 	auto call_nd = NewThreeArgNd(lang_stat, "memcpy", casted1, casted2, NewIntNode(lang_stat, size, lhs->t));
+	if (lang_stat->is_lsp)
+	{
+		call_nd->modified = true;
+		call_nd->original = top->NewTree(lang_stat);
+	}
 	return call_nd;
 }
 
@@ -7198,6 +7222,11 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						lang_stat->void_decl->type.ptr--;
 
 						auto call_nd = NewThreeArgNd(lang_stat, "memcpy", casted1, casted2, NewIntNode(lang_stat, lhs->type.strct->size, n->t));
+						if (lang_stat->is_lsp)
+						{
+							call_nd->modified = true;
+							call_nd->original = equal_stmnt->NewTree(lang_stat);
+						}
 
 						memcpy(equal_stmnt, call_nd, sizeof(node));
 
@@ -7429,6 +7458,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							ASSERT(false)
 						}
 
+						new_decl->from_file = lang_stat->cur_file;
+						new_decl->decl_nd = n->n;
 						new_decl->type.type = enum_type2::TYPE_ENUM_IDX_32;
 
 						new_decl->type.from_enum = decl_exist;
@@ -9550,7 +9581,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 									ReportMessage(lang_stat, n->t, "Theres no 'memcpy' function to do a copy of a struct");
 								}
 
-								node* call = MakeMemCpyCall(lang_stat, n->l, n->r, ltp.strct->size);
+								node* call = MakeMemCpyCall(lang_stat, n->l, n->r, n, ltp.strct->size);
 								memcpy(n, call, sizeof(node));
 							}
 							/*
@@ -9599,7 +9630,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					{
 						if (!CompareTypes(&ltp, &rtp))
 							ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
-						node * call = MakeMemCpyCall(lang_stat, n->l, n->r, ltp.strct->size);
+						node * call = MakeMemCpyCall(lang_stat, n->l, n->r, n, ltp.strct->size);
 						memcpy(n, call, sizeof(node));
 					}
 				}
@@ -9627,7 +9658,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 						MaybeCreateCast(lang_stat, n->l, n->r, &ltp, &rtp);
 					if (ltp.type == enum_type2::TYPE_STATIC_ARRAY && ltp.ptr == 0)
 					{
-						node * call = MakeMemCpyCall(lang_stat, n->l, n->r, GetTypeSize(&ltp));
+						node * call = MakeMemCpyCall(lang_stat, n->l, n->r, n, GetTypeSize(&ltp));
 						memcpy(n, call, sizeof(node));
 
 					}
@@ -10299,13 +10330,15 @@ void CompileFile(lang_state *lang_stat, unit_file* fl)
 
 	Tokenize2(fl->contents, fl->contents_sz, &fl->tkns, &fl->lines);
 	node_iter niter(&fl->tkns, lang_stat);
+	lang_stat->use_node_arena = true;
 	fl->s = niter.parse_all();
+	lang_stat->use_node_arena = false;
 }
 
-unit_file* AddNewFile(lang_state *lang_stat, std::string name, std::string path)
+unit_file *ThereIsFile(lang_state *lang_stat, std::string &dir)
 {
 	TCHAR name_buffer[MAX_PATH];
-	std::string dir = path + name;
+
 	for(int i= 0; i < dir.size(); i++)
 	{
 		if (dir[i] == '/')
@@ -10319,6 +10352,14 @@ unit_file* AddNewFile(lang_state *lang_stat, std::string name, std::string path)
 		if ((*f)->path + "\\" + (*f)->name == dir)
 			return *f;
 	}
+	return nullptr;
+}
+unit_file* AddNewFile(lang_state *lang_stat, std::string name, std::string path)
+{
+	std::string dir = path + name;
+	unit_file* theres_file = ThereIsFile(lang_stat, dir);
+	if (theres_file)
+		return theres_file;
 	//dir = lang_stat->work_dir + "\\" + name;
 
 	int read;
@@ -10348,6 +10389,7 @@ unit_file* AddNewFile(lang_state *lang_stat, std::string name, std::string path)
 	new_f->contents = file;
 	new_f->contents_sz = read;
 	new_f->global = NewScope(lang_stat, lang_stat->root);
+	new_f->funcs_scp = NewScope(lang_stat, nullptr);
 	new_f->global->flags |= SCOPE_IS_GLOBAL;
 	new_f->global->type = SCP_TYPE_FILE;
 	new_f->global->file = new_f;

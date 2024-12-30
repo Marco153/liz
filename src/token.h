@@ -786,6 +786,10 @@ struct token2
 		return ret;
 	}
 };
+int IsTknWordStr(token2 *tkn, const char *str)
+{
+	return tkn->type == tkn_type2::T_WORD && tkn->str == str;
+}
 int IsTknWordStr(token2 *tkn, std::string str)
 {
 	return tkn->type == tkn_type2::T_WORD && tkn->str == str;

@@ -6,6 +6,7 @@ typedef long long s64;
 #define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
 #endif // !1
 #include "compile.h"
+#include "timer.cpp"
 #include <windows.h>
 #include <iostream>
 #include <string>
@@ -191,6 +192,7 @@ struct lang_state
 	bool something_was_declared;
 	bool in_ir_stmnt;
 	bool is_lsp;
+	bool use_node_arena;
 	scope* root;
 
 	lsp_stage_enum lsp_stage;
@@ -207,7 +209,7 @@ struct lang_state
 
 
 	
-	jmp_buf *jump_buffer;
+	jmp_buf jump_buffer;
 	bool ir_in_stmnt;
 	func_decl* cur_func;
 
@@ -313,6 +315,10 @@ struct lang_state
 	node* node_arena;
 	int cur_nd;
 	int max_nd;
+
+	decl2* decl_arena;
+	int cur_decl;
+	int max_decl;
 
 	char* misc_arena;
 	int cur_misc;
@@ -4386,7 +4392,7 @@ void PrintExpressionTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 	InitMemAlloc(&temp_alloc);
 	void* prev_alloc = __lang_globals.data;
 	dbg_expr* exp = nullptr;
-	int val = setjmp(*dbg->lang_stat->jump_buffer);
+	int val = setjmp(dbg->lang_stat->jump_buffer);
 	if (val == 0)
 	{
 		dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -4634,7 +4640,7 @@ void WasmOnArgs(dbg_state* dbg)
 				InitMemAlloc(&temp_alloc);
 				void* prev_alloc = __lang_globals.data;
 				dbg_expr* exp = nullptr;
-				int val = setjmp(*dbg->lang_stat->jump_buffer);
+				int val = setjmp(dbg->lang_stat->jump_buffer);
 				if (val == 0)
 				{
 					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -4704,7 +4710,7 @@ void WasmOnArgs(dbg_state* dbg)
 				InitMemAlloc(&temp_alloc);
 				void* prev_alloc = __lang_globals.data;
 				dbg_expr* exp = nullptr;
-				int val = setjmp(*dbg->lang_stat->jump_buffer);
+				int val = setjmp(dbg->lang_stat->jump_buffer);
 				if (val == 0)
 				{
 					dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -6993,7 +6999,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			}
 			//ImGui::ImGuiContext& g = *ImGui::GImGui;
 			//if(g.WithinFrameScope)
-				//ImGui::Render();
+				ImGui::Render();
 
 			// Start the Dear ImGui frame
 			ImGui_ImplOpenGL3_NewFrame();
@@ -11156,6 +11162,9 @@ void GenWasm(web_assembly_state* wasm_state)
 		INSERT_VEC(final_code_sect, code_sect);
 
 	}
+	timer tmr;
+	InitTimer(&tmr);
+	StartTimer(&tmr);
 	FOR_VEC(f, wasm_state->funcs)
 	{
 		func_decl* func = *f;
@@ -11178,6 +11187,8 @@ void GenWasm(web_assembly_state* wasm_state)
 	}
 	GenX64(wasm_state->lang_stat, mcode.bcs, mcode);
 	CompleteMachineCode(wasm_state->lang_stat, mcode);
+	EndTimer(&tmr);
+	printf("x64 code gen %d\n", GetTimerMS(&tmr));
 
 	//ResolveJmpInsts(&mcode);
 	/*
@@ -11197,12 +11208,14 @@ void GenWasm(web_assembly_state* wasm_state)
 		int func_addr_int = asm_test->code_start_idx;
 		char* func_addr = (char*)(wasm_state->lang_stat->code_sect.data() + wasm_state->lang_stat->type_sect.size() + func_addr_int);
 		uleb.clear();
+		/*
 		int a = ((int(__cdecl*)(int*))func_addr)(&reached);
 		uleb.clear();
 		if (a == -1)
 		{
 			ASSERT(false)
 		}
+		*/
 	}
 	uleb.clear();
 	// total funcs size
@@ -12295,6 +12308,9 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 
 	
 
+	timer tmr;
+	InitTimer(&tmr);
+	StartTimer(&tmr);
 	TCHAR buffer[MAX_PATH] = { 0 };
 	GetFullPathName(file.c_str(), MAX_PATH, buffer, nullptr);
 	lang_stat->work_dir = buffer;
@@ -12337,6 +12353,9 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	};
 	own_std::vector<info_not_found>names_not_found;
 	type2 dummy;
+	EndTimer(&tmr);
+	printf("initial parsing %d\n", GetTimerMS(&tmr));
+	StartTimer(&tmr);
 	while(true)
 	{
 		
@@ -12431,6 +12450,10 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_ERRO_REPORTED))
 		ExitProcess(1);
 
+	EndTimer(&tmr);
+	printf("name finding parsing %d\n", GetTimerMS(&tmr));
+
+
 	lang_stat->flags |= PSR_FLAGS_ASSIGN_SAVED_REGS;
 	lang_stat->flags |= PSR_FLAGS_AFTER_TYPE_CHECK;
 
@@ -12454,6 +12477,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
         //print_key_value(key, value);
     }
 	
+	StartTimer(&tmr);
 	for(cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
 	{
 		auto f = lang_stat->files[cur_f];
@@ -12483,6 +12507,9 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		//auto exec_funcs = CompleteMachineCode(lang_stat, code);
 	}
 
+	EndTimer(&tmr);
+
+	printf("type checking %d\n", GetTimerMS(&tmr));
 
 
 	char* start_dbg_global_buffer = &lang_stat->dstate->mem_buffer[GLOBALS_OFFSET];
@@ -12510,6 +12537,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		f->this_decl = fdecl;
 		wasm_state.imports.emplace_back(f->this_decl);
 	}
+
+	StartTimer(&tmr);
 	FOR_VEC(cur_f, lang_stat->funcs_scp->vars)
 	{
 		auto f = *cur_f;
@@ -12527,6 +12556,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		int  a = 0;
 
 	}
+	EndTimer(&tmr);
+	printf("Ast gen %d\n", GetTimerMS(&tmr));
 
 	/*
 	FOR_VEC(f_ptr, lang_stat->func_ptrs_decls)
@@ -12589,7 +12620,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//*lang_stat = test;
 	new(lang_stat)lang_state();
 	lang_stat->code_sect.reserve(256);
-	lang_stat->jump_buffer = (jmp_buf*)AllocMiscData(lang_stat, sizeof(jmp_buf) * __lang_globals.total_blocks);
+	//lang_stat->jump_buffer = (jmp_buf*)AllocMiscData(lang_stat, sizeof(jmp_buf));
 
 	lang_stat->winterp = (wasm_interp *) AllocMiscData(lang_stat, sizeof(wasm_interp));
 	new(&lang_stat->winterp->outsiders) std::unordered_map<std::string, OutsiderFuncType>();
@@ -12611,12 +12642,15 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//printf("hello");
 
     
-	lang_stat->max_nd = 20000 * 2;
+	lang_stat->max_nd = 80000;
+	lang_stat->cur_nd = 0;
+	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
-	//lang_stat->node_arena = InitSubSystems(64 * 1024 * 1024);
+	lang_stat->max_decl = 4000;
+	lang_stat->cur_decl = 0;
+	lang_stat->decl_arena = (decl2*)AllocMiscData(lang_stat, lang_stat->max_decl * sizeof(decl2));
 	//lang_stat->max_misc = 16 * 1024 * 1024;
 	//lang_stat->misc_arena = (char*)VirtualAlloc(0, lang_stat->max_misc, MEM_COMMIT, PAGE_READWRITE);
-	//lang_stat->node_arena = (node*)VirtualAlloc(0, lang_stat->max_nd * sizeof(node), MEM_COMMIT, PAGE_READWRITE);
     
 	/*
 	lang_stat->structs = (LangLangArray<type_struct2> *)malloc(sizeof(LangLangArray<int>));
@@ -12895,7 +12929,7 @@ void LspCompile(lang_state *lang_stat, std::string folder, int line, int line_of
 			break;
 		lang_stat->flags |= PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
 
-		int val = setjmp(*lang_stat->jump_buffer);
+		int val = setjmp(lang_stat->jump_buffer);
 		if (val == 0)
 		{
 			lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -12930,7 +12964,7 @@ void LspCompile(lang_state *lang_stat, std::string folder, int line, int line_of
 	{
 		//CreateBaseFileCode(lang_stat);
 
-		int val = setjmp(*lang_stat->jump_buffer);
+		int val = setjmp(lang_stat->jump_buffer);
 		if (val == 0)
 		{
 			lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;

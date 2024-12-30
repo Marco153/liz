@@ -15,8 +15,10 @@ enum VIM_mode_enum
 {
 	VI_NORMAL,
 	VI_INSERT,
+	VI_CHANGE,
 	VI_VISUAL,
 	VI_LINE_VISUAL,
+	VI_YANK,
 	VI_CMD,
 };
 enum line_mode
@@ -28,6 +30,10 @@ enum line_mode
 #define TEXT_ED_DONT_HAVE_CURSOR_FOCUS 1
 class TextEditor
 {
+	typedef unsigned long long u64;
+	typedef unsigned int u32;
+	typedef unsigned char u8;
+	typedef long long s64;
 public:
 	enum class PaletteIndex
 	{
@@ -134,6 +140,11 @@ public:
 		}
 	};
 
+	struct YankBuffer
+	{
+		char ch;
+		std::string str;
+	};
 	struct GotoMark
 	{
 		char ch;
@@ -162,10 +173,12 @@ public:
 		bool mMultiLineComment : 1;
 		bool mPreprocessor : 1;
 		int color;
+		int backgroundColor;
 
 		Glyph(Char aChar, PaletteIndex aColorIndex) : mChar(aChar), mColorIndex(aColorIndex),
 			mComment(false), mMultiLineComment(false), mPreprocessor(false) {
 			color = 0xffffffff;
+			backgroundColor = 0;
 		}
 	};
 
@@ -353,6 +366,7 @@ public:
 	void Render(const char* aTitle, const ImVec2& aSize = ImVec2(), int flags = 0, bool aBorder = false);
 	void SetText(const std::string& aText);
 	std::string GetText() const;
+	std::string GetText2(const Coordinates& aStart, const Coordinates& aEnd) const;
 
 	void SetTextLines(const std::vector<std::string>& aLines);
 	std::vector<std::string> GetTextLines() const;
@@ -363,6 +377,7 @@ public:
 	std::string GetCurrentLineText()const;
 
 	int GetCharacterIndex(const Coordinates& aCoordinates) const;
+	int GetCharacterIndex2(const Coordinates& aCoordinates) const;
 
 	int GetTotalLines() const { return (int)mLines.size(); }
 	bool IsOverwrite() const { return mOverwrite; }
@@ -429,12 +444,14 @@ public:
 	bool HasSelection() const;
 
 
-	void DeleteRange(const Coordinates& aStart, const Coordinates& aEnd);
+	void DeleteRange(const Coordinates& aStart, const Coordinates& aEnd, bool makeUndo = true);
+	void DeleteRange2(const Coordinates& aStart, Coordinates& aEnd);
 	int InsertTextAt(Coordinates& aWhere, const char* aValue);
 
 	void Copy();
 	void Cut();
 	void Paste();
+	void Paste(std::string);
 	void Delete();
 
 	bool CanUndo() const;
@@ -446,7 +463,7 @@ public:
 	static const Palette& GetLightPalette();
 	static const Palette& GetRetroBluePalette();
 
-	void FromVisualToNormalMode()
+	void FromVisualToNormalMode(YankBuffer *yb)
 	{
 		ImGuiIO& io = ImGui::GetIO();
 		auto shift = io.KeyShift;
@@ -460,7 +477,7 @@ public:
 		}
 		else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_D))
 		{
-			DeleteRange(mState.mSelectionStart, mState.mSelectionEnd);
+			Delete();
 			mInteractiveEnd = mInteractiveStart;
 			SetSelection(mInteractiveStart, mInteractiveStart);
 			if(mVimMode == VI_LINE_VISUAL)
@@ -481,12 +498,168 @@ public:
 
 	std::string GetWordUnderCursor() const;
 
+	void ClearSearchStringHighlight()
+	{
+		int cur_line = 0;
+		
+		
+		for(int matched = 0; matched < matchedStrings.size();)
+		{
+			SearchStringPos* m = &matchedStrings[matched];
+
+			int matchedLine = m->pos.mLine;
+			auto& line = mLines[matchedLine];
+			int lsz = line.size();
+			for(int i= 0; i < lsz; i++)
+			{
+				if (line[i].backgroundColor == selectedSearch)
+					line[i].backgroundColor = 0;
+			}
+
+
+			do
+			{
+				matched++;
+				m++;
+			} while (m->pos.mLine == matchedLine);
+
+		}
+	}
+
+	bool SearchStringRange(std::string str, int *line, int *column, int start = -1, int end = -1)
+	{
+#define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
+		searchWord = false;
+		if(str[0]=='/')
+		{
+			str = str.substr(1);
+			searchWord = true;
+		}
+		int line_idx = 0;
+		matchedStrings.clear();
+		if (start == -1)
+			start = 0;
+		if (end == -1)
+			end = mLines.size();
+
+		bool found = false;
+		int str_sz = str.size();
+		for(int line_idx = start; line_idx < end; line_idx++)
+		{
+			auto l = &mLines[line_idx];
+			int lsz = l->size();
+			int cur_column = 0;
+			if (lsz != 0)
+			{
+				while (true)
+				{
+					if (SearchStringInLine(str, 0, line_idx, cur_column, column) && cur_column < lsz)
+					{
+						*line = line_idx;
+						SearchStringPos matched;
+						matched.pos.mLine = line_idx;
+						matched.pos.mColumn = GetCharacterColumn(line_idx, *column);
+
+						for (int i = *column; i < (*column + str_sz); i++)
+						{
+							(*l)[i].backgroundColor = selectedSearch;
+						}
+
+						matchedStrings.emplace_back(matched);
+						found = true;
+						cur_column = *column + str_sz;
+
+					}
+					else
+						break;
+				}
+			}
+		}
+		if (found)
+		{
+			int i = 0;
+			FOR_VEC(matched, matchedStrings)
+			{
+				if (matched->pos.mLine >= mState.mCursorPosition.mLine)
+					break;
+				i++;
+			}
+			i = i % matchedStrings.size();
+
+			//int ccolumn = ed->GetCharacterColumn(line, column);
+			SetCursorPosition(matchedStrings[i].pos);
+		}
+		return found;
+	}
+	u64 GetStrHash(char *str, int sz)
+	{
+		u64 ret = 0;
+		for(int i = 0; i< sz; i++)
+		{
+			
+		}
+		return ret;
+	}
+	bool CanBeWord(char ch)
+	{
+		return IsLetter(ch) || IsNumber(ch) || ch == '_';
+	}
+	bool SearchStringInLine(std::string str, u64 str_hash, int line, int column_start, int *column)
+	{
+		char buffer[256];
+
+		auto l = &mLines[line];
+		int lsz = l->size();
+		int start_word = 0;
+		int str_sz = str.size();
+		char* str_data = (char *)str.data();
+		if (str_sz == 0 && searchWord)
+			str_sz = 1;
+
+		Glyph* g = &(*l)[0];
+		for (int i = column_start; i < lsz; i++)
+		{
+			if (g[i].backgroundColor == selectedSearch)
+				g[i].backgroundColor = 0;
+
+			buffer[i] = g[i].mChar;
+		}
+
+		for (int i = column_start; i < lsz; i++)
+		{
+			if(memcmp(buffer + i, str_data, str_sz)==0)
+			{
+				if(searchWord)
+				{
+					if(i > 0)
+					{
+						bool canBeWord = CanBeWord(g[i - 1].mChar);
+						if (canBeWord)
+							continue;
+					}
+					if((i + str_sz) < lsz)
+					{
+						bool canBeWord = CanBeWord(g[i + str_sz].mChar);
+						if (canBeWord)
+							continue;
+					}
+				}
+				*column = i;
+				i += str_sz;
+				return true;
+			}
+		}
+		return false;
+	}
+
 	int GetLineMaxColumn(int aLine) const;
 	std::string GetText(const Coordinates& aStart, const Coordinates& aEnd) const;
 
 	line_mode lnMode;
 	std::string insertBuffer;
-	bool firstChInInsertBufferIsC;
+	bool firstChInInsertBufferIsSlash;
+	bool haveKeyboardFocusAnyway;
+
 	struct EditorState
 	{
 		Coordinates mSelectionStart;
@@ -541,12 +714,16 @@ public:
 		EditorState mBefore;
 		EditorState mAfter;
 	};
+	struct SearchStringPos
+	{
+		Coordinates pos;
+	};
 
 	typedef std::vector<UndoRecord> UndoBuffer;
 
 	void ProcessInputs();
 	void Colorize(int aFromLine = 0, int aCount = -1);
-	void ColorizeLine(int line);
+	void ColorizeLine(int &line, int &column);
 	void ColorizeRange(int aFromLine = 0, int aToLine = 0);
 	void ColorizeInternal();
 	float TextDistanceToLineStart(const Coordinates& aFrom) const;
@@ -555,6 +732,7 @@ public:
 	Coordinates GetActualCursorCoordinates() const;
 	Coordinates SanitizeCoordinates(const Coordinates& aValue) const;
 	void Advance(Coordinates& aCoordinates) const;
+	void GoBackOne(Coordinates& aCoordinates) const;
 	void AddUndo(UndoRecord& aValue);
 	Coordinates ScreenPosToCoordinates(const ImVec2& aPosition) const;
 	Coordinates FindWordStart(const Coordinates& aFrom) const;
@@ -570,6 +748,78 @@ public:
 	void EnterCharacter(ImWchar aChar, bool aShift);
 	void Backspace();
 	void BasicMovs(int);
+
+	YankBuffer *GetYankBuffer(char ch)
+	{
+		YankBuffer* found = nullptr;
+		switch(ch)
+		{
+		case 'a':
+		{
+			return &yank[0];
+		}break;
+		case 'o':
+		{
+			return &yank[1];
+		}break;
+		case 'l':
+		{
+			return &yank[2];
+		}break;
+		case 'e':
+		{
+			return &yank[4];
+		}break;
+		case 'h':
+		{
+			return &yank[5];
+		}break;
+		case '\0':
+		{
+			return &yank[6];
+		}break;
+		default:
+			assert(0);
+		}
+	}
+
+	char OppositeLevelCharacter(char ch)
+	{
+		switch (ch)
+		{
+		case '{':
+			return'}';
+		break;
+		case '}':
+			return'{';
+		break;
+		case '(':
+			return')';
+		break;
+		case ')':
+			return'(';
+		break;
+
+		}
+	}
+	void SelectInnerLevel(char ch, Coordinates coor)
+	{
+		int start_line, start_column, end_line, end_column;
+		int level = 0;
+		bool has_start = CheckMatchLevelsOfChar(ch, coor.mLine, coor.mColumn, &start_line, &start_column);
+		char opposite = OppositeLevelCharacter(ch);
+		bool has_end = CheckMatchLevelsOfChar(opposite, coor.mLine, coor.mColumn, &end_line, &end_column);
+
+		if(has_start && has_end)
+		{
+			Coordinates start(start_line, start_column);
+			Coordinates end(end_line, end_column);
+			Advance(start);
+			GoBackOne(end);
+			SetSelectionStart(start);
+			SetSelectionEnd(end);
+		}
+	}
 	void DeleteSelection();
 	std::string GetWordAt(const Coordinates& aCoords) const;
 	ImU32 GetGlyphColor(const Glyph& aGlyph) const;
@@ -581,7 +831,9 @@ public:
 	float mLineSpacing;
 
 	UndoBuffer mUndoBuffer;
+	UndoBuffer mUndoBuffer2;
 	int mUndoIndex;
+	std::string auxInsertBuffer;
 
 	int mTabSize;
 	bool mOverwrite;
@@ -606,6 +858,9 @@ public:
 	Palette mPalette;
 	LanguageDefinition mLanguageDefinition;
 	RegexList mRegexList;
+	Coordinates originalCPosBeforeSearchString;
+
+	std::vector<SearchStringPos> matchedStrings;
 
 	bool mCheckComments;
 	Breakpoints mBreakpoints;
@@ -616,6 +871,15 @@ public:
 	uint64_t mStartTime;
 
 	std::vector<GotoMark> gotoMarks;
+	YankBuffer yank[8];
+
+	int selectedSearch = 0xff000066;
+	int commentColor = 0xff007700;
+	bool IsOpenCommentBlock(int i, Line& l);
+	bool IsCloseCommentBlock(int i, Line& l);
+
+	bool searchWord;
+	bool isQuotes;
 
 	float mLastClick;
 	bool IsLetter(char c)

@@ -23,6 +23,7 @@ enum key_enum
 	_KEY_E,
 	_KEY_W,
 	_KEY_SPACE,
+	_KEY_F1,
 	_KEY_F5,
 	_KEY_F10,
 	_KEY_F11,
@@ -682,6 +683,10 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_ENTER;
 	}break;
+	case _KEY_F1:
+	{
+		key = GLFW_KEY_F1;
+	}break;
 	case _KEY_F11:
 	{
 		key = GLFW_KEY_F11;
@@ -1029,10 +1034,23 @@ void GotoPrevBuffer(void* data)
 	wnd->cur_buffer = aux;
 	wnd->cur_buffer->ed->EnsureCursorVisible();
 }
-void GlobalExitCmdBuffer(void* data)
+void GlobalClearSearchStringHighlight(void *data)
+{
+	auto wnd = (WindowEditor*)data;
+	wnd->cur_buffer->ed->ClearSearchStringHighlight();
+}
+void GlobalExitCmdBuffer(void* data, bool restoreOriginalPos)
 {
 	auto wnd = (WindowEditor*)data;
 	wnd->on_cmd = false;
+	wnd->cmd_buffer->ed->haveKeyboardFocusAnyway = false;
+	TextEditor* main_ed = wnd->gl_state->main_ed.cur_buffer->ed;
+	main_ed->insertBuffer.clear();
+	if (restoreOriginalPos)
+	{
+		main_ed->SetCursorPosition(main_ed->originalCPosBeforeSearchString);
+		main_ed->matchedStrings.clear();
+	}
 }
 void LspSendFolderToCompile(open_gl_state* lang_stat, HANDLE hStdInWrite, std::string folder);
 void CheckLspProcess(lang_state* lang_stat, open_gl_state* gl_state);
@@ -1113,7 +1131,7 @@ void RenderIntellisenseSuggestions(void *data, float screen_x, float screen_y)
 	ImGui::SetCursorScreenPos(min);
 
 	int str_sz = wnd->gl_state->func_def_str.size();
-	float width = 100.0;
+	float width = 200.0;
 	const float fontSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, "#", nullptr, nullptr).x;
 	if (str_sz != 0)
 	{
@@ -1202,6 +1220,7 @@ void GlobalChangeToCmdBuffer(void *data)
 	auto wnd = (WindowEditor*)data;
 	wnd->on_cmd = true;
 	wnd->cmd_buffer->ed->mVimMode = VI_INSERT;
+	wnd->cmd_buffer->ed->ClearLines();
 }
 
 void GlobalGetCurBufferFileLines(void *data, std::string *file)
@@ -1279,7 +1298,7 @@ void ShowFileAndCmdBuffer(WindowEditor *wnd)
 	wnd->cur_buffer->ed->Render(buffer, wnd->main_buffer_sz, flags);
 	TextEditor* ed = wnd->cur_buffer->ed;
 	VIM_mode_enum mode = wnd->cur_buffer->ed->mVimMode;
-	if(mode == VI_NORMAL)
+	if (mode == VI_NORMAL)
 	{
 		ImGui::TextColored(ImVec4(ImColor(255, 255, 0)), "NORMAL");
 	}
@@ -1298,7 +1317,10 @@ void ShowFileAndCmdBuffer(WindowEditor *wnd)
 
 
 
+	bool isFirstCharacterSlash = wnd->cur_buffer->ed->firstChInInsertBufferIsSlash;
 	flags = !focus_on_cmd * TEXT_ED_DONT_HAVE_CURSOR_FOCUS;
+	if (isFirstCharacterSlash)
+		wnd->cmd_buffer->ed->haveKeyboardFocusAnyway = true;
 
 	snprintf(buffer, 32, "cmd##%p", wnd);
 	wnd->cmd_buffer->ed->Render(buffer, ImVec2(0.0, 50.0), flags);
@@ -1307,51 +1329,56 @@ void ShowFileAndCmdBuffer(WindowEditor *wnd)
 void ChangeFileOfBuffer(Buffer* b, std::string file_name)
 {
 	int read = 0;
-	char *buffer = ReadEntireFileLang((char *)file_name.c_str(), &read);
+	char* buffer = ReadEntireFileLang((char*)file_name.c_str(), &read);
 
 	b->ed->SetText(buffer);
 	heap_free((mem_alloc*)__lang_globals.data, buffer);
 
 }
 
-void LspPushStringIntoVector(std::string *str, own_std::vector<char> * out)
+void LspPushStringIntoVector(std::string* str, own_std::vector<char>* out)
 {
 	int sz = str->size();
 
 	int idx = out->size();
 	out->make_count(out->size() + 4);
-	*((int*)(out->data()+idx)) = sz;
+	*((int*)(out->data() + idx)) = sz;
 
 	idx = out->size();
 	out->make_count(out->size() + sz);
 	memcpy(out->data() + idx, str->data(), sz);
 
 }
-Buffer* NewBuffer(dbg_state* dbg, WindowEditor *wnd)
+Buffer* NewBuffer(dbg_state* dbg, WindowEditor* wnd)
 {
-	auto buf = (Buffer *)AllocMiscData(dbg->lang_stat, sizeof(Buffer));
+	auto buf = (Buffer*)AllocMiscData(dbg->lang_stat, sizeof(Buffer));
 	buf->ed = (TextEditor*)AllocMiscData(dbg->lang_stat, sizeof(TextEditor));
 	new(buf->ed)TextEditor();
-	buf->ed->data = (void *)wnd;
+	buf->ed->data = (void*)wnd;
 
 	return buf;
 }
-Buffer *AddFileToBuffer(dbg_state *dbg, std::string file_name, WindowEditor* wnd)
+Buffer* AddFileToBuffer(dbg_state* dbg, std::string file_name, WindowEditor* wnd)
 {
-	for(int i= 0; i < file_name.size(); i++)
+	for (int i = 0; i < file_name.size(); i++)
 	{
 		if (file_name[i] == '/')
 			file_name[i] = '\\';
 	}
 	TCHAR name_buffer[MAX_PATH];
-	
-	GetShortPathName((char*)file_name.c_str(), name_buffer, MAX_PATH);
+
+	int error = GetLongPathName((char*)file_name.c_str(), name_buffer, MAX_PATH);
+	if (error == 0)
+	{
+		printf("error in opening file buffer, code %d", GetLastError());
+		ASSERT(0);
+	}
 	file_name = name_buffer;
 	bool has_it = false;
 	FOR_VEC(buf, wnd->ed_buffers)
 	{
 		Buffer* b = *buf;
-		
+
 		if (b->type == buffer_type::FILE && b->name == file_name)
 		{
 			has_it = true;
@@ -1385,7 +1412,7 @@ Buffer *AddFileToBuffer(dbg_state *dbg, std::string file_name, WindowEditor* wnd
 	return buf;
 }
 
-void LspGetFileSyntaxHightlighting(lang_state *lang_stat, std::string fname, open_gl_state *gl_state)
+void LspGetFileSyntaxHightlighting(lang_state* lang_stat, std::string fname, open_gl_state* gl_state)
 {
 	LspHeader hdr;
 	hdr.magic = 0x77;
@@ -1405,7 +1432,7 @@ void SetNewBuffer(WindowEditor* ed, Buffer* new_b)
 	ed->cur_buffer = new_b;
 }
 
-int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_state, int line, int line_offset)
+int LspCompile(lang_state* lang_stat, std::string folder, open_gl_state* gl_state, int line, int line_offset)
 {
 	DWORD bytesRead;
 	DWORD availableBytes = 0;
@@ -1422,9 +1449,9 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 			cur_read += bytesRead;
 			final_str += std::string(read_buffer, bytesRead);
 		}
-		char* aux_buffer = (char *)final_str.data();
+		char* aux_buffer = (char*)final_str.data();
 		auto hdr = (LspHeader*)aux_buffer;
-		switch(lang_stat->intentions_to_lsp)
+		switch (lang_stat->intentions_to_lsp)
 		{
 		case lsp_intention_enum::DECL_DEF_LINE:
 		{
@@ -1446,9 +1473,10 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 			if (hdr->msg_type == lsp_msg_enum::LSP_SYNTAX_RES)
 			{
 				Buffer* ed_buffer = gl_state->main_ed.cur_buffer;
-				for(int i = 0; i < ed_buffer->ed->mLines.size(); i++)
+				for (int i = 0; i < ed_buffer->ed->mLines.size(); i++)
 				{
-					ed_buffer->ed->ColorizeLine(i);
+					int col = 0;
+					ed_buffer->ed->ColorizeLine(i, col);
 					/*
 					FOR_VEC(gl, *cur_line)
 					{
@@ -1458,17 +1486,19 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 				}
 				char* cur_ptr = (char*)(hdr + 1);
 				auto syntax_hdr = (lsp_syntax_hightlight_hdr*)cur_ptr;
-				long long offset = ((char*)cur_ptr)- ((char*)hdr);
+				long long offset = ((char*)cur_ptr) - ((char*)hdr);
 				while (syntax_hdr->type != lsp_syntax_hightlight_enum::SEOF && offset < hdr->msg_len)
 				{
 					switch (syntax_hdr->type)
 					{
 					case lsp_syntax_hightlight_enum::WORD:
 					{
-						auto w = (lsp_syntax_hightlight_word* )syntax_hdr;
+						auto w = (lsp_syntax_hightlight_word*)syntax_hdr;
 						auto* line = &ed_buffer->ed->mLines[w->line - 1];
 						if (line->size() != 0)
 						{
+							if (w->column_end >= line->size())
+								return 0 ;
 
 							for (int i = w->column_start; i < w->column_end; i++)
 							{
@@ -1482,8 +1512,8 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 					default:
 						ASSERT(false);
 					}
-					
-					long long offset = ((char*)cur_ptr)- ((char*)hdr);
+
+					long long offset = ((char*)cur_ptr) - ((char*)hdr);
 					syntax_hdr = (lsp_syntax_hightlight_hdr*)cur_ptr;
 				}
 			}
@@ -1493,7 +1523,7 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 			if (hdr->msg_type == lsp_msg_enum::LSP_GOTO_DEF_RES)
 			{
 				char* cur_ptr = (char*)(hdr + 1);
-				auto goto_def = (GotoDef* )cur_ptr;
+				auto goto_def = (GotoDef*)cur_ptr;
 				char* file_name = (char*)(goto_def + 1);
 
 				Buffer* buf = AddFileToBuffer(lang_stat->dstate, file_name, &gl_state->main_ed);
@@ -1506,18 +1536,18 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 				}
 				TextEditor* ed = gl_state->main_ed.cur_buffer->ed;
 				ed->SetCursorPosition(TextEditor::Coordinates(goto_def->line.line - 1, goto_def->line.column));
-				
+
 			}
 		}break;
 		case lsp_intention_enum::INTELLISENSE:
 		{
-			if(hdr->msg_type == lsp_msg_enum::LSP_INTELLISENSE_RES)
+			if (hdr->msg_type == lsp_msg_enum::LSP_INTELLISENSE_RES)
 			{
 				char* cur_ptr = (char*)(hdr + 1);
 				int total_decls = *(int*)(cur_ptr);
 				cur_ptr += 4;
 				char* str_tbl = cur_ptr + total_decls * sizeof(rel_type2);
-				
+
 				for (int i = 0; i < total_decls; i++)
 				{
 					rel_type2* r = ((rel_type2*)cur_ptr) + i;
@@ -1526,12 +1556,12 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 					gl_state->intellisense_suggestion.emplace_back(decl);
 					decl2* back = &gl_state->intellisense_suggestion.back();
 					back->name = std::string(name, r->name_len);
-					back->type.type = (enum_type2 )r->type;
+					back->type.type = (enum_type2)r->type;
 					RatedStuff<int> rated;
 					rated.type = i;
 					gl_state->intellisense_suggestion_aux.emplace_back(rated);
 				}
-				
+
 
 			}
 		}break;
@@ -1544,7 +1574,7 @@ int LspCompile(lang_state *lang_stat, std::string folder, open_gl_state *gl_stat
 }
 
 int CreateLspProcess(lang_state* lang_stat, open_gl_state* gl_state, std::string folder);
-void CheckLspProcess(lang_state *lang_stat, open_gl_state* gl_state)
+void CheckLspProcess(lang_state* lang_stat, open_gl_state* gl_state)
 {
 	DWORD code;
 	GetExitCodeProcess(gl_state->lsp_process, &code);
@@ -1554,7 +1584,7 @@ void CheckLspProcess(lang_state *lang_stat, open_gl_state* gl_state)
 	}
 
 }
-void LspSendFolderToCompile(open_gl_state *gl_state, HANDLE hStdInWrite, std::string folder)
+void LspSendFolderToCompile(open_gl_state* gl_state, HANDLE hStdInWrite, std::string folder)
 {
 	lang_state* lang_stat = gl_state->lang_stat;
 	own_std::vector<char> buffer;
@@ -1572,10 +1602,38 @@ void LspSendFolderToCompile(open_gl_state *gl_state, HANDLE hStdInWrite, std::st
 
 	DWORD bytesWritten;
 	WriteFile(hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
+	//WriteFileLang("mock.data", buffer.data(), buffer.size());
 	lang_stat->intentions_to_lsp = lsp_intention_enum::WAITING_FOLDER_TO_COMPILE;
 
 }
-int CreateLspProcess(lang_state *lang_stat, open_gl_state *gl_state, std::string folder)
+
+void StartGame(std::string game_dir)
+{
+	STARTUPINFO si = {};
+	si.cb = sizeof(STARTUPINFO);
+
+	PROCESS_INFORMATION pi = {};
+
+	// Create the child process
+	std::string full_cmd = "E:/projects/WasmGame/lang2/build/liz.exe run ";
+	full_cmd += game_dir;
+	if (!CreateProcess(
+		nullptr,
+		(char*) full_cmd.c_str(), // Replace with your command
+		NULL,
+		NULL,
+		TRUE, // Inherit handles
+		0,
+		NULL,
+		NULL,
+		&si,
+		&pi)) {
+			printf( "CreateProcess failed (%d).\n", GetLastError() );
+			return;
+	}
+}
+
+int CreateLspProcess(lang_state* lang_stat, open_gl_state* gl_state, std::string folder)
 {
 	SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
 	HANDLE hStdInRead, hStdInWrite;
@@ -1652,6 +1710,29 @@ int CreateLspProcess(lang_state *lang_stat, open_gl_state *gl_state, std::string
 	return 0;
 }
 
+void PushCStrIntoVector(own_std::vector<char>* out, char* ptr, int size)
+{
+	int offset = out->size();
+	out->make_count(out->size() + size);
+	memcpy(&(*out)[offset], ptr, size);
+}
+void LspSendLineStr(HANDLE hStdInWrite, lsp_msg_enum msg_type, int line, int column, std::string line_str, std::string file)
+{
+	ToLspLineStr info;
+	info.hdr.magic = 0x77;
+	info.hdr.msg_type = msg_type;
+	info.hdr.msg_len = sizeof(ToLspLineStr) + line_str.size() + 1 + file.size() + 1;
+	info.pos.line = line;
+	info.pos.column = column;
+	own_std::vector<char>buffer;
+	PushCStrIntoVector(&buffer, (char*)line_str.c_str(), line_str.size() + 1);
+	info.line_str_len = line_str.size() + 1;
+	PushCStrIntoVector(&buffer, (char*)file.c_str(), file.size() + 1);
+	buffer.insert(buffer.begin(), (char*)&info, (char*)(&info + 1));
+	DWORD bytesWritten;
+	WriteFile(hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
+}
+
 void LspSendCursorPosAndString(HANDLE hStdInWrite, lsp_msg_enum msg_type, int line, int column, std::string str)
 {
 	LspHeader hdr;
@@ -1666,7 +1747,7 @@ void LspSendCursorPosAndString(HANDLE hStdInWrite, lsp_msg_enum msg_type, int li
 	own_std::vector<char>buffer;
 	InsertIntoCharVector(&buffer, &hdr, sizeof(LspHeader));
 	InsertIntoCharVector(&buffer, &int_info, sizeof(LspPos));
-	InsertIntoCharVector(&buffer, (char *)str.data(), str.size() + 1);
+	InsertIntoCharVector(&buffer, (char*)str.data(), str.size() + 1);
 	//InsertIntoCharVector(&buffer, (void*)word.c_str(), word.size() + 1);
 
 	DWORD bytesWritten;
@@ -1700,11 +1781,11 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 			//start_column = ed->GetCharacterIndex(TextEditor::Coordinates(start_line, start_column));
 			int end_line = gl_state->suggestion_cursor_line;
 			int end_column = ed->GetLineMaxColumn(start_line);
-			std::string line_str = ed->GetText(TextEditor::Coordinates(start_line, start_column), 
-						TextEditor::Coordinates(end_line, end_column));
+			std::string line_str = ed->GetText(TextEditor::Coordinates(start_line, start_column),
+				TextEditor::Coordinates(end_line, end_column));
 
 			std::string out_str;
-			GetWordStr((char *)line_str.data(), line_str.size(), 0, &out_str);
+			GetWordStr((char*)line_str.data(), line_str.size(), 0, &out_str);
 
 			gl_state->suggestion_cursor_column_end = start_column + out_str.size();
 
@@ -1734,7 +1815,7 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 		ed->SetCursorPosition(prevPos);
 
 		bool can_get_all_scp_vars = word_under_cursor.size() == 1 && IsLetter(word_under_cursor[0]) && !has_suggestions;
-		if (ed->lastInsertedChar == ',')
+		if (ed->lastInsertedChar == ',' || ed->lastInsertedChar == ' ')
 		{
 			ClearIntellisenseSeggestion(&gl_state->main_ed);
 		}
@@ -1756,28 +1837,24 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 			gl_state->for_func_def_first_parentheses_pos_x = cspos.x;
 			gl_state->for_func_def_first_parentheses_pos_y = cspos.y;
 
-			LspSendCursorPosAndString(gl_state->hStdInWrite, lsp_msg_enum::LSP_DECL_DEF_LINE, coor.mLine + 1,
-								ed->GetCharacterIndex(coor), word_under_cursor);
+			LspSendLineStr(gl_state->hStdInWrite, lsp_msg_enum::LSP_DECL_DEF_LINE, coor.mLine + 1,
+				ed->GetCharacterIndex(coor), word_under_cursor, gl_state->main_ed.cur_buffer->name);
 
 			gl_state->lang_stat->intentions_to_lsp = lsp_intention_enum::DECL_DEF_LINE;
 			gl_state->intellisense_suggestion.clear();
 			gl_state->intellisense_suggestion_aux.clear();
 
 		}
-		else if(ed->lastInsertedChar == '.' || can_get_all_scp_vars)
+		else if (ed->lastInsertedChar == '.' || can_get_all_scp_vars)
 		{
 			CheckLspProcess(dbg->lang_stat, gl_state);
 
 			std::string line_str = ed->GetCurrentLineText();
 
-			LspHeader hdr;
-			hdr.magic = 0x77;
-			hdr.msg_type = lsp_msg_enum::INTELLISENSE;
-			hdr.msg_len = sizeof(LspHeader) + sizeof(LspPos) + line_str.size() + 1;
 			LspPos int_info;
 			int_info.column = ed->GetCharacterIndex(coor) - 1;
 			int_info.line = coor.mLine + 1;
-			gl_state->suggestion_cursor_line = int_info.line-1;
+			gl_state->suggestion_cursor_line = int_info.line - 1;
 			if (can_get_all_scp_vars)
 			{
 				gl_state->suggestion_cursor_column = coor.mColumn - 1;
@@ -1791,18 +1868,28 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 			}
 
 
+			LspSendLineStr(gl_state->hStdInWrite, lsp_msg_enum::INTELLISENSE, coor.mLine + 1,
+				ed->GetCharacterIndex(coor) - 1, line_str, gl_state->main_ed.cur_buffer->name);
 
-			own_std::vector<char>buffer;
-			InsertIntoCharVector(&buffer, &hdr, sizeof(LspHeader));
-			InsertIntoCharVector(&buffer, &int_info, sizeof(LspPos));
-			InsertIntoCharVector(&buffer, (void*)line_str.c_str(), line_str.size() + 1);
-
-			DWORD bytesWritten;
-			WriteFile(gl_state->hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
 			dbg->lang_stat->intentions_to_lsp = lsp_intention_enum::INTELLISENSE;
 			gl_state->intellisense_suggestion.clear();
 			gl_state->intellisense_suggestion_aux.clear();
 
+		}
+	}
+	if (ed->insertBuffer[0] == '/' &&
+		gl_state->main_ed.cmd_buffer->ed->IsTextChanged())
+	{
+		std::string line_str = gl_state->main_ed.cmd_buffer->ed->GetCurrentLineText();
+
+		if (line_str.size() > 0)
+		{
+			//line_str = line_str.substr(1);
+			int line = 0;
+			int column = 0;
+			if (ed->SearchStringRange(line_str, &line, &column))
+			{
+			}
 		}
 	}
 	if (ed->mState.mCursorPosition.mColumn < gl_state->func_def_cursor_column)
@@ -1814,28 +1901,12 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 		TextEditor::Coordinates coor = ed->FindWordEnd(ed->mState.mCursorPosition);
 		
 		//std::string word = ed->GetWordUnderCursor();
+		Buffer* cur_buffer = gl_state->main_ed.cur_buffer;
 		std::string line_str = ed->GetCurrentLineText();
-		LspSendCursorPosAndString(gl_state->hStdInWrite, lsp_msg_enum::LSP_GOTO_DEF, coor.mLine + 1,
-								ed->GetCharacterIndex(coor), line_str);
-		/*
-		LspHeader hdr;
-		hdr.magic = 0x77;
-		hdr.msg_type = lsp_msg_enum::LSP_GOTO_DEF;
-		hdr.msg_len = sizeof(LspHeader) + sizeof(LspPos) + line_str.size();
-		LspPos int_info;
-		int_info.column = ed->GetCharacterIndex(coor);
-		int_info.line = coor.mLine + 1;
+		own_std::vector<char> buffer;
+		LspSendLineStr(gl_state->hStdInWrite, lsp_msg_enum::LSP_GOTO_DEF, coor.mLine + 1,
+			ed->GetCharacterIndex(coor), line_str, cur_buffer->name);
 
-
-		own_std::vector<char>buffer;
-		InsertIntoCharVector(&buffer, &hdr, sizeof(LspHeader));
-		InsertIntoCharVector(&buffer, &int_info, sizeof(LspPos));
-		InsertIntoCharVector(&buffer, (char *)line_str.data(), line_str.size());
-		//InsertIntoCharVector(&buffer, (void*)word.c_str(), word.size() + 1);
-
-		DWORD bytesWritten;
-		WriteFile(gl_state->hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
-		*/
 		ed->insertBuffer.clear();
 		dbg->lang_stat->intentions_to_lsp = lsp_intention_enum::GOTO_DEF;
 	}
@@ -1918,10 +1989,15 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 		if (IsKeyDown(dbg, _KEY_ENTER))
 		{
 			std::string file_name = files_ed->cur_buffer->ed->GetCurrentLineText();
-			ChangeFileOfBuffer(gl_state->main_ed.cur_buffer, file_name.c_str());
+			int bar = file_name.find_last_of("\\/");
+			Buffer* buf = AddFileToBuffer(dbg, file_name, &gl_state->main_ed);
+			SetNewBuffer(&gl_state->main_ed, buf);
 			gl_state->file_window = false;
 		}
-
+	}
+	if (IsKeyDown(dbg, _KEY_F1))
+	{
+		StartGame("../dev/files");
 	}
 	//ed->Render("editor", ImVec2(0.0, 500.0);
 }
@@ -1981,7 +2057,7 @@ void ImGuiInitTextEditor(dbg_state* dbg)
 	buf->type = buffer_type::FILE;
 	buf->name = dir;
 
-	gl_state->lsp_dir_to_compile = "../dev/lsp_tests";
+	gl_state->lsp_dir_to_compile = "../dev/files";
 
 	
 	gl_state->main_ed.cur_buffer = AddFileToBuffer(dbg, dir, &gl_state->main_ed);
@@ -2185,7 +2261,7 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 	{
 		gl_state->buttons[key] &= ~KEY_HELD;
 		gl_state->buttons[key] |= KEY_UP;
-		printf("key release(%d) is %d", key, gl_state->buttons[key]);
+		//printf("key release(%d) is %d", key, gl_state->buttons[key]);
 	}
 	else if (action == GLFW_REPEAT)
 	{
@@ -3938,7 +4014,7 @@ int main(int argc, char* argv[])
 		}
 		else
 		{
-			printf("Command not recognized");
+			printf("Command not recognized '%s'", arg1.c_str());
 			return 0;
 		}
 	}
@@ -4051,7 +4127,7 @@ int main(int argc, char* argv[])
 		AssignDbgFile(&lang_stat, (opts.wasm_dir + opts.folder_name + ".dbg").c_str());
 		//AssignDbgFile(&lang_stat, opts);
 		lang_stat.winterp->dbg->data = (void*)&gl_state;
-		RunDbgFunc(&lang_stat, "tests", args, 1);
+		//RunDbgFunc(&lang_stat, "tests", args, 1);
 		RunDbgFunc(&lang_stat, "main", args, 1);
 
 		int ret_val = *(int*)&lang_stat.winterp->dbg->mem_buffer[RET_1_REG * 8];

@@ -377,14 +377,19 @@ namespace own_std
 	template<typename T, u64 method = 0>
 	struct vector
 	{
+		//#define USE_C
 		LangArray<T> ar;
 		void Init(u64 len)
 		{
 			if (__lang_globals.data == nullptr)
 				return;
 
-			// 
+#ifdef USE_C
+			T* b = (T*)malloc((len + 1) * sizeof(T));
+#else
+
 			T* b = (T*)__lang_globals.alloc(__lang_globals.data, (len + 1) * sizeof(T));
+#endif
 			memset(b, 0, ar.length * sizeof(T));
 
 			ar.start = b;
@@ -466,7 +471,12 @@ namespace own_std
 				ar.end += before;
 
 				if (aux != nullptr)
+#ifdef USE_C
+					free(aux);
+#else
 					__lang_globals.free(__lang_globals.data, aux);
+#endif
+
 			}
 		}
 		T& back()
@@ -529,7 +539,11 @@ namespace own_std
 			ar.end += other_len;
 
 			u64 diff = ar.count - a;
+#ifdef USE_C
+			char* aux_buffer = (char*)malloc(diff * sizeof(T));
+#else
 			char* aux_buffer = (char*)__lang_globals.alloc(__lang_globals.data, diff * sizeof(T));
+#endif
 			memcpy(aux_buffer, ar.start + a, sizeof(T) * diff);
 
 			T* t = ar[a];
@@ -538,7 +552,11 @@ namespace own_std
 			memcpy(t, start, sizeof(T) * other_len);
 
 			if (aux_buffer != nullptr)
+#ifdef USE_C
+				free(aux_buffer);
+#else
 				__lang_globals.free(__lang_globals.data, aux_buffer);
+#endif
 		}
 
 		void insert(T* at, u64 count, T&& arg)
@@ -560,7 +578,12 @@ namespace own_std
 
 
 			u64 diff = ar.count - a;
+#ifdef USE_C
+			char* aux_buffer = (char*)malloc(diff * sizeof(T));
+#else
 			char* aux_buffer = (char*)__lang_globals.alloc(__lang_globals.data, diff * sizeof(T));
+#endif
+			//char* aux_buffer = (char*)__lang_globals.alloc(__lang_globals.data, diff * sizeof(T));
 			memcpy(aux_buffer, ar.start + a, sizeof(T) * diff);
 
 			T* t = this->ar.start + a;
@@ -569,7 +592,11 @@ namespace own_std
 			{
 				diff = this->ar.count - a - 1;
 				memcpy(t + 1, aux_buffer, sizeof(T) * diff);
+#ifdef USE_C
+				free(aux_buffer);
+#else
 				__lang_globals.free(__lang_globals.data, aux_buffer);
+#endif
 
 			}
 
@@ -610,15 +637,23 @@ namespace own_std
 			TestSizeAndRegrow();
 			ar.Add(&arg);
 		}
-		void free()
+		void freethis()
 		{
 			if (ar.start != nullptr)
+#ifdef USE_C
+				free(ar.start);
+#else
 				__lang_globals.free(__lang_globals.data, ar.start);
+#endif
 		}
 		~vector()
 		{
 			if (ar.start != nullptr)
+#ifdef USE_C
+				free(ar.start);
+#else
 				__lang_globals.free(__lang_globals.data, ar.start);
+#endif
 		}
 	};
 }

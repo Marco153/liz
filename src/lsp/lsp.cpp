@@ -89,6 +89,9 @@ void CreateSyntaxHighlightingNode(lang_state *lang_stat, node *n, scope *scp, ow
 		{
 		case T_COLON:
 		{
+			if (!n->r)
+				return;
+
 			switch (n->r->type)
 			{
 			case N_STRUCT_DECL:
@@ -143,12 +146,12 @@ void CreateSyntaxHighlightingNode(lang_state *lang_stat, node *n, scope *scp, ow
 		}
 
 		int size = node_stack.size();
+		if (cur_node->l != nullptr && IS_FLAG_OFF(cur_node->l->flags, NODE_FLAGS_IS_PROCESSED))
+		{
+			CreateSyntaxHighlightingNode(lang_stat, cur_node->l, scp, out_buffer);
+		}
 		while (true)
 		{
-			if (cur_node->l != nullptr && IS_FLAG_OFF(cur_node->l->flags, NODE_FLAGS_IS_PROCESSED))
-			{
-				CreateSyntaxHighlightingNode(lang_stat, cur_node->l, scp, out_buffer);
-			}
 			if (cur_node->r != nullptr && IS_FLAG_OFF(cur_node->r->flags, NODE_FLAGS_IS_PROCESSED))
 			{
 				CreateSyntaxHighlightingNode(lang_stat, cur_node->r, scp, out_buffer);
@@ -194,17 +197,14 @@ void CreateSyntaxHighlightingWholeFile(lang_state *lang_stat, unit_file *f, own_
 	out_buffer->insert(out_buffer->begin(), (char*)&hdr, (char*)(&hdr + 1));
 }
 
-node *GetPointNodeUpToChar(lang_state *lang_stat, char *cur_ptr)
+node *GetPointNodeUpToChar(lang_state *lang_stat, LspPos *intl, char *str_line)
 {
-
-	auto intl = (LspPos* )cur_ptr;
-	char* str_line = (char *)(intl + 1);
 	own_std::vector<token2> tkns;
 	Tokenize2(str_line, intl->column, &tkns);
 	if (tkns.size() <= 1)
 		return nullptr;
 
-	int val = setjmp(*lang_stat->jump_buffer);
+	int val = setjmp(lang_stat->jump_buffer);
 	if (val == 0)
 	{
 		lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -264,10 +264,57 @@ void SendScopeVars(scope *scp, HANDLE hStdout, bool recursive)
 	Write(hStdout, (char*)buffer.data(), buffer.size());
 
 }
+func_decl *GetFuncWithLine2(lang_state *lang_stat, int line, unit_file *file)
+{
 
+	FOR_VEC(f_ptr, file->funcs_scp->vars)
+	{
+		if ((*f_ptr)->type.type != TYPE_FUNC)
+			continue;
+		func_decl* f = (*f_ptr)->type.fdecl;
+		if(line >= f->scp->line_start && line <= f->scp->line_end)
+		{
+			return f;
+		}
+	}
+	return nullptr;
+}
+
+scope *GetScopeWithLspLineStr(lang_state *lang_stat, ToLspLineStr *line_info)
+{
+	char* str_tbl = (char*)(line_info + 1);
+
+	char* file_path = str_tbl + line_info->line_str_len;
+	std::string file = file_path;
+	unit_file *ufile = ThereIsFile(lang_stat, file);
+	if (!ufile)
+		return nullptr;
+
+	int line = line_info->pos.line;
+	func_decl* found = GetFuncWithLine2(lang_stat, line, ufile);
+	if (!found)
+		return nullptr;
+
+	return FindScpWithLine(found, line);
+
+}
 int main()
 {
 
+	struct defer_n
+	{
+		lang_state* l;
+		u64 cur_node_before;
+		defer_n(lang_state *lang)
+		{
+			l = lang;
+			cur_node_before = l->cur_nd;
+		}
+		~defer_n()
+		{
+			l->cur_nd = cur_node_before;
+		}
+	};
 	HANDLE hFile;
 	char DataBuffer[] = "message from lsp";
 	DWORD dwBytesToWrite = (DWORD)strlen(DataBuffer);
@@ -297,6 +344,8 @@ int main()
 	lang_state lang_stat;
 	alloc.main_buffer = nullptr;
 
+	InitMemAlloc(&alloc);
+	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 	while (true) {
 		std::string line;
 		// Obtain the standard input handle
@@ -342,14 +391,13 @@ int main()
 				}
 				else if(hdr->msg_type == lsp_msg_enum::LSP_DECL_DEF_LINE)
 				{
-					auto intl = (LspPos*)(hdr + 1);
-					char* str = (char*)(intl + 1);
-					func_decl* found = GetFuncWithLine(&lang_stat, intl->line);
-					if (!found)
+					auto line_info = (ToLspLineStr*)hdr;
+					scope* scp = GetScopeWithLspLineStr(&lang_stat, line_info);
+					if (!scp)
 						continue;
 
-					scope *scp = FindScpWithLine(found, intl->line);
 					type2 dummy;
+					auto str = (char*)(line_info + 1);
 					decl2 *d = FindIdentifier(str, scp, &dummy);
 					if(d)
 					{
@@ -371,17 +419,17 @@ int main()
 				}
 				else if(hdr->msg_type == lsp_msg_enum::LSP_GOTO_DEF)
 				{
-					auto intl = (LspPos*)(hdr + 1);
-					node *n = GetPointNodeUpToChar(&lang_stat, cur_ptr);
+					auto line_info = (ToLspLineStr*)hdr;
+
+					char* str_tbl = (char*)(line_info + 1);
+					node *n = GetPointNodeUpToChar(&lang_stat, &line_info->pos, str_tbl);
 					if (!n)
 						continue;
+					defer_n defered(&lang_stat);
 
-
-					func_decl* found = GetFuncWithLine(&lang_stat, intl->line);
-					if (!found)
+					scope* scp = GetScopeWithLspLineStr(&lang_stat, line_info);
+					if (!scp)
 						continue;
-
-					scope *scp = FindScpWithLine(found, intl->line);
 
 					decl2* d = nullptr;
 					type2 tp;
@@ -439,21 +487,23 @@ int main()
 				if(hdr->msg_type == lsp_msg_enum::INTELLISENSE)
 				{
 
-					auto intl = (LspPos*)(hdr + 1);
-					auto str_line = (char*)(intl + 1);
-
-					func_decl* found = GetFuncWithLine(&lang_stat, intl->line);
-					if (!found)
+					auto line_info = (ToLspLineStr*)hdr;
+					scope* scp = GetScopeWithLspLineStr(&lang_stat, line_info);
+					if (!scp)
 						continue;
 
-					scope *scp = FindScpWithLine(found, intl->line);
-		
-					char ch = str_line[intl->column];
+					auto str_line = (char*)(line_info + 1);
+
+					char ch = str_line[line_info->pos.column];
 					if(ch == '.')
 					{
-						node *n = GetPointNodeUpToChar(&lang_stat, cur_ptr);
+						auto pos = &line_info->pos;
+						node *n = GetPointNodeUpToChar(&lang_stat, pos, str_line);
 						if (!n)
 							continue;
+
+						defer_n defered(&lang_stat);
+
 						type2 tp;
 						decl2* last_decl = nullptr;
 
@@ -475,6 +525,10 @@ int main()
 						if (tp.type == TYPE_STRUCT)
 						{
 							SendScopeVars(tp.strct->scp, hStdout, false);
+						}
+						if(tp.type == TYPE_ENUM_TYPE)
+						{
+							SendScopeVars(tp.scp, hStdout, false);
 						}
 					}
 					else

@@ -193,6 +193,8 @@ struct lang_state
 	bool in_ir_stmnt;
 	bool is_lsp;
 	bool use_node_arena;
+
+	bool is_engine;
 	scope* root;
 
 	lsp_stage_enum lsp_stage;
@@ -490,6 +492,7 @@ struct wasm_bc
 	bool one_time_dbg_brk;
 	bool break_on_first_loop_bc;
 	bool dont_dbg_brk;
+	bool from_engine_break;
 	int start_code;
 	int end_code;
 	wasm_bc* jmps_to;
@@ -5581,7 +5584,7 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 
 		auto cur_dbg_f = (file_dbg*)(ser_state.file_sect.begin() + file_offset);
 
-		WasmSerializePushString(&ser_state, &(f->path + "/" + f->name), &cur_dbg_f->name);
+		WasmSerializePushString(&ser_state, &(f->path + f->name), &cur_dbg_f->name);
 		i++;
 
 	}
@@ -5737,6 +5740,7 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	tp.type = TYPE_FUNC;
 	tp.fdecl = fdecl;
 	decl2* d = NewDecl(lang_stat, fname, tp);
+	d->name = fdecl->name;
 
 	//ret_scp->vars.emplace_back(d);
 
@@ -5758,6 +5762,7 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 		auto fl_dbg = (file_dbg*)(data + file->files_sect + fdbg->file_idx);
 		//std::string file_name = WasmInterpNameFromOffsetAndLen(data, file, &fl_dbg->name);
 		fdecl->from_file = fl_dbg->fl;
+		fl_dbg->fl->funcs_scp->vars.emplace_back(d);
 		ASSERT(fdecl->from_file);
 		winterp->funcs.emplace_back(fdecl);
 
@@ -6733,6 +6738,8 @@ void ExitDebugger(scope **cur_scp, wasm_bc **bc)
 	*cur_scp = nullptr;
 	wasm_bc* prev_bc = *bc;
 	prev_bc->one_time_dbg_brk = false;
+	if (prev_bc->from_engine_break)
+		prev_bc->dbg_brk = false;
 }
 
 
@@ -6845,10 +6852,54 @@ void ImGuiDrawSquare(dbg_state &dbg, int addr, ImU32 col_a)
 	draw_list->AddLine(im_s1_rb, im_s1_lb, col_a, 1.0);
 
 }
+void CheckPipeAndGetString(HANDLE pipe, std::string &final_str)
+{
+	DWORD bytesRead;
+	DWORD availableBytes = 0;
+
+	char read_buffer[1024];
+	int res = PeekNamedPipe(pipe, NULL, 0, NULL, &availableBytes, NULL);
+	if (res == 0)
+	{
+		int code = GetLastError();
+		printf("error pipe peex %d", code);
+		FlushFileBuffers(GetStdHandle(STD_OUTPUT_HANDLE));
+	}
+	if (availableBytes > 0)
+	{
+		int cur_read = 0;
+		while (cur_read < availableBytes)
+		{
+			ReadFile(pipe, read_buffer, sizeof(read_buffer) - 1, &bytesRead, NULL);
+			read_buffer[bytesRead] = 0;
+			cur_read += bytesRead;
+			final_str += std::string(read_buffer, bytesRead);
+		}
+	}
+}
+void Write(HANDLE hFile, char *str, int sz)
+{
+	int dwBytesWritten = 0;
+	auto bErrorFlag = WriteFile(
+		hFile,           // open file handle
+		str,      // start of data to write
+		sz,  // number of bytes to write
+		(LPDWORD)&dwBytesWritten, // number of bytes that were written
+		NULL);           // no overlapped structure
+
+	/*
+	if (FALSE == bErrorFlag) {
+		//DisplayError(TEXT("WriteFile"));
+		printf("Terminal failure: Unable to write to file.\n");
+	} 
+	*/
+}
+void GetMsgFromGame(void* gl_state);
 void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int len, std::string func_start, long long* args, int total_args)
 {
 	char buffer[64];
 	dbg_state& dbg = *winterp->dbg;
+	
 	own_std::vector<wasm_bc>& bcs = winterp->dbg->bcs;
 
 
@@ -6929,6 +6980,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	int square_1_addr = 0;
 	int square_2_addr = 0;
 	//int total_wasm_bcs = 100;
+	std::string from_engine_str;
+
 	while(!can_break)
 	{
 		int bc_idx = (long long)(bc - &bcs[0]);
@@ -6963,6 +7016,24 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		*/
 		//bool res = WasmBcLogic(winterp, dbg, &bc, mem_buffer, &cur, can_break);
 
+		/*
+		if (!dbg.lang_stat->is_engine)
+		{
+			CheckPipeAndGetString(std_in, from_engine_str);
+
+			if (from_engine_str.size() > 0)
+			{
+				Write(std_out, (char *)from_engine_str.data(), from_engine_str.size());
+				FlushFileBuffers(std_out);
+			}
+
+		}
+		else
+		{
+			GetMsgFromGame(dbg.data);
+		}
+		*/
+
 
 		if((!bc->dbg_brk || bc->dont_dbg_brk) && !bc->one_time_dbg_brk && can_execute && !is_different_stmnt_same_func)
 			res = WasmBcLogic(winterp, dbg, &bc, mem_buffer, &cur, can_break);
@@ -6971,9 +7042,17 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			bc++;
 			continue;
 		}
-
+		bool got_executed_because_its_from_engine_so_no_need_brk_again = false;
+		if (bc->from_engine_break && !bc->dbg_brk )
+		{
+			bc->dbg_brk = true;
+			got_executed_because_its_from_engine_so_no_need_brk_again = true;
+			 
+		}
 		//IrLogic(dbg_state* dbg, ir_rep* ir)
-		if(is_different_stmnt_same_func || !can_execute|| bc->type == WASM_INST_DBG_BREAK || bc->dbg_brk && !bc->dont_dbg_brk || bc->one_time_dbg_brk || dbg.break_type == DBG_BREAK_ON_NEXT_BC && dbg.cur_func == dbg.next_stat_break_func && !bc->dont_dbg_brk)
+		if(is_different_stmnt_same_func || !can_execute|| bc->type == WASM_INST_DBG_BREAK || 
+			(bc->dbg_brk && !bc->dont_dbg_brk && !got_executed_because_its_from_engine_so_no_need_brk_again)|| 
+			bc->one_time_dbg_brk || dbg.break_type == DBG_BREAK_ON_NEXT_BC && dbg.cur_func == dbg.next_stat_break_func && !bc->dont_dbg_brk)
 		{
 			//bc->dbg_brk = true;
 			can_execute = false;
@@ -7637,9 +7716,12 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 		std::string name = WasmInterpNameFromOffsetAndLen(data, file, &cur_file->name);
 
-		new_f->name = std::string(name);
+		int last_bar = name.find_last_of("\\/");
+		new_f->path = name.substr(0, last_bar + 1);
+		new_f->name = name.substr(last_bar + 1, -1);
 		int read = 0;
-		new_f->contents = ReadEntireFileLang((char*)new_f->name.c_str(), &read);
+		new_f->contents = ReadEntireFileLang((char*)name.c_str(), &read);
+		new_f->funcs_scp = NewScope(lang_stat, nullptr);
 		char* cur_str = new_f->contents;
 		cur_file->fl = new_f;
 
@@ -13004,20 +13086,18 @@ void LspCompile(lang_state *lang_stat, std::string folder, int line, int line_of
 	}
 }
 
-void Write(HANDLE hFile, char *str, int sz)
+func_decl *GetFuncWithLine2(lang_state *lang_stat, int line, unit_file *file)
 {
-	int dwBytesWritten = 0;
-	auto bErrorFlag = WriteFile(
-		hFile,           // open file handle
-		str,      // start of data to write
-		sz,  // number of bytes to write
-		(LPDWORD)&dwBytesWritten, // number of bytes that were written
-		NULL);           // no overlapped structure
 
-	/*
-	if (FALSE == bErrorFlag) {
-		//DisplayError(TEXT("WriteFile"));
-		printf("Terminal failure: Unable to write to file.\n");
-	} 
-	*/
+	FOR_VEC(f_ptr, file->funcs_scp->vars)
+	{
+		if ((*f_ptr)->type.type != TYPE_FUNC)
+			continue;
+		func_decl* f = (*f_ptr)->type.fdecl;
+		if(line >= f->scp->line_start && line <= f->scp->line_end)
+		{
+			return f;
+		}
+	}
+	return nullptr;
 }

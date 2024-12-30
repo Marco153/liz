@@ -25,6 +25,7 @@ enum key_enum
 	_KEY_SPACE,
 	_KEY_F1,
 	_KEY_F5,
+	_KEY_F9,
 	_KEY_F10,
 	_KEY_F11,
 	_KEY_ENTER,
@@ -177,6 +178,8 @@ struct open_gl_state
 	own_std::vector<texture_raw> textures_raw;
 	double last_time;
 
+
+	bool game_started;
 	std::string texture_folder;
 	bool is_engine;
 
@@ -225,6 +228,12 @@ struct open_gl_state
 	HANDLE lsp_thread;
     HANDLE hStdInRead, hStdInWrite;
     HANDLE hStdOutRead, hStdOutWrite;
+
+	HANDLE for_engine_game_process;
+	HANDLE for_engine_game_thread;
+	HANDLE for_engine_game_stdin;
+	HANDLE for_engine_game_stdout;
+
 	/*
 	Buffer* cur_buffer;
 	Buffer* cmd_buffer;
@@ -667,9 +676,9 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_F5;
 	}break;
-	case _KEY_F10:
+	case _KEY_F9:
 	{
-		key = GLFW_KEY_F10;
+		key = GLFW_KEY_F9;
 	}break;
 	case _KEY_F:
 	{
@@ -1010,7 +1019,7 @@ void ImGuiAddRect(dbg_state* dbg)
 }
 std::string GetWorkDir(unit_file *file, lang_state* lang_stat)
 {
-	std::string work_dir = file->name;
+	std::string work_dir = file->path;
 	int last_bar = work_dir.find_last_of('/');
 	work_dir = work_dir.substr(0, last_bar + 1);
 	return work_dir;
@@ -1288,10 +1297,10 @@ float FuzzyMatch(const std::string& to_match, const std::string& src)
 
     return score;
 }
-void ShowFileAndCmdBuffer(WindowEditor *wnd)
+void ShowFileAndCmdBuffer(WindowEditor *wnd, int flags)
 {
 	bool focus_on_cmd = wnd->on_cmd;
-	int flags = focus_on_cmd * TEXT_ED_DONT_HAVE_CURSOR_FOCUS;
+	flags |= focus_on_cmd * TEXT_ED_DONT_HAVE_CURSOR_FOCUS;
 	char buffer[32];
 	ImGui::Text(wnd->cur_buffer->name_without_path.c_str());
 	snprintf(buffer, 32, "editor##%p", wnd);
@@ -1414,10 +1423,10 @@ Buffer* AddFileToBuffer(dbg_state* dbg, std::string file_name, WindowEditor* wnd
 
 void LspGetFileSyntaxHightlighting(lang_state* lang_stat, std::string fname, open_gl_state* gl_state)
 {
-	LspHeader hdr;
+	lsp_header hdr;
 	hdr.magic = 0x77;
 	hdr.msg_type = lsp_msg_enum::LSP_SYNTAX;
-	hdr.msg_len = sizeof(LspHeader) + fname.size() + 1;
+	hdr.msg_len = sizeof(lsp_header) + fname.size() + 1;
 	own_std::vector<char> buffer;
 	char* cstr = (char*)fname.c_str();
 	buffer.insert(buffer.end(), (char*)&hdr, (char*)(&hdr + 1));
@@ -1430,6 +1439,25 @@ void SetNewBuffer(WindowEditor* ed, Buffer* new_b)
 {
 	ed->prev_buffer = ed->cur_buffer;
 	ed->cur_buffer = new_b;
+}
+
+void PrintGameStdOut(open_gl_state* gl_state)
+{
+	std::string str;
+	CheckPipeAndGetString(gl_state->for_engine_game_stdout, str);
+	printf("%s", str.c_str());
+}
+
+void GetMsgFromGame(void* data)
+{
+	auto gl_state = (open_gl_state*)data;
+	if (!gl_state->game_started)
+		return;
+	std::string from_game_str;
+	CheckPipeAndGetString(gl_state->for_engine_game_stdout, from_game_str);
+	//if(from_game_str.size() > 0)
+		//printf("msg from game: %s", from_game_str.c_str());
+
 }
 
 int LspCompile(lang_state* lang_stat, std::string folder, open_gl_state* gl_state, int line, int line_offset)
@@ -1450,7 +1478,7 @@ int LspCompile(lang_state* lang_stat, std::string folder, open_gl_state* gl_stat
 			final_str += std::string(read_buffer, bytesRead);
 		}
 		char* aux_buffer = (char*)final_str.data();
-		auto hdr = (LspHeader*)aux_buffer;
+		auto hdr = (lsp_header*)aux_buffer;
 		switch (lang_stat->intentions_to_lsp)
 		{
 		case lsp_intention_enum::DECL_DEF_LINE:
@@ -1523,8 +1551,8 @@ int LspCompile(lang_state* lang_stat, std::string folder, open_gl_state* gl_stat
 			if (hdr->msg_type == lsp_msg_enum::LSP_GOTO_DEF_RES)
 			{
 				char* cur_ptr = (char*)(hdr + 1);
-				auto goto_def = (GotoDef*)cur_ptr;
-				char* file_name = (char*)(goto_def + 1);
+				auto gt_def = (goto_def*)cur_ptr;
+				char* file_name = (char*)(gt_def + 1);
 
 				Buffer* buf = AddFileToBuffer(lang_stat->dstate, file_name, &gl_state->main_ed);
 
@@ -1535,7 +1563,7 @@ int LspCompile(lang_state* lang_stat, std::string folder, open_gl_state* gl_stat
 					lang_stat->intentions_to_lsp = lsp_intention_enum::SYNTAX;
 				}
 				TextEditor* ed = gl_state->main_ed.cur_buffer->ed;
-				ed->SetCursorPosition(TextEditor::Coordinates(goto_def->line.line - 1, goto_def->line.column));
+				ed->SetCursorPosition(TextEditor::Coordinates(gt_def->line.line - 1, gt_def->line.column));
 
 			}
 		}break;
@@ -1591,11 +1619,11 @@ void LspSendFolderToCompile(open_gl_state* gl_state, HANDLE hStdInWrite, std::st
 
 	// 8 is for string sizes(folder name, and exe_dir)
 	int offset_to_str = +8;
-	buffer.make_count(sizeof(LspHeader));
+	buffer.make_count(sizeof(lsp_header));
 
 	LspPushStringIntoVector(&folder, &buffer);
 	LspPushStringIntoVector(&lang_stat->exe_dir, &buffer);
-	auto hdr = (LspHeader*)buffer.data();
+	auto hdr = (lsp_header*)buffer.data();
 	hdr->magic = 0x77;
 	hdr->msg_type = lsp_msg_enum::ADD_FOLDER;
 	hdr->msg_len = buffer.size();
@@ -1607,10 +1635,52 @@ void LspSendFolderToCompile(open_gl_state* gl_state, HANDLE hStdInWrite, std::st
 
 }
 
-void StartGame(std::string game_dir)
+void StartGame(open_gl_state *gl_state, std::string game_dir)
 {
+	DWORD code;
+	GetExitCodeProcess(gl_state->for_engine_game_process, &code);
+	if (code == STILL_ACTIVE)
+	{
+		TerminateProcess(gl_state->for_engine_game_process, 0);
+		CloseHandle(gl_state->for_engine_game_process);
+		CloseHandle(gl_state->for_engine_game_thread);
+	}
+HANDLE hStdInRead, hStdInWrite;
+HANDLE hStdOutRead, hStdOutWrite;
+#define CREATE_STDIN 
+#ifdef CREATE_STDIN
+	SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+
+	// Create pipes for stdin and stdout
+
+	if (!CreatePipe(&hStdInRead, &hStdInWrite, &sa, 0)) {
+		std::cerr << "Failed to create stdin pipe.\n";
+		return;
+	}
+	if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
+		std::cerr << "Failed to create stdout pipe.\n";
+		return;
+	}
+
+	// Ensure the write handle to stdin and read handle to stdout are not inherited
+	if (!SetHandleInformation(hStdInWrite, HANDLE_FLAG_INHERIT, 0) ||
+		!SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0)) {
+		std::cerr << "Failed to set pipe handle information.\n";
+		return;
+	}
+
+
+	// Set up the STARTUPINFO structure
 	STARTUPINFO si = {};
 	si.cb = sizeof(STARTUPINFO);
+	si.hStdInput = hStdInRead;    // Child's stdin
+	si.hStdOutput = hStdOutWrite; // Child's stdout
+	si.hStdError = hStdOutWrite;  // Redirect stderr (optional)
+	si.dwFlags |= STARTF_USESTDHANDLES;
+#else
+	STARTUPINFO si = {};
+	si.cb = sizeof(STARTUPINFO);
+#endif
 
 	PROCESS_INFORMATION pi = {};
 
@@ -1631,6 +1701,17 @@ void StartGame(std::string game_dir)
 			printf( "CreateProcess failed (%d).\n", GetLastError() );
 			return;
 	}
+
+#ifdef CREATE_STDIN
+	// Close unused pipe ends in the parent process
+	gl_state->for_engine_game_process = pi.hProcess;
+	gl_state->for_engine_game_thread = pi.hThread;
+	gl_state->for_engine_game_stdin = hStdInWrite;
+	gl_state->for_engine_game_stdout = hStdOutRead;
+	CloseHandle(hStdInRead);
+	CloseHandle(hStdOutWrite);
+#endif
+	gl_state->game_started = true;
 }
 
 int CreateLspProcess(lang_state* lang_stat, open_gl_state* gl_state, std::string folder)
@@ -1718,10 +1799,10 @@ void PushCStrIntoVector(own_std::vector<char>* out, char* ptr, int size)
 }
 void LspSendLineStr(HANDLE hStdInWrite, lsp_msg_enum msg_type, int line, int column, std::string line_str, std::string file)
 {
-	ToLspLineStr info;
+	to_lsp_linestr info;
 	info.hdr.magic = 0x77;
 	info.hdr.msg_type = msg_type;
-	info.hdr.msg_len = sizeof(ToLspLineStr) + line_str.size() + 1 + file.size() + 1;
+	info.hdr.msg_len = sizeof(to_lsp_linestr) + line_str.size() + 1 + file.size() + 1;
 	info.pos.line = line;
 	info.pos.column = column;
 	own_std::vector<char>buffer;
@@ -1735,18 +1816,18 @@ void LspSendLineStr(HANDLE hStdInWrite, lsp_msg_enum msg_type, int line, int col
 
 void LspSendCursorPosAndString(HANDLE hStdInWrite, lsp_msg_enum msg_type, int line, int column, std::string str)
 {
-	LspHeader hdr;
+	lsp_header hdr;
 	hdr.magic = 0x77;
 	hdr.msg_type = msg_type;
-	hdr.msg_len = sizeof(LspHeader) + sizeof(LspPos) + str.size();
-	LspPos int_info;
+	hdr.msg_len = sizeof(lsp_header) + sizeof(lsp_pos) + str.size();
+	lsp_pos int_info;
 	int_info.column = column;
 	int_info.line = line;
 
 
 	own_std::vector<char>buffer;
-	InsertIntoCharVector(&buffer, &hdr, sizeof(LspHeader));
-	InsertIntoCharVector(&buffer, &int_info, sizeof(LspPos));
+	InsertIntoCharVector(&buffer, &hdr, sizeof(lsp_header));
+	InsertIntoCharVector(&buffer, &int_info, sizeof(lsp_pos));
 	InsertIntoCharVector(&buffer, (char*)str.data(), str.size() + 1);
 	//InsertIntoCharVector(&buffer, (void*)word.c_str(), word.size() + 1);
 
@@ -1761,7 +1842,7 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 
 
-	ShowFileAndCmdBuffer(&gl_state->main_ed);
+	ShowFileAndCmdBuffer(&gl_state->main_ed, 0);
 	/*
 	if (gl_state->func_def_str.size() > 0)
 	{
@@ -1851,7 +1932,7 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 
 			std::string line_str = ed->GetCurrentLineText();
 
-			LspPos int_info;
+			lsp_pos int_info;
 			int_info.column = ed->GetCharacterIndex(coor) - 1;
 			int_info.line = coor.mLine + 1;
 			gl_state->suggestion_cursor_line = int_info.line - 1;
@@ -1983,7 +2064,7 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 		}
 
 		ImGui::Begin("file window", &val);
-		ShowFileAndCmdBuffer(&gl_state->search_files_ed);
+		ShowFileAndCmdBuffer(&gl_state->search_files_ed, TEXT_ED_ALLOW_ARRAW_NAVIGATION_EVEN_WHEN_NOT_FOCUS);
 		ImGui::End();
 
 		if (IsKeyDown(dbg, _KEY_ENTER))
@@ -1997,7 +2078,31 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 	}
 	if (IsKeyDown(dbg, _KEY_F1))
 	{
-		StartGame("../dev/files");
+		StartGame(gl_state, "../dev/files");
+	}
+	if (IsKeyDown(dbg, _KEY_F9))
+	{
+
+		int cline = ed->GetCursorPosition().mLine + 1;
+		engine_msg_break msg;
+		own_std::vector<char> buffer;
+		msg.msg.type = engine_msg_enum::ADD_BREAK_POINT;
+		msg.line = cline;
+		if (ed->HasBreakpoint(cline))
+		{
+			ed->RemoveBreakpoint(cline);
+			msg.add = false;
+		}
+		else
+		{
+			ed->SetBreakpoint(cline);
+			msg.add = true;
+		}
+		
+		buffer.insert(buffer.end(), (char*)&msg, (char*)(&msg + 1));
+		std::string *s = &gl_state->main_ed.cur_buffer->name;
+		PushCStrIntoVector(&buffer, (char*)s->data(), s->size());
+		Write(gl_state->for_engine_game_stdin, (char*)buffer.data(), buffer.size());
 	}
 	//ed->Render("editor", ImVec2(0.0, 500.0);
 }
@@ -2016,7 +2121,7 @@ void GoBackOneDir(std::string* dir)
 	dir->pop_back();
 	int last_bar = dir->find_last_of("/\\");
 	dir->erase(last_bar, -1);
-	*dir += '/';
+	*dir += '\\';
 }
 
 void ImGuiInitTextEditor(dbg_state* dbg)
@@ -2049,7 +2154,7 @@ void ImGuiInitTextEditor(dbg_state* dbg)
 	Buffer* buf = gl_state->main_ed.cur_buffer;
 
 
-	std::string dir = GetWorkDir(dbg->cur_func->from_file, dbg->lang_stat);
+	std::string dir = dbg->cur_func->from_file->path;
 	GoBackOneDir(&dir);
 	gl_state->cur_dir = dir;
 	dir += name;
@@ -2225,6 +2330,19 @@ void ShouldClose(dbg_state* dbg)
 	ImGui::NewFrame();
 }
 
+// Callback function for window close event
+void window_close_callback(GLFWwindow* window) 
+{
+    std::cout << "Window is about to close!" << std::endl;
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	if (gl_state->is_engine)
+	{
+		TerminateProcess(gl_state->for_engine_game_process, 0);
+		TerminateProcess(gl_state->lsp_process, 0);
+		ExitProcess(1);
+	}
+
+}
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
 	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
@@ -2750,7 +2868,7 @@ void ReadFileInterp(dbg_state* dbg)
 	char *buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
 
 	int size;
-	std::string work_dir = GetWorkDir(dbg->cur_func->from_file, dbg->lang_stat);
+	std::string work_dir = dbg->cur_func->from_file->path;
 	work_dir = work_dir + name;
 	char *file = ReadEntireFileLang((char *)work_dir.c_str(), &size);
 	memcpy(buffer_ptr, file, size);
@@ -2763,7 +2881,7 @@ void GetFileSize(dbg_state* dbg)
 
 
 	LARGE_INTEGER file_size;
-	std::string work_dir = GetWorkDir(dbg->cur_func->from_file, dbg->lang_stat);
+	std::string work_dir = dbg->cur_func->from_file->path;
 	work_dir = work_dir + name;
 	HANDLE file = OpenFileLang((char*)work_dir.c_str());
 	BOOL val = GetFileSizeEx(file, &file_size);
@@ -2797,9 +2915,7 @@ void LoadTexFolder(dbg_state* dbg)
 
 	auto gl_state = (open_gl_state*)dbg->data;
 	gl_state->texture_folder = folder_name;
-	std::string work_dir = dbg->cur_func->from_file->name;
-	int last_bar = work_dir.find_last_of('/');
-	work_dir = work_dir.substr(0, last_bar + 1);
+	std::string work_dir = dbg->cur_func->from_file->path;
 	//MaybeAddBarToEndOfStr(&work_dir);
 
 	gl_state->texture_folder = work_dir + gl_state->texture_folder;
@@ -3045,9 +3161,7 @@ void AssignSoundFolder(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 	
 	///gl_state->texture_folder = name_str;
-	std::string work_dir = dbg->cur_func->from_file->name;
-	int last_bar = work_dir.find_last_of('/');
-	work_dir = work_dir.substr(0, last_bar + 1);
+	std::string work_dir = dbg->cur_func->from_file->path;
 	//MaybeAddBarToEndOfStr(&work_dir);
 
 	std::string sound_folder;
@@ -3074,9 +3188,7 @@ void AssignTexFolder(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 	
 	gl_state->texture_folder = name_str;
-	std::string work_dir = dbg->cur_func->from_file->name;
-	int last_bar = work_dir.find_last_of('/');
-	work_dir = work_dir.substr(0, last_bar + 1);
+	std::string work_dir = dbg->cur_func->from_file->path;
 	//MaybeAddBarToEndOfStr(&work_dir);
 
 	gl_state->texture_folder = work_dir + gl_state->texture_folder;
@@ -3165,13 +3277,75 @@ void UpdateLastTime(dbg_state* dbg)
 		gl_state->last_time = glfwGetTime();
 
 }
+DWORD WINAPI GameAndEngineMsgThread(
+  _In_ LPVOID lpParameter
+)
+{
+	auto dbg = (dbg_state* )lpParameter;
+	auto gl_state = (open_gl_state*)dbg->data;;
+	HANDLE std_in = GetStdHandle(STD_INPUT_HANDLE);
+	HANDLE std_out = GetStdHandle(STD_OUTPUT_HANDLE);
+	while(true)
+	{
+		if(!gl_state->is_engine)
+		{
+			std::string str;
+			CheckPipeAndGetString(std_in, str);
+			if (str.size() > 0)
+			{
+				auto br = (engine_msg_break *)str.data();
+				char* file_name = (char*)(br + 1);
+
+				std::string file_name_str = file_name;
+				unit_file *fl=ThereIsFile(dbg->lang_stat, file_name_str);
+				if (!fl)
+					continue;
+				func_decl* fdecl = GetFuncWithLine2(dbg->lang_stat, br->line, fl);
+				if (!fdecl)
+					continue;
+
+				stmnt_dbg* s = nullptr;
+				FOR_VEC(st, fdecl->wasm_stmnts)
+				{
+					if(st->line == br->line)
+					{
+						s = st;
+						break;
+					}
+				}
+
+				if (!s)
+					continue;
+
+				dbg->bcs[s->start].dbg_brk = br->add;
+				dbg->bcs[s->start].from_engine_break = br->add;
+			}
+			//FlushFileBuffers(std_out);
+		}
+		else
+		{
+			std::string str;
+			CheckPipeAndGetString(gl_state->for_engine_game_stdout, str);
+			if (str.size() > 0)
+			{
+
+			}
+			//FlushFileBuffers(std_out);
+		}
+
+		Sleep(500);
+	}
+}
 
 void SetIsEngine(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	bool val = *(bool*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
-	gl_state->is_engine = true;
+	gl_state->lang_stat->is_engine = val;
+	gl_state->is_engine = val;
 
+	CreateThread(nullptr, 0, GameAndEngineMsgThread, (LPVOID)dbg, 0, nullptr);
 
 	gl_state->scene_srceen_width = 640 + 200;
 	gl_state->scene_srceen_height = 480 + 200;
@@ -3239,6 +3413,17 @@ void OpenWindow(dbg_state* dbg)
 	}
 
 	GLFWwindow* window;
+	
+	/*
+	int ret_val =AllocConsole();
+	printf("opening window\n");
+	if(ret_val == 0)
+	{
+		
+		printf("when allocating console error %d", GetLastError());
+		//ASSERT(0);
+	}
+	*/
 
 
 	/* Initialize the library */
@@ -3273,6 +3458,7 @@ void OpenWindow(dbg_state* dbg)
 	glfwSetWindowUserPointer(window, (void*)gl_state);
 	glfwSetKeyCallback(window, KeyCallback);
 	glfwSetScrollCallback(window, scroll_callback);
+	glfwSetWindowCloseCallback(window, window_close_callback);
 	glfwSetMouseButtonCallback(window, MouseCallback);
 
 	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)window;
@@ -3532,7 +3718,10 @@ void PrintV3Int(dbg_state* dbg)
 	int x = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int y = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int z = *(int*)&dbg->mem_buffer[base_ptr + 24];
-	printf("x: %d, y: %d, z: %d\n", x, y, z);
+	char buffer[128];
+	int sz = snprintf(buffer, 128, "x: %d, y: %d, z: %d\n", x, y, z);
+	DWORD written = 0;
+	WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, sz, &written, NULL);
 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }

@@ -6189,6 +6189,19 @@ void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own
 		}
 	}
 }
+void GetLongFileName(std::string *f)
+{
+	TCHAR name_buffer[MAX_PATH];
+
+	for (int i = 0; i < f->size(); i++)
+	{
+		if ((*f)[i] == '/')
+			(*f)[i] = '\\';
+
+	}
+	int res = GetFullPathName((char*)f->c_str(), MAX_PATH, name_buffer, nullptr);
+	*f = name_buffer;
+}
 void AddFolderToScope(lang_state * lang_stat, scope *scp, std::string folder, import_type imp_type, std::string imp_name)
 {
 	own_std::vector<std::string> file_contents;
@@ -6199,6 +6212,8 @@ void AddFolderToScope(lang_state * lang_stat, scope *scp, std::string folder, im
 	own_std::vector<unit_file*> files_added;
 	std::string prev_work_dir = lang_stat->work_dir;
 	lang_stat->work_dir +=  "/"+folder+"/";
+
+	GetLongFileName(&lang_stat->work_dir);
 	FOR_VEC(str, file_names)
 	{
 		files_added.emplace_back(AddNewFile(lang_stat, *str, lang_stat->work_dir));
@@ -10349,7 +10364,7 @@ unit_file *ThereIsFile(lang_state *lang_stat, std::string &dir)
 
 	FOR_VEC(f, lang_stat->files)
 	{
-		if ((*f)->path + "\\" + (*f)->name == dir)
+		if ((*f)->path +  (*f)->name == dir)
 			return *f;
 	}
 	return nullptr;
@@ -10384,7 +10399,9 @@ unit_file* AddNewFile(lang_state *lang_stat, std::string name, std::string path)
 		new_f->name = name.substr();
 
 	bar_idx = dir.find_last_of("\\/");
-	new_f->path = dir.substr(0, bar_idx);
+	new_f->path = dir.substr(0, bar_idx + 1);
+
+	//GetLongFileName(&new_f->name);
 
 	new_f->contents = file;
 	new_f->contents_sz = read;

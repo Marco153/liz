@@ -2327,9 +2327,32 @@ void TextEditor::Render(const char* aTitle, const ImVec2& aSize, int flags, bool
 	if (!mIgnoreImGuiChild)
 	{
 		auto new_sz = aSize;
-		ImGui::BeginChild(aTitle, new_sz, aBorder, 0);
+		ImGui::BeginChild(aTitle, new_sz, aBorder, ImGuiWindowFlags_NoNav);
 	}
 
+	if ((flags & TEXT_ED_ALLOW_ARRAW_NAVIGATION_EVEN_WHEN_NOT_FOCUS) != 0)
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		auto shift = io.KeyShift;
+		auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
+		auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
+		if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+		{
+			MoveRight(1, shift, ctrl);
+		}
+		else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+		{
+			MoveLeft(1, shift, ctrl);
+		}
+		else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+		{
+			MoveUp(1);
+		}
+		else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+		{
+			MoveDown(1);
+		}
+	}
 	if (mHandleKeyboardInputs && hasFocus)
 	{
 		HandleKeyboardInputs();
@@ -3483,7 +3506,7 @@ const TextEditor::Palette & TextEditor::GetDarkPalette()
 			0xffe0e0e0, // Cursor
 			0x80a06020, // Selection
 			0x800020ff, // ErrorMarker
-			0x40f08000, // Breakpoint
+			0x400000ff, // Breakpoint
 			0xff707000, // Line number
 			0x40000000, // Current line fill
 			0x40808080, // Current line fill (inactive)

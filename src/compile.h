@@ -1,5 +1,9 @@
 #pragma once
 //#include "../serializable_pound_defines.h"
+enum class engine_msg_enum
+{
+	ADD_BREAK_POINT,
+};
 enum class lsp_msg_enum
 {
 	ADD_FOLDER,
@@ -26,34 +30,44 @@ enum class lsp_intention_enum
 	DECL_DEF_LINE,
 	GOTO_DEF,
 };
-struct LspHeader
+struct lsp_header
 {
 	char magic;
 	lsp_msg_enum msg_type;
 	u32 msg_len;
 
 };
+struct engine_msg_hdr
+{
+	engine_msg_enum type;
+};
+struct engine_msg_break
+{
+	engine_msg_hdr msg;
+	bool add;
+	int line;
+};
 
-struct LspPos
+struct lsp_pos
 {
 	int line;
 	int column;
 };
 
-struct ToLspGoto
+struct to_lsp_goto
 {
 	int line_str_offset;
 	int path_file_name_offset;
 };
-struct ToLspLineStr
+struct to_lsp_linestr
 {
-	LspHeader hdr;
-	LspPos pos;
+	lsp_header hdr;
+	lsp_pos pos;
 	int line_str_len;
 };
-struct GotoDef
+struct goto_def
 {
-	LspPos line;
+	lsp_pos line;
 	int file_name_len;
 };
 

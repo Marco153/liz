@@ -190,14 +190,14 @@ void CreateSyntaxHighlightingWholeFile(lang_state *lang_stat, unit_file *f, own_
 	eof.type = lsp_syntax_hightlight_enum::SEOF;
 	out_buffer->insert(out_buffer->end(), (char*)&eof, (char*)(&eof + 1));
 
-	LspHeader hdr;
+	lsp_header hdr;
 	hdr.magic = 0x77;
 	hdr.msg_len = sizeof(hdr) + out_buffer->size();
 	hdr.msg_type = lsp_msg_enum::LSP_SYNTAX_RES;
 	out_buffer->insert(out_buffer->begin(), (char*)&hdr, (char*)(&hdr + 1));
 }
 
-node *GetPointNodeUpToChar(lang_state *lang_stat, LspPos *intl, char *str_line)
+node *GetPointNodeUpToChar(lang_state *lang_stat, lsp_pos *intl, char *str_line)
 {
 	own_std::vector<token2> tkns;
 	Tokenize2(str_line, intl->column, &tkns);
@@ -254,33 +254,18 @@ void SendScopeVars(scope *scp, HANDLE hStdout, bool recursive)
 	buffer.insert(buffer.begin(), (char*)&total_decls, (char*)(&total_decls + 1));
 	buffer.insert(buffer.end(), str_tbl.begin(), str_tbl.end());
 
-	LspHeader hdr;
+	lsp_header hdr;
 	hdr.magic = 0x77;
 	hdr.msg_type = lsp_msg_enum::LSP_INTELLISENSE_RES;
-	hdr.msg_len = sizeof(LspHeader) + buffer.size();
+	hdr.msg_len = sizeof(lsp_header) + buffer.size();
 
 	buffer.insert(buffer.begin(), (char*)&hdr, (char*)(&hdr + 1));
 	
 	Write(hStdout, (char*)buffer.data(), buffer.size());
 
 }
-func_decl *GetFuncWithLine2(lang_state *lang_stat, int line, unit_file *file)
-{
 
-	FOR_VEC(f_ptr, file->funcs_scp->vars)
-	{
-		if ((*f_ptr)->type.type != TYPE_FUNC)
-			continue;
-		func_decl* f = (*f_ptr)->type.fdecl;
-		if(line >= f->scp->line_start && line <= f->scp->line_end)
-		{
-			return f;
-		}
-	}
-	return nullptr;
-}
-
-scope *GetScopeWithLspLineStr(lang_state *lang_stat, ToLspLineStr *line_info)
+scope *GetScopeWithLspLineStr(lang_state *lang_stat, to_lsp_linestr *line_info)
 {
 	char* str_tbl = (char*)(line_info + 1);
 
@@ -364,7 +349,7 @@ int main()
 		if (PeekNamedPipe(hStdin, NULL, 0, NULL, &availableBytes, NULL) && availableBytes > 0) {
 			DWORD bytesRead = 0;
 			BOOL readResult = ReadFile(hStdin, tempBuffer, sizeof(tempBuffer) - 1, &bytesRead, NULL);
-			auto hdr = (LspHeader*)tempBuffer;
+			auto hdr = (lsp_header*)tempBuffer;
 			if(hdr->magic == 0x77)
 			{
 				char* cur_ptr = (char*)(hdr + 1);
@@ -391,7 +376,7 @@ int main()
 				}
 				else if(hdr->msg_type == lsp_msg_enum::LSP_DECL_DEF_LINE)
 				{
-					auto line_info = (ToLspLineStr*)hdr;
+					auto line_info = (to_lsp_linestr*)hdr;
 					scope* scp = GetScopeWithLspLineStr(&lang_stat, line_info);
 					if (!scp)
 						continue;
@@ -406,10 +391,10 @@ int main()
 
 						own_std::vector<char> buffer;
 
-						LspHeader hdr;
+						lsp_header hdr;
 						hdr.magic = 0x77;
 						hdr.msg_type = lsp_msg_enum::LSP_DECL_DEF_LINE_RES;
-						hdr.msg_len = sizeof(LspHeader) + line_ln;
+						hdr.msg_len = sizeof(lsp_header) + line_ln;
 
 						buffer.insert(buffer.end(), (char*)&hdr, (char*)(&hdr + 1));
 						InsertIntoCharVector(&buffer, (char*)line, line_ln);
@@ -419,7 +404,7 @@ int main()
 				}
 				else if(hdr->msg_type == lsp_msg_enum::LSP_GOTO_DEF)
 				{
-					auto line_info = (ToLspLineStr*)hdr;
+					auto line_info = (to_lsp_linestr*)hdr;
 
 					char* str_tbl = (char*)(line_info + 1);
 					node *n = GetPointNodeUpToChar(&lang_stat, &line_info->pos, str_tbl);
@@ -449,11 +434,11 @@ int main()
 
 					std::string file_name = d->from_file->path + '/' + d->from_file->name;
 
-					LspHeader hdr;
+					lsp_header hdr;
 					hdr.magic = 0x77;
 					hdr.msg_type = lsp_msg_enum::LSP_GOTO_DEF_RES;
-					hdr.msg_len = sizeof(LspHeader) + sizeof(LspPos);
-					GotoDef intl_val;
+					hdr.msg_len = sizeof(lsp_header) + sizeof(lsp_pos);
+					goto_def intl_val;
 					intl_val.line.line = d->decl_nd->t->line;
 					intl_val.line.column = d->decl_nd->t->line_offset;
 
@@ -487,7 +472,7 @@ int main()
 				if(hdr->msg_type == lsp_msg_enum::INTELLISENSE)
 				{
 
-					auto line_info = (ToLspLineStr*)hdr;
+					auto line_info = (to_lsp_linestr*)hdr;
 					scope* scp = GetScopeWithLspLineStr(&lang_stat, line_info);
 					if (!scp)
 						continue;
@@ -540,11 +525,11 @@ int main()
 				}
 				else
 				{
-					LspHeader hdr;
+					lsp_header hdr;
 					hdr.magic = 0x77;
 					hdr.msg_type = lsp_msg_enum::LSP_ERROR;
 					
-					Write(hStdout, (char*)&hdr, sizeof(LspHeader));
+					Write(hStdout, (char*)&hdr, sizeof(lsp_header));
 				}
 
 			}
@@ -559,11 +544,11 @@ int main()
 		if (lang_stat.lsp_stage == LSP_STAGE_DONE)
 		{
 			lang_stat.lsp_stage = LSP_STAGE_PAUSE;
-			LspHeader hdr;
+			lsp_header hdr;
 			hdr.magic = 0x77;
 			hdr.msg_type = lsp_msg_enum::LSP_TASK_DONE;
 			
-			Write(hStdout, (char*)&hdr, sizeof(LspHeader));
+			Write(hStdout, (char*)&hdr, sizeof(lsp_header));
 		}
 
     }

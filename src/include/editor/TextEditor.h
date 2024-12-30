@@ -28,6 +28,7 @@ enum line_mode
 };
 
 #define TEXT_ED_DONT_HAVE_CURSOR_FOCUS 1
+#define TEXT_ED_ALLOW_ARRAW_NAVIGATION_EVEN_WHEN_NOT_FOCUS 2
 class TextEditor
 {
 	typedef unsigned long long u64;
@@ -362,6 +363,9 @@ public:
 
 	void SetErrorMarkers(const ErrorMarkers& aMarkers) { mErrorMarkers = aMarkers; }
 	void SetBreakpoints(const Breakpoints& aMarkers) { mBreakpoints = aMarkers; }
+	void SetBreakpoint(int line) { mBreakpoints.insert(line); }
+	bool HasBreakpoint(int line) { return mBreakpoints.count(line); }
+	void RemoveBreakpoint(int line) { mBreakpoints.erase(line); }
 
 	void Render(const char* aTitle, const ImVec2& aSize = ImVec2(), int flags = 0, bool aBorder = false);
 	void SetText(const std::string& aText);
@@ -625,7 +629,7 @@ public:
 			buffer[i] = g[i].mChar;
 		}
 
-		for (int i = column_start; i < lsz; i++)
+		for (int i = column_start; i < (lsz - str_sz); i++)
 		{
 			if(memcmp(buffer + i, str_data, str_sz)==0)
 			{

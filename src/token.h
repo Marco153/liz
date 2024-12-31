@@ -3,6 +3,7 @@
 #include<string>
 #include "machine_rel.h"
 #include "rel_utils.h"
+#include "token_common.h"
 
 
 
@@ -48,61 +49,6 @@ enum overload_op
 	DEREF_OP,
 	COND_EQ_OP,
 	FOR_OP,
-};
-enum tkn_type2
-{
-	T_WORD,
-	T_PLUS,
-	T_PIPE,
-	T_EQUAL,
-	T_COND_AND,
-	T_COND_EQ,
-	T_COND_NE,
-	T_PLUS_EQUAL,
-	T_MINUS_EQUAL,
-	T_COND_OR,
-	T_EXCLAMATION,
-	T_MINUS,
-	T_DIV,
-	T_AT,
-	T_PLUS_PLUS,
-	T_MINUS_MINUS,
-	T_OPEN_PARENTHESES,
-	T_CLOSE_PARENTHESES,
-	T_NEW_LINE,
-	T_SEMI_COLON,
-	T_OPEN_BRACKETS,
-	T_CLOSE_BRACKETS,
-	T_NUM,
-	T_INT,
-	T_HASHTAG,
-	T_FLOAT,
-	T_DOLLAR,
-	T_OPEN_CURLY,
-	T_COLON,
-	T_CLOSE_CURLY,
-	T_TILDE,
-	T_COMMA,
-	T_POINT,
-	T_GREATER_THAN,
-	T_GREATER_EQ,
-	T_LESSER_THAN,
-	T_LESSER_EQ,
-	T_MUL,
-	T_AMPERSAND,
-	T_PERCENT,
-
-	T_STR_LIT,
-	T_APOSTROPHE,
-
-	T_QUESTION_MARK,
-
-	T_TWO_POINTS,
-	T_IN,
-
-	T_THREE_POINTS,
-
-	T_EOF,
 };
 enum enum_type2
 {
@@ -727,65 +673,27 @@ decl2 *GetDeclFromStruct(type_struct2 *st)
 {
     return st->this_decl;
 }
+token2 *token2::NewTkn(lang_state *lang_stat)
+{
+	auto ret = (token2 *)AllocMiscData(lang_stat, sizeof(token2));
+	memset(ret, 0, sizeof(token2));
+	
+	if (type == T_WORD)
+	{
+		ret->line = line;
+		ret->line_str = line_str;
+		ret->line_offset = line_offset;
+		ret->str = str.substr();
+	}
+	else
+	{
+		memcpy(ret, this, sizeof(token2));
+	}
+	
+	return ret;
+}
 
 #define TKN_FLAGS_IS_NEW_LINE 1
-
-struct token2
-{
-	tkn_type2 type;
-	int line;
-	int line_offset;
-	int line_offset_end;
-	char *line_str;
-	union
-	{
-		std::string str;
-		union
-		{
-			int i;
-			long long i64;
-			unsigned long long u64;
-		};
-		float f;
-	};
-	int flags;
-
-	token2(){}
-	token2 operator=(const token2& other) 
-	{
-		token2 t;
-		memcpy(this, &other, sizeof(other));
-
-		return t;
-	}
-	token2(const token2& other) 
-	{
-		memcpy(this, &other, sizeof(*this));
-	}
-	~token2(){}
-
-	std::string ToString();
-	
-	token2 *NewTkn(lang_state *lang_stat)
-	{
-		auto ret = (token2 *)AllocMiscData(lang_stat, sizeof(token2));
-		memset(ret, 0, sizeof(token2));
-		
-		if (type == T_WORD)
-		{
-			ret->line = line;
-			ret->line_str = line_str;
-			ret->line_offset = line_offset;
-			ret->str = str.substr();
-		}
-		else
-		{
-			memcpy(ret, this, sizeof(token2));
-		}
-		
-		return ret;
-	}
-};
 int IsTknWordStr(token2 *tkn, const char *str)
 {
 	return tkn->type == tkn_type2::T_WORD && tkn->str == str;

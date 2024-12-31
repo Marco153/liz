@@ -9,6 +9,7 @@
 #include <map>
 #include <regex>
 #include "imgui.h"
+#include "token_common.h"
 
 int clamp(int a, int b, int c);
 enum VIM_mode_enum

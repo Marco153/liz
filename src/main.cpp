@@ -1546,6 +1546,15 @@ int LspCompile(lang_state* lang_stat, std::string folder, open_gl_state* gl_stat
 				}
 			}
 		}break;
+		case lsp_intention_enum::GOTO_FUNC_DEF:
+		{
+			if (hdr->msg_type == lsp_msg_enum::LSP_GOTO_FUNC_RES)
+			{
+				int new_func_pos = *(int*)(hdr + 1);
+				gl_state->main_ed.cur_buffer->ed->SetCursorPosition(
+					TextEditor::Coordinates(new_func_pos, 0));
+			}
+		}break;
 		case lsp_intention_enum::GOTO_DEF:
 		{
 			if (hdr->msg_type == lsp_msg_enum::LSP_GOTO_DEF_RES)
@@ -1957,6 +1966,41 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 			gl_state->intellisense_suggestion_aux.clear();
 
 		}
+	}
+	if (ed->gotoFuncSrcLine != 0)
+	{
+		own_std::vector<char> buffer;
+		std::string *file_name = &gl_state->main_ed.cur_buffer->name;
+		lsp_header hdr;
+		hdr.magic = 0x77;
+		hdr.msg_type = lsp_msg_enum::LSP_GOTO_FUNC_DEF;
+		hdr.msg_len = sizeof(lsp_header) + sizeof(lsp_pos) + file_name->size() + 1;
+		lsp_pos pos;
+		pos.line = gl_state->main_ed.cur_buffer->ed->GetCursorPosition().mLine;
+		buffer.insert(buffer.end(), (char*)&hdr, (char*)(&hdr + 1));
+		buffer.insert(buffer.end(), (char*)&pos, (char*)(&pos + 1));
+
+		char dir = 0;
+		if (ed->gotoFuncSrcLine == 1)
+		{
+			dir = 1;
+		}
+		else if (ed->gotoFuncSrcLine == -1)
+		{
+			dir = -1;
+		}
+		else
+		{
+			ASSERT(0);
+		}
+
+		buffer.insert(buffer.end(), (char*)&dir, (char*)(&dir+ 1));
+		PushCStrIntoVector(&buffer, (char*)file_name->c_str(), file_name->size() + 1);
+
+		Write(gl_state->hStdInWrite, buffer.data(), buffer.size());
+		ed->gotoFuncSrcLine = 0;
+		gl_state->lang_stat->intentions_to_lsp = lsp_intention_enum::GOTO_FUNC_DEF;
+		
 	}
 	if (ed->insertBuffer[0] == '/' &&
 		gl_state->main_ed.cmd_buffer->ed->IsTextChanged())
@@ -3322,13 +3366,13 @@ DWORD WINAPI GameAndEngineMsgThread(
 			}
 			//FlushFileBuffers(std_out);
 		}
-		else
+		else if(gl_state->game_started)
 		{
 			std::string str;
 			CheckPipeAndGetString(gl_state->for_engine_game_stdout, str);
 			if (str.size() > 0)
 			{
-
+				printf("from game:%s", str.c_str());
 			}
 			//FlushFileBuffers(std_out);
 		}
@@ -3403,7 +3447,8 @@ void SetIsEngine(dbg_state* dbg)
 void OpenWindow(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
-	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int wnd_width = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int wnd_height = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
 	auto gl_state = (open_gl_state*)dbg->data;
 	if (gl_state->glfw_window)
@@ -3413,25 +3458,13 @@ void OpenWindow(dbg_state* dbg)
 	}
 
 	GLFWwindow* window;
-	
-	/*
-	int ret_val =AllocConsole();
-	printf("opening window\n");
-	if(ret_val == 0)
-	{
-		
-		printf("when allocating console error %d", GetLastError());
-		//ASSERT(0);
-	}
-	*/
-
 
 	/* Initialize the library */
 	if (!glfwInit())
 		return;
 
-	gl_state->width = 1700;
-	gl_state->height = 1000;
+	gl_state->width = wnd_width;
+	gl_state->height = wnd_height;
 	/* Create a windowed mode window and its OpenGL context */
 	const char* glsl_version = "#version 330";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -3832,9 +3865,7 @@ void WriteFileInterpreter(dbg_state* dbg)
 	auto name_ptr = (char*)&dbg->mem_buffer[name_offset];
 	auto buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
 
-	std::string work_dir = dbg->cur_func->from_file->name;
-	int last_bar = work_dir.find_last_of('/');
-	work_dir = work_dir.substr(0, last_bar + 1);
+	std::string work_dir = dbg->cur_func->from_file->path;
 	//MaybeAddBarToEndOfStr(&work_dir);
 
 	work_dir = work_dir + name_ptr;

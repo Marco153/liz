@@ -378,6 +378,7 @@ public:
 	VIM_mode_enum GetVimMode();
 
 	std::string GetSelectedText() const;
+	std::string GetSelectedText2() const;
 	std::string GetCurrentLineText()const;
 
 	int GetCharacterIndex(const Coordinates& aCoordinates) const;
@@ -629,7 +630,7 @@ public:
 			buffer[i] = g[i].mChar;
 		}
 
-		for (int i = column_start; i < (lsz - str_sz); i++)
+		for (int i = column_start; i <= (lsz - str_sz); i++)
 		{
 			if(memcmp(buffer + i, str_data, str_sz)==0)
 			{
@@ -884,6 +885,8 @@ public:
 
 	bool searchWord;
 	bool isQuotes;
+
+	int gotoFuncSrcLine;
 
 	float mLastClick;
 	bool IsLetter(char c)

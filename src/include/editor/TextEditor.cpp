@@ -517,7 +517,9 @@ TextEditor::Coordinates TextEditor::FindPrevWordStart(const Coordinates & aFrom)
 	auto cindex = GetCharacterIndex(at);
 
 	if (cindex >= (int)line.size())
-		return at;
+	{
+		cindex = (int)line.size() - 1;
+	}
 
 	while (cindex > 0 && isspace(line[cindex].mChar))
 		--cindex;
@@ -999,6 +1001,15 @@ void TextEditor::BasicMovs(int movAmount)
 				insertBuffer.clear();
 				return;
 			}
+			else
+			{
+				Coordinates start = FindWordStart(mState.mCursorPosition);
+				mInteractiveStart = mState.mCursorPosition;
+				mInteractiveEnd = FindWordEnd(mState.mCursorPosition);
+				mState.mCursorPosition = mInteractiveEnd;
+				insertBuffer.clear();
+				return;
+			}
 		}
 		else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
 		{
@@ -1047,7 +1058,13 @@ void TextEditor::BasicMovs(int movAmount)
 	}
 	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_RightBracket))
 	{
-		insertBuffer += ']';
+		if(insertBuffer == "]")
+		{
+			gotoFuncSrcLine = 1;
+			insertBuffer.clear();
+		}
+		else
+			insertBuffer += ']';
 	}
 	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_I))
 	{
@@ -1058,7 +1075,13 @@ void TextEditor::BasicMovs(int movAmount)
 	}
 	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_LeftBracket))
 	{
-		insertBuffer += '[';
+		if(insertBuffer == "[")
+		{
+			gotoFuncSrcLine = -1;
+			insertBuffer.clear();
+		}
+		else
+			insertBuffer += '[';
 	}
 	else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_RightBracket))
 	{
@@ -1349,6 +1372,8 @@ void TextEditor::HandleKeyboardInputs()
 			}
 			if(mState.mCursorPosition != mState.mSelectionStart)
 			{
+				mState.mSelectionStart = mInteractiveStart;
+				mState.mSelectionEnd = mInteractiveEnd;
 				mInteractiveEnd = mState.mCursorPosition;
 				//SetSelection(mInteractiveStart, mState.mCursorPosition, mSelectionMode);
 				Delete();
@@ -1409,7 +1434,7 @@ void TextEditor::HandleKeyboardInputs()
 				else
 					insertBuffer += '\'';
 			}
-			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_P) && !isQuotes)
+			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_P) && !isQuotes)
 			{
 				bool pasteInNewLine = false;
 				if (yb->str[0] == '\n')
@@ -1429,7 +1454,7 @@ void TextEditor::HandleKeyboardInputs()
 					MoveRight(yb->str.size());
 				}
 			}
-			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_P) && !isQuotes)
+			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_P) && !isQuotes)
 			{
 				bool pasteInNewLine = false;
 				if(yb->str[0] == '\n')
@@ -1448,6 +1473,14 @@ void TextEditor::HandleKeyboardInputs()
 				mSelectionMode = SelectionMode::Normal;
 				SetSelection(mState.mCursorPosition, mState.mCursorPosition, mSelectionMode);
 				mVimMode = VI_YANK;
+			}
+			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_C))
+			{
+				mState.mSelectionStart = mState.mCursorPosition;
+				MoveEnd();
+				mState.mSelectionEnd = mState.mCursorPosition;
+				Delete();
+				mVimMode = VI_INSERT;
 			}
 			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Apostrophe))
 			{
@@ -1725,10 +1758,13 @@ void TextEditor::HandleKeyboardInputs()
 
 			if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Y) && !isQuotes)
 			{
-				yb->str = GetSelectedText();
+				mState.mSelectionStart.mColumn = GetCharacterIndex(mState.mSelectionStart);
+				mState.mSelectionEnd.mColumn = GetCharacterIndex(mState.mSelectionEnd);
+				yb->str = GetSelectedText2();
 				mVimMode = VI_NORMAL;
 				mInteractiveEnd = mInteractiveStart;
 				SetSelection(mInteractiveStart, mInteractiveStart);
+				return;
 
 			}
 			mInteractiveEnd = mState.mCursorPosition;
@@ -2260,6 +2296,7 @@ void TextEditor::Render()
 			++lineNo;
 		}
 
+		/*
 		// Draw a tooltip on known identifiers/preprocessor symbols
 		if (ImGui::IsMousePosValid())
 		{
@@ -2285,6 +2322,7 @@ void TextEditor::Render()
 				}
 			}
 		}
+		*/
 	}
 
 
@@ -2316,6 +2354,7 @@ void TextEditor::Render(const char* aTitle, const ImVec2& aSize, int flags, bool
 	mWithinRender = true;
 	mTextChanged = false;
 	mCursorPositionChanged = false;
+	gotoFuncSrcLine = 0;
 
 	ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(mPalette[(int)PaletteIndex::Background]));
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
@@ -3602,6 +3641,10 @@ std::string TextEditor::GetSelectedText() const
 {
 	return GetText(mState.mSelectionStart, mState.mSelectionEnd);
 }
+std::string TextEditor::GetSelectedText2() const
+{
+	return GetText2(mState.mSelectionStart, mState.mSelectionEnd);
+}
 
 std::string TextEditor::GetCurrentLineText()const
 {
@@ -3674,6 +3717,7 @@ void TextEditor::ColorizeRange(int aFromLine, int aToLine)
 				// todo : remove
 				//printf("using regex for %.*s\n", first + 10 < last ? 10 : int(last - first), first);
 
+				/*
 				for (auto& p : mRegexList)
 				{
 					if (std::regex_search(first, last, results, p.first, std::regex_constants::match_continuous))
@@ -3687,6 +3731,7 @@ void TextEditor::ColorizeRange(int aFromLine, int aToLine)
 						break;
 					}
 				}
+				*/
 			}
 
 			if (hasTokenizeResult == false)

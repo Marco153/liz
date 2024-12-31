@@ -7,6 +7,23 @@
 #include "../compile.cpp"
 
 
+void Write(HANDLE hFile, char *str, int sz)
+{
+	int dwBytesWritten = 0;
+	auto bErrorFlag = WriteFile(
+		hFile,           // open file handle
+		str,      // start of data to write
+		sz,  // number of bytes to write
+		(LPDWORD)&dwBytesWritten, // number of bytes that were written
+		NULL);           // no overlapped structure
+
+	/*
+	if (FALSE == bErrorFlag) {
+		//DisplayError(TEXT("WriteFile"));
+		printf("Terminal failure: Unable to write to file.\n");
+	} 
+	*/
+}
 void Log(std::string message)
 {
 	HANDLE hFile;
@@ -402,6 +419,52 @@ int main()
 					}
 
 				}
+				else if(hdr->msg_type == lsp_msg_enum::LSP_GOTO_FUNC_DEF)
+				{
+					auto pos = (lsp_pos*)(hdr + 1);
+					auto dir = (char *)(pos + 1);
+					auto file_name = (char *)(dir + 1);
+					unit_file *fl = ThereIsFile(&lang_stat, std::string(file_name));
+					if (!fl)
+						continue;
+
+					u32 func_idx = 0;
+
+					if (fl->funcs_scp->vars.size() == 0)
+						continue;
+
+					FOR_VEC(f_ptr, fl->funcs_scp->vars)
+					{
+						if ((*f_ptr)->type.type != TYPE_FUNC)
+						{
+							func_idx++;
+							continue;
+						}
+						
+
+						if (pos->line <= (*f_ptr)->type.fdecl->scp->line_start)
+							break;
+						func_idx++;
+					}
+					do
+					{
+						func_idx = (func_idx + *dir) % fl->funcs_scp->vars.size();
+					} while (fl->funcs_scp->vars[func_idx]->type.type != TYPE_FUNC);
+					lsp_header hdr;
+					hdr.magic = 0x77;
+					hdr.msg_type = lsp_msg_enum::LSP_GOTO_FUNC_RES;
+					hdr.msg_len = sizeof(hdr) + 4;
+
+					decl2* d = fl->funcs_scp->vars[func_idx];
+
+					int line_start = d->type.fdecl->scp->line_start;
+					own_std::vector<char> buffer;
+					buffer.insert(buffer.end(), (char*)(&hdr), (char*)(&hdr + 1));
+					buffer.insert(buffer.end(), (char*)(&line_start), (char*)(&line_start + 1));
+					Write(hStdout, (char*)buffer.data(), buffer.size());
+
+
+				}
 				else if(hdr->msg_type == lsp_msg_enum::LSP_GOTO_DEF)
 				{
 					auto line_info = (to_lsp_linestr*)hdr;
@@ -456,6 +519,12 @@ int main()
 					buffer.insert(buffer.end(), (char*)&intl_val, (char*)(&intl_val + 1));
 					InsertIntoCharVector(&buffer, (char *)file_name.c_str(), file_name.size() + 1);
 					Write(hStdout, (char*)buffer.data(), buffer.size());
+
+				}
+				if (hdr->msg_type == lsp_msg_enum::LSP_DECL_DEF_LINE)
+				{
+					auto pos = (lsp_pos*)(hdr + 1);
+					auto file_name = (char*)(pos + 1);
 
 				}
 				if (hdr->msg_type == lsp_msg_enum::LSP_SYNTAX)

@@ -1,10 +1,10 @@
 #pragma once
 #include "Array.h"
-template <typename T>
+template <typename T, typename ValT = float>
 struct RatedStuff
 {
 	T type;
-	float val;
+	ValT val;
 	RatedStuff()
 	{
 	}
@@ -14,7 +14,7 @@ struct RatedStuff
 		this->val = val;
 	}
 };
-template <typename T>
-void SortRatedStuff(own_std::vector<RatedStuff<T>>* ar);
-template <typename T>
-void SortRatedStuffDescending(own_std::vector<RatedStuff<T>>* ar);
+template <typename T, typename ValT>
+void SortRatedStuff(own_std::vector<RatedStuff<T, ValT>>* ar);
+template <typename T, typename ValT>
+void SortRatedStuffDescending(own_std::vector<RatedStuff<T, ValT>>* ar);

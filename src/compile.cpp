@@ -99,6 +99,7 @@ struct global_variables_lang
 
 
 #include "own_vector.cpp"
+#include "sort.cpp"
 
 /*
 #include "udis86.h"
@@ -6862,7 +6863,7 @@ void CheckPipeAndGetString(HANDLE pipe, std::string &final_str)
 	if (res == 0)
 	{
 		int code = GetLastError();
-		printf("error pipe peex %d", code);
+		printf("error pipe peek %d\n", code);
 		FlushFileBuffers(GetStdHandle(STD_OUTPUT_HANDLE));
 	}
 	if (availableBytes > 0)
@@ -7778,7 +7779,6 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			//std::string name = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
 
 		}
-
 	}
 
 	FOR_VEC(func, winterp->funcs)
@@ -7788,6 +7788,33 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) & f->ir;
 		WasmInterpPatchIr(ir_ar, winterp, file);
 
+	}
+
+	own_std::vector<RatedStuff<decl2 *, int>> funcs;
+	FOR_VEC(fl_ptr, lang_stat->files)
+	{
+		funcs.clear();
+		unit_file* fl = *fl_ptr;
+		FOR_VEC(f_ptr, fl->funcs_scp->vars)
+		{
+			if ((*f_ptr)->type.type != TYPE_FUNC)
+				continue;
+			decl2 * d = (*f_ptr);
+			RatedStuff<decl2 *, int> r;
+			r.val = d->type.fdecl->scp->line_start;
+			r.type = d;
+			funcs.emplace_back(r);
+			//funcs
+		}
+		SortRatedStuff(&funcs);
+
+		int i = 0;
+		FOR_VEC(f_ptr, fl->funcs_scp->vars)
+		{
+			*f_ptr = funcs[i].type;
+			//funcs
+			i++;
+		}
 	}
 
 

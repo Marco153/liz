@@ -13,6 +13,9 @@ enum class lsp_msg_enum
 	LSP_DECL_DEF_LINE,
 	LSP_DECL_DEF_LINE_RES,
 
+	LSP_GOTO_FUNC_DEF,
+	LSP_GOTO_FUNC_RES,
+
 	LSP_GOTO_DEF,
 	LSP_GOTO_DEF_RES,
 	LSP_ERROR,
@@ -29,6 +32,7 @@ enum class lsp_intention_enum
 	SYNTAX,
 	DECL_DEF_LINE,
 	GOTO_DEF,
+	GOTO_FUNC_DEF,
 };
 struct lsp_header
 {

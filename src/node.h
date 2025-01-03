@@ -324,14 +324,24 @@ enum msg_type
 	 SCP_TYPE_FUNC,
 	 SCP_TYPE_FILE,
  };
+ struct cached_decl
+ {
+	 int hit;
+	 decl2* d;
+ };
+#define CACHED_DECLS_MAX  16
 struct scope
 {
 	scope *parent;
 	own_std::vector<decl2 *> vars;
+	std::unordered_map<std::string, decl2 *> vars_map;
 	own_std::vector<scope *> children;
 	own_std::vector<template_to_be_assigned> templs_to_be_assigned;
 
 	own_std::vector<decl2 *> imports;
+
+	cached_decl cached_decls[CACHED_DECLS_MAX];
+	
 
 	int flags;
 	//int flags;
@@ -347,6 +357,57 @@ struct scope
 
 	decl2 *FindVariable(std::string &name);
 	std::string Print(int);
+
+	void AssignDecls(decl2 **start, decl2 **end)
+	{
+		vars.assign(start, end);
+	}
+	void ClearDecls()
+	{
+		vars.clear();
+	}
+	void AddDecl(decl2 *d)
+	{
+		vars.emplace_back(d);
+		//vars_map[d->name] = d;
+	}
+	int GetNameSimpleHash(std::string &str)
+	{
+		return str.size();
+	}
+	void CacheDecl(decl2 *d)
+	{
+		bool cached = false;
+		cached_decl* cached_ptr;
+		u32 cur_min = INT_MAX;
+		u32 cur_min_idx = INT_MAX;
+
+		int simple_hash = GetNameSimpleHash(d->name);
+		for(int i = 0; i < CACHED_DECLS_MAX; i++)
+		{
+			int idx = (i + simple_hash) % CACHED_DECLS_MAX;
+			cached_ptr = &cached_decls[idx];
+			decl2* d_aux = cached_ptr->d;
+
+			if (d_aux == nullptr)
+			{
+				cached_ptr->d = d;
+				cached = true;
+				break;
+			}
+			if (cached_ptr->hit < cur_min)
+			{
+				cur_min = cached_ptr->hit;
+				cur_min_idx = i;
+			}
+		}
+		if (cached)
+			return;
+
+		cached_decls[cur_min_idx].d = d;
+		cached_decls[cur_min_idx].hit = 1;
+	}
+
 };
 struct message
 {

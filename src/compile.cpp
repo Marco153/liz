@@ -90,6 +90,8 @@ struct global_variables_lang
 
 	float find_ident_timer;
 
+	bool use_cached_decls = true;
+
 
 	//LangArray<type_struct2> *structs;
 	//LangArray<type_struct2> *template_strcts;
@@ -4121,7 +4123,7 @@ dbg_expr* WasmGetExprFromTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 			_ptr->flags = DECL_ABSOLUTE_ADDRESS;
 			_ptr->offset = FILTER_PTR;
 			_ptr->type = strct;
-			cur_scp->vars.emplace_back(_ptr);
+			cur_scp->AddDecl(_ptr);
 			DescendNameFinding(dbg->lang_stat, commas_val[0], cur_scp);
 			DescendNode(dbg->lang_stat, commas_val[0], cur_scp);
 		}break;
@@ -5931,7 +5933,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			d = NewDecl(lang_stat, name, tp);
 			d->offset = cur_var->offset;
 
-			scp_final->vars.emplace_back(d);
+			scp_final->AddDecl(d);
 		}
 		if (d->type.type == TYPE_STATIC_ARRAY)
 		{
@@ -6045,7 +6047,7 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 		{
 			if (cur_scp->type == SCP_TYPE_FUNC)
 			{
-				ret_scp->vars.emplace_back(d);
+				ret_scp->AddDecl(d);
 				d->type.fdecl->scp = child_scp;
 
 				child_scp->type = SCP_TYPE_FUNC;
@@ -6057,7 +6059,7 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 			}
 			if (cur_scp->type == SCP_TYPE_ENUM)
 			{
-				ret_scp->vars.emplace_back(d);
+				ret_scp->AddDecl(d);
 				child_scp->type = SCP_TYPE_ENUM;
 				child_scp->e_decl = d;
 
@@ -6074,7 +6076,7 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 
 				d->type.strct->scp = child_scp;
 
-				ret_scp->vars.emplace_back(d);
+				ret_scp->AddDecl(d);
 
 				//WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file* file, scope_dbg *scp_pre, scope *scp_final)
 			}
@@ -11644,7 +11646,7 @@ int ExecuteString(code_info *info, std::string str, int param)
 	info->lang_stat->type_sect.clear();
 	info->lang_stat->code_sect.clear();
 	info->lang_stat->global_funcs.clear();
-	info->lang_stat->funcs_scp->vars.clear();
+	info->lang_stat->funcs_scp->ClearDecls();
 	info->lang_stat->global_funcs.clear();
 	return ((int(*)(int))func_addr)(param);
 }

@@ -248,7 +248,7 @@ char* GetFuncBasedOnAddr(lang_state *lang_stat, unsigned long long offset)
 void NewDeclToCurFilseGlobalsScope(lang_state *lang_stat, decl2 *decl)
 {
 	//lang_stat->cur_file->global->vars.emplace_back(decl);
-	lang_stat->funcs_scp->vars.emplace_back(decl);
+	lang_stat->funcs_scp->AddDecl(decl);
 }
 void NewFuncToCompile(lang_state *lang_stat, func_decl *fdecl)
 {
@@ -2646,7 +2646,8 @@ own_std::vector<decl2*> GetTemplateTypes(lang_state *lang_stat, own_std::vector<
 			decl.type.tp = cur_t->final_type;
 
 			auto new_decl = NewDecl(lang_stat, decl.name, decl.type);
-			aux_scope->vars.emplace_back(new_decl);
+			aux_scope->AddDecl(new_decl);
+			//aux_scope->vars.emplace_back(new_decl);
 			ret.emplace_back(new_decl);
 
 			// assigning templates to the function declaration
@@ -2656,7 +2657,7 @@ own_std::vector<decl2*> GetTemplateTypes(lang_state *lang_stat, own_std::vector<
 				FOR_VEC(fparam, fdecl->args)
 				{
 					(*fparam)->AssignTemplate(lang_stat, cur_t->name, cur_t->final_type, &(*args)[cur_arg]);
-					aux_scope->vars.emplace_back(*fparam);
+					aux_scope->AddDecl(*fparam);
 					cur_arg += 1;
 
 				}
@@ -3323,7 +3324,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 		new_scope = NewScope(lang_stat, scp->parent);
 		//
 
-		new_scope->vars.assign(templates_types.begin(), templates_types.end());
+		new_scope->AssignDecls(templates_types.begin(), templates_types.end());
 
 		// later right below, we dont wanna add the templates as the struct's variables, so we're keeping track
 
@@ -3343,7 +3344,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 		instantions_exist = NewDecl(lang_stat, templ_name, tp);
 
 		// @test original->scp->parent->vars.emplace_back(instantions_exist);
-		scp->parent->vars.emplace_back(instantions_exist);
+		scp->parent->AddDecl(instantions_exist);
 		//
 
 		new_strct->flags = TP_STRCT_STRUCT_NOT_NODE;
@@ -4063,7 +4064,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 
 		// @test it_next->type.fdecl->scp->parent->vars.emplace_back(new_decl);
 		lang_stat->root->vars.emplace_back(new_decl);
-		lang_stat->funcs_scp->vars.emplace_back(new_decl);
+		lang_stat->funcs_scp->AddDecl(new_decl);
 		//
 
 
@@ -4095,7 +4096,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 			templates_types.emplace_back(NewDecl(lang_stat, t->name, (*final_types)[i]));
 			i++;
 		}
-		fdecl->scp->vars.assign(templates_types.begin(), templates_types.end());
+		fdecl->scp->AssignDecls(templates_types.begin(), templates_types.end());
 		fdecl->flags |= FUNC_DECL_TEMPLATES_DECLARED_TO_SCOPE;
 	}
 	// getting the func ret_type
@@ -4135,7 +4136,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 	fdecl->templates.clear();
 	fdecl->this_decl = NewDecl(lang_stat, fdecl->name, tp);
 	//ASSERT(!IsThereAFunction((char *)fdecl->name.c_str()));
-	lang_stat->cur_file->global->vars.emplace_back(fdecl->this_decl);
+	lang_stat->cur_file->global->AddDecl(fdecl->this_decl);
 	return true;
 }
 bool InstantiateTemplateFunction(lang_state *lang_stat, func_decl* fdecl, own_std::vector<comma_ret>* args)
@@ -4144,7 +4145,7 @@ bool InstantiateTemplateFunction(lang_state *lang_stat, func_decl* fdecl, own_st
 	auto templates_types = GetTemplateTypes(lang_stat, &fdecl->templates, args, target_scope, fdecl);
 	if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_TEMPLATES_DECLARED_TO_SCOPE))
 	{
-		fdecl->scp->vars.assign(templates_types.begin(), templates_types.end());
+		fdecl->scp->AssignDecls(templates_types.begin(), templates_types.end());
 		fdecl->flags |= FUNC_DECL_TEMPLATES_DECLARED_TO_SCOPE;
 	}
 
@@ -4983,10 +4984,21 @@ void NewVarArgToScope(lang_state *lang_stat, scope* scp, type2* tp, func_decl* f
 	auto new_decl = NewDecl(lang_stat, "ar_args", aux_type);
 	new_decl->flags |= TYPE_VAR_ARGS_STRCT;
 	fdecl->args.emplace_back(new_decl);
-	scp->vars.emplace_back(new_decl);
+	scp->AddDecl(new_decl);
 }
 
 
+void ReportDeclaredTwice(lang_state *lang_stat, node* twice, decl2* decl)
+{
+	char msg_hdr[256];
+	int decl_exist_ln = decl->decl_nd->t->line;
+	REPORT_ERROR(twice->t->line, twice->t->line_offset,
+		VAR_ARGS("variable '%s' declred here:\n\n%d|%s\n\nHas the same name as this one\n",
+			decl->name.c_str(), decl_exist_ln, GetFileLn(lang_stat, decl_exist_ln - 1, decl->from_file)
+		)
+	)
+		ExitProcess(1);
+}
 bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type, int flags)
 {
 	char msg_hdr[256];
@@ -5030,7 +5042,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 		ret_type->fdecl = fdecl;
 		fdecl->flags |= FUNC_DECL_TEMPLATED;
 		auto tdecls = DescendTemplatesToDecl(lang_stat, fnode->l->l->l->r, child_scp, &fdecl->templates);
-		child_scp->vars.assign(tdecls.begin(), tdecls.end());
+		child_scp->AssignDecls(tdecls.begin(), tdecls.end());
 		template_end_idx = child_scp->vars.size();
 
 
@@ -5706,10 +5718,8 @@ decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, std::string name,
 			lang_stat->cur_file->funcs_scp->vars.emplace_back(new_decl);
 		}
 
-		scp->vars.emplace_back(new_decl);
 	}
-	else
-		scp->vars.emplace_back(new_decl);
+	scp->AddDecl(new_decl);
 
 	lang_stat->something_was_declared = true;
 	// declaring variables to function vars
@@ -5767,17 +5777,6 @@ struct dbg_name_
 };
 #endif
 
-void ReportDeclaredTwice(lang_state *lang_stat, node* twice, decl2* decl)
-{
-	char msg_hdr[256];
-	int decl_exist_ln = decl->decl_nd->t->line;
-	REPORT_ERROR(twice->t->line, twice->t->line_offset,
-		VAR_ARGS("variable '%s' declred here:\n\n%d|%s\n\nHas the same name as this one\n",
-			decl->name.c_str(), decl_exist_ln, GetFileLn(lang_stat, decl_exist_ln - 1, decl->from_file)
-		)
-	)
-		ExitProcess(1);
-}
 node* CreateNodeFromType(lang_state *lang_stat, type2* tp, token2 *t)
 {
 	node* nd;
@@ -5835,8 +5834,8 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 	tp.type = TYPE_FUNC;
 	tp.fdecl = f;
 	decl2* d = NewDecl(lang_stat, f->name, tp);
-	lang_stat->cur_file->global->vars.emplace_back(d);
-	lang_stat->funcs_scp->vars.emplace_back(d);
+	lang_stat->cur_file->global->AddDecl(d);
+	lang_stat->funcs_scp->AddDecl(d);
 
 	decl_exist->type.overload_funcs->fdecls.emplace_back(f);
 	decl_exist->type.type = enum_type2::TYPE_OVERLOADED_FUNCS;
@@ -5844,7 +5843,7 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 
 void AddNewDeclToFileGlobalScope(lang_state *lang_stat, decl2* d)
 {
-	lang_stat->cur_file->global->vars.emplace_back(d);
+	lang_stat->cur_file->global->AddDecl(d);
 }
 node* CreateDeclNode(lang_state *lang_stat, std::string name, type2* tp, token2 *t)
 {
@@ -6129,7 +6128,7 @@ void AddStructMembersToScopeWithUsing(lang_state *lang_stat, type_struct2 *strct
 		}
 		//memcpy(n, decl->using_n, sizeof(node));
 
-		scp->vars.emplace_back(new_decl);
+		scp->AddDecl(new_decl);
 	}
 }
 node* MakeMemCpyCall(lang_state *lang_stat, node *lhs, node *rhs, node *top, int size)
@@ -7352,6 +7351,26 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						*/
 						ExitProcess(1);
 					}
+					if (decl_exist->type.type == TYPE_FUNC)
+					{
+						func_decl* fdecl = decl_exist->type.fdecl;
+						if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+						{
+							__lang_globals.use_cached_decls = false;
+							FOR_VEC(a_ptr, fdecl->args)
+							{
+								decl2* a = *a_ptr;
+								type2 dummy;
+								decl2 *found = FindIdentifier(a->name, scp, &dummy);
+								if(found)
+								{
+									ReportDeclaredTwice(lang_stat, a->decl_nd, found);
+								}
+								//FindIdentifier(, lhs->type.strct->scp, ret_tp);
+							}
+							__lang_globals.use_cached_decls = true;
+						}
+					}
 					return decl_exist;
 				}
 			}
@@ -7504,7 +7523,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						new_decl->type.from_enum = decl_exist;
 						new_decl->type.e_idx = cur_idx;
 
-						child_scp->vars.emplace_back(new_decl);
+						child_scp->AddDecl(new_decl);
 						cur_idx++;
 					}
 					ret_type.scp = child_scp;
@@ -7692,7 +7711,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							}
 							overload_strct->fdecls.emplace_back(ret_type.fdecl);
 							decl2 *d = DeclareDeclToScopeAndMaybeToFunc(lang_stat, decl_name.substr(), &ret_type, scp, n);
-							lang_stat->funcs_scp->vars.emplace_back(d);
+							lang_stat->funcs_scp->AddDecl(d);
 
 						}
 
@@ -8053,7 +8072,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			scope* strct_scp = strct->type.strct->scp;
 			scope *new_scp = NewScope(lang_stat, scp);
-			new_scp->vars = strct_scp->vars;
+			new_scp->AssignDecls(strct_scp->vars.begin(), strct_scp->vars.end());
 
 			n->exprs = (own_std::vector<comma_ret> *)AllocMiscData(lang_stat, sizeof(own_std::vector<comma_ret>));
 			n->scp = new_scp;
@@ -8207,8 +8226,8 @@ void ModifyFuncDeclToName(lang_state *lang_stat, func_decl *fdecl, node *n, scop
 
 	auto fptr_decl = NewDecl(lang_stat, buffer, ftype);
 	fdecl->this_decl = fptr_decl;
-	scp->vars.emplace_back(fptr_decl);
-	lang_stat->funcs_scp->vars.emplace_back(fptr_decl);
+	scp->AddDecl(fptr_decl);
+	lang_stat->funcs_scp->AddDecl(fptr_decl);
 
 
 	memcpy(n, NewIdentNode(lang_stat, buffer, n->t), sizeof(node));
@@ -8975,7 +8994,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 			auto new_decl = NewDecl(lang_stat, t->decl.name, t->decl.type);
 			ret_type.fdecl->args.emplace_back(new_decl);
-			scp->vars.emplace_back(new_decl);
+			scp->AddDecl(new_decl);
 			i++;
 		}
 
@@ -10109,7 +10128,7 @@ bool CheckOverloadFunction(lang_state* lang_stat, func_decl* f)
 
 	auto decl = NewDecl(lang_stat, f->name, tp);
 	f->this_decl = decl;
-	lang_stat->cur_file->global->vars.emplace_back(decl);
+	lang_stat->cur_file->global->AddDecl(decl);
 	//lang_stat->root->vars.emplace_back(decl);
 	//lang_stat->funcs_scp->vars.emplace_back(decl);
 	// 
@@ -10491,7 +10510,7 @@ func_decl* type_struct2::CreateNewOpOverload(lang_state *lang_stat, func_decl* o
 	{
 		auto cur_strct_var = this->scp->vars[cur_templ];
 		if (templ->name == cur_strct_var->name)
-			new_func->scp->vars.emplace_back(NewDecl(lang_stat, templ->name, *cur_strct_var->type.tp));
+			new_func->scp->AddDecl(NewDecl(lang_stat, templ->name, *cur_strct_var->type.tp));
 
 		cur_templ++;
 	}
@@ -10507,6 +10526,25 @@ decl2* scope::FindVariable(std::string &name)
 {
 	scope* cur_scope = this;
 
+	if (__lang_globals.use_cached_decls)
+	{
+
+		int simple_hash = GetNameSimpleHash(name);
+
+		for (int i = 0; i < CACHED_DECLS_MAX; i++)
+		{
+			int idx = (i + simple_hash) % CACHED_DECLS_MAX;
+			cached_decl* cached = &cached_decls[idx];
+			decl2* d = cached->d;
+
+			if (d != nullptr && d->name == name)
+			{
+				cached->hit++;
+				return d;
+			}
+		}
+	}
+
 	while (cur_scope != nullptr)
 	{
 		// imports scope
@@ -10518,7 +10556,10 @@ decl2* scope::FindVariable(std::string &name)
 			if (f->type == import_type::IMP_BY_ALIAS)
 			{
 				if (f->alias == name)
+				{
+					CacheDecl(*d);
 					return (*d);
+				}
 				else
 					continue;
 			}
@@ -10526,7 +10567,10 @@ decl2* scope::FindVariable(std::string &name)
 
 			auto ret = f->FindDecl(name);
 			if (ret)
+			{
+				CacheDecl(ret);
 				return ret;
+			}
 		}
 		for (int i = 0; i < cur_scope->vars.size(); i++)
 		{
@@ -10541,13 +10585,17 @@ decl2* scope::FindVariable(std::string &name)
 						|| (cur_scope->parent == nullptr)
 						|| var->type.type == TYPE_STRUCT_TYPE
 						|| var->type.type == TYPE_FUNC)
+					{
+						CacheDecl(var);
 						return var;
+					}
 
 					else
 						continue;
 				}
 				else
 				{
+					CacheDecl(var);
 					return var;
 				}
 			}

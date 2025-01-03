@@ -2710,10 +2710,18 @@ own_std::vector<decl2*> DescendTemplatesToDecl(lang_state *lang_stat, node* n, s
 	}
 	return ret;
 }
+#define DO_TIMERS
+
+
 #define FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE 1
 decl2* FindIdentifier(std::string name, scope* scp, type2* ret_type, int flags)
 {
+#ifdef DO_TIMERS
+	timer tm;
+	InitTimer(&tm);
+	StartTimer(&tm);
 
+#endif
 	// checking self ref
 	scope* cur_scope = scp;
 	while (cur_scope != nullptr)
@@ -2731,6 +2739,12 @@ decl2* FindIdentifier(std::string name, scope* scp, type2* ret_type, int flags)
 
 
 	auto decl = scp->FindVariable(name);
+
+#ifdef DO_TIMERS
+	EndTimer(&tm);
+	__lang_globals.find_ident_timer += GetTimerMSFloat(&tm);
+
+#endif
 	if (decl == nullptr)
 		return nullptr;
 
@@ -4585,7 +4599,17 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				auto gotten_func = lhs->type.ChooseFuncOverload(lang_stat, &args_types);
 
 				if (!gotten_func)
-					return false;
+				{
+					if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+					{
+						REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
+							VAR_ARGS("no overload found for func %s", lhs->name.c_str())
+						);
+						ExitProcess(1);
+					}
+					else
+						return false;
+				}
 
 				fdecl = gotten_func;
 				if (lang_stat->is_lsp)
@@ -7654,6 +7678,18 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						{
 							decl_name = MangleFuncNameWithArgs(lang_stat, ret_type.fdecl, decl_name, 0);
 							ret_type.fdecl->name = decl_name;
+							FOR_VEC(fdecl, overload_strct->fdecls)
+							{
+								func_decl* f = *fdecl;
+								if (f->name == decl_name)
+								{
+									REPORT_ERROR(n->t->line, n->t->line_offset,
+										VAR_ARGS("function '%s' has already an overload declared here\n%s(%d): %s", 
+											overload_strct->name.c_str(), f->from_file->name.c_str(), f->func_node->t->line, GetFileLn(lang_stat, f->func_node->t->line - 1, f->from_file))
+									);
+									ExitProcess(1);
+								}
+							}
 							overload_strct->fdecls.emplace_back(ret_type.fdecl);
 							decl2 *d = DeclareDeclToScopeAndMaybeToFunc(lang_stat, decl_name.substr(), &ret_type, scp, n);
 							lang_stat->funcs_scp->vars.emplace_back(d);
@@ -7695,6 +7731,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					}break;
 					default:
 					{
+						ReportMessage(lang_stat, n->t, "unexpected expression in determining var type");
 						ASSERT(false)
 					}break;
 					}
@@ -10466,7 +10503,7 @@ func_decl* type_struct2::CreateNewOpOverload(lang_state *lang_stat, func_decl* o
 	return new_func;
 }
 
-decl2* scope::FindVariable(std::string name)
+decl2* scope::FindVariable(std::string &name)
 {
 	scope* cur_scope = this;
 

@@ -80,6 +80,7 @@ int BuiltinTypeSize(enum_type2 tp)
 		case enum_type2::TYPE_U8:
 		case enum_type2::TYPE_BOOL:
 		case enum_type2::TYPE_S8:
+		case enum_type2::TYPE_CHAR:
 			return 1;
 		case enum_type2::TYPE_U16_TYPE:
 		case enum_type2::TYPE_S16_TYPE:
@@ -292,13 +293,10 @@ std::string TypeToString(type2 &tp)
 	{
 		ret = "auto";
 	}break;
-	case enum_type2::TYPE_FUNC:
-	{
-		ret = "func";
-	}break;
 	case enum_type2::TYPE_TEMPLATE:
 		ret += "template";
 		break;
+	case enum_type2::TYPE_FUNC:
 	case enum_type2::TYPE_FUNC_EXTERN:
 	case enum_type2::TYPE_FUNC_PTR:
 	{
@@ -311,6 +309,13 @@ std::string TypeToString(type2 &tp)
 		ret.pop_back();
 		ret.pop_back();
 		ret += ")";
+
+		type2* ret_type = &tp.fdecl->ret_type;
+		if (ret_type->type != TYPE_VOID || ret_type->type == TYPE_VOID && ret_type->ptr > 0)
+		{
+			ret += " ! ";
+			ret += TypeToString(*ret_type);
+		}
 
 	}break;
 	case enum_type2::TYPE_STRUCT_TYPE:
@@ -585,7 +590,7 @@ std::string GetQuoteStr(char *input, int i, char *ch,  int &line, char **line_st
 */
 void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns, own_std::vector<char *> *lines_out = nullptr)
 {
-	*tkns = own_std::vector<token2>();
+	//*tkns = own_std::vector<token2>();
 	tkns->reserve(256);
 
 	int i = 0;
@@ -1103,3 +1108,9 @@ bool GetDeclFromTkns(own_std::vector<token2> *tkns, int *i, decl2 *d)
 	return false;
 }
 */
+void TokenizeLine(std::string& line, std::vector<token2> *out)
+{
+	own_std::vector<token2> aux;
+	Tokenize2((char*)line.data(), line.size(), &aux);
+	out->insert(out->begin(), aux.begin(), aux.end());
+}

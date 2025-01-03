@@ -495,7 +495,7 @@ int main()
 					if (!d)
 						continue;
 
-					std::string file_name = d->from_file->path + '/' + d->from_file->name;
+					std::string file_name = d->from_file->path + d->from_file->name;
 
 					lsp_header hdr;
 					hdr.magic = 0x77;

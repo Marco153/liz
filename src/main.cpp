@@ -22,6 +22,7 @@ enum key_enum
 	_KEY_Q,
 	_KEY_E,
 	_KEY_W,
+	_KEY_ESCAPE,
 	_KEY_SPACE,
 	_KEY_F1,
 	_KEY_F5,
@@ -118,10 +119,13 @@ struct v3
 #define KEY_UP   4
 #define KEY_RECENTLY_DOWN   8
 #define KEY_REPEAT   0x10
+#define KEY_DOUBLE_CLICK   0x20
 #define PI   3.141592
 
 #define TOTAL_KEYS   (GLFW_KEY_LAST + 3)
-#define TOTAL_TEXTURES   64
+#define TOTAL_TEXTURES   128
+
+#define DOUBLE_CLICK_MAX_TIME 0.2
 
 struct AudioClip;
 struct sound_state;
@@ -174,10 +178,12 @@ struct open_gl_state
 	int color_u;
 	int pos_u;
 	int buttons[TOTAL_KEYS];
+	float time_pressed[TOTAL_KEYS];
 	texture_info textures[TOTAL_TEXTURES];
 	own_std::vector<texture_raw> textures_raw;
 	double last_time;
 
+	YankBuffer yank[8];
 
 	bool game_started;
 	std::string texture_folder;
@@ -196,6 +202,8 @@ struct open_gl_state
 	void* glfw_window;
 	lang_state* lang_stat;
 	sound_state* sound;
+
+	float lmouse_click_timer;
 
 	lang_state* lsp_lang_stat;
 	mem_alloc* lsp_alloc;
@@ -583,11 +591,11 @@ void Draw(dbg_state* dbg)
 		//glBindFramebuffer(GL_FRAMEBUFFER, gl_state->frame_buffer);
 		//glViewport(0, 0, gl_state->scene_srceen_width, gl_state->scene_srceen_height); // Render on the whole framebuffer, complete from the lower left corner to the upper right
 
-		glViewport(0, gl_state->height - gl_state->scene_srceen_height, gl_state->scene_srceen_width, gl_state->scene_srceen_height); // Define the 640x480 region
+		glViewport(0, gl_state->height - gl_state->scene_srceen_height, gl_state->scene_srceen_width, gl_state->scene_srceen_height);
 	}
 	else
 	{
-		//glViewport(0, 0, 640, 480);
+		glViewport(0, 0, gl_state->width, gl_state->height);
 	}
 
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
@@ -720,6 +728,10 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_A;
 	}break;
+	case _KEY_ESCAPE:
+	{
+		key = GLFW_KEY_ESCAPE;
+	}break;
 	case _KEY_SPACE:
 	{
 		key = GLFW_KEY_SPACE;
@@ -754,6 +766,31 @@ int FromGameToGLFWKey(int in)
 	return key;
 }
 
+void IsMouseDoubleClick(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	int state = 0;
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = 0;
+	if (mouse == 0)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST], KEY_DOUBLE_CLICK))
+			*addr = 1;
+	}
+	else if (mouse == 1)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST + 1], KEY_DOUBLE_CLICK))
+			*addr = 1;
+	}
+	else
+		ASSERT(0)
+
+}
 void IsMouseDown(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -777,6 +814,7 @@ void IsMouseDown(dbg_state* dbg)
 	}
 	else
 		ASSERT(0)
+
 
 }void IsMouseUp(dbg_state* dbg)
 {
@@ -912,8 +950,18 @@ void ImGuiEnumCombo(dbg_state* dbg)
 	scope *scp = FindScpWithLine(dbg->cur_func, line);
 	type2 dummy;
 	decl2 *e = FindIdentifier(name, scp, &dummy);
+	if (!e)
+	{
+		ImGui::Text("enum not found: %s", name);
+		return;
+	}
 	ASSERT(e);
 
+	if (*var_addr > 128 || *var_addr < 0)
+	{
+		ImGui::Text("value too high %d", *var_addr);
+		return;
+	}
 
 	own_std::vector<char*>* ar = e->type.enum_names;
 	if (ImGui::BeginCombo("type##obj_type", (*ar)[*var_addr]))
@@ -927,6 +975,15 @@ void ImGuiEnumCombo(dbg_state* dbg)
 		ImGui::EndCombo();
 	}
 
+}
+void ImGuiShowV3(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto v = (v3*)&dbg->mem_buffer[v_offset];
+	char buffer[128];
+	snprintf(buffer, 128, "##%p", v);
+	ImGui::DragFloat3(buffer, (float*)v, 0.5);
 }
 void ImGuiPushItemWidth(dbg_state* dbg)
 {
@@ -1130,13 +1187,21 @@ void RenderIntellisenseSuggestions(void *data, float screen_x, float screen_y)
 	if (wnd->gl_state->intellisense_suggestion.size() == 0 && wnd->gl_state->func_def_str.size() == 0)
 		return;
 	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	ImVec2 wnd_pos = ImGui::GetWindowPos();
+	ImVec2 wnd_sz = ImGui::GetWindowSize();
+
+	float suggestion_height = 100.0;
+
+
 	ImVec2 min, max;
 	min.x = screen_x;
-	min.y = screen_y + 50.0;
+	if((screen_y + suggestion_height) >= (wnd_pos.y + wnd_sz.y))
+	{
+		min.y = screen_y -(suggestion_height);
+	}
+	else
+		min.y = screen_y + 20.0;
 
-	max = min;
-	max.x += 100.0;
-	max.y += 100.0;
 	ImGui::SetCursorScreenPos(min);
 
 	int str_sz = wnd->gl_state->func_def_str.size();
@@ -1148,7 +1213,7 @@ void RenderIntellisenseSuggestions(void *data, float screen_x, float screen_y)
 	}
 
 	ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(100, 0, 100, 255));
-	ImGui::BeginChild("int sug", ImVec2(width, 100));
+	ImGui::BeginChild("int sug", ImVec2(width, suggestion_height));
 	//draw_list->AddRectFilled(min, max, IM_COL32(50, 50, 50, 255));
 
 
@@ -1193,13 +1258,24 @@ void AcceptIntellisenseSeggestion(void* data)
 	TextEditor* ed = wnd->cur_buffer->ed;
 	int start_line = wnd->gl_state->suggestion_cursor_line;
 	int start_column = wnd->gl_state->suggestion_cursor_column + 3;
+	int max_column = ed->GetLineMaxColumn(wnd->gl_state->suggestion_cursor_line);
 
 	TextEditor::Coordinates coor(ed->mState.mCursorPosition);
 	coor.mColumn = wnd->gl_state->suggestion_cursor_column;
-	TextEditor::Coordinates start = ed->FindWordStart(coor);
-	TextEditor::Coordinates end = ed->FindWordEnd(coor);
+	TextEditor::Coordinates start;
+	TextEditor::Coordinates end;
+	if(wnd->gl_state->suggestion_cursor_column >= max_column)
+	{
+		start = coor;
+		start.mColumn = max_column;
+	}
+	else
+	{
+		start = ed->FindWordStart2(coor);
+		end = ed->FindWordEnd(coor);
+		ed->DeleteRange(start, end);
+	}
 
-	ed->DeleteRange(start, end);
 
 	int name_idx = wnd->gl_state->selected_suggestion;
 	int suggestion_idx = wnd->gl_state->intellisense_suggestion_aux[name_idx].type;
@@ -1365,6 +1441,9 @@ Buffer* NewBuffer(dbg_state* dbg, WindowEditor* wnd)
 	new(buf->ed)TextEditor();
 	buf->ed->data = (void*)wnd;
 
+	auto gl_state = (open_gl_state*)dbg->data;
+	buf->ed->yank = &gl_state->yank[0];
+
 	return buf;
 }
 Buffer* AddFileToBuffer(dbg_state* dbg, std::string file_name, WindowEditor* wnd)
@@ -1525,7 +1604,7 @@ int LspCompile(lang_state* lang_stat, std::string folder, open_gl_state* gl_stat
 						auto* line = &ed_buffer->ed->mLines[w->line - 1];
 						if (line->size() != 0)
 						{
-							if (w->column_end >= line->size())
+							if (w->column_end > line->size())
 								return 0 ;
 
 							for (int i = w->column_start; i < w->column_end; i++)
@@ -2023,7 +2102,7 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 	}
 	if (ed->insertBuffer == "gd")
 	{
-		TextEditor::Coordinates coor = ed->FindWordEnd(ed->mState.mCursorPosition);
+		TextEditor::Coordinates coor = ed->FindWordEnd2(ed->mState.mCursorPosition);
 		
 		//std::string word = ed->GetWordUnderCursor();
 		Buffer* cur_buffer = gl_state->main_ed.cur_buffer;
@@ -2059,6 +2138,7 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 		GetFilesInDirectory(gl_state->cur_dir, nullptr, &gl_state->files, 
 			GET_FILES_DIR_ADD_PATH_TO_FILE_NAME | GET_FILES_DIR_RECURSIVE);
 
+		files_ed->cmd_buffer->ed->ClearLines();
 		files_ed->cur_buffer->ed->ClearLines();
 		files_ed->on_cmd = true;
 		//files_ed->cur_buffer->ed->InsertText()
@@ -2333,7 +2413,7 @@ void ClearKeys(void *data)
 	for (int i = 0; i < TOTAL_KEYS; i++)
 	{
 		int retain_flags = gl_state->buttons[i] & KEY_HELD;
-		gl_state->buttons[i] &= ~(KEY_DOWN | KEY_UP | KEY_REPEAT);
+		gl_state->buttons[i] &= ~(KEY_DOWN | KEY_UP | KEY_REPEAT | KEY_DOUBLE_CLICK);
 		gl_state->buttons[i] |= retain_flags;
 
 		if (IS_FLAG_ON(gl_state->buttons[i], KEY_RECENTLY_DOWN))
@@ -2396,15 +2476,23 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 void MouseCallback(GLFWwindow* window, int button, int action, int mods)
 {
 	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	int mouse_key = GLFW_KEY_LAST + button;
 	if (action == GLFW_PRESS)
 	{
-		gl_state->buttons[GLFW_KEY_LAST + button] = KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN;
+
+		gl_state->buttons[mouse_key] = KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN;
+		float t = glfwGetTime();
+
+		if ((t - gl_state->time_pressed[mouse_key]) < DOUBLE_CLICK_MAX_TIME)
+			gl_state->buttons[mouse_key] |= KEY_DOUBLE_CLICK;
+
+		gl_state->time_pressed[mouse_key] = t;
 		//printf("key(%d) is %d", key, gl_state->buttons[key]);
 	}
 	else if (action == GLFW_RELEASE)
 	{
-		gl_state->buttons[GLFW_KEY_LAST + button] &= ~KEY_HELD;
-		gl_state->buttons[GLFW_KEY_LAST + button] |= KEY_UP;
+		gl_state->buttons[mouse_key] &= ~KEY_HELD;
+		gl_state->buttons[mouse_key] |= KEY_UP;
 	}
 	else if (action == GLFW_REPEAT)
 	{
@@ -2417,6 +2505,11 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
 	if (action == GLFW_PRESS)
 	{
 		gl_state->buttons[key] |= KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN;
+		float t = glfwGetTime();
+		if ((t - gl_state->time_pressed[key]) < DOUBLE_CLICK_MAX_TIME)
+			gl_state->buttons[key] |= KEY_DOUBLE_CLICK;
+
+		gl_state->time_pressed[key] = t;
 		//printf("key(%d) is %d", key, gl_state->buttons[key]);
 	}
 	else if (action == GLFW_RELEASE)
@@ -2672,6 +2765,8 @@ struct aux_layer_info_struct
 	u32 type;
 	u32 pixels_per_width;
 
+	v3 pos;
+	v3 sz;
 	u32 grid_x;
 	u32 grid_y;
 	u32 total_of_used_cells;
@@ -2752,6 +2847,43 @@ void LoadSheetFromLayer(dbg_state* dbg)
 
 	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = tex_id;
 }
+
+int CreateSpriteFromLayer(lang_state *lang_stat, open_gl_state *gl_state, aux_layer_info_struct *cur_layer, aux_cell_info *cur_cell, char *str_table)
+{
+	int px_width = cur_layer->pixels_per_width;
+	char* aux_buffer = AllocMiscData(lang_stat, px_width * px_width * 4);
+	int tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+	int tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+	char *tex_data = (char *) AllocMiscData(lang_stat, tex_width * tex_height * 4);
+	//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
+	int tex_id = GenTexture2(lang_stat, gl_state, (u8*)*tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
+	texture_info* t = &gl_state->textures[tex_id];
+	glBindTexture(GL_TEXTURE_2D, t->id);
+
+	for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+	{
+		char* tex_name = str_table + cur_cell->tex_name;
+		texture_raw* tex_src = HasRawTexture(gl_state, tex_name);
+
+		int x_offset = cur_cell->src_tex_offset_x / px_width;
+		int y_offset = cur_cell->src_tex_offset_y / px_width;
+		auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
+		CopyFromSrcImgToBuffer((char*)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
+		//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+		GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0,
+			cur_cell->grid_x * px_width,
+			cur_cell->grid_y * px_width,
+			px_width, px_width,
+			GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
+		);
+
+		cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+	}
+	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+	return 1;
+
+}
+
 int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, int *tex_height, int *channels, char **tex_data)
 {
 	int read;
@@ -2796,9 +2928,18 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 		{
 		case 0:
 		{
-			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			if(cur_layer->cell_sz != sizeof(aux_layer_info_struct))
 			{
-				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+				ASSERT(0);
+			}
+
+			int total_sprites = cur_layer->total_of_used_cells;
+			cur_layer++;
+			for (int j = 0; j < total_sprites; j++)
+			{
+				cur_cell = (aux_cell_info*)(cur_layer + 1);
+				cur_cell = (aux_cell_info*)(((char*)cur_cell) + cur_layer->cell_sz * cur_layer->total_of_used_cells);
+				cur_layer = (aux_layer_info_struct*)cur_cell;
 			}
 		}break;
 		// colliders
@@ -2821,6 +2962,10 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 			printf("error file %s: layer type not known", sp_file_name.c_str(), cur_layer->type);
 			return -1;
 		}
+		if(cur_layer->total_of_used_cells == 0)
+		{
+			cur_cell = (aux_cell_info*)(cur_layer + 1);
+		}
 		cur_ptr = (char*)cur_cell;
 		cur_layer = (aux_layer_info_struct*)cur_cell;
 		cur_cell = (aux_cell_info*)(cur_layer + 1);
@@ -2832,6 +2977,7 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 		printf("error file %s: value check at end of layers not matching, expected 0x%04x, found 0x%04x", sp_file_name.c_str(), 0x1234, val);
 		return -1;
 	}
+	return 1;
 	cur_ptr = (char*)(hdr + 1);
 	
 	tex_id = 0;
@@ -2844,6 +2990,18 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 		{
 		case 0:
 		{
+
+			int total_sprites = cur_layer->total_of_used_cells;
+			cur_layer++;
+			for (int j = 0; j < total_sprites; j++)
+			{
+				auto cur_cell = (aux_cell_info*)(cur_layer + 1);
+				CreateSpriteFromLayer(gl_state->lang_stat, gl_state, cur_layer, cur_cell, str_table);
+				cur_cell = (aux_cell_info*)(cur_layer + 1);
+				cur_cell = (aux_cell_info*)(((char*)cur_cell) + cur_layer->cell_sz * cur_layer->total_of_used_cells);
+				cur_layer = (aux_layer_info_struct*)cur_cell;
+			}
+			/*
 			int px_width = cur_layer->pixels_per_width;
 			char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
 			*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
@@ -2874,6 +3032,7 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
 			}
 			heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+			*/
 		}break;
 		// colliders
 		case 1:
@@ -3010,6 +3169,7 @@ void LoadTexFolder(dbg_state* dbg)
 		char *tex_data = nullptr;
 		if (ext == "sp")
 		{
+				continue;
 			tex_idx = LoadSpriteSheet(dbg, gl_state->texture_folder + name, &tex_width, &tex_height, &tex_channels, &tex_data);
 			if(tex_idx == -1)
 			{
@@ -3390,9 +3550,12 @@ void SetIsEngine(dbg_state* dbg)
 	gl_state->is_engine = val;
 
 	CreateThread(nullptr, 0, GameAndEngineMsgThread, (LPVOID)dbg, 0, nullptr);
+	if(val)
+	{
+		gl_state->scene_srceen_width = 800;
+		gl_state->scene_srceen_height = 480;
+	}
 
-	gl_state->scene_srceen_width = 640 + 200;
-	gl_state->scene_srceen_height = 480 + 200;
 
 	/*
 	GLuint fbo, texture, depthBuffer;
@@ -3451,8 +3614,16 @@ void OpenWindow(dbg_state* dbg)
 	int wnd_height = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
 	auto gl_state = (open_gl_state*)dbg->data;
+	if (!gl_state->is_engine)
+	{
+		gl_state->scene_srceen_width = wnd_width;
+		gl_state->scene_srceen_height = wnd_height;
+	}
 	if (gl_state->glfw_window)
 	{
+		glfwSetWindowSize((GLFWwindow *)gl_state->glfw_window, wnd_width, wnd_height);
+		gl_state->width = wnd_width;
+		gl_state->height = wnd_height;
 		*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)gl_state->glfw_window;
 		return;
 	}
@@ -3463,6 +3634,8 @@ void OpenWindow(dbg_state* dbg)
 	if (!glfwInit())
 		return;
 
+	wnd_width = 640;
+	wnd_height = 480;
 	gl_state->width = wnd_width;
 	gl_state->height = wnd_height;
 	/* Create a windowed mode window and its OpenGL context */
@@ -3480,6 +3653,7 @@ void OpenWindow(dbg_state* dbg)
 	window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World", NULL, NULL);
 	if (!window)
 	{
+		ASSERT(0);
 		glfwTerminate();
 		return;
 	}
@@ -3914,6 +4088,32 @@ std::string GetFolderName(std::string path)
 
 	return path.substr(last_bar + 1);
 }
+void IsMouseOnGameWindow(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+	double ypos, xpos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+
+	if (gl_state->is_engine)
+	{
+		ypos /= gl_state->scene_srceen_height;
+		xpos /= gl_state->scene_srceen_width;
+	}
+	else
+	{
+		ypos /= gl_state->height;
+		xpos /= gl_state->width;
+	}
+	//ypos *= 10;
+	bool ret = true;
+
+	if (xpos > 1 || xpos < 0)
+		ret = false;
+	if (ypos > 1 || ypos < 0)
+		ret = false;
+	*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = ret;
+}
 void GetMouseNormalizedPosY(dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -3996,6 +4196,18 @@ void Rand01(dbg_state* dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = f;
 }
 
+void FreeTexture(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+	texture_info* t = &gl_state->textures[tex_id];
+	if (t->used)
+	{
+		glDeleteTextures(1, (GLuint *)&t->id);
+		t->used = false;
+	}
+}
 void ScreenRatio(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -4284,9 +4496,14 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX", (OutsiderFuncType)GetMouseScreenPosX);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
 
+
+	AssignOutsiderFunc(&lang_stat, "FreeTexture", (OutsiderFuncType)FreeTexture);
+	
+
 	AssignOutsiderFunc(&lang_stat, "IsMouseHeld", (OutsiderFuncType)IsMouseHeld);
 	AssignOutsiderFunc(&lang_stat, "IsMouseUp", (OutsiderFuncType)IsMouseUp);
 	AssignOutsiderFunc(&lang_stat, "IsMouseDown", (OutsiderFuncType)IsMouseDown);
+	AssignOutsiderFunc(&lang_stat, "IsMouseDoubleClick", (OutsiderFuncType)IsMouseDoubleClick);
 
 	AssignOutsiderFunc(&lang_stat, "ScreenRatio", (OutsiderFuncType)ScreenRatio);
 	AssignOutsiderFunc(&lang_stat, "AssignSoundFolder", (OutsiderFuncType)AssignSoundFolder);
@@ -4338,7 +4555,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScroll", (OutsiderFuncType)GetMouseScroll);
 	AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
-	AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
+	AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
+	AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow", (OutsiderFuncType)IsMouseOnGameWindow);
 
 	if (!opts.release)
 	{
@@ -4352,6 +4570,7 @@ int main(int argc, char* argv[])
 
 		int ret_val = *(int*)&lang_stat.winterp->dbg->mem_buffer[RET_1_REG * 8];
 	}
+	ExitProcess(1);
 	int a = 0;
 
 }

@@ -111,9 +111,9 @@ enum enum_type2
 	TYPE_S64,
 
 	TYPE_F32,
+	TYPE_CHAR,
 	TYPE_F64,
 	TYPE_BOOL,
-	TYPE_CHAR,
 	TYPE_F32_RAW,
 	TYPE_F64_RAW,
 
@@ -595,7 +595,7 @@ struct type_struct2
 #endif
 	func_decl *FindOpOverload(lang_state *, overload_op tp, node *, own_std::vector<type2> * = nullptr);
 	func_decl *FindExistingOverload(lang_state*, own_std::vector<func_overload_strct> *funcs, void * op, own_std::vector<type2> *tps, bool search_operator_ovrld, node *);
-	decl2 *FindDecl(std::string name)
+	decl2 *FindDecl(std::string &name)
 	{
 #ifdef COMPILER
 		for(int i = 0; i < this->vars.size(); i++)

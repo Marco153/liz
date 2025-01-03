@@ -2106,15 +2106,35 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				out->emplace_back(ir);
 				*top = ir.bin.lhs;
 			}
-			else if (e->cast.type.type == TYPE_F32 && top->is_float == false && e->cast.type.ptr == 0)
+			else if (e->cast.type.type == TYPE_F32 && e->cast.type.ptr == 0)
 			{
 				ir = {};
-				ir.type = IR_CAST_INT_TO_F32;
-				ir.bin.lhs.type = IR_TYPE_REG;
-				ir.bin.lhs.deref = -1;
-				ir.bin.lhs.reg = AllocReg(lang_stat);
-				ir.bin.lhs.is_float = true;
-				ir.bin.rhs = *top;
+				if(top->is_float)
+				{
+					ir.type = IR_ASSIGNMENT;
+					ir.assign.only_lhs = true;
+					ir.assign.to_assign.type = IR_TYPE_REG;
+					ir.assign.to_assign.is_float = true;
+					ir.assign.to_assign.deref = -1;
+					ir.assign.to_assign.reg_sz = 4;
+					if (top->type == IR_TYPE_REG)
+						ir.assign.to_assign.reg = top->reg;
+					else
+						ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
+					ir.assign.lhs = *top;
+					*top = ir.assign.to_assign;
+					//top->reg = ir.assign.lhs.reg;
+				}
+				else
+				{
+					ir.type = IR_CAST_INT_TO_F32;
+					ir.bin.lhs.type = IR_TYPE_REG;
+					ir.bin.lhs.deref = -1;
+					ir.bin.lhs.reg = AllocReg(lang_stat);
+					ir.bin.lhs.is_float = true;
+					ir.bin.rhs = *top;
+					*top = ir.bin.lhs;
+				}
 				/*
 				if (top->type == IR_TYPE_DECL)
 					ir.bin.rhs.deref = 0;
@@ -2124,7 +2144,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 				out->emplace_back(ir);
 
-				*top = ir.bin.lhs;
 			}
 			else if (top->ptr > 0 && e->cast.type.ptr > 0 && top->deref >= 0)
 			{

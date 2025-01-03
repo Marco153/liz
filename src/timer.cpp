@@ -30,6 +30,12 @@ void EndTimer(timer *t)
 	t->end_timer  = I.QuadPart;
 	t->end_cycles = __rdtsc();
 }
+float GetTimerMSFloat(timer *t)
+{
+	float result = (t->end_timer - t->begin_timer);
+
+	return (float) (((float)result / (float)t->frequency) * 1000);
+}
 u32 GetTimerMS(timer *t)
 {
 	u32 result = (t->end_timer - t->begin_timer);

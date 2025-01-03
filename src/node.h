@@ -345,7 +345,7 @@ struct scope
 	decl2* e_decl;
 	unit_file *file;
 
-	decl2 *FindVariable(std::string name);
+	decl2 *FindVariable(std::string &name);
 	std::string Print(int);
 };
 struct message

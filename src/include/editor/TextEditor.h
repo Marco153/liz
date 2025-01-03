@@ -27,6 +27,11 @@ enum line_mode
 	LINE_RELATIVE,
 	LINE_ABS,
 };
+struct YankBuffer
+{
+	char ch;
+	std::string str;
+};
 
 #define TEXT_ED_DONT_HAVE_CURSOR_FOCUS 1
 #define TEXT_ED_ALLOW_ARRAW_NAVIGATION_EVEN_WHEN_NOT_FOCUS 2
@@ -142,11 +147,6 @@ public:
 		}
 	};
 
-	struct YankBuffer
-	{
-		char ch;
-		std::string str;
-	};
 	struct GotoMark
 	{
 		char ch;
@@ -414,6 +414,20 @@ public:
 	void SetTabSize(int aValue);
 	inline int GetTabSize() const { return mTabSize; }
 	void InsertLineAddIndent(int line, int indentOfLine);
+	inline int IsLineOnlyTab(int line) const 
+	{ 
+		line = clamp(line, 0, mLines.size() - 1);
+		int tab = 0;
+
+		for(int i =0; i < mLines[line].size();i++)
+		{
+			if (mLines[line][i].mChar == '\t')
+				tab++;
+			else
+				return false;
+		}
+		return true;
+	}
 	inline int GetLineIndent(int line) const 
 	{ 
 		line = clamp(line, 0, mLines.size() - 1);
@@ -548,8 +562,10 @@ public:
 		if (end == -1)
 			end = mLines.size();
 
-		bool found = false;
 		int str_sz = str.size();
+		if (str_sz == 0)
+			return false;
+		bool found = false;
 		for(int line_idx = start; line_idx < end; line_idx++)
 		{
 			auto l = &mLines[line_idx];
@@ -742,7 +758,9 @@ public:
 	void AddUndo(UndoRecord& aValue);
 	Coordinates ScreenPosToCoordinates(const ImVec2& aPosition) const;
 	Coordinates FindWordStart(const Coordinates& aFrom) const;
+	Coordinates FindWordStart2(const Coordinates& aFrom) const;
 	Coordinates FindWordEnd(const Coordinates& aFrom) const;
+	Coordinates FindWordEnd2(const Coordinates& aFrom) const;
 	Coordinates FindNextWord(const Coordinates& aFrom) const;
 	Coordinates TextEditor::FindPrevWordStart(const Coordinates& aFrom) const;
 	int GetCharacterColumn(int aLine, int aIndex) const;
@@ -754,10 +772,10 @@ public:
 	void EnterCharacter(ImWchar aChar, bool aShift);
 	void Backspace();
 	void BasicMovs(int);
+	void RemoveLineComplete(YankBuffer * yb);
 
 	YankBuffer *GetYankBuffer(char ch)
 	{
-		YankBuffer* found = nullptr;
 		switch(ch)
 		{
 		case 'a':
@@ -877,7 +895,9 @@ public:
 	uint64_t mStartTime;
 
 	std::vector<GotoMark> gotoMarks;
-	YankBuffer yank[8];
+	int cur_tkns_are_from_line = -1;
+	std::vector<token2> line_tokens;
+	YankBuffer* yank;
 
 	int selectedSearch = 0xff000066;
 	int commentColor = 0xff007700;

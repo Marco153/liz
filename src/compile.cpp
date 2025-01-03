@@ -88,6 +88,8 @@ struct global_variables_lang
 	int total_blocks;
 	int cur_block;
 
+	float find_ident_timer;
+
 
 	//LangArray<type_struct2> *structs;
 	//LangArray<type_struct2> *template_strcts;
@@ -5199,6 +5201,12 @@ void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state* se
 	*/
 	strct->flags |= TP_STRCT_STRUCT_SERIALIZED;
 }
+
+void IrChangeDeclAddrToTypeOffset(ir_val* val)
+{
+	if(val->type == IR_TYPE_DECL)
+		val->i = val->decl->serialized_type_idx;
+}
 void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 {
 	auto ir_ar = (own_std::vector<ir_rep> *) &fdecl->ir;
@@ -5209,6 +5217,13 @@ void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 	{
 		switch (ir->type)
 		{
+		case IR_ASSIGNMENT:
+		{
+			IrChangeDeclAddrToTypeOffset(&ir->assign.to_assign);
+			IrChangeDeclAddrToTypeOffset(&ir->assign.lhs);
+			if (!ir->assign.only_lhs)
+				IrChangeDeclAddrToTypeOffset(&ir->assign.rhs);
+		}break;
 		case IR_INDIRECT_CALL:
 		{
 			if (ir->bin.lhs.type == IR_TYPE_DECL)
@@ -6796,6 +6811,12 @@ std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, in
 			*(float *)& val = *(float *) &dbg.mem_buffer[mem_wnd_offset + i];
 			ptype = PRINT_FLOAT;
 		}break;
+		case 9:
+		{
+			*(char *)& val = *(char *) &dbg.mem_buffer[mem_wnd_offset + i];
+			ret += val;
+			continue;
+		}break;
 		default:
 			ASSERT(0);
 		}
@@ -6975,7 +6996,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	bool res = true;
 	int mem_wnd_offset = 0;
 	int mem_wnd_show_type = 0;
-	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32"};
+	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32", "char"};
 	int wasm_bcs_to_show = 500;
 
 	int square_1_addr = 0;
@@ -6988,7 +7009,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		int bc_idx = (long long)(bc - &bcs[0]);
 		
 		wasm_stack_val val = {};
-		cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+		if(dbg.break_type == DBG_BREAK_ON_DIFF_STAT || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC)
+			cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
@@ -7077,8 +7099,10 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				ImGui_ImplGlfw_Sleep(10);
 				continue;
 			}
+
 			//ImGui::ImGuiContext& g = *ImGui::GImGui;
 			//if(g.WithinFrameScope)
+			if(ImGui::WithinFrame())
 				ImGui::Render();
 
 			// Start the Dear ImGui frame
@@ -7545,7 +7569,12 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			}
 		}
 
-		ImGui::Text("%s, %s", d->name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
+		std::string name = d->name;
+		if (d->type.ptr > 0)
+		{
+			name += std::string("(&") + WasmNumToString(&dbg, offset)+")";
+		}
+		ImGui::Text("%s, %s", name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
 	}
 
 }
@@ -7575,6 +7604,21 @@ func_decl* WasmInterpFindFunc(wasm_interp* winterp, std::string func_name)
 	return nullptr;
 }
 
+void WasmInterpPatchIrVal(ir_val* val, dbg_file_seriealize* file)
+{
+	unsigned char* start_f = ((unsigned char*)(file + 1)) + file->func_sect;
+	unsigned char* start_vars = ((unsigned char*)(file + 1)) + file->vars_sect;
+	unsigned char* start_type = ((unsigned char*)(file + 1)) + file->types_sect;
+
+	if (val->type == IR_TYPE_DECL)
+	{
+		auto vdbg = (var_dbg*)(start_vars + val->i);
+		decl2* d = vdbg->decl;
+		ASSERT(d);
+		val->decl = d;
+	}
+}
+
 void WasmInterpPatchIr(own_std::vector<ir_rep>* ir_ar, wasm_interp* winterp, dbg_file_seriealize* file)
 {
 	unsigned char* start_f = ((unsigned char*)(file + 1)) + file->func_sect;
@@ -7584,6 +7628,13 @@ void WasmInterpPatchIr(own_std::vector<ir_rep>* ir_ar, wasm_interp* winterp, dbg
 	{
 		switch (ir->type)
 		{
+		case IR_ASSIGNMENT:
+		{
+			WasmInterpPatchIrVal(&ir->assign.to_assign, file);
+			WasmInterpPatchIrVal(&ir->assign.lhs, file);
+			if(!ir->assign.only_lhs)
+				WasmInterpPatchIrVal(&ir->assign.rhs, file);
+		}break;
 		case IR_INDIRECT_CALL:
 		{
 			auto vdbg = (var_dbg*)(start_vars + ir->call.i);
@@ -12560,7 +12611,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		ExitProcess(1);
 
 	EndTimer(&tmr);
-	printf("name finding parsing %d\n", GetTimerMS(&tmr));
+	printf("name finding parsing %d, find ident %d\n", GetTimerMS(&tmr), (u32)__lang_globals.find_ident_timer);
+	__lang_globals.find_ident_timer = 0;
 
 
 	lang_stat->flags |= PSR_FLAGS_ASSIGN_SAVED_REGS;

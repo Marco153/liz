@@ -7371,6 +7371,11 @@ ImGuiWindow* ImGui::FindBlockingModal(ImGuiWindow* window)
     return NULL;
 }
 
+bool ImGui::WithinFrame()
+{
+    ImGuiContext& g = *GImGui;
+    return g.WithinFrameScope;
+}
 // Push a new Dear ImGui window to add widgets to.
 // - A default window called "Debug" is automatically stacked at the beginning of every frame so you can use widgets without explicitly calling a Begin/End pair.
 // - Begin/End can be called multiple times during the frame with the same window name to append content.

@@ -26,7 +26,7 @@ void ReportError(lang_state *lang_stat, int line, int line_offset, char *str, in
 	char* cur_line = (*lines)[line - 1];
 
 	
-	printf(ANSI_RESET "%s%s\n", str, msg_hdr);
+	printf(ANSI_RESET "%s\n", str);
 	
 	printf("\x1b[31m");
 	

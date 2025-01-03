@@ -129,21 +129,6 @@ dyn_add::fn{ T }(dyn : *dyn_array(T), data : *T)
 
 	dyn.count += 1;
 }
-str_cmp::fn(a :str_lit, b : str_lit) !bool
-{
-	l1 := str_ln(a);
-	l2 := str_ln(b);
-
-	if l1 != l2
-		return false;
-
-	for i in 0..l1
-	{
-		if *ptr_offset(a, cast(u64)i, u8) != *ptr_offset(b, cast(u64)i, u8)
-			return false;
-	}
-	return true;
-}
 str_ln::fn(str :str_lit) !u64
 {
 	s: = cast(*u8)str;

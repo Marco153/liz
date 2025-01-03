@@ -95,3 +95,4 @@ struct token2
 	std::string ToString();
 	
 };
+//void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns, own_std::vector<char *> *lines_out = nullptr)

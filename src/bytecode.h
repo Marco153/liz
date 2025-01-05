@@ -27,7 +27,7 @@ v.reg = 5;
 			}
 
 
-enum byte_code_enum
+enum byte_code_enum : short
 {
 	NOP, 
 
@@ -257,12 +257,32 @@ enum byte_code_enum
 
 	COMMENT,
 };
-enum rel_type
+enum rel_type : short
 {
 	REL_FUNC,
 	REL_GET_FUNC_ADDR,
 	REL_DATA,
 	REL_TYPE,
+};
+struct byte_code2
+{
+	union
+	{
+		byte_code_enum bc_type;
+		short type;
+	};
+	union
+	{
+		short regs;
+		rel_type rel_type;
+	};
+	int mem_offset;
+	union
+	{
+		int i;
+		float f32;
+		int mem_offset2;
+	};
 };
 struct lea_strct
 {

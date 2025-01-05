@@ -475,6 +475,9 @@ struct draw_info
 	float color_b;
 	float color_a;
 
+	float ent_rot_x;
+	float ent_rot_y;
+	float ent_rot_z;
 
 	int texture_id;
 
@@ -580,6 +583,9 @@ void Draw(dbg_state* dbg)
 	}
 	int cam_rot_u = glGetUniformLocation(prog, "cam_rot");
 	glUniform3f(cam_rot_u, cam_rot_x, cam_rot_y, cam_rot_z);
+
+	int ent_rot_u = glGetUniformLocation(prog, "ent_rot");
+	glUniform3f(ent_rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z);
 
 
 	int ent_size_u = glGetUniformLocation(prog, "ent_size");
@@ -1442,6 +1448,7 @@ Buffer* NewBuffer(dbg_state* dbg, WindowEditor* wnd)
 	buf->ed->data = (void*)wnd;
 
 	auto gl_state = (open_gl_state*)dbg->data;
+	ASSERT(gl_state);
 	buf->ed->yank = &gl_state->yank[0];
 
 	return buf;
@@ -2116,6 +2123,7 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 	}
 	if (dbg->lang_stat->intentions_to_lsp != lsp_intention_enum::PAUSED)
 	{
+		dbg->lang_stat->dstate = dbg;
 		LspCompile(dbg->lang_stat, "../dev/engine/", gl_state, 0, 0);
 	}
 
@@ -3634,8 +3642,8 @@ void OpenWindow(dbg_state* dbg)
 	if (!glfwInit())
 		return;
 
-	wnd_width = 640;
-	wnd_height = 480;
+	wnd_width = 1000;
+	wnd_height = 900;
 	gl_state->width = wnd_width;
 	gl_state->height = wnd_height;
 	/* Create a windowed mode window and its OpenGL context */
@@ -3738,15 +3746,20 @@ void OpenWindow(dbg_state* dbg)
 		"uniform vec3 ent_size;\n"
 		"uniform vec3 cam_pos;\n"
 		"uniform vec3 cam_rot;\n"
+		"uniform vec3 ent_rot;\n"
 		"out vec2 TexCoord;\n"
 		"void main()\n"
 		"{\n"
 		"	mat3 A = mat3(cos(cam_rot.z), -sin(cam_rot.z), 0.0,\n"
 		"		 sin(cam_rot.z), cos(cam_rot.z), 0.0,\n"
 		"		 0.0, 0.0, 1.0);\n"
+		"	mat3 rot = mat3(cos(ent_rot.z), -sin(ent_rot.z), 0.0,\n"
+		"		 sin(ent_rot.z), cos(ent_rot.z), 0.0,\n"
+		"		 0.0, 0.0, 1.0);\n"
 		"   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
 		"   gl_Position.xy -= pivot.xy;\n"
 		"   gl_Position.xy *= ent_size.xy;\n"
+		"   gl_Position = vec4(rot * gl_Position.xyz, 1.0);\n"
 		"   gl_Position.xy += pos.xy;\n"
 		"   gl_Position.xy -= cam_pos.xy;\n"
 		"   gl_Position.xy /= cam_size;\n"
@@ -4565,7 +4578,7 @@ int main(int argc, char* argv[])
 		AssignDbgFile(&lang_stat, (opts.wasm_dir + opts.folder_name + ".dbg").c_str());
 		//AssignDbgFile(&lang_stat, opts);
 		lang_stat.winterp->dbg->data = (void*)&gl_state;
-		//RunDbgFunc(&lang_stat, "tests", args, 1);
+		RunDbgFunc(&lang_stat, "tests", args, 1);
 		RunDbgFunc(&lang_stat, "main", args, 1);
 
 		int ret_val = *(int*)&lang_stat.winterp->dbg->mem_buffer[RET_1_REG * 8];

@@ -851,8 +851,18 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				{
 					auto found_ptr_func = IsThereAFunction(lang_stat, (char *)bc->rel.call_func->name.c_str());
 
-					// asserting that the function was already compiled
-					ASSERT(found_ptr_func && IS_FLAG_ON(fdecl->flags, FUNC_DECL_CODE_WAS_GENERATED))
+					if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_IS_OUTSIDER))
+					{
+
+						MovImmToReg(ret, 0, 4, fdecl->func_idx);
+						ret.code.emplace_back(0xcc);
+						//TODO
+					}
+					else
+					{
+						// asserting that the function was already compiled
+						ASSERT(found_ptr_func && IS_FLAG_ON(fdecl->flags, FUNC_DECL_CODE_WAS_GENERATED))
+					}
 
 				}
 
@@ -1696,6 +1706,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case RET:
 		{
 			ret.code.emplace_back(0xc3);
+		}break;
+		case DIV_I_2_R:
+		{
+			//TODO
+		}break;
+		case DIV_M_2_R:
+		{
+			//TODO
 		}break;
 		case POP_R:
 		{
@@ -6173,6 +6191,196 @@ long long PerformBinOp(long long lhs, long long rhs, char mem_size, bool is_unsi
 	}
 	return 0;
 }
+char GetSizeMin(char sz)
+{
+	switch(sz)
+	{
+	case 1: return 0;
+	case 2: return 1;
+	case 4: return 2;
+	case 8: return 3;
+	}
+}
+#define REG_SZ_BIT 13
+#define RHS_REG_BIT 5
+void FromBcToBc2(own_std::vector<byte_code> *from, own_std::vector<byte_code2> *to)
+{
+	int idx = 0;
+	FOR_VEC(from_bc, *from)
+	{
+		byte_code2 bc;
+		bc.bc_type = from_bc->type;
+		switch (from_bc->type)
+		{
+		case INT3:
+		{
+		}break;
+		case INST_LEA:
+		{
+			bc.regs = from_bc->bin.rhs.lea.reg_dst;
+			bc.regs |= from_bc->bin.rhs.lea.reg_base << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.rhs.lea.size)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.rhs.lea.offset;
+		}break;
+		case RELOC:
+		{
+			auto a = 0;
+			bc.rel_type = from_bc->rel.type;
+			switch (bc.rel_type)
+			{
+			case REL_DATA:
+			{
+				bc.i = from_bc->rel.offset;
+			}break;
+			case REL_FUNC:
+			{
+				func_decl *f = from_bc->rel.call_func;
+				if(IS_FLAG_ON(f->flags, FUNC_DECL_IS_OUTSIDER))
+				{
+					bc.type = INST_CALL_OUTSIDER;
+					bc.i = f->func_idx;
+				}
+				else
+				{
+					bc.type = INST_CALL;
+					bc.i = f->bcs2_start - (idx);
+				}
+			}break;
+			default:
+				ASSERT(0);
+			}
+		}break;
+		case BEGIN_FUNC:
+		case RET:
+		case BEGIN_FUNC_FOR_INTERPRETER:
+		{
+		}break;
+		case MOV_M_2_REG_PARAM:
+		case MOV_M_2_SSE:
+		case MOVSX_M:
+		case MOVZX_M:
+		case ADD_M_2_R:
+		case SUB_M_2_R:
+		case CMP_M_2_R:
+		case AND_M_2_R:
+		case DIV_M_2_R:
+		case MUL_M_2_R:
+		case MOD_M_2_R:
+		case CVTSD_MEM_2_SS:
+		case ADD_MEM_2_SSE:
+		case SUB_MEM_2_SSE:
+		case MUL_MEM_2_SSE:
+		case DIV_MEM_2_SSE:
+		case MOV_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.rhs.voffset;
+		}break;
+		case ADD_R_2_R:
+		case CMP_R_2_R:
+		case SUB_R_2_R:
+		case DIV_R_2_R:
+		case MUL_R_2_R:
+		case SQRT_SSE:
+		case AND_R_2_R:
+		case OR_R_2_R:
+		case MOV_SSE_2_SSE:
+		case ADD_SSE_2_SSE:
+		case SUB_SSE_2_SSE:
+		case DIV_SSE_2_SSE:
+		case MUL_SSE_2_SSE:
+		case CMP_SSE_2_SSE:
+		case CVTSD_REG_2_SS:
+		case MOV_R_2_REG_PARAM:
+		case MOV_R:
+		case MOVZX_R:
+		case MOVSX_R:
+		case MOD_R_2_R:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+		}break;
+		case CMP_I_2_M:
+		case ADD_I_2_M:
+		case SUB_I_2_M:
+		case MUL_I_2_M:
+		case OR_I_2_M:
+		case AND_I_2_M:
+		case DIV_I_2_M:
+		case STORE_I_2_M:
+		case MOD_I_2_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			//bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.lhs.voffset;
+			bc.i = from_bc->bin.rhs.i;
+		}break;
+		case STORE_REG_PARAM:
+		case MOV_SSE_2_MEM:
+		case ADD_R_2_M:
+		case SUB_R_2_M:
+		case MUL_R_2_M:
+		case CMP_R_2_M:
+		case DIV_R_2_M:
+		case STORE_R_2_M:
+		case AND_R_2_M:
+		case OR_R_2_M:
+		case MOD_R_2_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.lhs.voffset;
+		}break;
+		case ADD_M_2_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.lhs.voffset;
+			bc.mem_offset2 = from_bc->bin.rhs.voffset;
+		}break;
+		case JMP_A:
+		case JMP_AE:
+		case JMP_B:
+		case JMP_BE:
+		case JMP:
+		case JMP_L:
+		case JMP_LE:
+		case JMP_E:
+		case JMP_GE:
+		case JMP_G:
+		case JMP_NE:
+		{
+			bc.i = from_bc->val;
+		}break;
+		case ADD_I_2_R:
+		case MOV_I_2_REG_PARAM:
+		case SUB_I_2_R:
+		case CMP_I_2_R:
+		case AND_I_2_R:
+		case OR_I_2_R:
+		case MUL_I_2_R:
+		case DIV_I_2_R:
+		case MOD_I_2_R:
+		case MOV_I:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.i = from_bc->bin.rhs.i;
+		}break;
+		default:
+			ASSERT(0);
+		}
+
+		to->emplace_back(bc);
+		idx++;
+	}
+}
 void interpreter::ExecInst()
 {
 
@@ -6202,363 +6410,3 @@ void interpreter::CmpSetFlags(long long lhs, long long rhs, char size, bool is_u
 	if (res < 0)
 		regs.flags.i64 |= SIGN_FLAG;
 }
-/*
-void interpreter::Init()
-{
-	
-	mem = (char *)malloc(256);
-
-	regs.ip.i64 = SearchFinalFunc("main")->start_idx;
-
-	regs.sp.ptr = mem;
-	PushVal(-1);
-
-	outsider_funcs.emplace_back(interpreter::outsider_func("malloc", malloc));
-	outsider_funcs.emplace_back(interpreter::outsider_func("GetStdHandle", GetStdHandle));
-	outsider_funcs.emplace_back(interpreter::outsider_func("WriteFile", WriteFile));
-
-	while(true)
-	{
-		byte_code* inst = &bcode[0] + regs.ip.i64;
-		switch (inst->type)
-		{
-		case byte_code_enum::MOV_I:
-		{
-			auto reg_rhs = GetRegValPtr(inst->bin.lhs.u8);
-			*reg_rhs = inst->bin.rhs.s64;
-		}break;
-		case byte_code_enum::JMP_E:
-		{
-			if (IS_FLAG_ON(regs.flags.i64, ZERO_FLAG) && IS_FLAG_OFF(regs.flags.i64, SIGN_FLAG))
-				goto JUMP_INST;
-		}break;
-		case byte_code_enum::JMP_NE:
-		{
-			if (IS_FLAG_OFF(regs.flags.i64, ZERO_FLAG))
-				goto JUMP_INST;
-		}break;
-		case byte_code_enum::JMP_G:
-		{
-			if (IS_FLAG_OFF(regs.flags.i64, ZERO_FLAG) && IS_FLAG_OFF(regs.flags.i64, SIGN_FLAG))
-				goto JUMP_INST;
-		}break;
-		case byte_code_enum::JMP_GE:
-		{
-			if (IS_FLAG_ON(regs.flags.i64, ZERO_FLAG) || IS_FLAG_OFF(regs.flags.i64, SIGN_FLAG))
-				goto JUMP_INST;
-		}break;
-		case byte_code_enum::JMP_L:
-		{
-			if (IS_FLAG_OFF(regs.flags.i64, ZERO_FLAG) && IS_FLAG_ON(regs.flags.i64, SIGN_FLAG))
-				goto JUMP_INST;
-		}break;
-		case byte_code_enum::JMP_LE:
-		{
-			if (IS_FLAG_ON(regs.flags.i64, ZERO_FLAG) || IS_FLAG_ON(regs.flags.i64, SIGN_FLAG))
-				goto JUMP_INST;
-		}break;
-		JUMP_INST:
-		case byte_code_enum::JMP:
-		{
-			// skipping this jmp inst
-			regs.ip.i64++;
-			regs.ip.i64 += inst->jmp_rel;
-			continue;
-		}break;
-		case byte_code_enum::STORE_RM_2_R:
-		{
-			long long *lhs_ptr = GetRegValPtr(inst->bin.lhs.reg);
-			long long rhs = GetRegVal(inst->bin.rhs.lea.reg_dst);
-
-			//*(long long*)(lhs_ptr) = *(long long *)(rhs_ptr);
-			ASSERT(inst->bin.rhs.lea.size <= 8)
-			memcpy(lhs_ptr, &rhs, inst->bin.rhs.lea.size);
-		}break;
-		case byte_code_enum::MOV_R:
-		{
-			auto reg_lhs = GetRegValPtr(inst->bin.lhs.u8);
-			auto reg_rhs = GetRegValPtr(inst->bin.rhs.u8);
-
-			*reg_lhs = *reg_rhs;
-		}break;
-		case byte_code_enum::MOV_RM:
-		{
-			auto dst_reg_ptr = GetRegValPtr(inst->bin.lhs.u8);
-			auto src_mem     = GetRegVal(inst->bin.rhs.lea.reg_base);
-
-			*dst_reg_ptr = *(long long*)(src_mem + inst->bin.rhs.lea.offset);
-		}break;
-		case byte_code_enum::MOV_M:
-		{
-			SetRegFromMem((int)inst->bin.rhs.voffset, (char)inst->bin.lhs.u8, (char)inst->bin.rhs.var_size);
-
-		}break;
-		case byte_code_enum::CMP_RM_2_I:
-		{
-			int lhs = inst->bin.lhs.s32;
-
-			auto src_mem = GetRegVal(inst->bin.rhs.lea.reg_base);
-			auto rhs = *(long long*)(src_mem + inst->bin.rhs.lea.offset);
-
-			CmpSetFlags(lhs, rhs, inst->bin.rhs.lea.size, inst->bin.rhs.lea.is_unsigned);
-		}break;
-		case byte_code_enum::CMP_RM_2_R:
-		{
-			int lhs = GetRegVal(inst->bin.lhs.reg);
-
-			auto src_mem = GetRegVal(inst->bin.rhs.lea.reg_base);
-			auto rhs = *(long long*)(src_mem + inst->bin.rhs.lea.offset);
-
-			CmpSetFlags(lhs, rhs, inst->bin.rhs.lea.size, inst->bin.rhs.lea.is_unsigned);
-		}break;
-		case byte_code_enum::CMP_I_2_RM:
-		{
-			int rhs      = inst->bin.rhs.s32;
-
-			auto src_mem = GetRegVal(inst->bin.lhs.lea.reg_base);
-			auto lhs     = *(long long*)(src_mem + inst->bin.lhs.lea.offset);
-
-			CmpSetFlags(lhs, rhs, inst->bin.lhs.lea.size, inst->bin.lhs.lea.is_unsigned);
-		}break;
-		case byte_code_enum::CMP_R_2_RM:
-		{
-			int rhs = GetRegVal(inst->bin.rhs.reg);
-
-			auto src_mem = GetRegVal(inst->bin.lhs.lea.reg_base);
-			auto lhs = *(long long*)(src_mem + inst->bin.lhs.lea.offset);
-
-			CmpSetFlags(lhs, rhs, inst->bin.lhs.lea.size, inst->bin.lhs.lea.is_unsigned);
-		}break;
-		case byte_code_enum::CMP_I_2_R:
-		{
-			int  val = inst->bin.rhs.s32;
-			long long lhs = GetRegVal(inst->bin.lhs.reg);
-
-			CmpSetFlags(lhs, val, 3, false);
-		}break;
-		case byte_code_enum::CMP_R_2_R:
-		{
-			long long lhs = GetRegVal(inst->bin.lhs.reg);
-			long long rhs = GetRegVal(inst->bin.rhs.reg);
-
-			CmpSetFlags(lhs, rhs, 8, false);
-		}break;
-		case byte_code_enum::CMP_M_2_R:
-		{
-			long long lhs = GetRegVal(inst->bin.lhs.reg);
-			decl2* var = inst->bin.rhs.var;
-			long long rhs = *(long long*)(GetMem(inst->bin.rhs.voffset));
-			int size = GetTypeSize(&var->type);
-
-			CmpSetFlags(lhs, rhs, size, is_type_unsigned(var->type.type));
-		}break;
-		case byte_code_enum::CMP_R_2_M:
-		{
-			long long lhs = GetRegVal(inst->bin.rhs.reg);
-			decl2* var = inst->bin.lhs.var;
-			long long rhs = *(long long*)(GetMem(inst->bin.lhs.voffset));
-			int size = GetTypeSize(&var->type);
-
-			CmpSetFlags(lhs, rhs, size, is_type_unsigned(var->type.type));
-		}break;
-		case byte_code_enum::CMP_I_2_M:
-		{
-			int  val = inst->bin.rhs.s32;
-			decl2* var = inst->bin.lhs.var;
-			long long* var_ptr = (long long*)GetMem(inst->bin.lhs.voffset);
-			
-
-			CmpSetFlags(*var_ptr, val, GetTypeSize(&var->type), is_type_unsigned(var->type.type));
-
-		}break;
-		case byte_code_enum::ADD_I_2_R:
-		case byte_code_enum::SUB_I_2_R:
-		{
-			auto reg_ptr = GetRegValPtr(inst->bin.lhs.u8);
-			int  val = inst->bin.rhs.s32;
-
-
-			*reg_ptr = PerformBinOp(*reg_ptr, val,
-				8,
-				true,
-				bcode_enm_to_bcode_inst(inst->type)
-			);
-		}break;
-		case byte_code_enum::SUB_M_2_R:
-		case byte_code_enum::ADD_M_2_R:
-		{
-			auto reg_ptr = GetRegValPtr(inst->bin.lhs.u8);
-			decl2* var = inst->bin.rhs.var;
-			long long* var_ptr = (long long*)GetMem(inst->bin.rhs.voffset);
-
-
-			*reg_ptr = PerformBinOp(*reg_ptr, *var_ptr,
-				GetTypeSize(&var->type),
-				is_type_unsigned(var->type.type),
-				bcode_enm_to_bcode_inst(inst->type)
-			);
-		}break;
-		case byte_code_enum::INST_CALL_OUTSIDER:
-		{
-			void *ret;
-			switch(inst->out_func.total_args_given)
-			{
-			case 0:
-			{
-				auto zero_arg = (void *(*)())GetOutsiderFunc(inst->out_func.name);
-				ASSERT(zero_arg != nullptr)
-				ret = zero_arg();
-			}break;
-			case 1:
-			{
-				auto one_arg = (void *(*)(void *))GetOutsiderFunc(inst->out_func.name);
-				ret = one_arg((void *)regs.r6.i64);
-			}break;
-			case 2:
-			{
-				auto two_args = (void *(*)(void *, void *))GetOutsiderFunc(inst->out_func.name);
-				ret = two_args((void *)regs.r6.i64, (void *)regs.r7.i64);
-			}break;
-			case 3:
-			{
-				auto two_args = (void *(*)(void *, void *, void *))GetOutsiderFunc(inst->out_func.name);
-				ret = two_args((void *)regs.r6.i64, (void *)regs.r7.i64,
-						(void *)regs.r8.i64);
-			}break;
-			case 4:
-			{
-				auto three_args = (void *(*)(void *, void *, void *, void *))GetOutsiderFunc(inst->out_func.name);
-				ret = three_args((void *)regs.r6.i64, 
-						(void *)regs.r7.i64,
-						(void *)regs.r8.i64,
-						(void *)regs.r9.i64
-						);
-			}break;
-			case 5:
-			{
-				auto three_args = (void* (*)(void*, void*, void*, void*, void *))GetOutsiderFunc(inst->out_func.name);
-				ret = three_args((void*)regs.r6.i64,
-					(void*)regs.r7.i64,
-					(void*)regs.r8.i64,
-					(void*)regs.r9.i64,
-					(void*)regs.r10.i64
-				);
-			}break;
-			case 6:
-			{
-				auto three_args = (void* (*)(void*, void*, void*, void*, void*, void *))GetOutsiderFunc(inst->out_func.name);
-				ret = three_args((void*)regs.r6.i64,
-					(void*)regs.r7.i64,
-					(void*)regs.r8.i64,
-					(void*)regs.r9.i64,
-					(void*)regs.r10.i64,
-					(void*)regs.r11.i64
-					);
-			}break;
-			default:
-				ASSERT(false)
-			};
-			regs.r0.i64 = (long long) ret;
-		}break;
-		case byte_code_enum::INST_CALL:
-		{
-			PushVal(regs.ip.i32);
-
-			regs.ip.i64 = inst->val;
-			continue;
-		}break;
-		case byte_code_enum::STORE_I_2_RM:
-		{
-			long long lhs_ptr = GetRegVal(inst->bin.lhs.lea.reg_base) + inst->bin.lhs.lea.offset;
-inst->bin.lhs.i64;
-			long long rhs = inst->bin.lhs.i64;
-			memcpy((long long*)lhs_ptr, &rhs, inst->bin.lhs.lea.size);
-		}break;
-		case byte_code_enum::STORE_R_2_RM:
-		{
-			long long lhs_ptr = GetRegVal(inst->bin.lhs.reg);
-			long long rhs = GetRegVal(inst->bin.rhs.reg);
-
-			ASSERT(inst->bin.lhs.lea.size <= 8)
-			//*(long long*)(lhs_ptr) = *(long long *)(rhs_ptr);
-			memcpy((long long*)lhs_ptr, &rhs, inst->bin.lhs.lea.size);
-		}break;
-		case byte_code_enum::STORE_RM_2_RM:
-		{
-			long long lhs_ptr = GetRegVal(inst->bin.lhs.reg);
-			long long rhs_ptr = GetRegVal(inst->bin.rhs.reg);
-
-			*(long long*)(lhs_ptr) = *(long long *)(rhs_ptr);
-		}break;
-		case byte_code_enum::STORE_RM_2_M:
-		{
-			long long* var_ptr = (long long*)GetMem(inst->bin.lhs.voffset);
-			long long rg_val = GetRegVal(inst->bin.rhs.reg);
-
-			*var_ptr = rg_val;
-		}break;
-		case byte_code_enum::STORE_I_2_M:
-		{
-			auto* var = inst->bin.lhs.var;
-			long long* var_ptr = (long long*)GetMem(inst->bin.lhs.voffset);
-			int val = inst->bin.rhs.s32;
-
-
-			switch (inst->bin.lhs.var_size)
-			{
-			case 1: *((char*)var_ptr) = (char)val; break;
-			case 2: *((short*)var_ptr) = (short)val; break;
-			case 4: *((int*)var_ptr) = (int)val; break;
-			case 8: *((long long*)var_ptr) = (long long)val; break;
-
-			}
-
-
-		}break;
-		case byte_code_enum::STORE_R_2_M:
-		{
-			SetMemFromReg(inst->bin.rhs.u8, inst->bin.lhs.voffset);
-		}break;
-		case byte_code_enum::POP_STACK_SIZE:
-		{
-			stack_sizes.pop_back();
-		}break;
-		case byte_code_enum::PUSH_STACK_SIZE:
-		{
-			stack_sizes.emplace_back((int)inst->val);
-		}break;
-		case byte_code_enum::INST_LEA:
-		{
-			auto reg_ptr = GetRegValPtr(inst->bin.lhs.reg);
-			auto sp_ptr = GetMem(inst->bin.rhs.lea.offset, inst->bin.rhs.lea.reg_base);
-
-			*reg_ptr = (long long)sp_ptr;
-		}break;
-		case byte_code_enum::PUSH_R:
-		{
-			auto reg_val = GetRegVal(inst->val);
-			PushVal(reg_val);
-		}break;
-		case byte_code_enum::POP_R:
-		{
-			regs.sp.i64 -= 8;
-			auto reg_ptr = GetRegValPtr(inst->val);
-			auto sp_ptr = GetRegVal(5);
-
-			*reg_ptr = *((long long *)sp_ptr);
-
-		}break;
-		default:
-		{
-			ASSERT(false)
-		}break;
-		}
-
-		if(regs.ip.i64 == -1)
-			break;
-
-		regs.ip.i64++;
-	}
-
-}
-*/

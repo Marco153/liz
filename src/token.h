@@ -327,6 +327,7 @@ struct func_decl
 	own_std::vector<func_decl *> plugins;
 	own_std::vector<func_decl *> this_functions;
 	own_std::vector<stmnt_dbg> wasm_stmnts;
+	own_std::vector<int> bcs2;
 
 	own_std::vector<int> ir;
 	int flags;
@@ -348,6 +349,8 @@ struct func_decl
 
 	decl2 *this_decl;
 
+	int ir_stack_begin_idx;
+
 	ast_rep* ast;
 
     machine_code *code;
@@ -362,6 +365,8 @@ struct func_decl
 
 	int func_dbg_idx;
 
+	int func_idx;
+
 	int biggest_saved_regs = 2;
 	int biggest_call_args;
 
@@ -370,6 +375,9 @@ struct func_decl
 	//int biggest_call_args;
 
 	int biggest_saved_lhs;
+
+	int bcs2_start;
+	int bcs2_end;
 
 
 	int strct_ret_size_per_statement;

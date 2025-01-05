@@ -497,7 +497,20 @@ public:
 		}
 		else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_D))
 		{
-			Delete();
+			if(mVimMode == VI_LINE_VISUAL)
+			{
+				UndoRecord u;
+				u.mBefore = mState;
+				u.mRemovedStart = mState.mSelectionStart;
+				u.mRemovedEnd = mState.mSelectionEnd;
+				yb->str = GetSelectedText();
+				yb->str += '\n';
+				u.mRemoved = yb->str;
+				AddUndo(u);
+				DeleteSelection();
+			}
+			else
+				Delete();
 			mInteractiveEnd = mInteractiveStart;
 			SetSelection(mInteractiveStart, mInteractiveStart);
 			if(mVimMode == VI_LINE_VISUAL)

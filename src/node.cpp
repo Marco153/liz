@@ -84,7 +84,7 @@ char* std_str_to_heap(lang_state*, std::string* str);
 #define PSR_FLAGS_ON_STRUCT_DECL 0x10000
 #define PSR_FLAGS_ON_JMP_WHEN_ERROR 0x20000
 #define PSR_FLAGS_SCOPE_WHITHOUT_CURLY 0x40000
-#define PSR_FLAGS_COMP_TIME 0x80000
+#define PSR_FLAGS_IGNORE_DECL_EXIST_AND_DECLARE 0x80000
 #define PSR_FLAGS_SOMETHING_IN_GLOBAL_NOT_FOUND 0x100000
 #define PSR_FLAGS_RET_NIL_EVEN_WHEN_PTR_TO_STRUCT_NOT_DONE 0x200000
 #define PSR_FLAGS_ON_ARRAY 0x400000
@@ -3227,6 +3227,33 @@ T GetExpressionValT(tkn_type2 tp, T a, T b)
 {
 	switch (tp)
 	{
+	case tkn_type2::T_EQUAL:	return b;
+	case tkn_type2::T_LESSER_THAN:	return a < b;
+	case tkn_type2::T_LESSER_EQ:	return a <= b;
+	case tkn_type2::T_GREATER_EQ:	return a >= b;
+	case tkn_type2::T_GREATER_THAN:	return a > b;
+	case tkn_type2::T_COND_EQ:	return a == b;
+	case tkn_type2::T_COND_NE:	return a != b;
+	case tkn_type2::T_MINUS:	return a - b;
+	case tkn_type2::T_PLUS:	return a + b;
+	case tkn_type2::T_PERCENT:	return a % b;
+	case tkn_type2::T_AMPERSAND:	return a & b;
+	case tkn_type2::T_MUL:	return a * b;
+	case tkn_type2::T_DIV:	return a / b;
+	case tkn_type2::T_PIPE:	return (int)a | (int)b;
+	default:ASSERT(false)
+	}
+	return 0;
+
+
+}
+template <>
+float GetExpressionValT(tkn_type2 tp, float a, float b)
+{
+	switch (tp)
+	{
+	case tkn_type2::T_LESSER_EQ:	return a <= b;
+	case tkn_type2::T_GREATER_EQ:	return a >= b;
 	case tkn_type2::T_COND_EQ:	return a == b;
 	case tkn_type2::T_COND_NE:	return a != b;
 	case tkn_type2::T_MINUS:	return a - b;
@@ -3810,7 +3837,9 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			ASSERT(n->r->type == node_type::N_IDENTIFIER);
 
 			type2 ret_type;
+			//decl2* ident = nullptr;
 			auto ident = FindIdentifier(n->r->t->str, scp, &ret_type);
+
 
 			if (!ident)
 			{
@@ -4018,12 +4047,174 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	return true;
 }
 
+bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* child_scp, type2* ret_type, int flags, 
+	int template_end_idx, bool is_outsider)
+{
+	if (template_end_idx == 0 && !is_outsider)
+		ASSERT(child_scp->vars.size() == 0);
+
+	int last_flags = lang_stat->flags;
+
+	// making sure we will not instantiate structs args
+	if (template_end_idx > 0)
+		lang_stat->flags |= PSR_FLAGS_NO_INSTANTIATION_BUT_RET_STRCT;
+
+
+	lang_stat->flags |= PSR_FLAGS_DONT_DECLARE_VARIABLES;
+	lang_stat->flags |= PSR_FLAGS_RET_NIL_EVEN_WHEN_PTR_TO_STRUCT_NOT_DONE;
+	lang_stat->flags &= ~PSR_FLAGS_DECLARE_ONLY_TYPE_PARAMTS;
+	if (!DescendNameFinding(lang_stat, fnode->l->l->r, child_scp))
+	{
+		lang_stat->flags = last_flags;
+		return false;
+	}
+
+	lang_stat->flags &= ~PSR_FLAGS_DONT_DECLARE_VARIABLES;
+
+	own_std::vector<comma_ret> args;
+	DescendComma(lang_stat, fnode->l->l->r, child_scp, args);
+
+	//lang_stat->flags &= ~PSR_FLAGS_NO_INSTANTIATION_BUT_RET_STRCT;
+
+	lang_stat->flags = last_flags;
+
+	bool is_var_args = false;
+	int i = 0;
+
+	decl2* normal_func_first_arg_decl_with_using = nullptr;
+
+	// getting type of args
+	FOR_VEC(t, args)
+	{
+		// ERROR: var_args should be at the end
+		ASSERT(!is_var_args);
+
+
+
+		// parameters with name and type
+		if (t->type == COMMA_VAR_ARGS)
+		{
+			fdecl->flags |= FUNC_DECL_VAR_ARGS;
+			// getting where the var_args start
+			// we're subtracting one because the var counts as an argument
+			fdecl->var_args_start_offset = (args.size() - 1) * 8 + 8;
+			is_var_args = true;
+			type2 aux_type;
+			continue;
+			//child_scp->vars.emplace_back(NewDecl(lang_stat, t->decl.name, t->decl.type));
+		}
+
+		//decl2* new_decl = new decl2();
+		type2 dummy_type;
+		memset(&dummy_type, 0, sizeof(type2));
+		auto new_decl = DeclareDeclToScopeAndMaybeToFunc(lang_stat, "", &dummy_type, child_scp, t->n);
+
+		new_decl->flags |= DECL_IS_ARG;
+
+
+		decl2* enum_decl = nullptr;
+		// prably struct names
+		if (t->type == COMMA_RET_IDENT)
+		{
+			if (t->decl.type.type == enum_type2::TYPE_AUTO)
+			{
+				enum_decl = FindIdentifier(t->decl.name, child_scp, &t->decl.type);
+				ASSERT(enum_decl);
+				t->decl.type.type = FromTypeToVarType(t->decl.type.type);
+			}
+			else
+			{
+				t->decl.type.type = FromTypeToVarType(t->decl.type.type);
+			}
+
+			new_decl->type = t->decl.type;
+			new_decl->name = "unamed";
+
+			if (new_decl->type.type == TYPE_ENUM)
+				new_decl->type.e_decl = enum_decl;
+			//child_scp->vars.emplace_back(NewDecl(lang_stat, "unamed", t->tp));
+		}
+
+		// parameters with name and type
+		else if (t->type == COMMA_RET_COLON || t->type == COMMA_RET_TYPE)
+		{
+			enum_type2 tp = t->decl.type.type;
+			t->decl.type.type = FromTypeToVarType(tp);
+			new_decl->type = t->decl.type;
+			new_decl->name = t->decl.name;
+
+			enum_decl = t->decl.type.e_decl;
+
+			if (new_decl->type.type == TYPE_ENUM)
+				new_decl->type.from_enum = enum_decl;
+
+			//child_scp->vars.emplace_back(NewDecl(lang_stat, t->decl.name, t->decl.type));
+		}
+		// probably ptr type *u8, *u16 etc
+		else if (t->type == COMMA_RET_EXPR)
+		{
+			t->decl.type.type = FromTypeToVarType(t->decl.type.type);
+			new_decl->type = t->decl.type;
+			new_decl->name = "unamed_arg";
+			//child_scp->vars.emplace_back(NewDecl(lang_stat, "unamed", t->tp));
+		}
+		if (t->decl.type.type == TYPE_STRUCT && IS_FLAG_ON(t->decl.type.strct->flags, TP_STRCT_TUPLE))
+		{
+			new_decl->type.ptr = 1;
+		}
+		// making struct values to be ptrs
+		CheckStructValToFunc(fdecl, &new_decl->type);
+
+		// assiging parameters directly to args if it's an outisder func
+		if (is_outsider)
+			fdecl->args.emplace_back(new_decl);
+		//else
+			//child_scp->vars.emplace_back(new_decl);
+
+		// we can only have unamed parametrs if 
+		// 1) its an outsider or internal function
+		// 2) if it is the firs argument of a normal function
+		if (t->type != COMMA_RET_COLON)
+		{
+			int flags = NODE_FLAGS_FUNC_INTERNAL;
+			bool function_allows_unamed = IS_FLAG_ON(fdecl->flags, flags) || fnode->type == N_FUNC_DEF;
+			bool normal_function_unamed = (i == 0 && !function_allows_unamed);
+			
+			ASSERT(function_allows_unamed || normal_function_unamed);
+
+			if (normal_function_unamed)
+			{
+				new_decl->name += std::to_string(rand() % 0xffffff);
+				normal_func_first_arg_decl_with_using = new_decl;
+			}
+		}
+
+		i++;
+
+	}
+	// scope vars to args, excluding templates
+	if (!is_outsider)
+		fdecl->args.assign(child_scp->vars.begin() + template_end_idx, child_scp->vars.end());
+
+	if(normal_func_first_arg_decl_with_using)
+		AddStructMembersToScopeWithUsing(lang_stat, normal_func_first_arg_decl_with_using->type.strct, fdecl->scp, NewIdentNode(lang_stat, normal_func_first_arg_decl_with_using->name, fnode->t));
+	//fdecl->vars.assign(child_scp->vars.begin() + template_end_idx, child_scp->vars.end());
+
+	return true;
+
+}
 bool DescendArgsOfModifiedFunc(lang_state *lang_stat, func_decl *f)
 {
 	// getting the func decl args
 	int cur_scp_vars_size = f->scp->vars.size();
+	//FuncArgsLogic();
+	lang_stat->flags |= PSR_FLAGS_IGNORE_DECL_EXIST_AND_DECLARE;
 	if (!DescendNameFinding(lang_stat, f->func_node->l->l->r, f->scp))
+	{
+		lang_stat->flags &= ~PSR_FLAGS_IGNORE_DECL_EXIST_AND_DECLARE;
 		return false;
+	}
+	lang_stat->flags &= ~PSR_FLAGS_IGNORE_DECL_EXIST_AND_DECLARE;
 
 	for (int i = cur_scp_vars_size; i < f->scp->vars.size(); i++)
 	{
@@ -4907,7 +5098,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 
 		type_struct2* ret_strct;
-		if (!TryInstantiateStruct(lang_stat, lhs->type.strct, templ_name, scp, &ret_strct, args))
+		if (!TryInstantiateStruct(lang_stat, lhs->type.strct, templ_name, lhs->type.strct->scp, &ret_strct, args))
 			return false;
 
 		ASSERT(IS_FLAG_OFF(ret_strct->flags, TP_STRCT_TEMPLATED))
@@ -4999,6 +5190,8 @@ void ReportDeclaredTwice(lang_state *lang_stat, node* twice, decl2* decl)
 	)
 		ExitProcess(1);
 }
+
+
 bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type, int flags)
 {
 	char msg_hdr[256];
@@ -5074,6 +5267,9 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	if (IS_FLAG_OFF(flags, DONT_DESCEND_ARGS) && fnode->l->l->r != nullptr && fdecl->args.size() == 0
 		&& IS_FLAG_OFF(fdecl->flags, FUNC_DECL_ARGS_GOTTEN))
 	{
+		if (!FuncArgsLogic(lang_stat, fdecl, fnode, child_scp, ret_type, flags, template_end_idx, is_outsider))
+			return false;
+		/*
 		if (template_end_idx == 0 && !is_outsider)
 			ASSERT(child_scp->vars.size() == 0);
 
@@ -5090,8 +5286,6 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 		if (!DescendNameFinding(lang_stat, fnode->l->l->r, child_scp))
 		{
 			lang_stat->flags = last_flags;
-			//lang_stat->flags &= ~PSR_FLAGS_DONT_DECLARE_VARIABLES;
-			//lang_stat->flags &= ~PSR_FLAGS_NO_INSTANTIATION_BUT_RET_STRCT;
 			return false;
 		}
 
@@ -5225,6 +5419,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 		if(normal_func_first_arg_decl_with_using)
 			AddStructMembersToScopeWithUsing(lang_stat, normal_func_first_arg_decl_with_using->type.strct, fdecl->scp, NewIdentNode(lang_stat, normal_func_first_arg_decl_with_using->name, n->t));
 		//fdecl->vars.assign(child_scp->vars.begin() + template_end_idx, child_scp->vars.end());
+		*/
 	}
 	fdecl->flags |= FUNC_DECL_ARGS_GOTTEN;
 	// if the function has templates, we don't wanna check the rest of it
@@ -5414,7 +5609,15 @@ void BottomOfTheTreeInsertLhs(lang_state *lang_stat, node* n, node* insert)
 decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 {
 	char msg_hdr[256];
-	auto lhs_decl = DescendNameFinding(lang_stat, n->l, scp);
+	decl2* lhs_decl = nullptr;
+	//auto lhs_decl = DescendNameFinding(lang_stat, n->l, scp);
+	if (!n->decl)
+	{
+		lhs_decl = DescendNameFinding(lang_stat, n->l, scp);
+		n->decl = lhs_decl;
+	}
+	else
+		lhs_decl = n->decl;
 
 	if (!lhs_decl)
 		return nullptr;
@@ -5559,8 +5762,13 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 			else
 			{
 				type2 dummy;
-				ret = FindIdentifier(n->r->t->str, lhs->type.strct->scp, &dummy);
-
+				if (!n->r->decl)
+				{
+					ret = FindIdentifier(n->r->t->str, lhs->type.strct->scp, &dummy);
+					n->r->decl = ret;
+				}
+				else
+					ret = n->r->decl;
 
 				if (!ret)
 				{
@@ -6524,7 +6732,14 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			ASSERT(n->r->type == node_type::N_IDENTIFIER);
 
 			type2 ret_type;
-			auto ident = FindIdentifier(n->r->t->str, scp, &ret_type);
+			decl2* ident = nullptr;
+			if (!n->r->decl)
+			{
+				ident = FindIdentifier(n->r->t->str, scp, &ret_type);
+				n->r->decl = ident;
+			}
+			else
+				ident = n->r->decl;
 
 			if (!ident) return false;
 
@@ -6996,7 +7211,16 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			n->type = node_type::N_INT;
 			break;
 		}
-		auto ident = FindIdentifier(n->t->str, scp, &ret_type);
+		/*
+		decl2* ident = nullptr;
+		if (n->decl)
+		{
+			ident = FindIdentifier(n->t->str, scp, &ret_type);
+			n->decl = ident;
+		}
+		else
+		*/
+			auto ident = FindIdentifier(n->t->str, scp, &ret_type);
 		if (ident && IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_DECLARE_ONLY_TYPE_PARAMTS))
 		{
 			scp->vars.emplace_back(NewDecl(lang_stat, "unamed param", ident->type));
@@ -7331,7 +7555,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 			decl2* prev_decl = decl_exist;
 			// assigning to overloaded funcs
-			if (decl_exist)
+			if (decl_exist && IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_IGNORE_DECL_EXIST_AND_DECLARE))
 			{
 				if(decl_exist->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
 					overload_strct = decl_exist->type.overload_funcs;
@@ -7765,7 +7989,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			if (decl_exist)
 				decl_exist->flags &= ~DECL_NOT_DONE;
 
-			if (IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_DONT_DECLARE_VARIABLES) && decl_exist == nullptr )
+			if (IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_DONT_DECLARE_VARIABLES) && decl_exist == nullptr || IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IGNORE_DECL_EXIST_AND_DECLARE))
 			{
 				// adding the new func to the overloaded array
 				// we only want to declare functions and structs. We're not interested in its contents
@@ -7787,8 +8011,10 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			{
 				cur = cur->l;
 			}
+			/*
 			if (cur != nullptr)
 				DescendNameFinding(lang_stat, cur, scp);
+				*/
 
 			if (n->l != nullptr && !DescendNameFinding(lang_stat, n->l, scp))
 				return nullptr;
@@ -8943,7 +9169,23 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 		else
 		{
-			auto decl = FindIdentifier(n->t->str, scp, &ret_type);
+
+			decl2* decl = nullptr;
+			if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_AFTER_TYPE_CHECK))
+			{
+				if (!n->decl)
+				{
+					decl = FindIdentifier(n->t->str, scp, &ret_type);
+					n->decl = decl;
+				}
+				else
+				{
+					decl = n->decl;
+					ret_type = decl->type;
+				}
+			}
+			else
+				decl = FindIdentifier(n->t->str, scp, &ret_type);
 			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl)
 				ReportUndeclaredIdentifier(lang_stat, n->t);
 
@@ -9762,7 +10004,17 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				lang_stat->flags = before_flags;
 			}
 
-			auto decl = FindIdentifier(n->l->t->str, scp, &ret_type);
+			decl2* decl;
+			if (!n->decl)
+			{
+				decl = FindIdentifier(n->l->t->str, scp, &ret_type);
+				n->decl = decl;
+			}
+			else
+			{
+				decl = n->decl;
+				memcpy(&ret_type, &decl->type, sizeof(type2));
+			}
 			ASSERT(decl)
 
 				if (decl->type.type == enum_type2::TYPE_AUTO)
@@ -9773,7 +10025,21 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case tkn_type2::T_POINT:
 		{
 
-			PointLogic(lang_stat, n, scp, &ret_type);
+			if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_AFTER_TYPE_CHECK))
+			{
+				type2 dummy;
+
+				if (n->l->type == N_IDENTIFIER)
+					n->l->decl = FindIdentifier(n->l->t->str, scp, &dummy);
+				if (!n->r->decl)
+				{
+					n->r->decl = PointLogic(lang_stat, n, scp, &ret_type);
+				}
+				else
+					memcpy(&ret_type, &n->r->decl->type, sizeof(type2));
+			}
+			else
+				PointLogic(lang_stat, n, scp, &ret_type);
 			if (ret_type.type == TYPE_ENUM_IDX_32)
 			{
 				//decl2 *d = ret_type.from_enum->type.GetEnumDecl(n->r->t->str);
@@ -10522,14 +10788,12 @@ func_decl* type_struct2::CreateNewOpOverload(lang_state *lang_stat, func_decl* o
 	return new_func;
 }
 
-decl2* scope::FindVariable(std::string &name)
+decl2* scope::FindVariableCached(std::string &name)
 {
-	scope* cur_scope = this;
-
 	if (__lang_globals.use_cached_decls)
 	{
 
-		int simple_hash = GetNameSimpleHash(name);
+		u32 simple_hash = GetNameSimpleHash(name);
 
 		for (int i = 0; i < CACHED_DECLS_MAX; i++)
 		{
@@ -10544,6 +10808,15 @@ decl2* scope::FindVariable(std::string &name)
 			}
 		}
 	}
+	return nullptr;
+}
+decl2* scope::FindVariable(std::string &name)
+{
+	scope* cur_scope = this;
+
+	decl2* cached = FindVariableCached(name);
+	if (cached)
+		return cached;
 
 	while (cur_scope != nullptr)
 	{
@@ -10558,6 +10831,7 @@ decl2* scope::FindVariable(std::string &name)
 				if (f->alias == name)
 				{
 					CacheDecl(*d);
+					//cur_scope->CacheDecl(*d);
 					return (*d);
 				}
 				else
@@ -10569,6 +10843,7 @@ decl2* scope::FindVariable(std::string &name)
 			if (ret)
 			{
 				CacheDecl(ret);
+				//cur_scope->CacheDecl(ret);
 				return ret;
 			}
 		}
@@ -10587,6 +10862,7 @@ decl2* scope::FindVariable(std::string &name)
 						|| var->type.type == TYPE_FUNC)
 					{
 						CacheDecl(var);
+						//cur_scope->CacheDecl(var);
 						return var;
 					}
 
@@ -10596,6 +10872,7 @@ decl2* scope::FindVariable(std::string &name)
 				else
 				{
 					CacheDecl(var);
+					//cur_scope->CacheDecl(var);
 					return var;
 				}
 			}

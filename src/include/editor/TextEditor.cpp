@@ -2660,6 +2660,8 @@ void TextEditor::ColorizeLine(int &line, int &column)
 					strcmp("else", buffer) == 0||
 					strcmp("continue", buffer) == 0||
 					strcmp("return", buffer) == 0||
+					strcmp("true", buffer) == 0||
+					strcmp("false", buffer) == 0||
 					strcmp("while", buffer) == 0||
 					strcmp("for", buffer) == 0
 					)

@@ -879,7 +879,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 						cur_line_start_ch = cur_idx + 1;
 					}
 
-					if (ch[cur_idx] == '\\')
+					if (ch[cur_idx] == '\\' && cur_idx < input_sz)
 					{
 						///*
 						//ch[cur_idx] = 255;

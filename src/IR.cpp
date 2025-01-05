@@ -338,7 +338,14 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
     {
         ret->type = AST_IDENT;
         type2 ret_type;
-		ret->decl = FindIdentifier(n->t->str, scp, &ret_type);
+		if (n->decl)
+		{
+			ret->decl = n->decl;
+			memcpy(&ret_type, &ret->decl->type, sizeof(type2));
+			//ret_type = ret->decl->type;
+		}
+		else
+			ret->decl = FindIdentifier(n->t->str, scp, &ret_type);
 		if (!ret->decl)
 		{
 			ret->str = n->t->str.substr();
@@ -933,7 +940,7 @@ void AllocSpecificFloatReg(lang_state* lang_stat, char idx)
 }
 char AllocFloatReg(lang_state* lang_stat)
 {
-	for (int i = 0; i < 7; i++)
+	for (int i = 0; i < 8; i++)
 	{
 		if (IS_FLAG_OFF(lang_stat->float_regs[i], REG_FREE_FLAG))
 		{
@@ -1706,6 +1713,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.lhs.on_stack_type = ON_STACK_STRUCT_RET;
 				ir.assign.lhs.deref = -1;
 				ir.assign.lhs.ptr = -1;
+				ir.assign.lhs.reg_sz = 8;
 				ir.assign.lhs.i = cur_offset;
 				out->emplace_back(ir);
 
@@ -1751,6 +1759,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 				val.type = IR_TYPE_ON_STACK;
 				val.on_stack_type = ON_STACK_STRUCT_RET;
+				val.reg_sz = 8;
 				val.i = cur_offset;
 
 			}
@@ -1866,9 +1875,11 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.to_assign.is_float = top->is_float;
 				ir.assign.lhs = *top;
 				out->emplace_back(ir);
+				ASSERT(ir.assign.to_assign.reg_sz > 0);
 			}
 			val.type = IR_TYPE_ON_STACK;
 			val.i = offset;//;; -tp_sz * e->ar_constr.commas.size();
+			val.reg_sz = ir.assign.to_assign.reg_sz;
 			stack.emplace_back(val);
 		}break;
 		case AST_STRUCT_COSTRUCTION:
@@ -1889,14 +1900,17 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.to_assign.is_unsigned = top->is_unsigned;
 				ir.assign.to_assign.type = IR_TYPE_ON_STACK;
 				ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
+				ir.assign.to_assign.reg_sz = 8;
 				ir.assign.to_assign.i = offset + cinfo->var->offset;
 				ir.assign.to_assign.deref = -1;
 				ir.assign.to_assign.reg_sz = GetTypeSize(&cinfo->var->type);
 				ir.assign.lhs = *top;
 				out->emplace_back(ir);
+				ASSERT(ir.assign.to_assign.reg_sz > 0);
 			}
 			val.type = IR_TYPE_ON_STACK;
 			val.i = offset;
+			val.reg_sz = ir.assign.to_assign.reg_sz;
 			stack.emplace_back(val);
 		}break;
 		case AST_DEREF:
@@ -2082,6 +2096,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.type = IR_CAST_F32_TO_INT;
 				ir.bin.lhs.type = IR_TYPE_REG;
 				ir.bin.lhs.deref = -1;
+				ir.bin.lhs.reg_sz = 4;
 				ir.bin.lhs.reg = AllocReg(lang_stat);
 				ir.bin.lhs.is_float = false;
 				ir.bin.rhs = *top;

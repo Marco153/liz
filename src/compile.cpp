@@ -46,7 +46,7 @@ typedef long long s64;
 #define MEM_PTR_CUR_ADDR 18000
 #define MEM_PTR_MAX_ADDR 18008
 
-#define DATA_SECT_MAX 2048
+#define DATA_SECT_MAX 4048
 #define DATA_SECT_OFFSET 1024 * 1024 * 4
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
@@ -59,6 +59,137 @@ typedef long long s64;
 #define GLOBALS_OFFSET 11000
 
 //#define DEBUG_GLOBAL_NOT_FOUND 
+
+
+#define INSTS_SWITCH(type, add, sub, cmp, equal, lea, or_, and_, mod, mul, div)\
+	switch(type){\
+	case MOD_M_2_M:\
+	case MOD_R_2_M:\
+	case MOD_M_2_R:\
+	case MOD_I_2_R:\
+	case MOD_I_2_M:\
+	case MOD_I_2_RM:\
+	case MOD_R_2_RM:\
+	case MOD_R_2_R:\
+			mod;\
+		break;\
+	case DIV_M_2_M:\
+	case DIV_R_2_M:\
+	case DIV_M_2_R:\
+	case DIV_I_2_R:\
+	case DIV_I_2_M:\
+	case DIV_I_2_RM:\
+	case DIV_R_2_RM:\
+	case DIV_R_2_R:\
+	case DIV_SSE_2_SSE:\
+	case DIV_MEM_2_SSE:\
+	case DIV_SSE_2_MEM:\
+	case DIV_SSE_2_RMEM:\
+			div;\
+		break;\
+	case MUL_M_2_M:\
+	case MUL_R_2_M:\
+	case MUL_M_2_R:\
+	case MUL_I_2_R:\
+	case MUL_I_2_M:\
+	case MUL_I_2_RM:\
+	case MUL_R_2_RM:\
+	case MUL_R_2_R:\
+	case MUL_SSE_2_SSE:\
+	case MUL_MEM_2_SSE:\
+	case MUL_SSE_2_MEM:\
+	case MUL_SSE_2_RMEM:\
+			mul;\
+		break;\
+	case AND_M_2_M:\
+	case AND_R_2_M:\
+	case AND_M_2_R:\
+	case AND_I_2_R:\
+	case AND_I_2_M:\
+	case AND_I_2_RM:\
+	case AND_R_2_RM:\
+	case AND_R_2_R:\
+	case AND_SSE_2_SSE:\
+	case AND_MEM_2_SSE:\
+	case AND_SSE_2_MEM:\
+	case AND_SSE_2_RMEM:\
+			and_;\
+		break;\
+	case OR_M_2_M:\
+	case OR_R_2_M:\
+	case OR_M_2_R:\
+	case OR_I_2_R:\
+	case OR_I_2_M:\
+	case OR_I_2_RM:\
+	case OR_R_2_RM:\
+	case OR_R_2_R:\
+	case OR_SSE_2_SSE:\
+	case OR_MEM_2_SSE:\
+	case OR_SSE_2_MEM:\
+	case OR_SSE_2_RMEM:\
+			or_;\
+		break;\
+	case ADD_M_2_M:\
+	case ADD_R_2_M:\
+	case ADD_M_2_R:\
+	case ADD_I_2_R:\
+	case ADD_I_2_M:\
+	case ADD_I_2_RM:\
+	case ADD_R_2_RM:\
+	case ADD_R_2_R:\
+	case ADD_SSE_2_SSE:\
+	case ADD_MEM_2_SSE:\
+	case ADD_SSE_2_MEM:\
+	case ADD_SSE_2_RMEM:\
+			add;\
+		break;\
+	case CMP_M_2_M:\
+	case CMP_R_2_M:\
+	case CMP_M_2_R:\
+	case CMP_I_2_R:\
+	case CMP_I_2_M:\
+	case CMP_I_2_RM:\
+	case CMP_R_2_RM:\
+	case CMP_R_2_R:\
+	case CMP_SSE_2_SSE:\
+	case CMP_MEM_2_SSE:\
+	case CMP_SSE_2_MEM:\
+	case CMP_SSE_2_RMEM:\
+		cmp;\
+		break;\
+	case SUB_M_2_M:\
+	case SUB_R_2_M:\
+	case SUB_M_2_R:\
+	case SUB_I_2_R:\
+	case SUB_I_2_M:\
+	case SUB_I_2_RM:\
+	case SUB_R_2_RM:\
+	case SUB_R_2_R:\
+	case SUB_SSE_2_SSE:\
+	case SUB_MEM_2_SSE:\
+	case SUB_SSE_2_MEM:\
+	case SUB_SSE_2_RMEM:\
+		sub;\
+		break;\
+	case STORE_I_2_M:\
+	case MOV_I_2_REG_PARAM:\
+	case MOV_R_2_REG_PARAM:\
+	case MOV_M_2_REG_PARAM:\
+	case MOV_SSE_2_MEM:\
+	case MOV_M_2_SSE:\
+	case MOV_SSE_2_SSE:\
+	case STORE_R_2_M:\
+	case MOV_M:\
+	case MOV_R:\
+	case MOV_I:\
+		equal;\
+		break;\
+	case INST_LEA:\
+		lea;\
+		break;\
+	default:\
+		ASSERT(0);\
+	}
 
 struct comp_time_type_info
 {
@@ -177,6 +308,7 @@ struct ptr_decl_that_have_len
 
 struct web_assembly_state;
 struct wasm_interp;
+struct byte_code2;
 #define MAX_ARGS 32
 
 enum lsp_stage_enum
@@ -201,6 +333,9 @@ struct lang_state
 
 	bool is_engine;
 	scope* root;
+
+	byte_code2* bcs2_start;
+	byte_code2* bcs2_end;
 
 	lsp_stage_enum lsp_stage;
 	lsp_intention_enum intentions_to_lsp;
@@ -1733,7 +1868,30 @@ bool AreIRValsEqual(ir_val* lhs, ir_val* rhs)
 	return false;
 }
 
-
+int GetOnStackTypeOffset(func_decl* cur_func, ir_val* val)
+{
+	int base_offset = 0;
+	switch (val->on_stack_type)
+	{
+	case ON_STACK_STRUCT_RET:
+	{
+		base_offset = cur_func->strct_ret_size_per_statement_offset;
+	}break;
+	case ON_STACK_STRUCT_CONSTR:
+	{
+		base_offset = cur_func->strct_constrct_at_offset;
+	}break;
+	case ON_STACK_SPILL:
+	{
+		base_offset = cur_func->to_spill_offset;
+	}break;
+	default:
+		ASSERT(0)
+	}
+	
+	int offset = val->i;
+	return -(base_offset - offset);
+}
 
 void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsigned char> &code_sect, bool deref)
 {
@@ -1765,6 +1923,7 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 	case IR_TYPE_ON_STACK:
 	{
 		WasmPushLoadOrStore(0, WASM_TYPE_INT, WASM_LOAD_OP, BASE_STACK_PTR_REG * 8, &code_sect);
+		/*
 		int base_offset = 0;
 		switch (val->on_stack_type)
 		{
@@ -1784,8 +1943,10 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 			ASSERT(0)
 		}
 		
-		int offset = val->i;
-		WasmPushConst(WASM_LOAD_INT, 0, -(base_offset - offset), &code_sect);
+		*/
+		int offset = GetOnStackTypeOffset(gen_state->cur_func, val);
+		//WasmPushConst(WASM_LOAD_INT, 0, -(base_offset - offset), &code_sect);
+		WasmPushConst(WASM_LOAD_INT, 0, offset, &code_sect);
 		code_sect.emplace_back(0x6a);
 	}break;
 	case IR_TYPE_REG:
@@ -1919,6 +2080,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	cur_ir->idx = cur_ir - irs->begin();
 	gen_state->advance_ptr = 0;
 	cur_ir->start = code_sect.size();
+	cur_ir->dbg_int = 0;
 	lang_state* lang_stat = gen_state->wasm_state->lang_stat;
 	switch (cur_ir->type)
 	{
@@ -1964,6 +2126,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		}
 		code_sect.emplace_back(0xc);
 		WasmPushImm(depth, &code_sect);
+		cur_ir->block.other_idx = aux->ir->block.other_idx;
     }break;
 	case IR_CONTINUE:
 	{
@@ -1978,6 +2141,12 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			aux = aux->parent;
 		}
 		depth--;
+		if (aux->ir->block.is_for_loop)
+		{
+			cur_ir->block.other_idx = aux->ir->block.other_idx - 1;
+		}
+		else
+			cur_ir->block.other_idx = aux->ir->idx;
 		code_sect.emplace_back(0xc);
 		WasmPushImm(depth, &code_sect);
 	}break;
@@ -2106,6 +2275,14 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
 
 		WasmPushMultiple(gen_state, cur_ir->bin.only_lhs, cur_ir->bin.lhs, cur_ir->bin.rhs, last_on_stack, opposite, code_sect, true);
+		if (aux->ir->type == IR_BEGIN_LOOP_BLOCK)
+		{
+			cur_ir->dst_ir_rel_idx = aux->ir->block.other_idx - cur_ir->idx;
+		}
+		else
+		{
+			cur_ir->dst_ir_rel_idx = aux->ir->block.other_idx - cur_ir->idx;
+		}
 
 		//WasmPushConst(WASM_TYPE_INT, 0, 7, &code_sect);
 		// br if
@@ -2393,6 +2570,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			depth++;
 			aux = aux->parent;
 		}
+		cur_ir->block.other_idx = aux->ir->block.other_idx;
 		//if(!aux->ir->block.is_for_loop)
 			depth++;
 		code_sect.emplace_back(0xc);
@@ -2541,7 +2719,9 @@ enum dbg_break_type
 	DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC,
 	DBG_BREAK_ON_NEXT_STAT,
 	DBG_BREAK_ON_NEXT_BC,
-	DBG_BREAK_ON_NEXT_IR   
+	DBG_BREAK_ON_NEXT_IR,
+	DBG_BREAK_ON_DIFF_IR,   
+	DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC,   
 };
 enum dbg_expr_type
 {
@@ -2586,6 +2766,7 @@ struct dbg_state
 	dbg_print_numbers_format print_numbers_format;
 	wasm_bc **cur_bc;
 	ir_rep *cur_ir;
+	ir_rep *prev_break_ir;
 	char* mem_buffer;
 	int mem_size;
 	func_decl* cur_func;
@@ -2598,6 +2779,7 @@ struct dbg_state
 	own_std::vector<func_decl*> func_stack;
 	own_std::vector<block_linked *> block_stack;
 	own_std::vector<wasm_bc*> return_stack;
+	own_std::vector<ir_rep*> return_stack_ir;
 	own_std::vector<wasm_bc> bcs;
 	own_std::vector<wasm_stack_val> wasm_stack;
 	own_std::vector<dbg_expr *> exprs;
@@ -2911,9 +3093,9 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	}
 	return ret;
 }
-int WasmGetRegVal(dbg_state* dbg, int reg)
+u64 WasmGetRegVal(dbg_state* dbg, int reg)
 {
-	return *(int*)&dbg->mem_buffer[reg * 8];
+	return *(u64*)&dbg->mem_buffer[reg * 8];
 
 }
 std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
@@ -3369,6 +3551,18 @@ ir_rep *GetIrBasedOnOffset(dbg_state *dbg, int offset)
 		if (offset >= ir->start && offset <= ir->end)
 			return ir;
 		ir++;
+	}
+	return nullptr;
+}
+stmnt_dbg* GetStmntBasedOnOffsetIr(own_std::vector<stmnt_dbg>* ar, int offset)
+{
+	stmnt_dbg* st = ar->begin();
+	stmnt_dbg* end = ar->end();
+	while(st < end)
+	{
+		if (offset >= st->start_ir && offset < st->end_ir)
+			return st;
+		st++;
 	}
 	return nullptr;
 }
@@ -4199,6 +4393,138 @@ dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
 	return WasmGetExprFromTkns(dbg, &tkns);
 }
 
+u64 DoAndOpInValBasedOnSize(u64 lhs_val, char size)
+{
+	switch (size)
+	{
+	case 1:
+		lhs_val &= 0xff;
+	break;
+	case 2:
+		lhs_val &= 0xffff;
+	break;
+	case 4:
+		lhs_val &= 0xffffffff;
+	break;
+	case 8:
+		break;
+	default:
+		ASSERT(0);
+	}
+	return lhs_val;
+}
+template <typename T>
+T WasmIrInterpGetIrVal2(dbg_state* dbg, ir_val* val)
+{
+	T ret = 0;
+	s64 offset = 0;
+	char ptr = val->deref;
+	int reg = val->reg;
+	switch (val->type)
+	{
+	case IR_TYPE_STR_LIT:
+	{
+		return DATA_SECT_OFFSET + val->on_data_sect_offset;
+	}break;
+	case IR_TYPE_F32:
+	{
+		ret = val->f32;
+	}break;
+	case IR_TYPE_INT:
+	{
+		ret = val->i;
+	}break;
+	case IR_TYPE_RET_REG:
+	{
+		if (val->is_float && ptr < 0)
+		{
+			*(int*)&ret = WasmGetRegVal(dbg, RET_1_REG);
+			return ret;
+		}
+		else
+			ret = WasmGetRegVal(dbg, RET_1_REG );
+	}break;
+	case IR_TYPE_ON_STACK:
+	{
+		offset = GetOnStackTypeOffset(dbg->cur_func, val);
+		offset = WasmGetMemOffsetVal(dbg, BASE_STACK_PTR_REG * 8) + offset;
+		if (val->deref < 0)
+		{
+			return DoAndOpInValBasedOnSize(offset, val->reg_sz);
+		}
+
+	}break;
+	case IR_TYPE_REG:
+	{
+		if(val->is_float && ptr < 0)
+			reg = reg + FLOAT_REG_0;
+		ret = WasmGetRegVal(dbg, reg);
+		if (val->is_float && ptr < 0)
+		{
+			*(int *)&ret = WasmGetRegVal(dbg, reg);
+			return ret;
+		}
+	}break;
+	case IR_TYPE_DECL:
+	{
+		u64 base_reg = WasmGetMemOffsetVal(dbg, BASE_STACK_PTR_REG * 8);
+		if (IS_FLAG_ON(val->decl->flags, DECL_ABSOLUTE_ADDRESS))
+		{
+			offset = WasmGetRegVal(dbg, val->decl->offset);
+			//ptr--;
+		}
+		else if (IS_FLAG_ON(val->decl->flags, DECL_IS_GLOBAL))
+		{
+			offset = val->decl->offset + GLOBALS_OFFSET;
+			break;
+		}
+		else if (val->decl->type.is_const)
+		{
+			offset = val->decl->offset;
+			//ptr--;
+		}
+		else if (val->decl->type.type == TYPE_FUNC)
+		{
+			return val->decl->type.fdecl->func_idx;
+		}
+		else
+			offset = val->decl->offset;
+		offset = base_reg + offset;
+		if (ptr <= -1)
+			return offset;
+	}break;
+	default:
+		ASSERT(0);
+	}
+	if (val->type == IR_TYPE_REG)
+	{
+		if(val->is_float)
+			offset = WasmGetRegVal(dbg, reg);
+		else
+			offset = ret;
+	}
+
+	while (ptr >= 0 && val->type != IR_TYPE_INT && val->type != IR_TYPE_F32)
+	{
+		if (ptr == 0)
+		{
+			if (val->is_float)
+			{
+				*(int *)&ret = WasmGetMemOffsetVal(dbg, offset);
+			}
+			else
+				ret = (T)WasmGetMemOffsetVal(dbg, offset);
+
+
+		}
+		else
+		{
+			offset = WasmGetMemOffsetVal(dbg, offset);
+		}
+		ptr--;
+	}
+	return ret;
+}
 template <typename T>
 T WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
 {
@@ -4209,6 +4535,10 @@ T WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
 	case IR_TYPE_F32:
 	{
 		ret = val->f32;
+	}break;
+	case IR_TYPE_RET_REG:
+	{
+		ret = val->reg * RET_1_REG;
 	}break;
 	case IR_TYPE_INT:
 	{
@@ -4232,11 +4562,11 @@ T WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
 		}
 		else if (val->decl->type.is_const)
 		{
-			ret = val->decl->type.i;
+			ret = val->decl->offset;
 			ptr--;
 		}
-		else 
-			ASSERT(0);
+		else
+			ret = val->decl->offset;
 	}break;
 	default:
 		ASSERT(0);
@@ -4250,6 +4580,202 @@ T WasmIrInterpGetIrVal(dbg_state* dbg, ir_val* val)
 		ptr--;
 	}
 	return ret;
+}
+
+template<typename T>
+T WasmIrInterpSingle(dbg_state* dbg, ir_val* lhs)
+{
+	u64 lhs_val = WasmIrInterpGetIrVal<u64>(dbg, lhs);
+	switch (lhs->reg_sz)
+	{
+	case 1:
+		lhs_val &= 0xff;
+	break;
+	case 2:
+		lhs_val &= 0xffff;
+	break;
+	case 4:
+		lhs_val &= 0xffffffff;
+	break;
+	case 8:
+		break;
+	default:
+		ASSERT(0);
+	}
+	return (T)lhs;
+
+}
+
+u64 WasmIrInterpBin(dbg_state* dbg, ir_val* lhs, ir_val* rhs, tkn_type2 op)
+{
+	u64 ret = 0;
+	if(lhs->is_float)
+	{
+		float lhs_val = WasmIrInterpGetIrVal2<float>(dbg, lhs);
+		float rhs_val = WasmIrInterpGetIrVal2<float>(dbg, rhs);
+
+		if (op >= T_GREATER_THAN && op <= T_COND_EQ)
+		{
+			switch (op)
+			{
+			case T_LESSER_THAN:
+				return lhs_val < rhs_val;
+			case T_LESSER_EQ:
+				return lhs_val <= rhs_val;
+			case T_GREATER_THAN:
+				return lhs_val > rhs_val;
+			case T_GREATER_EQ:
+				return lhs_val >= rhs_val;
+			case T_COND_EQ:
+				return lhs_val == rhs_val;
+			case T_COND_NE:
+				return lhs_val != rhs_val;
+			default:
+				ASSERT(0);
+			}
+		}
+		ret = GetExpressionValT<u64>(op, lhs_val, rhs_val);
+	}
+	else
+	{
+		if (lhs->is_unsigned)
+		{
+			u64 lhs_val = WasmIrInterpGetIrVal2<u64>(dbg, lhs);
+			u64 rhs_val = WasmIrInterpGetIrVal2<u64>(dbg, rhs);
+			ret = GetExpressionValT<u64>(op, lhs_val, rhs_val);
+		}
+		else
+		{
+			s64 lhs_val = WasmIrInterpGetIrVal2<s64>(dbg, lhs);
+			s64 rhs_val = WasmIrInterpGetIrVal2<s64>(dbg, rhs);
+			ret = GetExpressionValT<s64>(op, lhs_val, rhs_val);
+		}
+	}
+
+	return ret;
+}
+template<typename T>
+void WasmIrInterpAssign2(dbg_state* dbg, ir_rep *ir)
+{
+	T final_val = 0;
+	if (ir->assign.only_lhs)
+	{
+		final_val = WasmIrInterpGetIrVal2<T>(dbg, &ir->assign.lhs);
+	}
+	else
+	{
+		T lhs_val = WasmIrInterpGetIrVal2<T>(dbg, &ir->assign.lhs);
+		if (ir->assign.op == T_POINT)
+			final_val = lhs_val + ir->assign.rhs.i;
+
+		else
+		{
+			T rhs_val = WasmIrInterpGetIrVal2<T>(dbg, &ir->assign.rhs);
+			final_val = GetExpressionValT<T>(ir->assign.op, lhs_val, rhs_val);
+		}
+	}
+
+	switch (ir->assign.to_assign.type)
+	{
+	case IR_TYPE_ARG_REG:
+	case IR_TYPE_DECL:
+	case IR_TYPE_ON_STACK:
+	case IR_TYPE_REG:
+	{
+		int offset = 0;
+		int sz = 0;
+		char ptr = ir->assign.to_assign.deref;
+		if (ir->assign.to_assign.type == IR_TYPE_REG)
+		{
+			int reg = ir->assign.to_assign.reg;
+			if (ir->assign.to_assign.is_float && ptr < 0)
+				reg = reg + FLOAT_REG_0;
+			offset = reg * 8;
+			
+			sz = ir->assign.to_assign.reg_sz;
+		}
+		else if (ir->assign.to_assign.type == IR_TYPE_ON_STACK)
+		{
+			offset = GetOnStackTypeOffset(dbg->cur_func, &ir->assign.to_assign);
+			offset = WasmGetMemOffsetVal(dbg, BASE_STACK_PTR_REG * 8) + offset;
+			sz = ir->assign.to_assign.reg_sz;
+		}
+		else if (ir->assign.to_assign.type == IR_TYPE_ARG_REG)
+		{
+			offset = ir->assign.to_assign.reg * 8;
+			offset += WasmGetMemOffsetVal(dbg, STACK_PTR_REG * 8);
+
+			sz = 8;
+		}
+		else if (ir->assign.to_assign.type == IR_TYPE_DECL)
+		{
+			decl2* d = ir->assign.to_assign.decl;
+			offset = ir->assign.to_assign.decl_offset;
+			if (IS_FLAG_ON(d->flags, DECL_IS_GLOBAL))
+				offset += GLOBALS_OFFSET;
+			else
+			{
+				offset += WasmGetMemOffsetVal(dbg, BASE_STACK_PTR_REG * 8);
+			}
+
+			sz = GetTypeSize(&d->type);
+			/*
+			if (d->type.is_const)
+			{
+				//d->type.i = final_val;
+				break;
+			}
+			*/
+		}
+
+		while (ptr >= 0)
+		{
+			offset = WasmGetMemOffsetVal(dbg, offset);
+			ptr--;
+		}
+
+		if (ir->assign.to_assign.is_float)
+			sz = 4;
+		switch (sz)
+		{
+		case 1:
+		{
+			char* reg = (char*)&dbg->mem_buffer[offset];
+			*reg = final_val;
+		}break;
+		case 2:
+		{
+			short* reg = (short*)&dbg->mem_buffer[offset];
+			*reg = final_val;
+		}break;
+		case 4:
+		{
+			T* reg = (T*)&dbg->mem_buffer[offset];
+			*reg = final_val;
+		}break;
+		case 8:
+		{
+			long long* reg = (long long*)&dbg->mem_buffer[offset];
+			*reg = final_val;
+		}break;
+		default:
+			ASSERT(0);
+		}
+	}break;
+	case IR_TYPE_RET_REG:
+	{
+		int* reg = (int*)&dbg->mem_buffer[(RET_1_REG + ir->assign.to_assign.reg) * 8];
+		if (ir->assign.to_assign.is_float)
+		{
+			*(float *)reg = final_val;
+		}
+		else
+			*reg = final_val;
+	}break;
+	default:
+		ASSERT(0);
+	}
+
 }
 template<typename T>
 void WasmIrInterpAssign(dbg_state* dbg, ir_rep *ir)
@@ -4291,6 +4817,10 @@ void WasmIrInterpAssign(dbg_state* dbg, ir_rep *ir)
 			offset = d->offset;
 			if (IS_FLAG_ON(d->flags, DECL_IS_GLOBAL))
 				offset += GLOBALS_OFFSET;
+			else
+			{
+				offset += WasmGetMemOffsetVal(dbg, BASE_STACK_PTR_REG * 8);
+			}
 
 			sz = GetTypeSize(&d->type);
 			if (d->type.is_const)
@@ -4346,10 +4876,306 @@ void WasmIrInterpAssign(dbg_state* dbg, ir_rep *ir)
 
 }
 
-void IrLogic(dbg_state* dbg, ir_rep* ir)
+#pragma optimize("", off)
+void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer, func_decl *call_f)
 {
+	int tsize = winterp->dbg->lang_stat->type_sect.size();
+	unsigned char *cdata = winterp->dbg->lang_stat->code_sect.data();
+	cdata += tsize;
+	unsigned char* func_code = cdata + call_f->for_interpreter_code_start_idx;
+	int base_ptr = *(int*)&dbg.mem_buffer[STACK_PTR_REG * 8];
+	void *a_ptr = (void*)&dbg.mem_buffer[base_ptr + 8];
+
+	void* addr = nullptr;
+	if(call_f->ret_type.IsFloat() && call_f->ret_type.ptr == 0)
+		*(float *)&addr = (((float(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
+	else
+		addr = (((void *(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
+	if (!((call_f->ret_type.type == TYPE_VOID || call_f->ret_type.type == TYPE_AUTO) && call_f->ret_type.ptr <= 0))
+	{
+		call_f->ret_type.ptr--;
+		if (call_f->ret_type.ptr < 0)
+		{
+			void* final_val = addr;
+			if (call_f->ret_type.type == TYPE_STRUCT)
+			{
+				memcpy(&dbg.mem_buffer[2000], addr, GetTypeSize(&call_f->ret_type));
+				final_val = (void *)(long long)2000;
+			}
+			*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) final_val;
+
+		}
+		else
+		{
+			if(addr > dbg.mem_buffer)
+				*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) ((unsigned char *)addr - (unsigned char *)dbg.mem_buffer);
+			else
+				*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) (addr);
+		}
+		call_f->ret_type.ptr++;
+	}
+
+
+	auto a = 0;
+}
+#pragma optimize("", on)
+void WasmDoCallInstructionIr(dbg_state *dbg, ir_rep **bc, block_linked **cur, func_decl *call_f)
+{
+	dbg->cur_func = call_f;
+	dbg->func_stack.emplace_back(call_f);
+	//dbg->block_stack.emplace_back(*cur);
+	dbg->return_stack_ir.emplace_back(*bc);
+	int idx = call_f->wasm_code_sect_idx - 1;
+	//if (idx < 0)
+		//idx = 0;
+	//*bc = dbg->bcs.begin() + idx;
+	auto ir = (own_std::vector<ir_rep> *)(&call_f->ir);
+	*bc = (ir->begin() + call_f->ir_stack_begin_idx);
+	(*bc)--;
+
+}
+
+void IrEndStack(dbg_state* dbg, ir_rep** ptr, ir_rep* start)
+{
+	auto base = (u64 *)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
+	auto stack = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	*stack += dbg->cur_func->stack_size + 8;
+	*base = *(u64 *)&dbg->mem_buffer[*stack];
+	*stack += 8;
+
+	dbg->func_stack.pop_back();
+	if (dbg->func_stack.size() == 0)
+	{
+		return;
+	}
+	func_decl* prev_func = dbg->cur_func;
+	dbg->cur_func = dbg->func_stack.back();
+
+	*ptr = dbg->return_stack_ir.back();
+	dbg->return_stack_ir.pop_back();
+}
+bool IrLogic2(dbg_state* dbg, ir_rep** ptr, ir_rep *start)
+{
+	ir_rep* ir = *ptr;
+	ir_rep assign;
 	switch (ir->type)
 	{
+	case IR_STACK_END:
+	{
+		IrEndStack(dbg, ptr, start);
+	}break;
+	case IR_STACK_BEGIN:
+	{
+		auto base_reg = (u64 *)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
+		auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
+		*stack_reg -= 8;
+		// saving prev base ptr
+		*(u64 *)&dbg->mem_buffer[*stack_reg] = *base_reg;
+		*base_reg = *stack_reg;
+
+		*base_reg = *stack_reg;
+		*stack_reg -= ir->fdecl->stack_size + 8;
+	}break;
+	case IR_BREAK_OUT_IF_BLOCK:
+	{
+		*ptr = start + ir->block.other_idx - 1;
+	}break;
+	case IR_BREAK:
+	{
+		*ptr = start + ir->block.other_idx;
+	}break;
+	case IR_DBG_BREAK:
+	{
+		return false;
+	}break;
+	case IR_CONTINUE:
+	{
+		*ptr = start + ir->block.other_idx;
+	}break;
+	case IR_END_LOOP_BLOCK:
+	{
+		*ptr = start + ir->block.other_idx;
+	}break;
+	case IR_END_IF_BLOCK:
+	case IR_BEGIN_IF_BLOCK:
+	case IR_END_SUB_IF_BLOCK:
+	case IR_BEGIN_SUB_IF_BLOCK:
+	case IR_END_BLOCK:
+	case IR_BEGIN_COND_BLOCK:
+	case IR_BEGIN_LOOP_BLOCK:
+	case IR_END_COND_BLOCK:
+	case IR_BEGIN_BLOCK:
+	case IR_DECLARE_ARG:
+	case IR_DECLARE_LOCAL:
+	{
+	}break;
+	case IR_CMP_LE:
+	case IR_CMP_LT:
+	case IR_CMP_GT:
+	case IR_CMP_NE:
+	case IR_CMP_GE:
+	case IR_CMP_EQ:
+	{
+		u64 val = WasmIrInterpBin(dbg, &ir->bin.lhs, &ir->bin.rhs, ir->bin.op);
+		if (val == 1)
+		{
+			*ptr += ir->dst_ir_rel_idx - 1;
+		}
+	}break;
+	case IR_END_STMNT:
+	case IR_BEGIN_STMNT:
+	{
+
+	}break;
+	case IR_CAST_F32_TO_INT:
+	{
+		assign.assign.only_lhs = true;
+		assign.assign.lhs.type = IR_TYPE_INT;
+		assign.assign.lhs.i = WasmIrInterpGetIrVal2<float>(dbg, &ir->bin.rhs);
+		assign.assign.to_assign = ir->bin.lhs;
+		WasmIrInterpAssign2<int>(dbg, &assign);
+	}break;
+	case IR_CAST_INT_TO_INT:
+	{
+
+		assign.assign.only_lhs = true;
+		assign.assign.lhs.type = IR_TYPE_INT;
+		if (ir->bin.lhs.is_unsigned)
+		{
+			u64 val = WasmIrInterpGetIrVal2<u64>(dbg, &ir->bin.rhs);
+			val = DoAndOpInValBasedOnSize(val, ir->bin.lhs.reg_sz);
+			assign.assign.lhs.i = val;
+		}
+		else
+		{
+			s64 val = WasmIrInterpGetIrVal2<s64>(dbg, &ir->bin.rhs);
+			val = DoAndOpInValBasedOnSize(val, ir->bin.lhs.reg_sz);
+			assign.assign.lhs.i = val;
+		}
+		assign.assign.lhs.is_float = false;
+		assign.assign.to_assign = ir->bin.lhs;
+		WasmIrInterpAssign2<int>(dbg, &assign);
+	}break;
+	case IR_CAST_INT_TO_F32:
+	{
+
+		assign.assign.only_lhs = true;
+		assign.assign.lhs.type = IR_TYPE_F32;
+		if (ir->bin.lhs.is_unsigned)
+		{
+			assign.assign.lhs.f32 = WasmIrInterpGetIrVal2<u32>(dbg, &ir->bin.rhs);
+		}
+		else
+		{
+			assign.assign.lhs.f32 = WasmIrInterpGetIrVal2<int>(dbg, &ir->bin.rhs);
+		}
+		assign.assign.lhs.is_float = true;
+		assign.assign.to_assign = ir->bin.lhs;
+		WasmIrInterpAssign2<float>(dbg, &assign);
+	}break;
+	case IR_RET:
+	{
+		if (ir->ret.no_ret_val)
+		{
+		}
+		else
+		{
+			int final_val = WasmIrInterpGetIrVal2<int>(dbg, &ir->ret.assign.lhs);
+			int* reg = (int*)&dbg->mem_buffer[(RET_1_REG + ir->ret.assign.to_assign.reg) * 8];
+			*reg = final_val;
+
+		}
+		IrEndStack(dbg, ptr, start);
+	}break;
+	case IR_INDIRECT_CALL:
+	{
+		ir_val val;
+		val.type = IR_TYPE_DECL;
+		val.decl = ir->decl;
+		val.deref = 0;
+		int idx = WasmIrInterpGetIrVal2<int>(dbg, &val);
+		func_decl* call_f = WasmGetFuncAtIdx(dbg->wasm_state, idx);
+		WasmDoCallInstructionIr(dbg, ptr, nullptr, call_f);
+	}break;
+	case IR_CALL:
+	{
+		func_decl* call_f = ir->call.fdecl;
+		if (IS_FLAG_ON(call_f->flags, FUNC_DECL_IS_OUTSIDER))
+		{
+			if (dbg->wasm_state->outsiders.find(call_f->name) != dbg->wasm_state->outsiders.end())
+			{
+				auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
+				*stack_reg -= 8;
+				OutsiderFuncType func_ptr = dbg->wasm_state->outsiders[call_f->name];
+				func_ptr(dbg);
+				*stack_reg += 8;
+			}
+			else
+				ASSERT(0);
+
+		}
+		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
+		{
+			
+			auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
+			*stack_reg -= 8;
+			WasmCallX64(dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f);
+			*stack_reg += 8;
+		}
+		else
+		{
+			WasmDoCallInstructionIr(dbg, ptr, nullptr, call_f);
+		}
+	}break;
+	case IR_ASSIGNMENT:
+	{
+		if (ir->assign.to_assign.is_float || ir->assign.to_assign.type == IR_TYPE_DECL && ir->assign.to_assign.decl->type.type == TYPE_F32)
+			WasmIrInterpAssign2<float>(dbg, ir);
+		else
+			WasmIrInterpAssign2<int>(dbg,ir);
+	}break;
+
+	default:
+		stmnt_dbg* st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts, ir->idx);
+		ASSERT(0);
+	}
+	return true;
+
+}
+bool IrLogic(dbg_state* dbg, ir_rep** ptr)
+{
+	ir_rep* ir = *ptr;
+	switch (ir->type)
+	{
+	case IR_STACK_BEGIN:
+	{
+		auto base_reg = (u64 *)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
+		auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
+		stack_reg += 8;
+		*stack_reg = *base_reg;
+		*base_reg = *stack_reg;
+		stack_reg -= ir->fdecl->stack_size;
+	}break;
+	case IR_DBG_BREAK:
+	{
+		return false;
+	}break;
+	case IR_BEGIN_IF_BLOCK:
+	case IR_BEGIN_COND_BLOCK:
+	case IR_END_COND_BLOCK:
+	case IR_DECLARE_ARG:
+	case IR_DECLARE_LOCAL:
+	{
+	}break;
+	case IR_CMP_NE:
+	case IR_CMP_EQ:
+	{
+		u64 val = WasmIrInterpBin(dbg, &ir->bin.lhs, &ir->bin.rhs, ir->bin.op);
+		if (val == 1)
+		{
+			*ptr += ir->dst_ir_rel_idx - 1;
+		}
+	}break;
 	case IR_END_STMNT:
 	case IR_BEGIN_STMNT:
 	{
@@ -4379,16 +5205,332 @@ void IrLogic(dbg_state* dbg, ir_rep* ir)
 	default:
 		ASSERT(0);
 	}
+	return true;
 
 }
 
+#ifndef LANG_NO_ENGINE
+
+bool IsKeyDown(void* data, key_enum key);
+void ImGuiPrintScopeVars(char* name, dbg_state& dbg, scope* cur_scp, int base_ptr);
+void BeginLocalsChild(dbg_state &dbg, int base_ptr, scope *cur_scp)
+{
+	ImGui::BeginChild("locals", ImVec2(500, 400));
+	if (cur_scp)
+	{
+
+		scope* aux_scp = cur_scp;
+		ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+		if (ImGui::TreeNodeEx("root", flag))
+		{
+			while (aux_scp && IS_FLAG_OFF(aux_scp->flags, SCOPE_IS_GLOBAL))
+			{
+				ImGuiPrintScopeVars("root", dbg, aux_scp, base_ptr);
+				aux_scp = aux_scp->parent;
+			}
+			ImGui::TreePop();  // This is required at the end of the if block
+		}
+	}
+	ImGui::EndChild();
+}
+bool IsExecutableIr(ir_rep *ir)
+{
+	bool is_cmp = (int)ir->type >= (int)IR_CMP_EQ && (int)ir->type <= (int)IR_CMP_GT;
+	return ir->type == IR_ASSIGNMENT ||
+		ir->type == IR_BREAK ||
+		ir->type == IR_RET ||
+		ir->type == IR_CONTINUE ||
+		ir->type == IR_CAST_F32_TO_INT ||
+		ir->type == IR_CAST_INT_TO_F32 ||
+		ir->type == IR_INDIRECT_CALL ||
+		ir->type == IR_CAST_INT_TO_INT ||
+		ir->type == IR_CALL ||
+		ir->type == IR_DBG_BREAK ||
+		is_cmp;
+}
+void AdvanceIrToNext(ir_rep** ptr)
+{
+	while (!IsExecutableIr(*ptr))
+	{
+		(*ptr)++;
+	}
+}
+std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, int limit, int mem_wnd_show_type)
+{
+	std::string ret = "";
+	for (int i = 0; i < limit; i += type_sz)
+	{
+		long long val = 0;
+		print_num_type ptype = PRINT_INT;
+		switch (mem_wnd_show_type)
+		{
+			// u8
+		case 0:
+		{
+			*(unsigned char*)&val = *(unsigned char*)&dbg.mem_buffer[mem_wnd_offset + i];
+		}break;
+		// s8
+		case 1:
+		{
+			*(char*)&val = *(char*)&dbg.mem_buffer[mem_wnd_offset + i];
+		}break;
+		// u16
+		case 2:
+		{
+			*(unsigned short*)&val = *(unsigned short*)&dbg.mem_buffer[mem_wnd_offset + i];
+		}break;
+		// s16
+		case 3:
+		{
+			*(short*)&val = *(short*)&dbg.mem_buffer[mem_wnd_offset + i];
+		}break;
+		// u32
+		case 4:
+		{
+			*(unsigned int*)&val = *(unsigned int*)&dbg.mem_buffer[mem_wnd_offset + i];
+		}break;
+		// s32
+		case 5:
+		{
+			*(int*)&val = *(int*)&dbg.mem_buffer[mem_wnd_offset + i];
+		}break;
+		case 6:
+		{
+			*(long long*)&val = *(long long*)&dbg.mem_buffer[mem_wnd_offset + i];
+		}break;
+		case 7:
+		{
+			*(unsigned long long*)& val = *(unsigned long long*) & dbg.mem_buffer[mem_wnd_offset + i];
+		}break;
+		case 8:
+		{
+			*(float *)& val = *(float *) &dbg.mem_buffer[mem_wnd_offset + i];
+			ptype = PRINT_FLOAT;
+		}break;
+		case 9:
+		{
+			*(char *)& val = *(char *) &dbg.mem_buffer[mem_wnd_offset + i];
+			ret += val;
+			continue;
+		}break;
+		default:
+			ASSERT(0);
+		}
+		ret += WasmNumToString(&dbg, val, -1, ptype) + " ";
+	}
+	return ret;
+}
+void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type, int &mem_wnd_offset, int total_items)
+{
+	ImGui::BeginChild("mem", ImVec2(500, 400));
+
+	if (ImGui::BeginCombo("show type", mem_wnd_items[mem_wnd_show_type]))
+	{
+		for (int i = 0; i < total_items; i++)
+			if (ImGui::Selectable(mem_wnd_items[i]))
+				mem_wnd_show_type = i;
+		ImGui::EndCombo();
+	}
+	//ImGui::ListBox("type: ", &mem_wnd_show_type, mem_wnd_items, IM_ARRAYSIZE(mem_wnd_items));
+	ImGui::InputInt("address: ", &mem_wnd_offset);
+	char type_sz = BuiltinTypeSize((enum_type2)(mem_wnd_show_type + TYPE_U8));
+	std::string mem_val;
+	for (int r = 0; r <= (BASE_STACK_PTR_REG + 6); r++)
+	{
+		mem_val = GetMemAddrString(dbg, mem_wnd_offset + r * 8, type_sz, 8, mem_wnd_show_type);
+
+		std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+
+		int cur_addr = mem_wnd_offset + r;
+		if (cur_addr == (BASE_STACK_PTR_REG))
+			addr_name += "(base_stack)";
+		else if (cur_addr == (STACK_PTR_REG))
+			addr_name += "(top_stack)";
+
+		ImGui::Text("%s: %s", addr_name.c_str(), mem_val.c_str());
+	}
+	int base_ptr = WasmGetMemOffsetVal(&dbg, STACK_PTR_REG * 8);
+	for (int r = 0; r < 6; r++)
+	{
+		mem_val = GetMemAddrString(dbg, base_ptr + r * 8, type_sz, 8, mem_wnd_show_type);
+
+		std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+		ImGui::Text("arg_reg[%d]: %s", r, mem_val.c_str());
+	}
+	ImGui::Separator();
+	ImGui::EndChild();
+}
+bool IsKeyRepeat(void* data, int key);
+void ClearKeys(void* data);
+void WasmIrInterp(dbg_state* dbg, GLFWwindow *window, func_decl *start)
+{
+	auto ir_ar = (own_std::vector<ir_rep>*)&start->ir;
+	ir_rep* ir = ir_ar->begin() + start->ir_stack_begin_idx;
+	ir_rep* start_ir = ir_ar->begin();
+
+	scope* cur_scp = nullptr;
+	stmnt_dbg* cur_st;
+	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+	int irs_to_show = 50;
+	bool show_ir = false;
+	bool activate_dbg_break_on_next_ir = false;
+
+	int mem_wnd_offset = 0;
+	int mem_wnd_show_type = 0;
+	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32", "char"};
+	int total_items = IM_ARRAYSIZE(mem_wnd_items);
+
+	int total_irs = 0;
+
+	func_decl* cur_func = nullptr;
+
+	while (dbg->func_stack.size() > 0)
+	{
+		//dbg->cur_st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts,ir->idx);
+		if(cur_func != dbg->cur_func)
+		{
+			ir_ar = (own_std::vector<ir_rep>*) & dbg->cur_func->ir;
+			start_ir = ir_ar->begin();
+			cur_func = dbg->cur_func;
+		}
+		if (dbg->break_type == DBG_BREAK_ON_DIFF_IR && dbg->prev_break_ir != ir && IsExecutableIr(ir))
+			ir->one_dbg_break = true;
+		if (dbg->break_type == DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC && dbg->cur_func == dbg->next_stat_break_func && dbg->prev_break_ir != ir && IsExecutableIr(ir))
+			ir->one_dbg_break = true;
+		/*
+		if (ir->type == IR_DBG_BREAK || ir->dbg_break || ir->one_dbg_break)
+		{
+			if (!cur_scp)
+			{
+				cur_st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts,ir->idx);
+				if (cur_st)
+				{
+					cur_scp = FindScpWithLine(dbg->cur_func, cur_st->line);
+					auto a = 0;
+					dbg->cur_st = cur_st;
+				}
+			}
+
+			glfwPollEvents();
+			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
+			{
+				ImGui_ImplGlfw_Sleep(10);
+				continue;
+			}
+
+			//ImGui::ImGuiContext& g = *ImGui::GImGui;
+			//if(g.WithinFrameScope)
+			if(ImGui::WithinFrame())
+				ImGui::Render();
+
+			ImGui_ImplOpenGL3_NewFrame();
+			ImGui_ImplGlfw_NewFrame();
+			ImGui::NewFrame();
+
+			ImGui::Selectable("show ir", &show_ir);
+			
+			ImGui::BeginChild("code", ImVec2(500, 300));
+			if (cur_st)
+			{
+				ir_rep* aux_ir =  ir_ar->begin() + cur_st->start_ir;
+				stmnt_dbg* next_st = cur_st + 1;
+				stmnt_dbg* aux_cur_st = cur_st;
+				bool first_stat = true;
+				int max_ir = min(irs_to_show, ir_ar->size());
+				ir_rep* end = ir_ar->end();
+				for (; aux_ir < end; aux_ir++)
+				{
+					AdvanceIrToNext(&aux_ir);
+					if (aux_ir >= end)
+						break;
+					bool new_stat = false;
+					if (aux_ir->idx >= next_st->start_ir)
+					{
+						aux_cur_st++;
+						next_st++;
+						new_stat = true;
+					}
+					if ((new_stat || first_stat) && aux_cur_st->line != 0)
+					{
+						if(first_stat)
+							ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->cur_func->from_file));
+						else
+							ImGui::Text("%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->cur_func->from_file));
+						first_stat = false;
+					}
+					if (show_ir)
+					{
+						if(ir == aux_ir)
+							ImGui::TextColored(ImVec4(0.8, 0.5, 0.5, 1.0), "\t%s", WasmIrToString(dbg, aux_ir).c_str());
+						else
+							ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1.0), "\t%s", WasmIrToString(dbg, aux_ir).c_str());
+					}
+				}
+			}
+			ImGui::EndChild();
+
+			ImGui::SameLine();
+			SHowMemWindow(*dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items);
+
+			int base_ptr = WasmGetRegVal(dbg, BASE_STACK_PTR_REG);
+			BeginLocalsChild(*dbg, base_ptr, cur_scp);
+			if (IsKeyRepeat(dbg->data, GLFW_KEY_F10))
+			{
+				if (show_ir)
+				{
+					cur_scp = nullptr;
+					dbg->prev_break_ir = ir;
+					dbg->break_type = DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC;
+					dbg->next_stat_break_func = dbg->cur_func;
+					if (!ir->one_dbg_break && !ir->dbg_break)
+					{
+						ir++;
+					}
+					else
+					{
+						//ir_rep* next_ir = ir + 1;
+						//AdvanceIrToNext(&next_ir);
+						//next_ir->one_dbg_break = true;
+
+						if (ir->dbg_break)
+							activate_dbg_break_on_next_ir = true;
+					}
+					ir->one_dbg_break = false;
+				}
+			}
+
+
+			auto  a = 0;
+
+			// Rendering
+			ImGui::Render();
+			int display_w, display_h;
+			glfwGetFramebufferSize(window, &display_w, &display_h);
+			glViewport(0, 0, display_w, display_h);
+			glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+			glClear(GL_COLOR_BUFFER_BIT);
+			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+			glfwSwapBuffers(window);
+			ClearKeys(dbg->data);
+			//ir++;
+		}
+		*/
+		//else
+		{
+			if (activate_dbg_break_on_next_ir)
+				ir->dbg_break = true;
+			bool res = IrLogic2(dbg, &ir, start_ir);
+			ir++;
+		}
+	}
+}
 void WasmIrInterp(dbg_state* dbg, own_std::vector<int>* ar)
 {
 	auto ir_ar = (own_std::vector<ir_rep>*)ar;
 	ir_rep* ir = ir_ar->begin();
 	while (ir < ir_ar->end())
 	{
-		IrLogic(dbg, ir);
+		IrLogic(dbg, &ir);
 		ir++;
 	}
 }
@@ -5065,11 +6207,18 @@ struct func_dbg
 	int flags;
 	bool created;
 
+	int ir_begin_stack_idx;
+
 	int strct_constr_offset;
 	int strct_ret_offset;
 	int to_spill_offset;
 	int for_interpreter_x64_code_start;
 	int x64_code_start;
+
+	int bcs2_start;
+	int bcs2_end;
+
+	int stack_size;
 
 	int line;
 };
@@ -5083,6 +6232,7 @@ struct serialize_state
 	own_std::vector<unsigned char> types_sect;
 	own_std::vector<unsigned char> vars_sect;
 	own_std::vector<unsigned char> ir_sect;
+	own_std::vector<unsigned char> bc2_sect;
 	own_std::vector<unsigned char> file_sect;
 	own_std::vector<unsigned char> data_sect;
 	own_std::vector<unsigned char> x64_code;
@@ -5108,6 +6258,9 @@ struct dbg_file_seriealize
 	int code_sect;
 	int ir_sect;
 	int files_sect;
+
+	int bc2_sect;
+	int bc2_sect_size;
 
 	int globals_sect;
 	int globals_sect_size;
@@ -5219,6 +6372,31 @@ void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 	{
 		switch (ir->type)
 		{
+		case IR_STACK_BEGIN:
+		{
+			func_decl* call = ir->fdecl;
+			ir->num = call->func_dbg_idx;
+		}break;
+		case IR_RET:
+		{
+			IrChangeDeclAddrToTypeOffset(&ir->ret.assign.to_assign);
+			IrChangeDeclAddrToTypeOffset(&ir->ret.assign.lhs);
+			if (!ir->ret.assign.only_lhs)
+				IrChangeDeclAddrToTypeOffset(&ir->ret.assign.rhs);
+		}break;
+		case IR_CAST_F32_TO_INT:
+		case IR_CAST_INT_TO_F32:
+		case IR_CAST_INT_TO_INT:
+		case IR_CMP_NE:
+		case IR_CMP_LT:
+		case IR_CMP_LE:
+		case IR_CMP_GT:
+		case IR_CMP_GE:
+		case IR_CMP_EQ:
+		{
+			IrChangeDeclAddrToTypeOffset(&ir->bin.lhs);
+			IrChangeDeclAddrToTypeOffset(&ir->bin.rhs);
+		}break;
 		case IR_ASSIGNMENT:
 		{
 			IrChangeDeclAddrToTypeOffset(&ir->assign.to_assign);
@@ -5295,9 +6473,14 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 	fdbg->strct_ret_offset = f->strct_ret_size_per_statement_offset;
 	fdbg->to_spill_offset = f->to_spill_offset;
 	fdbg->for_interpreter_x64_code_start = f->for_interpreter_code_start_idx;
+	fdbg->stack_size = f->stack_size;
 	fdbg->x64_code_start = f->code_start_idx;
+	fdbg->bcs2_start = f->bcs2_start;
+	fdbg->bcs2_end = f->bcs2_end;
 	fdbg->ret_type = f->ret_type.type;
 	fdbg->ret_ptr_type = f->ret_type.ptr;
+	fdbg->ir_begin_stack_idx = f->ir_stack_begin_idx;
+
 	if (f->ret_type.type == TYPE_STRUCT)
 	{
 		WasmSerializeStructType(wasm_state, ser_state, f->ret_type.strct);
@@ -5574,9 +6757,10 @@ void WasmSerializePushString(serialize_state* ser_state, std::string* name, str_
 	ASSERT(out->name_len <= 128 && out->name_on_string_sect < 100000 && out->name_on_string_sect >= 0);
 	ser_state->string_sect.insert(ser_state->string_sect.end(), (unsigned char *)name->data(), (unsigned char *)(name->data() + name->size()));
 }
-void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char>& code)
+void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char>& code, own_std::vector<byte_code2> &bcs2)
 {
 	own_std::vector<unsigned char> final_buffer;
+	final_buffer.reserve(1024 * 8);
 	serialize_state ser_state;
 	//printf("\nscop : \n%s\n", wasm_state->lang_stat->root->Print(0).c_str());
 	
@@ -5671,6 +6855,10 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	
 	file.code_sect = final_buffer.size();
 	INSERT_VEC(final_buffer, code);
+
+	file.bc2_sect = final_buffer.size();
+	file.bc2_sect_size = bcs2.size();
+	final_buffer.insert(final_buffer.end(), (u8*)bcs2.begin(), (u8*)bcs2.end());
 
 	file.ir_sect = final_buffer.size();
 	INSERT_VEC(final_buffer, ser_state.ir_sect);
@@ -5793,9 +6981,13 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	fdecl->strct_constrct_at_offset = fdbg->strct_constr_offset;
 	fdecl->strct_ret_size_per_statement_offset = fdbg->strct_ret_offset;
 	fdecl->to_spill_offset = fdbg->to_spill_offset;
+	fdecl->ir_stack_begin_idx = fdbg->ir_begin_stack_idx;
+	fdecl->stack_size = fdbg->stack_size;
 	if(IS_FLAG_ON(fdbg->flags, FUNC_DECL_X64))
 		fdecl->code_start_idx = fdbg->x64_code_start;
 	fdecl->for_interpreter_code_start_idx = fdbg->for_interpreter_x64_code_start;
+	fdecl->bcs2_start = fdbg->bcs2_start;
+	fdecl->bcs2_end = fdbg->bcs2_end;
 
 	fdecl->ret_type.type = fdbg->ret_type;
 	fdecl->ret_type.ptr = fdbg->ret_ptr_type;
@@ -6129,49 +7321,6 @@ inline bool GetWasmBcsBlockJmpsTo(own_std::vector<wasm_bc> *ar)
 
 }
 
-#pragma optimize("", off)
-void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer, func_decl *call_f)
-{
-	int tsize = winterp->dbg->lang_stat->type_sect.size();
-	unsigned char *cdata = winterp->dbg->lang_stat->code_sect.data();
-	cdata += tsize;
-	unsigned char* func_code = cdata + call_f->for_interpreter_code_start_idx;
-	int base_ptr = *(int*)&dbg.mem_buffer[STACK_PTR_REG * 8];
-	void *a_ptr = (void*)&dbg.mem_buffer[base_ptr + 8];
-
-	void* addr = nullptr;
-	if(call_f->ret_type.IsFloat() && call_f->ret_type.ptr == 0)
-		*(float *)&addr = (((float(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
-	else
-		addr = (((void *(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
-	if (!((call_f->ret_type.type == TYPE_VOID || call_f->ret_type.type == TYPE_AUTO) && call_f->ret_type.ptr <= 0))
-	{
-		call_f->ret_type.ptr--;
-		if (call_f->ret_type.ptr < 0)
-		{
-			void* final_val = addr;
-			if (call_f->ret_type.type == TYPE_STRUCT)
-			{
-				memcpy(&dbg.mem_buffer[2000], addr, GetTypeSize(&call_f->ret_type));
-				final_val = (void *)(long long)2000;
-			}
-			*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) final_val;
-
-		}
-		else
-		{
-			if(addr > dbg.mem_buffer)
-				*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) ((unsigned char *)addr - (unsigned char *)dbg.mem_buffer);
-			else
-				*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) (addr);
-		}
-		call_f->ret_type.ptr++;
-	}
-
-
-	auto a = 0;
-}
-#pragma optimize("", on)
 
 bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigned char* mem_buffer, block_linked** cur, bool &can_break)
 {
@@ -6744,8 +7893,6 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 	return false;
 }
 void OpenWindow(dbg_state* dbg);
-bool IsKeyRepeat(void* data, int key);
-void ClearKeys(void* data);
 static void glfw_error_callback(int error, const char* description)
 {
 	fprintf(stderr, "GLFW Error %d: %s\n", error, description);
@@ -6761,96 +7908,7 @@ void ExitDebugger(scope **cur_scp, wasm_bc **bc)
 }
 
 
-std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, int limit, int mem_wnd_show_type)
-{
-	std::string ret = "";
-	for (int i = 0; i < limit; i += type_sz)
-	{
-		long long val = 0;
-		print_num_type ptype = PRINT_INT;
-		switch (mem_wnd_show_type)
-		{
-			// u8
-		case 0:
-		{
-			*(unsigned char*)&val = *(unsigned char*)&dbg.mem_buffer[mem_wnd_offset + i];
-		}break;
-		// s8
-		case 1:
-		{
-			*(char*)&val = *(char*)&dbg.mem_buffer[mem_wnd_offset + i];
-		}break;
-		// u16
-		case 2:
-		{
-			*(unsigned short*)&val = *(unsigned short*)&dbg.mem_buffer[mem_wnd_offset + i];
-		}break;
-		// s16
-		case 3:
-		{
-			*(short*)&val = *(short*)&dbg.mem_buffer[mem_wnd_offset + i];
-		}break;
-		// u32
-		case 4:
-		{
-			*(unsigned int*)&val = *(unsigned int*)&dbg.mem_buffer[mem_wnd_offset + i];
-		}break;
-		// s32
-		case 5:
-		{
-			*(int*)&val = *(int*)&dbg.mem_buffer[mem_wnd_offset + i];
-		}break;
-		case 6:
-		{
-			*(long long*)&val = *(long long*)&dbg.mem_buffer[mem_wnd_offset + i];
-		}break;
-		case 7:
-		{
-			*(unsigned long long*)& val = *(unsigned long long*) & dbg.mem_buffer[mem_wnd_offset + i];
-		}break;
-		case 8:
-		{
-			*(float *)& val = *(float *) &dbg.mem_buffer[mem_wnd_offset + i];
-			ptype = PRINT_FLOAT;
-		}break;
-		case 9:
-		{
-			*(char *)& val = *(char *) &dbg.mem_buffer[mem_wnd_offset + i];
-			ret += val;
-			continue;
-		}break;
-		default:
-			ASSERT(0);
-		}
-		ret += WasmNumToString(&dbg, val, -1, ptype) + " ";
-	}
-	return ret;
-}
 
-#ifndef LANG_NO_ENGINE
-
-bool IsKeyDown(void* data, key_enum key);
-void ImGuiPrintScopeVars(char* name, dbg_state& dbg, scope* cur_scp, int base_ptr);
-void BeginLocalsChild(dbg_state &dbg, int base_ptr, scope *cur_scp)
-{
-	ImGui::BeginChild("locals", ImVec2(500, 400));
-	if (cur_scp)
-	{
-
-		scope* aux_scp = cur_scp;
-		ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-		if (ImGui::TreeNodeEx("root", flag))
-		{
-			while (aux_scp && IS_FLAG_OFF(aux_scp->flags, SCOPE_IS_GLOBAL))
-			{
-				ImGuiPrintScopeVars("root", dbg, aux_scp, base_ptr);
-				aux_scp = aux_scp->parent;
-			}
-			ImGui::TreePop();  // This is required at the end of the if block
-		}
-	}
-	ImGui::EndChild();
-}
 void ImGuiDrawSquare(dbg_state &dbg, int addr, ImU32 col_a)
 {
 	ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -6918,6 +7976,521 @@ void Write(HANDLE hFile, char *str, int sz)
 	} 
 	*/
 }
+
+tkn_type2 GetOpBasedOnInst(byte_code_enum type)
+{
+	INSTS_SWITCH(type, return T_PLUS, return T_MINUS, return T_MINUS, return T_EQUAL, return T_EQUAL, return T_PIPE, return T_AMPERSAND, return T_PERCENT, return T_MUL, return T_DIV);
+}
+void DoOperationOnPtr(char* ptr, char sz, u64 val, tkn_type2 op)
+{
+	switch (sz)
+	{
+	case 0:
+		*ptr = GetExpressionValT<u8>(op, *ptr, val);
+		break;
+	case 1:
+		*(short *)ptr = GetExpressionValT<short>(op, *(short *)ptr, val);
+		break;
+	case 2:
+		*(int *)ptr = GetExpressionValT<int>(op, *(int *)ptr, val);
+		break;
+	case 3:
+		*(long long *)ptr = GetExpressionValT<long long>(op, *(long long *)ptr, val);
+		break;
+	}
+}
+
+#define REG_PARAM_START 0
+#define EFLAGS_REG 16
+#define EFLAGS_ZERO 1
+#define EFLAGS_ABOVE 2
+#define EFLAGS_BELOW 4
+u64 *GetRegValPtr(dbg_state *dbg, short reg)
+{
+	return (u64*)&dbg->mem_buffer[reg * 8];
+}
+u64 *GetMemValPtr(dbg_state *dbg, short reg, int offset)
+{
+	auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg * 8];
+	u64 offset_ = *reg_src_ptr + offset;
+	return (u64*)&dbg->mem_buffer[offset_];
+}
+std::string GetRegStr(short reg)
+{
+	return "r" + std::to_string(reg);
+}
+std::string SizeToStr(char sz)
+{
+	switch (sz)
+	{
+	case 0:
+		return "byte";
+	case 1:
+		return "word";
+	case 2:
+		return "dword";
+	case 3:
+		return "qword";
+	default:
+		return "unknown size";
+	}
+}
+std::string InstToStr(byte_code_enum type)
+{
+	INSTS_SWITCH(type, return "add", return "sub", return "cmp", return "mov", return "lea", return "or", return "and", return "mod", return "mul", return "div");
+}
+std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
+{
+	char buffer[128];
+	std::string ret;
+	short reg_src = (bc->regs >> RHS_REG_BIT) & 0xf;
+	short reg_dst = bc->regs & 0xf;
+	int imm = bc->i;
+	int mem_offset = bc->mem_offset;
+	char sz = bc->regs >> REG_SZ_BIT;
+	std::string sz_str = SizeToStr(sz);
+	std::string reg_src_str = GetRegStr(reg_src);
+	std::string reg_dst_str = GetRegStr(reg_dst);
+	switch (bc->bc_type)
+	{
+	case RELOC:
+	{
+		switch (bc->rel_type)
+		{
+		case REL_DATA:
+		{
+			snprintf(buffer, 128, "rel_data %d", imm);
+			ret = buffer;
+		}break;
+		default:
+			ASSERT(0);
+		}
+	}break;;
+	case BEGIN_FUNC:
+	{
+		ret = "begin func";
+	}break;;
+	case BEGIN_FUNC_FOR_INTERPRETER:
+	{
+	}break;
+	case CVTSD_REG_2_SS:
+	{
+		snprintf(buffer, 128, "cvtsd xmm%d, %s", reg_dst, reg_src_str.c_str());
+		ret = buffer;
+	}break;
+	case ADD_R_2_R:
+	case AND_R_2_R:
+	case OR_R_2_R:
+	case DIV_R_2_R:
+	case MUL_R_2_R:
+	case MOV_R:
+	case SUB_R_2_R:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s, %s", inst_name.c_str(), reg_dst_str.c_str(), reg_src_str.c_str());
+		ret = buffer;
+	}break;
+	case ADD_I_2_R:
+	case OR_I_2_R:
+	case CMP_I_2_R:
+	case AND_I_2_R:
+	case SUB_I_2_R:
+	case MOD_I_2_R:
+	case MUL_I_2_R:
+	case DIV_I_2_R:
+	case MOV_I:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s, %d", inst_name.c_str(), reg_dst_str.c_str(), imm);
+		ret = buffer;
+	}break;
+	case RET:
+	{
+		ret = "ret";
+	}break;
+	case INT3:
+	{
+		ret = "int3";
+	}break;
+	case JMP:
+	{
+		snprintf(buffer, 128, "jmp %d", imm);
+		ret = buffer;
+	}break;
+	case INST_CALL:
+	{
+		snprintf(buffer, 128, "call %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_E:
+	{
+		snprintf(buffer, 128, "je %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_L:
+	{
+		snprintf(buffer, 128, "jl %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_LE:
+	{
+		snprintf(buffer, 128, "jle %d", imm);
+		ret = buffer;
+	}break;
+	case INST_CALL_OUTSIDER:
+	{
+		func_decl* f = dbg->wasm_state->funcs[imm];
+		snprintf(buffer, 128, "call_outsider %s", f->name.c_str());
+		ret = buffer;
+	}break;
+	case JMP_G:
+	{
+		snprintf(buffer, 128, "jg %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_NE:
+	{
+		snprintf(buffer, 128, "jne %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_AE:
+	{
+		snprintf(buffer, 128, "jae %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_A:
+	{
+		snprintf(buffer, 128, "ja %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_B:
+	{
+		snprintf(buffer, 128, "jb %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_BE:
+	{
+		snprintf(buffer, 128, "jbe %d", imm);
+		ret = buffer;
+	}break;
+	case JMP_GE:
+	{
+		snprintf(buffer, 128, "jge %d", imm);
+		ret = buffer;
+	}break;
+	case MOV_I_2_REG_PARAM:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s_i_param %d, %d", inst_name.c_str(), reg_dst, imm);
+		ret = buffer;
+	}break;
+	case MOV_R_2_REG_PARAM:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s_param %d, %s", inst_name.c_str(), reg_dst, reg_src_str.c_str());
+		ret = buffer;
+	}break;
+	case CVTSD_MEM_2_SS:
+	{
+		//std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "cvtsd xmm%d, %s[%s + %d]", reg_dst, sz_str.c_str(), reg_src_str.c_str(), mem_offset);
+		ret = buffer;
+	}break;
+	case MOV_M_2_REG_PARAM:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s_param %d, %s[%s + %d]", inst_name.c_str(), reg_dst, sz_str.c_str(), reg_src_str.c_str(), mem_offset);
+		ret = buffer;
+	}break;
+	case ADD_M_2_R:
+	case SUB_M_2_R:
+	case CMP_M_2_R:
+	case AND_M_2_R:
+	case OR_M_2_R:
+	case DIV_M_2_R:
+	case MUL_M_2_R:
+	case INST_LEA:
+	case MOV_M:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s, %s[%s + %d]", inst_name.c_str(), reg_dst_str.c_str(), sz_str.c_str(), reg_src_str.c_str(), mem_offset);
+		ret = buffer;
+	}break;
+	case MOV_SSE_2_SSE:
+	case CMP_SSE_2_SSE:
+	case ADD_SSE_2_SSE:
+	case SUB_SSE_2_SSE:
+	case MUL_SSE_2_SSE:
+	case DIV_SSE_2_SSE:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s xmm%d,  xmm%d", inst_name.c_str(), reg_src, reg_dst);
+		ret = buffer;
+	}break;
+	case MOV_M_2_SSE:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s xmm%d,  %s[%s + %d]", inst_name.c_str(), reg_src, sz_str.c_str(), reg_dst_str.c_str(), mem_offset);
+		ret = buffer;
+	}break;
+	case MOV_SSE_2_MEM:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s[%s + %d], xmm%d", inst_name.c_str(), sz_str.c_str(), reg_dst_str.c_str(), mem_offset, reg_src);
+		ret = buffer;
+	}break;
+	case CMP_R_2_M:
+	case ADD_R_2_M:
+	case SUB_R_2_M:
+	case AND_R_2_M:
+	case MUL_R_2_M:
+	case DIV_R_2_M:
+	case STORE_R_2_M:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s[%s + %d], %s", inst_name.c_str(), sz_str.c_str(), reg_dst_str.c_str(), mem_offset, reg_src_str.c_str());
+		ret = buffer;
+	}break;
+	case CMP_I_2_M:
+	case STORE_I_2_M:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s[%s + %d], %d", inst_name.c_str(), sz_str.c_str(), reg_dst_str.c_str(), mem_offset, imm);
+		ret = buffer;
+	}break;
+	case STORE_REG_PARAM:
+	{
+		ret = "store reg param";
+	}break;
+	default:
+		ASSERT(0);
+	}
+	return ret;
+}
+void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
+{
+	byte_code2* bc = *ptr;;
+	short reg_src = (bc->regs >> RHS_REG_BIT) & 0xf;
+	short reg_dst = bc->regs & 0xf;
+	int imm = bc->i;
+	int mem_offset = bc->mem_offset;
+	char sz = bc->regs >> REG_SZ_BIT;
+	switch (bc->bc_type)
+	{
+	case BEGIN_FUNC:
+	case BEGIN_FUNC_FOR_INTERPRETER:
+	{
+		while ((*ptr)->type != BEGIN_FUNC)
+		{
+			*ptr += 1;
+		}
+	}break;
+	case MOV_R_2_REG_PARAM:
+	{
+		u64* reg_src_ptr = GetRegValPtr(dbg, reg_src * 8);
+		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, reg_dst * 8);
+
+
+		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
+
+	}break;
+	case MOV_M:
+	{
+		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		u64* mem_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
+		u64* reg = GetRegValPtr(dbg, reg_dst);
+
+		DoOperationOnPtr((char *)reg, sz, *mem_ptr, T_EQUAL); 
+	}break;
+	case SUB_R_2_R:
+	case DIV_R_2_R:
+	case MUL_R_2_R:
+	case ADD_R_2_R:
+	case MOV_R:
+	{
+		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_dst_ptr = (char*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_src_ptr = (char*)&dbg->mem_buffer[reg_src * 8];
+
+
+		DoOperationOnPtr(reg_dst_ptr, sz, *reg_src_ptr, op);
+	}break;
+	case ADD_I_2_R:
+	case SUB_I_2_R:
+	{
+
+		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_dst_ptr = (char*)&dbg->mem_buffer[reg_dst * 8];
+
+
+		DoOperationOnPtr(reg_dst_ptr, sz, imm, op);
+	}break;
+	case CMP_I_2_M:
+	{
+		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		u64 offset = *reg_dst_ptr + mem_offset;
+		
+		auto dst = (s64*)&dbg->mem_buffer[offset];
+		int val = *dst - imm;
+		if (val == 0)
+		{
+			*(u64*)&dbg->mem_buffer[EFLAGS_REG * 8] = EFLAGS_ZERO;
+		}
+		else if (val > 0)
+		{
+			*(u64*)&dbg->mem_buffer[EFLAGS_REG * 8] = EFLAGS_ABOVE;
+		}
+		else if (val < 0)
+		{
+			*(u64*)&dbg->mem_buffer[EFLAGS_REG * 8] = EFLAGS_BELOW;
+		}
+	}break;
+	case JMP_E:
+	{
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
+		if (IS_FLAG_ON(flags, EFLAGS_ZERO))
+		{
+			*ptr += bc->i + 1;
+			*inc_ptr = false;
+		}
+	}break;
+	case JMP_GE:
+	{
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
+		if (IS_FLAG_ON(flags, EFLAGS_ABOVE | EFLAGS_ZERO))
+		{
+			*ptr += bc->i + 1;
+			*inc_ptr = false;
+		}
+	}break;
+	case STORE_R_2_M:
+	{
+		u64* reg_src_ptr = GetRegValPtr(dbg, reg_src);
+		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		u64 offset = *reg_dst_ptr + mem_offset;
+		
+		auto dst = (char*)&dbg->mem_buffer[offset];
+		DoOperationOnPtr(dst, sz, *reg_src_ptr, T_EQUAL);
+	}break;
+	case RET:
+	{
+		u64* reg_src_ptr = GetRegValPtr(dbg, reg_src);
+		u64* reg_stack_ptr = GetRegValPtr(dbg, PRE_X64_RSP_REG);
+		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
+		*ptr =(byte_code2 *) *mem_ptr;
+		(*reg_stack_ptr) += 8;
+		*inc_ptr = false;
+	}break;
+	case JMP:
+	{
+		*ptr += bc->i + 1;
+		*inc_ptr = false;
+	}break;
+	case INST_CALL_OUTSIDER:
+	{
+		wasm_interp *wasm_state = dbg->wasm_state;
+		func_decl* call_f = wasm_state->funcs[bc->i];
+		if (IS_FLAG_ON(call_f->flags, FUNC_DECL_IS_OUTSIDER))
+		{
+			if (wasm_state->outsiders.find(call_f->name) != wasm_state->outsiders.end())
+			{
+				auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
+				*stack_reg -= 8;
+				OutsiderFuncType func_ptr = wasm_state->outsiders[call_f->name];
+				func_ptr(dbg);
+				*stack_reg += 8;
+			}
+			else
+				ASSERT(0);
+
+		}
+		else
+		{
+			ASSERT(0);
+		}
+	
+	}break;
+	case INST_CALL:
+	{
+		u64* reg_stack_ptr = GetRegValPtr(dbg, PRE_X64_RSP_REG);
+		(*reg_stack_ptr) -= 8;
+		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
+		*mem_ptr = (u64)(*ptr + 1);
+		*ptr += imm;
+		*inc_ptr = false;
+	}break;
+	case INST_LEA:
+	{
+		u64* reg_dst_ptr = GetRegValPtr(dbg, reg_dst);
+
+		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		u64 offset = *reg_src_ptr + mem_offset;
+		
+		auto dst = (u64)offset;
+		DoOperationOnPtr((char *)reg_dst_ptr, sz, dst, T_EQUAL);
+	}break;
+	case STORE_I_2_M:
+	{
+		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		u64 offset = *reg_dst_ptr + mem_offset;
+		
+		auto dst = (char*)&dbg->mem_buffer[offset];
+		DoOperationOnPtr(dst, sz, imm, T_EQUAL);
+	}break;
+	case INT3:
+	{
+		*inc_ptr = false;
+	}break;
+	case MOV_I_2_REG_PARAM:
+	{
+		reg_src += REG_PARAM_START;
+		auto stack_ptr = (u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+		u64 stack_val = *stack_ptr;
+		stack_val += bc->mem_offset;
+		*(u64*)&dbg->mem_buffer[stack_val] = imm;
+
+		auto a = 0;
+	}break;
+	case STORE_REG_PARAM:
+	{
+		reg_src += REG_PARAM_START;
+		auto stack_ptr = (u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+		u64 stack_val = *stack_ptr;
+		stack_val += bc->mem_offset;
+		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_src * 8];
+
+		*(u64*)&dbg->mem_buffer[stack_val] = *reg_src_ptr;
+
+		auto a = 0;
+	}break;
+	default:
+		ASSERT(0);
+	}
+}
+void Bc2Interpreter(dbg_state* dbg, func_decl* start_f)
+{
+	byte_code2* cur_bc = dbg->lang_stat->bcs2_start + start_f->bcs2_start;
+	byte_code2* end_bc = dbg->lang_stat->bcs2_start + start_f->bcs2_end;
+	*(u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8] = 20000;
+	std::string str;
+	byte_code2* aux_bc = cur_bc;
+	for (; aux_bc < (end_bc);)
+	{
+		str += Bc2ToString(dbg, aux_bc);
+		str+= "\n";
+		aux_bc++;
+	}
+	bool done = false;
+	while (cur_bc != nullptr)
+	{
+		bool inc_ptr = true;
+		Bc2Logic(dbg, &cur_bc, &inc_ptr, &done);
+		if(inc_ptr)
+			cur_bc++;
+		if(cur_bc)
+
+	}
+}
 void GetMsgFromGame(void* gl_state);
 void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int len, std::string func_start, long long* args, int total_args)
 {
@@ -6928,16 +8501,18 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 
 	own_std::vector<func_decl*> &func_stack = dbg.func_stack;
+	int i = 0;
 	FOR_VEC(func, winterp->funcs)
 	{
 		func_decl* f = *func;
 		if (f->name == func_start)
 		{
 			func_stack.emplace_back(f);
-			break;
 		}
+		f->func_idx = i;
+		i++;
 	}
-	ASSERT(func_stack.size() > 0);
+	ASSERT(func_stack.size() == 1);
 	func_decl* cur_func = func_stack.back();
 
 	block_linked* cur = nullptr;
@@ -6953,18 +8528,6 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	wasm_bc *bc = &bcs[cur_func->wasm_code_sect_idx];
 	//bc->one_time_dbg_brk = true;
 
-	int stack_offset = 20000;
-	*(int*)&mem_buffer[STACK_PTR_REG * 8] = stack_offset;
-	*(int*)&mem_buffer[BASE_STACK_PTR_REG * 8] = stack_offset;
-	*(int*)&mem_buffer[stack_offset + 8] = 5000;
-
-	auto stack_ptr_val = (long long *)&mem_buffer[stack_offset];
-
-	for (int i = 0; i < total_args; i++)
-	{
-		*stack_ptr_val = args[i];
-		stack_ptr_val++;
-	}
 
 	dbg.cur_bc = &bc;
 	dbg.cur_func = cur_func;
@@ -6986,9 +8549,38 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 	glfwSetErrorCallback(glfw_error_callback);
 	OpenWindow(&dbg);
-	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 	auto window = *(GLFWwindow** ) &dbg.mem_buffer[RET_1_REG * 8];
 
+	timer tm;
+	InitTimer(&tm);
+	StartTimer(&tm);
+	Bc2Interpreter(&dbg, cur_func);
+	EndTimer(&tm);
+	float time = GetTimerMSFloat(&tm);
+	printf("ir time: %.3f\n", time);
+	/*
+	int base_ = WasmGetRegVal(&dbg, STACK_PTR_REG);
+	*(u64*)&dbg.mem_buffer[base_] = 20016;
+	WasmIrInterp(&dbg, window, cur_func);
+
+
+
+	*/
+
+	StartTimer(&tm);
+
+	int stack_offset = 20000;
+	*(int*)&mem_buffer[STACK_PTR_REG * 8] = stack_offset;
+	*(int*)&mem_buffer[BASE_STACK_PTR_REG * 8] = stack_offset;
+	*(int*)&mem_buffer[stack_offset + 8] = 5000;
+
+	auto stack_ptr_val = (long long *)&mem_buffer[stack_offset];
+
+	for (int i = 0; i < total_args; i++)
+	{
+		*stack_ptr_val = args[i];
+		stack_ptr_val++;
+	}
 	bool on_break = false;
 	stmnt_dbg* cur_st = nullptr;
 	ir_rep* cur_ir = nullptr;
@@ -6996,6 +8588,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	int idx = 0;
 	bool show_wasm = false;
 	bool res = true;
+
 	int mem_wnd_offset = 0;
 	int mem_wnd_show_type = 0;
 	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32", "char"};
@@ -7006,6 +8599,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	//int total_wasm_bcs = 100;
 	std::string from_engine_str;
 
+	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 	while(!can_break)
 	{
 		int bc_idx = (long long)(bc - &bcs[0]);
@@ -7387,6 +8981,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		}
 
 	}
+	EndTimer(&tm);
+	time = GetTimerMSFloat(&tm);
+	printf("wasm time: %.3f\n", time);
 }
 void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int total_args)
 {
@@ -7395,7 +8992,7 @@ void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int to
 	int mem_size = BUFFER_MEM_MAX;
 	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size);
 	lang_stat->winterp->dbg->mem_size = mem_size;
-	*(int*)&buffer[MEM_PTR_CUR_ADDR] = 20000;
+	*(int*)&buffer[MEM_PTR_CUR_ADDR] = 21000;
 	*(int*)&buffer[MEM_PTR_MAX_ADDR] = 0;
 
 	ASSERT(lang_stat->data_sect.size() < DATA_SECT_MAX);
@@ -7588,6 +9185,8 @@ void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_pt
 	FOR_VEC(decl, cur_scp->vars)
 	{
 		decl2* d = *decl;
+		if (d->name == "ret")
+			auto a = 0;
 		if (IS_FLAG_OFF(d->flags, DECL_FROM_USING))
 			ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
 	}
@@ -7618,6 +9217,7 @@ void WasmInterpPatchIrVal(ir_val* val, dbg_file_seriealize* file)
 		decl2* d = vdbg->decl;
 		ASSERT(d);
 		val->decl = d;
+		val->decl_offset = d->offset;
 	}
 }
 
@@ -7630,6 +9230,32 @@ void WasmInterpPatchIr(own_std::vector<ir_rep>* ir_ar, wasm_interp* winterp, dbg
 	{
 		switch (ir->type)
 		{
+		case IR_STACK_BEGIN:
+		{
+			auto fdbg = (func_dbg*)(start_f + ir->num);
+			ir->fdecl = fdbg->decl->type.fdecl;
+
+		}break;
+		case IR_CAST_F32_TO_INT:
+		case IR_CAST_INT_TO_F32:
+		case IR_CAST_INT_TO_INT:
+		case IR_CMP_NE:
+		case IR_CMP_LT:
+		case IR_CMP_LE:
+		case IR_CMP_GT:
+		case IR_CMP_GE:
+		case IR_CMP_EQ:
+		{
+			WasmInterpPatchIrVal(&ir->bin.lhs, file);
+			WasmInterpPatchIrVal(&ir->bin.rhs, file);
+		}break;
+		case IR_RET:
+		{
+			WasmInterpPatchIrVal(&ir->ret.assign.to_assign, file);
+			WasmInterpPatchIrVal(&ir->ret.assign.lhs, file);
+			if(!ir->ret.assign.only_lhs)
+				WasmInterpPatchIrVal(&ir->ret.assign.rhs, file);
+		}break;
 		case IR_ASSIGNMENT:
 		{
 			WasmInterpPatchIrVal(&ir->assign.to_assign, file);
@@ -9532,6 +11158,10 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 	bc.type = inst;
 	switch (lhs->type)
 	{
+	case IR_TYPE_F32:
+	{
+		//TODO
+	}break;
 	case IR_TYPE_ARG_REG:
 	case IR_TYPE_RET_REG:
 	case IR_TYPE_REG:
@@ -9730,6 +11360,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	}
 	//GenX64ImmToReg( ret, PRE_X64_RSP_REG, 8, 8, ADD_I_2_R);
 	ret.emplace_back(byte_code(byte_code_enum::BEGIN_FUNC, gen_state->cur_func));
+	gen_state->cur_func->bcs2_start += ret.size() - start;
+
 	int idx = 0;
 	FOR_VEC(ir, irs)
 	{
@@ -9757,6 +11389,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
 
 			stack_size += cur_ir->fdecl->biggest_call_args * 8;
+			//cur_ir->fdecl->stack_size = stack_size;
 			ParametersToStack(cur_ir->fdecl, &ret);
 
 			GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
@@ -9952,6 +11585,22 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 				GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, CMP_SSE_2_SSE);
 			}
+			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
+			{
+				ir_val_aux lhs;
+				GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+
+				ir_val_aux rhs;
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, true);
+				AllocSpecificReg(lang_stat, rhs.reg);
+
+
+				
+				GenX64RegToMem(ret, rhs.reg, rhs.reg_sz, lhs.voffset, lhs.reg, CMP_R_2_M);
+
+				FreeSpecificReg(lang_stat, lhs.reg);
+				FreeSpecificReg(lang_stat, rhs.reg);
+			}
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_REG)
 			{
 				ir_val_aux lhs;
@@ -9975,6 +11624,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ir_val_aux rhs;
 				GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
 				GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, CMP_R_2_R);
+			}
+			else if (ir->bin.lhs.type == IR_TYPE_INT && ir->bin.rhs.type == IR_TYPE_INT)
+			{
+				//TODO
 			}
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_DECL)
 			{
@@ -10059,6 +11712,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					FreeSpecificFloatReg(lang_stat, ir->assign.to_assign.reg);
 					switch (ir->assign.lhs.type)
 					{
+					case IR_TYPE_STR_LIT:
+					{
+						//TODO
+					}break;
 					case IR_TYPE_ON_STACK:
 					case IR_TYPE_DECL:
 					{
@@ -10224,6 +11881,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						AllocSpecificFloatReg(lang_stat, ir->assign.to_assign.reg);
 					switch (ir->assign.lhs.type)
 					{
+					case IR_TYPE_STR_LIT:
+					{
+						//TODO
+					}break;
 					case IR_TYPE_F32:
 					{
 						ir_val_aux rhs;
@@ -10281,7 +11942,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						ir_val_aux lhs;
 
 						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-						ASSERT(lhs.type == IR_TYPE_REG)
+						//ASSERT(lhs.type == IR_TYPE_REG)
 
 						if (reg_dst_deref < 0)
 						{
@@ -10367,6 +12028,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					{
 						GenX64PointLhs(lang_stat, ret, &lhs, ir->assign.lhs.reg, 8, 0, ir->assign.lhs.deref);
 					}break;
+					case IR_TYPE_ON_STACK:
+					{
+						//TODO:
+					}break;
 					case IR_TYPE_DECL:
 					{
 						GenX64PointLhs(lang_stat, ret, &lhs, PRE_X64_RSP_REG, 8, ir->assign.lhs.decl->offset, ir->assign.lhs.deref);
@@ -10398,6 +12063,14 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					is_point = true;
 
 				}break;
+				case T_PIPE:
+					base_inst = OR_M_2_M;
+
+				break;
+				case T_AMPERSAND:
+					base_inst = AND_M_2_M;
+
+				break;
 				case T_PLUS:
 					base_inst = ADD_M_2_M;
 					base_inst_sse = ADD_SSE_2_SSE;
@@ -10730,6 +12403,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						//FreeSpecificReg(lang_stat, lhs.reg);
 
 					}
+					else if (ir->assign.lhs.type == IR_TYPE_INT && ir->assign.rhs.type == IR_TYPE_DECL)
+					{
+						//TODO
+					}
 					else if (ir->assign.lhs.type == IR_TYPE_REG && ir->assign.rhs.type == IR_TYPE_F32)
 					{
 						ir_val_aux lhs;
@@ -10752,6 +12429,30 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
 						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 						//FreeSpecificReg(lang_stat, lhs.reg);
+
+					}
+					else if (ir->assign.lhs.type == IR_TYPE_F32 && ir->assign.rhs.type == IR_TYPE_DECL)
+					{
+						ir_val_aux rhs;
+						GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, false);
+						AllocSpecificReg(lang_stat, rhs.reg);
+
+						char sse_reg = 0;
+						if (rhs.reg == 0)
+							sse_reg++;
+						ir_val_aux lhs;
+						GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &ir->assign.lhs, sse_reg);
+
+						correct_inst = base_inst_sse;
+
+						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+						ir_val_aux dst;
+						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
+						
+						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+						FreeSpecificReg(lang_stat, lhs.reg);
 
 					}
 					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_F32)
@@ -10827,6 +12528,24 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			int a = 0;
 			switch (ir->bin.rhs.type)
 			{
+			case IR_TYPE_INT:
+			{
+				//TODO
+			}break;
+			case IR_TYPE_REG:
+			{
+				ir_val_aux rhs;
+				GenX64ToIrValReg2(lang_stat, ret, &rhs, &ir->bin.rhs, true);
+
+
+				bc.type = CVTSD_REG_2_SS;
+				FromIrValToBytecodeReg(&ir->bin.lhs, &bc.bin.lhs);
+				bc.bin.lhs.reg_sz = 4;
+				bc.bin.rhs.reg = rhs.reg;
+				bc.bin.rhs.voffset = rhs.voffset;
+				bc.bin.rhs.reg_sz = 1;
+				ret.emplace_back(bc);
+			}break;
 			case IR_TYPE_DECL:
 			{
 				ir_val_aux rhs;
@@ -10906,6 +12625,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			cur->bc_idx = ret.size();
 		}break;
 
+		case IR_INDIRECT_CALL:
+		case IR_BREAK:
+		case IR_CONTINUE:
+		{
+		}break;
 		case IR_END_LOOP_BLOCK:
 		{
 			bc.type = JMP;
@@ -10989,6 +12713,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 				ret.emplace_back(byte_code(rel_type::REL_FUNC, (char*)ir->call.fdecl->name.c_str(), (int)0, (char)0, ir->call.fdecl));
 			}
+		}break;
+		case IR_CAST_F32_TO_INT:
+		{
+			//TODO:
 		}break;
 		case IR_END_BLOCK:
 		case IR_BEGIN_BLOCK:
@@ -11257,6 +12985,7 @@ void GenWasm(web_assembly_state* wasm_state)
 	own_std::vector<func_decl*> x64_funcs;
 
 	machine_code mcode;
+	own_std::vector<byte_code2> bcs2;
 	func_decl* asm_test = nullptr;
 	// wasm
 	FOR_VEC(f, wasm_state->funcs)
@@ -11286,6 +13015,10 @@ void GenWasm(web_assembly_state* wasm_state)
 		while (cur_ir < ir->end())
 		{
 			WasmFromSingleIR(decl_to_local_idx, total_of_args, total_of_locals, cur_ir, code_sect, &stack_size, ir, &cur, &last_on_stack, &gen, i);
+			if (cur_ir->type == IR_STACK_BEGIN)
+			{
+				func->ir_stack_begin_idx = i;
+			}
 
 			cur_ir = cur_ir + (1 + (gen.advance_ptr));
 			i++;
@@ -11293,6 +13026,7 @@ void GenWasm(web_assembly_state* wasm_state)
 
 
 		func->stack_size = stack_size;
+		func->bcs2_start = mcode.bcs.size();
 		//WasmPushConst(WASM_TYPE_INT, 0, 3, &code_sect);
 		code_sect.emplace_back(0x0b);
 		// end
@@ -11323,6 +13057,13 @@ void GenWasm(web_assembly_state* wasm_state)
 		code_sect.insert(code_sect.begin(), uleb.begin(), uleb.end());
 		INSERT_VEC(final_code_sect, code_sect);
 
+		GenX64BytecodeFromIR(wasm_state->lang_stat, mcode.bcs, *ir, &gen);
+		func->bcs2_end = mcode.bcs.size();
+		x64_funcs.emplace_back(func);
+		wasm_state->lang_stat->global_funcs.emplace_back(func);
+
+		func->flags |= FUNC_DECL_CODE_WAS_GENERATED;
+
 	}
 	timer tmr;
 	InitTimer(&tmr);
@@ -11347,6 +13088,7 @@ void GenWasm(web_assembly_state* wasm_state)
 				asm_test = func;
 		}
 	}
+	FromBcToBc2(&mcode.bcs, &bcs2);
 	GenX64(wasm_state->lang_stat, mcode.bcs, mcode);
 	CompleteMachineCode(wasm_state->lang_stat, mcode);
 	EndTimer(&tmr);
@@ -11465,7 +13207,7 @@ Your browser does not support the audio element.\
 
 
 	if(!wasm_state->lang_stat->release)
-		WasmSerialize(wasm_state, final_code_sect);
+		WasmSerialize(wasm_state, final_code_sect, bcs2);
 
 	//WasmInterp(final_code_sect, buffer, mem_size, "wasm_test_func_ptr", wasm_state, args, 3);
 
@@ -11481,6 +13223,7 @@ void CreateAstFromFunc(lang_state* lang_stat, func_decl* f)
 	f->ast = ast;
 	ASSERT(ast->type == AST_FUNC);
 	own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & f->ir;
+	ir->reserve(128);
 	GetIRFromAst(lang_stat, ast, ir);
 }
 
@@ -11509,6 +13252,8 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 
 	auto dfile = (dbg_file_seriealize*)(file);
 	wasm_interp &winterp = *lang_stat->winterp;
+	lang_stat->bcs2_start = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect);
+	lang_stat->bcs2_end = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect + dfile->bc2_sect_size);
 
 	WasmInterpInit(&winterp, file, read, lang_stat);
 
@@ -12641,6 +14386,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
     }
 	
 	StartTimer(&tmr);
+	__lang_globals.find_ident_timer = 0;
 	for(cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
 	{
 		auto f = lang_stat->files[cur_f];
@@ -12702,6 +14448,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	}
 
 	StartTimer(&tmr);
+	__lang_globals.find_ident_timer = 0;
 	FOR_VEC(cur_f, lang_stat->funcs_scp->vars)
 	{
 		auto f = *cur_f;
@@ -12720,7 +14467,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 
 	}
 	EndTimer(&tmr);
-	printf("Ast gen %d\n", GetTimerMS(&tmr));
+	printf("Ast gen %d, find ident %d\n", GetTimerMS(&tmr), (u32)__lang_globals.find_ident_timer);
 
 	/*
 	FOR_VEC(f_ptr, lang_stat->func_ptrs_decls)

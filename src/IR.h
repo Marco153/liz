@@ -302,20 +302,15 @@ enum on_stack_type
 struct ir_val
 {
     ir_val_type type;
-    bool is_unsigned;
-	bool is_float;
-    char ptr;
-	char deref;
-    char reg_sz;
 	decl2 *decl;
     union
     {
+        int decl_offset;
 		struct
 		{
 			on_stack_type on_stack_type;
 			int i;
 		};
-        int on_data_sect_offset;
         float f32;
 		char* str;
         struct
@@ -327,6 +322,12 @@ struct ir_val
 			};
         };
     };
+	int on_data_sect_offset;
+    bool is_unsigned;
+	bool is_float;
+    char ptr;
+	char deref;
+    char reg_sz;
 };
 
 struct assign_info
@@ -342,8 +343,24 @@ struct ir_rep
 {
     ir_type type;
     int idx;
-    int start;
-    int end;
+    union
+    {
+        int start;
+        int dst_ir_rel_idx;
+    };
+    union
+    {
+        int end;
+    };
+    union
+    {
+        int dbg_int;
+        struct
+        {
+            bool dbg_break;
+            bool one_dbg_break;
+        };
+    };
     union
     {
         struct

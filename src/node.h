@@ -191,6 +191,7 @@ struct node
         own_std::vector<node *> *extra;
         own_std::vector<comma_ret> *exprs;
     };
+	decl2* decl;
 
 	token2 *t;
 
@@ -329,7 +330,7 @@ enum msg_type
 	 int hit;
 	 decl2* d;
  };
-#define CACHED_DECLS_MAX  16
+#define CACHED_DECLS_MAX  128
 struct scope
 {
 	scope *parent;
@@ -356,6 +357,7 @@ struct scope
 	unit_file *file;
 
 	decl2 *FindVariable(std::string &name);
+	decl2 *FindVariableCached(std::string &name);
 	std::string Print(int);
 
 	void AssignDecls(decl2 **start, decl2 **end)
@@ -373,7 +375,13 @@ struct scope
 	}
 	int GetNameSimpleHash(std::string &str)
 	{
-		return str.size();
+		int sz = str.size();
+		int sum = sz;
+		for(int i = 0; i < sz; i++)
+		{
+			sum += (str[i] * 2) << 1;
+		}
+		return sum;
 	}
 	void CacheDecl(decl2 *d)
 	{

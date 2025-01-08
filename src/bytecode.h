@@ -27,7 +27,7 @@ v.reg = 5;
 			}
 
 
-enum byte_code_enum : short
+enum byte_code_enum : unsigned char
 {
 	NOP, 
 
@@ -35,8 +35,6 @@ enum byte_code_enum : short
 	BEGIN_FUNC_FOR_INTERPRETER,
 	BEGIN_FUNC,
 	END_FUNC,
-	BEGIN_SCP,
-	END_SCP,
 
 	ASSIGN_FUNC_SIZE,
 		
@@ -67,8 +65,6 @@ enum byte_code_enum : short
 	XOR_SSE_2_MEM,
 	XOR_SSE_2_RMEM,
 
-	X64_WASM_BEGIN_BLOCK,
-	X64_WASM_END_BLOCK,
 
 	DIV_R,
 	DIV_M,
@@ -125,7 +121,6 @@ enum byte_code_enum : short
 	AND_MEM_2_SSE,
 	AND_SSE_2_MEM,
 	AND_SSE_2_RMEM,
-
 
 	SUB_M_2_M,
 	SUB_R_2_M,
@@ -194,6 +189,7 @@ enum byte_code_enum : short
 	MOV_M_2_SSE,
 	MOV_R_2_SSE,
 	MOV_SSE_2_R,
+	MOV_F_2_SSE,
 
 	MOV_I,
 	MOV_ABS,
@@ -279,6 +275,7 @@ struct byte_code2
 	int mem_offset;
 	union
 	{
+		char rhs_and_lhs_reg_sz;
 		int i;
 		float f32;
 		int mem_offset2;
@@ -354,6 +351,8 @@ struct byte_code
 		{
 			operand lhs;
 			operand rhs;
+			bool is_unsigned : 1;
+			bool is_float_param : 1;
 		}bin;
 		struct
 		{
@@ -393,9 +392,14 @@ struct byte_code
 				{
 					char *name;
 				
-					int offset;
+					bool is_float;
 					char reg_dst;
-					func_decl *call_func;
+					union
+					{
+						func_decl* call_func;
+						int offset;
+					};
+					float f;
 				};
 			};
 
@@ -711,6 +715,12 @@ struct jmp_rel
 		dst_bc = bc;
 	}
 };
+struct get_func_addr_info
+{
+	byte_code2 *bc;
+	func_decl *fdecl;
+
+};
 struct call_rel
 {
 	int call_idx;
@@ -729,6 +739,7 @@ struct machine_code
 	own_std::vector<machine_sym> symbols;
 	own_std::vector<jmp_rel> jmp_rels;
 	own_std::vector<call_rel> call_rels;
+	own_std::vector<get_func_addr_info> insert_func_addr_in;
 	own_std::vector<byte_code> bcs;
 
     int executable;

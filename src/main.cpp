@@ -3400,6 +3400,10 @@ void AssignTexFolder(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 	
 	gl_state->texture_folder = name_str;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
 	std::string work_dir = dbg->cur_func->from_file->path;
 	//MaybeAddBarToEndOfStr(&work_dir);
 

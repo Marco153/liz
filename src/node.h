@@ -39,7 +39,7 @@
 struct lang_state;
 node *new_node(lang_state* );
 node *new_node(lang_state *, node *src);
-enum tkn_type2;
+enum tkn_type2 : unsigned char;
 struct import_strct;
 struct func_byte_code;
 struct node;

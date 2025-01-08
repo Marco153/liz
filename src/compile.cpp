@@ -2,6 +2,9 @@ typedef unsigned long long u64;
 typedef unsigned int u32;
 typedef unsigned char u8;
 typedef long long s64;
+
+#define WASM_DBG
+
 #ifndef FOR_VEC
 #define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
 #endif // !1
@@ -178,6 +181,7 @@ typedef long long s64;
 	case MOV_SSE_2_MEM:\
 	case MOV_M_2_SSE:\
 	case MOV_SSE_2_SSE:\
+	case MOV_SSE_2_R:\
 	case STORE_R_2_M:\
 	case MOV_M:\
 	case MOV_R:\
@@ -309,6 +313,7 @@ struct ptr_decl_that_have_len
 struct web_assembly_state;
 struct wasm_interp;
 struct byte_code2;
+struct ast_rep;
 #define MAX_ARGS 32
 
 enum lsp_stage_enum
@@ -381,6 +386,8 @@ struct lang_state
 
 	wasm_interp* winterp;
 	dbg_state* dstate;
+
+	ast_rep* dbg_equal;
 
 
 	own_std::vector<unit_file*> files;
@@ -1017,21 +1024,6 @@ node_type GetNodeType(node* n)
 	return n->type;
 }
 
-void CreateBaseFileCode(lang_state* lang_stat)
-{
-	auto f = lang_stat->base_lang->type.imp->fl;
-	lang_stat->cur_file = f;
-	lang_stat->lhs_saved = 0;
-	lang_stat->call_regs_used = 0;
-	DescendNode(lang_stat, f->s, f->global);
-
-	lang_stat->call_regs_used = 0;
-	own_std::vector<func_byte_code*>all_funcs = GetFuncs(lang_stat, f->global);
-	machine_code code;
-	FromByteCodeToX64(lang_stat, &all_funcs, code);
-
-	auto exec_funcs = CompleteMachineCode(lang_stat, code);
-}
 
 struct wasm_interp;
 struct wasm_interp
@@ -2154,6 +2146,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	{
 		cur_ir->block.stmnt.code_start = code_sect.size();
 		gen_state->cur_line = cur_ir->block.stmnt.line;
+#ifdef WASM_DBG
 		code_sect.emplace_back(0x01);
 		code_sect.emplace_back(0x23);
 		code_sect.emplace_back(0x45);
@@ -2161,6 +2154,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		
 		int line = cur_ir->block.stmnt.line;
 		PUSH_IMM(line);
+#endif
 
 	}break;
 	case IR_END_STMNT:
@@ -2178,12 +2172,14 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
 		//if(st.start != st.end)
 		gen_state->cur_func->wasm_stmnts.emplace_back(st);
+#ifdef WASM_DBG
 		code_sect.emplace_back(0x10);
 		code_sect.emplace_back(0x32);
 		code_sect.emplace_back(0x54);
 		code_sect.emplace_back(0x86);
 		PUSH_IMM(st.start_ir);
 		PUSH_IMM(st.end_ir);
+#endif
 
 	}break;
 	case IR_BEGIN_LOOP_BLOCK:
@@ -2734,6 +2730,15 @@ enum dbg_print_numbers_format
 	DBG_PRINT_DECIMAL,
 	DBG_PRINT_HEX,
 };
+struct dbg_expr2
+{
+	decl2 d;
+	int offset;
+	std::string str;
+	std::string val;
+	std::string tp_str;
+	own_std::vector<ir_rep> irs;
+};
 struct dbg_expr
 {
 	dbg_expr_type type;
@@ -2760,22 +2765,37 @@ struct command_info
 	CommandFunc execute;
 	bool end;
 };
+struct breakpoint
+{
+	int line;
+	byte_code_enum prev_inst;
+	byte_code2* bc;
+	bool one_time_bp;
+};
 struct dbg_state
 {
 	dbg_break_type break_type;
 	dbg_print_numbers_format print_numbers_format;
 	wasm_bc **cur_bc;
+	byte_code2 **cur_bc2;
 	ir_rep *cur_ir;
-	ir_rep *prev_break_ir;
+	union
+	{
+		ir_rep* prev_break_ir;
+		byte_code2* prev_bc;
+	};
 	char* mem_buffer;
 	int mem_size;
 	func_decl* cur_func;
+	func_decl* prev_func;
 	union
 	{
 		func_decl* next_stat_break_func;
 		func_decl* info_cur_func;
 	};
 	stmnt_dbg* cur_st;
+	stmnt_dbg* prev_st;
+	own_std::vector<breakpoint> breakpoints;
 	own_std::vector<func_decl*> func_stack;
 	own_std::vector<block_linked *> block_stack;
 	own_std::vector<wasm_bc*> return_stack;
@@ -2783,12 +2803,14 @@ struct dbg_state
 	own_std::vector<wasm_bc> bcs;
 	own_std::vector<wasm_stack_val> wasm_stack;
 	own_std::vector<dbg_expr *> exprs;
+	own_std::vector<dbg_expr2 *> exprs2;
 	//own_std::vector<command_info> cmds;
 
 	command_info* global_cmd;
 
 	lang_state* lang_stat;
 	wasm_interp* wasm_state;
+	mem_alloc* dbg_alloc;
 
 
 	bool some_bc_modified;
@@ -4710,7 +4732,7 @@ void WasmIrInterpAssign2(dbg_state* dbg, ir_rep *ir)
 		else if (ir->assign.to_assign.type == IR_TYPE_DECL)
 		{
 			decl2* d = ir->assign.to_assign.decl;
-			offset = ir->assign.to_assign.decl_offset;
+			offset = ir->assign.to_assign.decl->offset;
 			if (IS_FLAG_ON(d->flags, DECL_IS_GLOBAL))
 				offset += GLOBALS_OFFSET;
 			else
@@ -4877,13 +4899,13 @@ void WasmIrInterpAssign(dbg_state* dbg, ir_rep *ir)
 }
 
 #pragma optimize("", off)
-void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer, func_decl *call_f)
+void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer, func_decl *call_f, int base_ptr)
 {
 	int tsize = winterp->dbg->lang_stat->type_sect.size();
 	unsigned char *cdata = winterp->dbg->lang_stat->code_sect.data();
 	cdata += tsize;
 	unsigned char* func_code = cdata + call_f->for_interpreter_code_start_idx;
-	int base_ptr = *(int*)&dbg.mem_buffer[STACK_PTR_REG * 8];
+	//int base_ptr = *(int*)&dbg.mem_buffer[STACK_PTR_REG * 8];
 	void *a_ptr = (void*)&dbg.mem_buffer[base_ptr + 8];
 
 	void* addr = nullptr;
@@ -5117,9 +5139,9 @@ bool IrLogic2(dbg_state* dbg, ir_rep** ptr, ir_rep *start)
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
 		{
 			
-			auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
+			auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 			*stack_reg -= 8;
-			WasmCallX64(dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f);
+			//WasmCallX64(dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_ptr);
 			*stack_reg += 8;
 		}
 		else
@@ -5320,7 +5342,162 @@ std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, in
 	}
 	return ret;
 }
-void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type, int &mem_wnd_offset, int total_items)
+void UpdateExprWindow(dbg_state& dbg, int stack_reg, int line)
+{
+	char saved_regs[258];
+	memcpy(saved_regs, dbg.mem_buffer, 258);
+	*(u64 *)&dbg.mem_buffer[BASE_STACK_PTR_REG * 8] = *(u64 *)&dbg.mem_buffer[stack_reg * 8];
+
+	FOR_VEC(e_ptr, dbg.exprs2)
+	{
+		dbg_expr2* e = *e_ptr;
+		
+		ir_rep *end = e->irs.end();
+		ir_rep *start = e->irs.begin();
+		ir_rep* ptr = e->irs.begin();
+		while (ptr < end)
+		{
+			IrLogic2(&dbg, &ptr, start);
+			ptr++;
+		}
+		ptr--;
+
+		char reg = ptr->assign.to_assign.reg;
+
+		// all dbgs vals at end are put in __global_dummy var, which it is at this offset
+		auto val = (u64 *)&dbg.mem_buffer[GLOBALS_OFFSET - 8];
+		e->offset = *val;
+		e->val = std::to_string(*val);
+
+	}
+	memcpy(dbg.mem_buffer, saved_regs, 258);
+}
+u64* GetRegValPtr(dbg_state* dbg, short reg);
+void MaybeAddNewDbgExpr(dbg_state* dbg, std::string &str, int stack_reg, int line)
+{
+	dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+	//own_std::vector<token2> tkns;
+	//Tokenize2((char *)str.c_str(), str.size(), &tkns);
+	scope* scp = FindScpWithLine(dbg->cur_func, line);
+
+	if (!scp)
+		return;
+
+	void* prev_alloc = __lang_globals.data;
+	__lang_globals.data = (void *)dbg->dbg_alloc;
+
+	ast_rep* ast;
+	node* n;
+	{
+		own_std::vector<token2> tkns;
+		Tokenize2((char*)str.c_str(), str.size(), &tkns);
+		node_iter niter(&tkns, dbg->lang_stat);
+		dbg->lang_stat->use_node_arena = true;
+		n = niter.parse_all();
+
+		ast = AstFromNode(dbg->lang_stat, n, scp);
+	}
+	__lang_globals.data = prev_alloc;
+
+
+	dbg_expr2* exp;
+	type2 tp;
+	ir_rep ir = {};
+	ir.type = IR_ASSIGNMENT;
+	ir.assign.to_assign.type = IR_TYPE_DECL;
+	ir.assign.to_assign.decl = dbg->lang_stat->dbg_equal->expr[0]->decl;
+	ir.assign.to_assign.deref = -1;
+	ir.assign.only_lhs = true;
+	ast_rep* dbg_equal = dbg->lang_stat->dbg_equal;
+	if (ast->type == AST_IDENT)
+	{
+		exp = (dbg_expr2 *)AllocMiscData(dbg->lang_stat, sizeof(dbg_expr2));;
+		if (!ast->decl)
+		{
+			return;
+		}
+		exp->d.type = DescendNode(dbg->lang_stat, n, scp);
+		dbg_equal->lhs_tp = exp->d.type;
+		ir.assign.lhs.type = IR_TYPE_DECL;
+		ir.assign.lhs.decl = ast->decl;
+		ir.assign.lhs.deref = 0;
+		if (ast->decl->type.type == TYPE_STRUCT)
+		{
+			if(exp->d.type.ptr == 0)
+				ir.assign.lhs.deref = -1;
+			exp->irs.emplace_back(ir);
+		}
+		else
+		{
+			dbg_equal->expr[1] = ast;
+			GetIRFromAst(dbg->lang_stat, dbg_equal, &exp->irs);
+		}
+		exp->offset = *GetRegValPtr(dbg, stack_reg) + ast->decl->offset;
+	}
+	else
+	{
+		exp = (dbg_expr2 *)AllocMiscData(dbg->lang_stat, sizeof(dbg_expr2));;
+
+		exp->d.type = DescendNode(dbg->lang_stat, n, scp);
+		dbg_equal->lhs_tp = exp->d.type;
+
+		
+		dbg_equal->expr[1] = ast;
+		GetIRFromAst(dbg->lang_stat, dbg_equal, &exp->irs);
+	}
+	exp->d.name = str.substr();
+	dbg->exprs2.emplace_back(exp);
+
+	UpdateExprWindow(*dbg, stack_reg, line);
+}
+
+
+void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl);
+void ShowExprWindow(dbg_state& dbg, int stack_reg, int line)
+{
+	char buffer[128];
+	ImGui::BeginChild("expr", ImVec2(500.0, 200.0));
+
+	FOR_VEC(e_ptr, dbg.exprs2)
+	{
+		dbg_expr2* e = *e_ptr;
+
+		if (e->d.type.type != TYPE_STRUCT)
+		{
+			ImGui::Text("%s: %d", e->d.name.c_str(), e->offset);
+		}
+		else
+			ImGuiPrintVar(buffer, dbg, &e->d, e->offset, 0);
+	}
+
+	ImGui::InputText("##addexpr", buffer, 128);
+	if(ImGui::IsItemDeactivatedAfterEdit())
+	{
+
+		InitMemAlloc(dbg.dbg_alloc);
+
+		std::string str = buffer;
+		int val = setjmp(dbg.lang_stat->jump_buffer);
+		int prev_nd = dbg.lang_stat->cur_nd;
+		void* prev_alloc = __lang_globals.data;
+		if (val == 0)
+		{
+
+			MaybeAddNewDbgExpr(&dbg, str, stack_reg, line);
+			dbg_expr2 exp;
+			exp.str = buffer;
+		}
+		// error
+		else if (val == 1)
+		{
+			
+		}
+		dbg.lang_stat->cur_nd = prev_nd;
+		__lang_globals.data = prev_alloc;
+	}
+	ImGui::EndChild();
+}
+void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type, int &mem_wnd_offset, int total_items, int stack_reg)
 {
 	ImGui::BeginChild("mem", ImVec2(500, 400));
 
@@ -5335,7 +5512,7 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 	ImGui::InputInt("address: ", &mem_wnd_offset);
 	char type_sz = BuiltinTypeSize((enum_type2)(mem_wnd_show_type + TYPE_U8));
 	std::string mem_val;
-	for (int r = 0; r <= (BASE_STACK_PTR_REG + 6); r++)
+	for (int r = 0; r <= (BASE_STACK_PTR_REG + 7); r++)
 	{
 		mem_val = GetMemAddrString(dbg, mem_wnd_offset + r * 8, type_sz, 8, mem_wnd_show_type);
 
@@ -5344,12 +5521,12 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 		int cur_addr = mem_wnd_offset + r;
 		if (cur_addr == (BASE_STACK_PTR_REG))
 			addr_name += "(base_stack)";
-		else if (cur_addr == (STACK_PTR_REG))
+		else if (cur_addr == (stack_reg))
 			addr_name += "(top_stack)";
 
 		ImGui::Text("%s: %s", addr_name.c_str(), mem_val.c_str());
 	}
-	int base_ptr = WasmGetMemOffsetVal(&dbg, STACK_PTR_REG * 8);
+	int base_ptr = WasmGetMemOffsetVal(&dbg, stack_reg * 8);
 	for (int r = 0; r < 6; r++)
 	{
 		mem_val = GetMemAddrString(dbg, base_ptr + r * 8, type_sz, 8, mem_wnd_show_type);
@@ -6648,6 +6825,8 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_F32:
 		case TYPE_U8:
 		case TYPE_S8:
+		case TYPE_U16:
+		case TYPE_S16:
 		case TYPE_S32:
 		case TYPE_U32:
 		case TYPE_S64:
@@ -7106,6 +7285,8 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_S8:
 		case TYPE_S32:
 		case TYPE_U32:
+		case TYPE_U16:
+		case TYPE_S16:
 		case TYPE_S64:
 		case TYPE_VOID:
 		case TYPE_U64:
@@ -7410,7 +7591,8 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 		}
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
 		{
-			WasmCallX64(winterp, dbg, mem_buffer, call_f);
+			auto stack_reg = (u64 *)&dbg.mem_buffer[STACK_PTR_REG * 8];
+			WasmCallX64(winterp, dbg, mem_buffer, call_f, *stack_reg);
 		}
 		else
 		{
@@ -7981,6 +8163,17 @@ tkn_type2 GetOpBasedOnInst(byte_code_enum type)
 {
 	INSTS_SWITCH(type, return T_PLUS, return T_MINUS, return T_MINUS, return T_EQUAL, return T_EQUAL, return T_PIPE, return T_AMPERSAND, return T_PERCENT, return T_MUL, return T_DIV);
 }
+void DoOperationOnPtrFloat(char* ptr, char sz, float rhs, tkn_type2 op)
+{
+	switch (sz)
+	{
+	case 2:
+		*(float *)ptr = GetExpressionValT<float>(op, *(float *)ptr, rhs);
+	break;
+	default:
+		*(float *)ptr = GetExpressionValT<float>(op, *(float *)ptr, rhs);
+	}
+}
 void DoOperationOnPtr(char* ptr, char sz, u64 val, tkn_type2 op)
 {
 	switch (sz)
@@ -7997,11 +8190,13 @@ void DoOperationOnPtr(char* ptr, char sz, u64 val, tkn_type2 op)
 	case 3:
 		*(long long *)ptr = GetExpressionValT<long long>(op, *(long long *)ptr, val);
 		break;
+	default:
+		ASSERT(0);
 	}
 }
 
 #define REG_PARAM_START 0
-#define EFLAGS_REG 16
+#define EFLAGS_REG 28
 #define EFLAGS_ZERO 1
 #define EFLAGS_ABOVE 2
 #define EFLAGS_BELOW 4
@@ -8015,9 +8210,25 @@ u64 *GetMemValPtr(dbg_state *dbg, short reg, int offset)
 	u64 offset_ = *reg_src_ptr + offset;
 	return (u64*)&dbg->mem_buffer[offset_];
 }
-std::string GetRegStr(short reg)
+std::string GetRegStr(short reg, char sz)
 {
-	return "r" + std::to_string(reg);
+	std::string ret = "r" + std::to_string(reg);
+	switch (sz)
+	{
+	case 0:
+		ret += 'b';
+		break;
+	case 1:
+		ret += 'w';
+		break;
+	case 2:
+		ret += 'd';
+		break;
+	case 3:
+		ret += 'q';
+		break;
+	}
+	return ret;
 }
 std::string SizeToStr(char sz)
 {
@@ -8043,14 +8254,14 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 {
 	char buffer[128];
 	std::string ret;
-	short reg_src = (bc->regs >> RHS_REG_BIT) & 0xf;
-	short reg_dst = bc->regs & 0xf;
+	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
+	short reg_dst = bc->regs & 0x3f;
 	int imm = bc->i;
 	int mem_offset = bc->mem_offset;
 	char sz = bc->regs >> REG_SZ_BIT;
 	std::string sz_str = SizeToStr(sz);
-	std::string reg_src_str = GetRegStr(reg_src);
-	std::string reg_dst_str = GetRegStr(reg_dst);
+	std::string reg_src_str = GetRegStr(reg_src, sz);
+	std::string reg_dst_str = GetRegStr(reg_dst, sz);
 	switch (bc->bc_type)
 	{
 	case RELOC:
@@ -8059,7 +8270,7 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 		{
 		case REL_DATA:
 		{
-			snprintf(buffer, 128, "rel_data %d", imm);
+			snprintf(buffer, 128, "rel_data %s, %d",reg_dst_str.c_str(), imm);
 			ret = buffer;
 		}break;
 		default:
@@ -8078,8 +8289,30 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 		snprintf(buffer, 128, "cvtsd xmm%d, %s", reg_dst, reg_src_str.c_str());
 		ret = buffer;
 	}break;
+	case MOVZX_M:
+	{
+		char lhs_sz = bc->rhs_and_lhs_reg_sz & 0xf;
+		char rhs_sz = bc->rhs_and_lhs_reg_sz >> 4;
+
+		reg_dst_str = GetRegStr(reg_dst, lhs_sz);
+		reg_src_str = GetRegStr(reg_src, rhs_sz);
+		snprintf(buffer, 128, "movzx %s, %s[%s + %d]", reg_dst_str.c_str(), sz_str.c_str(), reg_src_str.c_str(), mem_offset);
+		ret = buffer;
+	}break;
+	case MOVZX_R:
+	{
+		char lhs_sz = bc->rhs_and_lhs_reg_sz & 0xf;
+		char rhs_sz = bc->rhs_and_lhs_reg_sz >> 4;
+
+		reg_dst_str = GetRegStr(reg_dst, lhs_sz);
+		reg_src_str = GetRegStr(reg_src, rhs_sz);
+		snprintf(buffer, 128, "movzx %s, %s", reg_dst_str.c_str(), reg_src_str.c_str());
+		ret = buffer;
+	}break;
 	case ADD_R_2_R:
 	case AND_R_2_R:
+	case CMP_R_2_R:
+	case MOD_R_2_R:
 	case OR_R_2_R:
 	case DIV_R_2_R:
 	case MUL_R_2_R:
@@ -8202,18 +8435,24 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 		snprintf(buffer, 128, "%s_param %d, %s[%s + %d]", inst_name.c_str(), reg_dst, sz_str.c_str(), reg_src_str.c_str(), mem_offset);
 		ret = buffer;
 	}break;
+	case INST_CALL_REG:
+	{
+		snprintf(buffer, 128, "call_reg %s", reg_dst_str.c_str());
+		ret = buffer;
+	}break;
 	case ADD_M_2_R:
 	case SUB_M_2_R:
 	case CMP_M_2_R:
 	case AND_M_2_R:
 	case OR_M_2_R:
+	case MOD_M_2_R:
 	case DIV_M_2_R:
 	case MUL_M_2_R:
 	case INST_LEA:
 	case MOV_M:
+	case MOV_SSE_2_REG_PARAM:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s, %s[%s + %d]", inst_name.c_str(), reg_dst_str.c_str(), sz_str.c_str(), reg_src_str.c_str(), mem_offset);
+		snprintf(buffer, 128, "mov param %d,  xmm%d", reg_dst, reg_src);
 		ret = buffer;
 	}break;
 	case MOV_SSE_2_SSE:
@@ -8224,13 +8463,28 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	case DIV_SSE_2_SSE:
 	{
 		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s xmm%d,  xmm%d", inst_name.c_str(), reg_src, reg_dst);
+		snprintf(buffer, 128, "%s xmm%d,  xmm%d", inst_name.c_str(), reg_dst, reg_src);
 		ret = buffer;
 	}break;
+	case SQRT_SSE:
+	{
+		snprintf(buffer, 128, "sqrt xmm%d,  xmm%d", reg_dst, reg_src);
+		ret = buffer;
+	}break;
+	case ADD_MEM_2_SSE:
+	case SUB_MEM_2_SSE:
+	case DIV_MEM_2_SSE:
+	case MUL_MEM_2_SSE:
 	case MOV_M_2_SSE:
 	{
 		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s xmm%d,  %s[%s + %d]", inst_name.c_str(), reg_src, sz_str.c_str(), reg_dst_str.c_str(), mem_offset);
+		snprintf(buffer, 128, "%s xmm%d,  %s[%s + %d]", inst_name.c_str(), reg_dst, sz_str.c_str(), reg_src_str.c_str(), mem_offset);
+		ret = buffer;
+	}break;
+	case MOV_SSE_2_R:
+	{
+		std::string inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s, xmm%d", inst_name.c_str(), reg_dst_str.c_str(), reg_src);
 		ret = buffer;
 	}break;
 	case MOV_SSE_2_MEM:
@@ -8258,6 +8512,11 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 		snprintf(buffer, 128, "%s %s[%s + %d], %d", inst_name.c_str(), sz_str.c_str(), reg_dst_str.c_str(), mem_offset, imm);
 		ret = buffer;
 	}break;
+	case MOV_F_2_SSE:
+	{
+		snprintf(buffer, 128, "mov xmm%d, %.3f", reg_dst, bc->f32);
+		ret = buffer;
+	}break;
 	case STORE_REG_PARAM:
 	{
 		ret = "store reg param";
@@ -8267,11 +8526,95 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	}
 	return ret;
 }
+inline void CheckValAssignFlags(u64* eflags, u64 val, u64 sign_flag)
+{
+	if (val == 0)
+	{
+		*eflags = EFLAGS_ZERO;
+	}
+	else
+	{
+		bool below = ((val & sign_flag) != 0);
+		*eflags = below * EFLAGS_BELOW;
+		*eflags |= !below * EFLAGS_ABOVE;
+	}
+}
+inline void DoCmpInstFloat(float lhs, float rhs, u64* eflags)
+{
+	float val = lhs - rhs;
+	int sign_flag = 1 << 31;
+	if (val == 0)
+	{
+		*eflags = EFLAGS_ZERO;
+	}
+	else
+	{
+		bool below = ((*(int *)&val & sign_flag) != 0);
+		*eflags = below * EFLAGS_BELOW;
+		*eflags |= !below * EFLAGS_ABOVE;
+	}
+}
+inline void DoCmpInst(void* dst, u64 in_val, u64* eflags, char sz)
+{
+	switch (sz)
+	{
+	case 0:
+	{
+		auto val = (*(u8*)dst) - in_val;
+		CheckValAssignFlags(eflags, val, 1<<7);
+	}break;
+	case 1:
+	{
+		auto val = (*(unsigned short*)dst) - in_val;
+		CheckValAssignFlags(eflags, val, 1<<15);
+	}break;
+	case 2:
+	{
+		auto val = (*(unsigned int*)dst) - (int)in_val;
+		CheckValAssignFlags(eflags, val, 1<<31);
+	}break;
+	case 3:
+	{
+		auto val = (*(unsigned long long*)dst) - in_val;
+		CheckValAssignFlags(eflags, val, (long long)1<<63);
+	}break;
+	}
+}
+
+inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
+{
+	switch (sz)
+	{
+	// dword to qword
+	case 0x23:
+	{
+		*dst_ptr = *(int*)src_ptr;
+	}break;
+	// dword to byte
+	case 0x20:
+	{
+		*(int *)dst_ptr = *(char *)src_ptr;
+	}break;
+	// qword to byte
+	case 0x30:
+	{
+		*dst_ptr = *(char *)src_ptr;
+	}break;
+	// qword to dword
+	case 0x32:
+	{
+		*(int *)dst_ptr = *(int*)src_ptr;
+	}break;
+	default:
+		ASSERT(0);
+	}
+}
+
 void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 {
 	byte_code2* bc = *ptr;;
-	short reg_src = (bc->regs >> RHS_REG_BIT) & 0xf;
-	short reg_dst = bc->regs & 0xf;
+	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
+	short reg_dst = bc->regs & 0x3f;
 	int imm = bc->i;
 	int mem_offset = bc->mem_offset;
 	char sz = bc->regs >> REG_SZ_BIT;
@@ -8285,38 +8628,68 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 			*ptr += 1;
 		}
 	}break;
+	case MOV_M_2_REG_PARAM:
+	{
+		u64* reg_src_ptr = GetMemValPtr(dbg, reg_src * 8, mem_offset);
+		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, reg_dst * 8);
+
+		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
+
+	}break;
+	case MOV_SSE_2_REG_PARAM:
+	{
+		u64* reg_src_ptr = GetRegValPtr(dbg, FLOAT_REG_0 + reg_src);
+		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, reg_dst * 8);
+
+		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
+
+	}break;
 	case MOV_R_2_REG_PARAM:
 	{
-		u64* reg_src_ptr = GetRegValPtr(dbg, reg_src * 8);
+		u64* reg_src_ptr = GetRegValPtr(dbg, reg_src);
 		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, reg_dst * 8);
 
 
 		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
 
 	}break;
+	case ADD_M_2_R:
+	case SUB_M_2_R:
+	case MUL_M_2_R:
+	case DIV_M_2_R:
+	case AND_M_2_R:
+	case OR_M_2_R:
 	case MOV_M:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
 		u64* mem_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
 		u64* reg = GetRegValPtr(dbg, reg_dst);
 
-		DoOperationOnPtr((char *)reg, sz, *mem_ptr, T_EQUAL); 
+		DoOperationOnPtr((char *)reg, sz, *mem_ptr, op); 
 	}break;
 	case SUB_R_2_R:
 	case DIV_R_2_R:
 	case MUL_R_2_R:
 	case ADD_R_2_R:
+	case AND_R_2_R:
+	case OR_R_2_R:
 	case MOV_R:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_dst_ptr = (char*)&dbg->mem_buffer[reg_dst * 8];
-		auto reg_src_ptr = (char*)&dbg->mem_buffer[reg_src * 8];
+		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_src * 8];
 
 
-		DoOperationOnPtr(reg_dst_ptr, sz, *reg_src_ptr, op);
+		DoOperationOnPtr((char *)reg_dst_ptr, sz, *reg_src_ptr, op);
 	}break;
+	case OR_I_2_R:
+	case AND_I_2_R:
+	case MOD_I_2_R:
+	case MUL_I_2_R:
+	case DIV_I_2_R:
 	case ADD_I_2_R:
 	case SUB_I_2_R:
+	case MOV_I:
 	{
 
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
@@ -8325,25 +8698,79 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 
 		DoOperationOnPtr(reg_dst_ptr, sz, imm, op);
 	}break;
+	case CMP_I_2_R:
+	{
+		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+
+		DoCmpInst(reg_dst_ptr, imm, eflags, sz);
+		//bool sgnd =
+	}break;
+	case CMP_R_2_R:
+	{
+		auto reg_dst_ptr = GetRegValPtr(dbg, reg_dst);
+		auto reg_src_ptr = GetRegValPtr(dbg, reg_src);
+
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+
+		DoCmpInst(reg_dst_ptr, *reg_src_ptr, eflags, sz);
+		//bool sgnd =
+	}break;
+	case CMP_M_2_R:
+	{
+		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_src * 8];
+		u64 offset = *reg_src_ptr + mem_offset;
+		
+		auto mem_ptr = (s64*)&dbg->mem_buffer[offset];
+
+		auto reg_dst_ptr = GetRegValPtr(dbg, reg_dst);
+
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+
+		DoCmpInst(reg_dst_ptr, *mem_ptr, eflags, sz);
+		//bool sgnd =
+	}break;
+	case CMP_R_2_M:
+	{
+		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		u64 offset = *reg_dst_ptr + mem_offset;
+		
+		auto dst = (s64*)&dbg->mem_buffer[offset];
+
+		auto reg_src_ptr = GetRegValPtr(dbg, reg_src);
+
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+
+		DoCmpInst(dst, *reg_src_ptr, eflags, sz);
+		//bool sgnd =
+	}break;
+	case CMP_SSE_2_SSE:
+	{
+		auto reg_src_ptr = (float *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		auto reg_dst_ptr = (float *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+		DoCmpInstFloat(*reg_dst_ptr, *reg_src_ptr, eflags);
+		//bool sgnd =
+	}break;
 	case CMP_I_2_M:
 	{
 		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
 		u64 offset = *reg_dst_ptr + mem_offset;
 		
 		auto dst = (s64*)&dbg->mem_buffer[offset];
-		int val = *dst - imm;
-		if (val == 0)
-		{
-			*(u64*)&dbg->mem_buffer[EFLAGS_REG * 8] = EFLAGS_ZERO;
-		}
-		else if (val > 0)
-		{
-			*(u64*)&dbg->mem_buffer[EFLAGS_REG * 8] = EFLAGS_ABOVE;
-		}
-		else if (val < 0)
-		{
-			*(u64*)&dbg->mem_buffer[EFLAGS_REG * 8] = EFLAGS_BELOW;
-		}
+
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+
+		DoCmpInst(dst, imm, eflags, sz);
+		//bool sgnd =
 	}break;
 	case JMP_E:
 	{
@@ -8354,6 +8781,46 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 			*inc_ptr = false;
 		}
 	}break;
+	case JMP_NE:
+	{
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
+		if (IS_FLAG_OFF(flags, EFLAGS_ZERO))
+		{
+			*ptr += bc->i + 1;
+			*inc_ptr = false;
+		}
+	}break;
+	case JMP_B:
+	case JMP_L:
+	{
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
+		if (IS_FLAG_ON(flags, EFLAGS_BELOW))
+		{
+			*ptr += bc->i + 1;
+			*inc_ptr = false;
+		}
+	}break;
+	case JMP_BE:
+	case JMP_LE:
+	{
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
+		if (IS_FLAG_ON(flags, EFLAGS_BELOW | EFLAGS_ZERO))
+		{
+			*ptr += bc->i + 1;
+			*inc_ptr = false;
+		}
+	}break;
+	case JMP_A:
+	case JMP_G:
+	{
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
+		if (IS_FLAG_ON(flags, EFLAGS_ABOVE))
+		{
+			*ptr += bc->i + 1;
+			*inc_ptr = false;
+		}
+	}break;
+	case JMP_AE:
 	case JMP_GE:
 	{
 		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
@@ -8362,6 +8829,62 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 			*ptr += bc->i + 1;
 			*inc_ptr = false;
 		}
+	}break;
+	case CVTSD_MEM_2_SS:
+	{
+		//tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto mem_ptr = (int *)GetMemValPtr(dbg, reg_src, mem_offset);
+		DoOperationOnPtrFloat((char *)reg_dst_ptr, 2, (float)*mem_ptr, T_EQUAL);
+	}break;
+	case MOV_SSE_2_R:
+	{
+		//tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst);
+		auto reg_src_ptr = (float *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		DoOperationOnPtr((char *)reg_dst_ptr, 2, (int)*reg_src_ptr, T_EQUAL);
+	}break;
+	case CVTSD_REG_2_SS:
+	{
+		//tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_src_ptr = (int *)GetRegValPtr(dbg, reg_src);
+		DoOperationOnPtrFloat((char *)reg_dst_ptr, 2, (float)*reg_src_ptr, T_EQUAL);
+	}break;
+	case MOV_SSE_2_SSE:
+	case ADD_SSE_2_SSE:
+	case SUB_SSE_2_SSE:
+	case MUL_SSE_2_SSE:
+	case DIV_SSE_2_SSE:
+	{
+		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_src_ptr = (float *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		DoOperationOnPtrFloat((char *)reg_dst_ptr, 2, *reg_src_ptr, op);
+	}break;
+	case ADD_MEM_2_SSE:
+	case SUB_MEM_2_SSE:
+	case DIV_MEM_2_SSE:
+	case MUL_MEM_2_SSE:
+	case MOV_M_2_SSE:
+	{
+		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto mem_ptr = (float *)GetMemValPtr(dbg, reg_src, mem_offset);
+
+		DoOperationOnPtrFloat((char*)reg_dst_ptr, 2, *mem_ptr, op);
+	}break;
+	case MOV_SSE_2_MEM:
+	{
+		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_src_ptr = (int *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		u64* mem_ptr = GetMemValPtr(dbg, reg_dst, mem_offset);
+		DoOperationOnPtr((char *)mem_ptr, 2, *reg_src_ptr, op);
+	}break;
+	case MOV_F_2_SSE:
+	{
+		auto reg_dst_ptr = (float *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		*reg_dst_ptr = bc->f32;
 	}break;
 	case STORE_R_2_M:
 	{
@@ -8394,21 +8917,63 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 		{
 			if (wasm_state->outsiders.find(call_f->name) != wasm_state->outsiders.end())
 			{
-				auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
+				u64 prev_reg_val = *(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+
+				auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 				*stack_reg -= 8;
+
+				*(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8] = *stack_reg;
+
 				OutsiderFuncType func_ptr = wasm_state->outsiders[call_f->name];
 				func_ptr(dbg);
 				*stack_reg += 8;
+				auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
+				auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
+
+				*reg_dst_ptr = *reg_src_ptr;
+
+				*(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8] = prev_reg_val;
 			}
 			else
 				ASSERT(0);
 
+		}
+		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
+		{
+			auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+			*stack_reg -= 8;
+			WasmCallX64(dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_reg);
+			*stack_reg += 8;
+			auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
+			if (call_f->ret_type.IsFloat())
+			{
+				auto reg_dst_ptr = (float*)&dbg->mem_buffer[FLOAT_REG_0 * 8];
+				*reg_dst_ptr = *(float*)reg_src_ptr;
+			}
+			else
+			{
+				auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
+				*reg_dst_ptr = *reg_src_ptr;
+			}
 		}
 		else
 		{
 			ASSERT(0);
 		}
 	
+	}break;
+	case MOVZX_M:
+	{
+		u64* dst_ptr = GetRegValPtr(dbg, reg_dst);
+		u64* src_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
+		DoMovZXInts(dbg, dst_ptr, src_ptr, bc->rhs_and_lhs_reg_sz);
+	}break;
+	case MOVZX_R:
+	{
+		u64* dst_ptr = GetRegValPtr(dbg, reg_dst);
+		u64* src_ptr = GetRegValPtr(dbg, reg_src);
+		DoMovZXInts(dbg, dst_ptr, src_ptr, bc->rhs_and_lhs_reg_sz);
+
 	}break;
 	case INST_CALL:
 	{
@@ -8419,11 +8984,21 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 		*ptr += imm;
 		*inc_ptr = false;
 	}break;
+	case INST_CALL_REG:
+	{
+		u64* reg_src_ptr = GetRegValPtr(dbg, reg_dst);
+		u64* reg_stack_ptr = GetRegValPtr(dbg, PRE_X64_RSP_REG);
+		(*reg_stack_ptr) -= 8;
+		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
+		*mem_ptr = (u64)(*ptr + 1);
+		*ptr = dbg->lang_stat->bcs2_start + *reg_src_ptr;
+		*inc_ptr = false;
+	}break;
 	case INST_LEA:
 	{
 		u64* reg_dst_ptr = GetRegValPtr(dbg, reg_dst);
 
-		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_src * 8];
 		u64 offset = *reg_src_ptr + mem_offset;
 		
 		auto dst = (u64)offset;
@@ -8446,13 +9021,14 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 		reg_src += REG_PARAM_START;
 		auto stack_ptr = (u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 		u64 stack_val = *stack_ptr;
-		stack_val += bc->mem_offset;
+		stack_val += reg_dst * 8;
 		*(u64*)&dbg->mem_buffer[stack_val] = imm;
 
 		auto a = 0;
 	}break;
 	case STORE_REG_PARAM:
 	{
+		/*
 		reg_src += REG_PARAM_START;
 		auto stack_ptr = (u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 		u64 stack_val = *stack_ptr;
@@ -8461,33 +9037,378 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 
 		*(u64*)&dbg->mem_buffer[stack_val] = *reg_src_ptr;
 
+		
 		auto a = 0;
+		*/
+	}break;
+	case RELOC:
+	{
+		u64* reg_dst_ptr = GetRegValPtr(dbg, reg_dst);
+		*reg_dst_ptr = GLOBALS_OFFSET + bc->i;
+		
 	}break;
 	default:
 		ASSERT(0);
 	}
 }
-void Bc2Interpreter(dbg_state* dbg, func_decl* start_f)
+func_decl *GetFuncBasedOnBc2(dbg_state *dbg, byte_code2 *bc)
+{
+
+	FOR_VEC(it, dbg->wasm_state->funcs)
+	{
+		auto f = *it;
+		byte_code2* f_start = dbg->lang_stat->bcs2_start + f->bcs2_start;
+		byte_code2* f_end = dbg->lang_stat->bcs2_start + f->bcs2_end;
+		if (bc >= f_start && bc < f_end)
+		{
+			return f;
+		}
+	}
+	return nullptr;
+}
+
+void MakeCurBcToBeBreakpoint(dbg_state* dbg, byte_code2* bc, int line)
+{
+	breakpoint bp;
+	bp.line = line;
+	bp.prev_inst = bc->bc_type;
+	bp.bc = bc;
+	bp.one_time_bp = true;
+	dbg->breakpoints.emplace_back(bp);
+
+	bc->type = INT3;
+}
+
+void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 {
 	byte_code2* cur_bc = dbg->lang_stat->bcs2_start + start_f->bcs2_start;
-	byte_code2* end_bc = dbg->lang_stat->bcs2_start + start_f->bcs2_end;
+	byte_code2* start_bc = dbg->lang_stat->bcs2_start;
+
+	byte_code2* func_start_bc = cur_bc;
+	byte_code2* func_end_bc = dbg->lang_stat->bcs2_start + start_f->bcs2_end;;
 	*(u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8] = 20000;
 	std::string str;
 	byte_code2* aux_bc = cur_bc;
-	for (; aux_bc < (end_bc);)
-	{
-		str += Bc2ToString(dbg, aux_bc);
-		str+= "\n";
-		aux_bc++;
-	}
+
+
+	scope* cur_scp = nullptr;
 	bool done = false;
+	bool show_bc = false;
+
+	int mem_wnd_offset = 0;
+	int mem_wnd_show_type = 5;
+	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32", "char"};
+	int wasm_bcs_to_show = 500;
+
+	int total_items = IM_ARRAYSIZE(mem_wnd_items);
+	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+	stmnt_dbg* cur_st = nullptr;
+
+	func_decl* aux_func = nullptr;
+	dbg->cur_func = nullptr;
+	bool center_inst = true;
+	dbg->cur_bc2 = &cur_bc;
+
 	while (cur_bc != nullptr)
 	{
+		int offset = cur_bc - start_bc;
+
+		switch (dbg->break_type)
+		{
+		case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
+		{
+			if (dbg->next_stat_break_func && (offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end))
+			{
+				breakpoint bp;
+				cur_st = GetStmntBasedOnOffset(&dbg->next_stat_break_func->wasm_stmnts, offset);
+				if (cur_st && cur_st != dbg->prev_st)
+				{
+					MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+					dbg->prev_st = cur_st;
+				}
+			}
+		}break;
+		case DBG_BREAK_ON_DIFF_STAT:
+		{
+				dbg->cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+				if (dbg->cur_func)
+				{
+					cur_st = GetStmntBasedOnOffset(&dbg->cur_func->wasm_stmnts, offset);
+					if (cur_st && cur_st != dbg->prev_st)
+					{
+						MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+						dbg->prev_st = cur_st;
+					}
+				}
+		}break;
+		case DBG_BREAK_ON_DIFF_IR:
+		{
+			if (cur_bc != dbg->prev_bc)
+			{
+				breakpoint bp;
+				if (!dbg->cur_func || dbg->cur_func && (offset < dbg->cur_func->bcs2_start || offset > dbg->cur_func->bcs2_end))
+				{
+					dbg->cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+				}
+				cur_st = GetStmntBasedOnOffset(&dbg->cur_func->wasm_stmnts, offset);
+				if (cur_st)
+				{
+					MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+					dbg->prev_bc = cur_bc;
+				}
+			}
+		}break;
+		case DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC:
+		{
+			if (dbg->next_stat_break_func && (offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end) &&
+				dbg->prev_bc != cur_bc)
+			{
+				breakpoint bp;
+				cur_st = GetStmntBasedOnOffset(&dbg->next_stat_break_func->wasm_stmnts, offset);
+				if (cur_st)
+				{
+					MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+					dbg->prev_bc = cur_bc;
+				}
+			}
+		}break;
+		}
+
 		bool inc_ptr = true;
 		Bc2Logic(dbg, &cur_bc, &inc_ptr, &done);
+		if (!cur_bc)
+			return;
 		if(inc_ptr)
 			cur_bc++;
-		if(cur_bc)
+		if (cur_bc->type == INT3)
+		{
+			if (!dbg->cur_func || dbg->cur_func != dbg->prev_func)
+			{
+				dbg->cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+				func_end_bc = dbg->lang_stat->bcs2_start + dbg->cur_func->bcs2_end;
+				dbg->prev_func = dbg->cur_func;
+			}
+			if (!dbg->cur_func)
+				continue;
+			int offset = cur_bc - start_bc;
+			if (!cur_scp)
+			{
+				cur_st = GetStmntBasedOnOffset(&dbg->cur_func->wasm_stmnts, offset);
+				if (cur_st)
+				{
+					cur_scp = FindScpWithLine(dbg->cur_func, cur_st->line);
+					UpdateExprWindow(*dbg, PRE_X64_RSP_REG, cur_st->line);
+					auto a = 0;
+					dbg->cur_st = cur_st;
+				}
+				else
+				{
+					dbg->prev_func = nullptr;
+					continue;
+				}
+
+				//dbg.cu = cur_st;
+			}
+			int bp_idx = 0;
+			breakpoint* bp = nullptr;
+			FOR_VEC(b, dbg->breakpoints)
+			{
+				if (b->line == cur_st->line)
+				{
+					bp = b;
+				}
+				b->bc->type = b->prev_inst;
+				if(!bp)
+					bp_idx++;
+			}
+
+			glfwPollEvents();
+			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
+			{
+				ImGui_ImplGlfw_Sleep(10);
+				continue;
+			}
+
+			//ImGui::ImGuiContext& g = *ImGui::GImGui;
+			//if(g.WithinFrameScope)
+			if(ImGui::WithinFrame())
+				ImGui::Render();
+
+			ImGui_ImplOpenGL3_NewFrame();
+			ImGui_ImplGlfw_NewFrame();
+			ImGui::NewFrame();
+
+			if (ImGui::Selectable("show bc", &show_bc))
+			{
+				if(show_bc)
+					center_inst = true;
+			}
+			int height = 300;
+			ImGui::BeginChild("code", ImVec2(500, height));
+			if (cur_st)
+			{
+				stmnt_dbg* next_st = cur_st + 1;
+				stmnt_dbg* start_func_st = dbg->cur_func->wasm_stmnts.begin();;
+				stmnt_dbg* aux_cur_st = start_func_st;
+				bool first_stat = true;
+				//int max_ir = min(irs_to_show, ir_ar->size());
+				byte_code2* end = func_end_bc;
+				int line_start = dbg->cur_func->scp->line_start;
+				int line_end = dbg->cur_func->scp->line_end;
+
+				for (int i = line_start; i <= line_end; i++)
+				{
+					if (show_bc)
+					{
+						while (aux_cur_st->line > 0 && i > aux_cur_st->line)
+						{
+							byte_code2* aux_ir = start_bc + aux_cur_st->start;
+							byte_code2* bc_end_st = start_bc + aux_cur_st->end;
+							while (aux_ir < bc_end_st)
+							{
+								ImGui::TextColored(ImVec4(0.4, 0.4, 0.4, 1.0), "%d|", offset);
+								ImGui::SameLine();
+								if (cur_bc == aux_ir)
+								{
+									if (center_inst)
+									{
+										ImVec2 pos = ImGui::GetCursorPos();
+										ImGui::SetScrollY(pos.y - height / 2);
+										center_inst = false;
+									}
+									ImGui::TextColored(ImVec4(0.8, 0.5, 0.5, 1.0), "\t%s", Bc2ToString(dbg, aux_ir).c_str());
+								}
+								else
+									ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1.0), "\t%s", Bc2ToString(dbg, aux_ir).c_str());
+								aux_ir++;
+							}
+							aux_cur_st++;
+
+						}
+					}
+					if (cur_st->line == i)
+					{
+						if (center_inst)
+						{
+							ImVec2 pos = ImGui::GetCursorPos();
+							ImGui::SetScrollY(pos.y - height / 2);
+							center_inst = false;
+						}
+						ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", i, GetFileLn(dbg->lang_stat, i - 1, dbg->cur_func->from_file));
+					}
+					else
+						ImGui::Text("%d: %s", i, GetFileLn(dbg->lang_stat, i - 1, dbg->cur_func->from_file));
+
+				}
+			}
+			else
+			{
+			}
+
+			FOR_VEC(b, dbg->breakpoints)
+			{
+				b->bc->type = INT3;
+			}
+			ImGui::EndChild();
+
+			ImGui::SameLine();
+			SHowMemWindow(*dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items, PRE_X64_RSP_REG);
+
+			int base_ptr = WasmGetRegVal(dbg, PRE_X64_RSP_REG);
+			BeginLocalsChild(*dbg, base_ptr, cur_scp);
+
+			ImGui::SameLine();
+			ShowExprWindow(*dbg, PRE_X64_RSP_REG, cur_st->line);
+			bool f11_pressed_but_dint_find_call_so_normal_step = false;
+			bool release_inst = false;
+
+			if (IsKeyRepeat(dbg->data, GLFW_KEY_F11))
+			{
+				byte_code2* start_st_bc = start_bc + cur_st->start;
+				byte_code2* end_st_bc = start_bc + cur_st->end;
+				while (start_st_bc->type != INST_CALL && start_st_bc < end_st_bc)
+				{
+					start_st_bc++;
+				}
+				if (start_st_bc->type == INST_CALL)
+				{
+					/*
+					byte_code2* func_call_st = start_st_bc + start_st_bc->i;
+					func_decl *found_f = GetFuncBasedOnBc2(dbg, func_call_st);
+
+					stmnt_dbg* found_f_first_stat = found_f->wasm_stmnts.begin();
+					byte_code2* func_call_first_st_bc = start_bc + found_f_first_stat->start;
+
+					//MakeCurBcToBeBreakpoint(dbg, func_call_first_st_bc, found_f_first_stat->line);
+					*/
+					release_inst = true;
+					dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
+					dbg->prev_st = cur_st;
+				}
+				else
+					f11_pressed_but_dint_find_call_so_normal_step = true;
+			}
+			if (IsKeyRepeat(dbg->data, GLFW_KEY_F10) || f11_pressed_but_dint_find_call_so_normal_step)
+			{
+				dbg->prev_bc = cur_bc;
+				if (show_bc)
+				{
+					dbg->break_type = DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC;
+				}
+				else
+				{
+					stmnt_dbg* next_st = cur_st + 1;
+					dbg->prev_st = cur_st;
+					if (next_st < dbg->cur_func->wasm_stmnts.end())
+					{
+						dbg->break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
+
+					}
+					else
+					{
+						dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
+					}
+				}
+				release_inst = true;
+			}
+
+			if (release_inst)
+			{
+				if (bp)
+				{
+					cur_bc->type = bp->prev_inst;
+					if (bp->one_time_bp)
+						dbg->breakpoints.remove(bp_idx);
+				}
+				else
+				{
+					cur_bc++;
+				}
+				dbg->next_stat_break_func = dbg->cur_func;
+				//dbg->cur_func = nullptr;
+
+				cur_scp = nullptr;
+				if(!show_bc)
+					center_inst = true;
+			}
+
+
+			auto  a = 0;
+
+			// Rendering
+			ImGui::Render();
+			int display_w, display_h;
+			glfwGetFramebufferSize(window, &display_w, &display_h);
+			glViewport(0, 0, display_w, display_h);
+			glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+			glClear(GL_COLOR_BUFFER_BIT);
+			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+			glfwSwapBuffers(window);
+			ClearKeys(dbg->data);
+
+			//auto a = 0;
+			//ir_rep *ir = GetIrBasedOnOffset(dbg, offset);
+		}
 
 	}
 }
@@ -8550,11 +9471,15 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	glfwSetErrorCallback(glfw_error_callback);
 	OpenWindow(&dbg);
 	auto window = *(GLFWwindow** ) &dbg.mem_buffer[RET_1_REG * 8];
+	dbg.dbg_alloc = (mem_alloc *)AllocMiscData(dbg.lang_stat, sizeof(mem_alloc));
+	dbg.dbg_alloc->chunks_cap = 1024 * 1024;
+	dbg.dbg_alloc->in_use.hash_table_size = 1024 * 1024;
+	InitMemAlloc(dbg.dbg_alloc);
 
 	timer tm;
 	InitTimer(&tm);
 	StartTimer(&tm);
-	Bc2Interpreter(&dbg, cur_func);
+	//Bc2Interpreter(&dbg, window, cur_func);
 	EndTimer(&tm);
 	float time = GetTimerMSFloat(&tm);
 	printf("ir time: %.3f\n", time);
@@ -9068,7 +9993,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 
 			if (ptr_decl == 0)
 			{
-				snprintf(buffer, 64, "%s##%d",  name.c_str(), base_ptr);
+				snprintf(buffer, 64, "%s(&%d)##%d",  name.c_str(), base_ptr, base_ptr);
 				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 				if (ImGui::TreeNodeEx(buffer, flag))
 				{
@@ -9579,7 +10504,10 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 
 		cur_f->wasm_code_sect_idx = bcs.size();
+#ifdef WASM_DBG
 		cur_f->wasm_stmnts.clear();
+#endif
+
 
 		while (ptr < next_func)
 		{
@@ -9588,6 +10516,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			int cur_ptr = (ptr - fi);
 			bc.start_code = cur_ptr;
 			unsigned int* int_op = (unsigned int*)&code[ptr];
+#ifdef WASM_DBG
 			if (*int_op == 0x67452301)
 			{
 				stmnt_dbg st;
@@ -9613,6 +10542,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 				continue;
 
 			}
+#endif
 
 
 			int op = code[ptr];
@@ -10754,6 +11684,7 @@ void GenX64MemToReg(own_std::vector<byte_code>& ret, short reg, char reg_sz, int
 
 void GenX64RegToMem(own_std::vector<byte_code>& ret, short reg, char reg_sz, int mem_offset, short mem_reg, byte_code_enum inst)
 {
+	ASSERT(reg_sz != 0);
 	byte_code bc;
 	bc.type = inst;
 	bc.bin.lhs.reg = mem_reg;
@@ -11083,23 +12014,21 @@ void GenX64ToIrValFloatRaw(lang_state* lang_stat, own_std::vector<byte_code>& re
 	MovFloatToSSEReg2(lang_stat, reg_dst, ir->f32, &ret);
 }
 
-void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address, short reg_dst = -1)
+int GetOnStackOffsetWithIrVal(lang_state* lang_stat, ir_val* ir)
 {
-	aux->type = ir->type;
-	aux->reg = PRE_X64_RSP_REG;
-	aux->reg_sz = ir->reg_sz;
+	int ret = 0;
 	if (ir->type == IR_TYPE_ON_STACK)
 	{
 		switch (ir->on_stack_type)
 		{
 		case ON_STACK_SPILL:
-			aux->voffset = ir->i + lang_stat->cur_func->to_spill_offset;
+			ret = ir->i + lang_stat->cur_func->to_spill_offset;
 			break;
 		case ON_STACK_STRUCT_CONSTR:
-			aux->voffset = ir->i + lang_stat->cur_func->strct_constrct_at_offset;
+			ret = ir->i + lang_stat->cur_func->strct_constrct_at_offset;
 			break;
 		case ON_STACK_STRUCT_RET:
-			aux->voffset = ir->i + lang_stat->cur_func->strct_ret_size_per_statement_offset;
+			ret = ir->i + lang_stat->cur_func->strct_ret_size_per_statement_offset;
 			break;
 		default:
 			ASSERT(false)
@@ -11107,15 +12036,45 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 		
 	}
 	else
-		aux->voffset = ir->decl->offset;
+		ret = ir->decl->offset;
+	return ret;
+}
+void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address, short reg_dst = -1)
+{
+	aux->type = ir->type;
+	aux->reg = PRE_X64_RSP_REG;
+	aux->reg_sz = ir->reg_sz;
+	aux->voffset = GetOnStackOffsetWithIrVal(lang_stat, ir);
+
+	if(ir->type == IR_TYPE_DECL)
+		ASSERT(ir->decl->type.type != TYPE_FUNC);
 	aux->deref = ir->deref;
 	aux->is_float = ir->is_float;
 	byte_code bc;
 
-	if (ir->ptr == -1)
+	bool decl_is_global = false;
+	if (ir->type == IR_TYPE_DECL && IS_FLAG_ON(ir->decl->flags, DECL_IS_GLOBAL))
 	{
+		decl_is_global = true;
 		aux->reg = AllocReg(lang_stat);
-		EmplaceLeaInst2(aux->reg, PRE_X64_RSP_REG, aux->voffset, 8, ret);
+		bc.type = MOV_I;
+		bc.bin.lhs.reg = aux->reg;
+		bc.bin.lhs.reg_sz = 4;
+		bc.bin.rhs.i = GLOBALS_OFFSET;
+		ret.emplace_back(bc);
+
+	}
+
+
+	if (ir->ptr == -1 || ir->deref < 0)
+	{
+		if (!decl_is_global)
+		{
+			aux->reg = AllocReg(lang_stat);
+			EmplaceLeaInst2(aux->reg, PRE_X64_RSP_REG, aux->voffset, 8, ret);
+		}
+		else
+			EmplaceLeaInst2(aux->reg, aux->reg, aux->voffset, 8, ret);
 		aux->voffset = 0;
 	}
 	else if(address && aux->deref > 0 || !address)
@@ -11132,10 +12091,7 @@ void GenX64ToIrValDecl(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 	aux->type = ir->type;
 	aux->reg = PRE_X64_RSP_REG;
 	aux->reg_sz = ir->reg_sz;
-	if(ir->type == IR_TYPE_ON_STACK)
-		aux->voffset = ir->i + lang_stat->cur_func->strct_constrct_at_offset;
-	else
-		aux->voffset = ir->decl->offset;
+	aux->voffset = GetOnStackOffsetWithIrVal(lang_stat, ir);
 	aux->deref = ir->deref;
 	aux->is_float = ir->is_float;
 	byte_code bc;
@@ -11156,10 +12112,47 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 {
 	byte_code bc = {};
 	bc.type = inst;
+
+	switch (inst)
+	{
+	case SUB_I_2_R:
+	case SUB_I_2_M:
+	case ADD_I_2_R:
+	case ADD_I_2_M:
+	{
+		if(rhs->i == 0)
+			return;
+	}
+	}
 	switch (lhs->type)
 	{
 	case IR_TYPE_F32:
 	{
+		bc.bin.lhs.reg = lhs->reg;
+		bc.bin.lhs.reg_sz = lhs->reg_sz;
+		switch (rhs->type)
+		{
+		case IR_TYPE_INT:
+		{
+			bc.bin.rhs.i = rhs->i;
+		}break;
+		case IR_TYPE_F32:
+		case IR_TYPE_REG:
+		case IR_TYPE_RET_REG:
+		case IR_TYPE_ARG_REG:
+		{
+			bc.bin.rhs.reg = rhs->reg;
+			bc.bin.rhs.reg_sz = lhs->reg_sz;
+		}break;
+		case IR_TYPE_DECL:
+		{
+			bc.bin.rhs.reg = rhs->reg;
+			bc.bin.rhs.reg_sz = rhs->reg_sz;
+			bc.bin.rhs.voffset = rhs->voffset;
+		}break;
+		default:
+			ASSERT(false)
+		}
 		//TODO
 	}break;
 	case IR_TYPE_ARG_REG:
@@ -11281,16 +12274,953 @@ void GenX64PointLhs(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_v
 
 }
 
+void GenX64AddGetFuncAddrReloc(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *lhs, func_decl *fdecl)
+{
+	byte_code bc;
+	bc.type = RELOC;
+	bc.rel.type = REL_GET_FUNC_ADDR;
+	bc.rel.call_func = fdecl;
+	bc.rel.reg_dst = AllocReg(lang_stat);
+	ret.emplace_back(bc);
 
-// $X64Gen
+	lhs->type = IR_TYPE_REG;	
+	lhs->reg = bc.rel.reg_dst;
+	lhs->reg_sz = 4;
+}
+
+void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
+	own_std::vector<byte_code>& ret,
+	own_std::vector<ir_rep>& irs,
+	wasm_gen_state* gen_state,
+	assign_info &assign)
+{
+	byte_code bc = {};
+	if (assign.only_lhs)
+	{
+		switch (assign.to_assign.type)
+		{
+		case IR_TYPE_ARG_REG:
+		{
+			FreeSpecificFloatReg(lang_stat, assign.to_assign.reg);
+			switch (assign.lhs.type)
+			{
+			case IR_TYPE_STR_LIT:
+			{
+				char str_on_reg = AllocReg(lang_stat);
+				bc.type = RELOC;
+				bc.rel.type = REL_DATA;
+				bc.rel.reg_dst = str_on_reg;
+				bc.rel.offset = assign.lhs.on_data_sect_offset;
+				ret.emplace_back(bc);
+				bc.type = MOV_R_2_REG_PARAM;
+				bc.bin.lhs.reg = assign.to_assign.reg;
+				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.rhs.reg = str_on_reg;
+				bc.bin.rhs.reg_sz = 8;
+				ret.emplace_back(bc);
+				FreeSpecificReg(lang_stat, str_on_reg);
+
+				//TODO
+			}break;
+			case IR_TYPE_ON_STACK:
+			case IR_TYPE_DECL:
+			{
+				ir_val_aux lhs;
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				if (lhs.reg == PRE_X64_RSP_REG)
+					bc.type = MOV_M_2_REG_PARAM;
+				else
+				{
+					if(lhs.is_float)
+						bc.type = MOV_SSE_2_REG_PARAM;
+					else
+						bc.type = MOV_R_2_REG_PARAM;
+				}
+				bc.bin.lhs.reg = assign.to_assign.reg;
+				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.rhs.reg = lhs.reg;
+				bc.bin.rhs.reg_sz = lhs.reg_sz;
+				bc.bin.rhs.voffset = lhs.reg_sz;
+
+				ret.emplace_back(bc);
+			}break;
+			case IR_TYPE_F32:
+			{
+				char sse_reg = 4;
+				MovFloatToSSEReg2(lang_stat, sse_reg, assign.lhs.f32, &ret);
+				bc.type = MOV_SSE_2_REG_PARAM;
+				bc.bin.lhs.reg = assign.to_assign.reg;
+				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.rhs.reg = sse_reg;
+
+				ret.emplace_back(bc);
+			}break;
+			case IR_TYPE_INT:
+			{
+				bc.type = MOV_I_2_REG_PARAM;
+				bc.bin.lhs.reg = assign.to_assign.reg;
+				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.rhs.i = assign.lhs.i;
+
+				ret.emplace_back(bc);
+			}break;
+			case IR_TYPE_RET_REG:
+			case IR_TYPE_REG:
+			{
+				if (assign.lhs.reg == 5)
+					assign.lhs.reg++;
+				ir_val_aux lhs;
+				if (assign.lhs.is_float)
+				{
+					GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false);
+					bc.type = MOV_SSE_2_REG_PARAM;
+					bc.bin.lhs.reg = assign.to_assign.reg;
+					bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+					bc.bin.rhs.reg = lhs.reg;
+					bc.bin.rhs.reg_sz = lhs.reg_sz;
+					ret.emplace_back(bc);
+					byte_code* last = &ret.back();
+					last->bin.is_float_param = true;
+					//ASSERT(last->type == MOV_SSE_2_SSE);
+					//last->type = MOV_SSE_2_REG_PARAM;
+				}
+				else
+				{
+					GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false);
+					bc.type = MOV_R_2_REG_PARAM;
+					bc.bin.lhs.reg = assign.to_assign.reg;
+					bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+					bc.bin.rhs.reg = lhs.reg;
+					bc.bin.rhs.reg_sz = lhs.reg_sz;
+					ret.emplace_back(bc);
+				}
+				if (assign.lhs.reg == 5)
+					assign.lhs.reg--;
+
+			}break;
+			default:
+				ASSERT(false)
+			}
+			//if()
+		}break;
+		case IR_TYPE_ON_STACK:
+		case IR_TYPE_DECL:
+		{
+			//PreX64Deref(lang_stat, assign.to_assign.reg, assign.to_assign.deref - 1, ret);
+
+			short reg = PRE_X64_RSP_REG;
+			char reg_sz = assign.to_assign.reg_sz;
+			int voffset = 0;
+			char deref = assign.to_assign.deref;
+
+			voffset = GetOnStackOffsetWithIrVal(lang_stat, &assign.to_assign);
+			
+			GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true);
+
+
+			//GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, 4);
+
+
+			switch (assign.lhs.type)
+			{
+			case IR_TYPE_DECL:
+			{
+				ir_val_aux lhs;
+				if (assign.lhs.type == IR_TYPE_DECL && (assign.lhs.decl->type.type == TYPE_FUNC || assign.lhs.decl->type.type == TYPE_FUNC_PTR))
+				{
+					GenX64AddGetFuncAddrReloc(lang_stat, ret, &lhs, assign.lhs.decl->type.fdecl);
+				}
+				else
+					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, 4);
+				if (assign.lhs.is_float)
+				{
+					bc.type = MOV_SSE_2_MEM;
+					bc.bin.lhs.voffset = voffset;
+					bc.bin.lhs.reg = reg;
+					bc.bin.lhs.reg_sz = reg_sz;
+					bc.bin.rhs.reg = lhs.reg;
+					ret.emplace_back(bc);
+				}
+				else
+				{
+					GenX64RegToMem(ret, lhs.reg, reg_sz, voffset, reg, STORE_R_2_M);
+				}
+			}break;
+			case IR_TYPE_RET_REG:
+			case IR_TYPE_REG:
+			{
+				short src_reg = assign.lhs.reg;
+				if (assign.lhs.is_float)
+				{
+					ir_val_aux lhs;
+					GenX64ToIrValReg(lang_stat, ret, &lhs, &assign.lhs, false);
+					bc.type = MOV_SSE_2_MEM;
+					bc.bin.lhs.voffset = voffset;
+					bc.bin.lhs.reg = reg;
+					bc.bin.lhs.reg_sz = reg_sz;
+					bc.bin.rhs.reg = lhs.reg;
+					ret.emplace_back(bc);
+
+				}
+				else
+				{
+					ir_val_aux lhs;
+					GenX64ToIrValReg(lang_stat, ret, &lhs, &assign.lhs, false);
+					GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, voffset, reg, STORE_R_2_M);
+				}
+			}break;
+			case IR_TYPE_INT:
+			{
+				bc.type = STORE_I_2_M;
+				bc.bin.lhs.reg = reg;
+				bc.bin.lhs.reg_sz = reg_sz;
+				bc.bin.lhs.voffset = voffset;
+				bc.bin.rhs.i = assign.lhs.i;
+
+				ret.emplace_back(bc);
+			}break;
+			case IR_TYPE_F32:
+			{
+				char sse_reg = 4;
+				MovFloatToSSEReg2(lang_stat, sse_reg, assign.lhs.f32, &ret);
+
+				bc.type = MOV_SSE_2_MEM;
+				bc.bin.lhs.reg = reg;
+				bc.bin.lhs.reg_sz = reg_sz;
+				bc.bin.lhs.voffset = voffset;
+				bc.bin.rhs.reg = sse_reg;
+				bc.bin.rhs.reg_sz = 8;
+
+				ret.emplace_back(bc);
+			}break;
+			default:
+				ASSERT(false);
+			}
+		}break;
+		case IR_TYPE_RET_REG:
+		case IR_TYPE_REG:
+		{
+			if (assign.to_assign.reg == 5)
+				assign.to_assign.reg++;
+
+			if (assign.to_assign.is_float)
+				AllocSpecificFloatReg(lang_stat, assign.to_assign.reg);
+			switch (assign.lhs.type)
+			{
+			case IR_TYPE_STR_LIT:
+			{
+				char str_on_reg = AllocReg(lang_stat);
+				bc.type = RELOC;
+				bc.rel.type = REL_DATA;
+				bc.rel.reg_dst = str_on_reg;
+				bc.rel.offset = assign.lhs.on_data_sect_offset;
+				ret.emplace_back(bc);
+				bc.type = MOV_R;
+				bc.bin.lhs.reg = assign.to_assign.reg;
+				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.rhs.reg = str_on_reg;
+				bc.bin.rhs.reg_sz = 8;
+				ret.emplace_back(bc);
+				FreeSpecificReg(lang_stat, str_on_reg);
+				//TODO
+			}break;
+			case IR_TYPE_F32:
+			{
+				ir_val_aux rhs;
+
+				short sse_reg = 4;
+				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.lhs, sse_reg);
+
+				ir_val_aux lhs;
+				assign.to_assign.deref--;
+				GenX64ToIrValReg(lang_stat, ret, &lhs, &assign.to_assign, true);
+				assign.to_assign.deref++;
+
+				byte_code_enum inst;
+				if (assign.to_assign.deref >= 0)
+					inst = MOV_SSE_2_MEM;
+				else
+					inst = MOV_SSE_2_SSE;
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
+
+			}break;
+			case IR_TYPE_INT:
+			{
+				ir_val_aux lhs;
+				//assign.to_assign.deref--;
+				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.to_assign, true);
+				//assign.to_assign.deref++;
+
+				ir_val_aux rhs;
+				GenX64ToIrValImm(lang_stat, ret, &rhs, &assign.lhs);
+
+
+				byte_code_enum inst;
+				if (lhs.deref >= 0)
+					inst = STORE_I_2_M;
+				else
+					inst = MOV_I;
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
+
+				//GenX64ImmToReg(ret, assign.to_assign.reg, assign.to_assign.reg_sz, assign.lhs.i, MOV_I);
+			}break;
+			case IR_TYPE_ON_STACK:
+			case IR_TYPE_DECL:
+			{
+				short reg_dst = assign.to_assign.reg;
+				short reg_dst_sz = assign.to_assign.reg_sz;
+				short reg_dst_deref = assign.to_assign.deref;
+				bool reg_dst_float = assign.to_assign.is_float;
+				reg_dst_deref--;
+				GenX64AutomaticRegDeref(lang_stat, ret, reg_dst_deref, &reg_dst, reg_dst_sz, assign.to_assign.is_float, true, reg_dst);
+				reg_dst_deref++;
+				AllocSpecificReg(lang_stat, reg_dst);
+
+				ir_val_aux lhs;
+
+				if (assign.lhs.type == IR_TYPE_DECL && (assign.lhs.decl->type.type == TYPE_FUNC || assign.lhs.decl->type.type == TYPE_FUNC_PTR))
+				{
+					decl2* decl = assign.lhs.decl;
+					GenX64AddGetFuncAddrReloc(lang_stat, ret, &lhs, decl->type.fdecl);
+				}
+				else
+					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				//ASSERT(lhs.type == IR_TYPE_REG)
+
+				if (reg_dst_deref < 0)
+				{
+					if(assign.to_assign.is_float)
+						GenX64RegToReg(lang_stat, ret, reg_dst, reg_dst_sz, lhs.reg, MOV_SSE_2_SSE);
+					else
+						GenX64RegToReg(lang_stat, ret, reg_dst, reg_dst_sz, lhs.reg, MOV_R);
+				}
+				else
+				{
+					GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, 0, reg_dst, STORE_R_2_M);
+				}
+				FreeSpecificReg(lang_stat, lhs.reg);
+			}break;
+			case IR_TYPE_RET_REG:
+			case IR_TYPE_REG:
+			{
+				if (assign.lhs.reg == 5)
+					assign.lhs.reg++;
+				ir_val_aux lhs;
+				//assign.to_assign.deref--;
+				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.to_assign, true);
+				//assign.to_assign.deref++;
+
+				ir_val_aux rhs;
+				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.lhs, false);
+
+				byte_code_enum inst;
+				if (assign.to_assign.is_float)
+				{
+					if (assign.to_assign.deref >= 0)
+						inst = MOV_SSE_2_MEM;
+					else
+						inst = MOV_SSE_2_SSE;
+				}
+				else
+				{
+					if (lhs.deref >= 0)
+						inst = STORE_R_2_M;
+					else
+						inst = MOV_R;
+				}
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
+				if (assign.lhs.reg == 5)
+					assign.lhs.reg--;
+			}break;
+			default:
+				ASSERT(false);
+			}
+			if (assign.to_assign.reg == 5)
+				assign.to_assign.reg--;
+		}break;
+		default:
+			ASSERT(false);
+		}
+	}
+	else
+	{
+		//if(AreIRValsEqual(&assign.to_assign, assign))
+		// lea inst shortcut
+		//if(assign.lhs.type == IR_TYPE_REG)
+
+		byte_code_enum base_inst;
+		byte_code_enum base_inst_sse;
+		bool is_point = false;
+		switch (assign.op)
+		{
+		case T_DIV:
+			base_inst = DIV_M_2_M;
+			base_inst_sse = DIV_SSE_2_SSE;
+			break;
+		case T_MUL:
+			base_inst = MUL_M_2_M;
+			base_inst_sse = MUL_SSE_2_SSE;
+		break;
+		case T_PERCENT:
+			base_inst = MOD_M_2_M;
+		break;
+		case T_POINT:
+		{
+			ir_val_aux lhs;
+			switch (assign.lhs.type)
+			{
+			case IR_TYPE_REG:
+			{
+				GenX64PointLhs(lang_stat, ret, &lhs, assign.lhs.reg, 8, 0, assign.lhs.deref);
+			}break;
+			case IR_TYPE_ON_STACK:
+			{
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, true);
+			}break;
+			case IR_TYPE_DECL:
+			{
+				GenX64PointLhs(lang_stat, ret, &lhs, PRE_X64_RSP_REG, 8, assign.lhs.decl->offset, assign.lhs.deref);
+			}break;
+			default:
+				ASSERT(false)
+			}
+			
+			if(assign.rhs.i != 0)
+				GenX64ImmToReg(ret, lhs.reg, 8, assign.rhs.i, ADD_I_2_R);
+
+
+			switch (assign.to_assign.type)
+			{
+			case IR_TYPE_REG:
+			{
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, false);
+				byte_code_enum inst;
+				if (dst.deref > 0)
+					inst = STORE_R_2_M;
+				else
+				{
+					inst = MOV_R;
+				}
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				AllocSpecificReg(lang_stat, dst.reg);
+			}break;
+			default:
+				ASSERT(false)
+			}
+
+			is_point = true;
+
+		}break;
+		case T_PIPE:
+			base_inst = OR_M_2_M;
+
+		break;
+		case T_AMPERSAND:
+			base_inst = AND_M_2_M;
+
+		break;
+		case T_PLUS:
+			base_inst = ADD_M_2_M;
+			base_inst_sse = ADD_SSE_2_SSE;
+
+		break;
+		case T_MINUS:
+			base_inst = SUB_M_2_M;
+			base_inst_sse = SUB_SSE_2_SSE;
+			break;
+		default:
+			ASSERT(false);
+		}
+		byte_code_enum correct_inst = base_inst;
+		if (assign.lhs.is_float)
+			correct_inst = base_inst_sse;
+
+		
+		bool saved_float = assign.rhs.is_float;
+		if (is_point)
+			return;
+
+		switch (assign.to_assign.type)
+		{
+		case IR_TYPE_DECL:
+		{
+			ir_val_aux decl;
+			if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_INT)
+			{
+				ir_val_aux imm;
+				GenX64ToIrValImm(lang_stat, ret, &imm, &assign.rhs);
+
+				ir_val_aux lhs;
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &imm, (byte_code_enum)(correct_inst + 3));
+
+				GenX64ToIrValDecl2(lang_stat, ret, &decl, &assign.to_assign, true);
+				byte_code_enum inst = STORE_R_2_M;
+				GenX64BinInst(lang_stat, ret, &decl, &lhs, inst);
+
+
+			}
+			else if (assign.lhs.type == IR_TYPE_DECL && (assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
+			{
+				ir_val_aux lhs;
+				//assign.lhs.deref++;
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				//assign.lhs.deref--;
+
+				ir_val_aux rhs;
+				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.rhs, false);
+
+				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+				
+				GenX64ToIrValDecl2(lang_stat, ret, &decl, &assign.to_assign, true);
+				byte_code_enum inst = STORE_R_2_M;
+				GenX64BinInst(lang_stat, ret, &decl, &lhs, inst);
+			}
+			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_DECL)
+			{
+				ir_val_aux lhs;
+				//assign.lhs.deref++;
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				//assign.lhs.deref--;
+				AllocSpecificReg(lang_stat, lhs.reg);
+
+				ir_val_aux rhs;
+				//assign.rhs.deref--;
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, false, 0);
+				//assign.rhs.deref++;
+
+				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+				ir_val_aux dst;
+				GenX64ToIrValDecl2(lang_stat, ret, &dst, &assign.to_assign, true);
+
+				bool dst_float = assign.to_assign.is_float;
+				bc = {};
+				//byte_code_enum inst = GenX64GetCorrectBinInst(&dst, &lhs, correct_inst, base_inst_sse);
+				//if(lhs.reg == PRE_X64_RSP_REG)
+				GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, dst.voffset, dst.reg, STORE_R_2_M);
+				//GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+
+				if (rhs.reg != PRE_X64_RSP_REG)
+					FreeSpecificReg(lang_stat, rhs.reg);
+
+				if (lhs.reg != PRE_X64_RSP_REG)
+					FreeSpecificReg(lang_stat, lhs.reg);
+			}
+			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_F32)
+			{
+				short reg = PRE_X64_RSP_REG;
+				char reg_sz = assign.lhs.reg_sz;
+				int voffset = assign.lhs.decl->offset;
+				char deref = assign.lhs.deref;
+				GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, assign.lhs.is_float, false);
+
+				short sse_reg = 1;
+				MovFloatToSSEReg2(lang_stat, sse_reg, assign.rhs.f32, &ret);
+				byte_code_enum base_inst;
+				switch (assign.op)
+				{
+				case T_PLUS:
+					base_inst = ADD_SSE_2_SSE;
+					break;
+				default:
+					ASSERT(false)
+				}
+				GenX64ToIrValDecl2(lang_stat, ret, &decl, &assign.to_assign, true);
+
+				bc.type = base_inst;
+				bc.bin.lhs.reg = reg;
+				bc.bin.lhs.reg_sz = 8;
+				bc.bin.rhs.reg = sse_reg;
+				bc.bin.rhs.reg_sz = 8;
+				ret.emplace_back(bc);
+
+				bc.type = MOV_SSE_2_MEM;
+				bc.bin.lhs.reg = decl.reg;
+				bc.bin.lhs.voffset = decl.voffset;
+				bc.bin.lhs.reg_sz = decl.reg_sz;
+				bc.bin.rhs.reg = reg;
+				bc.bin.rhs.reg_sz = decl.reg_sz;
+				ret.emplace_back(bc);
+
+			}
+			else
+				ASSERT(false);
+		}break;
+		// BIN 2REG
+		case IR_TYPE_REG:
+		{
+			if (assign.to_assign.is_float)
+				AllocSpecificFloatReg(lang_stat, assign.to_assign.reg);
+			
+			auto prev_lhs_reg = assign.lhs.reg;
+			if (assign.to_assign.deref >= 0 && AreIRValsEqual(&assign.to_assign, &assign.lhs))
+			{
+				assign.lhs.reg = AllocReg(lang_stat);
+			}
+			if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_INT)
+			{
+
+				ir_val_aux lhs;
+				//assign.lhs.deref++;
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				//assign.lhs.deref--;
+				ASSERT(lhs.reg != PRE_X64_RSP_REG)
+				//if()
+				AllocSpecificReg(lang_stat, lhs.reg);
+
+
+				ir_val_aux rhs;
+				GenX64ToIrValImm(lang_stat, ret, &rhs, &assign.rhs);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 3));
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+
+				bool dst_float = assign.to_assign.is_float;
+				bc = {};
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				FreeSpecificReg(lang_stat, lhs.reg);
+
+			}
+			else if (assign.lhs.type == IR_TYPE_INT && assign.rhs.type == IR_TYPE_REG)
+			{
+			
+				AllocSpecificReg(lang_stat, assign.rhs.reg);
+				short reg = AllocReg(lang_stat);
+
+				GenX64ImmToReg(ret, reg, 4, assign.lhs.i, MOV_I);
+				ir_val_aux lhs;
+				lhs.type = IR_TYPE_REG;
+				lhs.reg = reg;
+				lhs.reg_sz = 4;
+
+
+				ir_val_aux rhs;
+				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.rhs, false);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 7));
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+
+				bool dst_float = assign.to_assign.is_float;
+				bc = {};
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				FreeSpecificReg(lang_stat, lhs.reg);
+
+			}
+			else if (assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_INT)
+			{
+
+				ir_val_aux lhs;
+				GenX64ToIrValReg(lang_stat, ret, &lhs, &assign.lhs, false);
+				AllocSpecificReg(lang_stat, lhs.reg);
+
+
+				ir_val_aux rhs;
+				GenX64ToIrValImm(lang_stat, ret, &rhs, &assign.rhs);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 3));
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+
+				bool dst_float = assign.to_assign.is_float;
+				bc = {};
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				FreeSpecificReg(lang_stat, lhs.reg);
+
+			}
+			else if ((assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_REG) ||
+					 (assign.lhs.type == IR_TYPE_ARG_REG && assign.rhs.type == IR_TYPE_REG))
+			{
+				ir_val_aux lhs;
+				//assign.lhs.deref += assign.lhs.ptr;
+				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false);
+				//assign.lhs.deref -= assign.lhs.ptr;
+				//assign.lhs.deref--;
+
+				ir_val_aux rhs;
+				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.rhs, false);
+				
+				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, correct_inst);
+
+				ir_val_aux dst;
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true);
+
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				if (dst.deref >= 0)
+				{
+					GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, STORE_R_2_M);
+				}
+				else
+					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+
+				if (lhs.is_float && assign.to_assign.reg != lhs.reg)
+					FreeSpecificFloatReg(lang_stat, lhs.reg);
+				if (rhs.is_float && assign.to_assign.reg != rhs.reg)
+					FreeSpecificFloatReg(lang_stat, rhs.reg);
+
+			}
+			else if (assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_DECL)
+			{
+				ir_val_aux lhs;
+				GenX64ToIrValReg(lang_stat, ret, &lhs, &assign.lhs, false);
+
+				ir_val_aux rhs;
+				if (assign.rhs.is_float)
+				{
+					GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, false);
+				}
+				else
+					GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, true);
+
+				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+
+				bool dst_float = assign.to_assign.is_float;
+				bc = {};
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				FreeSpecificReg(lang_stat, lhs.reg);
+				
+			}
+			else if (assign.lhs.type == IR_TYPE_INT && assign.rhs.type == IR_TYPE_INT)
+			{
+				int val = GetExpressionValT<int>(assign.op, assign.lhs.i, assign.rhs.i);
+
+				GenX64ImmToReg(ret, assign.to_assign.reg, assign.to_assign.reg_sz, val, MOV_I);
+			}
+			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_DECL)
+			{
+				ir_val_aux lhs;
+				//assign.lhs.deref++;
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				//assign.lhs.deref--;
+				AllocSpecificReg(lang_stat, lhs.reg);
+
+				ir_val_aux rhs;
+				//assign.rhs.deref--;
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, true, 0);
+				//assign.rhs.deref++;
+
+				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+
+				bool dst_float = assign.to_assign.is_float;
+				bc = {};
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+
+
+				if (rhs.reg != PRE_X64_RSP_REG)
+					FreeSpecificReg(lang_stat, rhs.reg);
+
+				if (lhs.reg != PRE_X64_RSP_REG)
+					FreeSpecificReg(lang_stat, lhs.reg);
+			}
+			else if (assign.lhs.type == IR_TYPE_F32  && assign.rhs.type == IR_TYPE_REG)
+			{
+				char sse_reg = 0;
+				ir_val_aux lhs;
+				GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &assign.lhs, sse_reg);
+				lhs.type = IR_TYPE_REG;
+
+				if (lhs.reg == 0)
+					sse_reg++;
+				ir_val_aux rhs;
+				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.rhs, false);
+				//AllocSpecificReg(lang_stat, lhs.reg);
+
+
+				correct_inst = base_inst_sse;
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				//FreeSpecificReg(lang_stat, lhs.reg);
+
+			}
+			else if (assign.lhs.type == IR_TYPE_INT && assign.rhs.type == IR_TYPE_DECL)
+			{
+				ir_val_aux lhs;
+				char reg = AllocReg(lang_stat);
+				GenX64ImmToReg(ret, reg, 4, assign.lhs.i, MOV_I);
+				lhs.type = IR_TYPE_REG;
+				lhs.reg = reg;
+				lhs.reg_sz = 4;
+
+				ir_val_aux rhs;
+				//assign.rhs.deref--;
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, false);
+
+				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+
+				bool dst_float = assign.to_assign.is_float;
+				bc = {};
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+
+				FreeSpecificReg(lang_stat, reg);
+			}
+			else if (assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_F32)
+			{
+				ir_val_aux lhs;
+				GenX64ToIrValReg(lang_stat, ret, &lhs, &assign.lhs, false);
+				//AllocSpecificReg(lang_stat, lhs.reg);
+
+				char sse_reg = 0;
+				if (lhs.reg == 0)
+					sse_reg++;
+				ir_val_aux rhs;
+				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.rhs, sse_reg);
+
+				correct_inst = base_inst_sse;
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				//FreeSpecificReg(lang_stat, lhs.reg);
+
+			}
+			else if (assign.lhs.type == IR_TYPE_F32 && assign.rhs.type == IR_TYPE_DECL)
+			{
+				ir_val_aux rhs;
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, false);
+				AllocSpecificReg(lang_stat, rhs.reg);
+
+				char sse_reg = 0;
+				if (rhs.reg == 0)
+					sse_reg++;
+				ir_val_aux lhs;
+				GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &assign.lhs, sse_reg);
+
+				correct_inst = base_inst_sse;
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				FreeSpecificReg(lang_stat, lhs.reg);
+
+			}
+			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_F32)
+			{
+				ir_val_aux lhs;
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				AllocSpecificReg(lang_stat, lhs.reg);
+
+				char sse_reg = 0;
+				if (lhs.reg == 0)
+					sse_reg++;
+				ir_val_aux rhs;
+				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.rhs, sse_reg);
+
+				correct_inst = base_inst_sse;
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				FreeSpecificReg(lang_stat, lhs.reg);
+
+			}
+			else if (assign.lhs.type == IR_TYPE_DECL && (assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
+			{
+		
+				ir_val_aux lhs;
+				//assign.lhs.deref++;
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				//assign.lhs.deref--;
+
+				ir_val_aux rhs;
+				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.rhs, false);
+
+				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
+
+				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
+				
+				ir_val_aux dst;
+				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				if(lhs.reg != PRE_X64_RSP_REG)
+					FreeSpecificReg(lang_stat, lhs.reg);
+			}
+			else
+				ASSERT(false);
+			
+			if (assign.lhs.type == IR_TYPE_REG && assign.to_assign.reg != assign.lhs.reg)
+				FreeSpecificReg(lang_stat, assign.lhs.reg);
+			if (assign.rhs.type == IR_TYPE_REG && assign.to_assign.reg != assign.rhs.reg)
+				FreeSpecificReg(lang_stat, assign.rhs.reg);
+
+
+			AllocSpecificReg(lang_stat, assign.to_assign.reg);
+
+		}break;
+		default:
+			ASSERT(false)
+		}
+		if (is_point)
+			assign.rhs.is_float = saved_float;
+
+	}
+
+}
+// $IrX64
 void GenX64BytecodeFromIR(lang_state *lang_stat, 
 						  own_std::vector<byte_code>& ret,
 						  own_std::vector<ir_rep>& irs,
 						  wasm_gen_state *gen_state)
 {
 	auto cur = (block_linked*)malloc(sizeof(block_linked));
+	cur->parent = nullptr;
+	memset(cur, 0, sizeof(block_linked));
 	int args = gen_state->cur_func->biggest_call_args - 4;
 	int on_stack_args = max(args, 0);
+
+	bool print_ir = false;
 
 	unsigned int stack_size = 32 + on_stack_args * 8;
 	int total_args = 0;
@@ -11363,10 +13293,16 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	gen_state->cur_func->bcs2_start += ret.size() - start;
 
 	int idx = 0;
+	stmnt_dbg* cur_st = gen_state->cur_func->wasm_stmnts.begin();
 	FOR_VEC(ir, irs)
 	{
 		ir_rep* cur_ir = ir;
+		cur_ir->start = ret.size();
 		byte_code bc;
+		if (cur_line == 2358 && IsExecutableIr(ir))
+		{
+			printf("%d|%s\n", ir->idx, WasmIrToString(lang_stat->dstate, ir).c_str());
+		}
 		switch (ir->type)
 		{
 		case IR_STACK_END:
@@ -11400,11 +13336,19 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			FreeAllRegs(lang_stat);
 			FreeAllFloatRegs(lang_stat);
 			cur_line = ir->block.stmnt.line;
+#ifndef WASM_DBG
+			cur_st->start = ret.size();
+#endif
+
 		}break;
 		case IR_END_STMNT:
 		{
 			FreeAllRegs(lang_stat);
 			FreeAllFloatRegs(lang_stat);
+#ifndef WASM_DBG
+			cur_st->end = ret.size();
+			cur_st++;
+#endif
 		}break;
 		case IR_DECLARE_LOCAL:
 		{
@@ -11596,7 +13540,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 
 				
-				GenX64RegToMem(ret, rhs.reg, rhs.reg_sz, lhs.voffset, lhs.reg, CMP_R_2_M);
+				if(rhs.reg == PRE_X64_RSP_REG)
+					GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, CMP_M_2_R);
+				else
+					GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, CMP_R_2_R);
 
 				FreeSpecificReg(lang_stat, lhs.reg);
 				FreeSpecificReg(lang_stat, rhs.reg);
@@ -11616,6 +13563,18 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				FreeSpecificReg(lang_stat, lhs.reg);
 				FreeSpecificReg(lang_stat, rhs.reg);
 			}
+			else if (ir->bin.lhs.type == IR_TYPE_INT && ir->bin.rhs.type == IR_TYPE_INT)
+			{
+				ir_val_aux lhs;
+				lhs.reg = AllocReg(lang_stat);
+				GenX64ImmToReg(ret, lhs.reg, 4, ir->bin.lhs.i, MOV_I);
+
+				ir_val_aux rhs;
+				GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->bin.rhs);
+
+				GenX64ImmToReg(ret, lhs.reg, 4, ir->bin.rhs.i, CMP_I_2_R);
+				FreeSpecificReg(lang_stat, lhs.reg);
+			}
 			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
 			{
 				ir_val_aux lhs;
@@ -11624,10 +13583,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ir_val_aux rhs;
 				GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
 				GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, CMP_R_2_R);
-			}
-			else if (ir->bin.lhs.type == IR_TYPE_INT && ir->bin.rhs.type == IR_TYPE_INT)
-			{
-				//TODO
 			}
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_DECL)
 			{
@@ -11639,7 +13594,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 				ir_val_aux rhs;
 				//ir->bin.rhs.deref--;
-				GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, false);
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, false);
 				//ir->bin.rhs.deref++;
 
 				
@@ -11690,6 +13645,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				depth++;
 				aux = aux->parent;
 			}
+			byte_code *cmp_inst = &ret.back();
+			cmp_inst->bin.is_unsigned = ir->bin.lhs.is_unsigned;
 
 			EmplaceCondJmpInst2(opposite, 0, ret, ir->bin.lhs.is_unsigned | ir->bin.lhs.is_float);
 			x64_rel_info rel;
@@ -11699,828 +13656,13 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		// X64 =
 		case IR_ASSIGNMENT:
 		{
-			int target_break = 242;
-			if (cur_line == target_break)
-			{
-			}
-			if (ir->assign.only_lhs)
-			{
-				switch (ir->assign.to_assign.type)
-				{
-				case IR_TYPE_ARG_REG:
-				{
-					FreeSpecificFloatReg(lang_stat, ir->assign.to_assign.reg);
-					switch (ir->assign.lhs.type)
-					{
-					case IR_TYPE_STR_LIT:
-					{
-						//TODO
-					}break;
-					case IR_TYPE_ON_STACK:
-					case IR_TYPE_DECL:
-					{
-						ir_val_aux lhs;
-						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-						if (lhs.reg == PRE_X64_RSP_REG)
-							bc.type = MOV_M_2_REG_PARAM;
-						else
-							bc.type = MOV_R_2_REG_PARAM;
-						bc.bin.lhs.reg = ir->assign.to_assign.reg;
-						bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
-						bc.bin.rhs.reg = lhs.reg;
-						bc.bin.rhs.reg_sz = lhs.reg_sz;
-						bc.bin.rhs.voffset = lhs.reg_sz;
+			GenX64BytecodeFromAssignIR(lang_stat,
+				ret,
+				irs,
+				gen_state,
+				ir->assign);
+			break;
 
-						ret.emplace_back(bc);
-					}break;
-					case IR_TYPE_F32:
-					{
-						char sse_reg = 0;
-						MovFloatToSSEReg2(lang_stat, sse_reg, ir->assign.lhs.f32, &ret);
-						bc.type = MOV_SSE_2_REG_PARAM;
-						bc.bin.lhs.reg = ir->assign.to_assign.reg;
-						bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
-						bc.bin.rhs.reg = sse_reg;
-
-						ret.emplace_back(bc);
-					}break;
-					case IR_TYPE_INT:
-					{
-						bc.type = MOV_I_2_REG_PARAM;
-						bc.bin.lhs.reg = ir->assign.to_assign.reg;
-						bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
-						bc.bin.rhs.i = ir->assign.lhs.i;
-
-						ret.emplace_back(bc);
-					}break;
-					case IR_TYPE_RET_REG:
-					case IR_TYPE_REG:
-					{
-						if (ir->assign.lhs.reg == 5)
-							ir->assign.lhs.reg++;
-						ir_val_aux lhs;
-						if (ir->assign.lhs.is_float)
-						{
-							GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.lhs, false, ir->assign.to_assign.reg);
-						}
-						else
-						{
-							GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-							bc.type = MOV_R_2_REG_PARAM;
-							bc.bin.lhs.reg = ir->assign.to_assign.reg;
-							bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
-							bc.bin.rhs.reg = lhs.reg;
-							bc.bin.rhs.reg_sz = lhs.reg_sz;
-							ret.emplace_back(bc);
-						}
-						if (ir->assign.lhs.reg == 5)
-							ir->assign.lhs.reg--;
-
-					}break;
-					default:
-						ASSERT(false)
-					}
-					//if()
-				}break;
-				case IR_TYPE_ON_STACK:
-				case IR_TYPE_DECL:
-				{
-					//PreX64Deref(lang_stat, ir->assign.to_assign.reg, ir->assign.to_assign.deref - 1, ret);
-
-					short reg = PRE_X64_RSP_REG;
-					char reg_sz = ir->assign.to_assign.reg_sz;
-					int voffset = 0;
-					char deref = ir->assign.to_assign.deref;
-
-					if(ir->assign.to_assign.type == IR_TYPE_ON_STACK)
-						voffset = ir->assign.to_assign.i + gen_state->cur_func->strct_constrct_at_offset;
-					else
-						voffset = ir->assign.to_assign.decl->offset;
-					
-					GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true);
-
-
-					switch (ir->assign.lhs.type)
-					{
-					case IR_TYPE_DECL:
-					{
-						ir_val_aux lhs;
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false, 4);
-						if (ir->assign.lhs.is_float)
-						{
-							bc.type = MOV_SSE_2_MEM;
-							bc.bin.lhs.voffset = voffset;
-							bc.bin.lhs.reg = reg;
-							bc.bin.lhs.reg_sz = reg_sz;
-							bc.bin.rhs.reg = lhs.reg;
-							ret.emplace_back(bc);
-						}
-						else
-						{
-							GenX64RegToMem(ret, lhs.reg, reg_sz, voffset, reg, STORE_R_2_M);
-						}
-					}break;
-					case IR_TYPE_RET_REG:
-					case IR_TYPE_REG:
-					{
-						short src_reg = ir->assign.lhs.reg;
-						if (ir->assign.lhs.is_float)
-						{
-							ir_val_aux lhs;
-							GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-							bc.type = MOV_SSE_2_MEM;
-							bc.bin.lhs.voffset = voffset;
-							bc.bin.lhs.reg = reg;
-							bc.bin.lhs.reg_sz = reg_sz;
-							bc.bin.rhs.reg = lhs.reg;
-							ret.emplace_back(bc);
-
-						}
-						else
-						{
-							ir_val_aux lhs;
-							GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-							GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, voffset, reg, STORE_R_2_M);
-						}
-					}break;
-					case IR_TYPE_INT:
-					{
-						bc.type = STORE_I_2_M;
-						bc.bin.lhs.reg = reg;
-						bc.bin.lhs.reg_sz = reg_sz;
-						bc.bin.lhs.voffset = voffset;
-						bc.bin.rhs.i = ir->assign.lhs.i;
-
-						ret.emplace_back(bc);
-					}break;
-					case IR_TYPE_F32:
-					{
-						char sse_reg = 0;
-						MovFloatToSSEReg2(lang_stat, sse_reg, ir->assign.lhs.f32, &ret);
-
-						bc.type = MOV_SSE_2_MEM;
-						bc.bin.lhs.reg = reg;
-						bc.bin.lhs.reg_sz = reg_sz;
-						bc.bin.lhs.voffset = voffset;
-						bc.bin.rhs.reg = sse_reg;
-						bc.bin.rhs.reg_sz = 8;
-
-						ret.emplace_back(bc);
-					}break;
-					default:
-						ASSERT(false);
-					}
-				}break;
-				case IR_TYPE_RET_REG:
-				case IR_TYPE_REG:
-				{
-					if (ir->assign.to_assign.reg == 5)
-						ir->assign.to_assign.reg++;
-
-					if (ir->assign.to_assign.is_float)
-						AllocSpecificFloatReg(lang_stat, ir->assign.to_assign.reg);
-					switch (ir->assign.lhs.type)
-					{
-					case IR_TYPE_STR_LIT:
-					{
-						//TODO
-					}break;
-					case IR_TYPE_F32:
-					{
-						ir_val_aux rhs;
-
-						short sse_reg = 0;
-						GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &ir->assign.lhs, sse_reg);
-
-						ir_val_aux lhs;
-						ir->assign.to_assign.deref--;
-						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
-						ir->assign.to_assign.deref++;
-
-						byte_code_enum inst;
-						if (ir->assign.to_assign.deref >= 0)
-							inst = MOV_SSE_2_MEM;
-						else
-							inst = MOV_SSE_2_SSE;
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
-
-					}break;
-					case IR_TYPE_INT:
-					{
-						ir_val_aux lhs;
-						//ir->assign.to_assign.deref--;
-						GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
-						//ir->assign.to_assign.deref++;
-
-						ir_val_aux rhs;
-						GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->bin.lhs);
-
-
-						byte_code_enum inst;
-						if (lhs.deref >= 0)
-							inst = STORE_I_2_M;
-						else
-							inst = MOV_I;
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
-
-						//GenX64ImmToReg(ret, ir->assign.to_assign.reg, ir->assign.to_assign.reg_sz, ir->assign.lhs.i, MOV_I);
-					}break;
-					case IR_TYPE_ON_STACK:
-					case IR_TYPE_DECL:
-					{
-						short reg_dst = ir->assign.to_assign.reg;
-						short reg_dst_sz = ir->assign.to_assign.reg_sz;
-						short reg_dst_deref = ir->assign.to_assign.deref;
-						bool reg_dst_float = ir->assign.to_assign.is_float;
-						reg_dst_deref--;
-						GenX64AutomaticRegDeref(lang_stat, ret, reg_dst_deref, &reg_dst, reg_dst_sz, ir->assign.to_assign.is_float, true, reg_dst);
-						reg_dst_deref++;
-						AllocSpecificReg(lang_stat, reg_dst);
-
-						ir_val_aux lhs;
-
-						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-						//ASSERT(lhs.type == IR_TYPE_REG)
-
-						if (reg_dst_deref < 0)
-						{
-							GenX64RegToReg(lang_stat, ret, reg_dst, reg_dst_sz, lhs.reg, MOV_R);
-						}
-						else
-						{
-							GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, 0, reg_dst, STORE_R_2_M);
-						}
-						FreeSpecificReg(lang_stat, lhs.reg);
-					}break;
-					case IR_TYPE_RET_REG:
-					case IR_TYPE_REG:
-					{
-						if (ir->assign.lhs.reg == 5)
-							ir->assign.lhs.reg++;
-						ir_val_aux lhs;
-						//ir->assign.to_assign.deref--;
-						GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->assign.to_assign, true);
-						//ir->assign.to_assign.deref++;
-
-						ir_val_aux rhs;
-						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->assign.lhs, false);
-
-						byte_code_enum inst;
-						if (ir->assign.to_assign.is_float)
-						{
-							if (ir->assign.to_assign.deref >= 0)
-								inst = MOV_SSE_2_MEM;
-							else
-								inst = MOV_SSE_2_SSE;
-						}
-						else
-						{
-							if (lhs.deref >= 0)
-								inst = STORE_R_2_M;
-							else
-								inst = MOV_R;
-						}
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
-						if (ir->assign.lhs.reg == 5)
-							ir->assign.lhs.reg--;
-					}break;
-					default:
-						ASSERT(false);
-					}
-					if (ir->assign.to_assign.reg == 5)
-						ir->assign.to_assign.reg--;
-				}break;
-				default:
-					ASSERT(false);
-				}
-			}
-			else
-			{
-				//if(AreIRValsEqual(&ir->assign.to_assign, ir->assign))
-				// lea inst shortcut
-				//if(ir->assign.lhs.type == IR_TYPE_REG)
-
-				byte_code_enum base_inst;
-				byte_code_enum base_inst_sse;
-				bool is_point = false;
-				switch (ir->assign.op)
-				{
-				case T_DIV:
-					base_inst = DIV_M_2_M;
-					base_inst_sse = DIV_SSE_2_SSE;
-					break;
-				case T_MUL:
-					base_inst = MUL_M_2_M;
-					base_inst_sse = MUL_SSE_2_SSE;
-				break;
-				case T_PERCENT:
-					base_inst = MOD_M_2_M;
-				break;
-				case T_POINT:
-				{
-					ir_val_aux lhs;
-					switch (ir->assign.lhs.type)
-					{
-					case IR_TYPE_REG:
-					{
-						GenX64PointLhs(lang_stat, ret, &lhs, ir->assign.lhs.reg, 8, 0, ir->assign.lhs.deref);
-					}break;
-					case IR_TYPE_ON_STACK:
-					{
-						//TODO:
-					}break;
-					case IR_TYPE_DECL:
-					{
-						GenX64PointLhs(lang_stat, ret, &lhs, PRE_X64_RSP_REG, 8, ir->assign.lhs.decl->offset, ir->assign.lhs.deref);
-					}break;
-					default:
-						ASSERT(false)
-					}
-					
-					GenX64ImmToReg(ret, lhs.reg, 8, ir->assign.rhs.i, ADD_I_2_R);
-
-
-					switch (ir->assign.to_assign.type)
-					{
-					case IR_TYPE_REG:
-					{
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, false);
-						byte_code_enum inst;
-						if (dst.deref > 0)
-							inst = STORE_R_2_M;
-						else
-							inst = MOV_R;
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-					}break;
-					default:
-						ASSERT(false)
-					}
-
-					is_point = true;
-
-				}break;
-				case T_PIPE:
-					base_inst = OR_M_2_M;
-
-				break;
-				case T_AMPERSAND:
-					base_inst = AND_M_2_M;
-
-				break;
-				case T_PLUS:
-					base_inst = ADD_M_2_M;
-					base_inst_sse = ADD_SSE_2_SSE;
-
-				break;
-				case T_MINUS:
-					base_inst = SUB_M_2_M;
-					base_inst_sse = SUB_SSE_2_SSE;
-					break;
-				default:
-					ASSERT(false);
-				}
-				byte_code_enum correct_inst = base_inst;
-				if (ir->bin.lhs.is_float)
-					correct_inst = base_inst_sse;
-
-				
-				bool saved_float = ir->assign.rhs.is_float;
-				if (is_point)
-					break;
-
-				switch (ir->assign.to_assign.type)
-				{
-				case IR_TYPE_DECL:
-				{
-					ir_val_aux decl;
-					if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_INT)
-					{
-						ir_val_aux imm;
-						GenX64ToIrValImm(lang_stat, ret, &imm, &ir->assign.rhs);
-
-						ir_val_aux lhs;
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &imm, (byte_code_enum)(correct_inst + 3));
-
-						GenX64ToIrValDecl(lang_stat, ret, &decl, &ir->assign.to_assign, true);
-						byte_code_enum inst = STORE_R_2_M;
-						GenX64BinInst(lang_stat, ret, &decl, &lhs, inst);
-
-
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_DECL && (ir->assign.rhs.type == IR_TYPE_REG || ir->assign.rhs.type == IR_TYPE_RET_REG))
-					{
-						ir_val_aux lhs;
-						//ir->bin.lhs.deref++;
-						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						//ir->bin.lhs.deref--;
-
-						ir_val_aux rhs;
-						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
-
-						correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-						
-						GenX64ToIrValDecl(lang_stat, ret, &decl, &ir->assign.to_assign, true);
-						byte_code_enum inst = STORE_R_2_M;
-						GenX64BinInst(lang_stat, ret, &decl, &lhs, inst);
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_DECL)
-					{
-						ir_val_aux lhs;
-						//ir->bin.lhs.deref++;
-						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						//ir->bin.lhs.deref--;
-						AllocSpecificReg(lang_stat, lhs.reg);
-
-						ir_val_aux rhs;
-						//ir->bin.rhs.deref--;
-						GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, false, 0);
-						//ir->bin.rhs.deref++;
-
-						correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-
-						ir_val_aux dst;
-						GenX64ToIrValDecl2(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-
-						bool dst_float = ir->assign.to_assign.is_float;
-						bc = {};
-						//byte_code_enum inst = GenX64GetCorrectBinInst(&dst, &lhs, correct_inst, base_inst_sse);
-						//if(lhs.reg == PRE_X64_RSP_REG)
-						GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, dst.voffset, dst.reg, STORE_R_2_M);
-						//GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-
-						if (rhs.reg != PRE_X64_RSP_REG)
-							FreeSpecificReg(lang_stat, rhs.reg);
-
-						if (lhs.reg != PRE_X64_RSP_REG)
-							FreeSpecificReg(lang_stat, lhs.reg);
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_F32)
-					{
-						short reg = PRE_X64_RSP_REG;
-						char reg_sz = ir->assign.lhs.reg_sz;
-						int voffset = ir->assign.lhs.decl->offset;
-						char deref = ir->assign.lhs.deref;
-						GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, ir->assign.lhs.is_float, false);
-
-						short sse_reg = 1;
-						MovFloatToSSEReg2(lang_stat, sse_reg, ir->assign.rhs.f32, &ret);
-						byte_code_enum base_inst;
-						switch (ir->assign.op)
-						{
-						case T_PLUS:
-							base_inst = ADD_SSE_2_SSE;
-							break;
-						default:
-							ASSERT(false)
-						}
-						GenX64ToIrValDecl(lang_stat, ret, &decl, &ir->assign.to_assign, true);
-
-						bc.type = base_inst;
-						bc.bin.lhs.reg = reg;
-						bc.bin.lhs.reg_sz = 8;
-						bc.bin.rhs.reg = sse_reg;
-						bc.bin.rhs.reg_sz = 8;
-						ret.emplace_back(bc);
-
-						bc.type = MOV_SSE_2_MEM;
-						bc.bin.lhs.reg = decl.reg;
-						bc.bin.lhs.voffset = decl.voffset;
-						bc.bin.lhs.reg_sz = decl.reg_sz;
-						bc.bin.rhs.reg = reg;
-						bc.bin.rhs.reg_sz = decl.reg_sz;
-						ret.emplace_back(bc);
-
-					}
-					else
-						ASSERT(false);
-				}break;
-				// BIN 2REG
-				case IR_TYPE_REG:
-				{
-					if (ir->assign.to_assign.is_float)
-						AllocSpecificFloatReg(lang_stat, ir->assign.to_assign.reg);
-
-					if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_INT)
-					{
-
-						ir_val_aux lhs;
-						//ir->assign.lhs.deref++;
-						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-						//ir->assign.lhs.deref--;
-						ASSERT(lhs.reg != PRE_X64_RSP_REG)
-						//if()
-						AllocSpecificReg(lang_stat, lhs.reg);
-
-
-						ir_val_aux rhs;
-						GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->assign.rhs);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 3));
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-
-						bool dst_float = ir->assign.to_assign.is_float;
-						bc = {};
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						FreeSpecificReg(lang_stat, lhs.reg);
-
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_INT && ir->assign.rhs.type == IR_TYPE_REG)
-					{
-					
-						AllocSpecificReg(lang_stat, ir->assign.rhs.reg);
-						short reg = AllocReg(lang_stat);
-
-						GenX64ImmToReg(ret, reg, 4, ir->assign.lhs.i, MOV_I);
-						ir_val_aux lhs;
-						lhs.type = IR_TYPE_REG;
-						lhs.reg = reg;
-						lhs.reg_sz = 4;
-
-
-						ir_val_aux rhs;
-						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->assign.rhs, false);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 7));
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-
-						bool dst_float = ir->assign.to_assign.is_float;
-						bc = {};
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						FreeSpecificReg(lang_stat, lhs.reg);
-
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_REG && ir->assign.rhs.type == IR_TYPE_INT)
-					{
-
-						ir_val_aux lhs;
-						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-						AllocSpecificReg(lang_stat, lhs.reg);
-
-
-						ir_val_aux rhs;
-						GenX64ToIrValImm(lang_stat, ret, &rhs, &ir->assign.rhs);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 3));
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-
-						bool dst_float = ir->assign.to_assign.is_float;
-						bc = {};
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						FreeSpecificReg(lang_stat, lhs.reg);
-
-					}
-					else if ((ir->assign.lhs.type == IR_TYPE_REG && ir->assign.rhs.type == IR_TYPE_REG) ||
-							 (ir->assign.lhs.type == IR_TYPE_ARG_REG && ir->assign.rhs.type == IR_TYPE_REG))
-					{
-						ir_val_aux lhs;
-						ir->assign.lhs.deref += ir->assign.lhs.ptr;
-						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->assign.lhs, false);
-						ir->assign.lhs.deref -= ir->assign.lhs.ptr;
-						//ir->assign.lhs.deref--;
-
-						ir_val_aux rhs;
-						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->assign.rhs, false);
-						
-						correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, correct_inst);
-
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-
-						if (lhs.is_float && ir->assign.to_assign.reg != lhs.reg)
-							FreeSpecificFloatReg(lang_stat, lhs.reg);
-						if (rhs.is_float && ir->assign.to_assign.reg != rhs.reg)
-							FreeSpecificFloatReg(lang_stat, rhs.reg);
-
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_REG && ir->assign.rhs.type == IR_TYPE_DECL)
-					{
-						ir_val_aux lhs;
-						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-
-						ir_val_aux rhs;
-						if (ir->bin.rhs.is_float)
-						{
-							GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, false);
-						}
-						else
-							GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, true);
-
-						correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-
-						bool dst_float = ir->assign.to_assign.is_float;
-						bc = {};
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						FreeSpecificReg(lang_stat, lhs.reg);
-						
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_INT && ir->assign.rhs.type == IR_TYPE_INT)
-					{
-						int val = GetExpressionValT<int>(ir->assign.op, ir->assign.lhs.i, ir->assign.rhs.i);
-
-						GenX64ImmToReg(ret, ir->assign.to_assign.reg, ir->assign.to_assign.reg_sz, val, MOV_I);
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_DECL)
-					{
-						ir_val_aux lhs;
-						//ir->bin.lhs.deref++;
-						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						//ir->bin.lhs.deref--;
-						AllocSpecificReg(lang_stat, lhs.reg);
-
-						ir_val_aux rhs;
-						//ir->bin.rhs.deref--;
-						GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, true, 0);
-						//ir->bin.rhs.deref++;
-
-						correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-
-						bool dst_float = ir->assign.to_assign.is_float;
-						bc = {};
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-
-
-						if (rhs.reg != PRE_X64_RSP_REG)
-							FreeSpecificReg(lang_stat, rhs.reg);
-
-						if (lhs.reg != PRE_X64_RSP_REG)
-							FreeSpecificReg(lang_stat, lhs.reg);
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_F32  && ir->assign.rhs.type == IR_TYPE_REG)
-					{
-						char sse_reg = 0;
-						ir_val_aux lhs;
-						GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &ir->assign.lhs, sse_reg);
-						lhs.type = IR_TYPE_REG;
-
-						if (lhs.reg == 0)
-							sse_reg++;
-						ir_val_aux rhs;
-						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
-						//AllocSpecificReg(lang_stat, lhs.reg);
-
-
-						correct_inst = base_inst_sse;
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-						
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						//FreeSpecificReg(lang_stat, lhs.reg);
-
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_INT && ir->assign.rhs.type == IR_TYPE_DECL)
-					{
-						//TODO
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_REG && ir->assign.rhs.type == IR_TYPE_F32)
-					{
-						ir_val_aux lhs;
-						GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						//AllocSpecificReg(lang_stat, lhs.reg);
-
-						char sse_reg = 0;
-						if (lhs.reg == 0)
-							sse_reg++;
-						ir_val_aux rhs;
-						GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &ir->assign.rhs, sse_reg);
-
-						correct_inst = base_inst_sse;
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-						
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						//FreeSpecificReg(lang_stat, lhs.reg);
-
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_F32 && ir->assign.rhs.type == IR_TYPE_DECL)
-					{
-						ir_val_aux rhs;
-						GenX64ToIrValDecl(lang_stat, ret, &rhs, &ir->bin.rhs, false);
-						AllocSpecificReg(lang_stat, rhs.reg);
-
-						char sse_reg = 0;
-						if (rhs.reg == 0)
-							sse_reg++;
-						ir_val_aux lhs;
-						GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &ir->assign.lhs, sse_reg);
-
-						correct_inst = base_inst_sse;
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-						
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						FreeSpecificReg(lang_stat, lhs.reg);
-
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_DECL && ir->assign.rhs.type == IR_TYPE_F32)
-					{
-						ir_val_aux lhs;
-						GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						AllocSpecificReg(lang_stat, lhs.reg);
-
-						char sse_reg = 0;
-						if (lhs.reg == 0)
-							sse_reg++;
-						ir_val_aux rhs;
-						GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &ir->assign.rhs, sse_reg);
-
-						correct_inst = base_inst_sse;
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-						
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						FreeSpecificReg(lang_stat, lhs.reg);
-
-					}
-					else if (ir->assign.lhs.type == IR_TYPE_DECL && (ir->assign.rhs.type == IR_TYPE_REG || ir->assign.rhs.type == IR_TYPE_RET_REG))
-					{
-				
-						ir_val_aux lhs;
-						//ir->bin.lhs.deref++;
-						GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
-						//ir->bin.lhs.deref--;
-
-						ir_val_aux rhs;
-						GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
-
-						correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
-
-						GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
-						
-						ir_val_aux dst;
-						GenX64ToIrValReg(lang_stat, ret, &dst, &ir->assign.to_assign, true);
-						
-						byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
-						GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-						if(lhs.reg != PRE_X64_RSP_REG)
-							FreeSpecificReg(lang_stat, lhs.reg);
-					}
-					else
-						ASSERT(false);
-					
-					if (ir->assign.lhs.type == IR_TYPE_REG && ir->assign.to_assign.reg != ir->assign.lhs.reg)
-						FreeSpecificReg(lang_stat, ir->assign.lhs.reg);
-					if (ir->assign.rhs.type == IR_TYPE_REG && ir->assign.to_assign.reg != ir->assign.rhs.reg)
-						FreeSpecificReg(lang_stat, ir->assign.rhs.reg);
-
-
-					AllocSpecificReg(lang_stat, ir->assign.to_assign.reg);
-
-				}break;
-				default:
-					ASSERT(false)
-				}
-				if (is_point)
-					ir->assign.rhs.is_float = saved_float;
-
-			}
 		}break;
 
 		case IR_CAST_INT_TO_F32:
@@ -12529,13 +13671,19 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			switch (ir->bin.rhs.type)
 			{
 			case IR_TYPE_INT:
-			{
-				//TODO
-			}break;
 			case IR_TYPE_REG:
 			{
 				ir_val_aux rhs;
-				GenX64ToIrValReg2(lang_stat, ret, &rhs, &ir->bin.rhs, true);
+				if(ir->bin.rhs.type == IR_TYPE_INT)
+				{
+					char reg = AllocReg(lang_stat);
+					rhs.reg = reg;
+					rhs.reg_sz = 4;
+					GenX64ImmToReg(ret, reg, 4, ir->bin.rhs.i, MOV_I);
+					FreeSpecificReg(lang_stat, reg);
+				}
+				else
+					GenX64ToIrValReg2(lang_stat, ret, &rhs, &ir->bin.rhs, true);
 
 
 				bc.type = CVTSD_REG_2_SS;
@@ -12589,6 +13737,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				{
 				case IR_TYPE_REG:
 				{
+					
 					bc.type = MOVZX_R;
 					bc.bin.lhs.reg = ir->bin.lhs.reg;
 					bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
@@ -12617,6 +13766,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_BEGIN_AND_BLOCK:
 		case IR_BEGIN_OR_BLOCK:
 		case IR_BEGIN_LOOP_BLOCK:
+		case IR_BEGIN_BLOCK:
 		case IR_BEGIN_COND_BLOCK:
 		case IR_BEGIN_IF_BLOCK:
 		{
@@ -12624,11 +13774,75 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			cur->ir = ir;
 			cur->bc_idx = ret.size();
 		}break;
-
-		case IR_INDIRECT_CALL:
 		case IR_BREAK:
+		{
+			int depth = 0;
+
+			block_linked* aux = cur;
+			while (aux->parent)
+			{
+				if (aux->ir->type == IR_BEGIN_LOOP_BLOCK)
+					break;
+				depth++;
+				aux = aux->parent;
+			}
+
+			bc.type = JMP;
+			ret.emplace_back(bc);
+			x64_rel_info rel;
+			rel.bc = ret.size() - 1;
+			aux->rels.emplace_back(rel);
+		}break;
+		case IR_INDIRECT_CALL:
+		{
+			ir_val_aux lhs;
+			switch (ir->bin.lhs.type)
+			{
+			case IR_TYPE_DECL:
+			{
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+			}break;
+			case IR_TYPE_REG:
+			{
+				GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+			}break;
+			}
+			bc.type = INST_CALL_REG;
+			bc.bin.lhs.reg = lhs.reg;
+			bc.bin.lhs.reg_sz = lhs.reg;
+			ret.emplace_back(bc);
+		}break;
 		case IR_CONTINUE:
 		{
+			int depth = 0;
+
+			block_linked* aux = cur;
+			while (aux->parent)
+			{
+				if (aux->parent->ir && aux->parent->ir->type == IR_BEGIN_LOOP_BLOCK)
+					break;
+					depth++;
+				depth++;
+				aux = aux->parent;
+			}
+
+			ASSERT(aux);
+			bc.type = JMP;
+			ret.emplace_back(bc);
+			x64_rel_info rel;
+			rel.bc = ret.size() - 1;
+			aux->rels.emplace_back(rel);
+		}break;
+		case IR_END_BLOCK:
+		{
+			FOR_VEC(r, cur->rels)
+			{
+				byte_code* bc = &ret[r->bc];
+				bc->val = (ret.size()-1) - r->bc;
+			}
+			//EmplaceJmp
+			FreeBlock(cur);
+			cur = cur->parent;
 		}break;
 		case IR_END_LOOP_BLOCK:
 		{
@@ -12716,17 +13930,287 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		}break;
 		case IR_CAST_F32_TO_INT:
 		{
+			int a = 0;
+			switch (ir->bin.rhs.type)
+			{
+			case IR_TYPE_INT:
+			{
+				ASSERT(0);
+				//TODO
+			}break;
+			case IR_TYPE_REG:
+			{
+				ir_val_aux rhs;
+				GenX64ToIrValReg2(lang_stat, ret, &rhs, &ir->bin.rhs, false);
+
+
+				bc.type = MOV_SSE_2_R;
+				FromIrValToBytecodeReg(&ir->bin.lhs, &bc.bin.lhs);
+				bc.bin.lhs.reg_sz = 4;
+				bc.bin.rhs.reg = rhs.reg;
+				bc.bin.rhs.voffset = rhs.voffset;
+				bc.bin.rhs.reg_sz = 1;
+				ret.emplace_back(bc);
+			}break;
+			case IR_TYPE_DECL:
+			{
+				ir_val_aux rhs;
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, false);
+
+
+				bc.type = MOV_SSE_2_R;
+				FromIrValToBytecodeReg(&ir->bin.lhs, &bc.bin.lhs);
+				bc.bin.lhs.reg_sz = 4;
+				bc.bin.rhs.reg = rhs.reg;
+				bc.bin.rhs.voffset = rhs.voffset;
+				bc.bin.rhs.reg_sz = 1;
+				ret.emplace_back(bc);
+			}break;
+			default:
+				ASSERT(false);
+			}
 			//TODO:
 		}break;
-		case IR_END_BLOCK:
-		case IR_BEGIN_BLOCK:
-			break;
 		default:
 			ASSERT(false)
 		}
 		idx++;
+		cur_ir->end = ret.size();
 	}
 	free(cur);
+}
+void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *from, own_std::vector<byte_code2> *to)
+{
+	int idx = 0;
+	FOR_VEC(from_bc, *from)
+	{
+		byte_code2 bc = {};
+		bc.bc_type = from_bc->type;
+		bc.regs = FLAG_SIGNED * from_bc->bin.is_unsigned;
+		switch (from_bc->type)
+		{
+		case INT3:
+		{
+		}break;
+		case INST_LEA:
+		{
+			bc.regs = from_bc->bin.rhs.lea.reg_dst;
+			bc.regs |= from_bc->bin.rhs.lea.reg_base << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.rhs.lea.size)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.rhs.lea.offset;
+		}break;
+		case RELOC:
+		{
+			auto a = 0;
+			bc.rel_type = from_bc->rel.type;
+			switch (bc.rel_type)
+			{
+			case REL_DATA:
+			{
+				bc.regs = from_bc->rel.reg_dst;
+				if (from_bc->rel.is_float)
+				{
+					bc.type = MOV_F_2_SSE;
+					bc.f32 = from_bc->rel.f;
+				}
+				else
+				{
+					bc.type = MOV_I;
+					bc.i = DATA_SECT_OFFSET + from_bc->rel.offset;
+					bc.regs |= GetSizeMin(4)<<REG_SZ_BIT;
+				}
+			}break;
+			case REL_GET_FUNC_ADDR:
+			{
+				char reg_dst = from_bc->rel.reg_dst;
+
+				bc.type = MOV_I;
+				bc.regs = reg_dst;
+				bc.regs |= 2<<REG_SZ_BIT;
+				func_decl* f = from_bc->rel.call_func;
+				ASSERT(IS_FLAG_OFF(f->flags, FUNC_DECL_IS_OUTSIDER));
+				bc.i = f->bcs2_start;
+			}break;
+			case REL_FUNC:
+			{
+				func_decl *f = from_bc->rel.call_func;
+				if(IS_FLAG_ON(f->flags, FUNC_DECL_IS_OUTSIDER | FUNC_DECL_X64))
+				{
+					bc.type = INST_CALL_OUTSIDER;
+					FuncAddedWasm(wasm_state, f->name, &bc.i);
+				}
+				else
+				{
+					bc.type = INST_CALL;
+					bc.i = f->bcs2_start - (idx);
+				}
+			}break;
+			default:
+				ASSERT(0);
+			}
+		}break;
+		case BEGIN_FUNC:
+		case RET:
+		case BEGIN_FUNC_FOR_INTERPRETER:
+		{
+		}break;
+		case MOV_M_2_REG_PARAM:
+		case MOV_M_2_SSE:
+		case MOVSX_M:
+		case ADD_M_2_R:
+		case SUB_M_2_R:
+		case CMP_M_2_R:
+		case AND_M_2_R:
+		case DIV_M_2_R:
+		case MUL_M_2_R:
+		case MOD_M_2_R:
+		case CVTSD_MEM_2_SS:
+		case ADD_MEM_2_SSE:
+		case SUB_MEM_2_SSE:
+		case MUL_MEM_2_SSE:
+		case DIV_MEM_2_SSE:
+		case MOV_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.rhs.voffset;
+		}break;
+		case MOVZX_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.mem_offset = from_bc->bin.rhs.voffset;
+			bc.rhs_and_lhs_reg_sz = GetSizeMin(from_bc->bin.lhs.reg_sz) | GetSizeMin(from_bc->bin.rhs.reg_sz) << 4;
+		}break;
+		case ADD_R_2_R:
+		case CMP_R_2_R:
+		case SUB_R_2_R:
+		case DIV_R_2_R:
+		case MUL_R_2_R:
+		case SQRT_SSE:
+		case AND_R_2_R:
+		case OR_R_2_R:
+		case MOV_SSE_2_SSE:
+		case ADD_SSE_2_SSE:
+		case SUB_SSE_2_SSE:
+		case DIV_SSE_2_SSE:
+		case MUL_SSE_2_SSE:
+		case CMP_SSE_2_SSE:
+		case CVTSD_REG_2_SS:
+		case MOV_R_2_REG_PARAM:
+		case MOV_SSE_2_REG_PARAM:
+		case MOV_SSE_2_R:
+		case MOV_R:
+		case MOVSX_R:
+		case MOD_R_2_R:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+		}break;
+		case MOVZX_R:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.rhs_and_lhs_reg_sz = GetSizeMin(from_bc->bin.lhs.reg_sz) | GetSizeMin(from_bc->bin.rhs.reg_sz) << 4;
+		}break;
+		case CMP_I_2_M:
+		case ADD_I_2_M:
+		case SUB_I_2_M:
+		case MUL_I_2_M:
+		case OR_I_2_M:
+		case AND_I_2_M:
+		case DIV_I_2_M:
+		case STORE_I_2_M:
+		case MOD_I_2_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			//bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.lhs.voffset;
+			bc.i = from_bc->bin.rhs.i;
+		}break;
+		case STORE_REG_PARAM:
+		case MOV_SSE_2_MEM:
+		case ADD_R_2_M:
+		case SUB_R_2_M:
+		case MUL_R_2_M:
+		case CMP_R_2_M:
+		case DIV_R_2_M:
+		case STORE_R_2_M:
+		case AND_R_2_M:
+		case OR_R_2_M:
+		case MOD_R_2_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.lhs.voffset;
+		}break;
+		case ADD_M_2_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.lhs.voffset;
+			bc.mem_offset2 = from_bc->bin.rhs.voffset;
+		}break;
+		case INST_CALL_REG:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+		}break;
+		case JMP_A:
+		case JMP_AE:
+		case JMP_B:
+		case JMP_BE:
+		case JMP:
+		case JMP_L:
+		case JMP_LE:
+		case JMP_E:
+		case JMP_GE:
+		case JMP_G:
+		case JMP_NE:
+		{
+			bc.i = from_bc->val;
+		}break;
+		case ADD_I_2_R:
+		case MOV_I_2_REG_PARAM:
+		case SUB_I_2_R:
+		case CMP_I_2_R:
+		case AND_I_2_R:
+		case OR_I_2_R:
+		case MUL_I_2_R:
+		case DIV_I_2_R:
+		case MOD_I_2_R:
+		case MOV_I:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.i = from_bc->bin.rhs.i;
+		}break;
+		default:
+			ASSERT(0);
+		}
+
+		/*
+		char lhs_reg = bc.regs & 0xf;
+		char rhs_reg = (bc.regs  >> RHS_REG_BIT) & 0xf;
+		if (lhs_reg == PRE_X64_RSP_REG)
+		{
+			bc.regs &= ~0xf;
+			bc.regs |= BC2_RSP_REG;
+		}
+		if (rhs_reg == PRE_X64_RSP_REG)
+		{
+			bc.regs &= ~(0xf << RHS_REG_BIT);
+			bc.regs |= (BC2_RSP_REG) << RHS_REG_BIT;
+		}
+		*/
+
+		to->emplace_back(bc);
+		idx++;
+	}
 }
 #pragma optimize("", off)
 void GenWasm(web_assembly_state* wasm_state)
@@ -13057,7 +14541,10 @@ void GenWasm(web_assembly_state* wasm_state)
 		code_sect.insert(code_sect.begin(), uleb.begin(), uleb.end());
 		INSERT_VEC(final_code_sect, code_sect);
 
-		GenX64BytecodeFromIR(wasm_state->lang_stat, mcode.bcs, *ir, &gen);
+		if (IS_FLAG_OFF(func->flags, FUNC_DECL_X64))
+		{
+			GenX64BytecodeFromIR(wasm_state->lang_stat, mcode.bcs, *ir, &gen);
+		}
 		func->bcs2_end = mcode.bcs.size();
 		x64_funcs.emplace_back(func);
 		wasm_state->lang_stat->global_funcs.emplace_back(func);
@@ -13088,7 +14575,7 @@ void GenWasm(web_assembly_state* wasm_state)
 				asm_test = func;
 		}
 	}
-	FromBcToBc2(&mcode.bcs, &bcs2);
+	FromBcToBc2(wasm_state,	&mcode.bcs, &bcs2);
 	GenX64(wasm_state->lang_stat, mcode.bcs, mcode);
 	CompleteMachineCode(wasm_state->lang_stat, mcode);
 	EndTimer(&tmr);
@@ -14213,6 +15700,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	decl2* release = FindIdentifier("RELEASE", lang_stat->root, &dummy_type);
 	release->type.i = lang_stat->release;
 
+
+
 	
 
 	timer tmr;
@@ -14651,6 +16140,18 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 
 	tp.type = enum_type2::TYPE_CHAR;
 	lang_stat->char_decl = NewDecl(lang_stat, "char", tp);
+
+	tp.type = TYPE_U32;
+	tp.i = lang_stat->release;
+	decl2* glb_dummy = NewDecl(lang_stat, "__global_dummy", tp);
+	glb_dummy->flags = DECL_IS_GLOBAL;
+	glb_dummy->offset = -8;
+	lang_stat->root->vars.push_back(glb_dummy);
+
+
+	lang_stat->dbg_equal = CreateDbgEqualStmnt(lang_stat);
+
+	
 
 	tp.type = TYPE_INT;
 	tp.i = lang_stat->release;

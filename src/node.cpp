@@ -722,7 +722,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		cond = (rhs->type == enum_type2::TYPE_U32 ||
 			rhs->type == enum_type2::TYPE_U16 ||
 			rhs->type == enum_type2::TYPE_U8 ||
-			(rhs->type == enum_type2::TYPE_INT && rhs->i >= 0 && rhs->u64 <= 0xffffffff)
+			(rhs->type == enum_type2::TYPE_INT)
 			);
 		break;
 	case enum_type2::TYPE_U16:
@@ -3256,6 +3256,7 @@ float GetExpressionValT(tkn_type2 tp, float a, float b)
 	case tkn_type2::T_GREATER_EQ:	return a >= b;
 	case tkn_type2::T_COND_EQ:	return a == b;
 	case tkn_type2::T_COND_NE:	return a != b;
+	case tkn_type2::T_EQUAL:	return b;
 	case tkn_type2::T_MINUS:	return a - b;
 	case tkn_type2::T_PLUS:	return a + b;
 	case tkn_type2::T_MUL:	return a * b;
@@ -4239,10 +4240,14 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 	if (!found_decl)
 	{
 		fdecl = it_next->type.fdecl->new_func();
+		func_decl* src_fdecl = it_next->type.fdecl;
 		fdecl->func_node = it_next->type.fdecl->func_node->NewTree(lang_stat);
 
 		// @test fdecl->scp = NewScope(it_next->type.fdecl->scp->parent);
 		fdecl->scp = NewScope(lang_stat, scp);
+		//fdecl->wasm_stmnts = src_fdecl->wasm_stmnts;
+		fdecl->scp->line_start = src_fdecl->scp->line_start;
+		fdecl->scp->line_end = src_fdecl->scp->line_end;
 		//
 
 		fdecl->scp->flags = SCOPE_INSIDE_FUNCTION;
@@ -4328,36 +4333,6 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 	fdecl->this_decl = NewDecl(lang_stat, fdecl->name, tp);
 	//ASSERT(!IsThereAFunction((char *)fdecl->name.c_str()));
 	lang_stat->cur_file->global->AddDecl(fdecl->this_decl);
-	return true;
-}
-bool InstantiateTemplateFunction(lang_state *lang_stat, func_decl* fdecl, own_std::vector<comma_ret>* args)
-{
-	scope* target_scope = fdecl->templates[0].scp;
-	auto templates_types = GetTemplateTypes(lang_stat, &fdecl->templates, args, target_scope, fdecl);
-	if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_TEMPLATES_DECLARED_TO_SCOPE))
-	{
-		fdecl->scp->AssignDecls(templates_types.begin(), templates_types.end());
-		fdecl->flags |= FUNC_DECL_TEMPLATES_DECLARED_TO_SCOPE;
-	}
-
-	// getting the func ret_type
-	auto ret_type = DescendNameFinding(lang_stat, fdecl->func_node->l->r, fdecl->scp);
-	if (!ret_type)
-		return false;
-
-	// getting the func decl args
-	//DescendNode(fdecl->func_node->l->l->r, fdecl->scp);
-	if(!DescendArgsOfModifiedFunc(lang_stat, fdecl))
-	//if (!DescendNameFinding(lang_stat, fdecl->func_node->l->l->r, fdecl->scp))
-		return false;
-
-
-	// getting the scope vars
-	//DescendNode(fdecl->func_node->r, fdecl->scp);
-	if (!DescendNameFinding(lang_stat, fdecl->func_node->r, fdecl->scp))
-		return false;
-
-	DescendNode(lang_stat, fdecl->func_node->r, fdecl->scp);
 	return true;
 }
 void ModifyCommaRetTypes(own_std::vector<comma_ret>* ar, scope* scp)
@@ -8474,6 +8449,29 @@ void ModifyNodeIntOrFloat(type2 &ret_type, node *n)
 		n->t->f = ret_type.f;
 	}
 }
+void ModifyNodeAndDoOperationsIfItsOnlyIntOrFloats(node *n, type2 &ltp, type2 &rtp, type2 &ret_type)
+{
+	ModifyNodeIntOrFloat(ltp, n->l);
+	ModifyNodeIntOrFloat(rtp, n->r);
+	
+
+	ret_type = ltp;
+
+	if (ltp.type == TYPE_INT && rtp.type == TYPE_INT)
+	{
+		n->type = N_INT;
+		n->t->i = GetExpressionValT<int>(n->t->type, ltp.i, rtp.i);
+		ret_type.i = n->t->i;
+		//GetExpressionVal(n);
+	}
+	if (ltp.type == TYPE_F32_RAW && rtp.type == TYPE_F32_RAW)
+	{
+		n->type = N_FLOAT;
+		n->t->f = GetExpressionValT<float>(n->t->type, ltp.f, rtp.f);
+		ret_type.f = n->t->f;
+		//GetExpressionVal(n);
+	}
+}
 // $DescendNode
 type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 {
@@ -8671,6 +8669,14 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		// cond
 		if (n->l != nullptr)
 		{
+			if(n->l->type == N_KEYWORD && n->l->kw == KW_FALSE)
+			{
+				n->r->type = N_EMPTY;
+			}
+			else if(n->l->type == N_KEYWORD && n->l->kw == KW_TRUE)
+			{
+				n->l->type = N_EMPTY;
+			}
 			DescendNode(lang_stat, n->l, scp);
 		}
 		//checking if the scope isn't zero and descending it
@@ -9582,8 +9588,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			type2 ltp = DescendNode(lang_stat, n->l, scp);
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
 
-			if (!CompareTypes(&ltp, &rtp))
-				ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 			ret_type = ltp;
 
 			// creating an implict "... == true"
@@ -9611,6 +9615,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			type2 ltp = DescendNode(lang_stat, n->l, scp);
 
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
+			//ModifyNodeAndDoOperationsIfItsOnlyIntOrFloats(n, ltp, rtp, ret_type);
 
 			if (ltp.type == TYPE_INT)
 			{

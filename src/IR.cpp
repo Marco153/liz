@@ -971,8 +971,10 @@ void AllocSpecificReg(lang_state* lang_stat, char idx)
 }
 char AllocReg(lang_state* lang_stat)
 {
-	for (int i = 0; i < 7; i++)
+	for (int i = 0; i < 8; i++)
 	{
+		if (i == PRE_X64_RSP_REG)
+			continue;
 		if (IS_FLAG_OFF(lang_stat->regs[i], REG_FREE_FLAG))
 		{
 			lang_stat->regs[i] |= REG_FREE_FLAG;
@@ -1088,6 +1090,8 @@ bool IsCondAndOr(tkn_type2 t)
 }
 void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out)
 {
+	if (ast->type == AST_EMPTY)
+		return;
 	ir_rep ir = {};
 	if (ast->type == AST_BINOP && ast->op != T_POINT)
 	{
@@ -1647,8 +1651,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				{
 					ir.bin.lhs.type = IR_TYPE_DECL;
 					ir.bin.lhs.decl = e->call.func_ptr_var;
+					ir.bin.lhs.deref = 0;
 				}
-				ir.bin.lhs.deref = 0;
 				ir.bin.lhs.is_float = false;
 			}
 			/*
@@ -2111,7 +2115,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.type = IR_CAST_INT_TO_INT;
 				ir.bin.lhs.type = IR_TYPE_REG;
 				ir.bin.lhs.deref = -1;
-				ir.bin.lhs.reg_sz = top->reg_sz;
+				ir.bin.lhs.reg_sz = GetTypeSize(&e->cast.type);
 				if (top->type == IR_TYPE_REG)
 					ir.bin.lhs.reg = top->reg;
 				else
@@ -2198,7 +2202,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.type = IR_CAST_INT_TO_INT;
 					ir.bin.lhs.type = IR_TYPE_REG;
 					ir.bin.lhs.deref = -1;
-					ir.bin.lhs.reg_sz = top->reg_sz;
+					//ir.bin.lhs.reg_sz = top->reg_sz;
+					ir.bin.lhs.reg_sz = GetTypeSize(&e->cast.type);
 					if (top->type == IR_TYPE_REG)
 						ir.bin.lhs.reg = top->reg;
 					else
@@ -2432,7 +2437,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.type = IR_ASSIGNMENT;
 				ir.assign.to_assign.type = IR_TYPE_REG;
 				ir.assign.to_assign.deref = -1;
-				ir.assign.to_assign.reg_sz = 8;
+				ir.assign.to_assign.reg_sz = one_minus_top->reg_sz;
 				ir.assign.op = e->op;
 				ir.assign.only_lhs = false;
 				ir.assign.lhs = stack[stack.size() - 2];
@@ -3493,5 +3498,22 @@ void CompileDo(lang_state* lang_stat, node* n, scope* scp)
 	own_std::vector<ir_rep> irs;
 	GetIRFromAst(lang_stat, ast, &irs);
 	WasmIrInterp(lang_stat->dstate, (own_std::vector<int>  *)&irs);
+
+}
+
+ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat)
+{
+	ast_rep *bin = NewAst();
+	ast_rep *lhs = NewAst();
+	ast_rep *rhs = NewAst();
+
+	lhs->type = AST_IDENT;
+	lhs->decl = FindIdentifier("__global_dummy", lang_stat->root, &rhs->lhs_tp);
+
+	bin->type = AST_BINOP;
+	bin->op = T_EQUAL;
+	bin->expr.emplace_back(lhs);
+	bin->expr.emplace_back(rhs);
+	return bin;
 
 }

@@ -2,7 +2,7 @@
 #include<string>
 
 struct lang_state;
-enum tkn_type2
+enum tkn_type2 : unsigned char
 {
 	T_WORD,
 	T_PLUS,

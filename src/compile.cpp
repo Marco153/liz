@@ -8461,6 +8461,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case SUB_MEM_2_SSE:
 	case DIV_MEM_2_SSE:
 	case MUL_MEM_2_SSE:
+	case CMP_MEM_2_SSE:
 	case MOV_M_2_SSE:
 	{
 		 inst_name = InstToStr(bc->bc_type);
@@ -8715,6 +8716,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	case SUB_R_2_R:
 	case DIV_R_2_R:
 	case MUL_R_2_R:
+	case MOD_R_2_R:
 	case ADD_R_2_R:
 	case AND_R_2_R:
 	case OR_R_2_R:
@@ -8792,6 +8794,16 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		*eflags = 0;
 
 		DoCmpInst(dst, *reg_src_ptr, eflags, sz);
+		//bool sgnd =
+	}break;
+	case CMP_MEM_2_SSE:
+	{
+		auto reg_src_ptr = (float*)GetMemValPtr(dbg, reg_src, mem_offset);
+		auto reg_dst_ptr = (float*)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+		DoCmpInstFloat(*reg_dst_ptr, *reg_src_ptr, eflags);
 		//bool sgnd =
 	}break;
 	case CMP_SSE_2_MEM:
@@ -13051,6 +13063,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_CMP_EQ:
 		case IR_CMP_NE:
 		{
+			// CMP D I
 			if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
 			{
 				ir_val_aux lhs;
@@ -13070,6 +13083,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					GenX64ImmToReg(ret, lhs.reg, lhs.reg_sz, rhs.i, CMP_I_2_R);
 				}
 			}
+			//CMP R F
 			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_F32)
 			{
 				ir_val_aux lhs;
@@ -13088,6 +13102,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				bc.bin.rhs.reg = sse_reg;
 				ret.emplace_back(bc);
 			}
+			// CMP D F
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_F32)
 			{
 				ir_val_aux lhs;
@@ -13110,6 +13125,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 				FreeSpecificReg(lang_stat, lhs.reg);
 			}
+			// CMP R RARG
 			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_ARG_REG)
 			{
 				ir_val_aux lhs;
@@ -13120,6 +13136,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 				GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, CMP_R_2_R);
 			}
+			// CMP R I
 			else if ((ir->bin.lhs.type == IR_TYPE_RET_REG || ir->bin.lhs.type == IR_TYPE_REG) && ir->bin.rhs.type == IR_TYPE_INT)
 			{
 				ir_val_aux lhs;
@@ -13142,10 +13159,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 				GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, CMP_SSE_2_SSE);
 			}
+			// CMP R D
 			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
 			{
 				ir_val_aux lhs;
-				GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+				GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->bin.lhs, false);
 
 				ir_val_aux rhs;
 				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, true);
@@ -13157,7 +13175,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				if (rhs.reg == PRE_X64_RSP_REG)
 				{
 					if (lhs.is_float)
-						inst = CMP_SSE_2_MEM;
+						inst = CMP_MEM_2_SSE;
 					GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, inst);
 				}
 				else
@@ -13694,6 +13712,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case SUB_MEM_2_SSE:
 		case MUL_MEM_2_SSE:
 		case DIV_MEM_2_SSE:
+		case CMP_MEM_2_SSE:
 		case MOV_M:
 		{
 			bc.regs = from_bc->bin.lhs.reg;

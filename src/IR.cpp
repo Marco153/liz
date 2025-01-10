@@ -971,9 +971,9 @@ void AllocSpecificReg(lang_state* lang_stat, char idx)
 }
 char AllocReg(lang_state* lang_stat)
 {
-	for (int i = 0; i < 8; i++)
+	for (int i = 0; i < 9; i++)
 	{
-		if (i == PRE_X64_RSP_REG)
+		if (i == PRE_X64_RSP_REG || i == AUX_DECL_REG)
 			continue;
 		if (IS_FLAG_OFF(lang_stat->regs[i], REG_FREE_FLAG))
 		{
@@ -1731,8 +1731,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.to_assign.is_float = false;
 				ir.assign.only_lhs = true;
 
-				ir.assign.lhs.type = IR_TYPE_RET_REG;
-				ir.assign.lhs.reg = 0;
+				ir.assign.lhs.type = val.type;
+				ir.assign.lhs.reg = val.reg;
 				ir.assign.lhs.reg_sz = 8;
 				ir.assign.lhs.deref = -1;
 				out->emplace_back(ir);
@@ -1957,7 +1957,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 			}
 			*/
-			top->deref++;
+			//if(IS_FLAG_OFF(top->reg_ex, IR_VAL_FROM_POINT))
+				top->deref++;
 			top->ptr = max(top->ptr - 1, 0);
 			top->reg_sz = GetTypeSize(&e->deref.type);
 			top->reg_sz = min(top->reg_sz, 8);
@@ -2174,6 +2175,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.to_assign.reg_sz = 8;
 				ir.assign.only_lhs = true;
 				ir.assign.lhs = *top;
+				ir.assign.lhs.is_float = e->cast.type.IsFloat();
 				ir.assign.lhs.deref = 0;
 
 				out->emplace_back(ir);
@@ -2872,6 +2874,26 @@ void GenLhsEqual(lang_state* lang_stat, ast_rep* lhs_ast, type2 *lhs_tp, own_std
 	*assign = ir.assign.to_assign;
 	*/
 }
+short MaybeAllocDiffAssignReg(lang_state* lang_stat, ir_rep &ir, own_std::vector<ir_rep> *out) 
+{
+	char final_reg = ir.assign.to_assign.reg;
+	if (ir.assign.to_assign.type == IR_TYPE_REG && ir.assign.to_assign.deref >=0)
+	{
+		final_reg = AllocReg(lang_stat);
+		ir_rep new_ir = {};
+		new_ir.type = IR_ASSIGNMENT;
+		new_ir.assign.to_assign.type = IR_TYPE_REG;
+		new_ir.assign.to_assign.reg = final_reg;
+		new_ir.assign.to_assign.reg_sz = 8;
+		new_ir.assign.to_assign.deref = -1;
+		new_ir.assign.only_lhs = true;
+		new_ir.assign.lhs = ir.assign.to_assign;
+		new_ir.assign.lhs.deref = -1;
+		out->emplace_back(new_ir);
+		
+	}
+	return final_reg;
+}
 void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *out, ir_val *top)
 {
 	ir_rep ir = {};
@@ -3071,6 +3093,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			ir.assign.to_assign.deref++;
 		if (IsIrValFloat(&ir.assign.lhs))
 			ir.assign.to_assign.is_float = true;
+		ir.assign.to_assign.reg = MaybeAllocDiffAssignReg(lang_stat, ir, out);
 
 		out->emplace_back(ir);
 		//ir.assign.rhs.ptr++////;
@@ -3163,6 +3186,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			//GetIRVal(lang_stat, ast->expr[0], &ir.assign.to_assign);
 			if (ast->op == T_PLUS_EQUAL || ast->op == T_MINUS_EQUAL)
 			{
+				short final_reg = MaybeAllocDiffAssignReg(lang_stat, ir, out);
 				ir.assign.only_lhs = false;
 				ir.assign.op = ast->op == T_PLUS_EQUAL ? T_PLUS : T_MINUS;
 				ir.assign.rhs = ir.assign.lhs;
@@ -3170,6 +3194,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ir.assign.lhs.deref = 0;
 				ir.assign.lhs.is_unsigned = ir.assign.rhs.is_unsigned;
 				ir.assign.lhs.is_float = ir.assign.rhs.is_float;
+				ir.assign.to_assign.reg = final_reg;
 
 				if (IsIrValFloat(&ir.assign.lhs))
 					ir.assign.to_assign.is_float = true;
@@ -3323,6 +3348,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		lang_stat->ir_in_stmnt = false;
 		int block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_BLOCK);
 		int loop_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_LOOP_BLOCK);
+		int sub_block_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_BLOCK);
 		int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)ast->line_number);
 		//int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
 		GetIRCond(lang_stat, ast->loop.cond, out);
@@ -3333,6 +3359,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			GetIRFromAst(lang_stat, ast->loop.scope, out);
 		}
 
+		IRCreateEndBlock(lang_stat, sub_block_idx, out, IR_END_BLOCK);
 		//IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_IF_BLOCK);
 		IRCreateEndBlock(lang_stat, loop_idx, out, IR_END_LOOP_BLOCK);
 		IRCreateEndBlock(lang_stat, block_idx, out, IR_END_BLOCK);

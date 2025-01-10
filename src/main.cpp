@@ -3126,6 +3126,10 @@ void LoadTexFolder(dbg_state* dbg)
 
 	auto gl_state = (open_gl_state*)dbg->data;
 	gl_state->texture_folder = folder_name;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
 	std::string work_dir = dbg->cur_func->from_file->path;
 	//MaybeAddBarToEndOfStr(&work_dir);
 
@@ -3965,10 +3969,12 @@ void OpenLocalsWindow(dbg_state* dbg)
 	int stack_base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	int line = *(int*)&dbg->mem_buffer[stack_base_ptr + 8];
 
+	byte_code2 *addr = *(byte_code2 **)&dbg->mem_buffer[RIP_REG * 8];
 
-	scope *scp = FindScpWithLine(dbg->cur_func, line);
+	func_decl *fdecl = GetFuncBasedOnBc2(dbg, addr);
+	scope *scp = FindScpWithLine(fdecl, line);
 	ASSERT(scp);
-	BeginLocalsChild(*dbg, base_ptr, scp);
+	BeginLocalsChild(*dbg, base_ptr + 8, scp);
 	//ImGui::Text("AOe");
 	///glfwSwapBuffers(window);
 }

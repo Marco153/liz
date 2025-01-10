@@ -472,6 +472,7 @@ struct decl2
 	union
 	{
 		decl2* len_for_ptr;
+		u64 len_for_ptr_offset;
 		std::string len_for_ptr_name;
 	};
 

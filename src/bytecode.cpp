@@ -707,6 +707,9 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		bc->machine_code_idx = ret.code.size();
 		switch(bc->type)
 		{
+		case NOP:
+		{
+		}break;
 		case BEGIN_FUNC:
 		{
 			func_decl* fdecl = bc->fdecl;
@@ -1031,7 +1034,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			if (bc->bin.lhs.reg <= 9)
 			{
-				bc->bin.lhs.reg = bc->bin.lhs.reg - 6;
+				//bc->bin.lhs.reg = bc->bin.lhs.reg - 6;
 				CreateSSERegToSSEReg(&*bc, 0x10, &ret);
 			}
 			else
@@ -1224,9 +1227,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			Create0FMemToReg(&*bc, 0x2f, &ret);
 		}break;
 		case CMP_SSE_2_MEM:
-			// not handled
-			ASSERT(false)
-			CreateSSERegToMem(&*bc, 0x58, &ret);
+		{
+			char src = bc->bin.rhs.reg;
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x2f);
+
+			AddModRM(true, bc->bin.lhs.voffset, dst, src & 0xf, ret);
+			if (bc->bin.lhs.voffset != 0)
+				AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
+		}
 		break;
 		case CMP_SSE_2_RMEM:
 			// not handled
@@ -1705,6 +1715,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case RET:
 		{
 			ret.code.emplace_back(0xc3);
+		}break;
+		case DIV_R_2_R:
+		{
+			//TODO
 		}break;
 		case DIV_I_2_R:
 		{
@@ -2675,10 +2689,13 @@ void MovFloatToSSEReg2(lang_state *lang_stat, char reg, float f, own_std::vector
 
 	// this will insert a movss instruction to xmm0
 	ret->emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), xmm_r));
-	byte_code* last = &ret->back();
-	last->rel.is_float = true;
-	last->rel.f = f;
-	last->rel.reg_dst = reg;
+	if (lang_stat->is_x64_bc_backend)
+	{
+		byte_code* last = &ret->back();
+		last->rel.is_float = true;
+		last->rel.f = f;
+		last->rel.reg_dst = reg;
+	}
 	InsertIntoDataSect(lang_stat, (void *)&f, sizeof(float));
 }
 void MovFloatToSSEReg(lang_state *lang_stat, char reg, float f, descend_func_ret *ret)

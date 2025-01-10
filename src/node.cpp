@@ -8,6 +8,7 @@
 //#include "FileIO.cpp"
 
 #define CMP_NTYPE(a, t) ((a)->type == node_type::t)
+#define CMP_NTYPE_BIN(a, ttype) ((a)->type == node_type::N_BINOP && (a)->t->type == ttype)
 
 void AddStructMembersToScopeWithUsing(lang_state*, type_struct2* decl, scope* scp, node* by_name_nd);
 node* parse_expression(own_std::vector<token2>* tkns, int precedence);
@@ -8055,7 +8056,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					ASSERT(ret_type.ptr > 0)
 				}
 				if (ret_type.type == TYPE_INT)
-					ret_type.type = TYPE_S32_TYPE;
+					ret_type.type = TYPE_S64_TYPE;
 				else if (ret_type.type >= TYPE_U8 && ret_type.type <= TYPE_CHAR)
 				{
 					ret_type.type = FromVarTypeToType(ret_type.type);

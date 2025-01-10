@@ -3,7 +3,7 @@ typedef unsigned int u32;
 typedef unsigned char u8;
 typedef long long s64;
 
-#define WASM_DBG
+//#define WASM_DBG
 
 #ifndef FOR_VEC
 #define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
@@ -53,12 +53,14 @@ typedef long long s64;
 #define DATA_SECT_OFFSET 1024 * 1024 * 4
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
-#define STACK_PTR_REG 8
-#define BASE_STACK_PTR_REG 9
-#define RET_1_REG 10
-#define RET_2_REG 11
-#define FILTER_PTR 12
-#define FLOAT_REG_0 13
+#define STACK_PTR_REG 10
+#define BASE_STACK_PTR_REG 11
+#define RET_1_REG 12
+#define RET_2_REG 13
+#define FILTER_PTR 14
+// we have a few float registers up to 33
+#define FLOAT_REG_0 15
+#define RIP_REG 34
 #define GLOBALS_OFFSET 11000
 
 //#define DEBUG_GLOBAL_NOT_FOUND 
@@ -353,6 +355,7 @@ struct lang_state
 	bool release;
 	gen_enum gen_type;
 	
+	bool is_x64_bc_backend;
 
 
 	
@@ -2711,6 +2714,7 @@ bool FindVarWithOffset(func_decl *func, int offset, decl2 **out, int line)
 enum dbg_break_type
 {
 	DBG_NO_BREAK,   
+	DBG_BREAK_RIP_CORRUPTED,
 	DBG_BREAK_ON_DIFF_STAT,
 	DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC,
 	DBG_BREAK_ON_NEXT_STAT,
@@ -2733,6 +2737,7 @@ enum dbg_print_numbers_format
 struct dbg_expr2
 {
 	decl2 d;
+	int multiple_vals;
 	int offset;
 	std::string str;
 	std::string val;
@@ -2779,6 +2784,7 @@ struct dbg_state
 	wasm_bc **cur_bc;
 	byte_code2 **cur_bc2;
 	ir_rep *cur_ir;
+	byte_code2* prev_valid_bc;
 	union
 	{
 		ir_rep* prev_break_ir;
@@ -2800,6 +2806,7 @@ struct dbg_state
 	own_std::vector<block_linked *> block_stack;
 	own_std::vector<wasm_bc*> return_stack;
 	own_std::vector<ir_rep*> return_stack_ir;
+	own_std::vector<byte_code2 **> return_stack_bc2;
 	own_std::vector<wasm_bc> bcs;
 	own_std::vector<wasm_stack_val> wasm_stack;
 	own_std::vector<dbg_expr *> exprs;
@@ -3256,10 +3263,10 @@ std::string WasmIrAssignment(dbg_state* dbg, assign_info* assign)
 	return ret;
 
 }
-std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
+void WasmIrToString(dbg_state* dbg, ir_rep *ir, std::string &ret)
 {
 	char buffer[128];
-	std::string ret="";
+	ret="";
 	switch (ir->type)
 	{
 	case IR_RET:
@@ -3377,6 +3384,14 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	{
 		ret = "end if block\n";
 	}break;
+	case IR_END_AND_BLOCK:
+	{
+		ret = "end and block\n";
+	}break;
+	case IR_BEGIN_AND_BLOCK:
+	{
+		ret = "begin and block\n";
+	}break;
 	case IR_BEGIN_IF_BLOCK:
 	{
 		ret = "begin if block\n";
@@ -3399,7 +3414,6 @@ std::string WasmIrToString(dbg_state* dbg, ir_rep *ir)
 	default:
 		ASSERT(0);
 	}
-	return ret;
 }
 
 void WasmGetIrWithIdx(dbg_state* dbg, func_decl *func, int idx, ir_rep **ir_start, int *len_of_same_start, int start = -1, int end = -1)
@@ -3430,77 +3444,6 @@ void WasmGetIrWithIdx(dbg_state* dbg, func_decl *func, int idx, ir_rep **ir_star
 	*ir_start = nullptr;
 }
 
-std::string WasmPrintCodeGranular(dbg_state* dbg, func_decl *fdecl, wasm_bc *cur_bc, int code_start, int code_end, int max_ir = -1, bool center_cur = true, bool print_bc = true)
-{
-	std::string ret = "";
-	int i = 0;
-	//int offset = dbg->
-
-	int start_bc = code_start;
-	int end_bc = code_end;
-
-	if (center_cur)
-	{
-		int window = 8;
-		int half_window = window / 2;
-		int cur_bc_idx = cur_bc - dbg->bcs.begin();
-		start_bc = max(code_start, cur_bc_idx - half_window);
-		end_bc = min(cur_bc_idx + half_window, dbg->bcs.size());
-	}
-	wasm_bc* stat_begin = dbg->bcs.begin() + start_bc;
-	wasm_bc* cur = stat_begin;
-
-	char buffer[512];
-
-	if (max_ir == -1)
-	{
-		max_ir = start_bc - end_bc;
-		max_ir++;
-	}
-	//max = max(max, 16);
-
-	while (i < max_ir && cur < dbg->bcs.end())
-	{
-		int bc_on_stat_rel_idx = cur - stat_begin;
-		int bc_on_stat_abs_idx = bc_on_stat_rel_idx + start_bc;
-		ir_rep* ir = nullptr;
-		int len_ir = 0;
-		WasmGetIrWithIdx(dbg, fdecl, bc_on_stat_abs_idx, &ir, &len_ir, start_bc, start_bc + max_ir);
-		std::string ir_str = "";
-		if (ir)
-		{
-			while (len_ir > 0)
-			{
-				std::string ir_str = WasmIrToString(dbg, ir);
-				if (ir_str != "")
-				{
-					std::string ir_idx_str = WasmNumToString(dbg, ir->idx);
-					snprintf(buffer, 512, ANSI_YELLOW "%s: %s" ANSI_RESET, ir_idx_str.c_str(), ir_str.c_str());
-					ret += buffer;
-				}
-				len_ir--;
-				ir++;
-			}
-		}
-		if (print_bc)
-		{
-			std::string bc_str = WasmGetBCString(dbg, fdecl, cur, &dbg->bcs);
-			std::string bc_rel_idx = WasmNumToString(dbg, i, 3);
-
-			if (cur == cur_bc)
-				snprintf(buffer, 512, ANSI_BG_WHITE ANSI_BLACK "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
-			else if (cur->dbg_brk)
-				snprintf(buffer, 512, ANSI_RED "%s:%s" ANSI_RESET, bc_rel_idx.c_str(), bc_str.c_str());
-			else
-				snprintf(buffer, 512, "%s:%s", bc_rel_idx.c_str(), bc_str.c_str());
-			ret += buffer;
-			ret += "\n";
-		}
-		i++;
-		cur++;
-	}
-	return ret;
-}
 std::string WasmPrintVars(dbg_state *dbg)
 {
 	std::string ret = "";
@@ -4161,11 +4104,13 @@ void WasmPrintExpressions(dbg_state* dbg)
 	}
 }
 
+/*
 void WasmPrintStackAndBcs(dbg_state* dbg, int max_bcs = -1)
 {
 	printf("%s\n", WasmPrintCodeGranular(dbg, dbg->cur_func, *dbg->cur_bc, dbg->cur_st->start, dbg->cur_st->end, max_bcs).c_str());
 	printf("%s\n", WasmGetStack(dbg).c_str());
 }
+*/
 
 void WasmBreakOnNextStmnt(dbg_state* dbg, bool *args_break)
 {
@@ -5387,6 +5332,7 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, std::string &str, int stack_reg, int lin
 	__lang_globals.data = (void *)dbg->dbg_alloc;
 
 	ast_rep* ast;
+	node* len = nullptr;
 	node* n;
 	{
 		own_std::vector<token2> tkns;
@@ -5394,6 +5340,13 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, std::string &str, int stack_reg, int lin
 		node_iter niter(&tkns, dbg->lang_stat);
 		dbg->lang_stat->use_node_arena = true;
 		n = niter.parse_all();
+
+		int dummy_prec = 0;
+		if (CMP_NTYPE_BIN(n, T_COMMA))
+		{
+			len = n->r;
+			n = n->l;
+		}
 
 		ast = AstFromNode(dbg->lang_stat, n, scp);
 	}
@@ -5445,6 +5398,15 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, std::string &str, int stack_reg, int lin
 		dbg_equal->expr[1] = ast;
 		GetIRFromAst(dbg->lang_stat, dbg_equal, &exp->irs);
 	}
+	if (len)
+	{
+		type2 tp = DescendNode(dbg->lang_stat, len, scp);
+		ASSERT(tp.type == TYPE_INT && exp->d.type.ptr > 0);
+		exp->d.flags = DECL_PTR_HAS_LEN;
+		exp->d.len_for_ptr_offset = 8;
+		exp->multiple_vals = tp.i;
+
+	}
 	exp->d.name = str.substr();
 	dbg->exprs2.emplace_back(exp);
 
@@ -5453,21 +5415,38 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, std::string &str, int stack_reg, int lin
 
 
 void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl);
+u64* GetMemValPtr(dbg_state* dbg, short reg, int offset);
 void ShowExprWindow(dbg_state& dbg, int stack_reg, int line)
 {
 	char buffer[128];
-	ImGui::BeginChild("expr", ImVec2(500.0, 200.0));
+	ImGui::BeginChild("expr", ImVec2(500.0, 400.0));
 
 	FOR_VEC(e_ptr, dbg.exprs2)
 	{
 		dbg_expr2* e = *e_ptr;
+		auto reg_val = (u64 *)&dbg.mem_buffer[e->offset - 16];
+		u64 saved_val = *(reg_val);
+		u64 saved_val2 = *(reg_val + 1);
+
+		if (IS_FLAG_ON(e->d.flags, DECL_PTR_HAS_LEN))
+		{
+			*(reg_val + 1) = e->multiple_vals;
+		}
+		if (e->d.type.ptr > 0)
+		{
+			*(reg_val) = e->offset;
+		}
+
 
 		if (e->d.type.type != TYPE_STRUCT)
 		{
 			ImGui::Text("%s: %d", e->d.name.c_str(), e->offset);
 		}
 		else
-			ImGuiPrintVar(buffer, dbg, &e->d, e->offset, 0);
+			ImGuiPrintVar(buffer, dbg, &e->d, e->offset - 16, e->d.type.ptr);
+
+		*(reg_val) = saved_val;
+		*(reg_val + 1) = saved_val2;
 	}
 
 	ImGui::InputText("##addexpr", buffer, 128);
@@ -5739,6 +5718,7 @@ void PrintExpressionTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 
 }
 
+/*
 //void UpdateLastTime(dbg_state* dbg);
 void WasmOnArgs(dbg_state* dbg)
 {
@@ -5754,7 +5734,7 @@ void WasmOnArgs(dbg_state* dbg)
 			if ((dbg->break_type == DBG_BREAK_ON_NEXT_BC)
 				|| (*dbg->cur_bc)->dbg_brk || (*dbg->cur_bc)->one_time_dbg_brk)
 			{
-				WasmPrintStackAndBcs(dbg, 16);
+				//WasmPrintStackAndBcs(dbg, 16);
 			}
 			dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
 			(*dbg->cur_bc)->one_time_dbg_brk = false;
@@ -5841,12 +5821,6 @@ void WasmOnArgs(dbg_state* dbg)
 
 		//std::cin >> input;
 		own_std::vector<std::string> args;
-		/*
-		if (dbg_state == DBG_STATE_ON_LANG)
-			printf("WASM:");
-		else
-			printf("LANG:");
-			*/
 
 		own_std::vector<token2> tkns;
 		Tokenize2((char*)input.c_str(), input.size(), &tkns);
@@ -5907,20 +5881,13 @@ void WasmOnArgs(dbg_state* dbg)
 					}
 				}
 
-				std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines, true, print_bc);
+				//std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines, true, print_bc);
 				printf("%s\n", ret.c_str());
 			}
 			else if (tkns[i].str == "ex")
 			{
 				i++;
 				std::string exp_str = "";
-				/*
-				for (int i = 2; i < tkns.size(); i++)
-				{
-					//std::string cur = std::string(args[i]);;
-					exp_str += tkns[i].str;
-				}
-				*/
 				tkns.ar.start += i;
 				PrintExpressionTkns(dbg, &tkns);
 				tkns.ar.start -= i;
@@ -6246,6 +6213,7 @@ void WasmOnArgs(dbg_state* dbg)
 	}
 	//UpdateLastTime(dbg);
 }
+*/
 
 void JsPrint(dbg_state* dbg)
 {
@@ -6312,6 +6280,7 @@ struct type_dbg
 				unit_file *file;
 			};
 		}imp;
+		int struct_type_offset;
 		str_dbg name;
 		type_struct2 *strct;
 		decl2 *e_decl;
@@ -6694,7 +6663,8 @@ int WasmSerializeType(web_assembly_state* wasm_state, serialize_state* ser_state
 	{
 		type->type = tp->type;
 		type->ptr = tp->ptr;
-		type->strct = tp->strct;
+		if(tp->type == TYPE_STRUCT)
+			type->struct_type_offset = tp->strct->serialized_type_idx;
 	}
 	return offset;
 
@@ -7258,8 +7228,10 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 
 		}break;
 		case TYPE_STATIC_ARRAY:
+		{
 			tp.ar_size = cur_var->ar_size;
-			break;
+
+		}break;
 		case TYPE_ENUM:
 		{
 			auto type_strct = (type_dbg*)(data + file->types_sect + cur_var->type_idx);
@@ -7314,7 +7286,11 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			auto ar_tp = (type2 *)AllocMiscData(lang_stat, sizeof(type2));
 			ar_tp->type = type->type;
 			ar_tp->ptr = type->ptr;
-			ar_tp->strct = type->strct;
+			if (ar_tp->type == TYPE_STRUCT)
+			{
+				auto strct_tp = (type_dbg*)(data + file->types_sect + type->struct_type_offset);
+				ar_tp->strct = strct_tp->strct;
+			}
 			d->type.tp = ar_tp;
 		}
 		if (d->type.type == TYPE_ENUM)
@@ -8210,27 +8186,30 @@ u64 *GetMemValPtr(dbg_state *dbg, short reg, int offset)
 	u64 offset_ = *reg_src_ptr + offset;
 	return (u64*)&dbg->mem_buffer[offset_];
 }
-std::string GetRegStr(short reg, char sz)
+char * GetRegStr(short reg, char sz, char *buffer)
 {
-	std::string ret = "r" + std::to_string(reg);
+	//std::string ret = "r" + std::to_string(reg);
+	char sz_char;
 	switch (sz)
 	{
 	case 0:
-		ret += 'b';
+		sz_char = 'b';
 		break;
 	case 1:
-		ret += 'w';
+		sz_char = 'w';
 		break;
 	case 2:
-		ret += 'd';
+		sz_char = 'd';
 		break;
 	case 3:
-		ret += 'q';
+		sz_char = 'q';
 		break;
 	}
-	return ret;
+	sprintf(buffer, "r%c%d", sz_char, reg);
+	return buffer;
 }
-std::string SizeToStr(char sz)
+
+char *SizeToStr(char sz)
 {
 	switch (sz)
 	{
@@ -8245,23 +8224,24 @@ std::string SizeToStr(char sz)
 	default:
 		return "unknown size";
 	}
+	return nullptr;
 }
-std::string InstToStr(byte_code_enum type)
+char *InstToStr(byte_code_enum type)
 {
 	INSTS_SWITCH(type, return "add", return "sub", return "cmp", return "mov", return "lea", return "or", return "and", return "mod", return "mul", return "div");
 }
-std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
+void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 {
-	char buffer[128];
-	std::string ret;
 	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
 	short reg_dst = bc->regs & 0x3f;
 	int imm = bc->i;
 	int mem_offset = bc->mem_offset;
 	char sz = bc->regs >> REG_SZ_BIT;
-	std::string sz_str = SizeToStr(sz);
-	std::string reg_src_str = GetRegStr(reg_src, sz);
-	std::string reg_dst_str = GetRegStr(reg_dst, sz);
+	char* sz_str = SizeToStr(sz);
+
+	char* reg_src_str = GetRegStr(reg_src, sz, buffer + 64);
+	char* reg_dst_str = GetRegStr(reg_dst, sz, buffer + 128);
+	char* inst_name;
 	switch (bc->bc_type)
 	{
 	case RELOC:
@@ -8270,8 +8250,8 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 		{
 		case REL_DATA:
 		{
-			snprintf(buffer, 128, "rel_data %s, %d",reg_dst_str.c_str(), imm);
-			ret = buffer;
+			snprintf(buffer, 128, "rel_data %s, %d",reg_dst_str, imm);
+			
 		}break;
 		default:
 			ASSERT(0);
@@ -8279,35 +8259,36 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	}break;;
 	case BEGIN_FUNC:
 	{
-		ret = "begin func";
+		sprintf(buffer, "%s", "begin func");
+		//ret = "begin func";
 	}break;;
 	case BEGIN_FUNC_FOR_INTERPRETER:
 	{
 	}break;
 	case CVTSD_REG_2_SS:
 	{
-		snprintf(buffer, 128, "cvtsd xmm%d, %s", reg_dst, reg_src_str.c_str());
-		ret = buffer;
+		snprintf(buffer, 128, "cvtsd xmm%d, %s", reg_dst, reg_src_str);
+		
 	}break;
 	case MOVZX_M:
 	{
 		char lhs_sz = bc->rhs_and_lhs_reg_sz & 0xf;
 		char rhs_sz = bc->rhs_and_lhs_reg_sz >> 4;
 
-		reg_dst_str = GetRegStr(reg_dst, lhs_sz);
-		reg_src_str = GetRegStr(reg_src, rhs_sz);
-		snprintf(buffer, 128, "movzx %s, %s[%s + %d]", reg_dst_str.c_str(), sz_str.c_str(), reg_src_str.c_str(), mem_offset);
-		ret = buffer;
+		reg_dst_str = GetRegStr(reg_dst, lhs_sz, buffer + 64);
+		reg_src_str = GetRegStr(reg_src, rhs_sz, buffer + 128);
+		snprintf(buffer, 128, "movzx %s, %s[%s + %d]", reg_dst_str, sz_str, reg_src_str, mem_offset);
+		
 	}break;
 	case MOVZX_R:
 	{
 		char lhs_sz = bc->rhs_and_lhs_reg_sz & 0xf;
 		char rhs_sz = bc->rhs_and_lhs_reg_sz >> 4;
 
-		reg_dst_str = GetRegStr(reg_dst, lhs_sz);
-		reg_src_str = GetRegStr(reg_src, rhs_sz);
-		snprintf(buffer, 128, "movzx %s, %s", reg_dst_str.c_str(), reg_src_str.c_str());
-		ret = buffer;
+		reg_dst_str = GetRegStr(reg_dst, lhs_sz, buffer + 64);
+		reg_src_str = GetRegStr(reg_src, rhs_sz, buffer + 128);
+		snprintf(buffer, 128, "movzx %s, %s", reg_dst_str, reg_src_str);
+		
 	}break;
 	case ADD_R_2_R:
 	case AND_R_2_R:
@@ -8319,9 +8300,9 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	case MOV_R:
 	case SUB_R_2_R:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s, %s", inst_name.c_str(), reg_dst_str.c_str(), reg_src_str.c_str());
-		ret = buffer;
+		inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s, %s", inst_name, reg_dst_str, reg_src_str);
+		
 	}break;
 	case ADD_I_2_R:
 	case OR_I_2_R:
@@ -8333,112 +8314,112 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	case DIV_I_2_R:
 	case MOV_I:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s, %d", inst_name.c_str(), reg_dst_str.c_str(), imm);
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s, %d", inst_name, reg_dst_str, imm);
+		
 	}break;
 	case RET:
 	{
-		ret = "ret";
+		sprintf(buffer, "ret");
 	}break;
 	case INT3:
 	{
-		ret = "int3";
+		sprintf(buffer, "int3");
 	}break;
 	case JMP:
 	{
 		snprintf(buffer, 128, "jmp %d", imm);
-		ret = buffer;
+		
 	}break;
 	case INST_CALL:
 	{
 		snprintf(buffer, 128, "call %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_E:
 	{
 		snprintf(buffer, 128, "je %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_L:
 	{
 		snprintf(buffer, 128, "jl %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_LE:
 	{
 		snprintf(buffer, 128, "jle %d", imm);
-		ret = buffer;
+		
 	}break;
 	case INST_CALL_OUTSIDER:
 	{
 		func_decl* f = dbg->wasm_state->funcs[imm];
 		snprintf(buffer, 128, "call_outsider %s", f->name.c_str());
-		ret = buffer;
+		
 	}break;
 	case JMP_G:
 	{
 		snprintf(buffer, 128, "jg %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_NE:
 	{
 		snprintf(buffer, 128, "jne %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_AE:
 	{
 		snprintf(buffer, 128, "jae %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_A:
 	{
 		snprintf(buffer, 128, "ja %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_B:
 	{
 		snprintf(buffer, 128, "jb %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_BE:
 	{
 		snprintf(buffer, 128, "jbe %d", imm);
-		ret = buffer;
+		
 	}break;
 	case JMP_GE:
 	{
 		snprintf(buffer, 128, "jge %d", imm);
-		ret = buffer;
+		
 	}break;
 	case MOV_I_2_REG_PARAM:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s_i_param %d, %d", inst_name.c_str(), reg_dst, imm);
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s_i_param %d, %d", inst_name, reg_dst, imm);
+		
 	}break;
 	case MOV_R_2_REG_PARAM:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s_param %d, %s", inst_name.c_str(), reg_dst, reg_src_str.c_str());
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s_param %d, %s", inst_name, reg_dst, reg_src_str);
+		
 	}break;
 	case CVTSD_MEM_2_SS:
 	{
-		//std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "cvtsd xmm%d, %s[%s + %d]", reg_dst, sz_str.c_str(), reg_src_str.c_str(), mem_offset);
-		ret = buffer;
+		// inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "cvtsd xmm%d, %s[%s + %d]", reg_dst, sz_str, reg_src_str, mem_offset);
+		
 	}break;
 	case MOV_M_2_REG_PARAM:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s_param %d, %s[%s + %d]", inst_name.c_str(), reg_dst, sz_str.c_str(), reg_src_str.c_str(), mem_offset);
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s_param %d, %s[%s + %d]", inst_name, reg_dst, sz_str, reg_src_str, mem_offset);
+		
 	}break;
 	case INST_CALL_REG:
 	{
-		snprintf(buffer, 128, "call_reg %s", reg_dst_str.c_str());
-		ret = buffer;
+		snprintf(buffer, 128, "call_reg %s", reg_dst_str);
+		
 	}break;
 	case ADD_M_2_R:
 	case SUB_M_2_R:
@@ -8450,10 +8431,15 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	case MUL_M_2_R:
 	case INST_LEA:
 	case MOV_M:
+	{
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s, %s[%s + %d]", inst_name, reg_dst_str, sz_str, reg_src_str, mem_offset);
+		
+	}break;
 	case MOV_SSE_2_REG_PARAM:
 	{
 		snprintf(buffer, 128, "mov param %d,  xmm%d", reg_dst, reg_src);
-		ret = buffer;
+		
 	}break;
 	case MOV_SSE_2_SSE:
 	case CMP_SSE_2_SSE:
@@ -8462,14 +8448,14 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	case MUL_SSE_2_SSE:
 	case DIV_SSE_2_SSE:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s xmm%d,  xmm%d", inst_name.c_str(), reg_dst, reg_src);
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s xmm%d,  xmm%d", inst_name, reg_dst, reg_src);
+		
 	}break;
 	case SQRT_SSE:
 	{
 		snprintf(buffer, 128, "sqrt xmm%d,  xmm%d", reg_dst, reg_src);
-		ret = buffer;
+		
 	}break;
 	case ADD_MEM_2_SSE:
 	case SUB_MEM_2_SSE:
@@ -8477,21 +8463,26 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	case MUL_MEM_2_SSE:
 	case MOV_M_2_SSE:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s xmm%d,  %s[%s + %d]", inst_name.c_str(), reg_dst, sz_str.c_str(), reg_src_str.c_str(), mem_offset);
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s xmm%d,  %s[%s + %d]", inst_name, reg_dst, sz_str, reg_src_str, mem_offset);
+		
 	}break;
 	case MOV_SSE_2_R:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s, xmm%d", inst_name.c_str(), reg_dst_str.c_str(), reg_src);
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s, xmm%d", inst_name, reg_dst_str, reg_src);
+		
 	}break;
 	case MOV_SSE_2_MEM:
+	case CMP_SSE_2_MEM:
+	case ADD_SSE_2_MEM:
+	case SUB_SSE_2_MEM:
+	case MUL_SSE_2_MEM:
+	case DIV_SSE_2_MEM:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s[%s + %d], xmm%d", inst_name.c_str(), sz_str.c_str(), reg_dst_str.c_str(), mem_offset, reg_src);
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s[%s + %d], xmm%d", inst_name, sz_str, reg_dst_str, mem_offset, reg_src);
+		
 	}break;
 	case CMP_R_2_M:
 	case ADD_R_2_M:
@@ -8501,30 +8492,33 @@ std::string Bc2ToString(dbg_state *dbg, byte_code2* bc)
 	case DIV_R_2_M:
 	case STORE_R_2_M:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s[%s + %d], %s", inst_name.c_str(), sz_str.c_str(), reg_dst_str.c_str(), mem_offset, reg_src_str.c_str());
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s[%s + %d], %s", inst_name, sz_str, reg_dst_str, mem_offset, reg_src_str);
+		
 	}break;
 	case CMP_I_2_M:
 	case STORE_I_2_M:
 	{
-		std::string inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s[%s + %d], %d", inst_name.c_str(), sz_str.c_str(), reg_dst_str.c_str(), mem_offset, imm);
-		ret = buffer;
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "%s %s[%s + %d], %d", inst_name, sz_str, reg_dst_str, mem_offset, imm);
+		
 	}break;
 	case MOV_F_2_SSE:
 	{
 		snprintf(buffer, 128, "mov xmm%d, %.3f", reg_dst, bc->f32);
-		ret = buffer;
+		
+	}break;
+	case NOP:
+	{
+		sprintf(buffer, "nop");
 	}break;
 	case STORE_REG_PARAM:
 	{
-		ret = "store reg param";
+		sprintf(buffer, "store reg param");
 	}break;
 	default:
 		ASSERT(0);
 	}
-	return ret;
 }
 inline void CheckValAssignFlags(u64* eflags, u64 val, u64 sign_flag)
 {
@@ -8560,12 +8554,12 @@ inline void DoCmpInst(void* dst, u64 in_val, u64* eflags, char sz)
 	{
 	case 0:
 	{
-		auto val = (*(u8*)dst) - in_val;
+		auto val = (*(u8*)dst) - (char)in_val;
 		CheckValAssignFlags(eflags, val, 1<<7);
 	}break;
 	case 1:
 	{
-		auto val = (*(unsigned short*)dst) - in_val;
+		auto val = (*(unsigned short*)dst) - (short)in_val;
 		CheckValAssignFlags(eflags, val, 1<<15);
 	}break;
 	case 2:
@@ -8590,6 +8584,11 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 	{
 		*dst_ptr = *(int*)src_ptr;
 	}break;
+	// byte to dword
+	case 0x2:
+	{
+		*(int *)dst_ptr = *(char *)src_ptr;
+	}break;
 	// dword to byte
 	case 0x20:
 	{
@@ -8610,9 +8609,54 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 	}
 }
 
-void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
+func_decl *GetFuncBasedOnBc2(dbg_state *dbg, byte_code2 *bc)
+{
+
+	FOR_VEC(it, dbg->wasm_state->funcs)
+	{
+		auto f = *it;
+		byte_code2* f_start = dbg->lang_stat->bcs2_start + f->bcs2_start;
+		byte_code2* f_end = dbg->lang_stat->bcs2_start + f->bcs2_end;
+		if (bc >= f_start && bc < f_end)
+		{
+			return f;
+		}
+	}
+	return nullptr;
+}
+void MakeCurBcToBeBreakpoint(dbg_state* dbg, byte_code2* bc, int line, bool one_time = true)
+{
+	breakpoint bp;
+	bp.line = line;
+	bp.prev_inst = bc->bc_type;
+	bp.bc = bc;
+	bp.one_time_bp = one_time;
+	dbg->breakpoints.emplace_back(bp);
+
+	bc->type = INT3;
+}
+void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int offset)
 {
 	byte_code2* bc = *ptr;;
+	if (bc < dbg->lang_stat->bcs2_start || bc > dbg->lang_stat->bcs2_end)
+	{
+		*inc_ptr = false;
+		if (dbg->break_type != DBG_BREAK_RIP_CORRUPTED)
+		{
+			func_decl* f = GetFuncBasedOnBc2(dbg, dbg->prev_valid_bc);
+			int offset = dbg->prev_valid_bc - dbg->lang_stat->bcs2_start;
+			stmnt_dbg * st = GetStmntBasedOnOffset(&f->wasm_stmnts, offset);
+			if (!st)
+			{
+				st = &f->wasm_stmnts.back();
+				dbg->prev_valid_bc = dbg->lang_stat->bcs2_start + st->start;
+			}
+			MakeCurBcToBeBreakpoint(dbg, dbg->prev_valid_bc, st->line);
+			dbg->break_type = DBG_BREAK_RIP_CORRUPTED;
+			*valid = false;
+		}
+		return;
+	}
 	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
 	short reg_dst = bc->regs & 0x3f;
 	int imm = bc->i;
@@ -8659,6 +8703,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 	case DIV_M_2_R:
 	case AND_M_2_R:
 	case OR_M_2_R:
+	case MOD_M_2_R:
 	case MOV_M:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
@@ -8747,6 +8792,16 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 		*eflags = 0;
 
 		DoCmpInst(dst, *reg_src_ptr, eflags, sz);
+		//bool sgnd =
+	}break;
+	case CMP_SSE_2_MEM:
+	{
+		auto reg_src_ptr = (float *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		auto reg_dst_ptr = (float*)GetMemValPtr(dbg, reg_dst, mem_offset);
+
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+		DoCmpInstFloat(*reg_dst_ptr, *reg_src_ptr, eflags);
 		//bool sgnd =
 	}break;
 	case CMP_SSE_2_SSE:
@@ -8903,6 +8958,21 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 		*ptr =(byte_code2 *) *mem_ptr;
 		(*reg_stack_ptr) += 8;
 		*inc_ptr = false;
+		dbg->return_stack_bc2.pop_back();
+
+		switch (dbg->break_type)
+		{
+		case DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC:
+		{
+			if(offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end)
+				dbg->break_type = DBG_BREAK_ON_DIFF_IR;
+		}break;
+		case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
+		{
+			if(offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end)
+				dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
+		}break;
+		}
 	}break;
 	case JMP:
 	{
@@ -8918,21 +8988,26 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 			if (wasm_state->outsiders.find(call_f->name) != wasm_state->outsiders.end())
 			{
 				u64 prev_reg_val = *(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+				u64 prev_base_reg_val = *(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
 
 				auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 				*stack_reg -= 8;
 
 				*(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8] = *stack_reg;
+				*(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8] = *stack_reg;
 
 				OutsiderFuncType func_ptr = wasm_state->outsiders[call_f->name];
 				func_ptr(dbg);
 				*stack_reg += 8;
 				auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
 				auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
+				auto reg_xmm0_dst_ptr = (u64*)&dbg->mem_buffer[FLOAT_REG_0 * 8];
 
 				*reg_dst_ptr = *reg_src_ptr;
+				*reg_xmm0_dst_ptr = *reg_src_ptr;
 
 				*(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8] = prev_reg_val;
+				*(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8] = prev_base_reg_val;
 			}
 			else
 				ASSERT(0);
@@ -8981,6 +9056,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 		(*reg_stack_ptr) -= 8;
 		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
 		*mem_ptr = (u64)(*ptr + 1);
+		dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
 		*ptr += imm;
 		*inc_ptr = false;
 	}break;
@@ -8991,6 +9067,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 		(*reg_stack_ptr) -= 8;
 		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
 		*mem_ptr = (u64)(*ptr + 1);
+		dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
 		*ptr = dbg->lang_stat->bcs2_start + *reg_src_ptr;
 		*inc_ptr = false;
 	}break;
@@ -9051,37 +9128,30 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *done)
 		ASSERT(0);
 	}
 }
-func_decl *GetFuncBasedOnBc2(dbg_state *dbg, byte_code2 *bc)
-{
 
-	FOR_VEC(it, dbg->wasm_state->funcs)
+bool StatHasInst(stmnt_dbg *cur_st, byte_code2 *start_bc, byte_code2 **out, byte_code_enum type)
+{
+	byte_code2* start_st_bc = start_bc + cur_st->start;
+	byte_code2* end_st_bc = start_bc + cur_st->end;
+	while (start_st_bc->type != type && start_st_bc < end_st_bc)
 	{
-		auto f = *it;
-		byte_code2* f_start = dbg->lang_stat->bcs2_start + f->bcs2_start;
-		byte_code2* f_end = dbg->lang_stat->bcs2_start + f->bcs2_end;
-		if (bc >= f_start && bc < f_end)
-		{
-			return f;
-		}
+		start_st_bc++;
 	}
-	return nullptr;
-}
-
-void MakeCurBcToBeBreakpoint(dbg_state* dbg, byte_code2* bc, int line)
-{
-	breakpoint bp;
-	bp.line = line;
-	bp.prev_inst = bc->bc_type;
-	bp.bc = bc;
-	bp.one_time_bp = true;
-	dbg->breakpoints.emplace_back(bp);
-
-	bc->type = INT3;
+	if (start_st_bc->type == type)
+	{
+		*out = start_st_bc;
+		return true;
+	}
+	return false;
 }
 
 void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 {
-	byte_code2* cur_bc = dbg->lang_stat->bcs2_start + start_f->bcs2_start;
+	char buffer[512];
+
+	*(u64*)&dbg->mem_buffer[RIP_REG * 8] = (u64)(dbg->lang_stat->bcs2_start + start_f->bcs2_start);
+	byte_code2** rip_ptr = (byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
+	byte_code2 * cur_bc = *rip_ptr;
 	byte_code2* start_bc = dbg->lang_stat->bcs2_start;
 
 	byte_code2* func_start_bc = cur_bc;
@@ -9109,9 +9179,16 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	bool center_inst = true;
 	dbg->cur_bc2 = &cur_bc;
 
+	std::string aux_string;
 	while (cur_bc != nullptr)
 	{
+		if (dbg->break_type != DBG_BREAK_RIP_CORRUPTED)
+		{
+			dbg->prev_valid_bc = cur_bc;
+		}
+		cur_bc = *(byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
 		int offset = cur_bc - start_bc;
+
 
 		switch (dbg->break_type)
 		{
@@ -9158,6 +9235,10 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				}
 			}
 		}break;
+		case DBG_BREAK_RIP_CORRUPTED:
+		{
+			cur_bc = dbg->prev_valid_bc;
+		}break;
 		case DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC:
 		{
 			if (dbg->next_stat_break_func && (offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end) &&
@@ -9175,11 +9256,16 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		}
 
 		bool inc_ptr = true;
-		Bc2Logic(dbg, &cur_bc, &inc_ptr, &done);
-		if (!cur_bc)
+		bool valid = true;
+		Bc2Logic(dbg, (byte_code2**)&dbg->mem_buffer[RIP_REG * 8], &inc_ptr, &valid, offset);
+		if (!valid)
+			continue;
+		if (!*rip_ptr)
 			return;
-		if(inc_ptr)
-			cur_bc++;
+		if (inc_ptr)
+		{
+			(*rip_ptr)++;
+		}
 		if (cur_bc->type == INT3)
 		{
 			if (!dbg->cur_func || dbg->cur_func != dbg->prev_func)
@@ -9190,7 +9276,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			}
 			if (!dbg->cur_func)
 				continue;
-			int offset = cur_bc - start_bc;
+			offset = cur_bc - start_bc;
 			if (!cur_scp)
 			{
 				cur_st = GetStmntBasedOnOffset(&dbg->cur_func->wasm_stmnts, offset);
@@ -9204,7 +9290,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				else
 				{
 					dbg->prev_func = nullptr;
-					continue;
+					//continue;
 				}
 
 				//dbg.cu = cur_st;
@@ -9238,6 +9324,11 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
 
+			if (dbg->break_type == DBG_BREAK_RIP_CORRUPTED)
+			{
+				cur_bc = dbg->prev_valid_bc;
+				ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "rip got corrupted");
+			}
 			if (ImGui::Selectable("show bc", &show_bc))
 			{
 				if(show_bc)
@@ -9245,6 +9336,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			}
 			int height = 300;
 			ImGui::BeginChild("code", ImVec2(500, height));
+			bool release_inst = false;
 			if (cur_st)
 			{
 				stmnt_dbg* next_st = cur_st + 1;
@@ -9260,15 +9352,37 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				{
 					if (show_bc)
 					{
+						ir_rep* start_ir = ((own_std::vector<ir_rep > *) & dbg->cur_func->ir)->begin();
+						ir_rep* cur_ir = start_ir + aux_cur_st->start_ir;
 						while (aux_cur_st->line > 0 && i > aux_cur_st->line)
 						{
-							byte_code2* aux_ir = start_bc + aux_cur_st->start;
+
+							stmnt_dbg* start_func_st = dbg->cur_func->wasm_stmnts.begin();;
+							func_start_bc = start_bc + dbg->cur_func->bcs2_start;
+							byte_code2* aux_bc = start_bc + aux_cur_st->start;
 							byte_code2* bc_end_st = start_bc + aux_cur_st->end;
-							while (aux_ir < bc_end_st)
+							while (aux_bc < bc_end_st)
 							{
-								ImGui::TextColored(ImVec4(0.4, 0.4, 0.4, 1.0), "%d|", offset);
+								int offset_bc = aux_bc - start_bc;
+
+
+								while (cur_ir->start == offset_bc)
+								{
+									WasmIrToString(dbg, cur_ir, aux_string);
+									ImGui::TextColored(ImVec4(0.6, 0.4, 0.6, 1.0), "%d|%s", cur_ir->idx, aux_string.c_str());
+									cur_ir++;
+								}
+
+								sprintf(buffer, "%d", offset_bc);
+								if (ImGui::Button(buffer, ImVec2(50, 20)))
+								{
+									MakeCurBcToBeBreakpoint(dbg, aux_bc, aux_cur_st->line);
+									release_inst = true;
+								}
+								//ImGui::TextColored(ImVec4(0.4, 0.4, 0.4, 1.0), "%d|", offset_bc);
 								ImGui::SameLine();
-								if (cur_bc == aux_ir)
+								Bc2ToString(dbg, aux_bc, buffer, 512);
+								if (cur_bc == aux_bc)
 								{
 									if (center_inst)
 									{
@@ -9276,11 +9390,13 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 										ImGui::SetScrollY(pos.y - height / 2);
 										center_inst = false;
 									}
-									ImGui::TextColored(ImVec4(0.8, 0.5, 0.5, 1.0), "\t%s", Bc2ToString(dbg, aux_ir).c_str());
+									ImGui::TextColored(ImVec4(0.8, 0.5, 0.5, 1.0), "\t%s", buffer);
 								}
 								else
-									ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1.0), "\t%s", Bc2ToString(dbg, aux_ir).c_str());
-								aux_ir++;
+								{
+									ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1.0), "\t%s", buffer);
+								}
+								aux_bc++;
 							}
 							aux_cur_st++;
 
@@ -9320,17 +9436,12 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			ImGui::SameLine();
 			ShowExprWindow(*dbg, PRE_X64_RSP_REG, cur_st->line);
 			bool f11_pressed_but_dint_find_call_so_normal_step = false;
-			bool release_inst = false;
 
 			if (IsKeyRepeat(dbg->data, GLFW_KEY_F11))
 			{
-				byte_code2* start_st_bc = start_bc + cur_st->start;
-				byte_code2* end_st_bc = start_bc + cur_st->end;
-				while (start_st_bc->type != INST_CALL && start_st_bc < end_st_bc)
-				{
-					start_st_bc++;
-				}
-				if (start_st_bc->type == INST_CALL)
+
+				byte_code2* out;
+				if (StatHasInst(cur_st, start_bc, &out, INST_CALL))
 				{
 					/*
 					byte_code2* func_call_st = start_st_bc + start_st_bc->i;
@@ -9359,10 +9470,10 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				{
 					stmnt_dbg* next_st = cur_st + 1;
 					dbg->prev_st = cur_st;
+					byte_code2* out;
 					if (next_st < dbg->cur_func->wasm_stmnts.end())
 					{
 						dbg->break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
-
 					}
 					else
 					{
@@ -9382,7 +9493,8 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				}
 				else
 				{
-					cur_bc++;
+					(*rip_ptr)++;
+					//cur_bc++;
 				}
 				dbg->next_stat_break_func = dbg->cur_func;
 				//dbg->cur_func = nullptr;
@@ -9479,7 +9591,12 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	timer tm;
 	InitTimer(&tm);
 	StartTimer(&tm);
-	//Bc2Interpreter(&dbg, window, cur_func);
+
+#ifndef  WASM_DBG
+	dbg.lang_stat->is_x64_bc_backend = true;
+	Bc2Interpreter(&dbg, window, cur_func);
+	dbg.lang_stat->is_x64_bc_backend = false;
+#endif
 	EndTimer(&tm);
 	float time = GetTimerMSFloat(&tm);
 	printf("ir time: %.3f\n", time);
@@ -9657,7 +9774,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 						{
 							cur_ir = GetIrBasedOnOffset(&dbg, aux_bc->start_code, cur_st->start_ir, cur_st->end_ir);
 							if (cur_ir)
-								ImGui::Text("%s", WasmIrToString(&dbg, cur_ir).c_str());
+							{
+								//ImGui::Text("%s", WasmIrToString(&dbg, cur_ir).c_str());
+							}
 
 							if (aux_bc->type == WASM_INST_BLOCK || aux_bc->type == WASM_INST_LOOP)
 							{
@@ -9943,7 +10062,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			if(ptr_decl > 0)
 			{
 				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-				int len_offset = base_ptr + d->len_for_ptr->offset;
+				int len_offset = base_ptr + d->len_for_ptr_offset;
 				int len = *(int*)&dbg.mem_buffer[len_offset];
 				if (len > 1000)
 				{
@@ -10043,7 +10162,22 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 	}
 	else if (d->type.type == TYPE_STATIC_ARRAY)
 	{
-		ImGui::Text("static ar %s (%d)", d->name.c_str(), base_ptr);
+		snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), base_ptr, base_ptr);
+		ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+		
+		if (ImGui::TreeNodeEx(buffer, flag))
+		{
+			for (int i = 0; i < d->type.ar_size; i++)
+			{
+				type2 prev_type = d->type;
+				d->type = *d->type.tp;
+				int final_ptr = base_ptr + i * GetTypeSize(&d->type);
+				snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), final_ptr, final_ptr);
+				ImGuiPrintVar(buffer, dbg, d, final_ptr, d->type.ptr);
+				d->type = prev_type;
+			}
+			ImGui::TreePop();  // This is required at the end of the if block
+		}
 	}
 	else if (d->type.type == TYPE_TEMPLATE || d->type.type == TYPE_FUNC || d->type.type == TYPE_IMPORT || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_OVERLOADED_FUNCS)
 	{
@@ -10060,6 +10194,11 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		{
 			offset = *(int*)&dbg.mem_buffer[offset];
 			ptr--;
+		}
+		if (offset >= dbg.mem_size)
+		{
+			ImGui::Text("%s, error(greater than mem_buffer size)", d->name.c_str());
+			return;
 		}
 		if (d->type.IsFloat())
 		{
@@ -10374,6 +10513,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		decl2 *d = FindIdentifier(pinfo->decl->len_for_ptr_name, pinfo->scp, &dummy_type);
 		ASSERT(d);
 		pinfo->decl->len_for_ptr = d;
+		pinfo->decl->len_for_ptr_offset = d->offset;
 	}
 	for (int i = 0; i < file->total_funcs; i++)
 	{
@@ -10978,589 +11118,6 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		}
 	}
 }
-void WasmInterp(own_std::vector<unsigned char>& code, char* mem_buffer, int size, std::string func_start_name, web_assembly_state* wasm_state, long long* args, int total_args)
-{
-	wasm_state->outsiders["js_print"] = JsPrint;
-
-
-	int ptr = 0;
-	int sect_code = code[ptr];
-	ASSERT(sect_code == 0xa)
-		ptr++;
-	unsigned int consumed = 0;
-	int sect_size = decodeSLEB128(&code[ptr], &consumed);
-	ptr += consumed;
-
-	int number_of_functions = decodeSLEB128(&code[ptr], &consumed);
-	ptr += consumed;
-
-	int i = 0;
-
-	dbg_state dbg = {};
-	dbg.mem_size = size;
-	dbg.lang_stat = wasm_state->lang_stat;
-	//dbg.wasm_state = wasm_state;
-
-	own_std::vector<wasm_bc>& bcs = dbg.bcs;
-	while (i < wasm_state->funcs.size())
-	{
-		func_decl* cur_f = wasm_state->funcs[i];
-		if (IS_FLAG_ON(cur_f->flags, FUNC_DECL_IS_OUTSIDER))
-		{
-			i++;
-			continue;
-		}
-		wasm_func wf = {};
-		int func_sz = decodeSLEB128(&code[ptr], &consumed);
-		ptr += consumed;
-		int next_func = ptr + func_sz;
-
-		int local_entries = decodeSLEB128(&code[ptr], &consumed);
-		ptr += consumed;
-		// not handling entries at the moment
-		if (local_entries > 0)
-		{
-			ASSERT(0);
-		}
-		wf.idx = ptr;
-
-		int fi = ptr;
-
-		cur_f->code_start_idx = bcs.size();
-
-		stmnt_dbg* cur_st = &cur_f->wasm_stmnts[0];
-
-
-
-		cur_f->wasm_code_sect_idx = bcs.size();
-
-		while (ptr < next_func)
-		{
-			wasm_bc bc = {};
-
-			int cur_ptr = (ptr - fi);
-			bc.start_code = cur_ptr;
-			if (cur_ptr == cur_st->start)
-			{
-				cur_st->start = bcs.size();
-			}
-
-
-			int op = code[ptr];
-			ptr++;
-			switch (op)
-			{
-			case 0x1:
-			{
-				bc.type = WASM_INST_NOP;
-			}break;
-			case 0x11:
-			{
-				bc.type = WASM_INST_INDIRECT_CALL;
-
-				// type idx
-				decodeSLEB128(&code[ptr], &consumed);
-				ptr += consumed;
-				// table idx idx
-				decodeSLEB128(&code[ptr], &consumed);
-				ptr += consumed;
-			}break;
-			case 0x10:
-			{
-				bc.type = WASM_INST_CALL;
-				bc.i = decodeSLEB128(&code[ptr], &consumed);
-				ptr += consumed;
-			}break;
-			case 0x6c:
-			{
-				bc.type = WASM_INST_I32_MUL;
-			}break;
-			case 0x4e:
-			{
-				bc.type = WASM_INST_I32_GE_S;
-			}break;
-			case 0x4f:
-			{
-				bc.type = WASM_INST_I32_GE_U;
-			}break;
-			case 0xd:
-			{
-				bc.type = WASM_INST_BREAK_IF;
-				bc.i = decodeSLEB128(&code[ptr], &consumed);
-				ptr += consumed;
-			}break;
-			case 0xc:
-			{
-				bc.type = WASM_INST_BREAK;
-				bc.i = decodeSLEB128(&code[ptr], &consumed);
-				ptr += consumed;
-			}break;
-			case 0x3:
-			{
-				bc.type = WASM_INST_LOOP;
-				// block return type
-				ptr++;
-			}break;
-			case 0xb:
-			{
-				bc.type = WASM_INST_END;
-			}break;
-			case 0x2:
-			{
-				bc.type = WASM_INST_BLOCK;
-				// block return type
-				ptr++;
-			}break;
-			case 0x43:
-			{
-				bc.type = WASM_INST_F32_CONST;
-				//ptr++;
-				int* int_ptr = (int*)&code[ptr];
-				*(int*)&bc.f32 = (*int_ptr << 24) | (((*int_ptr) & 0xff00) << 8) | (((*int_ptr) & 0xff0000) >> 8) | (((*int_ptr) >> 24));
-
-				ptr += 4;
-			}break;
-			case 0x92:
-			{
-				bc.type = WASM_INST_F32_ADD;
-			}break;
-			case 0x6a:
-			{
-				bc.type = WASM_INST_I32_ADD;
-			}break;
-			case 0x6b:
-			{
-				bc.type = WASM_INST_I32_SUB;
-			}break;
-			case 0x3a:
-			{
-				bc.type = WASM_INST_I32_STORE8;
-				// alignment
-				ptr++;
-				// offset
-				ptr++;
-
-			}break;
-			case 0x38:
-			{
-				bc.type = WASM_INST_F32_STORE;
-				// alignment
-				ptr++;
-				// offset
-				ptr++;
-
-			}break;
-			case 0x36:
-			{
-				bc.type = WASM_INST_I32_STORE;
-				// alignment
-				ptr++;
-				// offset
-				ptr++;
-
-			}break;
-			case 0xf:
-			{
-				bc.type = WASM_INST_RET;
-			}break;
-			case 0x2a:
-			{
-				bc.type = WASM_INST_F32_LOAD;
-				// alignment
-				ptr++;
-				// offset
-				ptr++;
-
-			}break;
-			case 0x28:
-			{
-				bc.type = WASM_INST_I32_LOAD;
-				// alignment
-				ptr++;
-				// offset
-				ptr++;
-
-			}break;
-			case 0x41:
-			{
-				bc.type = WASM_INST_I32_CONST;
-				bc.i = decodeSLEB128(&code[ptr], &consumed);
-				ptr += consumed;
-
-			}break;
-			default:
-				ASSERT(0);
-			}
-			// decrementing because the statement counts only the end of the instructions, and not the beginning of the next one
-			cur_ptr = (ptr - fi) - 1;
-			if (cur_ptr == cur_st->end)
-			{
-				cur_st->end = bcs.size();
-
-				cur_st++;
-			}
-			bc.end_code = cur_ptr + 1;
-			bcs.emplace_back(bc);
-
-		}
-
-		own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) & cur_f->ir;
-		ir_rep* cur_ir = ir_ar->begin();
-		for (int i = cur_f->wasm_code_sect_idx; i < bcs.size(); i++)
-		{
-			while (cur_ir->start == cur_ir->end)
-			{
-				cur_ir->start = i;
-				cur_ir->end = i;
-				cur_ir++;
-			}
-			wasm_bc* cur_bc = bcs.begin() + i;
-			if (cur_ir->start == cur_bc->start_code)
-				cur_ir->start = i;
-			if (cur_ir->end == cur_bc->end_code)
-			{
-				cur_ir->end = max(cur_ir->start, max(i - 1, 0));
-				cur_ir++;
-			}
-		}
-
-		ptr = next_func;
-
-		//funcs[i] = wf;
-		i++;
-	}
-
-	//wasm_func *wf = &funcs[func_idx];
-
-	own_std::vector<func_decl*>& func_stack = dbg.func_stack;
-	FOR_VEC(func, wasm_state->funcs)
-	{
-		func_decl* f = *func;
-		if (f->name == func_start_name)
-		{
-			func_stack.emplace_back(f);
-			break;
-		}
-	}
-	ASSERT(func_stack.size() > 0);
-	func_decl* cur_func = func_stack.back();
-
-	block_linked* cur = nullptr;
-	FOR_VEC(bc, bcs)
-	{
-		switch (bc->type)
-		{
-		case WASM_INST_LOOP:
-		case WASM_INST_BLOCK:
-		{
-			cur = NewBlock(cur);
-			cur->wbc = bc;
-		}break;
-		case WASM_INST_END:
-		{
-			if (cur)
-			{
-				FreeBlock(cur);
-				cur->wbc->block_end = bc;
-				cur = cur->parent;
-			}
-
-		}break;
-		}
-	}
-
-	int a = 0;
-
-
-	own_std::vector<wasm_stack_val>& wasm_stack = dbg.wasm_stack;
-	wasm_stack.reserve(16);
-
-	//FOR_VEC(bc, wf->bcs)
-	wasm_bc* bc = &bcs[cur_func->wasm_code_sect_idx];
-	//bc->one_time_dbg_brk = true;
-
-	int stack_offset = 1000;
-	*(int*)&mem_buffer[STACK_PTR_REG * 8] = stack_offset;
-
-	auto stack_ptr_val = (long long*)&mem_buffer[stack_offset];
-
-	for (int i = 0; i < total_args; i++)
-	{
-		*stack_ptr_val = args[i];
-		stack_ptr_val++;
-	}
-
-	dbg.cur_bc = &bc;
-	dbg.cur_func = cur_func;
-	dbg.mem_buffer = mem_buffer;
-
-	int first_start_offset = dbg.cur_func->wasm_stmnts[0].start;
-	bcs[first_start_offset].one_time_dbg_brk = true;
-
-	// WASM BYTECODE
-
-	bool can_break = false;
-	dbg.break_type = DBG_BREAK_ON_NEXT_STAT;
-
-	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) & cur_func->ir;
-	//ir_rep* cur_ir = ir_ar->begin();
-
-	while (!can_break)
-	{
-		int bc_idx = (long long)(bc - &bcs[0]);
-		wasm_stack_val val = {};
-		stmnt_dbg* cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
-		ir_rep* cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
-		bool is_different_stmnt = cur_st && dbg.cur_st && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
-
-		if (dbg.break_type == DBG_BREAK_ON_NEXT_BC || is_different_stmnt || bc->dbg_brk || bc->one_time_dbg_brk)
-		{
-			if (!cur_st)
-				cur_st = &dbg.cur_func->wasm_stmnts[0];
-			dbg.cur_st = cur_st;
-			dbg.cur_ir = cur_ir;
-			WasmOnArgs(&dbg);
-			if (dbg.some_bc_modified)
-			{
-				dbg.some_bc_modified = false;
-				continue;
-			}
-			bc->one_time_dbg_brk = false;
-		}
-		switch (bc->type)
-		{
-		case WASM_INST_NOP:
-		{
-			//WasmPrintVars(&dbg);
-			int a = 0;
-		}break;
-		case WASM_INST_BREAK:
-		{
-			int i = 0;
-			wasm_bc* label;
-			while (i < bc->i)
-			{
-				cur = cur->parent;
-				i++;
-			}
-			if (!cur)
-			{
-				can_break = true;
-				break;
-			}
-			if (cur->wbc->type == WASM_INST_LOOP)
-			{
-				continue;
-			}
-			bc = cur->wbc->block_end;
-			continue;
-
-		}break;
-		case WASM_INST_BREAK_IF:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-
-			if (top.s32 != 1)
-				break;
-			wasm_bc* label;
-			i = 0;
-			while (i < bc->i)
-			{
-				cur = cur->parent;
-				i++;
-			}
-			if (!cur)
-			{
-				can_break = true;
-				break;
-			}
-			bc = cur->wbc->block_end;
-			continue;
-		}break;
-		case WASM_INST_INDIRECT_CALL:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			func_decl* call_f = dbg.wasm_state->funcs[top.u32];
-			WasmDoCallInstruction(&dbg, &bc, &cur, call_f);
-		}break;
-		case WASM_INST_CALL:
-		{
-			func_decl* call_f = dbg.wasm_state->funcs[bc->i];
-			if (IS_FLAG_ON(call_f->flags, FUNC_DECL_IS_OUTSIDER))
-			{
-				if (wasm_state->outsiders.find(call_f->name) != wasm_state->outsiders.end())
-				{
-					OutsiderFuncType func_ptr = wasm_state->outsiders[call_f->name];
-					func_ptr(&dbg);
-				}
-				else
-					ASSERT(0);
-
-			}
-			else
-			{
-				WasmDoCallInstruction(&dbg, &bc, &cur, call_f);
-			}
-
-			// assert is 32bit
-			int a = 0;
-		}break;
-		case WASM_INST_RET:
-		{
-			dbg.func_stack.pop_back();
-			if (dbg.func_stack.size() == 0)
-			{
-				can_break = true;
-				break;
-			}
-			dbg.cur_func = dbg.func_stack.back();
-
-			bc = dbg.return_stack.back();
-			dbg.return_stack.pop_back();
-
-			cur = dbg.block_stack.back();
-			dbg.block_stack.pop_back();
-			ASSERT(wasm_stack.size() == 0);
-		}break;
-		case WASM_INST_I32_GE_U:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->u32 = (int)(penultimate->u32 >= top.u32);
-			int a = 0;
-		}break;
-		case WASM_INST_I32_STORE8:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-
-			auto penultimate = wasm_stack.back();
-			wasm_stack.pop_back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate.type == 0);
-			ASSERT(penultimate.u32 < dbg.mem_size);
-			*(char*)&mem_buffer[penultimate.s32] = top.s32;
-			int a = 0;
-		}break;
-		case WASM_INST_F32_STORE:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-
-			auto penultimate = wasm_stack.back();
-			wasm_stack.pop_back();
-			// assert is 32bit
-			ASSERT(top.type == WSTACK_VAL_F32 && penultimate.type == 0);
-			ASSERT(penultimate.u32 < dbg.mem_size);
-			*(int*)&mem_buffer[penultimate.s32] = top.s32;
-			int a = 0;
-		}break;
-		case WASM_INST_I32_STORE:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-
-			auto penultimate = wasm_stack.back();
-			wasm_stack.pop_back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate.type == 0);
-			ASSERT(penultimate.u32 < dbg.mem_size);
-			*(int*)&mem_buffer[penultimate.s32] = top.s32;
-			int a = 0;
-		}break;
-		case WASM_INST_F32_CONST:
-		{
-			auto top = wasm_stack.back();
-			val.type = WSTACK_VAL_F32;
-			val.f32 = bc->f32;
-			wasm_stack.emplace_back(val);
-		}break;
-		case WASM_INST_F32_LOAD:
-		{
-			auto w = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(w->type == WSTACK_VAL_INT);
-			w->f32 = *(float*)&mem_buffer[w->s32];
-			w->type = WSTACK_VAL_F32;
-			int a = 0;
-		}break;
-		case WASM_INST_I32_LOAD:
-		{
-			auto w = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(w->type == WSTACK_VAL_INT);
-			w->s32 = *(int*)&mem_buffer[w->s32];
-			int a = 0;
-		}break;
-		case WASM_INST_I32_CONST:
-		{
-			val.type = WSTACK_VAL_INT;
-			val.s32 = bc->i;
-			wasm_stack.emplace_back(val);
-		}break;
-		case WASM_INST_LOOP:
-		case WASM_INST_BLOCK:
-		{
-			cur = NewBlock(cur);
-			cur->wbc = bc;
-		}break;
-		case WASM_INST_I32_MUL:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 *= top.s32;
-		}break;
-		case WASM_INST_F32_ADD:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == WSTACK_VAL_F32 && penultimate->type == WSTACK_VAL_F32);
-			penultimate->f32 += top.f32;
-		}break;
-		case WASM_INST_I32_ADD:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 += top.s32;
-		}break;
-		case WASM_INST_I32_SUB:
-		{
-			auto top = wasm_stack.back();
-			wasm_stack.pop_back();
-			auto penultimate = &wasm_stack.back();
-			// assert is 32bit
-			ASSERT(top.type == 0 && penultimate->type == 0);
-			penultimate->s32 -= top.s32;
-		}break;
-		case WASM_INST_END:
-		{
-			if (cur)
-			{
-				FreeBlock(cur);
-				cur = cur->parent;
-			}
-
-		}break;
-		default:
-			ASSERT(0)
-		}
-		bc++;
-	}
-
-}
 
 void WasmPushNameIntoArray(own_std::vector<unsigned char>* out, std::string name)
 {
@@ -11679,6 +11236,7 @@ void GenX64MemToReg(own_std::vector<byte_code>& ret, short reg, char reg_sz, int
 	bc.bin.rhs.reg = mem_reg;
 	bc.bin.rhs.reg_sz = reg_sz;
 	bc.bin.rhs.voffset = mem_offset;
+	ASSERT(reg_sz> 0)
 	ret.emplace_back(bc);
 }
 
@@ -11857,6 +11415,8 @@ void GenX64AutomaticAddress(lang_state* lang_stat, own_std::vector<byte_code>& r
 				reg_dst = 0;
 				sse_reg = AllocFloatReg(lang_stat);
 			}
+			else
+				AllocSpecificFloatReg(lang_stat, sse_reg);
 			
 
 			bc.type = MOV_M_2_SSE;
@@ -11877,6 +11437,8 @@ void GenX64AutomaticAddress(lang_state* lang_stat, own_std::vector<byte_code>& r
 				else
 					reg_dst = *reg;
 			}
+			else
+				AllocSpecificReg(lang_stat, reg_dst);
 
 			bc.type = MOV_M;
 			bc.bin.lhs.reg = reg_dst;
@@ -11990,10 +11552,15 @@ void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 	aux->deref = ir->deref;
 	aux->reg = ir->reg;
 	aux->is_float = ir->is_float;
+	char out_deref = aux->deref;
 	if (address && aux->deref > 0 || !address)
 	{
+		if (address)
+			aux->deref--;
 		GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, reg_dst);
+		//out_deref--;
 	}
+	aux->deref = out_deref;
 }
 void GenX64ToIrValReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address)
 {
@@ -12503,21 +12070,30 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			if (assign.to_assign.reg == 5)
 				assign.to_assign.reg++;
 
+			AllocSpecificReg(lang_stat, assign.to_assign.reg);
 			if (assign.to_assign.is_float)
 				AllocSpecificFloatReg(lang_stat, assign.to_assign.reg);
 			switch (assign.lhs.type)
 			{
 			case IR_TYPE_STR_LIT:
 			{
+				ir_val_aux lhs;
+				//assign.to_assign.deref--;
+				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.to_assign, true);
+
 				char str_on_reg = AllocReg(lang_stat);
 				bc.type = RELOC;
 				bc.rel.type = REL_DATA;
 				bc.rel.reg_dst = str_on_reg;
 				bc.rel.offset = assign.lhs.on_data_sect_offset;
 				ret.emplace_back(bc);
-				bc.type = MOV_R;
-				bc.bin.lhs.reg = assign.to_assign.reg;
+				if(lhs.deref >= 0)
+					bc.type = STORE_R_2_M;
+				else
+					bc.type = MOV_R;
+				bc.bin.lhs.reg = lhs.reg;
 				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.lhs.voffset = lhs.voffset;
 				bc.bin.rhs.reg = str_on_reg;
 				bc.bin.rhs.reg_sz = 8;
 				ret.emplace_back(bc);
@@ -12598,7 +12174,10 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				}
 				else
 				{
-					GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, 0, reg_dst, STORE_R_2_M);
+					if(assign.to_assign.is_float)
+						GenX64RegToReg(lang_stat, ret, reg_dst, reg_dst_sz, lhs.reg, MOV_SSE_2_MEM);
+					else
+						GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, 0, reg_dst, STORE_R_2_M);
 				}
 				FreeSpecificReg(lang_stat, lhs.reg);
 			}break;
@@ -12746,6 +12325,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 		switch (assign.to_assign.type)
 		{
+		// 64 D
 		case IR_TYPE_DECL:
 		{
 			ir_val_aux decl;
@@ -12781,6 +12361,8 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				
 				GenX64ToIrValDecl2(lang_stat, ret, &decl, &assign.to_assign, true);
 				byte_code_enum inst = STORE_R_2_M;
+				if (lhs.is_float)
+					inst = MOV_SSE_2_MEM;
 				GenX64BinInst(lang_stat, ret, &decl, &lhs, inst);
 			}
 			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_DECL)
@@ -12856,17 +12438,14 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			else
 				ASSERT(false);
 		}break;
-		// BIN 2REG
+		// 64 R
 		case IR_TYPE_REG:
 		{
 			if (assign.to_assign.is_float)
 				AllocSpecificFloatReg(lang_stat, assign.to_assign.reg);
 			
 			auto prev_lhs_reg = assign.lhs.reg;
-			if (assign.to_assign.deref >= 0 && AreIRValsEqual(&assign.to_assign, &assign.lhs))
-			{
-				assign.lhs.reg = AllocReg(lang_stat);
-			}
+			// R D I
 			if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_INT)
 			{
 
@@ -12893,6 +12472,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				FreeSpecificReg(lang_stat, lhs.reg);
 
 			}
+			// R I R
 			else if (assign.lhs.type == IR_TYPE_INT && assign.rhs.type == IR_TYPE_REG)
 			{
 			
@@ -12920,6 +12500,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				FreeSpecificReg(lang_stat, lhs.reg);
 
 			}
+			// R R I
 			else if (assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_INT)
 			{
 
@@ -12932,16 +12513,25 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64ToIrValImm(lang_stat, ret, &rhs, &assign.rhs);
 
 				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 3));
-				ir_val_aux dst;
-				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				ir_val_aux dst = {};
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true);
 
-				bool dst_float = assign.to_assign.is_float;
-				bc = {};
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
-				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-				FreeSpecificReg(lang_stat, lhs.reg);
+
+				if (dst.deref >= 0)
+				{
+					GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, dst.voffset, dst.reg, STORE_R_2_M);
+				}
+				else
+				{
+					bool dst_float = assign.to_assign.is_float;
+					bc = {};
+					byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+					FreeSpecificReg(lang_stat, lhs.reg);
+				}
 
 			}
+			// R R R
 			else if ((assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_REG) ||
 					 (assign.lhs.type == IR_TYPE_ARG_REG && assign.rhs.type == IR_TYPE_REG))
 			{
@@ -12963,7 +12553,10 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
 				if (dst.deref >= 0)
 				{
-					GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, STORE_R_2_M);
+					if(dst.is_float)
+						GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, MOV_SSE_2_MEM);
+					else
+						GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, STORE_R_2_M);
 				}
 				else
 					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
@@ -12974,6 +12567,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 					FreeSpecificFloatReg(lang_stat, rhs.reg);
 
 			}
+			// R R D
 			else if (assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_DECL)
 			{
 				ir_val_aux lhs;
@@ -12992,11 +12586,13 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
 
 				ir_val_aux dst;
-				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true);
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
 				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				if (lhs.is_float && dst.deref >= 0)
+					inst = MOV_SSE_2_MEM;
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				FreeSpecificReg(lang_stat, lhs.reg);
 				
@@ -13007,6 +12603,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				GenX64ImmToReg(ret, assign.to_assign.reg, assign.to_assign.reg_sz, val, MOV_I);
 			}
+			// R D D
 			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_DECL)
 			{
 				ir_val_aux lhs;
@@ -13164,6 +12761,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				FreeSpecificReg(lang_stat, lhs.reg);
 
 			}
+			// R D R
 			else if (assign.lhs.type == IR_TYPE_DECL && (assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
 			{
 		
@@ -13173,7 +12771,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				//assign.lhs.deref--;
 
 				ir_val_aux rhs;
-				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.rhs, false);
+				GenX64ToIrValReg2(lang_stat, ret, &rhs, &assign.rhs, false);
 
 				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
 
@@ -13207,6 +12805,15 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 	}
 
+}
+void PatchJmps(own_std::vector<byte_code>& ret, block_linked* cur)
+{
+	FOR_VEC(r, cur->rels)
+	{
+		byte_code* bc = &ret[r->bc];
+		ASSERT(bc->type >= JMP && bc->type <= JMP_LE);
+		bc->val = (ret.size()-1) - r->bc;
+	}
 }
 // $IrX64
 void GenX64BytecodeFromIR(lang_state *lang_stat, 
@@ -13299,10 +12906,14 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		ir_rep* cur_ir = ir;
 		cur_ir->start = ret.size();
 		byte_code bc;
-		if (cur_line == 2358 && IsExecutableIr(ir))
+		/*
+		if (cur_line == 293 && IsExecutableIr(ir))
 		{
+			//bc.type = NOP;
+			//ret.emplace_back(bc);
 			printf("%d|%s\n", ir->idx, WasmIrToString(lang_stat->dstate, ir).c_str());
 		}
+		*/
 		switch (ir->type)
 		{
 		case IR_STACK_END:
@@ -13337,7 +12948,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			FreeAllFloatRegs(lang_stat);
 			cur_line = ir->block.stmnt.line;
 #ifndef WASM_DBG
-			cur_st->start = ret.size();
+			if(lang_stat->is_x64_bc_backend)
+				cur_st->start = ret.size();
 #endif
 
 		}break;
@@ -13346,7 +12958,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			FreeAllRegs(lang_stat);
 			FreeAllFloatRegs(lang_stat);
 #ifndef WASM_DBG
-			cur_st->end = ret.size();
+			if(lang_stat->is_x64_bc_backend)
+				cur_st->end = ret.size();
 			cur_st++;
 #endif
 		}break;
@@ -13539,11 +13152,20 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				AllocSpecificReg(lang_stat, rhs.reg);
 
 
-				
-				if(rhs.reg == PRE_X64_RSP_REG)
-					GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, CMP_M_2_R);
+
+				byte_code_enum inst = CMP_M_2_R;
+				if (rhs.reg == PRE_X64_RSP_REG)
+				{
+					if (lhs.is_float)
+						inst = CMP_SSE_2_MEM;
+					GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, inst);
+				}
 				else
+				{
+					if (lhs.is_float)
+						inst = CMP_SSE_2_SSE;
 					GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, CMP_R_2_R);
+				}
 
 				FreeSpecificReg(lang_stat, lhs.reg);
 				FreeSpecificReg(lang_stat, rhs.reg);
@@ -13557,8 +13179,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ir_val_aux rhs;
 				GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
 
-				
-				GenX64RegToMem(ret, rhs.reg, rhs.reg_sz, lhs.voffset, lhs.reg, CMP_R_2_M);
+
+				byte_code_enum inst = CMP_R_2_M;
+				if (ir->bin.lhs.is_float)
+					inst = CMP_SSE_2_MEM;
+				GenX64RegToMem(ret, rhs.reg, rhs.reg_sz, lhs.voffset, lhs.reg, inst);
 
 				FreeSpecificReg(lang_stat, lhs.reg);
 				FreeSpecificReg(lang_stat, rhs.reg);
@@ -13582,13 +13207,20 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 				ir_val_aux rhs;
 				GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
-				GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, CMP_R_2_R);
+				byte_code_enum inst = CMP_R_2_R;
+				if (lhs.is_float)
+					inst = CMP_SSE_2_SSE;
+
+				GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, inst);
 			}
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_DECL)
 			{
 				ir_val_aux lhs;
 				//ir->bin.lhs.deref++;
-				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, true);
+				char reg = -1;
+				if (ir->bin.lhs.deref > -1)
+					reg = AllocReg(lang_stat);
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, true, reg);
 				//ir->bin.lhs.deref--;
 				AllocSpecificReg(lang_stat, lhs.reg);
 
@@ -13597,8 +13229,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, false);
 				//ir->bin.rhs.deref++;
 
-				
-				GenX64RegToMem(ret, rhs.reg, rhs.reg_sz, lhs.voffset, lhs.reg, CMP_R_2_M);
+
+				byte_code_enum inst = CMP_R_2_M;
+				if (lhs.is_float)
+					inst = CMP_SSE_2_MEM;
+				GenX64RegToMem(ret, rhs.reg, rhs.reg_sz, lhs.voffset, lhs.reg, inst);
 
 				FreeSpecificReg(lang_stat, lhs.reg);
 				FreeSpecificReg(lang_stat, rhs.reg);
@@ -13624,7 +13259,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					val = true;
 				}
 			}
-			
+
 			tkn_type2 opposite = cur_ir->bin.op;
 			if (cur_ir->bin.it_is_jmp_if_true != val)
 				opposite = OppositeCondCmp(opposite);
@@ -13637,7 +13272,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 				if (!val && (aux->ir->type == IR_BEGIN_LOOP_BLOCK))
 					depth++;
-					//break;
+				//break;
 				if (!val && (aux->ir->type == IR_BEGIN_OR_BLOCK || aux->ir->type == IR_BEGIN_SUB_IF_BLOCK || aux->ir->type == IR_BEGIN_IF_BLOCK || aux->ir->type == IR_BEGIN_LOOP_BLOCK))
 					break;
 				if (val && (aux->ir->type == IR_BEGIN_AND_BLOCK || aux->ir->type == IR_BEGIN_COND_BLOCK))
@@ -13645,13 +13280,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				depth++;
 				aux = aux->parent;
 			}
-			byte_code *cmp_inst = &ret.back();
+			byte_code* cmp_inst = &ret.back();
 			cmp_inst->bin.is_unsigned = ir->bin.lhs.is_unsigned;
 
 			EmplaceCondJmpInst2(opposite, 0, ret, ir->bin.lhs.is_unsigned | ir->bin.lhs.is_float);
 			x64_rel_info rel;
 			rel.bc = ret.size() - 1;
 			aux->rels.emplace_back(rel);
+			//byte_code* assert_bc = ret.back();
+			//ASSERT(assert_bc->type >= JMP && assert_bc->type <= JMP_LE);
 		}break;
 		// X64 =
 		case IR_ASSIGNMENT:
@@ -13733,25 +13370,30 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 			case IR_TYPE_REG:
 			{
+				ir_val_aux dst;
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &ir->bin.lhs, true);
+				bc.bin.lhs.reg = dst.reg;
+				bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+
+				ir_val_aux src;
 				switch (ir->bin.rhs.type)
 				{
 				case IR_TYPE_REG:
 				{
-					
+					GenX64ToIrValReg2(lang_stat, ret, &src, &ir->bin.rhs, false);
 					bc.type = MOVZX_R;
-					bc.bin.lhs.reg = ir->bin.lhs.reg;
-					bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
 					bc.bin.rhs.reg = ir->bin.rhs.reg;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
 					ret.emplace_back(bc);
 				}break;
 				case IR_TYPE_DECL:
 				{
+					GenX64ToIrValDecl2(lang_stat, ret, &src, &ir->bin.rhs, true);
 					bc.type = MOVZX_M;
 					bc.bin.lhs.reg = ir->bin.lhs.reg;
-					bc.bin.rhs.reg = PRE_X64_RSP_REG;
+					bc.bin.rhs.reg = src.reg;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
-					bc.bin.rhs.voffset = ir->bin.rhs.decl->offset;
+					bc.bin.rhs.voffset = src.voffset;
 					ret.emplace_back(bc);
 				}break;
 				default:
@@ -13821,10 +13463,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 				if (aux->parent->ir && aux->parent->ir->type == IR_BEGIN_LOOP_BLOCK)
 					break;
-					depth++;
-				depth++;
 				aux = aux->parent;
 			}
+			
 
 			ASSERT(aux);
 			bc.type = JMP;
@@ -13835,11 +13476,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		}break;
 		case IR_END_BLOCK:
 		{
-			FOR_VEC(r, cur->rels)
-			{
-				byte_code* bc = &ret[r->bc];
-				bc->val = (ret.size()-1) - r->bc;
-			}
+			PatchJmps(ret, cur);
 			//EmplaceJmp
 			FreeBlock(cur);
 			cur = cur->parent;
@@ -13849,11 +13486,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			bc.type = JMP;
 			bc.val = cur->bc_idx - (ret.size() + 1);
 			ret.emplace_back(bc);
-			FOR_VEC(r, cur->rels)
-			{
-				byte_code* bc = &ret[r->bc];
-				bc->val = (ret.size()-1) - r->bc;
-			}
+			PatchJmps(ret, cur);
 			//EmplaceJmp
 			FreeBlock(cur);
 			cur = cur->parent;
@@ -13884,12 +13517,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			rel.bc = ret.size() - 1;
 			aux->rels.emplace_back(rel);
 
-			FOR_VEC(r, cur->rels)
-			{
-				byte_code* bc = &ret[r->bc];
-				bc->val = (ret.size()-1) - r->bc;
-				auto a = 0;
-			}
+			PatchJmps(ret, cur);
 
 			FreeBlock(cur);
 			cur = cur->parent;
@@ -13899,12 +13527,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_END_COND_BLOCK:
 		case IR_END_IF_BLOCK:
 		{
-			FOR_VEC(r, cur->rels)
-			{
-				byte_code* bc = &ret[r->bc];
-				bc->val = (ret.size()-1) - r->bc;
-				auto a = 0;
-			}
+			PatchJmps(ret, cur);
 			FreeBlock(cur);
 			cur = cur->parent;
 			//code_sect.emplace_back(0xb);
@@ -13976,6 +13599,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		}
 		idx++;
 		cur_ir->end = ret.size();
+		int aux_bc = 0;
 	}
 	free(cur);
 }
@@ -13989,6 +13613,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		bc.regs = FLAG_SIGNED * from_bc->bin.is_unsigned;
 		switch (from_bc->type)
 		{
+		case NOP:
 		case INT3:
 		{
 		}break;
@@ -14137,6 +13762,11 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case SUB_R_2_M:
 		case MUL_R_2_M:
 		case CMP_R_2_M:
+		case CMP_SSE_2_MEM:
+		case ADD_SSE_2_MEM:
+		case SUB_SSE_2_MEM:
+		case MUL_SSE_2_MEM:
+		case DIV_SSE_2_MEM:
 		case DIV_R_2_M:
 		case STORE_R_2_M:
 		case AND_R_2_M:
@@ -14541,10 +14171,13 @@ void GenWasm(web_assembly_state* wasm_state)
 		code_sect.insert(code_sect.begin(), uleb.begin(), uleb.end());
 		INSERT_VEC(final_code_sect, code_sect);
 
+#ifndef WASM_DBG
 		if (IS_FLAG_OFF(func->flags, FUNC_DECL_X64))
 		{
+			wasm_state->lang_stat->is_x64_bc_backend = true;
 			GenX64BytecodeFromIR(wasm_state->lang_stat, mcode.bcs, *ir, &gen);
 		}
+#endif
 		func->bcs2_end = mcode.bcs.size();
 		x64_funcs.emplace_back(func);
 		wasm_state->lang_stat->global_funcs.emplace_back(func);
@@ -14565,6 +14198,7 @@ void GenWasm(web_assembly_state* wasm_state)
 
 			wasm_gen_state state = {};
 			state.cur_func = func;
+			wasm_state->lang_stat->is_x64_bc_backend = false;
 			GenX64BytecodeFromIR(wasm_state->lang_stat, mcode.bcs, *ir, &state);
 			x64_funcs.emplace_back(func);
 			wasm_state->lang_stat->global_funcs.emplace_back(func);
@@ -14740,7 +14374,7 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 	auto dfile = (dbg_file_seriealize*)(file);
 	wasm_interp &winterp = *lang_stat->winterp;
 	lang_stat->bcs2_start = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect);
-	lang_stat->bcs2_end = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect + dfile->bc2_sect_size);
+	lang_stat->bcs2_end = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect) + dfile->bc2_sect_size;
 
 	WasmInterpInit(&winterp, file, read, lang_stat);
 
@@ -14791,6 +14425,7 @@ struct code_info
 int ExecuteString(code_info *info, std::string str, int param)
 {
 
+	printf("NEW TASK");
 	scope* scp = NewScope(info->lang_stat, info->lang_stat->root);
 	scp->flags |= SCOPE_IS_GLOBAL;
 	scope* root = scp;
@@ -14844,7 +14479,8 @@ int ExecuteString(code_info *info, std::string str, int param)
 			char buffer[512];
 			ir_rep* ir_cur = ir->data() + i;
 			ir_cur->idx = info->lang_stat->cur_idx;
-			std::string ir_str = WasmIrToString(info->lang_stat->dstate, ir_cur);
+			std::string ir_str;
+			WasmIrToString(info->lang_stat->dstate, ir_cur, ir_str);
 			if (ir_str.size() != 0)
 			{
 				snprintf(buffer, 512, "\t%d: %s", ir_cur->idx, ir_str.c_str());
@@ -14896,6 +14532,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	lang_stat->gen_type = gen_enum::GEN_X64;
 
 	lang_stat->cur_file = new unit_file();
+	lang_stat->cur_file->funcs_scp = NewScope(lang_stat, nullptr);
 
 
 	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
@@ -15592,8 +15229,12 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			b.x = 0.100002;\n\
 			b.y = 0.1;\n\
 			b.z = 0.1;\n\
-			if !NearlyEqualV3(&a, &b)\n\
+			if !NearlyEqualF32(a.x, b.x)\n\
 				return -1;\n\
+			if !NearlyEqualF32(a.y, b.y)\n\
+				return -2;\n\
+			if !NearlyEqualV3(&a, &b)\n\
+				return -3;\n\
 			return arg;\n\
 		}\n\
 		", 3);
@@ -15681,6 +15322,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
 	
+	//AssertFuncByteCode(lang_stat);
 	
 	int i = 0;
 	std::string file = opts->file;

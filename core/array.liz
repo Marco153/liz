@@ -56,6 +56,8 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 			dyn.cap = dyn.cap * 2;
 		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
 		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
+		diff: = (dyn.cap - dyn.count) *sizeof(T);
+		memset(cast(*u8)ptr_offset(dyn.data, dyn.count, T), 0, diff);
 		heap_free(dyn.alloc, aux_data);
 		dyn.count = sz;
 	}
@@ -128,6 +130,7 @@ dyn_add::fn{ T }(dyn : *dyn_array(T), data : *T)
 	memcpy(dst, cast(*void)data, sizeof(T));
 
 	dyn.count += 1;
+	a: = 0;
 }
 str_ln::fn(str :str_lit) !u64
 {

@@ -883,12 +883,13 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					{
 						///*
 						//ch[cur_idx] = 255;
+						char* cur = &ch[cur_idx + 1];
 						if(ch[cur_idx + 1] == 'n')
 						{
 							ch[cur_idx + 1] = '\n';
 							tkn.str.push_back('\n');
 						}
-						else
+						else if(ch[cur_idx + 1] != 0)
 						{
 							ASSERT(false)
 						}

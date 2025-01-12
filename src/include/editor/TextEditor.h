@@ -20,6 +20,7 @@ enum VIM_mode_enum
 	VI_VISUAL,
 	VI_LINE_VISUAL,
 	VI_YANK,
+	VI_FIND,
 	VI_CMD,
 };
 enum line_mode

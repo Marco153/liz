@@ -539,6 +539,12 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				ret->num = GetTypeSize(&dummy_type);
 				
 			}
+			else if (f->name == "get_func_bc")
+			{
+				dummy_type = DescendNode(lang_stat, n->r, scp);
+				ret->type = AST_GET_FUNC_BC;
+				ret->call.fdecl = dummy_type.fdecl;
+			}
 			else if (f->name == "__is_struct")
 			{
 				dummy_type = DescendNode(lang_stat, n->r, scp);
@@ -3120,6 +3126,12 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			ir_val rhs_top = {};
 			switch (rhs_ast->type)
 			{
+			case AST_GET_FUNC_BC:
+			{
+				ir.assign.only_lhs = true;
+				ir.assign.lhs.type = IR_TYPE_GET_FUNC_BC;
+				ir.assign.lhs.fdecl = rhs_ast->call.fdecl;
+			}break;
 			case AST_IF:
 			{
 				GetIRFromAst(lang_stat, rhs_ast, out, &ir.assign.lhs);

@@ -327,6 +327,16 @@ enum lsp_stage_enum
 	LSP_STAGE_GET_INTELISENSE,
 	LSP_STAGE_DONE,
 };
+struct get_func_bc_info
+{
+	gen_enum type;
+
+	union
+	{
+		int x64_bc_idx;
+		int wasm_bc_idx;
+	};
+};
 struct lang_state
 {
 	int cur_idx;
@@ -376,6 +386,7 @@ struct lang_state
 	own_std::vector<node*> global_decl_not_found;
 	own_std::vector<scope**> scope_stack;
 	own_std::vector<func_decl*> func_ptrs_decls;
+	//own_std::vector<get_func_addr_info*> func_ptrs_decls;
 	own_std::vector<func_decl*> outsider_funcs;
 	own_std::vector<own_std::vector<token2>*> allocated_vectors;
 	own_std::vector<ptr_decl_that_have_len> ptrs_have_len;
@@ -1896,6 +1907,9 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		val->reg = val->reg + FLOAT_REG_0;
 	switch (val->type)
 	{
+	case IR_TYPE_GET_FUNC_BC:
+	{
+	}break;
 	case IR_TYPE_STR_LIT:
 	{
 
@@ -5176,6 +5190,51 @@ bool IrLogic(dbg_state* dbg, ir_rep** ptr)
 
 }
 
+enum dbg_code_type
+{
+	DBG_CODE_WASM,
+};
+struct dbg_file_seriealize
+{
+	int func_sect;
+	int total_funcs;
+	int stmnts_sect;
+	int string_sect;
+	int scopes_sect;
+	int types_sect;
+	int vars_sect;
+	int code_sect;
+	int ir_sect;
+	int files_sect;
+
+	int bc2_sect;
+	int bc2_sect_size;
+
+	int globals_sect;
+	int globals_sect_size;
+
+	int data_sect;
+	int data_sect_size;
+
+	int x64_code_sect;
+	int x64_code_sect_size;
+	int x64_code_type_sect_size;
+
+	int total_files;
+
+
+	dbg_code_type code_type;
+};
+void WasmIrInterp(dbg_state* dbg, own_std::vector<int>* ar)
+{
+	auto ir_ar = (own_std::vector<ir_rep>*)ar;
+	ir_rep* ir = ir_ar->begin();
+	while (ir < ir_ar->end())
+	{
+		IrLogic(dbg, &ir);
+		ir++;
+	}
+}
 #ifndef LANG_NO_ENGINE
 
 bool IsKeyDown(void* data, key_enum key);
@@ -5518,178 +5577,6 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 }
 bool IsKeyRepeat(void* data, int key);
 void ClearKeys(void* data);
-void WasmIrInterp(dbg_state* dbg, GLFWwindow *window, func_decl *start)
-{
-	auto ir_ar = (own_std::vector<ir_rep>*)&start->ir;
-	ir_rep* ir = ir_ar->begin() + start->ir_stack_begin_idx;
-	ir_rep* start_ir = ir_ar->begin();
-
-	scope* cur_scp = nullptr;
-	stmnt_dbg* cur_st;
-	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-	int irs_to_show = 50;
-	bool show_ir = false;
-	bool activate_dbg_break_on_next_ir = false;
-
-	int mem_wnd_offset = 0;
-	int mem_wnd_show_type = 0;
-	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32", "char"};
-	int total_items = IM_ARRAYSIZE(mem_wnd_items);
-
-	int total_irs = 0;
-
-	func_decl* cur_func = nullptr;
-
-	while (dbg->func_stack.size() > 0)
-	{
-		//dbg->cur_st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts,ir->idx);
-		if(cur_func != dbg->cur_func)
-		{
-			ir_ar = (own_std::vector<ir_rep>*) & dbg->cur_func->ir;
-			start_ir = ir_ar->begin();
-			cur_func = dbg->cur_func;
-		}
-		if (dbg->break_type == DBG_BREAK_ON_DIFF_IR && dbg->prev_break_ir != ir && IsExecutableIr(ir))
-			ir->one_dbg_break = true;
-		if (dbg->break_type == DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC && dbg->cur_func == dbg->next_stat_break_func && dbg->prev_break_ir != ir && IsExecutableIr(ir))
-			ir->one_dbg_break = true;
-		/*
-		if (ir->type == IR_DBG_BREAK || ir->dbg_break || ir->one_dbg_break)
-		{
-			if (!cur_scp)
-			{
-				cur_st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts,ir->idx);
-				if (cur_st)
-				{
-					cur_scp = FindScpWithLine(dbg->cur_func, cur_st->line);
-					auto a = 0;
-					dbg->cur_st = cur_st;
-				}
-			}
-
-			glfwPollEvents();
-			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
-			{
-				ImGui_ImplGlfw_Sleep(10);
-				continue;
-			}
-
-			//ImGui::ImGuiContext& g = *ImGui::GImGui;
-			//if(g.WithinFrameScope)
-			if(ImGui::WithinFrame())
-				ImGui::Render();
-
-			ImGui_ImplOpenGL3_NewFrame();
-			ImGui_ImplGlfw_NewFrame();
-			ImGui::NewFrame();
-
-			ImGui::Selectable("show ir", &show_ir);
-			
-			ImGui::BeginChild("code", ImVec2(500, 300));
-			if (cur_st)
-			{
-				ir_rep* aux_ir =  ir_ar->begin() + cur_st->start_ir;
-				stmnt_dbg* next_st = cur_st + 1;
-				stmnt_dbg* aux_cur_st = cur_st;
-				bool first_stat = true;
-				int max_ir = min(irs_to_show, ir_ar->size());
-				ir_rep* end = ir_ar->end();
-				for (; aux_ir < end; aux_ir++)
-				{
-					AdvanceIrToNext(&aux_ir);
-					if (aux_ir >= end)
-						break;
-					bool new_stat = false;
-					if (aux_ir->idx >= next_st->start_ir)
-					{
-						aux_cur_st++;
-						next_st++;
-						new_stat = true;
-					}
-					if ((new_stat || first_stat) && aux_cur_st->line != 0)
-					{
-						if(first_stat)
-							ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->cur_func->from_file));
-						else
-							ImGui::Text("%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->cur_func->from_file));
-						first_stat = false;
-					}
-					if (show_ir)
-					{
-						if(ir == aux_ir)
-							ImGui::TextColored(ImVec4(0.8, 0.5, 0.5, 1.0), "\t%s", WasmIrToString(dbg, aux_ir).c_str());
-						else
-							ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1.0), "\t%s", WasmIrToString(dbg, aux_ir).c_str());
-					}
-				}
-			}
-			ImGui::EndChild();
-
-			ImGui::SameLine();
-			SHowMemWindow(*dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items);
-
-			int base_ptr = WasmGetRegVal(dbg, BASE_STACK_PTR_REG);
-			BeginLocalsChild(*dbg, base_ptr, cur_scp);
-			if (IsKeyRepeat(dbg->data, GLFW_KEY_F10))
-			{
-				if (show_ir)
-				{
-					cur_scp = nullptr;
-					dbg->prev_break_ir = ir;
-					dbg->break_type = DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC;
-					dbg->next_stat_break_func = dbg->cur_func;
-					if (!ir->one_dbg_break && !ir->dbg_break)
-					{
-						ir++;
-					}
-					else
-					{
-						//ir_rep* next_ir = ir + 1;
-						//AdvanceIrToNext(&next_ir);
-						//next_ir->one_dbg_break = true;
-
-						if (ir->dbg_break)
-							activate_dbg_break_on_next_ir = true;
-					}
-					ir->one_dbg_break = false;
-				}
-			}
-
-
-			auto  a = 0;
-
-			// Rendering
-			ImGui::Render();
-			int display_w, display_h;
-			glfwGetFramebufferSize(window, &display_w, &display_h);
-			glViewport(0, 0, display_w, display_h);
-			glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
-			glClear(GL_COLOR_BUFFER_BIT);
-			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-			glfwSwapBuffers(window);
-			ClearKeys(dbg->data);
-			//ir++;
-		}
-		*/
-		//else
-		{
-			if (activate_dbg_break_on_next_ir)
-				ir->dbg_break = true;
-			bool res = IrLogic2(dbg, &ir, start_ir);
-			ir++;
-		}
-	}
-}
-void WasmIrInterp(dbg_state* dbg, own_std::vector<int>* ar)
-{
-	auto ir_ar = (own_std::vector<ir_rep>*)ar;
-	ir_rep* ir = ir_ar->begin();
-	while (ir < ir_ar->end())
-	{
-		IrLogic(dbg, &ir);
-		ir++;
-	}
-}
 void PrintExpressionTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 {
 	mem_alloc temp_alloc;
@@ -6387,41 +6274,6 @@ struct serialize_state
 
 	unsigned int f32_type_offset;
 	unsigned int u32_type_offset;
-};
-enum dbg_code_type
-{
-	DBG_CODE_WASM,
-};
-struct dbg_file_seriealize
-{
-	int func_sect;
-	int total_funcs;
-	int stmnts_sect;
-	int string_sect;
-	int scopes_sect;
-	int types_sect;
-	int vars_sect;
-	int code_sect;
-	int ir_sect;
-	int files_sect;
-
-	int bc2_sect;
-	int bc2_sect_size;
-
-	int globals_sect;
-	int globals_sect_size;
-
-	int data_sect;
-	int data_sect_size;
-
-	int x64_code_sect;
-	int x64_code_sect_size;
-	int x64_code_type_sect_size;
-
-	int total_files;
-
-
-	dbg_code_type code_type;
 };
 void WasmSerializePushString(serialize_state* ser_state, std::string* name, str_dbg *);
 void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state* ser_state, type_struct2* strct);
@@ -8658,6 +8510,15 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		}
 		return;
 	}
+	
+	/*
+	stmnt_dbg* cur_st;
+	func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
+	if (cur_func)
+	{
+		cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
+	}
+	*/
 	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
 	short reg_dst = bc->regs & 0x3f;
 	int imm = bc->i;
@@ -9616,9 +9477,6 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	int base_ = WasmGetRegVal(&dbg, STACK_PTR_REG);
 	*(u64*)&dbg.mem_buffer[base_] = 20016;
 	WasmIrInterp(&dbg, window, cur_func);
-
-
-
 	*/
 
 	StartTimer(&tm);
@@ -9654,6 +9512,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	std::string from_engine_str;
 
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+	func_stack.clear();
+	return;
 	while(!can_break)
 	{
 		int bc_idx = (long long)(bc - &bcs[0]);
@@ -10267,20 +10127,6 @@ void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_pt
 			ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
 	}
 }
-#endif
-func_decl* WasmInterpFindFunc(wasm_interp* winterp, std::string func_name)
-{
-	FOR_VEC(func, winterp->funcs)
-	{
-		func_decl* f = *func;
-		if (f->name == func_name)
-		{
-			return f;
-		}
-	}
-	return nullptr;
-}
-
 void WasmInterpPatchIrVal(ir_val* val, dbg_file_seriealize* file)
 {
 	unsigned char* start_f = ((unsigned char*)(file + 1)) + file->func_sect;
@@ -10296,7 +10142,6 @@ void WasmInterpPatchIrVal(ir_val* val, dbg_file_seriealize* file)
 		val->decl_offset = d->offset;
 	}
 }
-
 void WasmInterpPatchIr(own_std::vector<ir_rep>* ir_ar, wasm_interp* winterp, dbg_file_seriealize* file)
 {
 	unsigned char* start_f = ((unsigned char*)(file + 1)) + file->func_sect;
@@ -10384,69 +10229,6 @@ std::string PrintScpPre(unsigned char* start, scope_dbg* s)
 	ret += " }";
 	return ret;
 }
-
-std::string WasmCmdPrintWasmFuncAutoComplete(dbg_state* dbg, command_info_args *info)
-{
-	std::string ret = "";
-
-	own_std::vector<std::string> names_found;
-		
-	FOR_VEC(func, dbg->lang_stat->winterp->funcs)
-	{
-		std::string n = (*func)->name;
-		bool is_equal = true;
-		for (int j = 0; j < info->incomplete_str.size(); j++)
-		{
-			if (info->incomplete_str[j] != n[j])
-			{
-				is_equal = false;
-				break;
-			}
-		}
-		if (is_equal)
-		{
-			names_found.emplace_back(n);
-		}
-	}
-	if (names_found.size() == 1)
-		return names_found[0];
-
-	int shortest_str_idx = -1;
-	int shortest_str_count = 60000;
-
-	int second_shortest_str_idx = -1;
-	
-	int i = 0;
-	FOR_VEC(str, names_found)
-	{
-		if (str->size() <= shortest_str_count)
-		{
-			second_shortest_str_idx = shortest_str_idx;
-			shortest_str_idx = i;
-			shortest_str_count = str->size();
-		}
-		i++;
-	}
-
-	std::string shortest_str = names_found[shortest_str_idx];
-	std::string second_shortest_str = names_found[second_shortest_str_idx];
-
-	int j = 0;
-	for (; j < shortest_str.size(); j++)
-	{
-		if (shortest_str[j] != second_shortest_str[j])
-		{
-			break;
-		}
-	}
-
-	ret = second_shortest_str.substr(0, j);
-
-	return ret;
-}
-
-
-
 void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len, lang_state* lang_stat)
 {
 
@@ -10603,7 +10385,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	wasm_sub_cmd->names.emplace_back("wasm");
 
 	auto wasm_sub_cmd_func = (command_info *)AllocMiscData(lang_stat, sizeof(command_info));
-	wasm_sub_cmd_func->func = WasmCmdPrintWasmFuncAutoComplete;
+	//wasm_sub_cmd_func->func = WasmCmdPrintWasmFuncAutoComplete;
 	wasm_sub_cmd_func->end = true;
 	wasm_sub_cmd_func->names.emplace_back("func");
 
@@ -11130,6 +10912,246 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		}
 	}
 }
+void WasmIrInterp(dbg_state* dbg, GLFWwindow *window, func_decl *start)
+{
+	auto ir_ar = (own_std::vector<ir_rep>*)&start->ir;
+	ir_rep* ir = ir_ar->begin() + start->ir_stack_begin_idx;
+	ir_rep* start_ir = ir_ar->begin();
+
+	scope* cur_scp = nullptr;
+	stmnt_dbg* cur_st;
+	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+	int irs_to_show = 50;
+	bool show_ir = false;
+	bool activate_dbg_break_on_next_ir = false;
+
+	int mem_wnd_offset = 0;
+	int mem_wnd_show_type = 0;
+	char* mem_wnd_items[] = {"u8", "s8", "u16", "s16", "u32", "s32", "u64", "s64", "f32", "char"};
+	int total_items = IM_ARRAYSIZE(mem_wnd_items);
+
+	int total_irs = 0;
+
+	func_decl* cur_func = nullptr;
+
+	while (dbg->func_stack.size() > 0)
+	{
+		//dbg->cur_st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts,ir->idx);
+		if(cur_func != dbg->cur_func)
+		{
+			ir_ar = (own_std::vector<ir_rep>*) & dbg->cur_func->ir;
+			start_ir = ir_ar->begin();
+			cur_func = dbg->cur_func;
+		}
+		if (dbg->break_type == DBG_BREAK_ON_DIFF_IR && dbg->prev_break_ir != ir && IsExecutableIr(ir))
+			ir->one_dbg_break = true;
+		if (dbg->break_type == DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC && dbg->cur_func == dbg->next_stat_break_func && dbg->prev_break_ir != ir && IsExecutableIr(ir))
+			ir->one_dbg_break = true;
+		/*
+		if (ir->type == IR_DBG_BREAK || ir->dbg_break || ir->one_dbg_break)
+		{
+			if (!cur_scp)
+			{
+				cur_st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts,ir->idx);
+				if (cur_st)
+				{
+					cur_scp = FindScpWithLine(dbg->cur_func, cur_st->line);
+					auto a = 0;
+					dbg->cur_st = cur_st;
+				}
+			}
+
+			glfwPollEvents();
+			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
+			{
+				ImGui_ImplGlfw_Sleep(10);
+				continue;
+			}
+
+			//ImGui::ImGuiContext& g = *ImGui::GImGui;
+			//if(g.WithinFrameScope)
+			if(ImGui::WithinFrame())
+				ImGui::Render();
+
+			ImGui_ImplOpenGL3_NewFrame();
+			ImGui_ImplGlfw_NewFrame();
+			ImGui::NewFrame();
+
+			ImGui::Selectable("show ir", &show_ir);
+			
+			ImGui::BeginChild("code", ImVec2(500, 300));
+			if (cur_st)
+			{
+				ir_rep* aux_ir =  ir_ar->begin() + cur_st->start_ir;
+				stmnt_dbg* next_st = cur_st + 1;
+				stmnt_dbg* aux_cur_st = cur_st;
+				bool first_stat = true;
+				int max_ir = min(irs_to_show, ir_ar->size());
+				ir_rep* end = ir_ar->end();
+				for (; aux_ir < end; aux_ir++)
+				{
+					AdvanceIrToNext(&aux_ir);
+					if (aux_ir >= end)
+						break;
+					bool new_stat = false;
+					if (aux_ir->idx >= next_st->start_ir)
+					{
+						aux_cur_st++;
+						next_st++;
+						new_stat = true;
+					}
+					if ((new_stat || first_stat) && aux_cur_st->line != 0)
+					{
+						if(first_stat)
+							ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->cur_func->from_file));
+						else
+							ImGui::Text("%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->cur_func->from_file));
+						first_stat = false;
+					}
+					if (show_ir)
+					{
+						if(ir == aux_ir)
+							ImGui::TextColored(ImVec4(0.8, 0.5, 0.5, 1.0), "\t%s", WasmIrToString(dbg, aux_ir).c_str());
+						else
+							ImGui::TextColored(ImVec4(0.5, 0.5, 0.5, 1.0), "\t%s", WasmIrToString(dbg, aux_ir).c_str());
+					}
+				}
+			}
+			ImGui::EndChild();
+
+			ImGui::SameLine();
+			SHowMemWindow(*dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items);
+
+			int base_ptr = WasmGetRegVal(dbg, BASE_STACK_PTR_REG);
+			BeginLocalsChild(*dbg, base_ptr, cur_scp);
+			if (IsKeyRepeat(dbg->data, GLFW_KEY_F10))
+			{
+				if (show_ir)
+				{
+					cur_scp = nullptr;
+					dbg->prev_break_ir = ir;
+					dbg->break_type = DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC;
+					dbg->next_stat_break_func = dbg->cur_func;
+					if (!ir->one_dbg_break && !ir->dbg_break)
+					{
+						ir++;
+					}
+					else
+					{
+						//ir_rep* next_ir = ir + 1;
+						//AdvanceIrToNext(&next_ir);
+						//next_ir->one_dbg_break = true;
+
+						if (ir->dbg_break)
+							activate_dbg_break_on_next_ir = true;
+					}
+					ir->one_dbg_break = false;
+				}
+			}
+
+
+			auto  a = 0;
+
+			// Rendering
+			ImGui::Render();
+			int display_w, display_h;
+			glfwGetFramebufferSize(window, &display_w, &display_h);
+			glViewport(0, 0, display_w, display_h);
+			glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+			glClear(GL_COLOR_BUFFER_BIT);
+			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+			glfwSwapBuffers(window);
+			ClearKeys(dbg->data);
+			//ir++;
+		}
+		*/
+		//else
+		{
+			if (activate_dbg_break_on_next_ir)
+				ir->dbg_break = true;
+			bool res = IrLogic2(dbg, &ir, start_ir);
+			ir++;
+		}
+	}
+}
+#endif
+func_decl* WasmInterpFindFunc(wasm_interp* winterp, std::string func_name)
+{
+	FOR_VEC(func, winterp->funcs)
+	{
+		func_decl* f = *func;
+		if (f->name == func_name)
+		{
+			return f;
+		}
+	}
+	return nullptr;
+}
+
+
+
+std::string WasmCmdPrintWasmFuncAutoComplete(dbg_state* dbg, command_info_args *info)
+{
+	std::string ret = "";
+
+	own_std::vector<std::string> names_found;
+		
+	FOR_VEC(func, dbg->lang_stat->winterp->funcs)
+	{
+		std::string n = (*func)->name;
+		bool is_equal = true;
+		for (int j = 0; j < info->incomplete_str.size(); j++)
+		{
+			if (info->incomplete_str[j] != n[j])
+			{
+				is_equal = false;
+				break;
+			}
+		}
+		if (is_equal)
+		{
+			names_found.emplace_back(n);
+		}
+	}
+	if (names_found.size() == 1)
+		return names_found[0];
+
+	int shortest_str_idx = -1;
+	int shortest_str_count = 60000;
+
+	int second_shortest_str_idx = -1;
+	
+	int i = 0;
+	FOR_VEC(str, names_found)
+	{
+		if (str->size() <= shortest_str_count)
+		{
+			second_shortest_str_idx = shortest_str_idx;
+			shortest_str_idx = i;
+			shortest_str_count = str->size();
+		}
+		i++;
+	}
+
+	std::string shortest_str = names_found[shortest_str_idx];
+	std::string second_shortest_str = names_found[second_shortest_str_idx];
+
+	int j = 0;
+	for (; j < shortest_str.size(); j++)
+	{
+		if (shortest_str[j] != second_shortest_str[j])
+		{
+			break;
+		}
+	}
+
+	ret = second_shortest_str.substr(0, j);
+
+	return ret;
+}
+
+
+
 
 void WasmPushNameIntoArray(own_std::vector<unsigned char>* out, std::string name)
 {
@@ -12002,6 +12024,10 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 			switch (assign.lhs.type)
 			{
+			case IR_TYPE_GET_FUNC_BC:
+			{
+
+			}break;
 			case IR_TYPE_DECL:
 			{
 				ir_val_aux lhs;
@@ -13329,6 +13355,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			case IR_TYPE_REG:
 			{
 				ir_val_aux rhs;
+				byte_code_enum inst = CVTSD_REG_2_SS;
 				if(ir->bin.rhs.type == IR_TYPE_INT)
 				{
 					char reg = AllocReg(lang_stat);
@@ -13338,10 +13365,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					FreeSpecificReg(lang_stat, reg);
 				}
 				else
+				{
 					GenX64ToIrValReg2(lang_stat, ret, &rhs, &ir->bin.rhs, true);
+					if (rhs.deref >= 0)
+						inst = CVTSD_MEM_2_SS;
+				}
+				
 
 
-				bc.type = CVTSD_REG_2_SS;
+				bc.type = inst;
 				FromIrValToBytecodeReg(&ir->bin.lhs, &bc.bin.lhs);
 				bc.bin.lhs.reg_sz = 4;
 				bc.bin.rhs.reg = rhs.reg;
@@ -14346,8 +14378,10 @@ Your browser does not support the audio element.\
 	}
 
 
+#ifndef LANG_NO_ENGINE
 	if(!wasm_state->lang_stat->release)
 		WasmSerialize(wasm_state, final_code_sect, bcs2);
+#endif
 
 	//WasmInterp(final_code_sect, buffer, mem_size, "wasm_test_func_ptr", wasm_state, args, 3);
 
@@ -14395,7 +14429,9 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 	lang_stat->bcs2_start = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect);
 	lang_stat->bcs2_end = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect) + dfile->bc2_sect_size;
 
+#ifndef LANG_NO_ENGINE
 	WasmInterpInit(&winterp, file, read, lang_stat);
+#endif
 
 }
 void AssignOutsiderFunc(lang_state* lang_stat, std::string name, OutsiderFuncType func)
@@ -15740,6 +15776,17 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	tp.fdecl->args.push_back(dummy_decl);
 
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "sizeof", tp));
+
+	tp.type = enum_type2::TYPE_FUNC;
+	sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
+	sz_of_fdecl->ret_type.type = enum_type2::TYPE_U64;
+	sz_of_fdecl->ret_type.ptr = 1;
+	tp.fdecl = sz_of_fdecl;
+	tp.fdecl->flags |= FUNC_DECL_INTERNAL;
+	tp.fdecl->name = std::string("get_func_bc");
+	tp.fdecl->args.push_back(dummy_decl);
+
+	lang_stat->root->vars.push_back(NewDecl(lang_stat, "get_func_bc", tp));
 
 	sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 	memset(sz_of_fdecl, 0, sizeof(func_decl));

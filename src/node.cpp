@@ -3279,8 +3279,16 @@ int GetExpressionVal(node* n, scope* scp)
 	{
 		type2 ret_type;
 		auto ident = FindIdentifier(n->t->str, scp, &ret_type);
-		ASSERT(ident->type.type == TYPE_INT);
-		return ident->type.i;
+		if (ident->type.type == TYPE_INT)
+		{
+			return ident->type.i;
+		}
+		else if (ident->type.type == TYPE_ENUM_IDX_32)
+		{
+			return ident->type.e_idx;
+		}
+		else
+			ASSERT(0);
 	}break;
 	case node_type::N_BINOP:
 	{
@@ -4685,10 +4693,15 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			ret_type->type = enum_type2::TYPE_BOOL;
 			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
 		}
+		else if (lhs->name == "get_func_bc")
+		{
+			int a = 0;
+			*ret_type = lhs->type.fdecl->ret_type;
+			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
+		}
 		else if (lhs->name == "sizeof")
 		{
 			int a = 0;
-			ret_type->type = enum_type2::TYPE_INT;
 			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
 		}
 		else if (IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && lhs->type.type != TYPE_OVERLOADED_FUNCS)
@@ -7700,12 +7713,12 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 								ReportMessage(lang_stat, n->n->t, "Only assignment expression is allowed for enum");
 
 							// rhs must be know at compile time
-							auto rhs_tp = DescendNode(lang_stat, n->n->r, scp);
+							auto rhs_tp = DescendNode(lang_stat, n->n->r, child_scp);
 
-							if (rhs_tp.type != enum_type2::TYPE_INT)
+							if (rhs_tp.type != enum_type2::TYPE_INT && rhs_tp.type != enum_type2::TYPE_ENUM_IDX_32)
 								ReportMessage(lang_stat, n->n->r->t, "Value must be know at compile time");
 
-							cur_idx = GetExpressionVal(n->n->r, scp);
+							cur_idx = GetExpressionVal(n->n->r, child_scp);
 							new_decl->name = n->n->l->t->str.substr();
 						}break;
 						case COMMA_RET_IDENT:
@@ -9073,6 +9086,10 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				ret_type.type = TYPE_INT;
 				ret_type.i = GetTypeSize(&args[0].decl.type);
 			}
+			else if (fdecl->name == "get_func_bc")
+			{
+				ret_type = fdecl->ret_type;
+			}
 			else if (fdecl->name == "__is_struct")
 			{
 				ret_type.type = TYPE_BOOL;
@@ -9329,8 +9346,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 									TypeToString(fdecl->ret_type).c_str(), TypeToString(ret_type).c_str(), GetFileLn(lang_stat, fdecl->func_node->t->line - 1)))
 							}
 						}
+						ExitProcess(0);
 						// return types are different
-						ASSERT(false)
+						//ASSERT(false)
 					}
 
 					//fdecl->ret_type = ret_type;

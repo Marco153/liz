@@ -1016,6 +1016,8 @@ void TextEditor::BasicMovs(int movAmount)
 	auto shift = io.KeyShift;
 	auto ctrl = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
 	auto alt = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeyAlt;
+	bool isCapF = bNotEmpty && insertBuffer[0] == 'F';
+	bool isF = bNotEmpty && insertBuffer[0] == 'f';
 	
 	
 	bool moved = false;
@@ -1094,6 +1096,40 @@ void TextEditor::BasicMovs(int movAmount)
 	{
 		MoveLeft(movAmount, shift, ctrl);
 		moved = true;
+	}
+	else if(isF && !io.InputQueueCharacters.empty())
+	{
+		char ch = io.InputQueueCharacters[0];
+		int column = GetCharacterIndex(mState.mCursorPosition);
+		int cline = mState.mCursorPosition.mLine;
+		auto &line = mLines[cline];
+		int max = line.size();
+		for(int i = column + 1; i < max; i++)
+		{
+			if(line[i].mChar == ch)
+			{
+				int ch_column = GetCharacterColumn(cline, i);
+				SetCursorPosition(Coordinates(cline, ch_column));
+			}
+		}
+		insertBuffer.clear();
+	}
+	else if(isCapF && !io.InputQueueCharacters.empty())
+	{
+		char ch = io.InputQueueCharacters[0];
+		int column = GetCharacterIndex(mState.mCursorPosition);
+		int cline = mState.mCursorPosition.mLine;
+		auto &line = mLines[cline];
+		int max = line.size();
+		for(int i = column -1; i > 0; i--)
+		{
+			if(line[i].mChar == ch)
+			{
+				int ch_column = GetCharacterColumn(cline, i);
+				SetCursorPosition(Coordinates(cline, ch_column));
+			}
+		}
+		insertBuffer.clear();
 	}
 	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_K))
 	{
@@ -1345,6 +1381,8 @@ void TextEditor::HandleKeyboardInputs()
 	bool isD = bNotEmpty && insertBuffer[0] == 'd';
 	bool isG = bNotEmpty && insertBuffer[0] == 'g';
 	bool isM = bNotEmpty && insertBuffer[0] == 'm';
+	bool isCapF = bNotEmpty && insertBuffer[0] == 'F';
+	bool isF = bNotEmpty && insertBuffer[0] == 'f';
 	bool isApostrophe = bNotEmpty && insertBuffer[0] == '\'';
 	isQuotes = bNotEmpty && insertBuffer[0] == '\"' && insertBuffer.size() < 2;
 	firstChInInsertBufferIsSlash = bNotEmpty && insertBuffer[0] == '/';;
@@ -1529,6 +1567,20 @@ void TextEditor::HandleKeyboardInputs()
 			{
 				mVimMode = VI_INSERT;
 			}
+			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_F))
+			{
+				if (!bNotEmpty)
+				{
+					insertBuffer += 'f';
+				}
+			}
+			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_F))
+			{
+				if (!bNotEmpty)
+				{
+					insertBuffer += 'F';
+				}
+			}
 			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Apostrophe))
 			{
 				if (isApostrophe)
@@ -1691,7 +1743,7 @@ void TextEditor::HandleKeyboardInputs()
 				mSelectionMode = SelectionMode::Normal;
 				SetSelection(mState.mCursorPosition, mState.mCursorPosition, mSelectionMode);
 			}
-			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Semicolon))
+			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Semicolon) && !isF && !isCapF)
 			{
 				//mVimMode = VI_CMD;
 				if (!isCmdBuffer)

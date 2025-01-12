@@ -962,6 +962,7 @@ void ImGuiEnumCombo(dbg_state* dbg)
 		return;
 	}
 	ASSERT(e);
+	*var_addr = clamp(*var_addr, 0, e->type.enum_names->size() - 1);
 
 	if (*var_addr > 128 || *var_addr < 0)
 	{
@@ -2801,6 +2802,8 @@ struct aux_cell_info
 		struct
 		{
 			u32 type;
+			u32 enemy_type;
+			u64 add_info;
 			v3 pos;
 			v3 sz;
 		}obj;
@@ -2980,7 +2983,7 @@ int LoadSpriteSheet(dbg_state* dbg, std::string sp_file_name, int *tex_width, in
 	};
 	int val = *(int*)cur_ptr;
 	// end of layers
-	if(val != 0x1234)
+	if(val != 0xbebad0)
 	{
 		printf("error file %s: value check at end of layers not matching, expected 0x%04x, found 0x%04x", sp_file_name.c_str(), 0x1234, val);
 		return -1;

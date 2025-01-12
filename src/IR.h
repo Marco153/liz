@@ -10,6 +10,7 @@ enum ast_type
     AST_CONTINUE,
     AST_FUNC,
     AST_INT,
+    AST_GET_FUNC_BC,
     AST_CHAR,
     AST_IDENT,
     AST_RET,
@@ -291,6 +292,7 @@ enum ir_val_type
     IR_TYPE_ARG_REG,
     IR_TYPE_RET_REG,
     IR_TYPE_DECL,
+    IR_TYPE_GET_FUNC_BC,
     IR_TYPE_ON_STACK,
 };
 enum on_stack_type
@@ -302,7 +304,11 @@ enum on_stack_type
 struct ir_val
 {
     ir_val_type type;
-	decl2 *decl;
+    union
+    {
+        decl2* decl;
+        func_decl* fdecl;
+    };
     union
     {
         int decl_offset;

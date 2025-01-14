@@ -121,6 +121,11 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			ret->deref.exp = AstFromNode(lang_stat, cur, scp);
 			ret->deref.type = DescendNode(lang_stat, n, scp);
 		}break;
+		case T_DOLLAR:
+		{
+			ret->type = AST_LABEL;
+			ret->decl = FindIdentifier(n->r->t->str, scp, &dummy_type);
+		}break;
 		default:
 			ASSERT(0)
 		}
@@ -385,10 +390,47 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
         case KW_RETURN:
         {
             ret->type = AST_RET;
+			if(IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_COROUTINE))
+			{
+				decl2* d = FindIdentifier("CoroutineEnding", scp, &dummy_type);
+
+				decl2* first_arg = d->type.fdecl->args[0];
+
+				node* label_name = new_node(lang_stat, n->t);
+				label_name->type = N_IDENTIFIER;
+				label_name->t->str = std::string("_ret_label") + std::to_string(scp->fdecl->total_hidden_ret_labels);
+
+				scp->fdecl->total_hidden_ret_labels++;
+
+				first_arg->type.nd = label_name;
+
+				node* new_tree = d->type.fdecl->func_node->r->r->NewTree(lang_stat);
+				BuildMacroTree(lang_stat, d->type.fdecl->scp, new_tree, n->t->line);
+				LookingForLabels(lang_stat, new_tree, scp);
+
+				decl2* res = DescendNameFinding(lang_stat, new_tree, scp);
+				ASSERT(res);
+
+				DescendNode(lang_stat, new_tree, scp);
+
+				// disabling the flag, because it will cause this trigger this return again on the
+				// other return that we have inside the macro
+				scp->fdecl->flags &= ~FUNC_DECL_COROUTINE;
+				ret = AstFromNode(lang_stat, new_tree, scp);
+				scp->fdecl->flags |= FUNC_DECL_COROUTINE;
+				ASSERT(ret->type == AST_STATS);
+				FOR_VEC(cur_st_ptr, ret->stats)
+				{
+					ast_rep* cur_st = *cur_st_ptr;
+					cur_st->dont_make_dbg_stmnt = true;
+				}
+				ret->stats[ret->stats.size() - 2]->dont_make_dbg_stmnt = false;
+			}
 			if (n->r)
 			{
 				ret->ret.ast = AstFromNode(lang_stat, n->r, scp);
 				ret->ret.tp = DescendNode(lang_stat, n->r, scp);
+
 			}
         }break;
 		default:
@@ -492,6 +534,28 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
         
         ret->func.fdecl = n->fdecl;
 
+		ast_rep* coroutine_prolegue = nullptr;
+		if (IS_FLAG_ON(n->fdecl->flags, FUNC_DECL_COROUTINE))
+		{
+			decl2* d = FindIdentifier("CoroutinePrologue", scp, &dummy_type);
+			node* new_tree = d->type.fdecl->func_node->r->r->NewTree(lang_stat);
+			BuildMacroTree(lang_stat, n->fdecl->scp, new_tree, n->t->line);
+			decl2* res = DescendNameFinding(lang_stat, new_tree, scp);
+			ASSERT(res);
+			DescendNode(lang_stat, new_tree, scp);
+			coroutine_prolegue = AstFromNode(lang_stat, new_tree, scp);
+			if (coroutine_prolegue->type == AST_STATS)
+			{
+				FOR_VEC(cur_st_ptr, coroutine_prolegue->stats)
+				{
+					ast_rep* cur_st = *cur_st_ptr;
+					cur_st->dont_make_dbg_stmnt = true;
+				}
+			}
+			//ret->func.stats->stats.insert(ret->func.stats->stats.begin(), prologue_ast->stats.begin(), prologue_ast->stats.end());
+
+		}
+
         ret->func.stats = AstFromNode(lang_stat, n->r->r, n->fdecl->scp);
 		if (ret->func.stats->type != AST_STATS)
 		{
@@ -500,6 +564,12 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			new_ast->stats.emplace_back(ret->func.stats);
 			ret->func.stats = new_ast;
 		}
+		if (IS_FLAG_ON(n->fdecl->flags, FUNC_DECL_COROUTINE))
+		{
+			ASSERT(coroutine_prolegue);
+			ret->func.stats->stats.insert(ret->func.stats->stats.begin(), coroutine_prolegue->stats.begin(), coroutine_prolegue->stats.end());
+		}
+
 
 		lang_stat->cur_func = last;
 
@@ -2905,6 +2975,12 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 	ir_rep ir = {};
     switch(ast->type)
     {
+	case AST_LABEL:
+	{
+		ir.type = IR_LABEL;
+		ir.decl = ast->decl;
+		out->emplace_back(ir);
+	}break;
 	case AST_FLOAT:
 	case AST_INT:
 	{
@@ -3057,7 +3133,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ASSERT(!lang_stat->ir_in_stmnt)
 				lang_stat->ir_in_stmnt = true;
 
-				bool can_emplace_stmnt = s->type != AST_IDENT && s->type != AST_FOR;
+				bool can_emplace_stmnt = s->type != AST_IDENT && s->type != AST_FOR && !s->dont_make_dbg_stmnt;
 				int stmnt_idx = 0;
 				if(can_emplace_stmnt)
 					stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void *)(long long)s->line_number);

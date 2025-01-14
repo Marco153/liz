@@ -4074,6 +4074,18 @@ void WriteFileInterpreter(dbg_state* dbg)
 	WriteFileLang((char *)work_dir.c_str(), buffer_ptr, buffer_sz);
 
 }
+void GetInstRealAddr(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int inst_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = (u64)(dbg->lang_stat->bcs2_start + inst_idx);
+}
+void GetTopStackPtr(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = base_ptr + 8;
+
+}
 void Cos(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -4583,6 +4595,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
 	AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
 	AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow", (OutsiderFuncType)IsMouseOnGameWindow);
+	AssignOutsiderFunc(&lang_stat, "GetTopStackPtr", (OutsiderFuncType)GetTopStackPtr);
+	AssignOutsiderFunc(&lang_stat, "GetInstRealAddr", (OutsiderFuncType)GetInstRealAddr);
 
 	if (!opts.release)
 	{

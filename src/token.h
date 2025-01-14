@@ -300,10 +300,12 @@ struct template_to_be_assigned
 #define FUNC_DECL_ALIGN_STACK_WHEN_CALL 0x8000
 #define FUNC_DECL_COMP 0x10000
 #define FUNC_DECL_CODE_WAS_GENERATED 0x20000
-#define FUNC_DECL_THIS 0x40000
+#define FUNC_DECL_COROUTINE 0x40000
 #define FUNC_DECL_SERIALIZED 0x80000
 #define FUNC_DECL_X64 0x100000
 #define FUNC_DECL_INTRINSIC 0x200000
+#define FUNC_DECL_LABEL 0x400000
+#define FUNC_DECL_LABELS_GOTTEN 0x800000
 
 struct stmnt_dbg
 {
@@ -409,6 +411,7 @@ struct func_decl
 	int array_literal_offset;
 	int array_literal_sz;
 
+	int total_hidden_ret_labels;
 
 	int var_args_start_offset;
 	int line;

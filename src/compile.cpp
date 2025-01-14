@@ -1991,9 +1991,12 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		if (val->decl->type.type == TYPE_FUNC)
 		{
 			int idx = 0;
-			ASSERT(FuncAddedWasm(gen_state->wasm_state, val->decl->name, &idx));
-			WasmPushConst(WASM_LOAD_INT, 0, idx, &code_sect);
-			deref_times = -1;
+			if (IS_FLAG_OFF(val->decl->type.fdecl->flags, FUNC_DECL_LABEL))
+			{
+				ASSERT(FuncAddedWasm(gen_state->wasm_state, val->decl->name, &idx));
+				WasmPushConst(WASM_LOAD_INT, 0, idx, &code_sect);
+				deref_times = -1;
+			}
 
 		}
 		else
@@ -2664,6 +2667,9 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		WasmStoreInst(lang_stat, code_sect, 0, WASM_STORE_OP);
 		gen_state->advance_ptr++;
 
+	}break;
+	case IR_LABEL:
+	{
 	}break;
 	default:
 		ASSERT(0);
@@ -6598,7 +6604,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 			if (IS_FLAG_ON(f->flags, FUNC_DECL_SERIALIZED))
 				vdbg->type_idx = f->func_dbg_idx;
 
-			if (IS_FLAG_ON(f->flags, FUNC_DECL_INTERNAL | FUNC_DECL_SERIALIZED | FUNC_DECL_SERIALIZED | FUNC_DECL_TEMPLATED))
+			if (IS_FLAG_ON(f->flags, FUNC_DECL_LABEL | FUNC_DECL_INTERNAL | FUNC_DECL_SERIALIZED | FUNC_DECL_SERIALIZED | FUNC_DECL_TEMPLATED))
 				break;
 
 			WasmSerializeFunc(wasm_state, ser_state, f);
@@ -9326,7 +9332,11 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					//MakeCurBcToBeBreakpoint(dbg, func_call_first_st_bc, found_f_first_stat->line);
 					*/
 					release_inst = true;
-					dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
+					dbg->break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
+					byte_code2* dst_bc = out + out->i;
+					func_decl *dst_func = GetFuncBasedOnBc2(dbg, dst_bc);
+					dbg->next_stat_break_func = dst_func;
+					dbg->cur_func = nullptr;
 					dbg->prev_st = cur_st;
 				}
 				else
@@ -9353,6 +9363,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 						dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
 					}
 				}
+				dbg->next_stat_break_func = dbg->cur_func;
 				release_inst = true;
 			}
 
@@ -9369,7 +9380,6 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					(*rip_ptr)++;
 					//cur_bc++;
 				}
-				dbg->next_stat_break_func = dbg->cur_func;
 				//dbg->cur_func = nullptr;
 
 				cur_scp = nullptr;
@@ -11647,7 +11657,7 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	aux->reg_sz = ir->reg_sz;
 	aux->voffset = GetOnStackOffsetWithIrVal(lang_stat, ir);
 
-	if(ir->type == IR_TYPE_DECL)
+	if (ir->type == IR_TYPE_DECL)
 		ASSERT(ir->decl->type.type != TYPE_FUNC);
 	aux->deref = ir->deref;
 	aux->is_float = ir->is_float;
@@ -11927,12 +11937,19 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			case IR_TYPE_DECL:
 			{
 				ir_val_aux lhs;
-				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				if (assign.lhs.type == IR_TYPE_DECL && (assign.lhs.decl->type.type == TYPE_FUNC || assign.lhs.decl->type.type == TYPE_FUNC_PTR))
+				{
+					GenX64AddGetFuncAddrReloc(lang_stat, ret, &lhs, assign.lhs.decl->type.fdecl);
+				}
+				else
+				{
+					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false);
+				}
 				if (lhs.reg == PRE_X64_RSP_REG)
 					bc.type = MOV_M_2_REG_PARAM;
 				else
 				{
-					if(lhs.is_float)
+					if (lhs.is_float)
 						bc.type = MOV_SSE_2_REG_PARAM;
 					else
 						bc.type = MOV_R_2_REG_PARAM;
@@ -11944,6 +11961,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				bc.bin.rhs.voffset = lhs.reg_sz;
 
 				ret.emplace_back(bc);
+
 			}break;
 			case IR_TYPE_F32:
 			{
@@ -12097,6 +12115,23 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				bc.bin.rhs.reg_sz = 8;
 
 				ret.emplace_back(bc);
+			}break;
+			case IR_TYPE_STR_LIT:
+			{
+				char str_on_reg = AllocReg(lang_stat);
+				bc.type = RELOC;
+				bc.rel.type = REL_DATA;
+				bc.rel.reg_dst = str_on_reg;
+				bc.rel.offset = assign.lhs.on_data_sect_offset;
+				ret.emplace_back(bc);
+				bc.type = STORE_R_2_M;
+				bc.bin.lhs.reg = reg;
+				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.lhs.voffset = voffset;
+				bc.bin.rhs.reg = str_on_reg;
+				bc.bin.rhs.reg_sz = 8;
+				ret.emplace_back(bc);
+				FreeSpecificReg(lang_stat, str_on_reg);
 			}break;
 			default:
 				ASSERT(false);
@@ -12853,6 +12888,256 @@ void PatchJmps(own_std::vector<byte_code>& ret, block_linked* cur)
 		bc->val = (ret.size()-1) - r->bc;
 	}
 }
+
+void GenX64AsmGetReg(lang_state* lang_stat, std::string& reg_str, byte_code::operand* op)
+{
+	char reg = reg_str[1] -'0';
+	char reg_sz_char = reg_str[2];
+	char reg_sz = 0;
+	switch (reg_sz_char)
+	{
+	case 'b':
+	{
+		reg_sz = 1;
+	}break;
+	case 'w':
+	{
+		reg_sz = 2;
+	}break;
+	case 'd':
+	{
+		reg_sz = 4;
+	}break;
+	case 'q':
+	{
+		reg_sz = 8;
+	}break;
+	default:
+		ASSERT(0);
+	}
+	op->reg = reg;
+	op->reg_sz = reg_sz;
+}
+bool GenX64AsmIsMemoryAssign(lang_state* lang_stat, token2** t, byte_code::operand *op)
+{
+
+
+	if ((*t)->type == T_WORD && ((*t) + 1)->type == T_OPEN_BRACKETS)
+	{
+		char sz = 0;
+		if ((*t)->str == "byte")
+		{
+			sz = 1;
+		}
+		else if ((*t)->str == "word")
+		{
+			sz = 2;
+		}
+		else if ((*t)->str == "dword")
+		{
+			sz = 4;
+		}
+		else if ((*t)->str == "qword")
+		{
+			sz = 8;
+		}
+		else
+			ASSERT(0);
+		*t = *t + 2;
+		ASSERT((*t)->type == T_WORD);
+		GenX64AsmGetReg(lang_stat, (*t)->str, op);
+
+		*t = *t + 1;
+
+		if ((*t)->type != T_CLOSE_BRACKETS)
+		{
+			tkn_type2 t_op = (*t)->type;
+			*t = *t + 1;
+			ASSERT((*t)->type == T_INT);
+
+			if (t_op == T_MINUS)
+			{
+				op->voffset = -(*t)->i;
+			}
+			else
+				op->voffset = (*t)->i;
+			*t = *t + 1;
+
+		}
+		ASSERT((*t)->type == T_CLOSE_BRACKETS);
+		*t = *t + 1;
+		return true;
+
+	}
+	else
+	{
+		GenX64AsmGetReg(lang_stat, (*t)->str, op);
+		(*t)++;
+	}
+	return false;
+}
+
+
+token2 *GenX64AsmBin(lang_state* lang_stat, byte_code &bc, token2 *t,
+	byte_code_enum m_to_m, 
+	byte_code_enum r_to_m, 
+	byte_code_enum r_to_r, 
+	byte_code_enum m_to_i, 
+	byte_code_enum r_to_i)
+{
+	char lhs_type = 0;
+	char rhs_type = 0;
+	if (GenX64AsmIsMemoryAssign(lang_stat, &t, &bc.bin.lhs))
+		lhs_type = 1;
+
+	ASSERT(t->type == T_COMMA);
+	t++;
+
+	if(t->type == T_INT)
+	{
+		bc.bin.rhs.i = t->i;
+		rhs_type = 2;
+	}
+	else if (t->type == T_STR_LIT)
+	{
+		
+		rhs_type = 3;
+	}
+	else if (GenX64AsmIsMemoryAssign(lang_stat, &t, &bc.bin.rhs))
+	{
+		rhs_type = 1;
+	}
+
+
+	switch (lhs_type | (rhs_type < 1))
+	{
+	// both regs
+	case 0:
+	{
+		bc.type = MOV_R;
+	}break;
+	// lhs m, rhs r
+	case 1:
+	{
+		bc.type = MOV_M;
+	}break;
+	// lhs r, rhs m
+	case 2:
+	{
+		bc.type = STORE_R_2_M;
+	}break;
+	// lhs r, rhs i
+	case 4:
+	{
+		bc.type = MOV_I;
+	}break;
+	// lhs m, rhs i
+	case 5:
+	{
+		bc.type = STORE_I_2_M;
+	}break;
+	default:
+		ASSERT(0);
+	}
+	t--;
+
+	return t;
+}
+
+void GenX64ByteCodeFromStr(lang_state* lang_stat,
+	own_std::vector<byte_code>& ret,
+	std::string& str,
+	scope *scp)
+{
+	type2 dummy_tp;
+	own_std::vector<token2> tkns;
+	Tokenize2((char*)str.data(), str.size(), &tkns);
+	token2* t = &tkns[0];
+	// the very last token is an end of file, so were ignoring it, by decrementing the ptr
+	token2* end = tkns.end() - 1;
+
+
+	for (; t < end; t++)
+	{
+		byte_code bc;
+		if (t->type == T_WORD)
+		{
+			if (t->str == "mov")
+			{
+				t++;
+				if ((t + 2)->type == T_STR_LIT)
+				{
+
+					byte_code::operand dummy_op = {};
+					GenX64AsmGetReg(lang_stat, t->str, &dummy_op);
+					bc.type = RELOC;
+					bc.rel.type = REL_DATA;
+					bc.rel.offset = lang_stat->data_sect.size();
+					bc.rel.reg_dst = dummy_op.reg;
+					InsertIntoDataSect(lang_stat, (char *) t->str.c_str(), t->str.size() + 1);
+					t++;
+				}
+				else
+				{
+					t = GenX64AsmBin(lang_stat, bc, t,
+						STORE_M_2_M,
+						STORE_R_2_M,
+						MOV_R,
+						STORE_I_2_M,
+						MOV_I);
+				}
+			}
+			if (t->str == "mov_param")
+			{
+				t++;
+				char reg = 0;
+				// arg reg should be a number
+				ASSERT(t->type == T_INT);
+				reg = t->i;
+
+				t++;
+				ASSERT(t->type == T_COMMA);
+				t++;
+
+				char rhs_type = 0;
+				if (t->type == T_INT)
+				{
+					rhs_type = 2;
+				}
+				if (GenX64AsmIsMemoryAssign(lang_stat, &t, &bc.bin.rhs))
+					rhs_type = 1;
+
+				if(rhs_type == 0)
+				{
+					bc.type = MOV_R_2_REG_PARAM;
+				}
+				else if (rhs_type == 1)
+				{
+					bc.type = MOV_M_2_REG_PARAM;
+				}
+				else if (rhs_type == 2)
+				{
+					bc.type = MOV_I_2_REG_PARAM;
+				}
+
+			}
+			else if (t->str == "call")
+			{
+				t++;
+				decl2 *func = FindIdentifier(t->str, scp, &dummy_tp);
+				bc.type = RELOC;
+				bc.rel.type = REL_FUNC;
+				bc.rel.call_func = func->type.fdecl;
+			}
+			else
+				ASSERT(0);
+
+			ret.emplace_back(bc);
+		}
+		else
+			ASSERT(0);
+	}
+}
 // $IrX64
 void GenX64BytecodeFromIR(lang_state *lang_stat, 
 						  own_std::vector<byte_code>& ret,
@@ -12978,6 +13263,13 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			ParametersToStack(cur_ir->fdecl, &ret);
 
 			GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
+
+			cur_ir->fdecl->stack_size = stack_size;
+
+
+			if (IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_COROUTINE))
+			{
+			}
 
 		}break;
 		case IR_BEGIN_STMNT:
@@ -13593,6 +13885,14 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					bc.bin.rhs.reg = 0;
 					ret.emplace_back(bc);
 				}
+				else if (ir->call.fdecl->name == "GetFuncStackSize")
+				{
+					bc.type = MOV_I;
+					bc.bin.lhs.reg = 0;
+					bc.bin.lhs.reg_sz = 8;
+					bc.bin.rhs.i = fdecl->stack_size;
+					ret.emplace_back(bc);
+				}
 				else
 					ASSERT(false)
 			}
@@ -13643,6 +13943,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ASSERT(false);
 			}
 			//TODO:
+		}break;
+		case IR_LABEL:
+		{
+			ir->decl->type.fdecl->bcs2_start = ret.size();
 		}break;
 		default:
 			ASSERT(false)
@@ -15429,6 +15733,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 
 			(*i2)->global->imports.emplace_back(NewDecl(lang_stat, "__import", tp));
 		}
+		//LookingForLabels(lang_stat, (*i1)->s, (*i1)->global);
 	}
 	//AddNewFile(lang_stat, "Core/tests.lng");
 	//AddNewFile(lang_stat, "Core/player.lng");
@@ -15777,16 +16082,6 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "sizeof", tp));
 
-	tp.type = enum_type2::TYPE_FUNC;
-	sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
-	sz_of_fdecl->ret_type.type = enum_type2::TYPE_U64;
-	sz_of_fdecl->ret_type.ptr = 1;
-	tp.fdecl = sz_of_fdecl;
-	tp.fdecl->flags |= FUNC_DECL_INTERNAL;
-	tp.fdecl->name = std::string("get_func_bc");
-	tp.fdecl->args.push_back(dummy_decl);
-
-	lang_stat->root->vars.push_back(NewDecl(lang_stat, "get_func_bc", tp));
 
 	sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 	memset(sz_of_fdecl, 0, sizeof(func_decl));

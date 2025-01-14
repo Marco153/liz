@@ -31,6 +31,7 @@ enum ast_type
     AST_ARRAY_COSTRUCTION,
 
     AST_DEREF,
+    AST_LABEL,
 
     AST_FLOAT,
 
@@ -148,7 +149,8 @@ struct ast_rep
 {
     ast_type type;
     tkn_type2 op;
-	bool stmnt_without_semicolon;
+	bool stmnt_without_semicolon : 1;
+	bool dont_make_dbg_stmnt : 1;
 
 	int line_number;
     int line_offset_start;
@@ -213,6 +215,7 @@ enum ir_type
 
     IR_ASSIGNMENT,
     IR_RET,
+    IR_LABEL,
     IR_CMP_EQ,
     IR_CMP_NE,
     IR_CMP_LT,

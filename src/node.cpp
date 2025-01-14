@@ -117,6 +117,7 @@ char* std_str_to_heap(lang_state*, std::string* str);
 
 #define DONT_DESCEND_SCOPE 1
 #define DONT_DESCEND_ARGS  2
+#define FUNCTION_IS_DONE_FLAGS_ONLY_DECLARE_SCOPE_AND_FUNC  4
 
 std::string scope::Print(int indent)
 {
@@ -883,10 +884,10 @@ node* node_iter::parse_func_like()
 		get_tkn();
 		n->flags |= NODE_FLAGS_FUNC_COMP;
 	}
-	else if (IsTknWordStr(peek_tkn(), "this"))
+	else if (IsTknWordStr(peek_tkn(), "coroutine"))
 	{
 		get_tkn();
-		n->flags |= NODE_FLAGS_FUNC_THIS;
+		n->flags |= NODE_FLAGS_FUNC_COROUTINE;
 	}
 	else if (IsTknWordStr(peek_tkn(), "macro"))
 	{
@@ -1681,9 +1682,9 @@ node* node_iter::parse_expr()
 	// unary right assoc
 	case tkn_type2::T_DOLLAR:
 	{
-		ASSERT(peek_tkn()->type == tkn_type2::T_OPEN_PARENTHESES)
+		ASSERT(peek_tkn()->type == tkn_type2::T_WORD)
 
-			n->t = cur_tkn;
+		n->t = cur_tkn;
 		n->type = node_type::N_UNOP;
 		n->r = parse_expr();
 	}break;
@@ -3778,8 +3779,6 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 		{
 			ASSERT(IS_FLAG_ON(n->r->flags, NODE_FLAGS_IS_PROCESSED2))
 
-				ret_type = *n->ar_lit_tp;
-
 		}break;
 		case tkn_type2::T_AMPERSAND:
 		{
@@ -3958,6 +3957,11 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 
 			ret_type.flags |= TYPE_IS_GLOBAL;
 			
+		}
+		else if (n->t->str == "__FUNC_NAME__")
+		{
+			ret_type.type = TYPE_STR_LIT;
+			break;
 		}
 		else
 		{
@@ -4390,6 +4394,12 @@ void BuildMacroTree(lang_state *lang_stat, scope* scp, node* n, unsigned int sta
 		n->t->line = start_line;
 	switch (n->type)
 	{
+	case N_SCOPE:
+	{
+
+		n->scp = nullptr;
+		auto a = 0;
+	}break;
 	case N_IDENTIFIER:
 	{
 		if (n->t->str == "__CALL_SITE_SRC_FILE")
@@ -4691,12 +4701,6 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		{
 			int a = 0;
 			ret_type->type = enum_type2::TYPE_BOOL;
-			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
-		}
-		else if (lhs->name == "get_func_bc")
-		{
-			int a = 0;
-			*ret_type = lhs->type.fdecl->ret_type;
 			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
 		}
 		else if (lhs->name == "sizeof")
@@ -5181,6 +5185,54 @@ void ReportDeclaredTwice(lang_state *lang_stat, node* twice, decl2* decl)
 }
 
 
+void LookingForLabels(lang_state *lang_stat, node* n, scope* scp)
+{
+	type2 ret_type;
+	if (!n)
+		return;
+	switch(n->type)
+	{
+	case N_FUNC_DECL:
+	{
+		ASSERT(0);
+		FunctionIsDone(lang_stat, n, scp, &ret_type, FUNCTION_IS_DONE_FLAGS_ONLY_DECLARE_SCOPE_AND_FUNC);
+		if(n->r)
+		{
+			LookingForLabels(lang_stat, n->r, n->fdecl->scp);
+		}
+	}break;
+	case N_UNOP:
+	{
+		switch(n->t->type)
+		{
+		case T_DOLLAR:
+		{
+			auto fdecl = (func_decl *)AllocMiscData(lang_stat, sizeof(func_decl));
+			ret_type.type = TYPE_FUNC;
+			ret_type.fdecl = fdecl;
+			fdecl->flags |= FUNC_DECL_LABEL;
+			fdecl->name = n->r->t->str.substr();
+			fdecl->name = n->r->t->str.substr();
+			scp->AddDecl(NewDecl(lang_stat, n->r->t->str, ret_type));
+		}break;
+		}
+	}break;
+	case N_SCOPE:
+	{
+		if (!n->scp)
+			n->scp = GetScopeFromParent(lang_stat, n, scp);
+		LookingForLabels(lang_stat, n->r, n->scp);
+	}break;
+	case N_BINOP:
+	{
+	}break;
+	default:
+	{
+		LookingForLabels(lang_stat, n->l, scp);
+		LookingForLabels(lang_stat, n->r, scp);
+	}break;
+	}
+}
 bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type, int flags)
 {
 	char msg_hdr[256];
@@ -5215,6 +5267,8 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	child_scp->flags |= SCOPE_INSIDE_FUNCTION;
 	child_scp->fdecl = fdecl;
 	ret_type->fdecl = fdecl;
+	if (IS_FLAG_ON(flags, FUNCTION_IS_DONE_FLAGS_ONLY_DECLARE_SCOPE_AND_FUNC))
+		return true;
 
 	int template_end_idx = fdecl->templates.size();
 	// templates
@@ -5237,7 +5291,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_INTERNAL) ? FUNC_DECL_INTERNAL : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_INTRINSIC) ? FUNC_DECL_INTRINSIC : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_MACRO) ? FUNC_DECL_MACRO : 0;
-	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_THIS) ? FUNC_DECL_THIS : 0;
+	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_COROUTINE) ? FUNC_DECL_COROUTINE : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_COMP) ? FUNC_DECL_COMP : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_TEST) ? FUNC_DECL_TEST : 0;
 	fdecl->flags |= IS_FLAG_ON(fnode->flags, NODE_FLAGS_ALIGN_STACK_WHEN_CALL) ? FUNC_DECL_ALIGN_STACK_WHEN_CALL : 0;
@@ -5258,162 +5312,17 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	{
 		if (!FuncArgsLogic(lang_stat, fdecl, fnode, child_scp, ret_type, flags, template_end_idx, is_outsider))
 			return false;
-		/*
-		if (template_end_idx == 0 && !is_outsider)
-			ASSERT(child_scp->vars.size() == 0);
-
-		int last_flags = lang_stat->flags;
-
-		// making sure we will not instantiate structs args
-		if (template_end_idx > 0)
-			lang_stat->flags |= PSR_FLAGS_NO_INSTANTIATION_BUT_RET_STRCT;
-
-
-		lang_stat->flags |= PSR_FLAGS_DONT_DECLARE_VARIABLES;
-		lang_stat->flags |= PSR_FLAGS_RET_NIL_EVEN_WHEN_PTR_TO_STRUCT_NOT_DONE;
-		lang_stat->flags &= ~PSR_FLAGS_DECLARE_ONLY_TYPE_PARAMTS;
-		if (!DescendNameFinding(lang_stat, fnode->l->l->r, child_scp))
-		{
-			lang_stat->flags = last_flags;
-			return false;
-		}
-
-		lang_stat->flags &= ~PSR_FLAGS_DONT_DECLARE_VARIABLES;
-
-		own_std::vector<comma_ret> args;
-		DescendComma(lang_stat, fnode->l->l->r, child_scp, args);
-
-		//lang_stat->flags &= ~PSR_FLAGS_NO_INSTANTIATION_BUT_RET_STRCT;
-
-		lang_stat->flags = last_flags;
-
-		bool is_var_args = false;
-		int i = 0;
-
-		decl2* normal_func_first_arg_decl_with_using = nullptr;
-
-		// getting type of args
-		FOR_VEC(t, args)
-		{
-			// ERROR: var_args should be at the end
-			ASSERT(!is_var_args);
-
-
-
-            // parameters with name and type
-            if (t->type == COMMA_VAR_ARGS)
-            {
-                fdecl->flags |= FUNC_DECL_VAR_ARGS;
-                // getting where the var_args start
-                // we're subtracting one because the var counts as an argument
-                fdecl->var_args_start_offset = (args.size() - 1) * 8 + 8;
-                is_var_args = true;
-                type2 aux_type;
-                continue;
-                //child_scp->vars.emplace_back(NewDecl(lang_stat, t->decl.name, t->decl.type));
-            }
-
-			//decl2* new_decl = new decl2();
-			type2 dummy_type;
-			memset(&dummy_type, 0, sizeof(type2));
-			auto new_decl = DeclareDeclToScopeAndMaybeToFunc(lang_stat, "", &dummy_type, child_scp, t->n);
-
-			new_decl->flags |= DECL_IS_ARG;
-
-
-			decl2* enum_decl = nullptr;
-			// prably struct names
-			if (t->type == COMMA_RET_IDENT)
-			{
-				if (t->decl.type.type == enum_type2::TYPE_AUTO)
-				{
-					enum_decl = FindIdentifier(t->decl.name, child_scp, &t->decl.type);
-					ASSERT(enum_decl);
-					t->decl.type.type = FromTypeToVarType(t->decl.type.type);
-				}
-				else
-				{
-					t->decl.type.type = FromTypeToVarType(t->decl.type.type);
-				}
-
-				new_decl->type = t->decl.type;
-				new_decl->name = "unamed";
-
-				if (new_decl->type.type == TYPE_ENUM)
-					new_decl->type.e_decl = enum_decl;
-				//child_scp->vars.emplace_back(NewDecl(lang_stat, "unamed", t->tp));
-			}
-
-			// parameters with name and type
-			else if (t->type == COMMA_RET_COLON || t->type == COMMA_RET_TYPE)
-			{
-				enum_type2 tp = t->decl.type.type;
-				t->decl.type.type = FromTypeToVarType(tp);
-				new_decl->type = t->decl.type;
-				new_decl->name = t->decl.name;
-
-				enum_decl = t->decl.type.e_decl;
-
-				if (new_decl->type.type == TYPE_ENUM)
-					new_decl->type.from_enum = enum_decl;
-
-				//child_scp->vars.emplace_back(NewDecl(lang_stat, t->decl.name, t->decl.type));
-			}
-			// probably ptr type *u8, *u16 etc
-			else if (t->type == COMMA_RET_EXPR)
-			{
-				t->decl.type.type = FromTypeToVarType(t->decl.type.type);
-				new_decl->type = t->decl.type;
-				new_decl->name = "unamed_arg";
-				//child_scp->vars.emplace_back(NewDecl(lang_stat, "unamed", t->tp));
-			}
-			if (t->decl.type.type == TYPE_STRUCT && IS_FLAG_ON(t->decl.type.strct->flags, TP_STRCT_TUPLE))
-			{
-				new_decl->type.ptr = 1;
-			}
-			// making struct values to be ptrs
-			CheckStructValToFunc(fdecl, &new_decl->type);
-
-			// assiging parameters directly to args if it's an outisder func
-			if (is_outsider)
-				fdecl->args.emplace_back(new_decl);
-			//else
-				//child_scp->vars.emplace_back(new_decl);
-
-			// we can only have unamed parametrs if 
-			// 1) its an outsider or internal function
-			// 2) if it is the firs argument of a normal function
-			if (t->type != COMMA_RET_COLON)
-			{
-				int flags = NODE_FLAGS_FUNC_INTERNAL;
-				bool function_allows_unamed = IS_FLAG_ON(fdecl->flags, flags) || n->type == N_FUNC_DEF;
-				bool normal_function_unamed = (i == 0 && !function_allows_unamed);
-				
-				ASSERT(function_allows_unamed || normal_function_unamed);
-
-				if (normal_function_unamed)
-				{
-					new_decl->name += std::to_string(rand() % 0xffffff);
-					normal_func_first_arg_decl_with_using = new_decl;
-				}
-			}
-
-			i++;
-
-		}
-		// scope vars to args, excluding templates
-		if (!is_outsider)
-			fdecl->args.assign(child_scp->vars.begin() + template_end_idx, child_scp->vars.end());
-
-		if(normal_func_first_arg_decl_with_using)
-			AddStructMembersToScopeWithUsing(lang_stat, normal_func_first_arg_decl_with_using->type.strct, fdecl->scp, NewIdentNode(lang_stat, normal_func_first_arg_decl_with_using->name, n->t));
-		//fdecl->vars.assign(child_scp->vars.begin() + template_end_idx, child_scp->vars.end());
-		*/
 	}
 	fdecl->flags |= FUNC_DECL_ARGS_GOTTEN;
 	// if the function has templates, we don't wanna check the rest of it
 	if (template_end_idx > 0)
 		return true;
+	if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_LABELS_GOTTEN))
+	{
+		LookingForLabels(lang_stat, fdecl->func_node->r, child_scp);
+		fdecl->flags |= FUNC_DECL_LABELS_GOTTEN;
+	}
+
 
 	//return type
 	if (!CheckFuncRetType(lang_stat, fdecl, child_scp))
@@ -6741,59 +6650,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			if (IS_FLAG_ON(n->r->flags, NODE_FLAGS_IS_PROCESSED2))
 				return (decl2*)1;
 
-			n->flags |= NODE_FLAGS_AR_LIT_ANON;
 
-			if (!DescendNameFinding(lang_stat, n->r, scp))
-				return nullptr;
-
-			own_std::vector<comma_ret> args;
-
-			//int last_ar_lit_sz = lang_stat->cur_ar_lit_sz;
-
-			if (n->r)
-				DescendComma(lang_stat, n->r, scp, args);
-
-			// getting type of args
-			FOR_VEC(t, args)
-			{
-				if (t->type == COMMA_RET_IDENT)
-					ASSERT(FindIdentifier(t->decl.name, scp, &t->decl.type))
-					/*
-				else if (t->type == COMMA_RET_EXPR)
-					t->decl.type = t->decl;
-					*/
-			}
-
-			//ASSERT(IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
-
-			auto ref_type = args[0].decl.type;
-
-			if (ref_type.type == enum_type2::TYPE_INT)
-				ref_type.type = enum_type2::TYPE_S32;
-
-			// comparing types
-			FOR_VEC(t, args)
-			{
-				ASSERT(CompareTypes(&ref_type, &t->decl.type))
-			}
-
-			auto new_tp = (type2*)AllocMiscData(lang_stat, sizeof(type2));
-			memcpy(new_tp, &ref_type, sizeof(type2));
-
-			auto ar_tp = (type2*)AllocMiscData(lang_stat, sizeof(type2));
-			ar_tp->type = enum_type2::TYPE_STATIC_ARRAY;
-			ar_tp->tp = new_tp;
-			ar_tp->ar_size = args.size();
-
-
-			ret_type = *ar_tp;
-
-			n->ar_byte_sz = GetTypeSize(&ref_type) * args.size();
-
-			scp->fdecl->array_literal_sz += n->ar_byte_sz;
-
-			n->ar_lit_tp = ar_tp;
-			//lang_stat->cur_ar_lit_sz = last_ar_lit_sz;
 			n->r->flags |= NODE_FLAGS_IS_PROCESSED2;
 		}break;
 
@@ -7200,6 +7057,10 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			n->type = node_type::N_INT;
 			break;
 		}
+		else if (n->t->str == "__FUNC_NAME__")
+		{
+			break;
+		}
 		/*
 		decl2* ident = nullptr;
 		if (n->decl)
@@ -7409,13 +7270,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						}
 					}
 
-					// this decl will be used later at the bytecode generation
-					// to tell at what offset the array is
-					if (IsNodeUnop(n->r, T_DOLLAR))
-					{
-						n->r->flags &= ~NODE_FLAGS_AR_LIT_ANON;
-						n->r->ar_lit_decl = lhs;
-					}
 
 					node* equal_stmnt = n;
 					bool zero_initialization = true;
@@ -8840,8 +8694,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			// getting array instantiation size
 		case tkn_type2::T_DOLLAR:
 		{
-			if (IS_FLAG_ON(n->r->flags, NODE_FLAGS_IS_PROCESSED2))
-				return *n->ar_lit_tp;
 
 		}break;
 		case tkn_type2::T_EXCLAMATION:
@@ -9086,10 +8938,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				ret_type.type = TYPE_INT;
 				ret_type.i = GetTypeSize(&args[0].decl.type);
 			}
-			else if (fdecl->name == "get_func_bc")
-			{
-				ret_type = fdecl->ret_type;
-			}
 			else if (fdecl->name == "__is_struct")
 			{
 				ret_type.type = TYPE_BOOL;
@@ -9101,8 +8949,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 		else if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTRINSIC))
 		{
-			if (IS_FLAG_OFF(lang_stat->cur_func->flags, FUNC_DECL_X64))
-				ReportMessage(lang_stat, n->t, "intrinsic functions can only be called from a x64 function");
+			//if (IS_FLAG_OFF(lang_stat->cur_func->flags, FUNC_DECL_X64))
+				//ReportMessage(lang_stat, n->t, "intrinsic functions can only be called from a x64 function");
 		}
 
 
@@ -9190,6 +9038,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		if (n->t->str == "global")
 		{
 			ret_type = DescendNode(lang_stat, n->r, scp);
+		}
+		else if (n->t->str == "__FUNC_NAME__")
+		{
+			ret_type.type = TYPE_STR_LIT;
+			n->type = N_STR_LIT;
+			n->t->str = scp->fdecl->name;
+			break;
 		}
 		else
 		{
@@ -9572,6 +9427,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 			lang_stat->flags = before_flags;
 			lang_stat->plugins_for_func = before_plugin;
+
 		}
 
 		if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
@@ -9979,13 +9835,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					if (!CompareTypes(&ltp, &rtp))
 						ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 
-					// excluding the colon node
-					if (IsNodeUnop(n->r, T_DOLLAR))
-					{
-						//ASSERT(IsNodeOperator(n->l, T_COLON));
-
-						memcpy(n, n->r, sizeof(node));
-					}
 
 					if (rtp.type == TYPE_FUNC && n->r->type == N_FUNC_DECL)
 					{

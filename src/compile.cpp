@@ -5578,10 +5578,11 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 	int base_ptr = WasmGetMemOffsetVal(&dbg, stack_reg * 8);
 	for (int r = 0; r < 6; r++)
 	{
-		mem_val = GetMemAddrString(dbg, base_ptr + r * 8, type_sz, 8, mem_wnd_show_type);
+		int addr = base_ptr + r * 8;
+		mem_val = GetMemAddrString(dbg, addr, type_sz, 8, mem_wnd_show_type);
 
 		std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
-		ImGui::Text("arg_reg[%d]: %s", r, mem_val.c_str());
+		ImGui::Text("arg_reg[%d, &%d]: %s", r, addr, mem_val.c_str());
 	}
 	ImGui::Separator();
 	ImGui::EndChild();
@@ -9815,10 +9816,11 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			base_ptr = WasmGetMemOffsetVal(&dbg, STACK_PTR_REG * 8);
 			for (int r = 0; r < 6; r++)
 			{
-				mem_val = GetMemAddrString(dbg, base_ptr + r * 8, type_sz, 8, mem_wnd_show_type);
+				int addr = base_ptr + r * 8;
+				mem_val = GetMemAddrString(dbg, addr, type_sz, 8, mem_wnd_show_type);
 
 				std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
-				ImGui::Text("arg_reg[%d]: %s", r, mem_val.c_str());
+				ImGui::Text("arg_reg[%d, &%d]: %s", r, addr, mem_val.c_str());
 			}
 			ImGui::Separator();
 			ImGui::EndChild();
@@ -10138,6 +10140,10 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		if (d->type.ptr > 0)
 		{
 			name += std::string("(&") + WasmNumToString(&dbg, offset)+")";
+		}
+		if (d->type.type == TYPE_CHAR)
+		{
+			ptype = PRINT_CHAR;
 		}
 		ImGui::Text("%s, %s", name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
 	}

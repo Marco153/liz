@@ -3156,7 +3156,7 @@ void LoadSceneFolder(dbg_state* dbg)
 
 	FOR_VEC(name, file_names)
 	{
-		sz += strlen(*name);
+		sz += strlen(*name) + 1;
 	}
 	if (sz == 0)
 		return;
@@ -3170,7 +3170,8 @@ void LoadSceneFolder(dbg_state* dbg)
 		 
 
 	auto str_tbl_ptr = (char*)&dbg->mem_buffer[offset + str_tbl_offset];
-	auto cur_idx = (int*)&dbg->mem_buffer[offset];
+	auto start_idx = (int*)&dbg->mem_buffer[offset];
+	auto cur_idx = (long long*)&dbg->mem_buffer[offset];
 
 	int fl_idx = 0;
 	int cur_str_tbl_offset = 0;
@@ -3179,7 +3180,7 @@ void LoadSceneFolder(dbg_state* dbg)
 	{
 		int ln = strlen(*fl) + 1;
 
-		memcpy(str_tbl_ptr, *fl, ln);
+		memcpy(str_tbl_ptr + cur_str_tbl_offset, *fl, ln);
 
 		*cur_idx = offset + str_tbl_offset + cur_str_tbl_offset;
 		cur_idx++;
@@ -3187,6 +3188,7 @@ void LoadSceneFolder(dbg_state* dbg)
 		cur_str_tbl_offset += ln;
 		fl_idx++;
 	}
+	int a = 0;
 
 
 }

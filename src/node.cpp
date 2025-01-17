@@ -3408,6 +3408,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 	}
 	int last_flags = lang_stat->flags;
 	lang_stat->flags &= ~PSR_FLAGS_DONT_DECLARE_VARIABLES;
+	lang_stat->flags &= ~PSR_FLAGS_IGNORE_DECL_EXIST_AND_DECLARE;
 	lang_stat->flags |= PSR_FLAGS_DONT_CHANGE_TEMPL_STRCT_ND_NAME;
 	while (true)
 	{
@@ -3831,6 +3832,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				case enum_type2::TYPE_ENUM:
 				case enum_type2::TYPE_ARRAY:
 				case enum_type2::TYPE_STATIC_ARRAY:
+				case enum_type2::TYPE_STATIC_ARRAY_TYPE:
 					break;
 				case enum_type2::TYPE_STRUCT_TYPE:
 				{
@@ -4110,10 +4112,32 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 		ASSERT(!is_var_args);
 
 
+		type2 dummy_type;
 
 		// parameters with name and type
 		if (t->type == COMMA_VAR_ARGS)
 		{
+			dummy_type.type = TYPE_STRUCT_TYPE;
+			decl2* rel_ar = FindIdentifier("rel_array", child_scp, &dummy_type);
+			decl2* var_arg = FindIdentifier("var_arg", child_scp, &dummy_type);
+			if (!rel_ar || !var_arg)
+				return false;
+			type_struct2* rel_ar_var_arg;
+			own_std::vector<comma_ret> templates;
+			/*
+			comma_ret cret;
+			cret.type = COMMA_RET_IDENT;
+			cret.decl.type = var_arg->type;
+			templates.emplace_back(cret);
+			*/
+
+
+			if (!TryInstantiateStruct(lang_stat, rel_ar->type.strct, "rel_array_var_arg", child_scp, &rel_ar_var_arg, templates, &var_arg->type))
+				return false;
+			dummy_type.strct = rel_ar_var_arg;
+			auto new_decl = DeclareDeclToScopeAndMaybeToFunc(lang_stat, "__var_args", &dummy_type, child_scp, t->n);
+			new_decl->flags |= DECL_IS_VAR_ARG;
+			new_decl->flags |= DECL_IS_ARG;
 			fdecl->flags |= FUNC_DECL_VAR_ARGS;
 			// getting where the var_args start
 			// we're subtracting one because the var counts as an argument
@@ -4125,7 +4149,6 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 		}
 
 		//decl2* new_decl = new decl2();
-		type2 dummy_type;
 		memset(&dummy_type, 0, sizeof(type2));
 		auto new_decl = DeclareDeclToScopeAndMaybeToFunc(lang_stat, "", &dummy_type, child_scp, t->n);
 
@@ -4567,6 +4590,23 @@ decl2 *CreateStructTuple(lang_state* lang_stat, node* n, scope* scp)
 		ret = tuple_exist;
 	return ret;
 }
+	;
+void CreateTemplateInstantiationName(std::string &name, own_std::vector<comma_ret> &args, std::string &templ_name)
+{
+	templ_name += name;
+	templ_name += "_";
+	// getting type of args
+	FOR_VEC(t, args)
+	{
+		type2 aux = t->decl.type;
+		//enum_type2 tp = 
+		aux.type = t->decl.type.type;
+		aux.type = FromTypeToVarType(aux.type);
+		templ_name += TypeToString(aux);
+		templ_name += "_";
+	}
+	templ_name.pop_back();
+}
 //$CallNode
 bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, decl2* decl_func)
 {
@@ -4886,6 +4926,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				auto t = &args[i];
 
 				auto f_arg = fdecl->args[fdecl_arg_idx];
+				if (IS_FLAG_ON(f_arg->flags, DECL_IS_VAR_ARG))
+					continue;
 				bool comp_val = CompareTypes(&f_arg->type, &t->decl.type, false);
 
 				// create implicit cast
@@ -5057,6 +5099,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 
 		std::string templ_name;
+		CreateTemplateInstantiationName(ncall->l->t->str, args, templ_name);
+		/*
 		templ_name += ncall->l->t->str;
 		templ_name += "_";
 		// getting type of args
@@ -5070,6 +5114,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			templ_name += "_";
 		}
 		templ_name.pop_back();
+		*/
 
 
 		type_struct2* ret_strct;

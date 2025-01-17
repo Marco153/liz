@@ -602,7 +602,6 @@ test_ptr::fn(alloc : *mem_alloc)
 		debug_break();
 
 
-
 	HHashStore(&alloc.in_use, cast(*u8)1, cast(*u8)5);
 	HHashStore(&alloc.in_use, cast(*u8)513, cast(*u8)6);
 
@@ -1374,4 +1373,5 @@ tests :: fn(ret : *u32)
 		val = true;
 	if !val
 		debug_break();
+
 }

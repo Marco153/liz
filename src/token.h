@@ -448,6 +448,7 @@ struct func_decl
 #define DECL_IS_SERIALIZED  0x20
 #define DECL_ABSOLUTE_ADDRESS  0x40
 #define DECL_PTR_HAS_LEN  0x80
+#define DECL_IS_VAR_ARG  0x100
 
 struct decl2
 {

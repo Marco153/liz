@@ -155,6 +155,7 @@ struct ast_rep
 	int line_number;
     int line_offset_start;
     int line_offset_end;
+	type2 lhs_tp;
 
     union
     {
@@ -171,7 +172,6 @@ struct ast_rep
 		struct
 		{
 			own_std::vector<ast_rep*> expr;
-			type2 lhs_tp;
 		};
 		
 		struct

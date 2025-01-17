@@ -13,7 +13,7 @@ bool IsNodeOperator(node* nd, tkn_type2 tkn);
 #define MAKE_DST_IR_VAL(ir_tp, ptr) (((short)ir_tp) | (((int)ptr)<<16))
 
 #define IR_VAL_FROM_POINT 0x100
-#define IR_VAL_STATIC_AR_FLOAT 0x200
+#define IR_VAL_ALREADY_ON_PARAM_REG 0x200
 #define IR_VAL_FROM_DEREF 0x400
 bool CheckIrValIsPointIncDeref(ir_val *val)
 {
@@ -218,7 +218,10 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		ret->lhs_tp = DescendNode(lang_stat, cur->l, scp);
 
 		ast_rep *lhs = AstFromNode(lang_stat, cur->l, scp);
+		lhs->lhs_tp = ret->lhs_tp;
 		ast_rep *rhs = AstFromNode(lang_stat, cur->r, scp);
+		if(!CMP_NTYPE_BIN(cur, T_POINT))
+			rhs->lhs_tp = DescendNode(lang_stat, cur->r, scp);
 
 		ret->expr.emplace_back(lhs);
 		ret->expr.emplace_back(rhs);
@@ -227,6 +230,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
         {
             cur = *(node_stack.begin() + i);
             rhs = AstFromNode(lang_stat, cur->r, scp);
+			if(!CMP_NTYPE_BIN(cur, T_POINT))
+				rhs->lhs_tp = DescendNode(lang_stat, cur->r, scp);
             ret->expr.emplace_back(rhs);
         }
 
@@ -276,6 +281,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 					{
 						aux.decl_strct = is_struct;
 						aux.exp = AstFromNode(lang_stat, first_node->r, strct->type.strct->scp);
+						//aux.
 						if (is_tuple)
 						{
 							aux.exp->type = AST_IDENT;
@@ -284,6 +290,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				
 						strct = aux.decl_strct;
 						rhs->decl = is_struct;
+						ret->lhs_tp = is_struct->type;
 					}
 					new_ar->emplace_back(aux);
 				}
@@ -636,6 +643,56 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			{
 				ret->call.args.emplace_back(AstFromNode(lang_stat, n->r, scp));
 			}
+		}
+		if (IS_FLAG_ON(f->flags, FUNC_DECL_VAR_ARGS))
+		{
+			// we will create an array of the fixed args, and after the type info
+			// and the value of the var args
+			// inserting fixed args 
+			int var_arg_start_idx = f->args.size() - 1;
+			own_std::vector<ast_rep*> var_arg_info;
+			var_arg_info.insert(var_arg_info.begin(), ret->call.args.begin(), ret->call.args.begin() + var_arg_start_idx);
+
+			// rel_array
+			ast_rep* offset_to_var_args = NewAst();
+			offset_to_var_args->type = AST_INT;
+			// 16 is the size of rel_array struct
+			offset_to_var_args->num = 16;
+			var_arg_info.emplace_back(offset_to_var_args);
+
+			int total_var_args = ret->call.args.size() - var_arg_start_idx;
+			ast_rep* total_var_args_ast = NewAst();
+			total_var_args_ast->type = AST_INT;
+			total_var_args_ast->num = total_var_args;
+			var_arg_info.emplace_back(total_var_args_ast);
+
+			
+
+			ast_rep* zero = NewAst();
+			zero->type = AST_INT;
+			zero->num = 0;
+
+
+			for(int i = var_arg_start_idx; i < ret->call.args.size();i++)
+			{
+				ast_rep* cur_arg = ret->call.args[i];
+
+				ast_rep* type_int = NewAst();
+				type_int->type = AST_INT;
+				type_int->num = cur_arg->lhs_tp.type;
+				var_arg_info.emplace_back(type_int);
+
+				var_arg_info.emplace_back(zero);
+				
+				ast_rep* ptr = NewAst();
+				ptr->type = AST_INT;
+				ptr->num = cur_arg->lhs_tp.ptr;
+				var_arg_info.emplace_back(ptr);
+				var_arg_info.emplace_back(cur_arg);
+				auto a = 0;
+			}
+			ret->call.args = var_arg_info;
+			//ret->call.args.erase()
 		}
 	}break;
 	case node_type::N_FLOAT:
@@ -1285,6 +1342,22 @@ void PushArrayOfAsts(lang_state* lang_stat, own_std::vector<ast_rep *> *ar, ast_
 	}
 
 }
+#define IR_BEGIN_ARG 25
+#define IR_END_ARG 26
+void PushFuncAsts(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_rep*>* out)
+{
+	int arg_idx = 0;
+	FOR_VEC(arg, ast->call.args)
+	{
+		ast_rep* a = *arg;
+		PushAstsInOrder(lang_stat, a, out);
+		out->emplace_back((ast_rep*)(long long)(IR_END_ARG | (arg_idx << 8) | (ast->line_number << 16) | ((long long)0xbeba << 32)));
+		arg_idx++;
+	}
+	if (ast->call.lhs)
+		PushAstsInOrder(lang_stat, ast->call.lhs, out);
+	out->emplace_back(ast);
+}
 void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_rep*>* out)
 {
 	switch (ast->type)
@@ -1292,6 +1365,8 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 	case AST_CALL:
 	{
 
+		PushFuncAsts(lang_stat, ast, out);
+		/*
 		FOR_VEC(arg, ast->call.args)
 		{
 			PushAstsInOrder(lang_stat, (*arg), out);
@@ -1299,6 +1374,7 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 		if(ast->call.lhs)
 			PushAstsInOrder(lang_stat, ast->call.lhs, out);
 		out->emplace_back(ast);
+		*/
 	}break;
 	case AST_INT:
 	case AST_FLOAT:
@@ -1604,8 +1680,49 @@ void GinIRMemCpy(lang_state* lang_stat, own_std::vector<ir_rep>* out)
 	IRCreateEndBlock(lang_stat, block_idx, out, IR_END_BLOCK);
 
 }
-#define IR_BEGIN_ARG 25
-#define IR_END_ARG 26
+bool IsEndArg(ast_rep *e)
+{
+	bool is_end_arg = ((long long)e & 0xff) == IR_END_ARG;
+	is_end_arg = is_end_arg && ((((long long)e) >> 32) & 0xffff) == 0xbeba;
+	return is_end_arg;
+}
+void GenIrToArgReg(lang_state* lang_stat, own_std::vector<ir_val> &stack, int arg_idx, own_std::vector<ast_rep *> &exps, own_std::vector<ir_rep> *out)
+{
+	ir_val* top = &stack[stack.size() - 1];
+	//stack.pop_back();
+	ir_rep ir = {};
+	ir.type = IR_ASSIGNMENT;
+	ir.assign.to_assign.type = IR_TYPE_ARG_REG;
+	ir.assign.to_assign.reg = arg_idx;
+	ir.assign.to_assign.reg_sz = 8;
+	ir.assign.to_assign.deref = -1;
+	ir.assign.to_assign.is_float = top->is_float;
+	ir.assign.only_lhs = true;
+
+	if(IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT) && IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_DEREF))
+	{
+		//top->deref--;
+	}
+	ir.assign.lhs = *top;
+
+	ir.assign.lhs.reg_sz = 8;
+	if (top->type == IR_TYPE_DECL && top->decl->type.type == TYPE_STATIC_ARRAY)
+	{
+		ir.assign.lhs.deref = -1;
+
+	}
+
+	//ir.assign.lhs.deref--;
+	//if (IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT) || top->ptr > 0)
+		//ir.assign.lhs.deref++;
+	out->emplace_back(ir);
+
+	if (top->type == IR_TYPE_REG)
+	{
+		FreeReg(lang_stat, top->reg);
+	}
+	top->reg_ex |= IR_VAL_ALREADY_ON_PARAM_REG;
+}
 void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own_std::vector<ir_rep> *out, ir_val *top_info)
 {
 	own_std::vector<ir_val> stack;
@@ -1614,15 +1731,39 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 	for(int j = 0; j < exps.size(); j++)
 	{
 		ast_rep* e = exps[j];
-		if (((long long)e & 0xff)== IR_BEGIN_ARG)
+		bool is_end_arg = IsEndArg(e);
+		if(is_end_arg)
 		{
-			lang_stat->track_alloc_regs = true;
-			continue;
-		}
-		else if(((long long)e & 0xff) == IR_END_ARG)
-		{
-			lang_stat->track_alloc_regs = true;
-			lang_stat->tracked_regs.clear();
+			//lang_stat->track_alloc_regs = true;
+			//lang_stat->tracked_regs.clear();
+			
+
+
+			int cur_line = (((long long)e) >> 16) & 0xffff;
+			bool found_call = false;
+			int calls_found = 0;
+
+			// if we have more than one call in this statement, we cant be sure the address of the
+			// arg params will remain the same, so we will not continue moving the to reg param
+			for (int h = j + 1; h < exps.size(); h++)
+			{
+				ast_rep *aux = exps[h];
+				if(!IsEndArg(aux) && aux->type == AST_CALL)
+				{
+					if (calls_found == 1)
+					{
+						found_call = true;
+						break;
+					}
+					calls_found++;
+				}
+			}
+			if (found_call)
+			{
+				continue;
+			}
+			int arg_idx = (((long long)e) >> 8) & 0xff;
+			GenIrToArgReg(lang_stat, stack, arg_idx, exps, out);
 			continue;
 		}
 		
@@ -1643,7 +1784,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				stack.pop_back();
 			}
 			int cur_biggest = e->call.in_func->biggest_call_args;
-			lang_stat->cur_func->biggest_call_args = max(cur_biggest, e->call.fdecl->args.size());
+			lang_stat->cur_func->biggest_call_args = max(cur_biggest, e->call.args.size());
 
 			
 			int more_stack_vals = stack.size() - e->call.args.size();
@@ -1688,38 +1829,11 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				for (int i = e->call.args.size() - 1; i >= 0; i--)
 				{
 					ir_val* top = &stack[stack.size() - 1];
-					stack.pop_back();
-					ir = {};
-					ir.type = IR_ASSIGNMENT;
-					ir.assign.to_assign.type = IR_TYPE_ARG_REG;
-					ir.assign.to_assign.reg = i;
-					ir.assign.to_assign.reg_sz = 8;
-					ir.assign.to_assign.deref = -1;
-					ir.assign.to_assign.is_float = top->is_float;
-					ir.assign.only_lhs = true;
-
-					if(IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT) && IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_DEREF))
-					{
-						//top->deref--;
-					}
-					ir.assign.lhs = *top;
-
-					ir.assign.lhs.reg_sz = 8;
-					if (top->type == IR_TYPE_DECL && top->decl->type.type == TYPE_STATIC_ARRAY)
-					{
-						ir.assign.lhs.deref = -1;
-
-					}
-
-					//ir.assign.lhs.deref--;
-					//if (IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT) || top->ptr > 0)
-						//ir.assign.lhs.deref++;
-					out->emplace_back(ir);
-
+					if(IS_FLAG_OFF(top->reg_ex, IR_VAL_ALREADY_ON_PARAM_REG))
+						GenIrToArgReg(lang_stat, stack, i, exps, out);
 					if (top->type == IR_TYPE_REG)
-					{
-						FreeReg(lang_stat, top->reg);
-					}
+						FreeSpecificReg(lang_stat, top->reg);
+					stack.pop_back();
 				}
 			}
 			
@@ -2627,16 +2741,8 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	{
 	case AST_CALL:
 	{
-		FOR_VEC(arg, ast->call.args)
-		{
-			ast_rep* a = *arg;
-			exps.emplace_back((ast_rep*)IR_BEGIN_ARG);
-			PushAstsInOrder(lang_stat, a, &exps);
-			exps.emplace_back((ast_rep*)IR_END_ARG);
-		}
-		if(ast->call.lhs)
-			PushAstsInOrder(lang_stat, ast->call.lhs, &exps);
-		exps.emplace_back(ast);
+
+		PushFuncAsts(lang_stat, ast, &exps);
 	}break;
 	case AST_CAST:
 	case AST_ADDRESS_OF:

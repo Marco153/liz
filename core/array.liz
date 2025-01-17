@@ -1,3 +1,16 @@
+rel_array: struct(T)
+{
+	data : *T,
+	count : u64,
+	#make_ptr_len(data, count)
+}
+operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
+{
+	ASSERT(idx < dyn.count);
+	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
+	return cast(*T)ptr_offset(addr, idx, T);
+}
+
 dyn_array: struct(T)
 {
 	data : *T,

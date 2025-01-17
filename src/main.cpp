@@ -1524,7 +1524,8 @@ void LspGetFileSyntaxHightlighting(lang_state* lang_stat, std::string fname, ope
 
 void SetNewBuffer(WindowEditor* ed, Buffer* new_b)
 {
-	ed->prev_buffer = ed->cur_buffer;
+	if(ed->cur_buffer != new_b)
+		ed->prev_buffer = ed->cur_buffer;
 	ed->cur_buffer = new_b;
 }
 
@@ -1864,8 +1865,8 @@ int CreateLspProcess(lang_state* lang_stat, open_gl_state* gl_state, std::string
 	CloseHandle(hStdInRead);
 	CloseHandle(hStdOutWrite);
 
-	LspSendFolderToCompile(gl_state, hStdInWrite, folder);
 	// Read from child's stdout
+	LspSendFolderToCompile(gl_state, hStdInWrite, folder);
 	// Write to child's stdin
 	gl_state->hStdInWrite = hStdInWrite;
 	gl_state->hStdOutRead = hStdOutRead;
@@ -2257,6 +2258,17 @@ void GoBackOneDir(std::string* dir)
 	*dir += '\\';
 }
 
+void ImGuiInputText(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int buf_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buf_sz = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	char* label = (char *)&dbg->mem_buffer[label_offset];
+	char* buf = (char *)&dbg->mem_buffer[buf_offset];
+	ImGui::InputText(label, buf, buf_sz);
+}
 void ImGuiInitTextEditor(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -2455,6 +2467,7 @@ void ShouldClose(dbg_state* dbg)
 
 	ClearKeys(gl_state);
 
+	dbg->frame_is_from_dbg = false;
 
 	glfwPollEvents();
 
@@ -3118,6 +3131,65 @@ int GetMem(dbg_state* dbg, int sz)
 	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] += 16;
 	return offset;
 }
+void LoadSceneFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	auto folder_name = (char *)&dbg->mem_buffer[folder_name_offset];
+
+	auto ar = (own_std::vector<int> *)&dbg->mem_buffer[ar_offset];
+
+	//new(&dbg->scene_folder)std::string(folder_name);
+	dbg->scene_folder = dbg->cur_func->from_file->path + folder_name;
+	//dbg->scene_folder = (const char *)folder_name;
+	//MaybeAddBarToEndOfStr(&dbg->scene_folder);
+
+	own_std::vector<char *> file_names;
+
+	GetFilesInDirectory(dbg->scene_folder, nullptr, &file_names);
+
+	int sz = 0;
+
+	FOR_VEC(name, file_names)
+	{
+		sz += strlen(*name);
+	}
+	if (sz == 0)
+		return;
+
+	int str_tbl_offset = file_names.size() * 8;
+	sz += str_tbl_offset;
+	int offset = GetMem(dbg, sz);
+
+	ar->ar.start = (int *)(long long)offset;
+	ar->ar.count = file_names.size();
+		 
+
+	auto str_tbl_ptr = (char*)&dbg->mem_buffer[offset + str_tbl_offset];
+	auto cur_idx = (int*)&dbg->mem_buffer[offset];
+
+	int fl_idx = 0;
+	int cur_str_tbl_offset = 0;
+
+	FOR_VEC(fl, file_names)
+	{
+		int ln = strlen(*fl) + 1;
+
+		memcpy(str_tbl_ptr, *fl, ln);
+
+		*cur_idx = offset + str_tbl_offset + cur_str_tbl_offset;
+		cur_idx++;
+
+		cur_str_tbl_offset += ln;
+		fl_idx++;
+	}
+
+
+}
 void LoadTexFolder(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -3231,6 +3303,7 @@ void LoadTexFolder(dbg_state* dbg)
 
 		i++;
 	}
+	auto end = 0;
 
 }
 
@@ -3506,6 +3579,7 @@ DWORD WINAPI GameAndEngineMsgThread(
 {
 	auto dbg = (dbg_state* )lpParameter;
 	auto gl_state = (open_gl_state*)dbg->data;;
+	auto lang_stat = (lang_state*)dbg->lang_stat;;
 	HANDLE std_in = GetStdHandle(STD_INPUT_HANDLE);
 	HANDLE std_out = GetStdHandle(STD_OUTPUT_HANDLE);
 	while(true)
@@ -3539,9 +3613,18 @@ DWORD WINAPI GameAndEngineMsgThread(
 
 				if (!s)
 					continue;
-
-				dbg->bcs[s->start].dbg_brk = br->add;
-				dbg->bcs[s->start].from_engine_break = br->add;
+				
+				
+				if (lang_stat->is_x64_bc_backend)
+				{
+					byte_code2* bc = lang_stat->bcs2_start + s->start;
+					MakeCurBcToBeBreakpoint(dbg, bc, s->line, false);
+				}
+				else
+				{
+					dbg->bcs[s->start].dbg_brk = br->add;
+					dbg->bcs[s->start].from_engine_break = br->add;
+				}
 			}
 			//FlushFileBuffers(std_out);
 		}
@@ -3908,6 +3991,7 @@ void GetMem(dbg_state* dbg)
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	ASSERT(sz > 0)
+	ASSERT(base_ptr > (MEM_PTR_CUR_ADDR + 8));
 
 		int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
 	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
@@ -3971,6 +4055,8 @@ void OpenLocalsWindow(dbg_state* dbg)
 	int base_ptr = *(int*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
 	int stack_base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	int line = *(int*)&dbg->mem_buffer[stack_base_ptr + 8];
+	if (dbg->frame_is_from_dbg)
+		return;
 
 	byte_code2 *addr = *(byte_code2 **)&dbg->mem_buffer[RIP_REG * 8];
 
@@ -4516,6 +4602,7 @@ int main(int argc, char* argv[])
 
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
+	AssignOutsiderFunc(&lang_stat, "LoadSceneFolder", (OutsiderFuncType)LoadSceneFolder);
 	//AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
 	AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
 	AssignOutsiderFunc(&lang_stat, "GetTimeSinceStart", (OutsiderFuncType)GetTimeSinceStart);
@@ -4577,6 +4664,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ImGuiTreePop", (OutsiderFuncType)ImGuiTreePop);
 	AssignOutsiderFunc(&lang_stat, "ImGuiEnumCombo", (OutsiderFuncType)ImGuiEnumCombo);
 	AssignOutsiderFunc(&lang_stat, "ImGuiInitTextEditor", (OutsiderFuncType)ImGuiInitTextEditor);
+	AssignOutsiderFunc(&lang_stat, "ImGuiInputText", (OutsiderFuncType)ImGuiInputText);
 	AssignOutsiderFunc(&lang_stat, "ImGuiRenderTextEditor", (OutsiderFuncType)ImGuiRenderTextEditor);
 	AssignOutsiderFunc(&lang_stat, "ImGuiSetWindowFontScale", (OutsiderFuncType)ImGuiSetWindowFontScale);
 

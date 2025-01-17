@@ -1044,6 +1044,10 @@ void AllocSpecificReg(lang_state* lang_stat, char idx)
 {
 	//ASSERT(IS_FLAG_OFF(lang_stat->regs[idx], REG_FREE_FLAG));
 	lang_stat->regs[idx] |= REG_FREE_FLAG;
+	if(lang_stat->track_alloc_regs)
+	{
+		lang_stat->tracked_regs.emplace_back(idx);
+	}
 }
 char AllocReg(lang_state* lang_stat)
 {
@@ -1053,7 +1057,8 @@ char AllocReg(lang_state* lang_stat)
 			continue;
 		if (IS_FLAG_OFF(lang_stat->regs[i], REG_FREE_FLAG))
 		{
-			lang_stat->regs[i] |= REG_FREE_FLAG;
+			//lang_stat->regs[i] |= REG_FREE_FLAG;
+			AllocSpecificReg(lang_stat, i);
 			return i;
 		}
 	}
@@ -1599,6 +1604,8 @@ void GinIRMemCpy(lang_state* lang_stat, own_std::vector<ir_rep>* out)
 	IRCreateEndBlock(lang_stat, block_idx, out, IR_END_BLOCK);
 
 }
+#define IR_BEGIN_ARG 25
+#define IR_END_ARG 26
 void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own_std::vector<ir_rep> *out, ir_val *top_info)
 {
 	own_std::vector<ir_val> stack;
@@ -1607,6 +1614,17 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 	for(int j = 0; j < exps.size(); j++)
 	{
 		ast_rep* e = exps[j];
+		if (((long long)e & 0xff)== IR_BEGIN_ARG)
+		{
+			lang_stat->track_alloc_regs = true;
+			continue;
+		}
+		else if(((long long)e & 0xff) == IR_END_ARG)
+		{
+			lang_stat->track_alloc_regs = true;
+			lang_stat->tracked_regs.clear();
+			continue;
+		}
 		
 		ir_val val;
 		memset(&val, 0, sizeof(ir_val));
@@ -1903,8 +1921,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.only_lhs = true;
 				ir.assign.lhs = *top;
 				ir.assign.lhs.is_float = false;
-				ir.assign.lhs.ptr = -1;
-				ir.assign.lhs.deref = -1;
+				ir.assign.lhs.ptr--;
+				ir.assign.lhs.deref--;
 					
 
 				*top = ir.assign.to_assign;
@@ -2035,7 +2053,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			*/
 			//if(IS_FLAG_OFF(top->reg_ex, IR_VAL_FROM_POINT))
 				top->deref++;
-			top->ptr = max(top->ptr - 1, 0);
+			top->ptr = top->ptr;
 			top->reg_sz = GetTypeSize(&e->deref.type);
 			top->reg_sz = min(top->reg_sz, 8);
 			top->reg_ex |= IR_VAL_FROM_DEREF;
@@ -2612,7 +2630,9 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 		FOR_VEC(arg, ast->call.args)
 		{
 			ast_rep* a = *arg;
+			exps.emplace_back((ast_rep*)IR_BEGIN_ARG);
 			PushAstsInOrder(lang_stat, a, &exps);
+			exps.emplace_back((ast_rep*)IR_END_ARG);
 		}
 		if(ast->call.lhs)
 			PushAstsInOrder(lang_stat, ast->call.lhs, &exps);

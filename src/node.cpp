@@ -471,6 +471,7 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 		*precedence = PREC_CLOSE_PARENTHESES;
 		return true;
 	}break;
+	case tkn_type2::T_EXCLAMATION:
 	case tkn_type2::T_CLOSE_BRACKETS:
 	{
 		*precedence = PREC_CLOSE_BRACKETS;
@@ -1341,6 +1342,8 @@ node* node_iter::parse_expr()
 		}
 		else if (cur_tkn->str == "if")
 		{
+			if (rev)
+				return n;
 			node* cur_node = n;
 			cur_node->type = node_type::N_IF;
 
@@ -2020,6 +2023,8 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 
 				if (!val)
 				{
+					if (rev)
+						return cur_node->l;
 					REPORT_ERROR(tkn->line, tkn->line_offset,
 						VAR_ARGS("unexpected token '%s'\n", tkn->ToString().c_str()))
 						ExitProcess(1);
@@ -3894,6 +3899,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			case enum_type2::TYPE_ENUM_TYPE:
 			case enum_type2::TYPE_F32_TYPE:
 			case enum_type2::TYPE_F64_TYPE:
+			case enum_type2::TYPE_STR_LIT:
 			case enum_type2::TYPE_VOID_TYPE:
 			case enum_type2::TYPE_CHAR_TYPE:
 				ret_type.ptr++;
@@ -4941,46 +4947,21 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				fdecl_arg_idx++;
 			}
 
-			auto var_arg_strct = FindIdentifier("var_arg", scp, ret_type);
+			//auto var_arg_strct = FindIdentifier("var_arg", scp, ret_type);
 
-			if (fdecl_arg_idx < args.size())
-				ASSERT(var_arg_strct);
+			//if (fdecl_arg_idx < args.size())
+				//ASSERT(var_arg_strct);
 
 			int var_args_arg_start = fdecl_arg_idx;
 
 			// in var_args
+			/*
 			for (int i = fdecl->args.size(); i < args.size(); i++)
 			{
 				auto a = &args[i];
 				// inserting something like
 				// new_var_arg(a, ptr, get_type_data(a))
 				char code[128];
-				/*
-
-				own_std::vector<node*> var_args_params;
-				node* new_nd = new_node(lang_stat, a->n);
-				// call to new_var_arg
-				// arg 1
-				// casting to u64
-				auto u64_nd = CreateNodeFromType(lang_stat, &lang_stat->u64_decl->type);
-				auto casted = NewTypeNode(lang_stat, u64_nd, N_CAST, new_nd);
-				casted->t = ncall->t;
-				var_args_params.emplace_back(casted);
-
-				// arg 2
-				var_args_params.emplace_back(NewIntNode(lang_stat, a->tp.ptr));
-
-				// arg 3
-				auto tp_data_call = NewTypeNode(lang_stat, NewIdentNode(lang_stat, "get_type_data"),
-												N_CALL,
-												new_nd);
-
-				var_args_params.emplace_back(tp_data_call);
-
-				// creating the final func call
-				auto var_args_call_nd = MakeFuncCallArgs(lang_stat, "new_var_arg", nullptr, var_args_params);
-
-				*/
 				auto var_args_call_nd = CreateNewVarArgCall(lang_stat, a->n, a->n, a->decl.type.ptr, ncall);
 
 				memcpy(a->n, var_args_call_nd, sizeof(node));
@@ -4994,6 +4975,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				//scp->fdecl->call_strcts_val_sz += var_arg_strct->type.strct->size;
 				fdecl_arg_idx++;
 			}
+			*/
 
 			if (fdecl->ret_type.type == TYPE_STRUCT && fdecl->ret_type.ptr == 0)
 				scp->fdecl->per_stmnt_strct_val_sz += fdecl->ret_type.strct->size;
@@ -5005,7 +4987,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				if (scp->fdecl->total_of_var_args < total_var_args)
 				{
 					int diff = total_var_args - scp->fdecl->total_of_var_args;
-					scp->fdecl->call_strcts_val_sz += (diff)*var_arg_strct->type.strct->size;
+					//scp->fdecl->call_strcts_val_sz += (diff)*var_arg_strct->type.strct->size;
 					scp->fdecl->total_of_var_args = total_var_args;
 				}
 			}
@@ -8853,6 +8835,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				case enum_type2::TYPE_STRUCT:
 				case enum_type2::TYPE_VOID:
 				case enum_type2::TYPE_CHAR:
+				case enum_type2::TYPE_STR_LIT:
 				case enum_type2::TYPE_FUNC_PTR:
 					should_deref = true;
 					break;

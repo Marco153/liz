@@ -541,6 +541,13 @@ TextEditor::Coordinates TextEditor::FindWordEnd2(const Coordinates & aFrom) cons
 	
 	tkn_idx = tkn_idx % line_tokens.size();
 	auto t = &line_tokens[tkn_idx];
+	/*
+	if (t->type == T_WORD && cindex == t->line_offset)
+	{
+		tkn_idx = (tkn_idx + 1) % line_tokens.size();
+		t = &line_tokens[tkn_idx];
+	}
+	*/
 	cindex = t->line_offset;
 	if (t->type == T_WORD)
 		cindex += t->str.size();
@@ -609,7 +616,7 @@ TextEditor::Coordinates TextEditor::FindPrevWordStart(const Coordinates & aFrom)
 
 		tkn_idx++;
 	}
-	tkn_idx--;
+	tkn_idx = clamp(tkn_idx - 1, 0, line_tokens.size() - 2);
 	
 	if (tkn_idx < 0)
 	{
@@ -1110,9 +1117,25 @@ void TextEditor::BasicMovs(int movAmount)
 			{
 				int ch_column = GetCharacterColumn(cline, i);
 				SetCursorPosition(Coordinates(cline, ch_column));
+				break;
 			}
 		}
+		mInteractiveEnd = mState.mCursorPosition;
 		insertBuffer.clear();
+	}
+	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_F))
+	{
+		if (!bNotEmpty)
+		{
+			insertBuffer += 'f';
+		}
+	}
+	else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_F))
+	{
+		if (!bNotEmpty)
+		{
+			insertBuffer += 'F';
+		}
 	}
 	else if(isCapF && !io.InputQueueCharacters.empty())
 	{
@@ -1127,8 +1150,10 @@ void TextEditor::BasicMovs(int movAmount)
 			{
 				int ch_column = GetCharacterColumn(cline, i);
 				SetCursorPosition(Coordinates(cline, ch_column));
+				break;
 			}
 		}
+		mInteractiveEnd = mState.mCursorPosition;
 		insertBuffer.clear();
 	}
 	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_K))
@@ -1212,6 +1237,13 @@ void TextEditor::BasicMovs(int movAmount)
 		Coordinates ncoord = FindNextWord(mState.mCursorPosition);
 		SetCursorPosition(ncoord);
 	}
+	else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_E))
+	{
+		Coordinates ncoord = FindWordEnd2(mState.mCursorPosition);
+		ncoord.mColumn--;
+		ncoord.mColumn = clamp(ncoord.mColumn, 0, mLines[mState.mCursorPosition.mLine].size() - 1);
+		SetCursorPosition(ncoord);
+	}
 	else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Minus))
 	{
 		Coordinates pos = mState.mCursorPosition;
@@ -1223,7 +1255,7 @@ void TextEditor::BasicMovs(int movAmount)
 	{
 		MoveEnd();
 	}
-	if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_X))
+	if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_X) && !isCapF && !isF)
 	{
 		Delete();
 		mInteractiveStart = mInteractiveEnd = mState.mCursorPosition;
@@ -1566,20 +1598,6 @@ void TextEditor::HandleKeyboardInputs()
 			if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_I))
 			{
 				mVimMode = VI_INSERT;
-			}
-			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_F))
-			{
-				if (!bNotEmpty)
-				{
-					insertBuffer += 'f';
-				}
-			}
-			else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_F))
-			{
-				if (!bNotEmpty)
-				{
-					insertBuffer += 'F';
-				}
 			}
 			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Apostrophe))
 			{
@@ -2007,6 +2025,8 @@ void TextEditor::HandleKeyboardInputs()
 					{
 						mState.mCursorPosition.mLine = i + start_line;
 						auto& line = mLines[i + start_line];
+						if (line.size() == 0)
+							continue;
 						for (int j = 0; j < movAmount; j++)
 						{
 							if (line[0].mChar == '\t')
@@ -2054,7 +2074,7 @@ void TextEditor::HandleKeyboardInputs()
 					InsertTextAt(Coordinates(mState.mCursorPosition.mLine, 0), buffer);
 				}
 			}
-			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_S))
+			else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_S) && !isCapF && !isF)
 			{
 				Coordinates start = mState.mSelectionStart;
 

@@ -46,7 +46,8 @@ typedef long long s64;
 
 #define HEAP_START 19000
 //#define MEM_ALLOC_ADDR 17000
-#define MEM_PTR_CUR_ADDR 18000
+#define MEM_PTR_CUR_ADDR 10000
+#define STACK_PTR_START 20000
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 4048
@@ -347,6 +348,8 @@ struct lang_state
 	bool in_ir_stmnt;
 	bool is_lsp;
 	bool use_node_arena;
+	bool track_alloc_regs;
+	own_std::vector<int> tracked_regs;
 
 	bool is_engine;
 	scope* root;
@@ -2813,6 +2816,7 @@ struct dbg_state
 	char* mem_buffer;
 	int mem_size;
 	func_decl* cur_func;
+	bool frame_is_from_dbg;
 	func_decl* prev_func;
 	union
 	{
@@ -2831,6 +2835,7 @@ struct dbg_state
 	own_std::vector<wasm_stack_val> wasm_stack;
 	own_std::vector<dbg_expr *> exprs;
 	own_std::vector<dbg_expr2 *> exprs2;
+	std::string scene_folder;
 	//own_std::vector<command_info> cmds;
 
 	command_info* global_cmd;
@@ -8525,6 +8530,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
 	}
 	*/
+
 	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
 	short reg_dst = bc->regs & 0x3f;
 	int imm = bc->i;
@@ -9035,7 +9041,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 	byte_code2* func_start_bc = cur_bc;
 	byte_code2* func_end_bc = dbg->lang_stat->bcs2_start + start_f->bcs2_end;;
-	*(u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8] = 20000;
+	*(u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8] = STACK_PTR_START;
 	std::string str;
 	byte_code2* aux_bc = cur_bc;
 
@@ -9147,6 +9153,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		}
 		if (cur_bc->type == INT3)
 		{
+			dbg->frame_is_from_dbg = true;
 			if (!dbg->cur_func || dbg->cur_func != dbg->prev_func)
 			{
 				dbg->cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
@@ -9176,17 +9183,25 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			}
 			int bp_idx = 0;
 			breakpoint* bp = nullptr;
-			FOR_VEC(b, dbg->breakpoints)
+			if (cur_st)
 			{
-				if (b->line == cur_st->line)
+				FOR_VEC(b, dbg->breakpoints)
 				{
-					bp = b;
+					if (b->line == cur_st->line)
+					{
+						bp = b;
+					}
+					b->bc->type = b->prev_inst;
+					if (!bp)
+						bp_idx++;
 				}
-				b->bc->type = b->prev_inst;
-				if(!bp)
-					bp_idx++;
 			}
 
+			if (!bp && !cur_st)
+			{
+				dbg->cur_func = nullptr;
+				continue;
+			}
 			glfwPollEvents();
 			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 			{
@@ -9342,6 +9357,11 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				else
 					f11_pressed_but_dint_find_call_so_normal_step = true;
 			}
+			if (IsKeyRepeat(dbg->data, GLFW_KEY_F5))
+			{
+				release_inst = true;
+				dbg->break_type = DBG_NO_BREAK;
+			}
 			if (IsKeyRepeat(dbg->data, GLFW_KEY_F10) || f11_pressed_but_dint_find_call_so_normal_step)
 			{
 				dbg->prev_bc = cur_bc;
@@ -9491,10 +9511,10 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 	StartTimer(&tm);
 
-	int stack_offset = 20000;
+	int stack_offset = STACK_PTR_START;
 	*(int*)&mem_buffer[STACK_PTR_REG * 8] = stack_offset;
 	*(int*)&mem_buffer[BASE_STACK_PTR_REG * 8] = stack_offset;
-	*(int*)&mem_buffer[stack_offset + 8] = 5000;
+	*(int*)&mem_buffer[stack_offset + 8] = STACK_PTR_START;
 
 	auto stack_ptr_val = (long long *)&mem_buffer[stack_offset];
 
@@ -11595,6 +11615,7 @@ void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 	aux->reg_sz = ir->reg_sz;
 	aux->deref = ir->deref;
 	aux->reg = ir->reg;
+	aux->voffset = 0;
 	aux->is_float = ir->is_float;
 	char out_deref = aux->deref;
 	if (address && aux->deref > 0 || !address)
@@ -12709,6 +12730,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				if (lhs.reg != PRE_X64_RSP_REG)
 					FreeSpecificReg(lang_stat, lhs.reg);
 			}
+			// R F R
 			else if (assign.lhs.type == IR_TYPE_F32  && assign.rhs.type == IR_TYPE_REG)
 			{
 				char sse_reg = 0;
@@ -12735,6 +12757,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				//FreeSpecificReg(lang_stat, lhs.reg);
 
 			}
+			// R I D
 			else if (assign.lhs.type == IR_TYPE_INT && assign.rhs.type == IR_TYPE_DECL)
 			{
 				ir_val_aux lhs;
@@ -12762,6 +12785,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				FreeSpecificReg(lang_stat, reg);
 			}
+			// R R F
 			else if (assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_F32)
 			{
 				ir_val_aux lhs;
@@ -12779,9 +12803,11 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
 
 				ir_val_aux dst;
-				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true);
 				
 				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				if (lhs.is_float && dst.deref >= 0)
+					inst = MOV_SSE_2_MEM;
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				//FreeSpecificReg(lang_stat, lhs.reg);
 
@@ -15681,7 +15707,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
 	
-	//AssertFuncByteCode(lang_stat);
+	//////AssertFuncByteCode(lang_stat);
 	
 	int i = 0;
 	std::string file = opts->file;

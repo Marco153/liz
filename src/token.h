@@ -332,7 +332,8 @@ struct func_decl
 	own_std::vector<int> bcs2;
 
 	own_std::vector<int> ir;
-	int flags;
+	node* coroutine_prologue_tree;
+	long long flags;
 	//tkn_type2 op_overload;
 	overload_op op_overload;
 	type2 ret_type;

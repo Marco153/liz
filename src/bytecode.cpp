@@ -783,6 +783,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			if(bc->bin.rhs.reg_sz == 4)
 			{
 				char lhs_r = bc->bin.lhs.reg;
+				char rhs_r = bc->bin.lhs.reg;
 				// mov edi, rhs
 				bc->bin.lhs.reg = 7;
 				bc->bin.lhs.reg_sz = 4;
@@ -794,6 +795,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				bc->bin.lhs.reg = lhs_r;
 				bc->bin.lhs.reg_sz = 4;
 				bc->bin.rhs.reg_sz = 7;
+				bc->bin.rhs.reg = rhs_r;
 				bc->bin.rhs.reg_sz = 4;
 				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
 
@@ -3563,5 +3565,5 @@ char GetSizeMin(char sz)
 	}
 }
 #define REG_SZ_BIT 13
-#define FLAG_SIGNED 12
+#define FLAG_UNSIGNED 12
 #define RHS_REG_BIT 6

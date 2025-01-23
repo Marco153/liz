@@ -31,6 +31,7 @@ bool IsUnsigned(enum_type2 tp)
 		case enum_type2::TYPE_F64:
 		case enum_type2::TYPE_INT:
 		case enum_type2::TYPE_VOID:
+		case enum_type2::TYPE_STRUCT:
 		case enum_type2::TYPE_STR_LIT:
 			return true;
 		case enum_type2::TYPE_S8:
@@ -267,7 +268,10 @@ std::string TypeToString(type2 &tp)
 	}break;
 	case enum_type2::TYPE_ENUM_TYPE:
 	{
-		ret += std::string("enum ") + tp.e_decl->name;
+		if (tp.e_decl)
+			ret += std::string("enum ") + tp.e_decl->name;
+		else
+			ret += std::string("enum (dec not found)");
 	}break;
 	case enum_type2::TYPE_ENUM:
 	{

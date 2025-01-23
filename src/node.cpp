@@ -574,7 +574,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 	bool cond = false;
 
 	if (rhs->type == enum_type2::TYPE_STATIC_ARRAY
-		&& rhs->tp->type == lhs->type && (rhs->tp->ptr + 1) == lhs->ptr
+		&& (rhs->tp->type == lhs->type || lhs->type == TYPE_VOID)&& (rhs->tp->ptr + 1) == lhs->ptr
 		)
 		return true;
 
@@ -2901,7 +2901,7 @@ int SetVariablesAddress(own_std::vector<decl2*>* ar, int start, int* in_out_bigg
 	for (auto var = ar->begin() + start; var < ar->end(); var++)
 	{
 		auto t = *var;
-		if (IS_FLAG_ON(t->flags, DECL_FROM_USING) || t->type.type == TYPE_STRUCT_TYPE)
+		if (IS_FLAG_ON(t->flags, DECL_FROM_USING) || t->type.type == TYPE_STRUCT_TYPE || t->type.is_const)
 			continue;
 		// asserting that the struct vars are with colon declared
 		//ASSERT(t->type == 1)
@@ -3155,9 +3155,14 @@ enum_type2 FromTypeToVarType(enum_type2 tp)
 	case  enum_type2::TYPE_TEMPLATE:
 		ret_type = enum_type2::TYPE_TEMPLATE;
 		break;
+
 	case  enum_type2::TYPE_INT:
 		ret_type = enum_type2::TYPE_INT;
 		break;
+	case  enum_type2::TYPE_F32_RAW:
+		ret_type = enum_type2::TYPE_F32_RAW;
+		break;
+
 	case  enum_type2::TYPE_ENUM:
 		ret_type = enum_type2::TYPE_ENUM;
 		break;
@@ -3770,7 +3775,11 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	case node_type::N_CONST:
 	{
 		ASSERT(NameFindingGetType(lang_stat, n->r, scp, ret_type))
+		if(ret_type.type == TYPE_F32_TYPE)
+			ret_type.type = TYPE_F32_RAW;
+		else
 			ret_type.type = TYPE_INT;
+
 		ret_type.is_const = true;
 	}break;
 	case node_type::N_APOSTROPHE:
@@ -4425,8 +4434,10 @@ void BuildMacroTree(lang_state *lang_stat, scope* scp, node* n, unsigned int sta
 	{
 	case N_SCOPE:
 	{
-
 		n->scp = nullptr;
+
+		if(n->r)
+			BuildMacroTree(lang_stat, scp, n->r, start_line);
 		auto a = 0;
 	}break;
 	case N_IDENTIFIER:
@@ -4470,7 +4481,21 @@ void BuildMacroTree(lang_state *lang_stat, scope* scp, node* n, unsigned int sta
 				}
 			}
 		}
-
+	}break;
+	case N_ELSE:
+	{
+		if (n->r)
+			BuildMacroTree(lang_stat, scp, n->r, start_line);
+	}break;
+	case N_ELSE_IF:
+	case N_IF:
+	{
+		if (n->l->l)
+			BuildMacroTree(lang_stat, scp, n->l->l, start_line);
+		if (n->l->r)
+			BuildMacroTree(lang_stat, scp, n->l->r, start_line);
+		if (n->r)
+			BuildMacroTree(lang_stat, scp, n->r, start_line);
 	}break;
 	default:
 		if (n->l)
@@ -4777,6 +4802,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			ncall->flags = 0;
 			if (!DescendNameFinding(lang_stat, ncall, scp))
 				return false;
+			DescendNode(lang_stat, ncall, scp);
 			return true;
 		}
 		else
@@ -5332,6 +5358,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 		fdecl->flags |= FUNC_DECL_LINK_NAME;
 		fdecl->link_name = fnode->str->substr();
 	}
+		
 
 	// args
 	if (IS_FLAG_OFF(flags, DONT_DESCEND_ARGS) && fnode->l->l->r != nullptr && fdecl->args.size() == 0
@@ -5348,6 +5375,23 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	{
 		LookingForLabels(lang_stat, fdecl->func_node->r, child_scp);
 		fdecl->flags |= FUNC_DECL_LABELS_GOTTEN;
+	}
+
+	if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_COROUTINE))
+	{
+		type2 dummy_type;
+		decl2* d = FindIdentifier("CoroutinePrologue", scp, &dummy_type);
+		// instatiating new tree to get prologue vars into the func scope
+		if (!fdecl->coroutine_prologue_tree)
+		{
+			fdecl->coroutine_prologue_tree = d->type.fdecl->func_node->r->r->NewTree(lang_stat);
+			BuildMacroTree(lang_stat, child_scp, fdecl->coroutine_prologue_tree, n->t->line);
+		}
+		node* tree = fdecl->coroutine_prologue_tree;
+		if (!DescendNameFinding(lang_stat, tree, child_scp))
+			return false;
+		DescendNode(lang_stat, tree, child_scp);
+
 	}
 
 
@@ -5629,7 +5673,13 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 
 	case enum_type2::TYPE_STRUCT_TYPE:
 	{
-		return FindIdentifier(n->r->t->str, lhs->type.strct->scp, ret_tp);
+		decl2* d = FindIdentifier(n->r->t->str, lhs->type.strct->scp, ret_tp);
+		if (d->type.type == TYPE_INT)
+		{
+			n->type = N_INT;
+			n->t->i = d->type.s64;
+		}
+		return d;
 
 		//ReportMessageOne(lang_stat, n->r->t, "struct type '%s' is not a variable that can be indexed:", (void*)n->l->t->str.c_str());
 	}break;
@@ -8291,7 +8341,7 @@ void MaybeCreateCast(lang_state *lang_stat, node* ln, node* rn, type2* lp, type2
 {
 	bool static_ar = lp->type == TYPE_STATIC_ARRAY && rp->type == TYPE_STATIC_ARRAY_TYPE;
 	// creating a cast for types that are different
-	if (lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM && rp->type != TYPE_STR_LIT && lp->type != rp->type && rp->type != TYPE_INT && rp->type != TYPE_F32_RAW && !static_ar)
+	if (!lp->IsStrct(nullptr) && !rp->IsStrct(nullptr) && lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM && rp->type != TYPE_STR_LIT && lp->type != rp->type && rp->type != TYPE_INT && rp->type != TYPE_F32_RAW && !static_ar)
 	{
 		auto t_nd = CreateNodeFromType(lang_stat, lp, ln->t);
 		auto new_nd = NewTypeNode(lang_stat, t_nd, N_CAST, new_node(lang_stat, rn), ln->t);
@@ -8641,6 +8691,10 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			ReportMessage(lang_stat, n->t, "Only types are allowed on cast");
 		}
+		if (lhs_type.type == TYPE_ENUM_TYPE)
+		{
+			lhs_type.from_enum = lhs_type.e_decl;
+		}
 		auto rhs_type = DescendNode(lang_stat, n->r, scp);
 
 		bool can_rhs_be_ptr = rhs_type.ptr > 0 || rhs_type.type == TYPE_STATIC_ARRAY
@@ -8690,6 +8744,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case enum_type2::TYPE_F32_TYPE:
 		case enum_type2::TYPE_S32_TYPE:
 		case enum_type2::TYPE_S16_TYPE:
+		case enum_type2::TYPE_ENUM_TYPE:
 		case enum_type2::TYPE_S8_TYPE:
 		case enum_type2::TYPE_U32_TYPE:
 		case enum_type2::TYPE_U16_TYPE:
@@ -9105,11 +9160,30 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				ret_type.i = decl->type.i;
 
 
+				/*
 				if (decl->when_used_code)
 				{
 					//WasmIrInterp(lang_stat->dstate, decl->when_used_code);
 					int a = 0;
 				}
+				*/
+			}
+			else if (decl->type.type == TYPE_F32_RAW)
+			{
+				ASSERT(decl->type.is_const);
+				n->type = N_FLOAT;
+				n->t->f = decl->type.f;
+				ret_type.type = TYPE_F32_RAW;
+				ret_type.f = decl->type.f;
+
+
+				/*
+				if (decl->when_used_code)
+				{
+					//WasmIrInterp(lang_stat->dstate, decl->when_used_code);
+					int a = 0;
+				}
+				*/
 			}
 			else if (decl->type.type == TYPE_ENUM)
 			{
@@ -9190,7 +9264,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case KW_RETURN:
 		{
 			if (n->r != nullptr)
+			{
 				ret_type = DescendNode(lang_stat, n->r, scp);
+				//i
+
+				MaybeCreateCast(lang_stat, n, n->r, &scp->fdecl->ret_type, &ret_type);
+			}
 			else
 				ret_type.type = TYPE_VOID;
 
@@ -9605,6 +9684,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				DescendNode(lang_stat, n->r, scp);
 		}break;
 		case tkn_type2::T_MUL:
+		case tkn_type2::T_DIV:
 		case tkn_type2::T_MINUS:
 		case tkn_type2::T_PERCENT:
 		case tkn_type2::T_PLUS:
@@ -9706,6 +9786,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			{
 				ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 			}
+
+			/*
+			if(ltp.IsStrct() && rtp.IsStrct() && GetTypeSize(&ltp) > GetTypeSize(&rtp))
+			{
+			}
+			*/
+			MaybeCreateCast(lang_stat, n->l, n->r, &ltp, &rtp);
 
 
 			/*

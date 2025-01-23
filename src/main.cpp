@@ -123,7 +123,7 @@ struct v3
 #define PI   3.141592
 
 #define TOTAL_KEYS   (GLFW_KEY_LAST + 3)
-#define TOTAL_TEXTURES   128
+#define TOTAL_TEXTURES   256
 
 #define DOUBLE_CLICK_MAX_TIME 0.2
 
@@ -456,6 +456,14 @@ void Print(dbg_state* dbg)
 #define DRAW_INFO_HAS_TEXTURE 1
 #define DRAW_INFO_NO_SCREEN_RATIO 2
 #define DRAW_INFO_LINE 4
+#define DRAW_INFO_STENCIL_WRITE 8
+#define DRAW_INFO_STENCIL_TEST 16
+#define DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER 32
+enum class stencil_func
+{
+	EQUAL,
+	NEQUAL,
+};
 struct draw_info
 {
 	float pos_x;
@@ -487,6 +495,9 @@ struct draw_info
 	unsigned long long cam_rot_addr;
 
 	int flags;
+	int stencil_func;
+	u32 stencil_val;
+
 };
 
 int GetTextureSlotId(open_gl_state* gl_state)
@@ -604,12 +615,58 @@ void Draw(dbg_state* dbg)
 		glViewport(0, 0, gl_state->width, gl_state->height);
 	}
 
-	if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+	glDisable(GL_STENCIL_TEST);
+	glColorMask(true, true, true, true);
+	glDepthMask(true);
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_STENCIL_WRITE))
 	{
-		glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+		glEnable(GL_STENCIL_TEST);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE); 
+		glStencilFunc(GL_ALWAYS, draw->stencil_val, 0xFF);
+		glStencilMask(0xFF);
+		//glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+		//glDisable(GL_STENCIL_TEST);
+
 	}
-	else
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_STENCIL_TEST))
+	{
+		glEnable(GL_STENCIL_TEST);
+		glStencilMask(0xFF);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE); 
+		switch (draw->stencil_func)
+		{
+		case stencil_func::EQUAL:
+		{
+			glStencilFunc(GL_EQUAL, draw->stencil_val, 0xFF);
+		}break;
+		case stencil_func::NEQUAL:
+		{
+			glStencilFunc(GL_NOTEQUAL, draw->stencil_val, 0xFF);
+		}break;
+		default:
+			ASSERT(0);
+		}
+		//glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+		//glDisable(GL_STENCIL_TEST);
+
+	}
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER))
+	{
+		glColorMask(false, false, false, false);
+		//glDepthMask(false);
+	}
+	//else
+	//{
+		if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+		{
+			glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+		}
+		else
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	//}
+
+
+
 	//glDrawArrays(GL_TRIANGLES, 0, 3);
 	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
 }
@@ -646,7 +703,7 @@ void ClearBackground(dbg_state* dbg)
 		//glViewport(0, 0, 1000, 1000);
 		glClearColor(r, g, b, 1.0f); // Set the new color
 		glClearDepth(1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		/*
 		*/
@@ -934,6 +991,15 @@ bool IsKeyDown(void *data, key_enum keye)
 	return false;
 
 }
+void ImGuiCheckbox(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name = (char *)&dbg->mem_buffer[name_offset];
+	int bool_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	auto bool_ptr = (bool*)&dbg->mem_buffer[bool_offset];
+	ImGui::Checkbox(name, bool_ptr);
+}
 void ImGuiSetNextItemAllowOverlap(dbg_state* dbg)
 {
 	ImGui::SetNextItemAllowOverlap();
@@ -1035,7 +1101,7 @@ void ImGuiSelectable(dbg_state* dbg)
 
 	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
 
-	if (ImGui::Selectable(name_str, selected, 0, ImVec2(w, h)))
+	if (ImGui::Selectable(name_str, selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(w, h)))
 		*addr = true;
 	else
 		*addr = false;
@@ -2204,6 +2270,8 @@ void ImGuiRenderTextEditor(dbg_state* dbg)
 		if (IsKeyDown(dbg, _KEY_ENTER))
 		{
 			std::string file_name = files_ed->cur_buffer->ed->GetCurrentLineText();
+			if (file_name.empty())
+				return;
 			int bar = file_name.find_last_of("\\/");
 			Buffer* buf = AddFileToBuffer(dbg, file_name, &gl_state->main_ed);
 			SetNewBuffer(&gl_state->main_ed, buf);
@@ -2258,6 +2326,16 @@ void GoBackOneDir(std::string* dir)
 	*dir += '\\';
 }
 
+void ImGuiInputInt(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int var_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	char* label = (char *)&dbg->mem_buffer[label_offset];
+	int* var_addr = (int *)&dbg->mem_buffer[var_offset];
+	ImGui::InputInt(label, var_addr);
+}
 void ImGuiInputText(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -2266,6 +2344,8 @@ void ImGuiInputText(dbg_state* dbg)
 	int buf_sz = *(int*)&dbg->mem_buffer[base_ptr + 24];
 
 	char* label = (char *)&dbg->mem_buffer[label_offset];
+	if (std::string(label) == "scene_name")
+		auto a = 0;
 	char* buf = (char *)&dbg->mem_buffer[buf_offset];
 	ImGui::InputText(label, buf, buf_sz);
 }
@@ -2784,6 +2864,7 @@ struct sheet_file_header
 };
 struct aux_layer_info_struct
 {
+	u64 version;
 	u32 type;
 	u32 pixels_per_width;
 
@@ -2793,9 +2874,28 @@ struct aux_layer_info_struct
 	u32 grid_y;
 	u32 total_of_used_cells;
 	u32 cell_sz;
+	struct 
+	{
+		bool is_masked;
+		u64 stencil_val;
+	};
+};
+
+struct sp_cell
+{
+	u64 version;
+	u64 tex_name;
+	u32 grid_x;
+	u32 grid_y;
+
+	u32 src_tex_offset_x;
+	u32 src_tex_offset_y;
+	bool is_masked;
+	u64 stencil_val;
 };
 struct aux_cell_info
 {
+	u64 version;
 	union
 	{
 		struct
@@ -2821,6 +2921,11 @@ struct aux_cell_info
 			v3 sz;
 		}obj;
 	};
+	struct 
+	{
+		bool is_masked;
+		u64 stencil_val;
+	};
 };
 
 void LoadSheetFromLayer(dbg_state* dbg)
@@ -2830,7 +2935,7 @@ void LoadSheetFromLayer(dbg_state* dbg)
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	int layer_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	auto cur_layer = (aux_layer_info_struct*)&dbg->mem_buffer[layer_offset];
-	auto cur_cell = (aux_cell_info *)(cur_layer + 1);
+	auto cur_cell = (sp_cell *)(cur_layer + 1);
 
 	int str_tbl_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	auto str_tbl = (char*)&dbg->mem_buffer[str_tbl_offset];
@@ -2865,7 +2970,7 @@ void LoadSheetFromLayer(dbg_state* dbg)
 			GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
 		);
 
-		cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+		cur_cell++;
 	}
 	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
 
@@ -3861,7 +3966,7 @@ void OpenWindow(dbg_state* dbg)
 		"   gl_Position.xy /= cam_size;\n"
 		"   gl_Position = vec4(A * gl_Position.xyz, 1.0);\n"
 		"   gl_Position.x *= screen_ratio;\n"
-
+		"   gl_Position.z = pos.z;\n"
 		"   TexCoord = uv;\n"
 		"}\0";
 
@@ -3895,6 +4000,7 @@ void OpenWindow(dbg_state* dbg)
 		"uniform sampler2D tex;\n"
 		"void main(){\n"
 		"vec4 tex_col =  texture(tex, TexCoord);\n"
+		"if(tex_col.a == 0.0)discard;\n"
 		//"vec4 tex_col =  texture(tex, uv);\n"
 		"FragColor =  tex_col * color;\n"
 		"}\n";
@@ -3935,8 +4041,8 @@ void OpenWindow(dbg_state* dbg)
 
 	glEnable(GL_BLEND);
 	glEnable(GL_DEPTH_TEST);
-	glDepthMask(GL_FALSE);
-	glDepthFunc(GL_ALWAYS);
+	glDepthMask(GL_TRUE);
+	glDepthFunc(GL_LESS);
 
 
 
@@ -4667,8 +4773,10 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ImGuiEnumCombo", (OutsiderFuncType)ImGuiEnumCombo);
 	AssignOutsiderFunc(&lang_stat, "ImGuiInitTextEditor", (OutsiderFuncType)ImGuiInitTextEditor);
 	AssignOutsiderFunc(&lang_stat, "ImGuiInputText", (OutsiderFuncType)ImGuiInputText);
+	AssignOutsiderFunc(&lang_stat, "ImGuiInputInt", (OutsiderFuncType)ImGuiInputInt);
 	AssignOutsiderFunc(&lang_stat, "ImGuiRenderTextEditor", (OutsiderFuncType)ImGuiRenderTextEditor);
 	AssignOutsiderFunc(&lang_stat, "ImGuiSetWindowFontScale", (OutsiderFuncType)ImGuiSetWindowFontScale);
+	AssignOutsiderFunc(&lang_stat, "ImGuiCheckbox", (OutsiderFuncType)ImGuiCheckbox);
 
 	AssignOutsiderFunc(&lang_stat, "CopyTextureToBuffer", (OutsiderFuncType)CopyTextureToBuffer);
 

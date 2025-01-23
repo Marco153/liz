@@ -504,7 +504,8 @@ public:
 				u.mBefore = mState;
 				u.mRemovedStart = mState.mSelectionStart;
 				u.mRemovedEnd = mState.mSelectionEnd;
-				yb->str = GetSelectedText();
+				yb->str = '\n';
+				yb->str += GetSelectedText();
 				yb->str += '\n';
 				u.mRemoved = yb->str;
 				AddUndo(u);

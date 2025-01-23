@@ -6656,6 +6656,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		}break;
 		case TYPE_BOOL:
 		case TYPE_INT:
+		case TYPE_F32_RAW:
 		case TYPE_F32:
 		case TYPE_U8:
 		case TYPE_S8:
@@ -6672,6 +6673,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_OVERLOADED_FUNCS:
 		case TYPE_U32_TYPE:
 		case TYPE_S32_TYPE:
+		case TYPE_CHAR_TYPE:
 		case TYPE_U8_TYPE:
 		case TYPE_CHAR:
 		
@@ -7107,6 +7109,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_FUNC:
 		case TYPE_BOOL:
 		case TYPE_INT:
+		case TYPE_F32_RAW:
 		case TYPE_MACRO_EXPR:
 		case TYPE_ENUM_IDX_32:
 		case TYPE_ENUM_TYPE:
@@ -7128,6 +7131,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_U64:
 		case TYPE_U32_TYPE:
 		case TYPE_S32_TYPE:
+		case TYPE_CHAR_TYPE:
 		case TYPE_U8_TYPE:
 			break;
 		default:
@@ -8014,6 +8018,26 @@ void DoOperationOnPtrFloat(char* ptr, char sz, float rhs, tkn_type2 op)
 		*(float *)ptr = GetExpressionValT<float>(op, *(float *)ptr, rhs);
 	}
 }
+void DoOperationOnPtrUnsigned(char* ptr, char sz, u64 val, tkn_type2 op)
+{
+	switch (sz)
+	{
+	case 0:
+		*ptr = GetExpressionValT<u8>(op, *ptr, val);
+		break;
+	case 1:
+		*(unsigned short *)ptr = GetExpressionValT<unsigned short>(op, *(short *)ptr, val);
+		break;
+	case 2:
+		*(u32 *)ptr = GetExpressionValT<u32>(op, *(u32 *)ptr, val);
+		break;
+	case 3:
+		*(u64 *)ptr = GetExpressionValT<u64>(op, *(u64 *)ptr, val);
+		break;
+	default:
+		ASSERT(0);
+	}
+}
 void DoOperationOnPtr(char* ptr, char sz, u64 val, tkn_type2 op)
 {
 	switch (sz)
@@ -8444,6 +8468,15 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 {
 	switch (sz)
 	{
+		/*
+	// weird qword to qword, but necessary for the moment
+	// because the way casting works with point is somewhat hacky
+	// the code that generates this cast probably is at IR.cpp CAST: case in GinIRFromStack func
+	case 0x33:
+	{
+		*dst_ptr = *(long long*)src_ptr;
+	}break;
+	*/
 	// dword to qword
 	case 0x23:
 	{
@@ -8533,6 +8566,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	*/
 
 	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
+	bool is_unsigned = IS_FLAG_ON(bc->regs, 1<<FLAG_UNSIGNED);
 	short reg_dst = bc->regs & 0x3f;
 	int imm = bc->i;
 	int mem_offset = bc->mem_offset;
@@ -8601,7 +8635,10 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_src * 8];
 
 
-		DoOperationOnPtr((char *)reg_dst_ptr, sz, *reg_src_ptr, op);
+		if(is_unsigned)
+			DoOperationOnPtrUnsigned((char *)reg_dst_ptr, sz, *reg_src_ptr, op);
+		else
+			DoOperationOnPtr((char *)reg_dst_ptr, sz, *reg_src_ptr, op);
 	}break;
 	case OR_I_2_R:
 	case AND_I_2_R:
@@ -8617,7 +8654,10 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		auto reg_dst_ptr = (char*)&dbg->mem_buffer[reg_dst * 8];
 
 
-		DoOperationOnPtr(reg_dst_ptr, sz, imm, op);
+		if(is_unsigned)
+			DoOperationOnPtrUnsigned(reg_dst_ptr, sz, imm, op);
+		else
+			DoOperationOnPtr(reg_dst_ptr, sz, imm, op);
 	}break;
 	case CMP_I_2_R:
 	{
@@ -9141,6 +9181,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		}break;
 		}
 
+		
 		bool inc_ptr = true;
 		bool valid = true;
 		Bc2Logic(dbg, (byte_code2**)&dbg->mem_buffer[RIP_REG * 8], &inc_ptr, &valid, offset);
@@ -9953,6 +9994,8 @@ void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int to
 void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl)
 {
 	char buffer[64];
+	//ImGui::Text("offset: %d", d->offset);
+	//ImGui::SameLine();
 	if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
 	{
 		int offset = base_ptr;
@@ -10056,13 +10099,14 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 	else if (d->type.type == TYPE_STR_LIT)
 	{
 		int offset = base_ptr;
+		int addr = offset;
 		offset = *(int*)&dbg.mem_buffer[offset];
 		auto ptr = (char*)&dbg.mem_buffer[offset];
 		if (ptr == nullptr)
 		{
 			ptr = "";
 		}
-		ImGui::Text("%s(%d): %s", d->name.c_str(), offset, ptr);
+		ImGui::Text("%s(%d, &%d): %s", d->name.c_str(), offset, addr, ptr);
 	}
 	else if (d->type.type == TYPE_STATIC_ARRAY)
 	{
@@ -10145,7 +10189,8 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		{
 			ptype = PRINT_CHAR;
 		}
-		ImGui::Text("%s, %s", name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
+		ImGui::Text("%s, %s, type: %s", name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str(), TypeToString(d->type).c_str());
+		//ImGui::Text("%s, %s", name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
 	}
 
 }
@@ -10157,8 +10202,8 @@ void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_pt
 	FOR_VEC(decl, cur_scp->vars)
 	{
 		decl2* d = *decl;
-		if (d->name == "ret")
-			auto a = 0;
+		if (d->type.type == TYPE_STRUCT_TYPE || d->type.type == TYPE_UNION_TYPE)
+			continue;
 		if (IS_FLAG_OFF(d->flags, DECL_FROM_USING))
 			ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
 	}
@@ -11600,6 +11645,7 @@ struct ir_val_aux
 	int voffset;
 	char deref;
 	bool is_float;
+	bool is_unsigned;
 	union
 	{
 		float f;
@@ -11621,6 +11667,7 @@ void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 	aux->reg_sz = ir->reg_sz;
 	aux->deref = ir->deref;
 	aux->reg = ir->reg;
+	aux->is_unsigned = ir->is_unsigned;
 	aux->voffset = 0;
 	aux->is_float = ir->is_float;
 	char out_deref = aux->deref;
@@ -11640,6 +11687,7 @@ void GenX64ToIrValReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir
 	aux->reg_sz = ir->reg_sz;
 	aux->deref = ir->deref;
 	aux->is_float = ir->is_float;
+	aux->is_unsigned = ir->is_unsigned;
 	GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, aux->reg);
 }
 void GenX64ToIrValFloatRaw(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux* aux, ir_val* ir, short reg_dst = -1)
@@ -11682,6 +11730,7 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	aux->type = ir->type;
 	aux->reg = PRE_X64_RSP_REG;
 	aux->reg_sz = ir->reg_sz;
+	aux->is_unsigned = ir->is_unsigned;
 	aux->voffset = GetOnStackOffsetWithIrVal(lang_stat, ir);
 
 	if (ir->type == IR_TYPE_DECL)
@@ -11708,7 +11757,7 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	{
 		if (!decl_is_global)
 		{
-			aux->reg = AllocReg(lang_stat);
+			aux->reg = 32;
 			EmplaceLeaInst2(aux->reg, PRE_X64_RSP_REG, aux->voffset, 8, ret);
 		}
 		else
@@ -11750,6 +11799,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 {
 	byte_code bc = {};
 	bc.type = inst;
+	bc.bin.is_unsigned = lhs->is_unsigned;
 
 	switch (inst)
 	{
@@ -12626,6 +12676,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 					bool dst_float = assign.to_assign.is_float;
 					bc = {};
 					byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+					dst.is_unsigned = lhs.is_unsigned;
 					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 					FreeSpecificReg(lang_stat, lhs.reg);
 				}
@@ -13256,6 +13307,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 	int idx = 0;
 	stmnt_dbg* cur_st = gen_state->cur_func->wasm_stmnts.begin();
+	int start_bc = ret.size();
 	FOR_VEC(ir, irs)
 	{
 		ir_rep* cur_ir = ir;
@@ -13398,6 +13450,24 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					FromIrValToBytecodeReg(&ir->ret.assign.lhs, &bc.bin.rhs);
 					ret.emplace_back(bc);
 					*/
+				}break;
+				case IR_TYPE_STR_LIT:
+				{
+					char str_on_reg = AllocReg(lang_stat);
+					bc.type = RELOC;
+					bc.rel.type = REL_DATA;
+					bc.rel.reg_dst = str_on_reg;
+					bc.rel.offset = ir->assign.lhs.on_data_sect_offset;
+					ret.emplace_back(bc);
+					bc.type = MOV_R;
+					bc.bin.lhs.reg = ir->assign.to_assign.reg;
+					bc.bin.lhs.reg_sz = ir->assign.to_assign.reg_sz;
+					bc.bin.rhs.reg = str_on_reg;
+					bc.bin.rhs.reg_sz = 8;
+					ret.emplace_back(bc);
+					FreeSpecificReg(lang_stat, str_on_reg);
+
+					//TODO
 				}break;
 				default:
 					ASSERT(false);
@@ -13756,6 +13826,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				{
 					GenX64ToIrValReg2(lang_stat, ret, &src, &ir->bin.rhs, false);
 					bc.type = MOVZX_R;
+					bc.ir = ir;
 					bc.bin.rhs.reg = ir->bin.rhs.reg;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
 					ret.emplace_back(bc);
@@ -13996,7 +14067,8 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 	{
 		byte_code2 bc = {};
 		bc.bc_type = from_bc->type;
-		bc.regs = FLAG_SIGNED * from_bc->bin.is_unsigned;
+		if (idx >= 19258)
+			auto a = 0;
 		switch (from_bc->type)
 		{
 		case NOP:
@@ -14209,6 +14281,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		default:
 			ASSERT(0);
 		}
+		bc.regs |= (1 << FLAG_UNSIGNED) * from_bc->bin.is_unsigned;
 
 		/*
 		char lhs_reg = bc.regs & 0xf;
@@ -14572,6 +14645,19 @@ void GenWasm(web_assembly_state* wasm_state)
 		func->flags |= FUNC_DECL_CODE_WAS_GENERATED;
 
 	}
+	/*
+	for (int j = 0; j < mcode.bcs.size(); j++)
+	{
+		byte_code* cur_bc = &mcode.bcs[j];
+		if (cur_bc->type == MOVZX_R)
+		{
+			if (cur_bc->bin.rhs.reg == 0x80)
+			{
+				ASSERT(0);
+			}
+		}
+	}
+	*/
 	timer tmr;
 	InitTimer(&tmr);
 	StartTimer(&tmr);
@@ -15208,6 +15294,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			}\n\
 		}\n\
 		start::fn(a : s32) ! s32{\n\
+			__dbg_break;\n\
 			f32_ar: = []f32{ 1.0, 2.0, 3.0 };\n\
 			f := *f32_ar[0] + *f32_ar[1] + *f32_ar[2];\n\
 			if f < 5.9 || f > 6.1\n\
@@ -15713,7 +15800,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//std::string aux;
 	//split(args_str, ' ', args, &aux);
 	
-	//////AssertFuncByteCode(lang_stat);
+	//AssertFuncByteCode(lang_stat);
 	
 	int i = 0;
 	std::string file = opts->file;

@@ -109,11 +109,11 @@ MEM_TYPE: const s32 = 0;
 
 #if MEM_TYPE == 0
 {
-	memset::fn outsider(dst : *u8, val : u8, sz : u64) !void;
+	memset::fn outsider(dst : *void, val : u8, sz : u64) !void;
 }
 else if MEM_TYPE == 1
 {
-	memset::fn x64(dst : *u8, val : u8, sz : u64) !void
+	memset::fn x64(dst : *void, val : u8, sz : u64) !void
 	{
 		ASSERT(cast(u64)dst > 128);
 		i:u64 = 0;

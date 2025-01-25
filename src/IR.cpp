@@ -2465,6 +2465,11 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			else
 				top->ptr = e->cast.type.ptr * (last_ptr < 0 ? -1 : 1);
 			top->is_float = e->cast.type.IsFloat();
+
+			if (top->type == IR_TYPE_DECL && top->decl->type.type == TYPE_STATIC_ARRAY && e->cast.type.ptr > 0)
+			{
+				top->deref = -1;
+			}
 			//top->reg_ex /&= ~IR_VAL_FROM_POINT;
 			/*
 			if (e->cast.type.ptr == 0 && top->type != IR_TYPE_INT)

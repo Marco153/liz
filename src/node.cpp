@@ -446,6 +446,7 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 		*precedence = PREC_EQUAL;
 		return true;
 	}break;
+	case tkn_type2::T_NEW_LINE:
 	case tkn_type2::T_SEMI_COLON:
 	{
 		*precedence = PREC_SEMI_COLON;

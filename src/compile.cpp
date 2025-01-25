@@ -16180,7 +16180,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	*/
 
 
-	auto a = ParseString(lang_stat, "a = a * a + a * a + a * a");
+	//auto a = ParseString(lang_stat, "a = a * a + a * a + a * a");
 
 	auto dummy_decl = new decl2();
 	memset(dummy_decl, 0, sizeof(decl2));

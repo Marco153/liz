@@ -85,6 +85,7 @@ struct node_iter
 	node *node_iter::parse_expr();
 	node *node_iter::parse_str(std::string &, int *);
 	node *node_iter::parse_(int prec,  parser_cond);
+	void EatNewLine();
 	void CreateCondAndScope(node **n);
 
 	//Znode *parse_expression();

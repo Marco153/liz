@@ -781,10 +781,12 @@ node* parse_(int, parser_cond);
 void node_iter::CreateCondAndScope(node** n)
 {
 	lang_stat->flags |= PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
+	EatNewLine();
 	(*n)->l = parse_(0, parser_cond::LESSER_EQUAL);
 	lang_stat->flags &= ~PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
 
 	int scope_start = peek_tkn()->line;
+	EatNewLine();
 	if (peek_tkn()->type != tkn_type2::T_OPEN_CURLY)
 	{
 		lang_stat->flags |= PSR_FLAGS_SCOPE_WHITHOUT_CURLY;
@@ -841,6 +843,7 @@ void node_iter::CreateCondAndScope(node** n)
 	}
 
 	lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
+	EatNewLine();
 
 }
 void node_iter::ExpectTkn(tkn_type2 t)
@@ -849,8 +852,16 @@ void node_iter::ExpectTkn(tkn_type2 t)
 	auto tkn = peek_tkn();
 	if (tkn->type != t)
 	{
-		REPORT_ERROR(tkn->line, tkn->line_offset, VAR_ARGS("unexpected token\'%s\'\n", tkn->ToString().c_str()))
-			ExitProcess(1);
+		if (t == T_SEMI_COLON && tkn->type != T_NEW_LINE)
+		{
+			REPORT_ERROR(tkn->line, tkn->line_offset, VAR_ARGS("unexpected token\'%s\'\n", tkn->ToString().c_str()))
+				ExitProcess(1);
+		}
+	}
+	if(tkn->type == T_NEW_LINE)
+	{
+		EatNewLine();
+		this->cur_idx--;
 	}
 }
 node* node_iter::parse_func_like()
@@ -961,6 +972,7 @@ node* node_iter::parse_func_like()
 
 	}
 
+	EatNewLine();
 	auto peek = peek_tkn();
 
 	auto t_tp = peek_tkn()->type;
@@ -982,13 +994,22 @@ node* node_iter::parse_func_like()
 		int save_flags = n->flags;
 		n->flags = n->r->flags | save_flags;
 		n->r->flags = 0;
-
+		peek = peek_tkn();
 		// being able calling the func decl without having to create a statetemnt
-		if(peek_tkn()->type != T_OPEN_PARENTHESES && peek_tkn()->type != T_SEMI_COLON 
+		if(peek->type != T_OPEN_PARENTHESES && peek->type != T_SEMI_COLON 
 			&& IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_ON_ARRAY))
 			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		else
+		{
 			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
+			if (peek->type == T_NEW_LINE)
+			{
+				EatNewLine();
+				this->cur_idx--;
+			}
+		}
+
+
 
 		// if the scope is empty
 		if (n->r->l == nullptr && n->r->r == nullptr)
@@ -1017,9 +1038,11 @@ node* node_iter::parse_strct_like()
 	// templates
 	if (peek_tkn()->type == tkn_type2::T_OPEN_PARENTHESES)
 		n->l = parse_expr();
+	EatNewLine();
 
 	ExpectTkn(T_OPEN_CURLY);
 	n->r = parse_expr();
+	EatNewLine();
 
 
 
@@ -1092,11 +1115,14 @@ node* node_iter::parse_expr()
 			n->r->type = N_IDENTIFIER;
 			n->r->t = peek;
 
+
+			EatNewLine();
 			n->r->r = parse_(0, parser_cond::LESSER_EQUAL);
 		}
 		else if(peek->str == "const_decl")
 		{
 			get_tkn();
+			EatNewLine();
 			n->type = N_CONST_DECL;
 
 			ExpectTkn(T_OPEN_PARENTHESES);
@@ -1113,6 +1139,7 @@ node* node_iter::parse_expr()
 		else if(peek->str == "make_ptr_len")
 		{
 			get_tkn();
+			EatNewLine();
 			n->type = N_MAKE_PTR_LEN;
 			n->r = parse_expr();
 			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
@@ -1120,6 +1147,7 @@ node* node_iter::parse_expr()
 		else if(peek->str == "when_used")
 		{
 			get_tkn();
+			EatNewLine();
 			n->type = N_WHEN_USED;
 			n->l = new_node(lang_stat, get_tkn());
 			n->l->type = N_IDENTIFIER;
@@ -1128,6 +1156,7 @@ node* node_iter::parse_expr()
 		}
 		else
 			n->r = parse_(0, parser_cond::LESSER_EQUAL);
+		EatNewLine();
 	}break;
 	case tkn_type2::T_TWO_POINTS:
 	{
@@ -1317,6 +1346,8 @@ node* node_iter::parse_expr()
 			n->kw = keyword::KW_RETURN;
 			if (peek_tkn()->type != tkn_type2::T_SEMI_COLON)
 				n->r = parse_(0, parser_cond::LESSER_EQUAL);
+			if (n->r && n->r->type == N_EMPTY)
+				n->r = nullptr;
 		}
 		else if (cur_tkn->str == "ret_type")
 		{
@@ -1368,6 +1399,7 @@ node* node_iter::parse_expr()
 			*/
 
 
+			EatNewLine();
 			while (IsTknWordStr(peek_tkn(), "else"))
 			{
 				auto peek = peek_tkn();
@@ -1383,6 +1415,7 @@ node* node_iter::parse_expr()
 					ASSERT(IsTknWordStr(get_tkn(), "else"));
 					cur_node->type = node_type::N_ELSE;
 
+					EatNewLine();
 					auto else_tkn = peek_tkn();
 
 					int scope_start = peek_tkn()->line;
@@ -1426,6 +1459,7 @@ node* node_iter::parse_expr()
 					get_tkn();
 					CreateCondAndScope(&cur_node->l);
 					cur_node->type = node_type::N_ELSE_IF;
+					EatNewLine();
 
 					cur_node->flags = cur_node->l->flags;
 					cur_node->l->flags = 0;
@@ -1436,6 +1470,7 @@ node* node_iter::parse_expr()
 					break;
 			}
 			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
+			EatNewLine();
 		}
 		else if (cur_tkn->str == "while")
 		{
@@ -1649,6 +1684,7 @@ node* node_iter::parse_expr()
 		int scope_start = peek_tkn()->line;
 		int scope_end = peek_tkn()->line;
 		cur_scope_count = 0;
+		EatNewLine();
 		if (peek_tkn()->type != tkn_type2::T_CLOSE_CURLY)
 			n = parse_(PREC_CLOSE_CURLY, EQUAL);
 		else
@@ -1682,6 +1718,7 @@ node* node_iter::parse_expr()
 		lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		ExpectTkn(T_CLOSE_CURLY);
 		get_tkn();
+		EatNewLine();
 	}break;
 	// unary right assoc
 	case tkn_type2::T_DOLLAR:
@@ -1788,6 +1825,16 @@ void node_iter::CheckTwoBinaryOparatorsTogether(node* cur_node)
 	if (two_binary_operators_together)
 		ReportMessageOne(lang_stat, tkn, "unexpected token '%s'", (char*)tkn->ToString().c_str());
 
+}
+void node_iter::EatNewLine()
+{
+	token2* begin_tkn;
+	do
+	{
+		begin_tkn = peek_tkn();
+		if (begin_tkn->type == T_NEW_LINE)
+			get_tkn();
+	} while (begin_tkn->type == T_NEW_LINE);
 }
 //$parse_
 node* node_iter::parse_(int prec, parser_cond pcond)
@@ -1896,7 +1943,9 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 
 					// we dont wanna return if prec target is EOF
 					if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IMPLICIT_SEMI_COLON) && prec != 32)
+					{
 						return cur_node;
+					}
 					else
 						goto double_colon_scope_label;
 
@@ -2008,7 +2057,10 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			return cur_node->l;
 
 		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IMPLICIT_SEMI_COLON))
+		{
 			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
+			EatNewLine();
+		}
 
 		else if (!IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IMPLICIT_SEMI_COLON))
 		{
@@ -2033,7 +2085,9 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			}
 
 			cur_node->t = get_tkn();
+			EatNewLine();
 			is_operator(cur_node->t, &cur_prec);
+			begin_tkn = peek_tkn();
 
 			CheckTwoBinaryOparatorsTogether(cur_node);
 
@@ -2074,6 +2128,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			cur_node->r = parse_expr();
 			ExpectTkn(T_SEMI_COLON);
 			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
+			EatNewLine();
 			//return cur_node;
 		}
 		else
@@ -2097,6 +2152,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 				PARSER_CHECK
 			}
 			cur_node->r = parse_(cur_prec, parser_cond::LESSER_EQUAL);
+			//EatNewLine();
 		}
 
 		/*

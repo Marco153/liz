@@ -982,7 +982,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					lines_out->emplace_back(line_str);
 
 				cur_line_start_ch = i + 1;
-				//found_char = true;
+				found_char = true;
 				tkn.type = T_NEW_LINE;
 				line++;
 			}break;

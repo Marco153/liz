@@ -176,8 +176,6 @@ struct open_gl_state
 	int shader_program;
 	int shader_program_no_texture;
 	int color_u;
-	int tex_size;
-	int tex_offset;
 	int pos_u;
 	int buttons[TOTAL_KEYS];
 	float time_pressed[TOTAL_KEYS];
@@ -500,11 +498,6 @@ struct draw_info
 	int stencil_func;
 	u32 stencil_val;
 
-	float tex_offset_x;
-	float tex_offset_y;
-
-	float tex_size_x;
-	float tex_size_y;
 };
 
 int GetTextureSlotId(open_gl_state* gl_state)
@@ -535,24 +528,9 @@ void Draw(dbg_state* dbg)
 
 	int prog = gl_state->shader_program;
 
-
-	glUseProgram(prog);
-	glBindVertexArray(gl_state->vao);
-
-
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
 	{
-
 		prog = gl_state->shader_program;
-		gl_state->tex_size = glGetUniformLocation(prog, "tex_size");
-		gl_state->tex_offset = glGetUniformLocation(prog, "tex_offset");
-
-		if (draw->tex_size_x == 0)
-			draw->tex_size_x = 1.0;
-		if (draw->tex_size_y == 0)
-			draw->tex_size_y = 1.0;
-		glUniform2f(gl_state->tex_size, draw->tex_size_x, draw->tex_size_y);
-		//glUniform2f(gl_state->tex_offset, draw->tex_offset_x, draw->tex_offset_y);
 		ASSERT(draw->texture_id < TOTAL_TEXTURES);
 		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
 		texture_info* t = &gl_state->textures[draw->texture_id];
@@ -565,11 +543,10 @@ void Draw(dbg_state* dbg)
 		//glDisable(GL_TEXTURE_2D);
 	}
 
+	glUseProgram(prog);
+	glBindVertexArray(gl_state->vao);
 
 	gl_state->color_u = glGetUniformLocation(prog, "color");
-	glUniform4f(gl_state->color_u, draw->color_r, draw->color_b, draw->color_g, draw->color_a);
-
-	gl_state->tex_size = glGetUniformLocation(prog, "tex_size");
 	glUniform4f(gl_state->color_u, draw->color_r, draw->color_b, draw->color_g, draw->color_a);
 
 	gl_state->pos_u = glGetUniformLocation(prog, "pos");
@@ -2824,7 +2801,7 @@ int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* sr
 	glBindTexture(GL_TEXTURE_2D, texture);
 	// set the texture wrapping/filtering options (on the currently bound texture object)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -4019,12 +3996,10 @@ void OpenWindow(dbg_state* dbg)
 	const char* fragmentShaderSource = "#version 330 core\n"
 		"out vec4 FragColor;\n"
 		"in vec2 TexCoord;\n"
-		"uniform vec2 tex_size;\n"
-		"uniform vec2 tex_offset;\n"
 		"uniform vec4 color;\n"
 		"uniform sampler2D tex;\n"
 		"void main(){\n"
-		"vec4 tex_col =  texture(tex, TexCoord * tex_size);\n"
+		"vec4 tex_col =  texture(tex, TexCoord);\n"
 		"if(tex_col.a == 0.0)discard;\n"
 		//"vec4 tex_col =  texture(tex, uv);\n"
 		"FragColor =  tex_col * color;\n"

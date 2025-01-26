@@ -1886,6 +1886,11 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		if (scope_without_curly)
 			next_is_else = cur->type == T_WORD && cur->str == "else";
 
+		if (break_when_node_head && cur->type == T_NEW_LINE && (cur + 1)->type != T_WORD)
+		{
+			EatNewLine();
+		}
+
 		return_without_semicolon_on_scope_end = cur_is_ident_or_int && (next_is_else || next_is_curly);
 		if (return_without_semicolon_on_scope_end)
 		{
@@ -2126,9 +2131,16 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		if (tt->type == T_OPEN_CURLY && cur_node->type == N_BINOP && cur_node->t->type == T_POINT)
 		{
 			cur_node->r = parse_expr();
-			ExpectTkn(T_SEMI_COLON);
-			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
-			EatNewLine();
+
+			tt = peek_tkn();
+			if(tt->type == T_SEMI_COLON || tt->type == T_NEW_LINE)
+			{
+				ExpectTkn(T_SEMI_COLON);
+				EatNewLine();
+				lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
+			}
+			else
+				lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 			//return cur_node;
 		}
 		else
@@ -8423,6 +8435,9 @@ void ModifyFuncDeclToName(lang_state *lang_stat, func_decl *fdecl, node *n, scop
 	char buffer[64];
 	snprintf(buffer, 64, "func_ptr_decl%d", rand() % 100000);
 	fdecl->name = buffer;
+	//weird assert here, but sometimes, for only god knows why, the string gets currupted
+	// data when assigning
+	ASSERT(fdecl->name == buffer);
 	type2 ftype;
 	ftype.type = TYPE_FUNC;
 	ftype.fdecl = fdecl;
@@ -9735,10 +9750,30 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		}break;
 		case tkn_type2::T_COMMA:
 		{
+			own_std::vector<node*> node_stack;
+			node* cur_node = n;
+			while (CMP_NTYPE_BIN(cur_node->l, T_COMMA))
+			{
+				node_stack.emplace_back(cur_node);
+				cur_node = cur_node->l;
+			}
+			DescendNode(lang_stat, cur_node->l, scp);
+			DescendNode(lang_stat, cur_node->r, scp);
+
+			node_stack.pop_back();
+			while(node_stack.size() > 0)
+			{
+				cur_node = node_stack.back();
+				DescendNode(lang_stat, cur_node->r, scp);
+				node_stack.pop_back();
+
+			}
+			/*
 			if (n->l != nullptr)
 				DescendNode(lang_stat, n->l, scp);
 			if (n->r != nullptr)
 				DescendNode(lang_stat, n->r, scp);
+				*/
 		}break;
 		case tkn_type2::T_MUL:
 		case tkn_type2::T_DIV:

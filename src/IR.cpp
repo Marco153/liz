@@ -698,7 +698,15 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				ptr->type = AST_INT;
 				ptr->num = cur_arg->lhs_tp.ptr;
 				var_arg_info.emplace_back(ptr);
-				var_arg_info.emplace_back(cur_arg);
+
+
+				// casting to the highest type so that we zero the
+				// rest of the register when generating the code
+				ast_rep* cast_to_s64 = NewAst();
+				cast_to_s64->type = AST_CAST;
+				cast_to_s64->cast.casted = cur_arg;
+				cast_to_s64->cast.type.type = TYPE_S64;
+				var_arg_info.emplace_back(cast_to_s64);
 				auto a = 0;
 			}
 			ret->call.args = var_arg_info;

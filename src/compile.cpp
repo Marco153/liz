@@ -8640,6 +8640,20 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		else
 			DoOperationOnPtr((char *)reg_dst_ptr, sz, *reg_src_ptr, op);
 	}break;
+	case MOV_I:
+	{
+
+		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		auto reg_dst_ptr = (long long*)&dbg->mem_buffer[reg_dst * 8];
+
+		*reg_dst_ptr = imm;
+		/*
+		if(is_unsigned)
+			DoOperationOnPtrUnsigned(reg_dst_ptr, sz, imm, op);
+		else
+			DoOperationOnPtr(reg_dst_ptr, sz, imm, op);
+			*/
+	}break;
 	case OR_I_2_R:
 	case AND_I_2_R:
 	case MOD_I_2_R:
@@ -8647,7 +8661,6 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	case DIV_I_2_R:
 	case ADD_I_2_R:
 	case SUB_I_2_R:
-	case MOV_I:
 	{
 
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
@@ -12203,7 +12216,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				ret.emplace_back(bc);
 				bc.type = STORE_R_2_M;
 				bc.bin.lhs.reg = reg;
-				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.lhs.reg_sz = 8;
 				bc.bin.lhs.voffset = voffset;
 				bc.bin.rhs.reg = str_on_reg;
 				bc.bin.rhs.reg_sz = 8;
@@ -12242,7 +12255,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				else
 					bc.type = MOV_R;
 				bc.bin.lhs.reg = lhs.reg;
-				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.lhs.reg_sz = 8;
 				bc.bin.lhs.voffset = lhs.voffset;
 				bc.bin.rhs.reg = str_on_reg;
 				bc.bin.rhs.reg_sz = 8;
@@ -13829,6 +13842,21 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					bc.ir = ir;
 					bc.bin.rhs.reg = ir->bin.rhs.reg;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+					ret.emplace_back(bc);
+				}break;
+				case IR_TYPE_STR_LIT:
+				{
+					char str_on_reg = AllocReg(lang_stat);
+					bc.type = RELOC;
+					bc.rel.type = REL_DATA;
+					bc.rel.reg_dst = str_on_reg;
+					bc.rel.offset = ir->bin.rhs.on_data_sect_offset;
+					ret.emplace_back(bc);
+					bc.type = MOVZX_R;
+					bc.bin.lhs.reg = ir->bin.lhs.reg;
+					bc.bin.lhs.reg_sz = 8;
+					bc.bin.rhs.reg = str_on_reg;
+					bc.bin.rhs.reg_sz = 4;
 					ret.emplace_back(bc);
 				}break;
 				case IR_TYPE_DECL:

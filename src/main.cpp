@@ -176,6 +176,8 @@ struct open_gl_state
 	int shader_program;
 	int shader_program_no_texture;
 	int color_u;
+	int tex_size;
+	int tex_offset;
 	int pos_u;
 	int buttons[TOTAL_KEYS];
 	float time_pressed[TOTAL_KEYS];
@@ -498,6 +500,10 @@ struct draw_info
 	int stencil_func;
 	u32 stencil_val;
 
+	float tex_size_x;
+	float tex_size_y;
+	float tex_offset_x;
+	float tex_offset_y;
 };
 
 int GetTextureSlotId(open_gl_state* gl_state)
@@ -531,6 +537,14 @@ void Draw(dbg_state* dbg)
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
 	{
 		prog = gl_state->shader_program;
+		glUseProgram(prog);
+		gl_state->tex_size = glGetUniformLocation(prog, "tex_size");
+		if (draw->tex_size_x == 0)
+			draw->tex_size_x = 1.0;
+		if (draw->tex_size_y == 0)
+			draw->tex_size_y = 1.0;
+		glUniform2f(gl_state->tex_size, draw->tex_size_x, draw->tex_size_y);
+		//gl_state->tex_offset = glGetUniformLocation(prog, "tex_offset");
 		ASSERT(draw->texture_id < TOTAL_TEXTURES);
 		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
 		texture_info* t = &gl_state->textures[draw->texture_id];
@@ -2775,13 +2789,15 @@ int GenTexture2(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* s
 	unsigned int texture;
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	//glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, src));
+	GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, src));
 	//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
 
 	//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
@@ -3878,17 +3894,6 @@ void OpenWindow(dbg_state* dbg)
 	glfwSetMouseButtonCallback(window, MouseCallback);
 
 	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)window;
-	float vertices[] = {
-		// positions          // texture coords
-		 1.0f,  1.0f, 0.0f,   1.0f, 1.0f,   // top right
-		 1.0f,   0.0f, 0.0f,   1.0f, 0.0f,   // bottom right
-		 0.0f,	0.0f, 0.0f,   0.0f, 0.0f,   // bottom left
-		 0.0f,  1.0f, 0.0f,   0.0f, 1.0f    // top left 
-	};
-	unsigned int indices[] = {  // note that we start from 0!
-		0, 1, 3,   // first triangle
-		1, 2, 3    // second triangle
-	};
 
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
@@ -3914,10 +3919,17 @@ void OpenWindow(dbg_state* dbg)
 
 	int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
 
-
-
-
-
+	float vertices[] = {
+		// positions          // texture coords
+		 1.0f,  1.0f, 0.0f,   1.0f, 1.0f,   // top right
+		 1.0f,   0.0f, 0.0f,   1.0f, 0.0f,   // bottom right
+		 0.0f,	0.0f, 0.0f,   0.0f, 0.0f,   // bottom left
+		 0.0f,  1.0f, 0.0f,   0.0f, 1.0f    // top left 
+	};
+	unsigned int indices[] = {  // note that we start from 0!
+		0, 1, 3,   // first triangle
+		1, 2, 3    // second triangle
+	};
 	unsigned int VAO;
 	glGenVertexArrays(1, &VAO);
 	glBindVertexArray(VAO);
@@ -3997,9 +4009,11 @@ void OpenWindow(dbg_state* dbg)
 		"out vec4 FragColor;\n"
 		"in vec2 TexCoord;\n"
 		"uniform vec4 color;\n"
+		"uniform vec2 tex_size;\n"
+		"uniform vec2 tex_offset;\n"
 		"uniform sampler2D tex;\n"
 		"void main(){\n"
-		"vec4 tex_col =  texture(tex, TexCoord);\n"
+		"vec4 tex_col =  texture(tex, TexCoord * tex_size);\n"
 		"if(tex_col.a == 0.0)discard;\n"
 		//"vec4 tex_col =  texture(tex, uv);\n"
 		"FragColor =  tex_col * color;\n"
@@ -4048,6 +4062,7 @@ void OpenWindow(dbg_state* dbg)
 
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+	/*
 	unsigned int texture;
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
@@ -4058,7 +4073,35 @@ void OpenWindow(dbg_state* dbg)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	// load and generate the texture
 	int width, height, nrChannels;
+	*/
 
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	int prog = gl_state->shader_program;
+	glUseProgram(prog);
+	glBindVertexArray(gl_state->vao);
+	gl_state->tex_size = glGetUniformLocation(prog, "tex_size");
+	glUniform2f(gl_state->tex_size, 1.0, 1.0);
+	//glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	auto tex_data = (char *) AllocMiscData(dbg->lang_stat, 32 * 32 * 4);
+	GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 32, 32, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_data));
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 32, 32, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_data));
 
 }
 /*

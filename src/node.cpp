@@ -8940,6 +8940,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			if (ret_type.type == enum_type2::TYPE_STRUCT && ret_type.ptr == 0)
 			{
 				auto op_func = ret_type.strct->FindOpOverload(lang_stat, overload_op::DEREF_OP, n);
+				if(!op_func)
+				{
+					REPORT_ERROR(n->t->line, n->t->line_offset,
+						VAR_ARGS("no overload '*' found for struct %s", ret_type.strct->name.c_str())
+					);
+					ExitProcess(1);
+				}
 				ASSERT(op_func)
 					/*
 				bool is_correct_ovrld = CompareTypes(&op_func->args[0]->type, &ret_type);

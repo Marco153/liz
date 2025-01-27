@@ -29,9 +29,9 @@ mem_alloc : struct
     probable_unallocated : **mem_chunk,
 }
 
-CHUNKS_CAP :const s32=  (8000);
+CHUNKS_CAP :const s32=  (9000);
 BYTES_PER_CHUNK : const s32= 8;
-HASH_TABLE_SIZE : const s32=  (8000);
+HASH_TABLE_SIZE : const s32=  (9000);
 UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 
 GetMem::fn outsider(sz:u64) ! *void;

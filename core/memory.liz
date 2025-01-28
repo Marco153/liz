@@ -1,3 +1,4 @@
+import "../dev/common"
 CHUNK_FREE : const s32 = 1;
 CHUNK_ALLOCATED : const s32= 4;
 
@@ -27,15 +28,18 @@ mem_alloc : struct
 	id : u32,
     all : *mem_chunk,
     probable_unallocated : **mem_chunk,
+	chunks_cap :u32,
+	hash_table_size : u32,
 }
 
-CHUNKS_CAP :const s32=  (9000);
+//alloc.chunks_cap :const s32=  (9000);
 BYTES_PER_CHUNK : const s32= 8;
-HASH_TABLE_SIZE : const s32=  (9000);
+//alloc.hash_table_size : const s32=  (9000);
 UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 
 GetMem::fn outsider(sz:u64) ! *void;
 SubMem::fn outsider(sz:u64);
+SetMem::fn outsider(sz:u64);
 Print::fn outsider(sz:*mem_alloc) ! *void;
 
 debug_break::fn macro()
@@ -55,7 +59,7 @@ ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 }
 heap_insert_unallocated::fn(alloc : *mem_alloc, a : *mem_chunk)
 {
-	if a < alloc.all || a > (ptr_offset(alloc.all, CHUNKS_CAP, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
+	if a < alloc.all || a > (ptr_offset(alloc.all, alloc.chunks_cap, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
 		return;
 
 	i:u64 = 0;
@@ -155,7 +159,7 @@ GetUnallocatedChunk::fn(alloc : *mem_alloc) !*mem_chunk
 	if !ret
 	{
 		i:u64 = 0;
-		while i < CHUNKS_CAP
+		while i < alloc.chunks_cap
 		{
 			cur0:*mem_chunk = ptr_offset(alloc.all, i, mem_chunk);
 
@@ -163,7 +167,7 @@ GetUnallocatedChunk::fn(alloc : *mem_alloc) !*mem_chunk
 			{
 				ret = cur0;
 
-				heap_insert_unallocated(alloc, cast(*mem_chunk)(cast(u64)ptr_offset(alloc.all, (i + 1) % CHUNKS_CAP, mem_chunk)));
+				heap_insert_unallocated(alloc, cast(*mem_chunk)(cast(u64)ptr_offset(alloc.all, (i + 1) % alloc.chunks_cap, mem_chunk)));
 				break;
 			}
 			i++;
@@ -175,10 +179,10 @@ GetUnallocatedChunk::fn(alloc : *mem_alloc) !*mem_chunk
 	ret.prev = nil;
     return ret;
 }
-HHashStore :: fn (self: *heap_hash, key : *u8, value : *u8)
+HHashStore :: fn (alloc: *mem_alloc, key : *u8, value : *u8)
 {
-	using self;
-	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
+	using alloc.in_use;
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
 	cur:= ptr_offset(data, idx, inner);
 
 	if cur.key == nil
@@ -189,9 +193,9 @@ HHashStore :: fn (self: *heap_hash, key : *u8, value : *u8)
 	}
 	put:bool = false;
 	i:u64=0;
-	while i < HASH_TABLE_SIZE
+	while i < alloc.hash_table_size
 	{
-		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
 		cur= ptr_offset(data, mod, inner);
 
 		if cur.key == nil
@@ -204,15 +208,17 @@ HHashStore :: fn (self: *heap_hash, key : *u8, value : *u8)
 		i++;
 	}
 }
-HHashClear :: fn(self : *heap_hash) ! void
+HHashClear :: fn(alloc : *mem_alloc) ! void
 {
-	using self;
-	memset(cast(*u8)data, 0, sizeof(inner) * HASH_TABLE_SIZE);
+	using alloc.in_use;
+	memset(cast(*u8)data, 0, sizeof(inner) * alloc.hash_table_size);
 }
-HHashGet :: fn (self: *heap_hash, key : *void) ! *u8 
+HHashGet :: fn (alloc: *mem_alloc, key : *void) ! *u8 
 {
-	using self;
-	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
+	//using self;
+
+	using alloc.in_use
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
 	cur:= ptr_offset(data, idx, inner);
 
 	if cur.key == key
@@ -222,9 +228,9 @@ HHashGet :: fn (self: *heap_hash, key : *void) ! *u8
 
 	put:bool = false;
 	i:u64=0;
-	while i < HASH_TABLE_SIZE
+	while i < alloc.hash_table_size
 	{
-		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
 		cur= ptr_offset(data, mod, inner);
 
 		if cur.key == key
@@ -234,10 +240,10 @@ HHashGet :: fn (self: *heap_hash, key : *void) ! *u8
 	ASSERT(0 == 1);
 	return nil;
 }
-HHashRemove :: fn (self: *heap_hash, key : *void)
+HHashRemove :: fn (alloc: *mem_alloc, key : *void)
 {
-	using self;
-	idx : u64  = (cast(u64)key) % HASH_TABLE_SIZE;
+	using alloc.in_use;
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
 	cur:= ptr_offset(data, idx, inner);
 
 	if cur.key == key
@@ -248,9 +254,9 @@ HHashRemove :: fn (self: *heap_hash, key : *void)
 	}
 	removed:bool = false;
 	i:u64=0;
-	while i < HASH_TABLE_SIZE
+	while i < alloc.hash_table_size
 	{
-		mod:u64 = (i + idx + 1) % HASH_TABLE_SIZE;
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
 		cur= ptr_offset(data, mod, inner);
 
 		if (cur.key == key)
@@ -265,6 +271,10 @@ HHashRemove :: fn (self: *heap_hash, key : *void)
 }
 heap_get_unallocated_cache :: fn(alloc : *mem_alloc) ! *mem_chunk
 {
+	if alloc.id != 0x1234
+	{
+		__dbg_break
+	}
 	i:u64= 0;
 	while i < UNALLOCATED_BUFFER_ITEMS
 	{
@@ -303,8 +313,8 @@ maybe_join_to_right::fn(prev : *mem_chunk, cur : *mem_chunk, next : *mem_chunk)
 }
 heap_clear::fn(alloc : *mem_alloc)
 {
-	HHashClear(&alloc.in_use);
-	total_size :u32= CHUNKS_CAP * BYTES_PER_CHUNK;
+	HHashClear(alloc);
+	total_size :u32= alloc.chunks_cap * BYTES_PER_CHUNK;
 	memset(cast(*u8)alloc.all, 0, cast(u64)total_size);
 
     free:*mem_chunk = GetUnallocatedChunk(alloc);
@@ -317,9 +327,9 @@ heap_clear::fn(alloc : *mem_alloc)
 heap_free::fn(alloc : *mem_alloc, ptr : *void)
 {
 	ASSERT(alloc.id == 0x1234);
-    chunk_to_free:= cast(*mem_chunk)HHashGet(&alloc.in_use, ptr);
+    chunk_to_free:= cast(*mem_chunk)HHashGet(alloc, ptr);
 	ASSERT(chunk_to_free != nil);
-	HHashRemove(&alloc.in_use, ptr);
+	HHashRemove(alloc, ptr);
     cur :*mem_chunk= alloc.head_free;
 	
 	
@@ -401,6 +411,17 @@ heap_free::fn(alloc : *mem_alloc, ptr : *void)
 		maybe_join_to_right(nil, chunk_to_free, cur);
 		//__dbg_break;
 	}
+	if globals.after_init
+	{
+		for i in 0..globals.allocs_occured.max
+		{
+			cur_ptr := cast(**u8)ptr_offset(globals.allocs_occured.start, i, u64)
+			if cast(*void)*cur_ptr == ptr
+			{
+				*cur_ptr = nil
+			}
+		}
+	}
 	//memset(chunk_to_free.addr, 'x', chunk_to_free.size * BYTES_PER_CHUNK);
 
 }
@@ -470,35 +491,59 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 	}
 
     //cur.flags |= CHUNK_IN_USE;
-	HHashStore(&alloc.in_use, cur.addr, cast(*u8)cur);
+	HHashStore(alloc, cur.addr, cast(*u8)cur);
 	cur.size = min_alloc_size / BYTES_PER_CHUNK;
 
 	ASSERT(cur.next != cur);
 	//if (out)
 		//*out = cur;
+	if globals.after_init
+	{
+		inserted := false
+		for i in 0..globals.allocs_occured.max
+		{
+			ptr := cast(**u8)ptr_offset(globals.allocs_occured.start, i, u64)
+			if !*ptr
+			{
+				*ptr = cur.addr
+				inserted = true
+			}
+		}
+		if !inserted
+		{
+			__dbg_break
+		}
+	}
     return cur.addr;
 }
-InitMemAlloc::fn(alloc : *mem_alloc)
+InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 {
 	alloc.id = 0x1234;
-    all_chunks_sz:u64= CHUNKS_CAP * sizeof(mem_chunk);
-    alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
+	alloc.chunks_cap = chunks_cap;
+	alloc.hash_table_size = chunks_cap;
+    all_chunks_sz:u64= alloc.chunks_cap * sizeof(mem_chunk);
+	if !alloc.all
+		alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
     memset(cast(*u8)alloc.all, 0, all_chunks_sz);
 	//__dbg_break;
 
 	unallocated_sz:u64 = UNALLOCATED_BUFFER_ITEMS * 8;
-	alloc.probable_unallocated = cast(**mem_chunk)GetMem(cast(u64)unallocated_sz);
+
+	if !alloc.probable_unallocated
+		alloc.probable_unallocated = cast(**mem_chunk)GetMem(cast(u64)unallocated_sz);
     memset(cast(*u8)alloc.probable_unallocated, 0, unallocated_sz);
 
-    total_size:u64= CHUNKS_CAP * BYTES_PER_CHUNK;
-	alloc.buffer = cast(*u8)GetMem(total_size);
+    total_size:u64= alloc.chunks_cap * BYTES_PER_CHUNK;
+	if !alloc.buffer
+		alloc.buffer = cast(*u8)GetMem(total_size);
 	
-	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
-	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
+	in_use_hash_sz:u64 = alloc.hash_table_size * sizeof(heap_hash.inner);
+	if !alloc.in_use.data
+		alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
 
     free:*mem_chunk= GetUnallocatedChunk(alloc);
-	//alloc.in_use.reserve(HASH_TABLE_SIZE);
+	//alloc.in_use.reserve(alloc.hash_table_size);
 
 	free.size = cast(u32)(total_size / BYTES_PER_CHUNK);
     free.addr = alloc.buffer;
@@ -543,7 +588,9 @@ test_ptr::fn(alloc : *mem_alloc)
 	if (cast(u64)alloc.in_use.data) != 100
 		debug_break();
 
-	in_use_hash_sz:u64 = HASH_TABLE_SIZE * sizeof(heap_hash.inner);
+	alloc.chunks_cap = 9000;
+	alloc.hash_table_size = 9000;
+	in_use_hash_sz:u64 = alloc.hash_table_size * sizeof(heap_hash.inner);
 	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
 
@@ -602,11 +649,11 @@ test_ptr::fn(alloc : *mem_alloc)
 		debug_break();
 
 
-	HHashStore(&alloc.in_use, cast(*u8)1, cast(*u8)5);
-	HHashStore(&alloc.in_use, cast(*u8)513, cast(*u8)6);
+	HHashStore(alloc, cast(*u8)1, cast(*u8)5);
+	HHashStore(alloc, cast(*u8)513, cast(*u8)6);
 
-    val := cast(u64)HHashGet(&alloc.in_use, cast(*u8)1);
-    val2 := cast(u64)HHashGet(&alloc.in_use, cast(*u8)513);
+    val := cast(u64)HHashGet(alloc, cast(*u8)1);
+    val2 := cast(u64)HHashGet(alloc, cast(*u8)513);
 	if val != 5 || val2 != 6
 		debug_break();
 

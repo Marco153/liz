@@ -51,7 +51,7 @@ typedef long long s64;
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 4048
-#define DATA_SECT_OFFSET 1024 * 1024 * 4
+#define DATA_SECT_OFFSET 1024 * 1024 * 8
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 #define STACK_PTR_REG 10
@@ -8619,6 +8619,16 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		u64* mem_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
 		u64* reg = GetRegValPtr(dbg, reg_dst);
 
+		if (*reg == 17179877706)
+		{
+			stmnt_dbg* cur_st;
+			func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
+			if (cur_func)
+			{
+				cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
+			}
+			auto a = 0;
+		}
 		DoOperationOnPtr((char *)reg, sz, *mem_ptr, op); 
 	}break;
 	case SUB_R_2_R:
@@ -10082,6 +10092,11 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			}
 			else
 			{
+				if (base_ptr > dbg.mem_size)
+				{
+					ImGui::Text("%s higher than max: %d", d->name.c_str(), dbg.mem_size);
+					return;
+				}
 				int addr = *(int*)&dbg.mem_buffer[base_ptr];
 				snprintf(buffer, 64, "%d->%d", base_ptr, addr);
 				ImGui::Text(buffer);
@@ -10170,6 +10185,11 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		{
 			if (d->name == "window")
 				return;
+			if (offset < 0)
+			{
+				ImGui::Text("%s less than zero", d->name.c_str());
+				return;
+			}
 			switch (GetTypeSize(&d->type))
 			{
 			case 1:
@@ -11738,6 +11758,16 @@ int GetOnStackOffsetWithIrVal(lang_state* lang_stat, ir_val* ir)
 		ret = ir->decl->offset;
 	return ret;
 }
+void GenX64DeclGlobal(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux* aux, int offset)
+{
+	byte_code bc;
+	aux->reg = AllocReg(lang_stat);
+	bc.type = MOV_I;
+	bc.bin.lhs.reg = aux->reg;
+	bc.bin.lhs.reg_sz = 4;
+	bc.bin.rhs.i = GLOBALS_OFFSET + offset;
+	ret.emplace_back(bc);
+}
 void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address, short reg_dst = -1)
 {
 	aux->type = ir->type;
@@ -11753,15 +11783,11 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	byte_code bc;
 
 	bool decl_is_global = false;
+
 	if (ir->type == IR_TYPE_DECL && IS_FLAG_ON(ir->decl->flags, DECL_IS_GLOBAL))
 	{
 		decl_is_global = true;
-		aux->reg = AllocReg(lang_stat);
-		bc.type = MOV_I;
-		bc.bin.lhs.reg = aux->reg;
-		bc.bin.lhs.reg_sz = 4;
-		bc.bin.rhs.i = GLOBALS_OFFSET;
-		ret.emplace_back(bc);
+		GenX64DeclGlobal(lang_stat, ret, aux, ir->decl->offset);
 
 	}
 
@@ -11963,6 +11989,7 @@ void GenX64PointLhs(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_v
 	}
 	else
 	{
+
 		EmplaceLeaInst2(AUX_DECL_REG, reg, mem_offset, 8, ret);
 		reg = AUX_DECL_REG;
 		mem_offset = 0;
@@ -12424,7 +12451,14 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			}break;
 			case IR_TYPE_DECL:
 			{
-				GenX64PointLhs(lang_stat, ret, &lhs, PRE_X64_RSP_REG, 8, assign.lhs.decl->offset, assign.lhs.deref);
+				if (IS_FLAG_ON(assign.lhs.decl->flags, DECL_IS_GLOBAL))
+				{
+					GenX64DeclGlobal(lang_stat, ret, &lhs, assign.lhs.decl->offset);
+				}
+				else
+				{
+					GenX64PointLhs(lang_stat, ret, &lhs, PRE_X64_RSP_REG, 8, assign.lhs.decl->offset, assign.lhs.deref);
+				}
 			}break;
 			default:
 				ASSERT(false)

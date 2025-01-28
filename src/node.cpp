@@ -4846,6 +4846,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		else if (lhs->name == "sizeof")
 		{
 			int a = 0;
+			if (!DescendNameFinding(lang_stat, ncall->r, scp))
+				return nullptr;
 			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
 		}
 		else if (IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && lhs->type.type != TYPE_OVERLOADED_FUNCS)

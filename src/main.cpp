@@ -2989,6 +2989,7 @@ void LoadSheetFromLayer(dbg_state* dbg)
 		cur_cell++;
 	}
 	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+	heap_free((mem_alloc*)__lang_globals.data, (char*)tex_data);
 
 	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = tex_id;
 }
@@ -4098,6 +4099,16 @@ void DebuggerCommand(dbg_state* dbg)
 
 }
 */
+void SetMem(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	ASSERT(sz > 0)
+
+	int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
+	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
+	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] = sz;
+}
 void SubMem(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -4713,6 +4724,7 @@ int main(int argc, char* argv[])
 	//AssertFuncByteCode(&lang_stat);
 
 	AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
+	AssignOutsiderFunc(&lang_stat, "SetMem", (OutsiderFuncType)SetMem);
 	AssignOutsiderFunc(&lang_stat, "SubMem", (OutsiderFuncType)SubMem);
 	AssignOutsiderFunc(&lang_stat, "Print", (OutsiderFuncType)Print);
 	AssignOutsiderFunc(&lang_stat, "OpenWindow", (OutsiderFuncType)OpenWindow);

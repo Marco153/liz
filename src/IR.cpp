@@ -1765,9 +1765,12 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			int cur_line = (((long long)e) >> 16) & 0xffff;
 			bool found_call = false;
 			int calls_found = 0;
-
+			
+			// searching for more than call
 			// if we have more than one call in this statement, we cant be sure the address of the
-			// arg params will remain the same, so we will not continue moving the to reg param
+			// arg params will remain the same, because the next func may have already
+			// assigned the arg_param0 for example and we will reassign with our own thing, overriding it
+			// so we will not continue moving to the reg param
 			for (int h = j + 1; h < exps.size(); h++)
 			{
 				ast_rep *aux = exps[h];
@@ -2764,14 +2767,17 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.to_assign.reg = AllocReg(lang_stat);
 
 
+				int min_sz = min(top->reg_sz, one_minus_top->reg_sz);
 				stack.pop_back();
 
 				top = &stack[stack.size() - 1];
+
 				top->type = IR_TYPE_REG;
 				top->reg_ex = 0;
 				top->reg = ir.assign.to_assign.reg;
 				top->is_float = ir.assign.to_assign.is_float;
 				top->is_unsigned = ir.assign.lhs.is_unsigned;
+				top->reg_sz = min_sz;
 				top->ptr = 0;
 				top->deref = -1;
 				out->emplace_back(ir);

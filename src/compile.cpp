@@ -8533,6 +8533,27 @@ void MakeCurBcToBeBreakpoint(dbg_state* dbg, byte_code2* bc, int line, bool one_
 
 	bc->type = INT3;
 }
+#pragma optimize("", off)
+void Bc2CallX64(dbg_state* dbg, byte_code2** ptr, func_decl *call_f)
+{
+	auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+	*stack_reg -= 8;
+	WasmCallX64(dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_reg);
+	*stack_reg += 8;
+	auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
+	if (call_f->ret_type.IsFloat())
+	{
+		auto reg_dst_ptr = (float*)&dbg->mem_buffer[FLOAT_REG_0 * 8];
+		*reg_dst_ptr = *(float*)reg_src_ptr;
+	}
+	else
+	{
+		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
+		*reg_dst_ptr = *reg_src_ptr;
+	}
+
+}
+#pragma optimize("", on)
 void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int offset)
 {
 	byte_code2* bc = *ptr;;
@@ -8964,6 +8985,8 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		}
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
 		{
+			Bc2CallX64(dbg, ptr, call_f);
+			/*
 			auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 			*stack_reg -= 8;
 			WasmCallX64(dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_reg);
@@ -8979,6 +9002,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 				auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
 				*reg_dst_ptr = *reg_src_ptr;
 			}
+			*/
 		}
 		else
 		{
@@ -11761,7 +11785,9 @@ int GetOnStackOffsetWithIrVal(lang_state* lang_stat, ir_val* ir)
 void GenX64DeclGlobal(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux* aux, int offset)
 {
 	byte_code bc;
+	aux->type = IR_TYPE_REG;
 	aux->reg = AllocReg(lang_stat);
+	aux->voffset = 0;
 	bc.type = MOV_I;
 	bc.bin.lhs.reg = aux->reg;
 	bc.bin.lhs.reg_sz = 4;
@@ -11834,6 +11860,7 @@ void GenX64ToIrValDecl(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 	if (aux->reg != PRE_X64_RSP_REG)
 		aux->type = IR_TYPE_REG;
 }
+#pragma optimize("", off)
 void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *lhs, ir_val_aux *rhs, byte_code_enum inst)
 {
 	byte_code bc = {};
@@ -11954,6 +11981,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 	}
 	ret.emplace_back(bc);
 }
+#pragma optimize("", on)
 
 byte_code_enum GenX64GetCorrectBinInst(ir_val_aux* lhs, ir_val_aux* rhs, byte_code_enum correct_inst, byte_code_enum base_inst_sse)
 {
@@ -12020,7 +12048,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 	own_std::vector<byte_code>& ret,
 	own_std::vector<ir_rep>& irs,
 	wasm_gen_state* gen_state,
-	assign_info &assign)
+	assign_info &assign, int line)
 {
 	byte_code bc = {};
 	if (assign.only_lhs)
@@ -12438,7 +12466,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		break;
 		case T_POINT:
 		{
-			ir_val_aux lhs;
+			ir_val_aux lhs = {};
 			switch (assign.lhs.type)
 			{
 			case IR_TYPE_REG:
@@ -12461,6 +12489,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				}
 			}break;
 			default:
+				lhs.type = IR_TYPE_ARG_REG;
 				ASSERT(false)
 			}
 			
@@ -13782,7 +13811,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ret,
 				irs,
 				gen_state,
-				ir->assign);
+				ir->assign, cur_line);
 			break;
 
 		}break;

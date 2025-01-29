@@ -575,7 +575,8 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 	bool cond = false;
 
 	if (rhs->type == enum_type2::TYPE_STATIC_ARRAY
-		&& (rhs->tp->type == lhs->type || lhs->type == TYPE_VOID)&& (rhs->tp->ptr + 1) == lhs->ptr
+		&& (rhs->tp->type == lhs->type || rhs->tp->type == TYPE_CHAR && lhs->type == TYPE_U8 || lhs->type == TYPE_VOID) 
+		&& (rhs->tp->ptr + 1) == lhs->ptr
 		)
 		return true;
 
@@ -1212,7 +1213,7 @@ node* node_iter::parse_expr()
 			args.insert(0, nd_ref_str);
 			auto t = n->t;
 
-			n = MakeFuncCallArgs(lang_stat, "sprintf", nullptr, args, n->t);
+			n = MakeFuncCallArgs(lang_stat, "sprintf_temp", nullptr, args, n->t);
 
 			n->t = t;
 		}

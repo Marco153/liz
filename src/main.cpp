@@ -2960,7 +2960,7 @@ void LoadSheetFromLayer(dbg_state* dbg)
 	int tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
 	int tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
 	auto tex_data = (char *) AllocMiscData(dbg->lang_stat, tex_width * tex_height * 4);
-	int px_width = cur_layer->pixels_per_width;
+	char px_width = cur_layer->pixels_per_width;
 	char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
 	//*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
 	//*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;

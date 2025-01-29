@@ -327,10 +327,10 @@ struct ir_val
 			union
 			{
 				char reg;
-				short reg_ex;
 			};
         };
     };
+	short reg_ex;
 	int on_data_sect_offset;
     bool is_unsigned;
 	bool is_float;

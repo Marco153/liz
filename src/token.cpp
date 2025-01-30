@@ -33,6 +33,7 @@ bool IsUnsigned(enum_type2 tp)
 		case enum_type2::TYPE_VOID:
 		case enum_type2::TYPE_STRUCT:
 		case enum_type2::TYPE_STR_LIT:
+		case enum_type2::TYPE_VECTOR:
 			return true;
 		case enum_type2::TYPE_S8:
 		case enum_type2::TYPE_S16:
@@ -165,6 +166,8 @@ int GetTypeSize(type2 *tp)
 		case enum_type2::TYPE_STRUCT_TYPE:
 		case enum_type2::TYPE_STRUCT:
 			return tp->strct->size;
+		case enum_type2::TYPE_VECTOR:
+			return 16;
 		default:
 			ASSERT(false)
 	}
@@ -1077,6 +1080,10 @@ bool GetTypeFromTkns(token2 *tkn, type2 &tp)
 	else if(one_str == "void")
 	{
 		tp.type = enum_type2::TYPE_VOID_TYPE;
+	}
+	else if(one_str == "_vec")
+	{
+		tp.type = enum_type2::TYPE_VECTOR_TYPE;
 	}
 	else if(one_str == "bool")
 	{

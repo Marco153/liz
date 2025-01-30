@@ -3226,6 +3226,9 @@ enum_type2 FromTypeToVarType(enum_type2 tp)
 		ret_type = enum_type2::TYPE_TEMPLATE;
 		break;
 
+	case  enum_type2::TYPE_VECTOR_TYPE:
+		ret_type = enum_type2::TYPE_VECTOR;
+		break;
 	case  enum_type2::TYPE_INT:
 		ret_type = enum_type2::TYPE_INT;
 		break;

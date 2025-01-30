@@ -60,7 +60,8 @@ typedef long long s64;
 #define RET_2_REG 13
 #define FILTER_PTR 14
 // we have a few float registers up to 33
-#define FLOAT_REG_0 15
+#define FLOAT_REG_SIZE_BYTES 16
+#define FLOAT_REG_0 35
 #define RIP_REG 34
 #define GLOBALS_OFFSET 11000
 
@@ -6676,6 +6677,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_CHAR_TYPE:
 		case TYPE_U8_TYPE:
 		case TYPE_CHAR:
+		case TYPE_VECTOR:
 		
 		break;
 		default:
@@ -7133,6 +7135,8 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_S32_TYPE:
 		case TYPE_CHAR_TYPE:
 		case TYPE_U8_TYPE:
+		case TYPE_VECTOR_TYPE:
+		case TYPE_VECTOR:
 			break;
 		default:
 			ASSERT(0);
@@ -8064,6 +8068,10 @@ void DoOperationOnPtr(char* ptr, char sz, u64 val, tkn_type2 op)
 #define EFLAGS_ZERO 1
 #define EFLAGS_ABOVE 2
 #define EFLAGS_BELOW 4
+u64 *GetFloatRegValPtr(dbg_state *dbg, short reg)
+{
+	return (u64*)&dbg->mem_buffer[reg * FLOAT_REG_SIZE_BYTES];
+}
 u64 *GetRegValPtr(dbg_state *dbg, short reg)
 {
 	return (u64*)&dbg->mem_buffer[reg * 8];
@@ -8543,7 +8551,7 @@ void Bc2CallX64(dbg_state* dbg, byte_code2** ptr, func_decl *call_f)
 	auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
 	if (call_f->ret_type.IsFloat())
 	{
-		auto reg_dst_ptr = (float*)&dbg->mem_buffer[FLOAT_REG_0 * 8];
+		auto reg_dst_ptr = (float*)&dbg->mem_buffer[FLOAT_REG_0 * FLOAT_REG_SIZE_BYTES];
 		*reg_dst_ptr = *(float*)reg_src_ptr;
 	}
 	else
@@ -8612,7 +8620,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	}break;
 	case MOV_SSE_2_REG_PARAM:
 	{
-		u64* reg_src_ptr = GetRegValPtr(dbg, FLOAT_REG_0 + reg_src);
+		u64* reg_src_ptr = GetFloatRegValPtr(dbg, FLOAT_REG_0 + reg_src);
 		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, reg_dst * 8);
 
 		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
@@ -8640,7 +8648,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		u64* mem_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
 		u64* reg = GetRegValPtr(dbg, reg_dst);
 
-		if (*reg == 17179877706)
+		if (*reg == 4575657222473777172)
 		{
 			stmnt_dbg* cur_st;
 			func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
@@ -8757,7 +8765,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	case CMP_MEM_2_SSE:
 	{
 		auto reg_src_ptr = (float*)GetMemValPtr(dbg, reg_src, mem_offset);
-		auto reg_dst_ptr = (float*)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_dst_ptr = (float*)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
 
 		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
 		*eflags = 0;
@@ -8766,7 +8774,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	}break;
 	case CMP_SSE_2_MEM:
 	{
-		auto reg_src_ptr = (float *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
 		auto reg_dst_ptr = (float*)GetMemValPtr(dbg, reg_dst, mem_offset);
 
 		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
@@ -8776,8 +8784,8 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	}break;
 	case CMP_SSE_2_SSE:
 	{
-		auto reg_src_ptr = (float *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
-		auto reg_dst_ptr = (float *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
 
 		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
 		*eflags = 0;
@@ -8858,7 +8866,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	case CVTSD_MEM_2_SS:
 	{
 		//tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_dst_ptr = (int *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
 		auto mem_ptr = (int *)GetMemValPtr(dbg, reg_src, mem_offset);
 		DoOperationOnPtrFloat((char *)reg_dst_ptr, 2, (float)*mem_ptr, T_EQUAL);
 	}break;
@@ -8866,13 +8874,13 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	{
 		//tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
 		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst);
-		auto reg_src_ptr = (float *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
 		DoOperationOnPtr((char *)reg_dst_ptr, 2, (int)*reg_src_ptr, T_EQUAL);
 	}break;
 	case CVTSD_REG_2_SS:
 	{
 		//tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_dst_ptr = (int *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
 		auto reg_src_ptr = (int *)GetRegValPtr(dbg, reg_src);
 		DoOperationOnPtrFloat((char *)reg_dst_ptr, 2, (float)*reg_src_ptr, T_EQUAL);
 	}break;
@@ -8883,8 +8891,8 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	case DIV_SSE_2_SSE:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
-		auto reg_src_ptr = (float *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		auto reg_dst_ptr = (int *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
 		DoOperationOnPtrFloat((char *)reg_dst_ptr, 2, *reg_src_ptr, op);
 	}break;
 	case ADD_MEM_2_SSE:
@@ -8894,7 +8902,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	case MOV_M_2_SSE:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_dst_ptr = (int *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_dst_ptr = (int *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
 		auto mem_ptr = (float *)GetMemValPtr(dbg, reg_src, mem_offset);
 
 		DoOperationOnPtrFloat((char*)reg_dst_ptr, 2, *mem_ptr, op);
@@ -8902,13 +8910,13 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	case MOV_SSE_2_MEM:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_src_ptr = (int *)GetRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		auto reg_src_ptr = (int *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
 		u64* mem_ptr = GetMemValPtr(dbg, reg_dst, mem_offset);
 		DoOperationOnPtr((char *)mem_ptr, 2, *reg_src_ptr, op);
 	}break;
 	case MOV_F_2_SSE:
 	{
-		auto reg_dst_ptr = (float *)GetRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
 		*reg_dst_ptr = bc->f32;
 	}break;
 	case STORE_R_2_M:
@@ -8971,7 +8979,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 				*stack_reg += 8;
 				auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
 				auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
-				auto reg_xmm0_dst_ptr = (u64*)&dbg->mem_buffer[FLOAT_REG_0 * 8];
+				auto reg_xmm0_dst_ptr = (u64*)&dbg->mem_buffer[FLOAT_REG_0 * FLOAT_REG_SIZE_BYTES];
 
 				*reg_dst_ptr = *reg_src_ptr;
 				*reg_xmm0_dst_ptr = *reg_src_ptr;
@@ -11735,7 +11743,7 @@ void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 		GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, reg_dst);
 		//out_deref--;
 	}
-	aux->deref = out_deref;
+	//aux->deref = out_deref;
 }
 void GenX64ToIrValReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address)
 {
@@ -12818,8 +12826,13 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
 				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
-				if (lhs.is_float && dst.deref >= 0)
-					inst = MOV_SSE_2_MEM;
+				if (dst.deref >= 0)
+				{
+					if (lhs.is_float)
+						inst = MOV_SSE_2_MEM;
+					else
+						inst = STORE_R_2_M;
+				}
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				FreeSpecificReg(lang_stat, lhs.reg);
 				

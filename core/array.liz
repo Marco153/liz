@@ -49,6 +49,7 @@ dyn_init2::fn{ T }(dyn : *dyn_array(T), cap : u64, alloc : *mem_alloc)
 {
 	dyn.alloc = alloc;
 	dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)(cap * sizeof(T)));
+	memset(dyn.data, 0, cap * sizeof(T));
 	dyn.count = 0;
 	dyn.cap = cap;
 }

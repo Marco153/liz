@@ -2661,6 +2661,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					if (prev_ptr == 0)
 					{
 						ir.assign.rhs.is_float = cur->is_float;
+						ir.assign.rhs.is_packed_float = cur->is_packed_float;
 						ir.assign.rhs.i += cur->decl->offset;
 						added_final_ir = false;
 						if ((i + 1) < e->points.size() && next->ptr > 0)
@@ -2735,6 +2736,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					val.deref = 1;
 				//val.deref = .ptr + 1;
 				*/
+				//if(ir)
 				val.is_float = ir.assign.rhs.is_float;
 				val.is_packed_float = ir.assign.rhs.is_packed_float;
 				val.reg_sz = ir.assign.rhs.reg_sz;
@@ -2825,8 +2827,11 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				top->type = IR_TYPE_REG;
 				top->reg_ex = 0;
 				top->reg = ir.assign.to_assign.reg;
-				top->is_float = ir.assign.to_assign.is_float;
-				top->is_packed_float = ir.assign.to_assign.is_packed_float;
+				if (top->ptr <= -1)
+				{
+					top->is_float = ir.assign.to_assign.is_float;
+					top->is_packed_float = ir.assign.to_assign.is_packed_float;
+				}
 				top->is_unsigned = ir.assign.lhs.is_unsigned;
 				top->reg_sz = min_sz;
 				top->ptr = 0;
@@ -3541,6 +3546,12 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				//ir.assign.to_assign.is_float = false;
 			ASSERT(ir.assign.to_assign.type != IR_TYPE_NONE);
 
+			if (ir.assign.only_lhs /*&& ir.assign.to_assign.ptr >= 1*/ && ir.assign.lhs.ptr >= 1)
+			{
+				ir.assign.to_assign.is_float = false;
+				ir.assign.lhs.is_float = false;
+			}
+			
 			/*
 			if (ir.assign.to_assign.type == IR_TYPE_REG && ir.assign.to_assign.is_float && ir.assign.to_assign.deref > 0)
 			{
@@ -3548,11 +3559,6 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ir.assign.to_assign.type = IR_TYPE_REG;
 			}
 			*/
-			if(ir.assign.only_lhs && ir.assign.lhs.deref >=0 )
-			{
-				ir.assign.lhs.is_float = false;
-				ir.assign.to_assign.is_float = false;
-			}
 			ASSERT(ir.assign.lhs.reg_sz <= 8);
 			ASSERT(ir.assign.rhs.reg_sz <= 8);
 			ASSERT(ir.assign.to_assign.reg_sz <= 8);

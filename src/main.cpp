@@ -42,6 +42,58 @@ enum key_enum
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
 
+struct v4
+{
+	float x;
+	float y;
+	float z;
+	float w;
+
+	v4 mul(float m)
+	{
+		v4 ret;
+		ret.x = x * m;
+		ret.y = y * m;
+		ret.z = z * m;
+		return ret;
+	}
+	v4 operator *(float f)
+	{
+		v4 ret;
+		ret.x = this->x * f;
+		ret.y = this->y + f;
+		return ret;
+	}
+	v4 operator -(v4& other)
+	{
+		v4 ret;
+		ret.x = this->x - other.x;
+		ret.y = this->y - other.y;
+		return ret;
+	}
+	v4 operator +(v4& other)
+	{
+		v4 ret;
+		ret.x = this->x + other.x;
+		ret.y = this->y + other.y;
+		return ret;
+	}
+	ImVec2 IM()
+	{
+		ImVec2 ret;
+		ret.x = this->x;
+		ret.y = this->y;
+		return ret;
+	}
+	float dot(v4& other)
+	{
+		return x * other.x + y * other.y + z * other.y;
+	}
+	float len(v4& other)
+	{
+		return 1.0;
+	}
+};
 struct v3
 {
 	float x;
@@ -2888,8 +2940,8 @@ struct aux_layer_info_struct
 	u32 type;
 	u32 pixels_per_width;
 
-	v3 pos;
-	v3 sz;
+	v4 pos;
+	v4 sz;
 	u32 grid_x;
 	u32 grid_y;
 	u32 total_of_used_cells;
@@ -2929,16 +2981,16 @@ struct aux_cell_info
 		};
 		struct
 		{
-			v3 pos;
-			v3 sz;
+			v4 pos;
+			v4 sz;
 		}col;
 		struct
 		{
 			u32 type;
 			u32 enemy_type;
 			u64 add_info;
-			v3 pos;
-			v3 sz;
+			v4 pos;
+			v4 sz;
 		}obj;
 	};
 	struct 
@@ -4230,15 +4282,16 @@ void MemCpy(dbg_state* dbg)
 }
 void PointLineDistance(dbg_state* dbg)
 {
+	/*
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int c_ptr = *(int*)&dbg->mem_buffer[base_ptr + 24];
 	int d_ptr = *(int*)&dbg->mem_buffer[base_ptr + 32];
 
-	auto a = (v3*)&dbg->mem_buffer[a_ptr];
-	auto b = (v3*)&dbg->mem_buffer[b_ptr];
-	auto p = (v3*)&dbg->mem_buffer[c_ptr];
+	auto a = (v4*)&dbg->mem_buffer[a_ptr];
+	auto b = (v4*)&dbg->mem_buffer[b_ptr];
+	auto p = (v4*)&dbg->mem_buffer[c_ptr];
 	auto closest_point = (v3*)&dbg->mem_buffer[d_ptr];
 
 	v3 ab;
@@ -4268,6 +4321,7 @@ void PointLineDistance(dbg_state* dbg)
 	v3 ret;
 	//ret.x = closest_point->x - 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = 
+	*/
 }
 void DotV3(dbg_state* dbg)
 {

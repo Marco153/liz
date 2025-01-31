@@ -9010,6 +9010,9 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 
 		DoOperationOnPtrFloat((char*)reg_dst_ptr, 2, *mem_ptr, op);
 	}break;
+	case SUB_SSE_2_MEM:
+	case ADD_SSE_2_MEM:
+	case DIV_SSE_2_MEM:
 	case MOV_SSE_2_MEM:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
@@ -9052,6 +9055,17 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 
 		__m128 mul = _mm_mul_ps(dst, src);
 		_mm_storeu_ps(reg_dst_ptr, mul);
+	}break;
+	case SUB_PCKD_SSE_2_PCKD_SSE:
+	{
+		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		
+		__m128 src = _mm_loadu_ps(reg_src_ptr);
+		__m128 dst = _mm_loadu_ps(reg_dst_ptr);
+
+		__m128 sub = _mm_sub_ps(dst, src);
+		_mm_storeu_ps(reg_dst_ptr, sub);
 	}break;
 	case ADD_PCKD_SSE_2_PCKD_SSE:
 	{
@@ -14401,7 +14415,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		/*
 		FOR_VEC(bcc, ret)
 		{
-			if (bcc->type == MOV_ABS)
+			if (bcc->type == STORE_RM_2_RM)
 			{
 				ASSERT(0);
 			}
@@ -15972,7 +15986,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			v3_= *v1_ptr + *v2_ptr;\n\
 			if v3_.x < 1.9 || v3_.x > 2.1\n\
 				return -2;\n\
-			__dbg_break;\n\
 			v3_= v1 + v2 * 3.0;\n\
 			if v3_.x < 3.9 || v3_.x > 4.1\n\
 				return -1;\n\
@@ -15984,6 +15997,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		val = ExecuteString(&info, "\
 		ModifyStrctPtr::fn x64(a : u32, b : u32, c : u32, d : u32, e : u32, f : *f32)\n\
 		{\n\
+			__dbg_break;\n\
 			*f = 3.0 + cast(f32)e;\n\
 		}\n\
 		start::fn(a : s32) ! s32{\n\

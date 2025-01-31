@@ -2790,6 +2790,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.rhs.is_float = ir.assign.lhs.is_float || ir.assign.lhs.is_packed_float;
 				ir.assign.rhs.is_packed_float = ir.assign.lhs.is_packed_float;
 
+				
 				ir.assign.to_assign.is_float = ir.assign.lhs.is_float;
 				ir.assign.to_assign.is_packed_float = ir.assign.lhs.is_packed_float;
 
@@ -3546,10 +3547,12 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				//ir.assign.to_assign.is_float = false;
 			ASSERT(ir.assign.to_assign.type != IR_TYPE_NONE);
 
-			if (ir.assign.only_lhs /*&& ir.assign.to_assign.ptr >= 1*/ && ir.assign.lhs.ptr >= 1)
+			if (ir.assign.only_lhs &&( ir.assign.to_assign.ptr >= 1 && ir.assign.lhs.ptr >= 1 || ir.assign.lhs.ptr >= 1))
 			{
 				ir.assign.to_assign.is_float = false;
+				ir.assign.to_assign.is_packed_float = false;
 				ir.assign.lhs.is_float = false;
+				ir.assign.lhs.is_packed_float = false;
 			}
 			
 			/*

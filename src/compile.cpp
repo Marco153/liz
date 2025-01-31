@@ -463,6 +463,8 @@ struct lang_state
 
 	decl2* func_ptr_decl;
 
+	decl2* _vec_strct;
+
 
 	node* node_arena;
 	int cur_nd;
@@ -12999,7 +13001,8 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64ImmToReg(ret, assign.to_assign.reg, assign.to_assign.reg_sz, val, MOV_I);
 			}
 			// R D D
-			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_DECL)
+			else if ((assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_DECL) || 
+				(assign.lhs.type == IR_TYPE_ON_STACK && assign.rhs.type == IR_TYPE_ON_STACK))
 			{
 				ir_val_aux lhs;
 				//assign.lhs.deref++;
@@ -16495,6 +16498,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	decl2 *decl_strct = DescendNameFinding(lang_stat, n, lang_stat->root);
 	tp.strct = decl_strct->type.strct;
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "_vec", tp));
+	lang_stat->_vec_strct = decl_strct;
 
 
 	tp.type = enum_type2::TYPE_VOID;

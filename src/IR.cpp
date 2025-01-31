@@ -544,7 +544,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			ret->strct_constr.commas.emplace_back(info);
 			i++;
 		}
-		lang_stat->cur_strct_constrct_size_per_statement -= tp_size;
+		//lang_stat->cur_strct_constrct_size_per_statement -= tp_size;
 	}break;
 	case node_type::N_OP_OVERLOAD:
 	case node_type::N_FUNC_DECL:
@@ -737,6 +737,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 	}break;
 	case node_type::N_STMNT:
 	{
+		lang_stat->cur_strct_constrct_size_per_statement = 0;
 		ret->type = AST_STATS;
 		ret->line_number = n->t->line;
 		own_std::vector<node*> node_stack;
@@ -2188,6 +2189,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			val.type = IR_TYPE_ON_STACK;
 			val.i = offset;
 			val.reg_sz = ir.assign.to_assign.reg_sz;
+			val.is_float = e->lhs_tp.type == TYPE_VECTOR_TYPE;
+			val.is_packed_float = e->lhs_tp.type == TYPE_VECTOR_TYPE;
 			stack.emplace_back(val);
 		}break;
 		case AST_DEREF:
@@ -2514,7 +2517,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			}
 			else
 				top->ptr = e->cast.type.ptr * (last_ptr < 0 ? -1 : 1);
-			top->is_float = e->cast.type.IsFloat();
+			if(e->cast.type.type != TYPE_VECTOR)
+				top->is_float = e->cast.type.IsFloat();
+			//top->is_packed_float = 
 
 			if (top->type == IR_TYPE_DECL && top->decl->type.type == TYPE_STATIC_ARRAY && e->cast.type.ptr > 0)
 			{
@@ -2781,7 +2786,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.rhs.is_unsigned = ir.assign.lhs.is_unsigned;
 				ir.assign.rhs.is_float = ir.assign.lhs.is_float || ir.assign.lhs.is_packed_float;
 				ir.assign.rhs.is_packed_float = ir.assign.lhs.is_packed_float;
+
 				ir.assign.to_assign.is_float = ir.assign.lhs.is_float;
+				ir.assign.to_assign.is_packed_float = ir.assign.lhs.is_packed_float;
 
 				ASSERT(e->op != T_COND_AND && e->op != T_COND_OR);
 
@@ -2818,6 +2825,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				top->reg_ex = 0;
 				top->reg = ir.assign.to_assign.reg;
 				top->is_float = ir.assign.to_assign.is_float;
+				top->is_packed_float = ir.assign.to_assign.is_packed_float;
 				top->is_unsigned = ir.assign.lhs.is_unsigned;
 				top->reg_sz = min_sz;
 				top->ptr = 0;
@@ -3460,10 +3468,13 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				ir.assign.lhs.type = IR_TYPE_REG;
 				ir.assign.lhs.reg = AllocReg(lang_stat);
 				ir.assign.lhs.reg_sz = GetTypeSize(&ast->lhs_tp);
+
 				ir.assign.only_lhs = true;
 				ir.assign.lhs.deref = -1;
 				GenStackThenIR(lang_stat, rhs_ast, out, &ir.assign.lhs, &rhs_top);
 				ir.assign.lhs = rhs_top;
+				if (ir.assign.lhs.reg_sz > 8 && ast->lhs_tp.type == TYPE_VECTOR)
+					ir.assign.lhs.reg_sz = 8;
 				//ir.assign.lhs.deref--;// = rhs_top;
 				//ir.assign.lhs.deref = -1;
 

@@ -622,7 +622,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 	}break;
 	case enum_type2::TYPE_VECTOR:
 	{
-		cond = rhs->type == lhs->type || rhs->type == enum_type2::TYPE_VECTOR_TYPE || rhs->type == TYPE_F32_RAW;
+		cond = rhs->type == lhs->type || rhs->type == enum_type2::TYPE_VECTOR_TYPE || rhs->type == TYPE_F32_RAW || rhs->type == TYPE_F32;
 	}break;
 	case enum_type2::TYPE_STATIC_ARRAY:
 	{
@@ -3996,6 +3996,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			case enum_type2::TYPE_F64_TYPE:
 			case enum_type2::TYPE_STR_LIT:
 			case enum_type2::TYPE_VOID_TYPE:
+			case enum_type2::TYPE_VECTOR_TYPE:
 			case enum_type2::TYPE_CHAR_TYPE:
 				ret_type.ptr++;
 				break;
@@ -9919,7 +9920,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			{
 			}
 			*/
-			MaybeCreateCast(lang_stat, n->l, n->r, &ltp, &rtp);
+			if(ltp.type != TYPE_VECTOR)
+				MaybeCreateCast(lang_stat, n->l, n->r, &ltp, &rtp);
 
 
 			/*

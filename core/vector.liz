@@ -161,6 +161,10 @@ len_v4::fn(a : *v4) !f32
 {
 	return sqrt(dot_v4(a, a));
 }
+len_vec::fn x64(a : *_vec) !f32
+{
+	return sqrt(dot_vec(a, a));
+}
 len_v3::fn x64(a : *v3) !f32
 {
 	return sqrt(dot_v3(a, a));
@@ -173,6 +177,16 @@ normalize_v4::fn(a : *v4) !v4
 	ret.y = a.y / len;
 	ret.z = a.z / len;
 	ret.w = a.w / len;
+	return ret;
+}
+normalize_vec::fn(a : *_vec) !_vec
+{
+	dot: = dot_vec(a, a);
+	len: = sqrt(dot);
+	ret:_vec;
+	ret.x = a.x / len;
+	ret.y = a.y / len;
+	ret.z = a.z / len;
 	return ret;
 }
 normalize_v3::fn(a : *v3) !v3
@@ -191,6 +205,11 @@ dot_v4::fn(a : *v4, b : *v4) !f32
 	return ret;
 }
 //dot_v3::fn outsider(a : *v3, b : *v3) !f32;
+dot_vec::fn x64(a : *_vec, b : *_vec) !f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z;
+	return ret;
+}
 dot_v3::fn x64(a : *v3, b : *v3) !f32
 {
 	ret := a.x * b.x + a.y * b.y + a.z * b.z;
@@ -226,7 +245,7 @@ SUM_V3::fn macro(dst : _expr, a : _expr, b : _expr)
 	dst.y = a.y + b.y;
 	dst.z = a.z + b.z;
 }
-DoTwoLinesIntersect::fn x64(startA : *v3, endA : *v3, startB : *v3, endB : *v3, p : *v3) !bool
+DoTwoLinesIntersect::fn x64(startA : *_vec, endA : *_vec, startB : *_vec, endB : *_vec, p : *_vec) !bool
 {
 	x1:f32;
 	x2:f32; 

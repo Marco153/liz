@@ -227,8 +227,8 @@ enum byte_code_enum : unsigned char
 	INST_RET,
 	INST_LEA,
 
-	MOVSX_M,
 	MOVSX_R,
+	MOVSX_M,
 	MOVZX_R,
 	MOVZX_M,
 

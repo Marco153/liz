@@ -4014,6 +4014,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			case enum_type2::TYPE_F64:
 			case enum_type2::TYPE_VOID:
 			case enum_type2::TYPE_CHAR:
+			case enum_type2::TYPE_VECTOR:
 				ret_type.ptr--;
 				break;
 			case enum_type2::TYPE_TEMPLATE:
@@ -5684,7 +5685,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 
 	// when lhs is 1, it means that a builtin type was returned, if the lhs_tp isn't a struct
 	// lhs_tp gets a struct value if the n->l is a function call for example,
-	if ((long long)lhs_decl == 1 && (lhs_tp.type != enum_type2::TYPE_STRUCT_TYPE && lhs_tp.type != enum_type2::TYPE_STRUCT))
+	if ((long long)lhs_decl == 1 && (lhs_tp.type != enum_type2::TYPE_VECTOR && lhs_tp.type != enum_type2::TYPE_STRUCT_TYPE && lhs_tp.type != enum_type2::TYPE_STRUCT))
 		ASSERT(false)
 
 		// we don't wanna get templated struct members at this phase, in case
@@ -7466,7 +7467,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						equal_stmnt = n->r;
 					}
 					bool is_bool = lhs->type.type == TYPE_BOOL;
-					bool is_struct_val = lhs->type.type == TYPE_STRUCT && lhs->type.ptr == 0
+					bool is_struct_val = (lhs->type.type == TYPE_STRUCT || lhs->type.type == TYPE_VECTOR)&& lhs->type.ptr == 0
 						&& IsNodeUnop(equal_stmnt->r, T_MUL);
 					if (lhs->type.type == TYPE_STRUCT && lhs->type.ptr == 0 && !zero_initialization)
 					{
@@ -9026,6 +9027,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				case enum_type2::TYPE_BOOL_TYPE:
 				case enum_type2::TYPE_VOID_TYPE:
 				case enum_type2::TYPE_ENUM_TYPE:
+				case enum_type2::TYPE_VECTOR_TYPE:
 				case enum_type2::TYPE_CHAR_TYPE:
 					should_deref = false;
 					break;
@@ -9043,6 +9045,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				case enum_type2::TYPE_STRUCT:
 				case enum_type2::TYPE_VOID:
 				case enum_type2::TYPE_CHAR:
+				case enum_type2::TYPE_VECTOR:
 				case enum_type2::TYPE_STR_LIT:
 				case enum_type2::TYPE_FUNC_PTR:
 					should_deref = true;
@@ -10081,21 +10084,24 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					if (ltp.type == TYPE_INT)
 						ReportMessage(lang_stat, n->t, "lhs must be a memory value");
 
-					if (!CompareTypes(&ltp, &rtp))
-						ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
-
-
-					if (rtp.type == TYPE_FUNC && n->r->type == N_FUNC_DECL)
+					if (n->r->type != N_QUESTION_MARK)
 					{
-						ModifyFuncDeclToName(lang_stat, rtp.fdecl, n->r, scp);
-					}
-					else
-						MaybeCreateCast(lang_stat, n->l, n->r, &ltp, &rtp);
-					if (ltp.type == enum_type2::TYPE_STATIC_ARRAY && ltp.ptr == 0)
-					{
-						node * call = MakeMemCpyCall(lang_stat, n->l, n->r, n, GetTypeSize(&ltp));
-						memcpy(n, call, sizeof(node));
+						if (!CompareTypes(&ltp, &rtp))
+							ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 
+
+						if (rtp.type == TYPE_FUNC && n->r->type == N_FUNC_DECL)
+						{
+							ModifyFuncDeclToName(lang_stat, rtp.fdecl, n->r, scp);
+						}
+						else
+							MaybeCreateCast(lang_stat, n->l, n->r, &ltp, &rtp);
+						if (ltp.type == enum_type2::TYPE_STATIC_ARRAY && ltp.ptr == 0)
+						{
+							node* call = MakeMemCpyCall(lang_stat, n->l, n->r, n, GetTypeSize(&ltp));
+							memcpy(n, call, sizeof(node));
+
+						}
 					}
 					/*
 					// creating a cast for types that are different

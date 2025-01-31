@@ -8175,6 +8175,16 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		snprintf(buffer, 128, "cvtsd xmm%d, %s", reg_dst, reg_src_str);
 		
 	}break;
+	case MOVSX_M:
+	{
+		char lhs_sz = bc->rhs_and_lhs_reg_sz & 0xf;
+		char rhs_sz = bc->rhs_and_lhs_reg_sz >> 4;
+
+		reg_dst_str = GetRegStr(reg_dst, lhs_sz, buffer + 64);
+		reg_src_str = GetRegStr(reg_src, rhs_sz, buffer + 128);
+		snprintf(buffer, 128, "movsx %s, %s[%s + %d]", reg_dst_str, sz_str, reg_src_str, mem_offset);
+		
+	}break;
 	case MOVZX_M:
 	{
 		char lhs_sz = bc->rhs_and_lhs_reg_sz & 0xf;
@@ -8183,6 +8193,16 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		reg_dst_str = GetRegStr(reg_dst, lhs_sz, buffer + 64);
 		reg_src_str = GetRegStr(reg_src, rhs_sz, buffer + 128);
 		snprintf(buffer, 128, "movzx %s, %s[%s + %d]", reg_dst_str, sz_str, reg_src_str, mem_offset);
+		
+	}break;
+	case MOVSX_R:
+	{
+		char lhs_sz = bc->rhs_and_lhs_reg_sz & 0xf;
+		char rhs_sz = bc->rhs_and_lhs_reg_sz >> 4;
+
+		reg_dst_str = GetRegStr(reg_dst, lhs_sz, buffer + 64);
+		reg_src_str = GetRegStr(reg_src, rhs_sz, buffer + 128);
+		snprintf(buffer, 128, "movsx %s, %s", reg_dst_str, reg_src_str);
 		
 	}break;
 	case MOVZX_R:
@@ -8506,7 +8526,7 @@ inline void DoCmpInst(void* dst, u64 in_val, u64* eflags, char sz)
 	}
 }
 
-inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
+inline void DoMovSXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 {
 	switch (sz)
 	{
@@ -8543,6 +8563,48 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 	case 0x32:
 	{
 		*(int *)dst_ptr = *(int*)src_ptr;
+	}break;
+	default:
+		ASSERT(0);
+	}
+}
+inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
+{
+	switch (sz)
+	{
+		/*
+	// weird qword to qword, but necessary for the moment
+	// because the way casting works with point is somewhat hacky
+	// the code that generates this cast probably is at IR.cpp CAST: case in GinIRFromStack func
+	case 0x33:
+	{
+		*dst_ptr = *(long long*)src_ptr;
+	}break;
+	*/
+	// dword to qword
+	case 0x23:
+	{
+		*dst_ptr = *(u32*)src_ptr;
+	}break;
+	// byte to dword
+	case 0x2:
+	{
+		*(u8 *)dst_ptr = *(u8 *)src_ptr;
+	}break;
+	// dword to byte
+	case 0x20:
+	{
+		*(u32 *)dst_ptr = *(u8 *)src_ptr;
+	}break;
+	// qword to byte
+	case 0x30:
+	{
+		*dst_ptr = *(u8 *)src_ptr;
+	}break;
+	// qword to dword
+	case 0x32:
+	{
+		*(u32 *)dst_ptr = *(u32*)src_ptr;
 	}break;
 	default:
 		ASSERT(0);
@@ -9101,11 +9163,24 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		}
 	
 	}break;
+	case MOVSX_M:
+	{
+		u64* dst_ptr = GetRegValPtr(dbg, reg_dst);
+		u64* src_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
+		DoMovSXInts(dbg, dst_ptr, src_ptr, bc->rhs_and_lhs_reg_sz);
+	}break;
 	case MOVZX_M:
 	{
 		u64* dst_ptr = GetRegValPtr(dbg, reg_dst);
 		u64* src_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
 		DoMovZXInts(dbg, dst_ptr, src_ptr, bc->rhs_and_lhs_reg_sz);
+	}break;
+	case MOVSX_R:
+	{
+		u64* dst_ptr = GetRegValPtr(dbg, reg_dst);
+		u64* src_ptr = GetRegValPtr(dbg, reg_src);
+		DoMovSXInts(dbg, dst_ptr, src_ptr, bc->rhs_and_lhs_reg_sz);
+
 	}break;
 	case MOVZX_R:
 	{
@@ -12546,7 +12621,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				//assign.to_assign.deref++;
 
 				ir_val_aux rhs;
-				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.lhs, false);
+				GenX64ToIrValReg2(lang_stat, ret, &rhs, &assign.lhs, false);
 
 				byte_code_enum inst;
 				if (assign.to_assign.is_float)
@@ -12574,6 +12649,8 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 						inst = MOV_R;
 				}
 
+				lhs.is_packed_float = false;
+				rhs.is_packed_float = false;
 				GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
 				if (assign.lhs.reg == 5)
 					assign.lhs.reg--;
@@ -14059,6 +14136,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 		case IR_CAST_INT_TO_INT:
 		{
+			byte_code_enum inst = MOVZX_R;
+			if (!ir->bin.lhs.is_unsigned)
+				inst = MOVSX_R;
 			switch (ir->bin.lhs.type)
 			{
 			case IR_TYPE_REG:
@@ -14074,7 +14154,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				case IR_TYPE_REG:
 				{
 					GenX64ToIrValReg2(lang_stat, ret, &src, &ir->bin.rhs, false);
-					bc.type = MOVZX_R;
+					bc.type = inst;
 					bc.ir = ir;
 					bc.bin.rhs.reg = ir->bin.rhs.reg;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
@@ -14088,7 +14168,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					bc.rel.reg_dst = str_on_reg;
 					bc.rel.offset = ir->bin.rhs.on_data_sect_offset;
 					ret.emplace_back(bc);
-					bc.type = MOVZX_R;
+					bc.type = inst;
 					bc.bin.lhs.reg = ir->bin.lhs.reg;
 					bc.bin.lhs.reg_sz = 8;
 					bc.bin.rhs.reg = str_on_reg;
@@ -14098,7 +14178,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				case IR_TYPE_DECL:
 				{
 					GenX64ToIrValDecl2(lang_stat, ret, &src, &ir->bin.rhs, true);
-					bc.type = MOVZX_M;
+					bc.type = (byte_code_enum)((u32)(inst + 1));
 					bc.bin.lhs.reg = ir->bin.lhs.reg;
 					bc.bin.rhs.reg = src.reg;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
@@ -14318,6 +14398,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		default:
 			ASSERT(false)
 		}
+		/*
+		FOR_VEC(bcc, ret)
+		{
+			if (bcc->type == MOV_ABS)
+			{
+				ASSERT(0);
+			}
+		}
+		*/
 		idx++;
 		cur_ir->end = ret.size();
 		int aux_bc = 0;
@@ -14406,7 +14495,6 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		}break;
 		case MOV_M_2_REG_PARAM:
 		case MOV_M_2_SSE:
-		case MOVSX_M:
 		case ADD_M_2_R:
 		case SUB_M_2_R:
 		case CMP_M_2_R:
@@ -14428,6 +14516,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
 			bc.mem_offset = from_bc->bin.rhs.voffset;
 		}break;
+		case MOVSX_M:
 		case MOVZX_M:
 		{
 			bc.regs = from_bc->bin.lhs.reg;
@@ -14459,13 +14548,13 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case MOV_SSE_2_REG_PARAM:
 		case MOV_SSE_2_R:
 		case MOV_R:
-		case MOVSX_R:
 		case MOD_R_2_R:
 		{
 			bc.regs = from_bc->bin.lhs.reg;
 			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
 			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
 		}break;
+		case MOVSX_R:
 		case MOVZX_R:
 		{
 			bc.regs = from_bc->bin.lhs.reg;

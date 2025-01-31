@@ -1763,6 +1763,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			//TODO
 		}break;
+		case DIV_PCKD_SSE_2_PCKD_SSE:
+		{
+			//TODO
+		}break;
+		case SUB_PCKD_SSE_2_PCKD_SSE:
+		{
+			//TODO
+		}break;
 		case MUL_PCKD_SSE_2_PCKD_SSE:
 		{
 			//TODO
@@ -3179,6 +3187,8 @@ decl2 *FromBuiltinTypeToDecl(lang_state *lang_stat, enum_type2 tp)
 	case enum_type2::TYPE_S8:
 		return lang_stat->s8_decl;
 
+	case enum_type2::TYPE_VECTOR:
+		return lang_stat->_vec_strct;
 	case enum_type2::TYPE_U64:
 		return lang_stat->u64_decl;
 

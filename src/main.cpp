@@ -471,14 +471,17 @@ struct draw_info
 	float pos_x;
 	float pos_y;
 	float pos_z;
+	float pos_w;
 
 	float pivot_x;
 	float pivot_y;
 	float pivot_z;
+	float pivot_w;
 
 	float ent_size_x;
 	float ent_size_y;
 	float ent_size_z;
+	float ent_size_w;
 
 	float color_r;
 	float color_g;
@@ -488,6 +491,7 @@ struct draw_info
 	float ent_rot_x;
 	float ent_rot_y;
 	float ent_rot_z;
+	float ent_rot_w;
 
 	int texture_id;
 

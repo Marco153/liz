@@ -1763,6 +1763,18 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			//TODO
 		}break;
+		case MUL_PCKD_SSE_2_PCKD_SSE:
+		{
+			//TODO
+		}break;
+		case MOV_PCKD_SSE_2_PCKD_SSE:
+		{
+			//TODO
+		}break;
+		case MOV_PCKD_SSE_2_M:
+		{
+			//TODO
+		}break;
 		case DIV_I_2_R:
 		{
 			//TODO
@@ -2691,7 +2703,7 @@ void MovStrLitToReg(lang_state *lang_stat, char reg, std::string str, descend_fu
 	//ret->bcodes.emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), (char)reg));
 	InsertIntoDataSect(lang_stat, (void *)str_data, str_sz + 1);
 }
-void MovFloatToSSEReg2(lang_state *lang_stat, char reg, float f, own_std::vector<byte_code> *ret)
+void MovFloatToSSEReg2(lang_state *lang_stat, char reg, float f, own_std::vector<byte_code> *ret, bool is_packed)
 {
 	char xmm_r = reg | (1 << 6);
 
@@ -2703,6 +2715,7 @@ void MovFloatToSSEReg2(lang_state *lang_stat, char reg, float f, own_std::vector
 		last->rel.is_float = true;
 		last->rel.f = f;
 		last->rel.reg_dst = reg;
+		last->rel.is_packed_float = is_packed;
 	}
 	InsertIntoDataSect(lang_stat, (void *)&f, sizeof(float));
 }

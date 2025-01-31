@@ -622,7 +622,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 	}break;
 	case enum_type2::TYPE_VECTOR:
 	{
-		cond = rhs->type == lhs->type || rhs->type == enum_type2::TYPE_VECTOR_TYPE;
+		cond = rhs->type == lhs->type || rhs->type == enum_type2::TYPE_VECTOR_TYPE || rhs->type == TYPE_F32_RAW;
 	}break;
 	case enum_type2::TYPE_STATIC_ARRAY:
 	{
@@ -3097,9 +3097,6 @@ enum_type2 FromVarTypeToType(enum_type2 tp)
 		ret_type = enum_type2::TYPE_ENUM;
 		break;
 
-	case  enum_type2::TYPE_VECTOR:
-		ret_type = enum_type2::TYPE_VECTOR_TYPE;
-		break;
 
 	case  enum_type2::TYPE_CHAR:
 		ret_type = enum_type2::TYPE_CHAR_TYPE;
@@ -3120,6 +3117,10 @@ enum_type2 FromVarTypeToType(enum_type2 tp)
 
 	case  enum_type2::TYPE_STRUCT:
 		ret_type = enum_type2::TYPE_STRUCT_TYPE;
+		break;
+
+	case  enum_type2::TYPE_VECTOR:
+		ret_type = enum_type2::TYPE_VECTOR_TYPE;
 		break;
 
 	case  enum_type2::TYPE_TEMPLATE:
@@ -5768,6 +5769,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 
 		//ReportMessageOne(lang_stat, n->r->t, "struct type '%s' is not a variable that can be indexed:", (void*)n->l->t->str.c_str());
 	}break;
+	case enum_type2::TYPE_VECTOR:
 	case enum_type2::TYPE_STRUCT:
 	{
 		if (n->r->type == N_SCOPE)
@@ -9981,7 +9983,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			else
 			{
 				ret_type = ltp;
-				if(ltp.type == TYPE_VECTOR && ltp.ptr == 0)
+				if(ltp.type == TYPE_VECTOR && ltp.ptr == 0 && n->r->type == N_STRUCT_CONSTRUCTION)
 				{
 					node* call = MakeMemCpyCall(lang_stat, n->l, n->r, n, FLOAT_REG_SIZE_BYTES);
 					memcpy(n, call, sizeof(node));

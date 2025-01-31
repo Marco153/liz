@@ -89,6 +89,7 @@ typedef long long s64;
 	case DIV_SSE_2_SSE:\
 	case DIV_MEM_2_SSE:\
 	case DIV_SSE_2_MEM:\
+	case DIV_PCKD_SSE_2_PCKD_SSE:\
 			div;\
 		break;\
 	case MUL_M_2_M:\
@@ -100,7 +101,7 @@ typedef long long s64;
 	case MUL_SSE_2_SSE:\
 	case MUL_MEM_2_SSE:\
 	case MUL_SSE_2_MEM:\
-	case MUL_SSE_2_RMEM:\
+	case MUL_PCKD_SSE_2_PCKD_SSE:\
 			mul;\
 		break;\
 	case AND_M_2_M:\
@@ -169,6 +170,8 @@ typedef long long s64;
 	case MOV_M_2_PCKD_SSE:\
 	case MOV_SSE_2_R:\
 	case STORE_R_2_M:\
+	case MOV_PCKD_SSE_2_M:\
+	case MOV_PCKD_SSE_2_PCKD_SSE:\
 	case MOV_M:\
 	case MOV_R:\
 	case MOV_I:\
@@ -5570,9 +5573,15 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 	for (int r = 0; r < 6; r++)
 	{
 		int addr = (FLOAT_REG_0 + r) *  FLOAT_REG_SIZE_BYTES;
-		float f = *(float*)&dbg.mem_buffer[addr];
+		std::string f_str;
+		for (int i = 0; i < 4; i++)
+		{
+			float f = *(float*)&dbg.mem_buffer[addr + i * 4];
+			f_str += std::to_string(f);
+			f_str += " ";
 
-		ImGui::Text("xmm[%d, &%d]: %.3f", r, addr, f);
+		}
+		ImGui::Text("xmm[%d, &%d]: %s", r, addr, f_str.c_str());
 	}
 	for (int r = 0; r < 6; r++)
 	{
@@ -8335,7 +8344,9 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		snprintf(buffer, 128, "mov param %d,  xmm%d", reg_dst, reg_src);
 		
 	}break;
+	case MOV_PCKD_SSE_2_PCKD_SSE:
 	case ADD_PCKD_SSE_2_PCKD_SSE:
+	case MUL_PCKD_SSE_2_PCKD_SSE:
 	{
 		 inst_name = InstToStr(bc->bc_type);
 		snprintf(buffer, 128, "%s pxmm%d,  pxmm%d", inst_name, reg_dst, reg_src);
@@ -8391,6 +8402,12 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		snprintf(buffer, 128, "%s %s[%s + %d], xmm%d", inst_name, sz_str, reg_dst_str, mem_offset, reg_src);
 		
 	}break;
+	case MOV_PCKD_SSE_2_M:
+	{
+		 inst_name = InstToStr(bc->bc_type);
+		snprintf(buffer, 128, "mov%s[%s + %d], pxmm%d", sz_str, reg_dst_str, mem_offset, reg_src);
+		
+	}break;
 	case CMP_R_2_M:
 	case ADD_R_2_M:
 	case SUB_R_2_M:
@@ -8408,6 +8425,11 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	{
 		 inst_name = InstToStr(bc->bc_type);
 		snprintf(buffer, 128, "%s %s[%s + %d], %d", inst_name, sz_str, reg_dst_str, mem_offset, imm);
+		
+	}break;
+	case MOV_F_2_PCKED_SSE:
+	{
+		snprintf(buffer, 128, "mov pxmm%d, %.3f", reg_dst, bc->f32);
 		
 	}break;
 	case MOV_F_2_SSE:
@@ -8931,10 +8953,41 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		u64* mem_ptr = GetMemValPtr(dbg, reg_dst, mem_offset);
 		DoOperationOnPtr((char *)mem_ptr, 2, *reg_src_ptr, op);
 	}break;
+	case MOV_F_2_PCKED_SSE:
+	{
+		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		__m128 sse_reg = _mm_set_ps(bc->f32, bc->f32, bc->f32, bc->f32);
+		_mm_store_ps(reg_dst_ptr, sse_reg);
+	}break;
 	case MOV_F_2_SSE:
 	{
 		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
 		*reg_dst_ptr = bc->f32;
+	}break;
+	case MOV_PCKD_SSE_2_M:
+	{
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		u64* mem_ptr = GetMemValPtr(dbg, reg_dst, mem_offset);
+		
+		memcpy(mem_ptr, reg_src_ptr, FLOAT_REG_SIZE_BYTES);
+		//_mm_storeu_ps(reg_dst_ptr, dst);
+	}break;
+	case MOV_PCKD_SSE_2_PCKD_SSE:
+	{
+		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		memcpy(reg_dst_ptr, reg_src_ptr, FLOAT_REG_SIZE_BYTES);
+	}break;
+	case MUL_PCKD_SSE_2_PCKD_SSE:
+	{
+		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		
+		__m128 src = _mm_loadu_ps(reg_src_ptr);
+		__m128 dst = _mm_loadu_ps(reg_dst_ptr);
+
+		__m128 mul = _mm_mul_ps(dst, src);
+		_mm_storeu_ps(reg_dst_ptr, mul);
 	}break;
 	case ADD_PCKD_SSE_2_PCKD_SSE:
 	{
@@ -8945,7 +8998,7 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		__m128 dst = _mm_loadu_ps(reg_dst_ptr);
 
 		__m128 summed = _mm_add_ps(dst, src);
-		_mm_storeu_ps(reg_dst_ptr, dst);
+		_mm_storeu_ps(reg_dst_ptr, summed);
 	}break;
 	case STORE_R_2_M:
 	{
@@ -11728,20 +11781,26 @@ void GenX64AutomaticDeclDeref(lang_state* lang_stat, own_std::vector<byte_code>&
 	}
 }
 
-byte_code_enum DetermineMovBcBasedOnDeref(char deref, bool is_float)
+byte_code_enum DetermineMovBcBasedOnDeref(char deref, bool is_float, bool is_packed_float)
 {
 	byte_code_enum ret;
 	if (deref > 0)
 	{
 		if (is_float)
-			ret = MOV_SSE_2_MEM;
+			if(is_packed_float)
+				ret = MOV_PCKD_SSE_2_M;
+			else
+				ret = MOV_SSE_2_MEM;
 		else
 			ret = STORE_R_2_M;
 	}
 	else
 	{
 		if (is_float)
-			ret = MOV_SSE_2_SSE;
+			if(is_packed_float)
+				ret = MOV_PCKD_SSE_2_PCKD_SSE;
+			else
+				ret = MOV_SSE_2_SSE;
 		else
 			ret = MOV_R;
 	}
@@ -11782,6 +11841,7 @@ void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 	aux->is_unsigned = ir->is_unsigned;
 	aux->voffset = 0;
 	aux->is_float = ir->is_float;
+	aux->is_packed_float = ir->is_packed_float;
 	char out_deref = aux->deref;
 	if (address && aux->deref > 0 || !address)
 	{
@@ -11802,14 +11862,15 @@ void GenX64ToIrValReg(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir
 	aux->is_unsigned = ir->is_unsigned;
 	GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, aux->reg);
 }
-void GenX64ToIrValFloatRaw(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux* aux, ir_val* ir, short reg_dst = -1)
+void GenX64ToIrValFloatRaw(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux* aux, ir_val* ir, bool packed, short reg_dst = -1)
 {
 	aux->type = ir->type;
 	aux->reg = reg_dst;
 	aux->reg_sz = ir->reg_sz;
 	aux->is_float = ir->is_float;
+	aux->is_packed_float = ir->is_packed_float;
 
-	MovFloatToSSEReg2(lang_stat, reg_dst, ir->f32, &ret);
+	MovFloatToSSEReg2(lang_stat, reg_dst, ir->f32, &ret, packed);
 }
 
 int GetOnStackOffsetWithIrVal(lang_state* lang_stat, ir_val* ir)
@@ -11924,12 +11985,12 @@ void GenX64ToIrValDecl(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *lhs, ir_val_aux *rhs, byte_code_enum inst)
 {
 	byte_code bc = {};
-	bc.type = inst;
-	bc.bin.is_unsigned = lhs->is_unsigned;
 	if (lhs->is_packed_float)
 	{
 		inst = (byte_code_enum)((u32)inst + 3);
 	}
+	bc.type = inst;
+	bc.bin.is_unsigned = lhs->is_unsigned;
 
 	switch (inst)
 	{
@@ -12051,11 +12112,13 @@ byte_code_enum GenX64GetCorrectBinInst(ir_val_aux* lhs, ir_val_aux* rhs, byte_co
 {
 	if (rhs->is_float)
 	{
+		/*
 		if (lhs->is_packed_float)
 		{
 			correct_inst = (byte_code_enum)((u32)base_inst_sse + 3);
 		}
-		else if (rhs->reg == PRE_X64_RSP_REG)
+		*/
+		if (rhs->reg == PRE_X64_RSP_REG)
 			correct_inst = (byte_code_enum)(base_inst_sse + 1);
 		// by default, base_inst_sse is already SSE_2_SSE
 		else
@@ -12179,7 +12242,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			case IR_TYPE_F32:
 			{
 				char sse_reg = 4;
-				MovFloatToSSEReg2(lang_stat, sse_reg, assign.lhs.f32, &ret);
+				MovFloatToSSEReg2(lang_stat, sse_reg, assign.lhs.f32, &ret, false);
 				bc.type = MOV_SSE_2_REG_PARAM;
 				bc.bin.lhs.reg = assign.to_assign.reg;
 				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
@@ -12289,8 +12352,11 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				if (assign.lhs.is_float)
 				{
 					ir_val_aux lhs;
-					GenX64ToIrValReg(lang_stat, ret, &lhs, &assign.lhs, false);
-					bc.type = MOV_SSE_2_MEM;
+					GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false);
+					if(lhs.is_packed_float)
+						bc.type = MOV_PCKD_SSE_2_M;
+					else
+						bc.type = MOV_SSE_2_MEM;
 					bc.bin.lhs.voffset = voffset;
 					bc.bin.lhs.reg = reg;
 					bc.bin.lhs.reg_sz = reg_sz;
@@ -12318,7 +12384,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			case IR_TYPE_F32:
 			{
 				char sse_reg = 4;
-				MovFloatToSSEReg2(lang_stat, sse_reg, assign.lhs.f32, &ret);
+				MovFloatToSSEReg2(lang_stat, sse_reg, assign.lhs.f32, &ret, assign.to_assign.is_packed_float);
 
 				bc.type = MOV_SSE_2_MEM;
 				bc.bin.lhs.reg = reg;
@@ -12391,7 +12457,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				ir_val_aux rhs;
 
 				short sse_reg = 4;
-				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.lhs, sse_reg);
+				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.lhs, assign.to_assign.is_packed_float, sse_reg);
 
 				ir_val_aux lhs;
 				assign.to_assign.deref--;
@@ -12484,9 +12550,19 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				if (assign.to_assign.is_float)
 				{
 					if (assign.to_assign.deref >= 0)
-						inst = MOV_SSE_2_MEM;
+					{
+						if (assign.to_assign.is_packed_float)
+							inst = MOV_PCKD_SSE_2_M;
+						else
+							inst = MOV_SSE_2_MEM;
+					}
 					else
-						inst = MOV_SSE_2_SSE;
+					{
+						if (assign.to_assign.is_packed_float)
+							inst = MOV_PCKD_SSE_2_PCKD_SSE;
+						else
+							inst = MOV_SSE_2_SSE;
+					}
 				}
 				else
 				{
@@ -12659,6 +12735,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 					inst = MOV_SSE_2_MEM;
 				GenX64BinInst(lang_stat, ret, &decl, &lhs, inst);
 			}
+			// D D D
 			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_DECL)
 			{
 				ir_val_aux lhs;
@@ -12719,7 +12796,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, assign.lhs.is_float, assign.lhs.is_packed_float, false);
 
 				short sse_reg = 1;
-				MovFloatToSSEReg2(lang_stat, sse_reg, assign.rhs.f32, &ret);
+				MovFloatToSSEReg2(lang_stat, sse_reg, assign.rhs.f32, &ret, assign.lhs.is_packed_float);
 				byte_code_enum base_inst;
 				switch (assign.op)
 				{
@@ -12779,7 +12856,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				FreeSpecificReg(lang_stat, lhs.reg);
 
@@ -12807,7 +12884,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				FreeSpecificReg(lang_stat, lhs.reg);
 
@@ -12837,7 +12914,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				{
 					bool dst_float = assign.to_assign.is_float;
 					bc = {};
-					byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+					byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
 					dst.is_unsigned = lhs.is_unsigned;
 					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 					FreeSpecificReg(lang_stat, lhs.reg);
@@ -12863,7 +12940,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				ir_val_aux dst;
 				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true);
 
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
 				if (dst.deref >= 0)
 				{
 					if(dst.is_float)
@@ -12903,7 +12980,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
 				if (dst.deref >= 0)
 				{
 					if (lhs.is_float)
@@ -12932,7 +13009,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				ir_val_aux rhs;
 				//assign.rhs.deref--;
-				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, true, 0);
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, true);
 				//assign.rhs.deref++;
 
 				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
@@ -12944,7 +13021,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 
 
@@ -12959,7 +13036,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			{
 				char sse_reg = 0;
 				ir_val_aux lhs;
-				GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &assign.lhs, sse_reg);
+				GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &assign.lhs, assign.rhs.is_packed_float, sse_reg);
 				lhs.type = IR_TYPE_REG;
 
 				if (lhs.reg == 0)
@@ -12976,7 +13053,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				ir_val_aux dst;
 				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
 				
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				//FreeSpecificReg(lang_stat, lhs.reg);
 
@@ -13004,7 +13081,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 
 				FreeSpecificReg(lang_stat, reg);
@@ -13020,7 +13097,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				if (lhs.reg == 0)
 					sse_reg++;
 				ir_val_aux rhs;
-				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.rhs, sse_reg);
+				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.rhs, assign.lhs.is_packed_float, sse_reg);
 
 				correct_inst = base_inst_sse;
 
@@ -13029,7 +13106,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				ir_val_aux dst;
 				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true);
 				
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
 				if (lhs.is_float && dst.deref >= 0)
 					inst = MOV_SSE_2_MEM;
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
@@ -13046,7 +13123,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				if (rhs.reg == 0)
 					sse_reg++;
 				ir_val_aux lhs;
-				GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &assign.lhs, sse_reg);
+				GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &assign.lhs, assign.rhs.is_packed_float, sse_reg);
 
 				correct_inst = base_inst_sse;
 
@@ -13055,11 +13132,12 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				ir_val_aux dst;
 				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
 				
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				FreeSpecificReg(lang_stat, lhs.reg);
 
 			}
+			// R D F
 			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_F32)
 			{
 				ir_val_aux lhs;
@@ -13070,7 +13148,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				if (lhs.reg == 0)
 					sse_reg++;
 				ir_val_aux rhs;
-				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.rhs, sse_reg);
+				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.rhs, assign.lhs.is_packed_float, sse_reg);
 
 				correct_inst = base_inst_sse;
 
@@ -13079,7 +13157,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				ir_val_aux dst;
 				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
 				
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				FreeSpecificReg(lang_stat, lhs.reg);
 
@@ -13103,7 +13181,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				ir_val_aux dst;
 				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
 				
-				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float);
+				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				if(lhs.reg != PRE_X64_RSP_REG)
 					FreeSpecificReg(lang_stat, lhs.reg);
@@ -13565,7 +13643,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				{
 				case IR_TYPE_F32:
 				{
-					MovFloatToSSEReg2(lang_stat, ir->ret.assign.to_assign.reg, ir->ret.assign.lhs.f32, &ret);
+					MovFloatToSSEReg2(lang_stat, ir->ret.assign.to_assign.reg, ir->ret.assign.lhs.f32, &ret, false);
 				}break;
 				case IR_TYPE_INT:
 				{
@@ -13601,7 +13679,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 					bool dst_float = ir->ret.assign.to_assign.is_float;
 					bc = {};
-					byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float);
+					byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
 					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 
 					/*
@@ -13681,7 +13759,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				char sse_reg = 0;
 				if (lhs.reg == 0)
 					sse_reg++;
-				MovFloatToSSEReg2(lang_stat, sse_reg, ir->assign.rhs.f32, &ret);
+				MovFloatToSSEReg2(lang_stat, sse_reg, ir->assign.rhs.f32, &ret, ir->bin.lhs.is_packed_float);
 
 
 				bc.type = CMP_SSE_2_SSE;
@@ -13702,7 +13780,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				char sse_reg = 0;
 				if (lhs.reg == 0)
 					sse_reg++;
-				MovFloatToSSEReg2(lang_stat, sse_reg, ir->assign.rhs.f32, &ret);
+				MovFloatToSSEReg2(lang_stat, sse_reg, ir->assign.rhs.f32, &ret, ir->bin.lhs.is_packed_float);
 
 
 				bc.type = CMP_SSE_2_SSE;
@@ -13742,7 +13820,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, true);
 
 				ir_val_aux rhs;
-				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &ir->bin.rhs, true);
+				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &ir->bin.rhs, ir->bin.lhs.is_packed_float, true);
 
 				GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, CMP_SSE_2_SSE);
 			}
@@ -14276,7 +14354,10 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 				bc.regs = from_bc->rel.reg_dst;
 				if (from_bc->rel.is_float)
 				{
-					bc.type = MOV_F_2_SSE;
+					if(from_bc->rel.is_packed_float)
+						bc.type = MOV_F_2_PCKED_SSE;
+					else
+						bc.type = MOV_F_2_SSE;
 					bc.f32 = from_bc->rel.f;
 				}
 				else
@@ -14365,6 +14446,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case SUB_PCKD_SSE_2_PCKD_SSE:
 		case MUL_PCKD_SSE_2_PCKD_SSE:
 		case DIV_PCKD_SSE_2_PCKD_SSE:
+		case MOV_PCKD_SSE_2_PCKD_SSE:
 		case SUB_SSE_2_SSE:
 		case DIV_SSE_2_SSE:
 		case MUL_SSE_2_SSE:
@@ -14414,6 +14496,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case SUB_SSE_2_MEM:
 		case MUL_SSE_2_MEM:
 		case DIV_SSE_2_MEM:
+		case MOV_PCKD_SSE_2_M:
 		case DIV_R_2_M:
 		case STORE_R_2_M:
 		case AND_R_2_M:
@@ -16408,6 +16491,9 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 
 
 	tp.type = enum_type2::TYPE_VECTOR_TYPE;
+	node *n = ParseString(lang_stat, "__vec_struct : struct{x : f32, y : f32, z : f32, w : f32}");
+	decl2 *decl_strct = DescendNameFinding(lang_stat, n, lang_stat->root);
+	tp.strct = decl_strct->type.strct;
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "_vec", tp));
 
 
@@ -16502,6 +16588,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//std::string dir = exe_dir.substr(0, last_bar_comp) + "\\" + file_name_dir.substr(0, last_bar_main);
 	std::string dir = exe_dir.substr(0, last_bar_comp + 1);
 	lang_stat->exe_dir = dir;
+
 
 	//std::string file_name = file_name_dir.substr(last_bar_main+1);
 

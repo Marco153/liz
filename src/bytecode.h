@@ -31,13 +31,6 @@ enum byte_code_enum : unsigned char
 {
 	NOP, 
 
-	NEW_LINE,
-	BEGIN_FUNC_FOR_INTERPRETER,
-	BEGIN_FUNC,
-	END_FUNC,
-
-	ASSIGN_FUNC_SIZE,
-		
 	RET, 
 
 	BREAK,
@@ -107,7 +100,6 @@ enum byte_code_enum : unsigned char
 	MUL_SSE_2_SSE,
 	MUL_MEM_2_SSE,
 	MUL_SSE_2_MEM,
-	MUL_SSE_2_RMEM,
 	//MUL_SSE_2_REG,
 	MUL_PCKD_SSE_2_PCKD_SSE,
 
@@ -192,7 +184,10 @@ enum byte_code_enum : unsigned char
 	MOV_R_2_SSE,
 	MOV_SSE_2_R,
 	MOV_F_2_SSE,
+	MOV_F_2_PCKED_SSE,
 	MOV_M_2_PCKD_SSE,
+	MOV_PCKD_SSE_2_M,
+	MOV_PCKD_SSE_2_PCKD_SSE,
 
 	MOV_I,
 	MOV_ABS,
@@ -254,6 +249,14 @@ enum byte_code_enum : unsigned char
 	JMP_GE,
 	JMP_L,
 	JMP_LE,
+
+	NEW_LINE,
+	BEGIN_FUNC_FOR_INTERPRETER,
+	BEGIN_FUNC,
+	END_FUNC,
+
+	ASSIGN_FUNC_SIZE,
+		
 
 	COMMENT,
 };
@@ -397,6 +400,7 @@ struct byte_code
 					char *name;
 				
 					bool is_float;
+					bool is_packed_float;
 					char reg_dst;
 					union
 					{

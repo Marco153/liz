@@ -1043,10 +1043,6 @@ bool GetTypeFromTkns(token2 *tkn, type2 &tp)
 	{
 		tp.type = enum_type2::TYPE_S32_TYPE;
 	}
-	else if(one_str == "_vec")
-	{
-		tp.type = enum_type2::TYPE_VECTOR_TYPE;
-	}
 	else if(one_str == "s16")
 	{
 		tp.type = enum_type2::TYPE_S16_TYPE;

@@ -79,7 +79,8 @@ enum byte_code_enum : unsigned char
 	DIV_SSE_2_SSE,
 	DIV_MEM_2_SSE,
 	DIV_SSE_2_MEM,
-	DIV_SSE_2_RMEM,
+	//DIV_SSE_2_RMEM,
+	DIV_PCKD_SSE_2_PCKD_SSE,
 
 	OR_M_2_M,
 	OR_R_2_M,
@@ -107,7 +108,8 @@ enum byte_code_enum : unsigned char
 	MUL_MEM_2_SSE,
 	MUL_SSE_2_MEM,
 	MUL_SSE_2_RMEM,
-	MUL_SSE_2_REG,
+	//MUL_SSE_2_REG,
+	MUL_PCKD_SSE_2_PCKD_SSE,
 
 	AND_M_2_M,
 	AND_R_2_M,
@@ -120,7 +122,7 @@ enum byte_code_enum : unsigned char
 	AND_SSE_2_SSE,
 	AND_MEM_2_SSE,
 	AND_SSE_2_MEM,
-	AND_SSE_2_RMEM,
+	AND_PCKD_SSE_2_PCKD_SSE,
 
 	SUB_M_2_M,
 	SUB_R_2_M,
@@ -133,7 +135,7 @@ enum byte_code_enum : unsigned char
 	SUB_SSE_2_SSE,
 	SUB_MEM_2_SSE,
 	SUB_SSE_2_MEM,
-	SUB_SSE_2_RMEM,
+	SUB_PCKD_SSE_2_PCKD_SSE,
 
 
 	MOD_M_2_M,
@@ -156,7 +158,7 @@ enum byte_code_enum : unsigned char
 	ADD_SSE_2_SSE,
 	ADD_MEM_2_SSE,
 	ADD_SSE_2_MEM,
-	ADD_SSE_2_RMEM,
+	ADD_PCKD_SSE_2_PCKD_SSE,
 
 	STORE_M_2_M,
 	STORE_R_2_M,
@@ -190,6 +192,7 @@ enum byte_code_enum : unsigned char
 	MOV_R_2_SSE,
 	MOV_SSE_2_R,
 	MOV_F_2_SSE,
+	MOV_M_2_PCKD_SSE,
 
 	MOV_I,
 	MOV_ABS,
@@ -219,7 +222,8 @@ enum byte_code_enum : unsigned char
 	CMP_SSE_2_SSE,
 	CMP_MEM_2_SSE,
 	CMP_SSE_2_MEM,
-	CMP_SSE_2_RMEM,
+	//CMP_SSE_2_RMEM,
+	CMP_PCKD_SSE_2_PCKD_SSE,
 
 	RELOC,
 	INST_CALL,

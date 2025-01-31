@@ -107,6 +107,7 @@ struct ast_array_construct
 struct ast_struct_construct
 {
     type_struct2 *strct;
+    bool is_vector;
 
     int at_offset;
 
@@ -332,8 +333,9 @@ struct ir_val
     };
 	short reg_ex;
 	int on_data_sect_offset;
-    bool is_unsigned;
-	bool is_float;
+    bool is_unsigned : 1;
+	bool is_float:1;
+	bool is_packed_float:1;
     char ptr;
 	char deref;
     char reg_sz;

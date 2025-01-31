@@ -499,9 +499,20 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 	{
 		auto last = lang_stat->cur_func;
         ret->type = AST_STRUCT_COSTRUCTION;
-		ret->strct_constr.strct = FindIdentifier(n->l->t->str, scp, &dummy_type)->type.strct;
+		FindIdentifier(n->l->t->str, scp, &dummy_type);
+		int tp_size = 0;
+		if (dummy_type.type == TYPE_STRUCT_TYPE)
+		{
+			ret->strct_constr.strct = dummy_type.strct;
+		}
+		else
+		{
+			tp_size = 16;
+			ret->strct_constr.is_vector = true;
+			//ASSERT(0)
+		}
+		//tp_size = ret->strct_constr.strct->size;
 
-		int tp_size = ret->strct_constr.strct->size;
 
 		ret->strct_constr.at_offset = lang_stat->cur_strct_constrct_size_per_statement;
 
@@ -515,7 +526,12 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		FOR_VEC(c, *n->exprs)
 		{
 			ast_struct_construct_info info;
-			if (IS_FLAG_ON(strct->flags, TP_STRCT_TUPLE))
+			if (dummy_type.type == TYPE_VECTOR_TYPE)
+			{
+				info.var = lang_stat->f32_decl;
+				info.exp = AstFromNode(lang_stat, c->n, scp);
+			}
+			else if (IS_FLAG_ON(strct->flags, TP_STRCT_TUPLE))
 			{
 				info.var = strct->scp->vars[i];
 				info.exp = AstFromNode(lang_stat, c->n, scp);
@@ -956,6 +972,8 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val)
 		//if (ast->decl->type.ptr > 0)
 			//val->is_unsigned = true;
 		val->is_float = ast->decl->type.type == TYPE_F32;
+		val->is_packed_float = ast->decl->type.type == TYPE_VECTOR;
+		val->is_float = val->is_float || val->is_packed_float;
 		val->deref = 0;
     }break;
     case AST_FLOAT:
@@ -1124,9 +1142,9 @@ void AllocSpecificReg(lang_state* lang_stat, char idx)
 		lang_stat->tracked_regs.emplace_back(idx);
 	}
 }
-char AllocReg(lang_state* lang_stat)
+char AllocReg(lang_state* lang_stat, int start = 0)
 {
-	for (int i = 0; i < 9; i++)
+	for (int i = start; i < 9; i++)
 	{
 		if (i == PRE_X64_RSP_REG || i == AUX_DECL_REG)
 			continue;
@@ -1501,6 +1519,17 @@ void GenIRComplex(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* 
 	int state = 0;
 
 
+}
+bool IsIrValPackedFloat(ir_val* val)
+{
+	type2* decl_type = &val->decl->type;
+
+	bool is_decl = val->type == IR_TYPE_DECL;
+	bool is_ar_float = false;
+	if(is_decl)
+		is_ar_float = decl_type->type == TYPE_STATIC_ARRAY && decl_type->tp->type == TYPE_VECTOR;
+
+	return is_decl && (val->decl->type.type == TYPE_VECTOR || is_ar_float) || val->is_packed_float;
 }
 bool IsIrValFloat(ir_val* val)
 {
@@ -2056,7 +2085,14 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 				ir.assign.to_assign.type = IR_TYPE_REG;
 				ir.assign.to_assign.reg_sz = 8;
-				ir.assign.to_assign.reg = AllocReg(lang_stat);
+				if (top->type == IR_TYPE_ON_STACK)
+				{
+					ir.assign.to_assign.reg = AllocReg(lang_stat);
+				}
+				else
+				{
+					ir.assign.to_assign.reg = AllocReg(lang_stat, 6);
+				}
 				ir.assign.to_assign.deref = -1;
 				ir.assign.only_lhs = true;
 				ir.assign.lhs = *top;
@@ -2126,6 +2162,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			int offset = e->strct_constr.at_offset;
 			//top->i = offset;
 
+			int cur_offset = offset;
 			//ir.assign.to_assign.i = offset;
 			for (int i = e->strct_constr.commas.size() - 1; i >= 0; i--)
 			{
@@ -2139,12 +2176,14 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.to_assign.type = IR_TYPE_ON_STACK;
 				ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
 				ir.assign.to_assign.reg_sz = 8;
-				ir.assign.to_assign.i = offset + cinfo->var->offset;
+				ir.assign.to_assign.i = cur_offset + cinfo->var->offset;
 				ir.assign.to_assign.deref = -1;
 				ir.assign.to_assign.reg_sz = GetTypeSize(&cinfo->var->type);
 				ir.assign.lhs = *top;
 				out->emplace_back(ir);
 				ASSERT(ir.assign.to_assign.reg_sz > 0);
+				if (e->strct_constr.is_vector)
+					cur_offset += 4;
 			}
 			val.type = IR_TYPE_ON_STACK;
 			val.i = offset;
@@ -2636,7 +2675,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						//ir.assign.rhs = *cur;
 						ir.assign.rhs.i = cur->decl->offset ;
 						ir.assign.rhs.is_unsigned = ir.assign.lhs.is_unsigned;
-						ir.assign.rhs.is_float = IsIrValFloat(cur);
+						//ir.assign.rhs.is_float = IsIrValFloat(cur);
+						ir.assign.rhs.is_packed_float = IsIrValPackedFloat(cur);
+						ir.assign.rhs.is_float = IsIrValFloat(cur) || ir.assign.rhs.is_packed_float;
 						ir.assign.lhs.deref = prev_ptr - 1;
 						ir.assign.lhs.ptr = prev_ptr;
 						if (ir.assign.lhs.type == IR_TYPE_REG && IS_FLAG_ON(ir.assign.lhs.reg_ex, IR_VAL_FROM_POINT))
@@ -2738,7 +2779,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				}
 
 				ir.assign.rhs.is_unsigned = ir.assign.lhs.is_unsigned;
-				ir.assign.rhs.is_float = ir.assign.lhs.is_float;
+				ir.assign.rhs.is_float = ir.assign.lhs.is_float || ir.assign.lhs.is_packed_float;
+				ir.assign.rhs.is_packed_float = ir.assign.lhs.is_packed_float;
 				ir.assign.to_assign.is_float = ir.assign.lhs.is_float;
 
 				ASSERT(e->op != T_COND_AND && e->op != T_COND_OR);

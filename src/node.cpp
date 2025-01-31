@@ -620,6 +620,10 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		if (!CompareTypes(&lhs->fdecl->ret_type, &rhs->fdecl->ret_type))
 			return false;
 	}break;
+	case enum_type2::TYPE_VECTOR:
+	{
+		cond = rhs->type == lhs->type || rhs->type == enum_type2::TYPE_VECTOR_TYPE;
+	}break;
 	case enum_type2::TYPE_STATIC_ARRAY:
 	{
 		bool rhs_type = rhs->type == enum_type2::TYPE_STATIC_ARRAY_TYPE || rhs->type == enum_type2::TYPE_STATIC_ARRAY;
@@ -3093,6 +3097,10 @@ enum_type2 FromVarTypeToType(enum_type2 tp)
 		ret_type = enum_type2::TYPE_ENUM;
 		break;
 
+	case  enum_type2::TYPE_VECTOR:
+		ret_type = enum_type2::TYPE_VECTOR_TYPE;
+		break;
+
 	case  enum_type2::TYPE_CHAR:
 		ret_type = enum_type2::TYPE_CHAR_TYPE;
 		break;
@@ -3226,9 +3234,6 @@ enum_type2 FromTypeToVarType(enum_type2 tp)
 		ret_type = enum_type2::TYPE_TEMPLATE;
 		break;
 
-	case  enum_type2::TYPE_VECTOR_TYPE:
-		ret_type = enum_type2::TYPE_VECTOR;
-		break;
 	case  enum_type2::TYPE_INT:
 		ret_type = enum_type2::TYPE_INT;
 		break;
@@ -3244,6 +3249,9 @@ enum_type2 FromTypeToVarType(enum_type2 tp)
 		break;
 	case  enum_type2::TYPE_MACRO_EXPR:
 		ret_type = enum_type2::TYPE_MACRO_EXPR;
+		break;
+	case  enum_type2::TYPE_VECTOR_TYPE:
+		ret_type = enum_type2::TYPE_VECTOR;
 		break;
 	case  enum_type2::TYPE_TYPEDEF:
 		ret_type = enum_type2::TYPE_TYPEDEF;
@@ -3904,6 +3912,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				case enum_type2::TYPE_U64:
 				case enum_type2::TYPE_U32:
 				case enum_type2::TYPE_U16:
+				case enum_type2::TYPE_VECTOR:
 				case enum_type2::TYPE_U8:
 				case enum_type2::TYPE_BOOL:
 				case enum_type2::TYPE_F32:
@@ -3915,6 +3924,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				case enum_type2::TYPE_ARRAY:
 				case enum_type2::TYPE_STATIC_ARRAY:
 				case enum_type2::TYPE_STATIC_ARRAY_TYPE:
+				case enum_type2::TYPE_VECTOR_TYPE:
 					break;
 				case enum_type2::TYPE_STRUCT_TYPE:
 				{
@@ -7375,6 +7385,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 								lhs->type.type = enum_type2::TYPE_STRUCT;
 							else if (lhs->type.type == enum_type2::TYPE_STATIC_ARRAY_TYPE)
 								lhs->type.type = enum_type2::TYPE_STATIC_ARRAY;
+							else if (lhs->type.type == enum_type2::TYPE_VECTOR_TYPE)
+								lhs->type.type = enum_type2::TYPE_VECTOR;
 							else if (lhs->type.type == enum_type2::TYPE_ENUM_IDX_32)
 								lhs->type.type = enum_type2::TYPE_ENUM;
 							else if (lhs->type.type == enum_type2::TYPE_F32_RAW)
@@ -8289,12 +8301,19 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		decl2* strct = FindIdentifier(n->l->t->str, scp, &ret_type);
 		NameFindingGetType(lang_stat, n->l, scp, ret_type);
 
+		bool is_vector = ret_type.type == TYPE_VECTOR_TYPE;
 		if (!n->scp)
 		{
-			scope* strct_scp = strct->type.strct->scp;
-			scope *new_scp = NewScope(lang_stat, scp);
-			new_scp->AssignDecls(strct_scp->vars.begin(), strct_scp->vars.end());
+			scope* new_scp = NewScope(lang_stat, scp);
+			if (is_vector)
+			{
+			}
+			else
+			{
+				scope* strct_scp = strct->type.strct->scp;
+				new_scp->AssignDecls(strct_scp->vars.begin(), strct_scp->vars.end());
 
+			}
 			n->exprs = (own_std::vector<comma_ret> *)AllocMiscData(lang_stat, sizeof(own_std::vector<comma_ret>));
 			n->scp = new_scp;
 			node* descend = n->r;
@@ -8305,7 +8324,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 		
 
-		if (IS_FLAG_ON(strct->type.strct->flags, TP_STRCT_TUPLE))
+		if (is_vector || IS_FLAG_ON(strct->type.strct->flags, TP_STRCT_TUPLE))
 		{
 			FOR_VEC(c, *n->exprs)
 			{
@@ -8828,6 +8847,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case enum_type2::TYPE_U16_TYPE:
 		case enum_type2::TYPE_U8_TYPE:
 		case enum_type2::TYPE_VOID_TYPE:
+		case enum_type2::TYPE_VECTOR_TYPE:
 		case enum_type2::TYPE_BOOL_TYPE:
 			break;
 		case enum_type2::TYPE_STRUCT_TYPE:
@@ -9961,7 +9981,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			else
 			{
 				ret_type = ltp;
-				if (ltp.type == enum_type2::TYPE_STRUCT && ltp.ptr == 0)
+				if(ltp.type == TYPE_VECTOR && ltp.ptr == 0)
+				{
+					node* call = MakeMemCpyCall(lang_stat, n->l, n->r, n, FLOAT_REG_SIZE_BYTES);
+					memcpy(n, call, sizeof(node));
+				}
+				else if (ltp.type == enum_type2::TYPE_STRUCT && ltp.ptr == 0)
 				{
 					auto op_func = ltp.strct->FindOpOverload(lang_stat, overload_op::ASSIGN_OP, n);
 					bool is_same_strct = rtp.type == enum_type2::TYPE_STRUCT && rtp.strct->name == ltp.strct->name;

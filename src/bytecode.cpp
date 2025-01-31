@@ -175,7 +175,9 @@ void CreateImmToReg(char r0_byte_imm_byte, char r0_imm, char inst_reg, byte_code
 		}
 		else
 		{
-			AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, false, ret.code, bc->bin.lhs.reg == 4);
+			bool is_rex = IS_FLAG_ON(bc->bin.lhs.reg, 0x80);
+			*(int *)&is_rex *= 2;
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, is_rex, ret.code, bc->bin.lhs.reg == 4);
 			ret.code.emplace_back(inst);
 			ret.code.emplace_back(bc->bin.rhs.u8);
 		}
@@ -315,12 +317,16 @@ void AddPreMemInsts(char size, char byte, char greater_byte, char is_rex, own_st
 		code.emplace_back(greater_byte);
 	break;
 	case 8:
+		// none are rex
 		if(is_rex == 0)
 			code.emplace_back(0x48);
+		// only rhs is rex
 		else if(is_rex == 1)
 			code.emplace_back(0x4c);
+		// only lhs is rex
 		else if(is_rex == 2)
 			code.emplace_back(0x49);
+		// both are rex
 		else if(is_rex == 3)
 			code.emplace_back(0x4d);
 		
@@ -386,9 +392,12 @@ void CreateRegToMem(byte_code* bc, char byte, char greater_byte, machine_code& r
 	bc->bin.lhs.reg = base_reg;
 	bc->bin.rhs.reg = reg;
 
-	bool is_rex = IS_FLAG_ON(reg, 0x80);
+	bool is_rex = false;
+	*(char *)&is_rex = IS_FLAG_ON(reg, 0x80) | (IS_FLAG_ON(base_reg, 0x80) << 1);
 	AddPreMemInsts(bc->bin.lhs.reg_sz, byte, greater_byte, is_rex, ret.code);
 	//ret.code.emplace_back(byte);
+	reg &= 0xf;
+	base_reg &= 0xf;
 	AddModRM(true, bc->bin.lhs.voffset, base_reg, reg & 0xf, ret, bc->bin.lhs.sib);
 
 
@@ -417,24 +426,30 @@ void CreateStoreImmToMem(byte_code *bc, machine_code &ret)
 {
 	char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
-	AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, false, ret.code);
+	bool is_rex = IS_FLAG_ON(base_reg, 0x80);
+	*(int*)&is_rex *= 2;
+	AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, is_rex, ret.code);
+	base_reg &= 0xf;
 	AddModRM(true, bc->bin.lhs.voffset, base_reg, 0, ret);
 	// mem offset first
 	if(bc->bin.lhs.voffset != 0)
 		AddImm(bc->bin.lhs.voffset, (unsigned int)(bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
 	AddImm(bc->bin.rhs.s32, bc->bin.lhs.reg_sz, ret);
 }
-void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, char base_reg = 5)
+void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, short base_reg = 5)
 {
 	base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
 	char one_byte_imm = bc->bin.rhs.u64 < 0x80 ? 1 : 4;
+	bool is_rex = IS_FLAG_ON(base_reg, 0x80);
+	*(int*)&is_rex *= 2;
 	if (one_byte_imm == 1)
-		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, false, ret.code);
+		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, is_rex, ret.code);
 	else
-		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x81, false, ret.code);
+		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x81, is_rex, ret.code);
 	
 	//ret.code.emplace_back(byte);
+	base_reg &= 0xf;
 
 	AddModRM(true, bc->bin.lhs.voffset, base_reg, byte, ret);
 	//char mod_rm = MakeModRM(true, bc->bin.lhs.voffset, base_reg, byte);
@@ -1243,10 +1258,12 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
 		}
 		break;
+		/*
 		case CMP_SSE_2_RMEM:
 			// not handled
 			ASSERT(false)
 			break;
+			*/
 		case CMP_SSE_2_SSE:
 		{
 			char mod = MakeModRM(false, 0, bc->bin.rhs.reg, bc->bin.lhs.reg);
@@ -1273,9 +1290,12 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			char base_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_base);
 			char dst_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_dst);
 
-			AddPreMemInsts(bc->bin.rhs.lea.size, 0x8d, 0x8d, false, ret.code);
+			bool is_rex = IS_FLAG_ON(base_reg, 0x80);
+			*(int*)&is_rex *= 2;
+			AddPreMemInsts(bc->bin.rhs.lea.size, 0x8d, 0x8d, is_rex, ret.code);
 			//ret.code.emplace_back(byte);
 
+			base_reg &= 0xf;
 			AddModRM(true, bc->bin.rhs.lea.offset, base_reg, dst_reg, ret);
 			if(bc->bin.rhs.lea.offset != 0)
 				AddImm(bc->bin.rhs.lea.offset, ((unsigned int)bc->bin.rhs.lea.offset) < DISP_BYTE_MAX ? 1 : 4, ret);
@@ -1489,9 +1509,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case DIV_SSE_2_MEM:
 			CreateSSERegToMem(&*bc, 0x5e, &ret);
 			break;
+			/*
 		case DIV_SSE_2_RMEM:
 			CreateSSERegToMem(&*bc, 0x5e, &ret, bc->bin.lhs.reg, false);
 			break;
+			*/
 		case DIV_SSE_2_SSE:
 			CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
 			break;
@@ -1502,9 +1524,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case XOR_SSE_2_MEM:
 			CreateSSERegToMem(&*bc, 0x57, &ret);
 			break;
+			/*
 		case XOR_SSE_2_RMEM:
 			CreateSSERegToMem(&*bc, 0x57, &ret, bc->bin.lhs.reg, false);
 			break;
+			*/
 		case XOR_SSE_2_SSE:
 		{
 			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
@@ -1573,9 +1597,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case MUL_SSE_2_MEM:
 			CreateSSERegToMem(&*bc, 0x59, &ret);
 			break;
+			/*
 		case MUL_SSE_2_RMEM:
 			CreateSSERegToMem(&*bc, 0x59, &ret, bc->bin.lhs.reg, false);
 			break;
+			*/
 		case MUL_SSE_2_SSE:
 			CreateSSERegToSSEReg(&*bc, 0x59, &ret);
 			break;
@@ -1626,9 +1652,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case SUB_SSE_2_MEM:
 			CreateSSERegToMem(&*bc, 0x5c, &ret);
 			break;
+			/*
 		case SUB_SSE_2_RMEM:
 			CreateSSERegToMem(&*bc, 0x5c, &ret, bc->bin.lhs.reg, false);
 			break;
+			*/
 		case SUB_SSE_2_SSE:
 			CreateSSERegToSSEReg(&*bc, 0x5c, &ret);
 			break;
@@ -1662,9 +1690,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case ADD_SSE_2_MEM:
 			CreateSSERegToMem(&*bc, 0x58, &ret);
 		break;
+		/*
 		case ADD_SSE_2_RMEM:
 			CreateSSERegToMem(&*bc, 0x58, &ret, bc->bin.lhs.reg, false);
 			break;
+			*/
 		case ADD_SSE_2_SSE:
 			CreateSSERegToSSEReg(&*bc, 0x58, &ret);
 		break;
@@ -1720,6 +1750,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case RET:
 		{
 			ret.code.emplace_back(0xc3);
+		}break;
+		case ADD_PCKD_SSE_2_PCKD_SSE:
+		{
+			//TODO
+		}break;
+		case MOV_M_2_PCKD_SSE:
+		{
+			//TODO
 		}break;
 		case DIV_R_2_R:
 		{
@@ -1894,35 +1932,11 @@ enum byte_code_instr
 
 
 #define NEW_INST(NAME)\
-		if(DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_INT))\
-		{\
-			ret.type = byte_code_enum::NAME##_I_2_RM;	\
-			ret.bin.lhs.lea = lhs->lea;\
-			ret.bin.rhs.var = rhs->var;\
-		}\
 		if(DESCEND_FTP_EQ(lhs, R_MEM) && DESCEND_FTP_EQ(rhs, R_MEM))\
 		{\
 			ret.type = byte_code_enum::NAME##_M_2_M;	\
 			ret.bin.lhs.var = lhs->var;\
 			ret.bin.rhs.var = rhs->var;\
-		}\
-		else if(DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_INT))\
-		{\
-			ret.type = byte_code_enum::NAME##_I_2_RM;	\
-			ret.bin.rhs.i = rhs->i;\
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);\
-		}\
-		else if(DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_REG))\
-		{\
-			ret.type = byte_code_enum::NAME##_R_2_RM;	\
-			ret.bin.rhs.r = rhs->r;\
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);\
-		}\
-		else if(DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_SSE_REG))\
-		{\
-			ret.type = byte_code_enum::NAME##_SSE_2_RMEM;	\
-			ret.bin.rhs.r = rhs->r;\
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);\
 		}\
 		else if(DESCEND_FTP_EQ(lhs, R_MEM) && DESCEND_FTP_EQ(rhs, R_SSE_REG))\
 		{\
@@ -2084,25 +2098,7 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 	}break;
 	case byte_code_instr::BC_EQUAL:
 	{
-		if(DESCEND_FTP_EQ(lhs, R_MEM) && DESCEND_FTP_EQ(rhs, R_RMEM))
-		{
-			ret.type = byte_code_enum::STORE_RM_2_M;
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);
-		}
-		if (DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_RMEM))
-		{
-			ret.type = byte_code_enum::STORE_RM_2_M;
-			
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);
-			ret.bin.lhs.reg = lhs->reg;
-		}
-		else if (DESCEND_FTP_EQ(lhs, R_REG) && DESCEND_FTP_EQ(rhs, R_RMEM))
-		{
-			ret.type = byte_code_enum::MOV_RM;
-			ret.bin.lhs.r = lhs->r;
-			FROM_DFR_TO_BIN_BC_VAR(rhs, ret.bin.rhs);
-		}
-		else if (DESCEND_FTP_EQ(lhs, R_PARAM_REG) && DESCEND_FTP_EQ(rhs, R_SSE_REG))
+		if (DESCEND_FTP_EQ(lhs, R_PARAM_REG) && DESCEND_FTP_EQ(rhs, R_SSE_REG))
 		{
 			ret.type = byte_code_enum::MOV_SSE_2_REG_PARAM;
 			ret.bin.lhs.r = lhs->r;
@@ -2116,6 +2112,7 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			//ret.bin.lhs = lhs->voffset;
 			ret.bin.rhs.f32 = rhs->f32;
 		}
+		/*
 		else if (DESCEND_FTP_EQ(lhs, R_PARAM_REG) && DESCEND_FTP_EQ(rhs, R_RMEM))
 		{
 			ret.type = byte_code_enum::MOV_R_2_REG_PARAM;
@@ -2123,6 +2120,7 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			//ret.bin.lhs = lhs->voffset;
 			ret.bin.rhs.lea = rhs->lea;
 		}
+		*/
 		else if (DESCEND_FTP_EQ(lhs, R_PARAM_REG) && DESCEND_FTP_EQ(rhs, R_REG))
 		{
 			ret.type = byte_code_enum::MOV_R_2_REG_PARAM;
@@ -2162,12 +2160,14 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			ret.bin.lhs.var = lhs->var;
 			ret.bin.rhs.var = rhs->var;
 		}
+		/*
 		else if (DESCEND_FTP_EQ(lhs, R_MEM) && DESCEND_FTP_EQ(rhs, R_RMEM))
 		{
 			ret.type = byte_code_enum::STORE_R_2_M;
 			ret.bin.lhs.var = lhs->var;
 			ret.bin.rhs.r   = rhs->r;
 		}
+		*/
 		else if(DESCEND_FTP_EQ(lhs, R_REG) && DESCEND_FTP_EQ(rhs, R_MEM))
 		{
 			ret.type = byte_code_enum::MOV_M;	
@@ -2183,6 +2183,8 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			ret.bin.rhs.s32 = rhs->i;
 
 		}
+		/*
+		
 		else if (DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_INT))
 		{
 			ret.type = byte_code_enum::STORE_I_2_M;
@@ -2205,6 +2207,7 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			ret.bin.rhs.r = rhs->r;
 
 		}
+		*/
 		else if(DESCEND_FTP_EQ(lhs, R_REG) && DESCEND_FTP_EQ(rhs, R_REG))
 		{
 			ret.type = byte_code_enum::MOV_R;	
@@ -2328,7 +2331,7 @@ void EmplaceInstRMToReg(func_byte_code *func, char reg_dst, char reg_base, int o
 	
 	descend_func_ret r;
 	descend_func_ret rm;
-	rm.type = fret_type::R_RMEM;
+	//rm.type = fret_type::R_RMEM;
 	rm.reg	   = reg_base;
 	rm.voffset = offset;
 	rm.reg_sz = 8;
@@ -2808,7 +2811,7 @@ void GenInstFromLhsAndRhs(lang_state *lang_stat, func_byte_code *final_func, nod
 			IREG_TO_REG(rhs_bcode.reg, 1, rhs_bcode.reg_sz, ret, BC_EQUAL)
 			rhs_bcode.reg = 1;
 		}break;
-		case fret_type::R_RMEM:
+		//case fret_type::R_RMEM:
 		case fret_type::R_MEM:
 		{
 			EmplaceInstMemOffsetToReg2(final_func, 2, rhs_bcode.voffset, rhs_bcode.reg, byte_code_instr::BC_EQUAL, &ret, rhs_bcode.var);

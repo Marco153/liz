@@ -166,6 +166,7 @@ int GetTypeSize(type2 *tp)
 		case enum_type2::TYPE_STRUCT_TYPE:
 		case enum_type2::TYPE_STRUCT:
 			return tp->strct->size;
+		case enum_type2::TYPE_VECTOR_TYPE:
 		case enum_type2::TYPE_VECTOR:
 			return 16;
 		default:
@@ -283,6 +284,11 @@ std::string TypeToString(type2 &tp)
 	case enum_type2::TYPE_BOOL:
 	{
 		ret += "bool";
+	}break;
+	case enum_type2::TYPE_VECTOR:
+	case enum_type2::TYPE_VECTOR_TYPE:
+	{
+		ret += "_vec";
 	}break;
 	case enum_type2::TYPE_F32_RAW:
 	{
@@ -1037,6 +1043,10 @@ bool GetTypeFromTkns(token2 *tkn, type2 &tp)
 	{
 		tp.type = enum_type2::TYPE_S32_TYPE;
 	}
+	else if(one_str == "_vec")
+	{
+		tp.type = enum_type2::TYPE_VECTOR_TYPE;
+	}
 	else if(one_str == "s16")
 	{
 		tp.type = enum_type2::TYPE_S16_TYPE;
@@ -1080,10 +1090,6 @@ bool GetTypeFromTkns(token2 *tkn, type2 &tp)
 	else if(one_str == "void")
 	{
 		tp.type = enum_type2::TYPE_VOID_TYPE;
-	}
-	else if(one_str == "_vec")
-	{
-		tp.type = enum_type2::TYPE_VECTOR_TYPE;
 	}
 	else if(one_str == "bool")
 	{

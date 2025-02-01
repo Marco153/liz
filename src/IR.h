@@ -152,10 +152,16 @@ struct ast_rep
     tkn_type2 op;
 	bool stmnt_without_semicolon : 1;
 	bool dont_make_dbg_stmnt : 1;
+	bool goes_onto_stack : 1;
 
 	int line_number;
+
     int line_offset_start;
-    int line_offset_end;
+    union
+    {
+        int line_offset_end;
+        int at_stack_offset;
+    };
 	type2 lhs_tp;
 
     union

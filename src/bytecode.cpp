@@ -1783,6 +1783,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			//TODO
 		}break;
+		case SHUFFLE_128_PS:
+		{
+			//TODO
+		}break;
 		case DIV_I_2_R:
 		{
 			//TODO

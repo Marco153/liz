@@ -27,6 +27,12 @@ v.reg = 5;
 			}
 
 
+// **DONT TRY TO MODIFY THE ORDER** of bin operations like add, sub, mul etc
+// because when we're generating code we try to find the correct find by hard offsets
+// from the base inst
+// for example, if we're summing a register and register, the base inst will be  ADD_M_2_M
+// and, to get to ADD_R_2_R we are summing a number  to the base inst to get there
+
 enum byte_code_enum : unsigned char
 {
 	NOP, 
@@ -39,6 +45,8 @@ enum byte_code_enum : unsigned char
 
 	NOT_R,
 	NOT_M,
+
+	SHUFFLE_128_PS,
 
 	NEG_R,
 	NEG_M,
@@ -128,7 +136,6 @@ enum byte_code_enum : unsigned char
 	SUB_MEM_2_SSE,
 	SUB_SSE_2_MEM,
 	SUB_PCKD_SSE_2_PCKD_SSE,
-
 
 	MOD_M_2_M,
 	MOD_R_2_M,
@@ -256,7 +263,6 @@ enum byte_code_enum : unsigned char
 	END_FUNC,
 
 	ASSIGN_FUNC_SIZE,
-		
 
 	COMMENT,
 };
@@ -282,6 +288,13 @@ struct byte_code2
 	int mem_offset;
 	union
 	{
+		struct
+		{
+			char reg_dst;
+			char reg_1;
+			char reg_2;
+			char mask;
+		}shuffle;
 		char rhs_and_lhs_reg_sz;
 		int i;
 		float f32;
@@ -361,6 +374,13 @@ struct byte_code
 			bool is_unsigned : 1;
 			bool is_float_param : 1;
 		}bin;
+		struct 
+		{
+			char reg_dst;
+			char reg_1;
+			char reg_2;
+			char mask;
+		}shuffle;
 		struct
 		{
 			operand val;

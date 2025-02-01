@@ -158,6 +158,7 @@ typedef long long s64;
 	case SUB_SSE_2_SSE:\
 	case SUB_MEM_2_SSE:\
 	case SUB_SSE_2_MEM:\
+	case SUB_PCKD_SSE_2_PCKD_SSE:\
 		sub;\
 		break;\
 	case STORE_I_2_M:\
@@ -5593,6 +5594,7 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 		std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
 		ImGui::Text("spill[%d, &%d]: %s", r, addr, mem_val.c_str());
 	}
+	ImGui::Text("func's stack sz: %d, on return stack sz %d", fdecl->stack_size, base_ptr + fdecl->stack_size);
 	ImGui::Separator();
 	ImGui::EndChild();
 }
@@ -8368,6 +8370,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	}break;
 	case MOV_PCKD_SSE_2_PCKD_SSE:
 	case ADD_PCKD_SSE_2_PCKD_SSE:
+	case SUB_PCKD_SSE_2_PCKD_SSE:
 	case MUL_PCKD_SSE_2_PCKD_SSE:
 	{
 		 inst_name = InstToStr(bc->bc_type);
@@ -8462,6 +8465,11 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case NOP:
 	{
 		sprintf(buffer, "nop");
+	}break;
+	case SHUFFLE_128_PS:
+	{
+		sprintf(buffer, "shuffle_128_ps xmm%d(dst), xmm%d(a), xmm%d(b), %d(mask)", 
+			bc->shuffle.reg_dst, bc->shuffle.reg_1, bc->shuffle.reg_2, bc->shuffle.mask);
 	}break;
 	case STORE_REG_PARAM:
 	{
@@ -8681,14 +8689,12 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		return;
 	}
 	
-	/*
 	stmnt_dbg* cur_st;
 	func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
 	if (cur_func)
 	{
 		cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
 	}
-	*/
 
 	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
 	bool is_unsigned = IS_FLAG_ON(bc->regs, 1<<FLAG_UNSIGNED);
@@ -9241,6 +9247,37 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		
 		auto dst = (char*)&dbg->mem_buffer[offset];
 		DoOperationOnPtr(dst, sz, imm, T_EQUAL);
+	}break;
+	case SHUFFLE_128_PS:
+	{
+		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, bc->shuffle.reg_dst + FLOAT_REG_0);
+
+		auto reg_1_ptr = (float *)GetFloatRegValPtr(dbg, bc->shuffle.reg_1 + FLOAT_REG_0);
+		auto reg_2_ptr = (float *)GetFloatRegValPtr(dbg, bc->shuffle.reg_2 + FLOAT_REG_0);
+		
+		__m128 a = _mm_loadu_ps(reg_1_ptr);
+		__m128 b = _mm_loadu_ps(reg_2_ptr);
+
+		
+		float shuffled[4];
+		float *fptr = &shuffled[0];
+		float* cur_reg = reg_1_ptr;
+		char cur_mask = bc->shuffle.mask;
+
+		for (int i = 0; i < 4; i++)
+		{
+			float f = 0.0;
+			f = cur_reg[cur_mask & 3];
+			*fptr = f;
+			if(i == 1)
+			{
+				cur_reg = reg_2_ptr;
+			}
+			cur_mask = cur_mask >> 2;
+			fptr++;
+		}
+
+		memcpy(reg_dst_ptr, shuffled, FLOAT_REG_SIZE_BYTES);
 	}break;
 	case INT3:
 	{
@@ -12225,7 +12262,7 @@ byte_code_enum GenX64GetCorrectBinInst(ir_val_aux* lhs, ir_val_aux* rhs, byte_co
 	}
 	return correct_inst;
 }
-void GenX64PointLhs(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *out, short reg, char reg_sz, int mem_offset, char deref)
+void GenX64PointLhs(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *out, short reg, char reg_sz, int mem_offset, char deref, bool is_float)
 {
 	if (deref >= 0)
 	{
@@ -12239,10 +12276,10 @@ void GenX64PointLhs(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_v
 	}
 	else
 	{
-
 		EmplaceLeaInst2(AUX_DECL_REG, reg, mem_offset, 8, ret);
 		reg = AUX_DECL_REG;
 		mem_offset = 0;
+
 	}
 
 	out->type = IR_TYPE_REG;
@@ -12704,34 +12741,73 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		case T_POINT:
 		{
 			ir_val_aux lhs = {};
-			switch (assign.lhs.type)
+			if  (assign.lhs.type == IR_TYPE_REG &&assign.lhs.is_packed_float)
 			{
-			case IR_TYPE_REG:
-			{
-				GenX64PointLhs(lang_stat, ret, &lhs, assign.lhs.reg, 8, 0, assign.lhs.deref);
-			}break;
-			case IR_TYPE_ON_STACK:
-			{
-				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, true);
-			}break;
-			case IR_TYPE_DECL:
-			{
-				if (IS_FLAG_ON(assign.lhs.decl->flags, DECL_IS_GLOBAL))
+				bc.type = SHUFFLE_128_PS;
+				bc.shuffle.reg_1 = assign.lhs.reg;
+				bc.shuffle.reg_2 = assign.lhs.reg;
+				bc.shuffle.reg_dst = assign.lhs.reg;
+				// we just trying to move the right element to the first position
+				switch (assign.rhs.i)
 				{
-					GenX64DeclGlobal(lang_stat, ret, &lhs, assign.lhs.decl->offset);
-				}
-				else
+				// x
+				case 0:
 				{
-					GenX64PointLhs(lang_stat, ret, &lhs, PRE_X64_RSP_REG, 8, assign.lhs.decl->offset, assign.lhs.deref);
+				}break;
+				// y
+				case 4:
+				{
+					bc.shuffle.mask = _MM_SHUFFLE(1, 0, 0, 0);
+				}break;
+				// z
+				case 8:
+				{
+					bc.shuffle.mask = _MM_SHUFFLE(2, 0, 0, 0);
+				}break;
+				// w
+				case 12:
+				{
+					bc.shuffle.mask = _MM_SHUFFLE(3, 0, 0, 0);
+				}break;
+				default:
+					ASSERT(0);
 				}
-			}break;
-			default:
-				lhs.type = IR_TYPE_ARG_REG;
-				ASSERT(false)
+				ret.emplace_back(bc);
+				lhs.type = IR_TYPE_REG;
+				lhs.is_float = true;
+				lhs.reg = assign.lhs.reg;
+
 			}
-			
-			if(assign.rhs.i != 0)
-				GenX64ImmToReg(ret, lhs.reg, 8, assign.rhs.i, ADD_I_2_R);
+			else
+			{
+				switch (assign.lhs.type)
+				{
+				case IR_TYPE_REG:
+				{
+					GenX64PointLhs(lang_stat, ret, &lhs, assign.lhs.reg, 8, 0, assign.lhs.deref, assign.lhs.is_float);
+				}break;
+				case IR_TYPE_ON_STACK:
+				{
+					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, true);
+				}break;
+				case IR_TYPE_DECL:
+				{
+					if (IS_FLAG_ON(assign.lhs.decl->flags, DECL_IS_GLOBAL))
+					{
+						GenX64DeclGlobal(lang_stat, ret, &lhs, assign.lhs.decl->offset);
+					}
+					else
+					{
+						GenX64PointLhs(lang_stat, ret, &lhs, PRE_X64_RSP_REG, 8, assign.lhs.decl->offset, assign.lhs.deref, assign.lhs.is_float);
+					}
+				}break;
+				default:
+					lhs.type = IR_TYPE_ARG_REG;
+					ASSERT(false)
+				}
+				if (assign.rhs.i != 0)
+					GenX64ImmToReg(ret, lhs.reg, 8, assign.rhs.i, ADD_I_2_R);
+			}
 
 
 			switch (assign.to_assign.type)
@@ -12742,10 +12818,16 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, false);
 				byte_code_enum inst;
 				if (dst.deref > 0)
-					inst = STORE_R_2_M;
+					if (lhs.is_float)
+						inst = MOV_SSE_2_MEM;
+					else
+						inst = STORE_R_2_M;
 				else
 				{
-					inst = MOV_R;
+					if (lhs.is_float)
+						inst = MOV_SSE_2_SSE;
+					else
+						inst = MOV_R;
 				}
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				AllocSpecificReg(lang_stat, dst.reg);
@@ -13042,7 +13124,19 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 						GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, STORE_R_2_M);
 				}
 				else
+				{
+					if (dst.is_float)
+					{
+						if(dst.is_packed_float)
+						{
+							inst = MOV_PCKD_SSE_2_PCKD_SSE;
+						}
+						else
+							inst = MOV_SSE_2_SSE;
+						dst.is_packed_float = false;
+					}
 					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
+				}
 
 				if (lhs.is_float && assign.to_assign.reg != lhs.reg)
 					FreeSpecificFloatReg(lang_stat, lhs.reg);
@@ -13252,6 +13346,8 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
 				
 				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
+				dst.is_packed_float = false;
+				lhs.is_packed_float = false;
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				FreeSpecificReg(lang_stat, lhs.reg);
 
@@ -14415,7 +14511,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		/*
 		FOR_VEC(bcc, ret)
 		{
-			if (bcc->type == STORE_RM_2_RM)
+			if (bcc->type == STORE_RM_2_M)
 			{
 				ASSERT(0);
 			}
@@ -14655,6 +14751,14 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
 			bc.i = from_bc->bin.rhs.i;
 		}break;
+		case SHUFFLE_128_PS:
+		{
+			bc.shuffle.mask = from_bc->shuffle.mask;
+			bc.shuffle.reg_dst = from_bc->shuffle.reg_dst;
+			bc.shuffle.reg_1 = from_bc->shuffle.reg_1;
+			bc.shuffle.reg_2 = from_bc->shuffle.reg_2;
+		}break;
+
 		default:
 			ASSERT(0);
 		}

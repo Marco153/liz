@@ -1199,6 +1199,11 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 	ir.bin.lhs.reg_sz = 8;
 	ir.bin.lhs.reg = AllocReg(lang_stat);
 	GenStackThenIR(lang_stat, ast_bin->expr[0], out, &ir.bin.lhs, &ir.bin.lhs);
+	if(ir.bin.lhs.ptr > 0)
+	{
+		ir.bin.lhs.is_float = false;
+		ir.bin.lhs.is_packed_float = false;
+	}
 
 	ir.bin.rhs.is_unsigned = ir.bin.lhs.is_unsigned;
 
@@ -1752,6 +1757,7 @@ void GenIrToArgReg(lang_state* lang_stat, own_std::vector<ir_val> &stack, int ar
 	ir.assign.to_assign.is_float = top->is_float;
 	ir.assign.only_lhs = true;
 
+
 	if(IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT) && IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_DEREF))
 	{
 		//top->deref--;
@@ -1763,6 +1769,11 @@ void GenIrToArgReg(lang_state* lang_stat, own_std::vector<ir_val> &stack, int ar
 	{
 		ir.assign.lhs.deref = -1;
 
+	}
+	if (top->is_packed_float)
+	{
+		ir.assign.lhs.is_float = false;
+		ir.assign.lhs.is_packed_float = false;
 	}
 
 	//ir.assign.lhs.deref--;
@@ -2236,6 +2247,21 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			//if(IS_FLAG_OFF(top->reg_ex, IR_VAL_FROM_POINT))
 				top->deref++;
 			top->ptr = top->ptr;
+			/*
+			if(top->ptr == 1)
+			{
+				if(top->type == IR_TYPE_DECL && top->decl->type.type == TYPE_VECTOR)
+				{
+					top->is_float = true;
+					top->is_packed_float = true;
+				}
+			}
+			else
+			{
+				//top->is_float = false;
+				//top->is_packed_float = false;
+			}
+			*/
 			top->reg_sz = GetTypeSize(&e->deref.type);
 			top->reg_sz = min(top->reg_sz, 8);
 			top->reg_ex |= IR_VAL_FROM_DEREF;
@@ -2467,6 +2493,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.to_assign.reg_sz = 8;
 				ir.assign.only_lhs = true;
 				ir.assign.lhs = *top;
+				ir.assign.lhs.is_float = false;
+				ir.assign.lhs.is_packed_float = false;
 				//ir.assign.lhs.deref = 0;
 
 				out->emplace_back(ir);
@@ -2557,6 +2585,12 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			GetIRVal(lang_stat, e, &val);
 			//val.ptr = 0;
 			stack.emplace_back(val);
+			/*
+			if(val.type == IR_TYPE_DECL && val.decl->name == "vertices")
+			{
+				auto a = 0;
+			}
+			*/
 
 		}break;
 		case AST_INDEX:
@@ -2615,13 +2649,17 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			//bool was_float = IsIrValFloat(one_minus_top);;
 			*top = ir.assign.to_assign;
 			top->is_float = e->index.lhs_type.tp->IsFloat();
+			top->is_packed_float = e->index.lhs_type.tp->type == TYPE_VECTOR;
+			top->is_float = top->is_float || top->is_packed_float;
 			top->ptr = -1;
 			top->deref = -1;
 
+			/*
 			if (one_minus_top->type == IR_TYPE_REG)
 			{
 				//FreeSpecificReg(lang_stat, one_minus_top->reg);
 			}
+			*/
 
 		}break;
 		case AST_BINOP:
@@ -2633,6 +2671,22 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 
 				ir_val* first = (stack.end()) - e->points.size();
+				/*
+				if(first->type == IR_TYPE_REG && first->is_packed_float)
+				{
+					auto a = 0;
+					ir.type == IR_ASSIGNMENT;
+					ir.assign.to_assign.type = IR_TYPE_ON_STACK;
+					ir.assign.to_assign.i = lang_stat->cur_strct_constrct_size_per_statement;
+					ir.assign.
+
+
+					lang_stat->cur_strct_constrct_size_per_statement += FLOAT_REG_SIZE_BYTES;
+
+					int cur_sz = lang_stat->cur_func->strct_constrct_size_per_statement;
+					lang_stat->cur_func->strct_constrct_size_per_statement = max(cur_sz, lang_stat->cur_strct_constrct_size_per_statement);
+				}
+				*/
 				ir.type = IR_ASSIGNMENT;
 				ir.assign.to_assign.type = IR_TYPE_REG;
 				ir.assign.to_assign.reg_sz = 8;
@@ -2741,6 +2795,10 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				val.is_packed_float = ir.assign.rhs.is_packed_float;
 				val.reg_sz = ir.assign.rhs.reg_sz;
 				val.is_unsigned = ir.assign.rhs.is_unsigned;
+				if(ir.assign.lhs.is_packed_float && ir.assign.lhs.type == IR_TYPE_REG)
+				{
+					val.deref = -1;
+				}
 				stack.emplace_back(val);
 			}
 			else
@@ -2759,26 +2817,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.rhs = stack[stack.size() - 1];
 				//ASSERT(ir.assign.lhs.reg_sz == ir.assign.rhs.reg_sz)
 
-				/*
-				if (ir.assign.lhs.is_float && ir.assign.lhs.deref > 0)
-				{
-					ir_rep aux = {};
-					aux.type = IR_ASSIGNMENT;
-					aux.assign.to_assign.type = IR_TYPE_REG;
-					aux.assign.to_assign.reg  = IR_TYPE_REG;
-					
-				}
-				*/
-
-				/*
-				if (ir.assign.lhs.ptr >= 0)
-					ir.assign.lhs.deref = max(ir.assign.lhs.deref - 1, 0);
-				else
-					ir.assign.lhs.deref = -1;
-
-				if (ir.assign.lhs.type == IR_TYPE_REG)
-					ir.assign.lhs.deref--;
-					*/
 
 				if (ir.assign.lhs.type == IR_TYPE_REG && IS_FLAG_ON(ir.assign.lhs.reg_ex, IR_VAL_FROM_POINT))
 				{
@@ -2787,8 +2825,16 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				}
 
 				ir.assign.rhs.is_unsigned = ir.assign.lhs.is_unsigned;
-				ir.assign.rhs.is_float = ir.assign.lhs.is_float || ir.assign.lhs.is_packed_float;
-				ir.assign.rhs.is_packed_float = ir.assign.lhs.is_packed_float;
+				if (ir.assign.rhs.ptr <= 0 || (ir.assign.rhs.ptr - ir.assign.rhs.deref) == 0 || ir.assign.rhs.deref < 0)
+				{
+					ir.assign.rhs.is_float = ir.assign.lhs.is_float || ir.assign.lhs.is_packed_float;
+					ir.assign.rhs.is_packed_float = ir.assign.lhs.is_packed_float;
+				}
+				else
+				{
+					ir.assign.rhs.is_float = false;
+					ir.assign.rhs.is_packed_float = false;
+				}
 
 				
 				ir.assign.to_assign.is_float = ir.assign.lhs.is_float;
@@ -2822,6 +2868,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 				int min_sz = min(top->reg_sz, one_minus_top->reg_sz);
 				stack.pop_back();
+
+				//if(one_minus_top->type ==)
 
 				top = &stack[stack.size() - 1];
 

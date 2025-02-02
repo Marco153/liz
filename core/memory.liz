@@ -1446,5 +1446,11 @@ tests :: fn(ret : *u32)
 	if vec_test.x < 1.9 || vec_test.x > 2.1
 		debug_break();
 
+	vec_test = _vec{ 2.0, 2.0, 2.0, 0.0 };
+
+	fsum = dot_vec(&vec_test, &vec_test);
+	if fsum < 11.9 || fsum > 12.1
+		debug_break();
+
 
 }

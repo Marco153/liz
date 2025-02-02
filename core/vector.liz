@@ -183,10 +183,7 @@ normalize_vec::fn(a : *_vec) !_vec
 {
 	dot: = dot_vec(a, a);
 	len: = sqrt(dot);
-	ret:_vec;
-	ret.x = a.x / len;
-	ret.y = a.y / len;
-	ret.z = a.z / len;
+	ret:_vec = *a / len;
 	return ret;
 }
 normalize_v3::fn(a : *v3) !v3
@@ -205,9 +202,9 @@ dot_v4::fn(a : *v4, b : *v4) !f32
 	return ret;
 }
 //dot_v3::fn outsider(a : *v3, b : *v3) !f32;
-dot_vec::fn(a : *_vec, b : *_vec) !f32
+dot_vec::fn x64(a : *_vec, b : *_vec) !f32
 {
-	ret := a.x * b.x + a.y * b.y + a.z * b.z;
+	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 	return ret;
 }
 dot_v3::fn x64(a : *v3, b : *v3) !f32

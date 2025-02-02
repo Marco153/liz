@@ -195,6 +195,8 @@ enum byte_code_enum : unsigned char
 	MOV_M_2_PCKD_SSE,
 	MOV_PCKD_SSE_2_M,
 	MOV_PCKD_SSE_2_PCKD_SSE,
+	FILL_M_2_PCKED_SSE,
+	FILL_SSE_2_PCKED_SSE,
 
 	MOV_I,
 	MOV_ABS,

@@ -975,6 +975,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val)
 		val->is_float = ast->decl->type.type == TYPE_F32;
 		val->is_packed_float = ast->decl->type.type == TYPE_VECTOR;
 		val->is_float = val->is_float || val->is_packed_float;
+		val->ptr = ast->decl->type.ptr;
 		val->deref = 0;
     }break;
     case AST_FLOAT:
@@ -1110,7 +1111,7 @@ void AllocSpecificFloatReg(lang_state* lang_stat, char idx)
 }
 char AllocFloatReg(lang_state* lang_stat)
 {
-	for (int i = 0; i < 8; i++)
+	for (int i = 0; i < 9; i++)
 	{
 		if (IS_FLAG_OFF(lang_stat->float_regs[i], REG_FREE_FLAG))
 		{
@@ -2545,8 +2546,14 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			}
 			else
 				top->ptr = e->cast.type.ptr * (last_ptr < 0 ? -1 : 1);
-			if(e->cast.type.type != TYPE_VECTOR)
+			if (e->cast.type.type != TYPE_VECTOR)
 				top->is_float = e->cast.type.IsFloat();
+			else
+			{
+				top->is_float = true;
+				top->is_packed_float = true;
+				top->ptr = e->cast.type.ptr;
+			}
 			//top->is_packed_float = 
 
 			if (top->type == IR_TYPE_DECL && top->decl->type.type == TYPE_STATIC_ARRAY && e->cast.type.ptr > 0)
@@ -2828,7 +2835,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				if (ir.assign.rhs.ptr <= 0 || (ir.assign.rhs.ptr - ir.assign.rhs.deref) == 0 || ir.assign.rhs.deref < 0)
 				{
 					ir.assign.rhs.is_float = ir.assign.lhs.is_float || ir.assign.lhs.is_packed_float;
-					ir.assign.rhs.is_packed_float = ir.assign.lhs.is_packed_float;
+					//ir.assign.rhs.is_packed_float = ir.assign.lhs.is_packed_float;
 				}
 				else
 				{
@@ -3534,9 +3541,15 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				//ir.assign.lhs.deref = -1;
 
 			}break;
+			case AST_IDENT:
+			{
+				ir.assign.only_lhs = true;
+				GetIRVal(lang_stat, rhs_ast, &ir.assign.lhs);
+				//ir.assign.lhs.ptr = 1;
+
+			}break;
 			case AST_INT: 
 			case AST_FLOAT: 
-			case AST_IDENT:
 			case AST_STR_LIT:
 			case AST_CHAR:
 			{

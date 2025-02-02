@@ -1775,6 +1775,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			//TODO
 		}break;
+		case FILL_SSE_2_PCKED_SSE:
+		{
+			//TODO
+		}break;
+		case FILL_M_2_PCKED_SSE:
+		{
+			//TODO
+		}break;
 		case MOV_PCKD_SSE_2_PCKD_SSE:
 		{
 			//TODO

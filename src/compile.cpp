@@ -4868,8 +4868,13 @@ void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer
 	void *a_ptr = (void*)&dbg.mem_buffer[base_ptr + 8];
 
 	void* addr = nullptr;
+	__m128 vec_ret;
 	if(call_f->ret_type.IsFloat() && call_f->ret_type.ptr == 0)
 		*(float *)&addr = (((float(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
+	else if (call_f->ret_type.type == TYPE_VECTOR)
+	{
+		vec_ret = (((__m128(*)(void*, void*))func_code)(dbg.mem_buffer, a_ptr));
+	}
 	else
 		addr = (((void *(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
 	if (!((call_f->ret_type.type == TYPE_VOID || call_f->ret_type.type == TYPE_AUTO) && call_f->ret_type.ptr <= 0))
@@ -4878,10 +4883,15 @@ void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer
 		if (call_f->ret_type.ptr < 0)
 		{
 			void* final_val = addr;
+			
 			if (call_f->ret_type.type == TYPE_STRUCT)
 			{
 				memcpy(&dbg.mem_buffer[2000], addr, GetTypeSize(&call_f->ret_type));
 				final_val = (void *)(long long)2000;
+			}
+			else if (call_f->ret_type.type == TYPE_VECTOR)
+			{
+				_mm_store_ps((float*)&dbg.mem_buffer[FLOAT_REG_0 * FLOAT_REG_SIZE_BYTES], vec_ret);
 			}
 			*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) final_val;
 
@@ -12303,11 +12313,11 @@ byte_code_enum GenX64GetCorrectBinInst(ir_val_aux* lhs, ir_val_aux* rhs, byte_co
 		{
 			correct_inst = (byte_code_enum)((u32)base_inst_sse + 3);
 		}
-		*/
 		if (rhs->reg == PRE_X64_RSP_REG)
 			correct_inst = (byte_code_enum)(base_inst_sse + 1);
 		// by default, base_inst_sse is already SSE_2_SSE
 		else
+		*/
 			correct_inst = (byte_code_enum)(base_inst_sse);
 	}
 	else
@@ -13941,12 +13951,28 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				{
 					ir_val* d = &ir->ret.assign.lhs;
 					ir_val_aux lhs;
-					GenX64ToIrValDecl2(lang_stat, ret, &lhs, d, false, false);
+					if (ir->ret.assign.lhs.is_packed_float)
+					{
+						d->deref--;
+						GenX64ToIrValDecl2(lang_stat, ret, &lhs, d, true, false);
+						d->deref++;
 
-					if (lhs.reg == PRE_X64_RSP_REG)
-						GenX64MemToReg(ret, 0, lhs.reg_sz, lhs.voffset, lhs.reg, MOV_M);
+						bc.type = MOV_M_2_PCKD_SSE;
+						bc.bin.lhs.reg = 0;
+						bc.bin.rhs.reg = lhs.reg;
+						bc.bin.rhs.voffset = lhs.voffset;
+						bc.bin.rhs.reg_sz = 8;
+						ret.emplace_back(bc);
+					}
 					else
-						GenX64RegToReg(lang_stat, ret, 0, lhs.reg_sz, lhs.reg, MOV_R);
+					{
+						GenX64ToIrValDecl2(lang_stat, ret, &lhs, d, false, false);
+
+						if (lhs.reg == PRE_X64_RSP_REG)
+							GenX64MemToReg(ret, 0, lhs.reg_sz, lhs.voffset, lhs.reg, MOV_M);
+						else
+							GenX64RegToReg(lang_stat, ret, 0, lhs.reg_sz, lhs.reg, MOV_R);
+					}
 					//GenX64AutomaticDeclDeref(lang_stat, ret, d->deref, &d-> )
 				}break;
 				case IR_TYPE_RET_REG:
@@ -14489,6 +14515,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_DBG_BREAK:
 		{
 			bc.type = byte_code_enum::INT3;
+			bc.line = cur_line;
 			ret.emplace_back(bc);
 		}break;
 		case IR_END_SUB_IF_BLOCK:

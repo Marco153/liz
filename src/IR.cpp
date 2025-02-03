@@ -2079,6 +2079,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				
 			}
 			val.deref = -1;
+			val.is_packed_float = e->call.fdecl->ret_type.type == TYPE_VECTOR;
+			val.is_float = val.is_float || val.is_packed_float;
 
 			stack.emplace_back(val);;
 		}break;

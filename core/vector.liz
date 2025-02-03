@@ -179,10 +179,11 @@ normalize_v4::fn(a : *v4) !v4
 	ret.w = a.w / len;
 	return ret;
 }
-normalize_vec::fn(a : *_vec) !_vec
+normalize_vec::fn(a : *_vec) ! _vec
 {
 	dot: = dot_vec(a, a);
 	len: = sqrt(dot);
+	//__dbg_break
 	ret:_vec = *a / len;
 	return ret;
 }

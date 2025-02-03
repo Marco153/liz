@@ -525,7 +525,15 @@ void CreateSSERegToSSEReg(byte_code *bc, char op, machine_code *ret)
 {
 	unsigned char src = bc->bin.lhs.reg;
 	unsigned char dst = bc->bin.rhs.reg;
-	ret->code.emplace_back(0xf3);
+	ret->code.emplace_back(0x0f);
+	ret->code.emplace_back(op);
+	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
+	ret->code.emplace_back(modrm);
+}
+void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
+{
+	unsigned char src = bc->bin.lhs.reg;
+	unsigned char dst = bc->bin.rhs.reg;
 	ret->code.emplace_back(0x0f);
 	ret->code.emplace_back(op);
 	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
@@ -1753,10 +1761,18 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case ADD_PCKD_SSE_2_PCKD_SSE:
 		{
-			//TODO
+			CreateSSERegToSSEReg(&*bc, 0x58, &ret);
 		}break;
 		case MOV_M_2_PCKD_SSE:
 		{
+			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
+			char dst = bc->bin.lhs.reg;
+			//CreateMemToSSE(&*bc, 0x10, &ret);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x10);
+			AddModRM(true, bc->bin.rhs.voffset, src, dst & 0xf, ret);
+			if(bc->bin.rhs.voffset != 0)
+				AddImm(bc->bin.rhs.voffset, (unsigned int) bc->bin.rhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
 			//TODO
 		}break;
 		case DIV_R_2_R:
@@ -1765,31 +1781,92 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case DIV_PCKD_SSE_2_PCKD_SSE:
 		{
-			//TODO
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x5e, &ret);
+			//CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
 		}break;
 		case SUB_PCKD_SSE_2_PCKD_SSE:
 		{
-			//TODO
+			//CreateSSERegToSSEReg(&*bc, 0x5c, &ret);
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x5c, &ret);
 		}break;
 		case MUL_PCKD_SSE_2_PCKD_SSE:
 		{
+			//CreateSSERegToSSEReg(&*bc, 0x59, &ret);
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x59, &ret);
 			//TODO
 		}break;
 		case FILL_SSE_2_PCKED_SSE:
 		{
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0xc6);
+			char modrm = (3 << 6) | (bc->bin.lhs.reg & 0xf) | (bc->bin.rhs.reg << 3);
+			ret.code.emplace_back(modrm);
+			ret.code.emplace_back(0x0);
 			//TODO
 		}break;
 		case FILL_M_2_PCKED_SSE:
 		{
-			//TODO
+			// movss xmm6, m
+			byte_code _bc;
+			_bc.type = MOV_M_2_SSE;
+			char reg_start = 6;
+			for (int i = reg_start; i < (reg_start + 4); i++)
+			{
+				_bc.bin.lhs.reg = 6;
+				_bc.bin.rhs = bc->bin.rhs;
+				CreateMemToSSE(&*bc, 0x10, &ret);
+			}
+			// unpacklps 
+			_bc.bin.lhs.reg = reg_start;
+			_bc.bin.rhs.reg = reg_start + 1;
+			CreateSSERegToSSEReg(&*bc, 0x14, &ret);
+
+			_bc.bin.lhs.reg = reg_start + 2;
+			_bc.bin.rhs.reg = reg_start + 3;
+			CreateSSERegToSSEReg(&*bc, 0x14, &ret);
+
+			// movlps
+			_bc.bin.lhs.reg = reg_start;
+			_bc.bin.rhs.reg = reg_start + 2;
+			CreateSSERegToSSEReg(&*bc, 0x12, &ret);
+
+			// movss
+			_bc.bin.lhs.reg = bc->bin.lhs.reg;
+			_bc.bin.rhs.reg = reg_start;
+			CreatePckdSSERegToPckdSSEReg(&_bc, 0x11, &ret);
+			//CreateSSERegToSSEReg(&*bc, 0x11, &ret);
 		}break;
 		case MOV_PCKD_SSE_2_PCKD_SSE:
 		{
+			//CreateSSERegToSSEReg(&*bc, 0x11, &ret);
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x10, &ret);
+			/*
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x10);
+			char modrm = (3 << 6) | (bc->bin.lhs.reg & 0xf) | (bc->bin.rhs.reg << 3);
+			ret.code.emplace_back(modrm);
+			*/
 			//TODO
 		}break;
 		case MOV_PCKD_SSE_2_M:
 		{
+			char src =  bc->bin.rhs.reg;
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x11);
+
+			AddModRM(true, bc->bin.lhs.voffset, dst, src & 0xf, ret);
+			if(bc->bin.lhs.voffset != 0)
+				AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
+
+			/*
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x11);
+			AddModRM(true, bc->bin.rhs.voffset, bc->bin.rhs.reg, bc->bin.lhs.reg & 0xf, ret);
+			if(bc->bin.rhs.voffset != 0)
+				AddImm(bc->bin.rhs.voffset, (unsigned int) bc->bin.rhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
 			//TODO
+			*/
 		}break;
 		case SHUFFLE_128_PS:
 		{

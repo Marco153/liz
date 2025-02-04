@@ -6934,6 +6934,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				tps.emplace_back((*a)->type);
 			}
 
+			//ar[i..0];
 			std::string fname = FuncNameWithTempls(lang_stat, std::string("constr_") + TypeToString(n->fdecl->ret_type), &tps);
 
 			n->fdecl->name = fname;

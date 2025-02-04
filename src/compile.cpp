@@ -2789,6 +2789,11 @@ struct breakpoint
 	byte_code2* bc;
 	bool one_time_bp;
 };
+struct call_stack_info
+{
+	func_decl* fdecl;
+	stmnt_dbg* st;
+};
 struct dbg_state
 {
 	dbg_break_type break_type;
@@ -2820,6 +2825,7 @@ struct dbg_state
 	own_std::vector<wasm_bc*> return_stack;
 	own_std::vector<ir_rep*> return_stack_ir;
 	own_std::vector<byte_code2 **> return_stack_bc2;
+	own_std::vector<call_stack_info> return_stack_bc2_func;
 	own_std::vector<wasm_bc> bcs;
 	own_std::vector<wasm_stack_val> wasm_stack;
 	own_std::vector<dbg_expr *> exprs;
@@ -5545,6 +5551,21 @@ void ShowExprWindow(dbg_state& dbg, int stack_reg, int line)
 	}
 	ImGui::EndChild();
 }
+func_decl *GetFuncBasedOnBc2(dbg_state *dbg, byte_code2 *bc)
+{
+
+	FOR_VEC(it, dbg->wasm_state->funcs)
+	{
+		auto f = *it;
+		byte_code2* f_start = dbg->lang_stat->bcs2_start + f->bcs2_start;
+		byte_code2* f_end = dbg->lang_stat->bcs2_start + f->bcs2_end;
+		if (bc >= f_start && bc < f_end)
+		{
+			return f;
+		}
+	}
+	return nullptr;
+}
 void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type, int &mem_wnd_offset, int total_items, int stack_reg, func_decl *fdecl)
 {
 	ImGui::BeginChild("mem", ImVec2(500, 400));
@@ -5605,6 +5626,28 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 		ImGui::Text("spill[%d, &%d]: %s", r, addr, mem_val.c_str());
 	}
 	ImGui::Text("func's stack sz: %d, on return stack sz %d", fdecl->stack_size, base_ptr + fdecl->stack_size);
+
+	ImGui::Text("call stack:");
+	if (dbg.return_stack_bc2_func.size() == 0)
+	{
+		FOR_VEC(bc, dbg.return_stack_bc2)
+		{
+			func_decl* f = GetFuncBasedOnBc2(&dbg, **bc);
+			call_stack_info st;
+			st.fdecl = f;
+			int offset = **bc - dbg.lang_stat->bcs2_start;
+			st.st = GetStmntBasedOnOffset(&f->wasm_stmnts, offset);
+			//ASSERT(st.st);
+			dbg.return_stack_bc2_func.emplace_back(st);
+		}
+	}
+	FOR_VEC(f, dbg.return_stack_bc2_func)
+	{
+		if(!f->st)
+			ImGui::Text("%s: %s", f->fdecl->from_file->name.c_str(), f->fdecl->name.c_str());
+		else
+			ImGui::Text("%s(%d): %s", f->fdecl->from_file->name.c_str(), f->st->line, f->fdecl->name.c_str());
+	}
 	ImGui::Separator();
 	ImGui::EndChild();
 }
@@ -8638,21 +8681,6 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 	}
 }
 
-func_decl *GetFuncBasedOnBc2(dbg_state *dbg, byte_code2 *bc)
-{
-
-	FOR_VEC(it, dbg->wasm_state->funcs)
-	{
-		auto f = *it;
-		byte_code2* f_start = dbg->lang_stat->bcs2_start + f->bcs2_start;
-		byte_code2* f_end = dbg->lang_stat->bcs2_start + f->bcs2_end;
-		if (bc >= f_start && bc < f_end)
-		{
-			return f;
-		}
-	}
-	return nullptr;
-}
 void MakeCurBcToBeBreakpoint(dbg_state* dbg, byte_code2* bc, int line, bool one_time = true)
 {
 	breakpoint bp;
@@ -9760,6 +9788,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				//dbg->cur_func = nullptr;
 
 				cur_scp = nullptr;
+				dbg->return_stack_bc2_func.clear();
 				if(!show_bc)
 					center_inst = true;
 			}

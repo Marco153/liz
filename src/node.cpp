@@ -944,6 +944,7 @@ node* node_iter::parse_func_like()
 	if (peek_tkn()->type == tkn_type2::T_OPEN_CURLY)
 	{
 		n->l->l->l = parse_expr();
+		n->l->l->l->type = N_TEMPLATES;
 		lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
 	}
 
@@ -4022,6 +4023,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				ret_type.ptr--;
 				break;
 			case enum_type2::TYPE_TEMPLATE:
+				ret_type.ptr++;
 				break;
 			default:
 				ASSERT(false)
@@ -4366,8 +4368,157 @@ bool DescendArgsOfModifiedFunc(lang_state *lang_stat, func_decl *f)
 
 	return true;
 }
+bool TemplatedStructMatches(lang_state* lang_stat, node* ncall, scope* scp, type_struct2 *st_templ, type_struct2 *st_to_check)
+{
+	type2 dummy_type;
+	if (st_to_check->original_strct && st_to_check->original_strct->name == st_templ->name)
+	{
+		// searching for templates and creating decls
+		FOR_VEC(decl, st_to_check->scp->vars)
+		{
+			decl2* d = *decl;
+			if (d->type.type == TYPE_TEMPLATE)
+			{
+				decl2* found_templ = FindIdentifier(d->name, lang_stat->aux_scp, &dummy_type);
+				if (!found_templ)
+				{
+					decl2* new_aux_temp = (decl2 *)AllocMiscData(lang_stat, sizeof(decl2));
+					new_aux_temp->type = *d->type.tp;
+					new_aux_temp->name = std::string(d->name);
+					new_aux_temp->type.type = FromTypeToVarType(new_aux_temp->type.type);
+					lang_stat->aux_scp->vars.emplace_back(new_aux_temp);
+				}
+				else
+				{
+					ASSERT(CompareTypes(d->type.tp, &found_templ->type));
+				}
+			}
+		}
+		return true;
+	}
+	else
+		return false;
+
+}
+bool TemplatedFuncMatchWithTypes(lang_state* lang_stat, node* ncall, scope* scp, own_std::vector<type2>* given_args, func_decl* fdecl)
+{
+	type2 dummy_type;
+	if (given_args->size() != given_args->size())
+		return false;
+	int cur_given_arg = 0;
+
+	if (!lang_stat->aux_scp)
+		lang_stat->aux_scp = NewScope(lang_stat, nullptr);
+
+	FOR_VEC(d, lang_stat->aux_scp->vars)
+	{
+		__lang_globals.free(__lang_globals.data, *d);
+	}
+	lang_stat->aux_scp->ClearDecls();
+
+	FOR_VEC(arg, fdecl->args)
+	{
+		decl2* f_arg = *arg;
+		type2* cur_given = &(*given_args)[cur_given_arg];
+
+		if (f_arg->type.type == TYPE_STRUCT && f_arg->type.strct->templates.size() > 0)
+		{
+			if (!TemplatedStructMatches(lang_stat, ncall, lang_stat->aux_scp, f_arg->type.strct, cur_given->strct))
+			{
+				return false;
+			}
+		}
+		else if (f_arg->type.type == TYPE_TEMPLATE)
+		{
+			decl2* templ_found = FindIdentifier(f_arg->type.e_decl->name, lang_stat->aux_scp, &dummy_type);
+			ASSERT(templ_found);
+			dummy_type = templ_found->type;
+			dummy_type.ptr += f_arg->type.ptr;
+			//templ_found->type.ptr = dummy_type.ptr;
+
+			if (!CompareTypes(&dummy_type, cur_given))
+				return false;
+
+
+		}
+		else if (!CompareTypes(&f_arg->type, cur_given))
+			return false;
+		cur_given_arg++;
+	}
+	return true;
+}
+bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* scp, own_std::vector<type2>* given_args, decl2* overload_decl, func_decl **out)
+{
+	func_overload_strct* overload = overload_decl->type.overload_funcs;
+	func_decl* found = overload->cached.Get(ncall);
+	if (found)
+	{
+		*out = found;
+		return true;
+	}
+	type2 dummy_type;
+	FOR_VEC(_fdecl, overload->fdecls)
+	{
+		func_decl* f = *_fdecl;
+		if (IS_FLAG_ON(f->flags, FUNC_DECL_INSTANTIATED))
+			continue;
+		if (TemplatedFuncMatchWithTypes(lang_stat, ncall, scp, given_args, f))
+		{
+			std::string fname = FuncNameWithTempls(lang_stat, overload->name, given_args);
+			auto found_decl = FindIdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+			if (!found_decl)
+			{
+				func_decl *fdecl = f->new_func();
+				func_decl* src_fdecl = f;
+				fdecl->func_node = f->func_node->NewTree(lang_stat);
+
+				// @test fdecl->scp = NewScope(it_next->type.fdecl->scp->parent);
+				fdecl->scp = NewScope(lang_stat, scp);
+				//fdecl->wasm_stmnts = src_fdecl->wasm_stmnts;
+				fdecl->scp->line_start = src_fdecl->scp->line_start;
+				fdecl->scp->line_end = src_fdecl->scp->line_end;
+				fdecl->from_overload = overload_decl;
+				//
+
+				fdecl->scp->flags = SCOPE_INSIDE_FUNCTION;
+				fdecl->scp->fdecl = fdecl;
+				type2 tp;
+				tp.type = enum_type2::TYPE_FUNC;
+				tp.fdecl = fdecl;
+				decl2* new_decl = NewDecl(lang_stat, fname, tp);
+				new_decl->flags = DECL_NOT_DONE;
+
+				// @test it_next->type.fdecl->scp->parent->vars.emplace_back(new_decl);
+				lang_stat->root->vars.emplace_back(new_decl);
+				lang_stat->funcs_scp->AddDecl(new_decl);
+				//
+
+				overload->fdecls.emplace_back(fdecl);
+
+				found_decl = new_decl;
+				fdecl->name = fname.substr();
+				int i = 0;
+				FOR_VEC(t, fdecl->templates)
+				{
+					decl2* cur_templ = lang_stat->aux_scp->vars[i];
+					cur_templ->type.type = FromVarTypeToType(cur_templ->type.type);
+					fdecl->scp->vars.emplace_back(NewDecl(lang_stat, t->name, cur_templ->type));
+					i++;
+				}
+				//fdecl->scp->AssignDecls(templates_types.begin(), templates_types.end());
+				fdecl->flags |= FUNC_DECL_TEMPLATES_DECLARED_TO_SCOPE;
+			}
+
+			*out = f;
+			overload->cached.Add(ncall, f);
+			return true;
+		}
+
+	}
+	return false;
+}
 // this adds a function to the parent scope of the found function scope
-bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::string original_name, scope* scp, own_std::vector<type2>* final_types, func_decl** fdecl_out = nullptr)
+bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::string original_name, scope* scp, own_std::vector<type2>* final_types, node*ncall, func_decl** fdecl_out = nullptr)
 {
 	type2 ret_type;
 	// instantiating a new it_next func
@@ -4375,14 +4526,29 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 	if (!it_next)
 		return false;
 
+
+	func_decl* fdecl;
 	std::string fname = FuncNameWithTempls(lang_stat, original_name, final_types);
 	auto found_decl = FindIdentifier(fname, scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
-	func_decl* fdecl;
 	if (!found_decl)
 	{
-		fdecl = it_next->type.fdecl->new_func();
 		func_decl* src_fdecl = it_next->type.fdecl;
-		fdecl->func_node = it_next->type.fdecl->func_node->NewTree(lang_stat);
+		if (it_next->type.type == TYPE_OVERLOADED_FUNCS)
+		{
+			//if (!CheckIfTemplateOverloadHasFunc(lang_stat, ncall, scp, final_types, it_next->type.overload_funcs, &src_fdecl))
+				//return false;
+			ASSERT(0);
+
+
+			fdecl = src_fdecl->new_func();
+			fdecl->func_node = src_fdecl->func_node->NewTree(lang_stat);
+		}
+		else
+		{
+			fdecl = it_next->type.fdecl->new_func();
+			src_fdecl = it_next->type.fdecl;
+			fdecl->func_node = it_next->type.fdecl->func_node->NewTree(lang_stat);
+		}
 
 		// @test fdecl->scp = NewScope(it_next->type.fdecl->scp->parent);
 		fdecl->scp = NewScope(lang_stat, scp);
@@ -4404,6 +4570,11 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 		lang_stat->funcs_scp->AddDecl(new_decl);
 		//
 
+		if (it_next->type.type == TYPE_OVERLOADED_FUNCS)
+		{
+			it_next->type.overload_funcs->fdecls.emplace_back(fdecl);
+
+		}
 
 		found_decl = new_decl;
 		fdecl->name = fname.substr();
@@ -4420,7 +4591,12 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 	}
 
 
-	ASSERT(final_types->size() == fdecl->templates.size())
+	if (it_next->type.type == TYPE_OVERLOADED_FUNCS)
+	{
+		//ASSERT(final_types->size() == fdecl->args.size())
+	}
+	else
+		ASSERT(final_types->size() == fdecl->templates.size())
 
 		own_std::vector<decl2*> templates_types;
 
@@ -4466,7 +4642,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 
 	if (fdecl_out)
 		*fdecl_out = fdecl;
-	fdecl->flags |= FUNC_DECL_IS_DONE;
+	fdecl->flags |= FUNC_DECL_IS_DONE | FUNC_DECL_INSTANTIATED;
 	type2 tp;
 	tp.type = TYPE_FUNC;
 	tp.fdecl = fdecl;
@@ -4727,6 +4903,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 {
 	char msg_hdr[256];
 	decl2* lhs;
+	type2 dummy_type;
 
 	if (ncall->r && !DescendNameFinding(lang_stat, ncall->r, scp))
 		return nullptr;
@@ -4742,7 +4919,19 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				return false;
 			ModifyFuncDeclToName(lang_stat, ncall->l->fdecl, ncall->l, scp);
 		}
-		lhs = DescendNameFinding(lang_stat, ncall->l, scp);
+		if (ncall->l->type == N_IDENTIFIER)
+		{
+			lhs = FindIdentifier(ncall->l->t->str, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+			bool is_self_ref = scp->fdecl && scp->fdecl->this_decl == lhs;
+			// we only want to continue if the function is templated
+			if (lhs && lhs->type.type == TYPE_FUNC && 
+				lhs->type.fdecl->templates.size() == 0 && 
+				IS_FLAG_ON(lhs->flags, DECL_NOT_DONE) && !is_self_ref)
+				return nullptr;
+
+		}
+		else
+			lhs = DescendNameFinding(lang_stat, ncall->l, scp);
 		if (!lhs)
 			return nullptr;
 
@@ -4936,10 +5125,16 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					t->decl.type = t->;
 				*/
 			}
+			bool is_templated_overload_so_no_need_to_get_templ_types = false;
 			// choosing overload funcs
+			own_std::vector<type2> args_types;
+			if (lhs->type.type == TYPE_FUNC && lhs->type.fdecl->from_overload)
+			{
+				lhs = lhs->type.fdecl->from_overload;
+
+			}
 			if (lhs->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
 			{
-				own_std::vector<type2> args_types;
 				FOR_VEC(t, args)
 				{
 					args_types.emplace_back(t->decl.type);
@@ -4957,7 +5152,26 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 						ExitProcess(1);
 					}
 					else
-						return false;
+					{
+						if (lhs->type.overload_funcs->templated)
+						{
+							std::string fname = FuncNameWithTempls(lang_stat, lhs->name, &args_types);
+
+							auto found_decl = FindIdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+							if (!found_decl)
+							{
+								if (!CheckIfTemplateOverloadHasFunc(lang_stat, ncall, scp, &args_types, lhs, &gotten_func))
+									return false;
+								ncall->l->t->str = fname;
+							}
+							else
+								gotten_func = found_decl->type.fdecl;
+
+							is_templated_overload_so_no_need_to_get_templ_types = true;
+						}
+						else
+							return false;
+					}
 				}
 
 				fdecl = gotten_func;
@@ -4966,7 +5180,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					ncall->modified = true;
 					ncall->original = ncall->NewTree(lang_stat);
 				}
-				ncall->l->t->str = fdecl->name;
+				if(!fdecl->name.empty())
+					ncall->l->t->str = fdecl->name;
 
 			}
 
@@ -4976,39 +5191,58 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				scope* target_scope = fdecl->templates[0].scp;
 				own_std::vector<type2> templ_types;
 
-				if (ncall->call_templates)
+				if (is_templated_overload_so_no_need_to_get_templ_types)
 				{
-					own_std::vector<comma_ret> templ_ar;
-					DescendComma(lang_stat, ncall->call_templates, scp, templ_ar);
-					ModifyCommaRetTypes(&templ_ar, scp);
-					FOR_VEC(t, templ_ar)
+					templ_types = args_types;
+					FOR_VEC(a, templ_types)
 					{
-						templ_types.emplace_back(t->decl.type);
+						a->type = FromVarTypeToType(a->type);
 					}
-
 				}
-				// func call has templates specified
 				else
 				{
-					templ_types = TemplatesTypeToLangArray(lang_stat, &fdecl->templates, &lhs->type.fdecl->args, &args);
-					// transforming the var types into types
-					FOR_VEC(t, templ_types)
+					if (ncall->call_templates)
 					{
-						//t->type = FromVarTypeToType(t->type);
-					}
-				}
+						own_std::vector<comma_ret> templ_ar;
+						DescendComma(lang_stat, ncall->call_templates, scp, templ_ar);
+						ModifyCommaRetTypes(&templ_ar, scp);
+						FOR_VEC(t, templ_ar)
+						{
+							templ_types.emplace_back(t->decl.type);
+						}
 
+					}
+					// func call has templates specified
+					else
+					{
+						//if(lhs->type.type == OVE)
+						templ_types = TemplatesTypeToLangArray(lang_stat, &fdecl->templates, &fdecl->args, &args);
+						// transforming the var types into types
+						FOR_VEC(t, templ_types)
+						{
+							//t->type = FromVarTypeToType(t->type);
+						}
+					}
+				} 
 				func_decl* new_func;
 
 
 
 				auto last_fl = lang_stat->cur_file;
 				lang_stat->cur_file = fdecl->from_file;
+				//std::string func_name = lhs->name;
+				//if(lhs->type.type == TYPE_OVERLOADED_FUNCS)
+					//func_name 
 
-				if (!AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_stat, fdecl->name, scp, &templ_types, &new_func))
+				if (!AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_stat, lhs->name, scp, &templ_types, ncall, &new_func))
 				{
 					lang_stat->cur_file = last_fl;
 					return false;
+				}
+
+				if (lhs->type.type == TYPE_OVERLOADED_FUNCS)
+				{
+					auto a = 0;
 				}
 				lang_stat->cur_file = last_fl;
 
@@ -6093,7 +6327,9 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 {
 	func_decl* f = decl_exist->type.fdecl;
 	decl_exist->type.overload_funcs = (func_overload_strct*)AllocMiscData(lang_stat, sizeof(func_overload_strct));
-	memset(decl_exist->type.overload_funcs, 0, sizeof(func_overload_strct));
+	//memset(decl_exist->type.overload_funcs, 0, sizeof(func_overload_strct));
+
+	new(&decl_exist->type.overload_funcs->cached)own_std::hash_map<node *, func_decl *>();
 
 	decl_exist->type.overload_funcs->name = decl_exist->name.substr();
 
@@ -6103,6 +6339,12 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 		auto op_str_len = op_str.size();
 
 		f->name = MangleFuncNameWithArgs(lang_stat, f, f->name, 0);
+	}
+	else
+	{
+
+		decl_exist->type.overload_funcs->templated = true;
+		//f->name = MangleFuncNameWithArgs(lang_stat, f, f->name, 0);
 	}
 
 
@@ -7252,7 +7494,10 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			*/
 
 		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !ident)
+		{
+			decl2* ent = FindIdentifier("entity", scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 			ReportUndeclaredIdentifier(lang_stat, n->t);
+		}
 
 		if (ident)
 		{
@@ -7918,17 +8163,33 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						case node_type::N_FUNC_DECL:
 						{
 							// "forward declaring" the function in case of recursion
-							if (cnode->fdecl == nullptr && cnode->flags == 0 && !cnode->l->l->l)
+							if (cnode->fdecl == nullptr && cnode->flags == 0)
 							{
+							
 								cnode->fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 								memset(cnode->fdecl, 0, sizeof(func_decl));
 								cnode->fdecl->from_file = lang_stat->cur_file;
 
 								ret_type.type = TYPE_FUNC_TYPE;
 								ret_type.fdecl = cnode->fdecl;
-								decl_exist = DeclareDeclToScopeAndMaybeToFunc(lang_stat, decl_name.substr(), &ret_type, scp, n);
-								decl_exist->flags = DECL_NOT_DONE;
-								first_time = true;
+								if(!cnode->l->l->l)
+								{
+									decl_exist = DeclareDeclToScopeAndMaybeToFunc(lang_stat, decl_name.substr(), &ret_type, scp, n);
+									decl_exist->flags = DECL_NOT_DONE;
+									first_time = true;
+								}
+								else if(cnode->l->l->l && overload_strct)
+								{
+									overload_strct->fdecls.emplace_back(cnode->fdecl);
+								}
+								/*
+								else
+								{
+									// weird ngl, this probably has to do with templated funcs
+									// maybe it doesnt have a overload struct
+									ASSERT(0);
+								}
+								*/
 							}
 						}break;
 						}
@@ -7965,6 +8226,11 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 								auto st = FindIdentifier("string", scp, &ret_type);
 							}
 #endif
+							colon = FindIdentifier(n->l->t->str, scp, &ret_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE);
+							if (colon)
+							{
+								colon->type.fdecl->this_decl = colon;
+							}
 							return nullptr;
 						}
 						if(!colon->decl_nd)

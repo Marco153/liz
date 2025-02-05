@@ -1,7 +1,7 @@
 
+#include "memory.h"
 namespace own_std
 {
-
 	struct string
 	{
 		char* data_;
@@ -654,6 +654,24 @@ namespace own_std
 #else
 				__lang_globals.free(__lang_globals.data, ar.start);
 #endif
+		}
+	};
+	template<typename T, typename U>
+	struct hash_map
+	{
+		heap_hash table;
+		hash_map ()
+		{
+			table.hash_table_size = 32;
+			table.data = (heap_hash::inner *)__lang_globals.alloc(__lang_globals.data, table.hash_table_size * sizeof(heap_hash::inner));
+		}
+		void Add(T key, U val)
+		{
+			table.Store(key, val);
+		}
+		U Get(T key) 
+		{
+			return (U )table.Get(key);
 		}
 	};
 }

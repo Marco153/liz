@@ -127,7 +127,6 @@ dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *void, sz : u32)
 
 	dyn.count += sz;
 }
-/*
 dyn_add::fn{ T }(dyn : *dyn_array(T), data : T)
 {
 	if dyn.alloc == nil || dyn.alloc.id != 0x1234
@@ -149,12 +148,11 @@ dyn_add::fn{ T }(dyn : *dyn_array(T), data : T)
 	}
 
 	dst: = cast(*void)(cast(u64)dyn.data + dyn.count * sizeof(T));
-	memcpy(dst, cast(*void)&data, sizeof(T));
+	*cast(*T)dst = data
 
 	dyn.count += 1;
 	a: = 0;
 }
-*/
 dyn_add::fn{ T }(dyn : *dyn_array(T), data : *T)
 {
 	if dyn.alloc == nil || dyn.alloc.id != 0x1234

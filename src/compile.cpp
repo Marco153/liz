@@ -341,6 +341,8 @@ struct lang_state
 	bool is_engine;
 	scope* root;
 
+	scope* aux_scp;
+
 	byte_code2* bcs2_start;
 	byte_code2* bcs2_end;
 

@@ -173,6 +173,7 @@ enum node_type
 	N_DESUGARED,
 
 	N_STR_LIT,
+	N_TEMPLATES,
 };
 struct stmnt_nd
 {
@@ -368,6 +369,7 @@ struct scope
 	void ClearDecls()
 	{
 		vars.clear();
+		memset(cached_decls, 0, sizeof(cached_decls));
 	}
 	void AddDecl(decl2 *d)
 	{

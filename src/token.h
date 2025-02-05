@@ -167,8 +167,10 @@ struct func_overload_strct
 {
 	std::string name;
 
+	bool templated;
 	overload_op ovrld_op;
 	own_std::vector<func_decl *> fdecls;
+	own_std::hash_map<node *, func_decl *> cached;
 };
 #define TYPE_CONST_WAS_DECLARED 1
 #define TYPE_IS_REL   2
@@ -308,6 +310,7 @@ struct template_to_be_assigned
 #define FUNC_DECL_INTRINSIC 0x200000
 #define FUNC_DECL_LABEL 0x400000
 #define FUNC_DECL_LABELS_GOTTEN 0x800000
+#define FUNC_DECL_INSTANTIATED 0x1000000
 
 struct stmnt_dbg
 {
@@ -353,6 +356,8 @@ struct func_decl
 	int templated_in_file_line;
 
 	decl2 *this_decl;
+
+	decl2 *from_overload;
 
 	int ir_stack_begin_idx;
 
@@ -435,6 +440,7 @@ struct func_decl
 		//memcpy(ret, this, sizeof(func_decl));
 		//ret->args.assign(args.begin(), args.end());
 		ret->func_node = this->func_node;
+		//ret->args = this->args;
 		ret->templates.assign(templates.begin(), templates.end());
 		ret->temps_to_be_assigned.assign(temps_to_be_assigned.begin(), temps_to_be_assigned.end());
 		ret->scp = nullptr;

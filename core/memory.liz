@@ -809,6 +809,17 @@ simple_test_main ::fn()
 		i++;
 	}
 }
+
+enum_test : etruct
+{
+	VAL1(
+		num : u32,
+	),
+	VAL2(
+		ch : char,
+	)
+}
+
 tests :: fn(ret : *u32)
 {
 	i:= 7;
@@ -1453,4 +1464,23 @@ tests :: fn(ret : *u32)
 		debug_break();
 
 
+	etest: enum_test
+	__dbg_break
+	if etest == enum_test.VAL1
+	{
+		etest.VAL1.num = cast(u32)'b
+	}
+	if etest.VAL1.num != cast(u32)'b
+		debug_break();
+
+	etest = enum_test.VAL2;
+
+	if etest == enum_test.VAL2
+	{
+		if etest.VAL2.ch != 'b
+			debug_break();
+		etest.VAL2.ch = 'a
+	}
+	if etest.VAL2.ch != 'a
+		debug_break();
 }

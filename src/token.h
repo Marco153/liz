@@ -244,11 +244,11 @@ struct type2
 		};
 		struct
 		{
-			decl2 *from_enum;
-			int e_idx;
 		};
 	};
 
+	decl2 *from_enum;
+	int e_idx;
 #endif
 	decl2 *GetEnumDecl(std::string name);
 	func_decl *ChooseFuncOverload(lang_state *, own_std::vector<type2> *tps);
@@ -516,6 +516,7 @@ std::string OvrldOpToStr(overload_op op);
 #define TP_STRCT_STRUCT_NOT_NODE 2
 #define TP_STRCT_STRUCT_SERIALIZED 4
 #define TP_STRCT_TUPLE 8
+#define TP_STRCT_ETRUCT 0x10
 //#define TP_STRCT_DONE 8
 struct type_struct2
 {
@@ -684,10 +685,11 @@ struct type_struct2
 			i++;
 		}
 		
-		type_sect->insert(type_sect->begin(), strct_str_tbl.begin(), strct_str_tbl.end());
-		type_sect->insert(type_sect->begin(), buffer.begin(), buffer.end());
-
         type_sect_offset = type_sect->size();
+
+		type_sect->insert(type_sect->end(), strct_str_tbl.begin(), strct_str_tbl.end());
+		type_sect->insert(type_sect->end(), buffer.begin(), buffer.end());
+
 	}
 };
 

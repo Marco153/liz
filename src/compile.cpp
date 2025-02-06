@@ -6225,6 +6225,7 @@ struct var_dbg
 	int offset;
 	int ar_size;
 	int flags;
+	int strct_flags;
 	char ptr;
 	decl2* decl;
 };
@@ -6256,6 +6257,7 @@ struct type_dbg
 	int struct_size;
 	int vars_offset;
 	int num_of_vars;
+	int strct_flags;
 	int flags;
 };
 struct scope_dbg
@@ -6376,7 +6378,7 @@ var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state*
 	var_ser->type = var->type.type;
 	var_ser->ptr = var->type.ptr;
 	var_ser->offset = var->offset;
-	var_ser->flags = var->flags;
+	var_ser->strct_flags = var->flags;
 	WasmSerializePushString(ser_state, &var->name, &var_ser->name);
 	return var_ser;
 }
@@ -6412,12 +6414,15 @@ void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state* se
 
 	//ser_state->vars_sect.make_count(ser_state->vars_sect.size() + strct->vars.size() * sizeof(var_dbg));
 	ser_state->types_sect.make_count(ser_state->types_sect.size() + sizeof(type_dbg));
+	if (IS_FLAG_ON(strct->flags, TP_STRCT_ETRUCT))
+		auto a = 0;
 
 	auto type = (type_dbg*)(ser_state->types_sect.begin() + type_offset);
 	memset(type, 0, sizeof(type_dbg));
 	type->num_of_vars = strct->vars.size();
 	type->vars_offset = var_offset;
 	type->struct_size = strct->size;
+	type->strct_flags = strct->flags;
 	WasmSerializePushString(ser_state, &strct->name, &type->name);
 
 	/*
@@ -6635,6 +6640,8 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		var_dbg* vdbg = nullptr;
 		int var_offset = vars_offset + i * sizeof(var_dbg);
 		d->serialized_type_idx = var_offset;
+		//if (d->name == "INT__type__")
+			//auto a = 0;
 		vdbg = WasmSerializeSimpleVar(wasm_state, ser_state, d, var_offset);
 
 		switch (d->type.type)
@@ -6687,6 +6694,8 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		}break;
 		case TYPE_STRUCT_TYPE:
 		{
+			if (d->name == "INT")
+				auto a = 0;
 			d->type.strct->scp->type = SCP_TYPE_STRUCT;
 			WasmSerializeStructType(wasm_state, ser_state, d->type.strct);
 			vdbg->type_idx = d->type.strct->serialized_type_idx;
@@ -7004,6 +7013,7 @@ decl2 *WasmInterpBuildStruct(unsigned char* data, unsigned int len, lang_state* 
 	dstrct->strct = final_struct;
 	final_struct->name = std::string(name);
 	final_struct->size = dstrct->struct_size;
+	final_struct->flags = dstrct->strct_flags;
 	dstrct->flags = TYPE_DBG_CREATED_TYPE_STRUCT;
 
 	decl2* d = NewDecl(lang_stat, name, tp);
@@ -7286,6 +7296,8 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 		if (cur_scp->type == SCP_TYPE_STRUCT)
 		{
 			auto dstrct = (type_dbg*)(data + file->types_sect + cur_scp->type_idx);
+			if (IS_FLAG_ON(dstrct->flags, TP_STRCT_ETRUCT))
+				auto a = 0;
 
 			d = WasmInterpBuildStruct(data, len, lang_stat, file, dstrct);
 
@@ -10392,6 +10404,44 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 				}
 				d->flags |= DECL_PTR_HAS_LEN;
 				d->type.ptr = prev_ptr;
+			}
+		}
+		if (IS_FLAG_ON(d->type.strct->flags, TP_STRCT_ETRUCT))
+		{
+			int addr = *(int*)&dbg.mem_buffer[base_ptr];
+			type_struct2* strct = d->type.strct;
+			decl2* edecl = nullptr;
+			FOR_VEC(cur_d, strct->scp->vars)
+			{
+				if ((*cur_d)->name == "type")
+				{
+					edecl = *cur_d;
+				}
+			}
+			ASSERT(edecl)
+			edecl++;
+			edecl += addr;
+
+			snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), base_ptr, base_ptr);
+			base_ptr += 4;
+			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+			if (ImGui::TreeNodeEx(buffer, flag))
+			{
+				if (edecl->type.type == TYPE_STRUCT)
+				{
+					snprintf(buffer, 64, "%s(&%d)##%d", edecl->name.c_str(), base_ptr, base_ptr);
+					ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+					if (ImGui::TreeNodeEx(buffer, flag))
+					{
+						ImGuiPrintScopeVars(buffer, dbg, edecl->type.strct->scp, base_ptr);
+						ImGui::TreePop();  // This is required at the end of the if block
+					}
+
+				}
+				else
+				{
+				}
+				ImGui::TreePop();  // This is required at the end of the if block
 			}
 		}
 		else
@@ -15450,6 +15500,7 @@ Your browser does not support the audio element.\
 void CreateAstFromFunc(lang_state* lang_stat, func_decl* f)
 {
 	f->func_node->fdecl = f;
+	lang_stat->cur_file = f->from_file;
 	ast_rep* ast = AstFromNode(lang_stat, f->func_node, f->scp);
 	f->ast = ast;
 	ASSERT(ast->type == AST_FUNC);

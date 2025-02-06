@@ -253,6 +253,12 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				ret->type = AST_INT;
 				ret->num = d->type.e_idx;;
 			}
+			else if (dummy_type.type == TYPE_STRUCT_TYPE && IS_FLAG_ON(dummy_type.strct->flags, TP_STRCT_ETRUCT))
+			{
+				decl2 *d = dummy_type.strct->FindDecl(n->r->t->str);
+				ret->type = AST_INT;
+				ret->num = d->type.e_idx;;
+			}
 			else
 			{
 
@@ -968,6 +974,11 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val)
 		if (ast->decl->type.type == TYPE_STATIC_ARRAY)
 			//val->is_unsigned = IsUnsigned(ast->decl->type.tp->type);
 			val->is_unsigned = true;
+		else if(ast->decl->type.type == TYPE_STRUCT_TYPE 
+			&& IS_FLAG_ON(ast->decl->type.strct->flags, TP_STRCT_ETRUCT))
+		{
+			val->is_unsigned = true;
+		}
 		else if(ast->decl->type.type != TYPE_STRUCT)
 			val->is_unsigned = IsUnsigned(ast->decl->type.type);
 		//if (ast->decl->type.ptr > 0)

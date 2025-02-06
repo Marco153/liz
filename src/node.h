@@ -169,6 +169,7 @@ enum node_type
 
 	N_ENUM_DECL,
 	N_UNION_DECL,
+	N_ETRUCT_DECL,
 
 	N_DESUGARED,
 

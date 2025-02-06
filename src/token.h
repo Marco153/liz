@@ -151,8 +151,10 @@ struct type_data
 	};
 	char ptr;
 	enum_type2 tp;
-	short name;
-	short name_len;
+	int flags;
+	int name;
+	int name_len;
+	int decl_offset_for_ptr_len;
 
 };
 struct template_expr
@@ -459,6 +461,7 @@ struct func_decl
 #define DECL_ABSOLUTE_ADDRESS  0x40
 #define DECL_PTR_HAS_LEN  0x80
 #define DECL_IS_VAR_ARG  0x100
+#define DECL_SERIALIZABLE  0x200
 
 struct decl2
 {
@@ -666,6 +669,7 @@ struct type_struct2
 			if (IS_FLAG_ON((*v)->flags, DECL_FROM_USING))
 				continue;
 
+
 			int last_size = buffer.size();
 			buffer.insert(buffer.end(), sizeof(type_data), 0);
 
@@ -675,6 +679,11 @@ struct type_struct2
 			offset_to_str_tbl += strct_str_tbl.size();
 			offset_to_str_tbl -= offsetof(type_data, name);
 
+			if (IS_FLAG_ON((*v)->flags, DECL_PTR_HAS_LEN))
+			{
+				var_ptr->flags = (*v)->flags;
+				var_ptr->decl_offset_for_ptr_len = (*v)->len_for_ptr->offset;
+			}
 			var_ptr->tp = (*v)->type.type;
 			var_ptr->name = offset_to_str_tbl;
 			var_ptr->name_len = (*v)->name.length();

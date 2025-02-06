@@ -1149,6 +1149,14 @@ node* node_iter::parse_expr()
 			ExpectTkn(T_CLOSE_PARENTHESES);
 			get_tkn();
 		}
+		else if(peek->str == "serializable")
+		{
+			get_tkn();
+			EatNewLine();
+			n->type = N_SERIALIZABLE;
+			n->r = parse_expr();
+			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
+		}
 		else if(peek->str == "make_ptr_len")
 		{
 			get_tkn();
@@ -6868,6 +6876,16 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		return FindIdentifier(n->l->t->str, scp, &ret_type);
 	}break;
+	case N_SERIALIZABLE:
+	{
+		own_std::vector<comma_ret> commas;
+		DescendComma(lang_stat, n->r, scp, commas);
+		FOR_VEC(c, commas)
+		{
+			decl2* d = FindIdentifier(c->decl.name, scp, &ret_type);
+			d->flags |= DECL_SERIALIZABLE;
+		}
+	}break;
 	case N_MAKE_PTR_LEN:
 	{
 		decl2* ptr_decl = FindIdentifier(n->r->l->t->str, scp, &ret_type);
@@ -11139,7 +11157,8 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 				// getting the overloaded name first
 
 
-				std::string fname = this->name + "_";
+				std::string fname = this->name;
+				fname += OvrldOpToStr(op) + "_1"+this->name+"_";
 				switch (op)
 				{
 				case COND_EQ_OP:
@@ -11149,7 +11168,6 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 				default:
 					ASSERT(false)
 				}
-				fname += OvrldOpToStr(op);
 
 				found_f = FindIdentifier(fname, lang_stat->root, &dummy_tp);
 

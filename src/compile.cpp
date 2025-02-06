@@ -5221,11 +5221,11 @@ struct dbg_file_seriealize
 	int string_sect;
 	int scopes_sect;
 	int types_sect;
+	int serialized_types_sect;
 	int vars_sect;
 	int code_sect;
 	int ir_sect;
 	int files_sect;
-	int serialized_types_sect;
 
 	int bc2_sect;
 	int bc2_sect_size;
@@ -5236,7 +5236,7 @@ struct dbg_file_seriealize
 	int data_sect;
 	int data_sect_size;
 
-	int serialized_type_sect_size;
+	int serialized_types_size;
 	int x64_code_sect;
 	int x64_code_sect_size;
 	int x64_code_type_sect_size;
@@ -6955,8 +6955,8 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	INSERT_VEC(final_buffer, ser_state.types_sect);
 	
 	file.serialized_types_sect = final_buffer.size();
-	//INSERT_VEC(final_buffer, wasm_state->lang_stat->type_sect);
-	final_buffer.insert(final_buffer.end(), (u8*)wasm_state->lang_stat->type_sect.begin(), (u8*)wasm_state->lang_stat->type_sect.end());
+	auto casted_ar = (own_std::vector<unsigned char> *) &wasm_state->lang_stat->type_sect;
+	final_buffer.insert(final_buffer.end(), casted_ar->begin(), casted_ar->end());
 
 	file.code_sect = final_buffer.size();
 	INSERT_VEC(final_buffer, code);
@@ -6975,12 +6975,10 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	INSERT_VEC(final_buffer, wasm_state->lang_stat->code_sect);
 	file.x64_code_sect_size = wasm_state->lang_stat->code_sect.size();
 	file.x64_code_type_sect_size = wasm_state->lang_stat->type_sect.size();
-	//file.type_sect_size = wasm_state->lang_stat->type_sect.size();
-	file.serialized_type_sect_size = wasm_state->lang_stat->type_sect.size();
 
 	file.data_sect = final_buffer.size();
 
-	auto casted_ar = (own_std::vector<unsigned char> *) &wasm_state->lang_stat->data_sect;
+	casted_ar = (own_std::vector<unsigned char> *) &wasm_state->lang_stat->data_sect;
 	final_buffer.insert(final_buffer.end(), casted_ar->begin(), casted_ar->end());
 	file.data_sect_size = wasm_state->lang_stat->data_sect.size();
 
@@ -10783,9 +10781,9 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	auto file_data_sect = (char*)data + file->data_sect;
 	auto globals_sect = (char*)data + file->globals_sect;
 	auto type_sect = (char*)data + file->serialized_types_sect;
-	lang_stat->data_sect.insert(lang_stat->data_sect.begin(), type_sect, type_sect + file->types_sect);
+	lang_stat->data_sect.insert(lang_stat->data_sect.begin(), file_data_sect, file_data_sect + file->data_sect_size);
 	lang_stat->globals_sect.insert(lang_stat->globals_sect.begin(), globals_sect, globals_sect + file->globals_sect_size);
-	lang_stat->type_sect.insert(lang_stat->type_sect.begin(), type_sect, type_sect + file->serialized_types_sect);
+	lang_stat->type_sect.insert(lang_stat->type_sect.begin(), type_sect, globals_sect + file->serialized_types_size);
 
 	lang_stat->files.clear();
 
@@ -10986,6 +10984,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 #endif
 
 
+		return;
 		while (ptr < next_func)
 		{
 			wasm_bc bc = {};
@@ -15553,7 +15552,6 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 	web_assembly_state *wasm_state = lang_stat->wasm_state;
 	lang_stat->data_sect.clear();
 	lang_stat->globals_sect.clear();
-	lang_stat->type_sect.clear();
 	wasm_state->lang_stat = lang_stat;
 	wasm_state->funcs.clear();
 	wasm_state->imports.clear();

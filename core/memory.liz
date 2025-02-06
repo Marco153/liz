@@ -814,9 +814,11 @@ enum_test : etruct
 {
 	VAL1(
 		num : u32,
+		#serializable(num)
 	),
 	VAL2(
 		ch : char,
+		#serializable(ch)
 	)
 }
 
@@ -1465,6 +1467,7 @@ tests :: fn(ret : *u32)
 
 	__dbg_break
 	tp_tst: = GetTypeData(mem_alloc);
+	name := cast(*u8)ptr_offset(cast(u64)&tp_tst.name, tp_tst.name, u8)
 
 	etest: enum_test
 	if etest == enum_test.VAL1
@@ -1483,6 +1486,17 @@ tests :: fn(ret : *u32)
 		etest.VAL2.ch = 'a
 	}
 	if etest.VAL2.ch != 'a
+		debug_break();
+
+	str1 :string
+	str1.data.data = cast(*char)"joe"
+	str1.data.count = 3
+
+	str2 :string
+	str2.data.data = cast(*char)"jo2"
+	str2.data.count = 3
+
+	if str1 == str2
 		debug_break();
 
 

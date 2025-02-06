@@ -5072,6 +5072,14 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			ret_type->type = enum_type2::TYPE_BOOL;
 			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
 		}
+		else if (fdecl->name == "GetTypeData")
+		{
+			if (!DescendNameFinding(lang_stat, ncall->r, scp))
+				return nullptr;
+			//ret_type = fdecl->ret_type;
+
+			//ret_type.i = GetTypeSize(&args[0].decl.type);
+		}
 		else if (lhs->name == "sizeof")
 		{
 			int a = 0;
@@ -6634,8 +6642,8 @@ void EnumToTypeSect(lang_state *lang_stat, std::string enum_name, scope* scp)
 		i++;
 	}
 
-	type_sect->insert(type_sect->begin(), strct_str_tbl.begin(), strct_str_tbl.end());
-	type_sect->insert(type_sect->begin(), buffer.begin(), buffer.end());
+	type_sect->insert(type_sect->end(), strct_str_tbl.begin(), strct_str_tbl.end());
+	type_sect->insert(type_sect->end(), buffer.begin(), buffer.end());
 }
 
 void AddStructMembersToScopeWithUsing(lang_state *lang_stat, type_struct2 *strct, scope *scp, node *by_name_nd)
@@ -9607,6 +9615,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			{
 				ret_type.type = TYPE_INT;
 				ret_type.i = GetTypeSize(&args[0].decl.type);
+			}
+			else if (fdecl->name == "GetTypeData")
+			{
+				ret_type = fdecl->ret_type;
+
+				//ret_type.i = GetTypeSize(&args[0].decl.type);
 			}
 			else if (fdecl->name == "__is_struct")
 			{

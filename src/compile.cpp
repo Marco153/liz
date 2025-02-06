@@ -49,6 +49,7 @@ typedef long long s64;
 #define HEAP_START 19000
 //#define MEM_ALLOC_ADDR 17000
 #define MEM_PTR_CUR_ADDR 10000
+#define MEM_PTR_START_ADDR 21000
 #define STACK_PTR_START 20000
 #define MEM_PTR_MAX_ADDR 18008
 
@@ -710,7 +711,7 @@ void NewTypeToSection(lang_state* lang_stat, char* type_name, enum_type2 idx)
 
 	auto& buffer = lang_stat->type_sect;
 	int sz = buffer.size();
-	buffer.insert(buffer.begin(), sizeof(type_data), 0);
+	buffer.insert(buffer.end(), sizeof(type_data), 0);
 	type_data* strct_ptr = (type_data*)((char*)buffer.data());
 	strct_ptr->name = 0;
 	strct_ptr->tp = idx;
@@ -5224,6 +5225,7 @@ struct dbg_file_seriealize
 	int code_sect;
 	int ir_sect;
 	int files_sect;
+	int serialized_types_sect;
 
 	int bc2_sect;
 	int bc2_sect_size;
@@ -5234,6 +5236,7 @@ struct dbg_file_seriealize
 	int data_sect;
 	int data_sect_size;
 
+	int serialized_type_sect_size;
 	int x64_code_sect;
 	int x64_code_sect_size;
 	int x64_code_type_sect_size;
@@ -6227,6 +6230,7 @@ struct var_dbg
 	int flags;
 	int strct_flags;
 	char ptr;
+	bool ignore;
 	decl2* decl;
 };
 #define TYPE_DBG_CREATED_TYPE_STRUCT 1
@@ -6629,8 +6633,8 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 	memset(ser_state->scopes_sect.begin() + children_offset, 0, size_children);
 	ser_state->vars_sect.make_count(ser_state->vars_sect.size() + scp->vars.size() * sizeof(var_dbg));
 
-	if (scp->type == SCP_TYPE_FUNC && scp->fdecl->name == "main")
-		int a = 0;
+	//if (scp->type == SCP_TYPE_FUNC && scp->fdecl->name == "main")
+		//int a = 0;
 
 	own_std::vector<f_ptr_info> func_ptr_idxs;
 	int i = 0;
@@ -6671,6 +6675,11 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		}break;
 		case TYPE_FUNC_EXTERN:
 		{
+			if (IS_FLAG_ON(d->type.fdecl->flags, FUNC_DECL_INTERNAL))
+			{
+				vdbg->ignore = true;
+				break;
+			}
 			int a = 0;
 			goto func_label;
 		};
@@ -6945,6 +6954,10 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	file.types_sect = final_buffer.size();
 	INSERT_VEC(final_buffer, ser_state.types_sect);
 	
+	file.serialized_types_sect = final_buffer.size();
+	//INSERT_VEC(final_buffer, wasm_state->lang_stat->type_sect);
+	final_buffer.insert(final_buffer.end(), (u8*)wasm_state->lang_stat->type_sect.begin(), (u8*)wasm_state->lang_stat->type_sect.end());
+
 	file.code_sect = final_buffer.size();
 	INSERT_VEC(final_buffer, code);
 
@@ -6962,6 +6975,8 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	INSERT_VEC(final_buffer, wasm_state->lang_stat->code_sect);
 	file.x64_code_sect_size = wasm_state->lang_stat->code_sect.size();
 	file.x64_code_type_sect_size = wasm_state->lang_stat->type_sect.size();
+	//file.type_sect_size = wasm_state->lang_stat->type_sect.size();
+	file.serialized_type_sect_size = wasm_state->lang_stat->type_sect.size();
 
 	file.data_sect = final_buffer.size();
 
@@ -7125,6 +7140,11 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_FUNC_PTR:
 		case TYPE_FUNC_EXTERN:
 		{
+			if (cur_var->ignore)
+			{
+				//cur_var++;
+				break;
+			}
 			auto type_strct = (func_dbg*)(data + file->func_sect + cur_var->type_idx);
 			tp.fdecl = type_strct->decl->type.fdecl;
 			/*
@@ -9828,6 +9848,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	}
 }
 void GetMsgFromGame(void* gl_state);
+int GetMem(dbg_state* dbg, int sz);
 void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int len, std::string func_start, long long* args, int total_args)
 {
 	char buffer[64];
@@ -9894,6 +9915,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	timer tm;
 	InitTimer(&tm);
 	StartTimer(&tm);
+
+	//int offset = GetMem(&dbg, dbg.lang_stat->type_sect.size());
 
 #ifndef  WASM_DBG
 	dbg.lang_stat->is_x64_bc_backend = true;
@@ -10332,6 +10355,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	time = GetTimerMSFloat(&tm);
 	printf("wasm time: %.3f\n", time);
 }
+
 void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int total_args)
 {
 
@@ -10339,12 +10363,15 @@ void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int to
 	int mem_size = BUFFER_MEM_MAX;
 	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size);
 	lang_stat->winterp->dbg->mem_size = mem_size;
-	*(int*)&buffer[MEM_PTR_CUR_ADDR] = 21000;
+	*(int*)&buffer[MEM_PTR_CUR_ADDR] = MEM_PTR_START_ADDR + lang_stat->type_sect.size();
 	*(int*)&buffer[MEM_PTR_MAX_ADDR] = 0;
+
+	memcpy((int*)&buffer[MEM_PTR_START_ADDR], lang_stat->type_sect.data(), lang_stat->type_sect.size());
 
 	ASSERT(lang_stat->data_sect.size() < DATA_SECT_MAX);
 	memcpy(&buffer[DATA_SECT_OFFSET], lang_stat->data_sect.begin(), lang_stat->data_sect.size());
 	memcpy(&buffer[GLOBALS_OFFSET], lang_stat->globals_sect.begin(), lang_stat->globals_sect.size());
+
 	WasmInterpRun(lang_stat->winterp, buffer, mem_size, func.c_str(), args, total_args);
 	__lang_globals.free(__lang_globals.data, buffer);
 
@@ -10755,8 +10782,10 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	//std::string data_file_name = file_name.substr(0, point_idx)+"_data.dbg";
 	auto file_data_sect = (char*)data + file->data_sect;
 	auto globals_sect = (char*)data + file->globals_sect;
-	lang_stat->data_sect.insert(lang_stat->data_sect.begin(), file_data_sect, file_data_sect + file->data_sect_size);
+	auto type_sect = (char*)data + file->serialized_types_sect;
+	lang_stat->data_sect.insert(lang_stat->data_sect.begin(), type_sect, type_sect + file->types_sect);
 	lang_stat->globals_sect.insert(lang_stat->globals_sect.begin(), globals_sect, globals_sect + file->globals_sect_size);
+	lang_stat->type_sect.insert(lang_stat->type_sect.begin(), type_sect, type_sect + file->serialized_types_sect);
 
 	lang_stat->files.clear();
 
@@ -15524,6 +15553,7 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 	web_assembly_state *wasm_state = lang_stat->wasm_state;
 	lang_stat->data_sect.clear();
 	lang_stat->globals_sect.clear();
+	lang_stat->type_sect.clear();
 	wasm_state->lang_stat = lang_stat;
 	wasm_state->funcs.clear();
 	wasm_state->imports.clear();
@@ -16751,7 +16781,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		if (f->type.type != TYPE_FUNC)
 			continue;
 		auto fdecl = f->type.fdecl;
-		if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_IS_OUTSIDER | FUNC_DECL_TEMPLATED |FUNC_DECL_INTRINSIC))
+		if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_IS_OUTSIDER | FUNC_DECL_INTERNAL |FUNC_DECL_TEMPLATED |FUNC_DECL_INTRINSIC))
 			continue;
 
 		if (FuncAddedWasm(&wasm_state, f->name))

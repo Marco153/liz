@@ -648,6 +648,15 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				ret->num = GetTypeSize(&dummy_type);
 				
 			}
+			else if (f->name == "GetTypeData")
+			{
+				dummy_type = DescendNode(lang_stat, n->r, scp);
+				ret->type = AST_INT;
+				if (dummy_type.type == TYPE_STRUCT_TYPE || dummy_type.type == TYPE_STRUCT)
+				{
+					ret->num = dummy_type.strct->type_sect_offset + MEM_PTR_START_ADDR;
+				}
+			}
 			else if (f->name == "get_func_bc")
 			{
 				dummy_type = DescendNode(lang_stat, n->r, scp);

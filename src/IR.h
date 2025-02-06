@@ -304,6 +304,7 @@ enum ir_val_type
     IR_TYPE_DECL,
     IR_TYPE_GET_FUNC_BC,
     IR_TYPE_ON_STACK,
+    IR_TYPE_TYPE,
 };
 enum on_stack_type
 {

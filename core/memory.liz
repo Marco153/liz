@@ -1463,9 +1463,10 @@ tests :: fn(ret : *u32)
 	if fsum < 11.9 || fsum > 12.1
 		debug_break();
 
+	__dbg_break
+	tp_tst: = GetTypeData(mem_alloc);
 
 	etest: enum_test
-	__dbg_break
 	if etest == enum_test.VAL1
 	{
 		etest.VAL1.num = cast(u32)'b
@@ -1483,4 +1484,8 @@ tests :: fn(ret : *u32)
 	}
 	if etest.VAL2.ch != 'a
 		debug_break();
+
+
+
+
 }

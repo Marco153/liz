@@ -149,6 +149,7 @@ struct type_data
 		// entries is how many members a strct has
 		int entries;
 	};
+	char ptr;
 	enum_type2 tp;
 	short name;
 	short name_len;
@@ -642,6 +643,7 @@ struct type_struct2
 		//buffer.resize(128);
 		//strct_str_tbl.resize(128);
 
+        type_sect_offset = type_sect->size();
 		buffer.insert(buffer.end(), sizeof(type_data), 0);
 		
 		type_data *strct_ptr = (type_data *)buffer.data();
@@ -676,6 +678,7 @@ struct type_struct2
 			var_ptr->tp = (*v)->type.type;
 			var_ptr->name = offset_to_str_tbl;
 			var_ptr->name_len = (*v)->name.length();
+			var_ptr->ptr = (*v)->type.ptr;
 
 			InsertIntoCharVector(&strct_str_tbl, (void *)(*v)->name.data(), (*v)->name.size());
 
@@ -685,10 +688,9 @@ struct type_struct2
 			i++;
 		}
 		
-        type_sect_offset = type_sect->size();
 
-		type_sect->insert(type_sect->end(), strct_str_tbl.begin(), strct_str_tbl.end());
 		type_sect->insert(type_sect->end(), buffer.begin(), buffer.end());
+		type_sect->insert(type_sect->end(), strct_str_tbl.begin(), strct_str_tbl.end());
 
 	}
 };

@@ -145,10 +145,11 @@ struct type_data
 	union
 	{
 		// offset holds a ptr to the another strct type_data
-		long long offset;
+		long long _u64;
 		// entries is how many members a strct has
 		int entries;
 	};
+	long long offset;
 	char ptr;
 	enum_type2 tp;
 	int flags;
@@ -340,6 +341,9 @@ struct func_decl
 	own_std::vector<int> bcs2;
 
 	own_std::vector<int> ir;
+
+	func_decl* call_not_found;
+
 	node* coroutine_prologue_tree;
 	long long flags;
 	//tkn_type2 op_overload;
@@ -658,6 +662,7 @@ struct type_struct2
 		strct_ptr->name_len = this->name.length();
 		strct_ptr->tp = enum_type2::TYPE_STRUCT_DECL;
 		strct_ptr->entries = vars.size();
+		strct_ptr->flags = flags;
 
 		InsertIntoCharVector(&strct_str_tbl, (void *)this->name.data(), this->name.size());
 
@@ -684,15 +689,19 @@ struct type_struct2
 				var_ptr->flags = (*v)->flags;
 				var_ptr->decl_offset_for_ptr_len = (*v)->len_for_ptr->offset;
 			}
+			var_ptr->offset = (*v)->offset;
 			var_ptr->tp = (*v)->type.type;
 			var_ptr->name = offset_to_str_tbl;
 			var_ptr->name_len = (*v)->name.length();
-			var_ptr->ptr = (*v)->type.ptr;
+			var_ptr->flags = (*v)->flags;
 
 			InsertIntoCharVector(&strct_str_tbl, (void *)(*v)->name.data(), (*v)->name.size());
 
-			if((*v)->type.type == enum_type2::TYPE_STRUCT)
-				var_ptr->offset = (*v)->type.strct->type_sect_offset;
+			if ((*v)->type.type == enum_type2::TYPE_STRUCT)
+			{
+				var_ptr->flags |= IS_FLAG_ON((*v)->type.strct->flags, TP_STRCT_ETRUCT) * TP_STRCT_ETRUCT;
+				var_ptr->_u64 = (*v)->type.strct->type_sect_offset + MEM_PTR_START_ADDR;
+			}
 
 			i++;
 		}

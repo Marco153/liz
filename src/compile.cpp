@@ -7265,8 +7265,9 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			d->type.from_enum = from_enum;
 		}
 		d->flags = cur_var->flags;
-		if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
+		if (IS_FLAG_ON(cur_var->strct_flags, DECL_PTR_HAS_LEN) || IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
 		{
+			d->flags |= DECL_PTR_HAS_LEN;
 			std::string ptr_len_name = std::string((const char *)string_sect + cur_var->ptr_has_len_var_name.name_on_string_sect, cur_var->ptr_has_len_var_name.name_len);
 			d->len_for_ptr_name = ptr_len_name.substr();
 			ptr_decl_that_have_len ptr_decl;
@@ -10376,9 +10377,13 @@ void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int to
 }
 void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl)
 {
-	char buffer[64];
+	char buffer[256];
 	//ImGui::Text("offset: %d", d->offset);
 	//ImGui::SameLine();
+	if (d->name == "test")
+	{
+		auto a = 0;
+	}
 	if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
 	{
 		int offset = base_ptr;
@@ -10386,8 +10391,36 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 
 		std::string name = d->name;
 		std::string ptr_str = "";
+		if (d->type.strct->name == "rel_string")
+		{
+			int offset = *(int*)&dbg.mem_buffer[base_ptr];
+			int len  = *(int*)&dbg.mem_buffer[base_ptr + 4];
+			char *chars = (char *)&dbg.mem_buffer[base_ptr + offset];
 
-		if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
+			snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), base_ptr, base_ptr);
+
+			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+			if (ImGui::TreeNodeEx(buffer, flag))
+			{
+				if (len <= 0 || len >= 256)
+				{
+					ImGui::Text("cant display this string");
+					return;
+				}
+
+				for (int i = 0; i < clamp(len, 0, 256); i++)
+				{
+					buffer[i] = chars[i];
+				}
+				buffer[len] = 0;
+				ImGui::Text("%s", buffer);
+
+				ImGui::TreePop();  // This is required at the end of the if block
+			}
+			return;
+				
+		}
+		else if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
 		{
 			if(ptr_decl > 0)
 			{
@@ -10580,7 +10613,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			ImGui::TreePop();  // This is required at the end of the if block
 		}
 	}
-	else if (d->type.type == TYPE_TEMPLATE || d->type.type == TYPE_FUNC || d->type.type == TYPE_IMPORT || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_OVERLOADED_FUNCS)
+	else if (d->type.type == TYPE_TEMPLATE || d->type.type == TYPE_FUNC_EXTERN || d->type.type == TYPE_FUNC || d->type.type == TYPE_IMPORT || d->type.type == TYPE_FUNC_TYPE || d->type.type == TYPE_OVERLOADED_FUNCS)
 	{
 		//ImGui::Text("template %s", d->name.c_str());
 	}

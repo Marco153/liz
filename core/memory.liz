@@ -1465,9 +1465,12 @@ tests :: fn(ret : *u32)
 	if fsum < 11.9 || fsum > 12.1
 		debug_break();
 
-	__dbg_break
-	tp_tst: = GetTypeData(mem_alloc);
-	name := cast(*u8)ptr_offset(cast(u64)&tp_tst.name, tp_tst.name, u8)
+
+
+	//__dbg_break
+
+	//buffer: dyn_array(char);
+	//Serialize(&buffer, GetTypeData(enum_test), &etest)
 
 	etest: enum_test
 	if etest == enum_test.VAL1

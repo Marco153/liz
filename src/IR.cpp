@@ -723,7 +723,15 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				type_int->num = cur_arg->lhs_tp.type;
 				var_arg_info.emplace_back(type_int);
 
-				var_arg_info.emplace_back(zero);
+				if(cur_arg->lhs_tp.type == TYPE_STRUCT)
+				{
+					type_int = NewAst();
+					type_int->type = AST_INT;
+					type_int->num = MEM_PTR_START_ADDR + cur_arg->lhs_tp.strct->type_sect_offset;
+					var_arg_info.emplace_back(type_int);
+				}
+				else
+					var_arg_info.emplace_back(zero);
 				
 				ast_rep* ptr = NewAst();
 				ptr->type = AST_INT;
@@ -733,9 +741,19 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
 				// casting to the highest type so that we zero the
 				// rest of the register when generating the code
+
+				ast_rep* arg = cur_arg;
+				if(cur_arg->lhs_tp.type == TYPE_STRUCT)
+				{
+					ast_rep* ref = NewAst();
+					ref->type = AST_ADDRESS_OF;
+					ref->ast = cur_arg;
+					arg = ref;
+				}
+
 				ast_rep* cast_to_s64 = NewAst();
 				cast_to_s64->type = AST_CAST;
-				cast_to_s64->cast.casted = cur_arg;
+				cast_to_s64->cast.casted = arg;
 				cast_to_s64->cast.type.type = TYPE_S64;
 				var_arg_info.emplace_back(cast_to_s64);
 				auto a = 0;

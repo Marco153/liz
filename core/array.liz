@@ -108,6 +108,13 @@ serialize_struct::fn(entity : *T, out : *dyn_array(u8))
 
 dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *void, sz : u32)
 {
+	if dyn.alloc == nil || dyn.alloc.id != 0x1234
+	{
+		ASSERT(globals.alloc)
+		//return
+		//__dbg_break
+		dyn_init2(dyn, 2, globals.alloc);
+	}
 	ASSERT(dyn.cap > 0 && dyn.alloc != nil);
 
 	if (dyn.count + sz) >= dyn.cap

@@ -583,7 +583,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 
 	bool is_void_ptr = lhs->type == TYPE_VOID && lhs->ptr > 0;
 
-	if(is_void_ptr && rhs->ptr > 0)
+	if(is_void_ptr && (rhs->ptr > 0 || rhs->type == TYPE_U64))
 		return true;
 
 	if(is_void_ptr && rhs->type == TYPE_STR_LIT)
@@ -4230,6 +4230,16 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 
 	decl2* normal_func_first_arg_decl_with_using = nullptr;
 
+	type2 dummy_type;
+	FOR_VEC(t, args)
+	{
+		if (t->type == COMMA_VAR_ARGS)
+		{
+			decl2* var_arg = FindIdentifier("var_arg", child_scp, &dummy_type);
+			if (!var_arg)
+				return false;
+		}
+	}
 	// getting type of args
 	FOR_VEC(t, args)
 	{
@@ -4237,7 +4247,6 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 		ASSERT(!is_var_args);
 
 
-		type2 dummy_type;
 
 		// parameters with name and type
 		if (t->type == COMMA_VAR_ARGS)
@@ -4951,6 +4960,12 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			lhs = FindIdentifier(ncall->l->t->str, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 			bool is_self_ref = scp->fdecl && scp->fdecl->this_decl == lhs;
 			// we only want to continue if the function is templated
+			if (lhs && scp->fdecl)
+			{
+				scp->fdecl->call_not_found = lhs->type.fdecl;
+				if (lhs->type.fdecl->call_not_found == scp->fdecl)
+					is_self_ref = true;
+			}
 			if (lhs && lhs->type.type == TYPE_FUNC && 
 				lhs->type.fdecl->templates.size() == 0 && 
 				IS_FLAG_ON(lhs->flags, DECL_NOT_DONE) && !is_self_ref)
@@ -8247,6 +8262,9 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 									ret_type.type = TYPE_STRUCT;
 									ret_type.strct = c->n->tstrct;
+
+									//c->n->tstrct->ToTypeSect()
+									c->n->tstrct->ToTypeSect(&lang_stat->type_sect_str_table2, &lang_stat->type_sect, &lang_stat->type_sect_str_tbl_sz);
 								}
 								else
 								{

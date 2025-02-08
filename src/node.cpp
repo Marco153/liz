@@ -7454,7 +7454,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 							memcpy(n, ncall, sizeof(node));
 
-							if (!DescendNameFinding(lang_stat, ncall, scp))
+							if (!DescendNameFinding(lang_stat, n, scp))
 								return nullptr;
 							return (decl2*)1;
 						}
@@ -8258,6 +8258,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 									c->n->tstrct->scp->tstrct = c->n->tstrct;
 									ret_type.from_enum = decl_exist;
 									c->n->tstrct->scp->tstrct->name = std::string(new_decl_type->name);
+									type_struct2* st = c->n->tstrct;
+									st->size = SetVariablesAddress(&st->vars, 0, &st->biggest_type);
 									//struct_types
 
 									ret_type.type = TYPE_STRUCT;

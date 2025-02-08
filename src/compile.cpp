@@ -8657,6 +8657,11 @@ inline void DoMovSXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 	{
 		*(int *)dst_ptr = *(char *)src_ptr;
 	}break;
+	// byte to qword
+	case 0x3:
+	{
+		*dst_ptr = *(char *)src_ptr;
+	}break;
 	// qword to byte
 	case 0x30:
 	{
@@ -10384,7 +10389,51 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 	{
 		auto a = 0;
 	}
-	if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
+	if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
+	{
+		if(ptr_decl > 0)
+		{
+			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+			int len_offset = base_ptr + d->len_for_ptr_offset;
+			int len = *(int*)&dbg.mem_buffer[len_offset];
+			if (len > 1000)
+			{
+				ImGui::Text("more than 1000 items");
+				return;
+			}
+			int addr = *(int*)&dbg.mem_buffer[base_ptr];
+			char prev_ptr = d->type.ptr;
+			d->type.ptr = ptr_decl;
+			d->type.ptr--;
+			int tp_sz = GetTypeSize(&d->type);
+			d->type.ptr++;
+			d->flags &= ~DECL_PTR_HAS_LEN;
+			for (int i = 0; i < len; i++)
+			{
+				int cur_addr = addr + i * tp_sz;
+				snprintf(buffer, 64, "[%d]##%d", i, cur_addr);
+				ImGui::Text("(%d)", cur_addr);
+				ImGui::SameLine();
+				/*
+				if (d->type.type == TYPE_STRUCT && ptr_decl > 1)
+				{
+					if (ImGui::TreeNodeEx(buffer, flag))
+					{
+						ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, cur_addr);
+						ImGui::TreePop();  // This is required at the end of the if block
+					}
+				}
+				else
+				*/
+
+				ImGuiPrintVar(buffer, dbg, d, cur_addr, ptr_decl - 1);
+
+			}
+			d->flags |= DECL_PTR_HAS_LEN;
+			d->type.ptr = prev_ptr;
+		}
+	}
+	else if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
 	{
 		int offset = base_ptr;
 		char ptr = ptr_decl;
@@ -10420,65 +10469,28 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			return;
 				
 		}
-		else if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
-		{
-			if(ptr_decl > 0)
-			{
-				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-				int len_offset = base_ptr + d->len_for_ptr_offset;
-				int len = *(int*)&dbg.mem_buffer[len_offset];
-				if (len > 1000)
-				{
-					ImGui::Text("more than 1000 items");
-					return;
-				}
-				int addr = *(int*)&dbg.mem_buffer[base_ptr];
-				char prev_ptr = d->type.ptr;
-				d->type.ptr = ptr_decl;
-				d->type.ptr--;
-				int tp_sz = GetTypeSize(&d->type);
-				d->type.ptr++;
-				d->flags &= ~DECL_PTR_HAS_LEN;
-				for (int i = 0; i < len; i++)
-				{
-					int cur_addr = addr + i * tp_sz;
-					snprintf(buffer, 64, "[%d]##%d", i, cur_addr);
-					ImGui::Text("(%d)", cur_addr);
-					ImGui::SameLine();
-					/*
-					if (d->type.type == TYPE_STRUCT && ptr_decl > 1)
-					{
-						if (ImGui::TreeNodeEx(buffer, flag))
-						{
-							ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, cur_addr);
-							ImGui::TreePop();  // This is required at the end of the if block
-						}
-					}
-					else
-					*/
-
-					ImGuiPrintVar(buffer, dbg, d, cur_addr, ptr_decl - 1);
-
-				}
-				d->flags |= DECL_PTR_HAS_LEN;
-				d->type.ptr = prev_ptr;
-			}
-		}
 		if (IS_FLAG_ON(d->type.strct->flags, TP_STRCT_ETRUCT))
 		{
 			int addr = *(int*)&dbg.mem_buffer[base_ptr];
 			type_struct2* strct = d->type.strct;
 			decl2* edecl = nullptr;
+
 			FOR_VEC(cur_d, strct->scp->vars)
 			{
 				if ((*cur_d)->name == "type")
 				{
 					edecl = *cur_d;
+					break;
 				}
 			}
 			ASSERT(edecl)
 			edecl++;
 			edecl += addr;
+			if (addr >= strct->scp->vars.size())
+			{
+				ImGui::Text("idx too higher ");
+				return;
+			}
 
 			snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), base_ptr, base_ptr);
 			base_ptr += 4;
@@ -10498,6 +10510,8 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 				}
 				else
 				{
+					//snprintf(buffer, 64, "%s(&%d)##%d", edecl->name.c_str(), base_ptr, base_ptr);
+					ImGui::Text(edecl->name.c_str());
 				}
 				ImGui::TreePop();  // This is required at the end of the if block
 			}
@@ -10623,7 +10637,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		long long val = 0;
 		print_num_type ptype = PRINT_INT;
 
-		char ptr = d->type.ptr;
+		char ptr = ptr_decl;
 		while (ptr > 0)
 		{
 			offset = *(int*)&dbg.mem_buffer[offset];
@@ -13260,11 +13274,16 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 3));
 				ir_val_aux dst;
-				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				//GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true, false);
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
 				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
+				if (dst.deref >= 0)
+					inst = STORE_R_2_M;
+				else
+					inst = MOV_R;
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				FreeSpecificReg(lang_stat, lhs.reg);
 

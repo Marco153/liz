@@ -1277,7 +1277,7 @@ tests :: fn(ret : *u32)
 	
 
 	val_test := 0;
-	for idx : u32 in 0..5
+	for idx in 0..5
 	{
 		val_test++;
 	}
@@ -1288,7 +1288,7 @@ tests :: fn(ret : *u32)
 
 	val_test = 0;
 	limit := 10;
-	for idx : u32 in 0..limit
+	for idx in 0..limit
 	{
 		val_test++;
 	}
@@ -1342,6 +1342,9 @@ tests :: fn(ret : *u32)
 	dyn_test.data = s32_ar[0];
 	dyn_test.cap = 5;
 	dyn_test.count = 5;
+
+	if *dyn_test[1] != 1
+		debug_break();
 
 	val_test = 0;
 	for cur in dyn_test
@@ -1501,8 +1504,6 @@ tests :: fn(ret : *u32)
 
 	if str1 == str2
 		debug_break();
-
-
 
 
 }

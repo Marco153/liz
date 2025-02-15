@@ -32,7 +32,7 @@ it_end::fn{ T }(dyn : *dyn_array(T)) !*T
 		return dyn.data;
 	return ptr_offset(dyn.data, dyn.count, T);
 }
-operator []x64{ T }(dyn : *dyn_array(T), idx : u64) !*T
+operator []{ T }(dyn : *dyn_array(T), idx : u64) !*T
 {
 	ASSERT(idx < dyn.count);
 	return ptr_offset(dyn.data, idx, T);

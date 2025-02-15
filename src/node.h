@@ -30,6 +30,7 @@
 #define NODE_FLAGS_NO_ZERO_INITIALIZATION 0x2000000
 #define NODE_FLAGS_FUNC_X64 0x4000000
 #define NODE_FLAGS_FUNC_INTRINSIC 0x8000000
+#define NODE_FLAGS_RETURN_IDENT_EVEN_NOT_DONE 0x10000000
 
 #define ASSIGN_VEC(v1, v2) v1.assign(v2.begin(), v2. end())
 #define INSERT_VEC(v1, v2) v1.insert(v1.end(), v2.begin(), v2.end())
@@ -83,7 +84,7 @@ struct node_iter
 	node *node_iter::parse_stmnts();
 	node *node_iter::parse_sub_expr(int prec);
 	node *node_iter::parse_expr();
-	node *node_iter::parse_str(std::string &, int *);
+	node *node_iter::parse_str(std::string &, int *, int);
 	node *node_iter::parse_(int prec,  parser_cond);
 	void EatNewLine();
 	void CreateCondAndScope(node **n);

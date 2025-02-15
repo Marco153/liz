@@ -419,7 +419,6 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 		return true;
 	case tkn_type2::T_AMPERSAND:
 	case tkn_type2::T_MINUS:
-	case tkn_type2::T_COLON:
 	case tkn_type2::T_PERCENT:
 	case tkn_type2::T_IN:
 	case tkn_type2::T_PLUS:
@@ -440,6 +439,10 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 		*precedence = PREC_GREATER;
 		return true;
 	}break;
+	case tkn_type2::T_COLON:
+		*precedence = PREC_GREATER - 1;
+		return true;
+		
 	case tkn_type2::T_PLUS_EQUAL:
 	case tkn_type2::T_MINUS_EQUAL:
 	case tkn_type2::T_EQUAL:
@@ -1085,7 +1088,7 @@ void CheckParenthesesLevel(lang_state *lang_stat, token2* tkn)
 		ExitProcess(1);
 	}
 }
-node* node_iter::parse_str(std::string& str, int* i)
+node* node_iter::parse_str(std::string& str, int* i, int start_line)
 {
 	int end = *i + 1;
 	while (end < str.size() && str[end] != '}')
@@ -1102,6 +1105,10 @@ node* node_iter::parse_str(std::string& str, int* i)
 	memset(new_tkns, 0, sz_tkns);
 
 	Tokenize2((char*)std_str_to_heap(lang_stat, &new_str), new_str.size(), new_tkns);
+	FOR_VEC(t, *new_tkns)
+	{
+		t->line += start_line - 1;
+	}
 	node_iter niter(new_tkns, lang_stat);
 	return niter.parse_(0, parser_cond::LESSER_EQUAL);
 }
@@ -1155,6 +1162,7 @@ node* node_iter::parse_expr()
 			EatNewLine();
 			n->type = N_SERIALIZABLE;
 			n->r = parse_expr();
+			n->r->flags &= ~NODE_FLAGS_COMMA_INSIDE_PARENTHESES;
 			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		}
 		else if(peek->str == "make_ptr_len")
@@ -1209,20 +1217,46 @@ node* node_iter::parse_expr()
 		own_std::vector<node*> args;
 
 		std::string ref_str;
+		int open_curly_open = 0;
 		while (i < str.size())
 		{
 			int clamped = i - 1;
 			if (clamped < 0)
 				clamped = 0;
 
-			if (str[i] == '{' && str[clamped] != '//')
+			if (str[i] == '{')
 			{
-				args.emplace_back(parse_str(str, &i));
+				if (str[clamped] == '\\')
+				{
+					str.erase(clamped, 1);
+					ref_str.pop_back();
+					ref_str += '{';
+				}
+				else
+				{
+					open_curly_open = 1;
+					args.emplace_back(parse_str(str, &i, cur_tkn->line));
+					if (str[i] != '}')
+					{
+						ReportError(lang_stat, cur_tkn->line, cur_tkn->line_offset, "string interpolation error: expected closing '}'", 0);
+						ExitProcess(1);
+					}
+					args.back()->t->line = cur_tkn->line;
 
-				ref_str += '%';
+					ref_str += '%';
+				}
+			}
+			else if (str[i] == '}' && str[clamped] == '\\')
+			{
+				str.erase(clamped, 1);
+				ref_str.pop_back();
+				ref_str += '}';
 			}
 			else
+			{
+
 				ref_str += str[i];
+			}
 			i++;
 		}
 
@@ -1938,161 +1972,162 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 
 
 
-		PARSER_CHECK
+		PARSER_CHECK;
 
-			auto peek = peek_tkn();
-			switch (peek->type)
-			{
-			case tkn_type2::T_MINUS_MINUS:
-			case tkn_type2::T_PLUS_PLUS:
-			{
-				get_tkn();
-				cur_node = NewBinOpNode(lang_stat, nullptr, peek->type, cur_node->l);
-				cur_node->type = N_UNOP;
-				
-				node* nd = new_node(lang_stat, cur_node->t);
-				nd->l = cur_node;
-				cur_node = nd;
+		auto peek = peek_tkn();
+		switch (peek->type)
+		{
+		case tkn_type2::T_MINUS_MINUS:
+		case tkn_type2::T_PLUS_PLUS:
+		{
+			get_tkn();
+			cur_node = NewBinOpNode(lang_stat, nullptr, peek->type, cur_node->l);
+			cur_node->type = N_UNOP;
+			
+			node* nd = new_node(lang_stat, cur_node->t);
+			nd->l = cur_node;
+			cur_node = nd;
 
-				//get_tkn();
-				//continue;
-				// return cur_node;
-			}break;
-			case tkn_type2::T_COLON:
+			//get_tkn();
+			//continue;
+			// return cur_node;
+		}break;
+		case tkn_type2::T_COLON:
+		{
+			// double colon
+			if ((peek_tkn() + 1)->type == tkn_type2::T_COLON)
 			{
-				// double colon
-				if ((peek_tkn() + 1)->type == tkn_type2::T_COLON)
+
+				cur_node->type = node_type::N_BINOP;
+				cur_node->t = get_tkn();
+
+				auto new_n = new_node(lang_stat, cur_node->t);
+				cur_node->r = new_n;
+				new_n->type = node_type::N_BINOP;
+				new_n->t = get_tkn();
+				new_n->r = parse_expr();
+
+				new_n->r->t = begin_tkn;
+
+				// we dont wanna return if prec target is EOF
+				if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IMPLICIT_SEMI_COLON) && prec != 32)
 				{
-
-					cur_node->type = node_type::N_BINOP;
-					cur_node->t = get_tkn();
-
-					auto new_n = new_node(lang_stat, cur_node->t);
-					cur_node->r = new_n;
-					new_n->type = node_type::N_BINOP;
-					new_n->t = get_tkn();
-					new_n->r = parse_expr();
-
-					new_n->r->t = begin_tkn;
-
-					// we dont wanna return if prec target is EOF
-					if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IMPLICIT_SEMI_COLON) && prec != 32)
-					{
-						return cur_node;
-					}
-					else
-						goto double_colon_scope_label;
-
-				}
-				// infer type
-				else if ((peek_tkn() + 1)->type == tkn_type2::T_EQUAL)
-				{
-
-					//equal will at the top of the tree
-					auto new_n = new_node(lang_stat, cur_node->l);
-					new_n->t = get_tkn();
-					new_n->l = cur_node->l;
-					new_n->type = N_BINOP;
-					cur_node->l = new_n;
-
-					cur_prec = PREC_EQUAL;
-				}
-
-			}break;
-			// array indexing
-			case tkn_type2::T_OPEN_BRACKETS:
-			{
-				if (prec >= PREC_OPEN_BRACKETS)
-					return cur_node->l;
-
-				cur_node->type = node_type::N_INDEX;
-				cur_node->t = peek_tkn();
-				get_tkn();
-
-				cur_node->type = node_type::N_INDEX;
-				if (peek_tkn()->type != tkn_type2::T_CLOSE_BRACKETS)
-				{
-					cur_node->r = parse_(PREC_CLOSE_BRACKETS, EQUAL);
-					get_tkn();
-					goto  double_colon_scope_label;
-				}
-
-				get_tkn();
-
-			}break;
-			case tkn_type2::T_TWO_POINTS:
-			{
-				// checking if the last operator was a point, '.'
-				if (prec == PREC_POINT)
-					return cur_node->l;
-
-				// checking if two points is unary
-				if ((peek_tkn() + 1)->type == tkn_type2::T_CLOSE_BRACKETS)
-				{
-					cur_node->type = N_BINOP;
-					cur_node->t = get_tkn();
-
 					return cur_node;
 				}
 				else
-				{
-					cur_prec = 1;
-				}
-			}break;
-			case tkn_type2::T_OPEN_PARENTHESES:
+					goto double_colon_scope_label;
+
+			}
+			// infer type
+			else if ((peek_tkn() + 1)->type == tkn_type2::T_EQUAL)
 			{
-				// checking if the last operator was a point, '.'
-				if (prec == PREC_POINT)
-					return cur_node->l;
-				cur_node->t = peek_tkn();
 
+				//equal will at the top of the tree
+				auto new_n = new_node(lang_stat, cur_node->l);
+				new_n->t = get_tkn();
+				new_n->l = cur_node->l;
+				new_n->type = N_BINOP;
+				cur_node->l = new_n;
 
-				int last_flags = lang_stat->flags;
-				lang_stat->flags |= PSR_FLAGS_ON_FUNC_CALL;
+				cur_prec = PREC_EQUAL;
+			}
 
+		}break;
+		// array indexing
+		case tkn_type2::T_OPEN_BRACKETS:
+		{
+			if (prec >= PREC_OPEN_BRACKETS)
+				return cur_node->l;
+
+			cur_node->type = node_type::N_INDEX;
+			cur_node->t = peek_tkn();
+			get_tkn();
+
+			cur_node->type = node_type::N_INDEX;
+			if (peek_tkn()->type != tkn_type2::T_CLOSE_BRACKETS)
+			{
+				cur_node->r = parse_(PREC_CLOSE_BRACKETS, EQUAL);
 				get_tkn();
-				cur_node->type = node_type::N_CALL;
-				EatNewLine();
-				if(peek_tkn()->type != T_CLOSE_PARENTHESES)
-					cur_node->r = parse_(PREC_CLOSE_PARENTHESES, parser_cond::EQUAL);
-
-				ExpectTkn(T_CLOSE_PARENTHESES);
-				get_tkn();
-
-
-
-				lang_stat->flags = last_flags;
-
-
-				if (peek_tkn()->type == tkn_type2::T_OPEN_PARENTHESES)
-				{
-					cur_node->call_templates = parse_expr();
-				}
-
-				if (peek_tkn()->type == tkn_type2::T_OPEN_CURLY && IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD))
-				{
-					ReportMessageOne(lang_stat, cur_node->t, "Unexpected token. Maybe you are trying to declare a function", nullptr);
-					ExitProcess(1);
-
-
-				}
-
 				goto  double_colon_scope_label;
-			}break;
-			default:
-			{
+			}
 
-			}break;
+			get_tkn();
+
+		}break;
+		case tkn_type2::T_TWO_POINTS:
+		{
+			// checking if the last operator was a point, '.'
+			if (prec == PREC_POINT)
+				return cur_node->l;
+
+			// checking if two points is unary
+			if ((peek_tkn() + 1)->type == tkn_type2::T_CLOSE_BRACKETS)
+			{
+				cur_node->type = N_BINOP;
+				cur_node->t = get_tkn();
+
+				return cur_node;
+			}
+			else
+			{
+				cur_prec = 1;
+			}
+		}break;
+		case tkn_type2::T_OPEN_PARENTHESES:
+		{
+			// checking if the last operator was a point, '.'
+			if (prec == PREC_POINT)
+				return cur_node->l;
+			cur_node->t = peek_tkn();
+
+
+			int last_flags = lang_stat->flags;
+			lang_stat->flags |= PSR_FLAGS_ON_FUNC_CALL;
+
+			get_tkn();
+			cur_node->type = node_type::N_CALL;
+			EatNewLine();
+			if(peek_tkn()->type != T_CLOSE_PARENTHESES)
+				cur_node->r = parse_(PREC_CLOSE_PARENTHESES, parser_cond::EQUAL);
+
+			ExpectTkn(T_CLOSE_PARENTHESES);
+			get_tkn();
+
+
+
+			lang_stat->flags = last_flags;
+
+
+			if (peek_tkn()->type == tkn_type2::T_OPEN_PARENTHESES)
+			{
+				cur_node->call_templates = parse_expr();
+			}
+
+			if (peek_tkn()->type == tkn_type2::T_OPEN_CURLY && IS_FLAG_OFF(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD))
+			{
+				ReportMessageOne(lang_stat, cur_node->t, "Unexpected token. Maybe you are trying to declare a function", nullptr);
+				ExitProcess(1);
+
 
 			}
 
+			goto  double_colon_scope_label;
+		}break;
+		default:
+		{
+
+		}break;
+
+		}
+
 
 		auto tkn = peek_tkn();
-		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY) && tkn->type == T_SEMI_COLON)
+		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY) && (tkn->type == T_SEMI_COLON|| tkn->type == T_NEW_LINE))
 			return cur_node->l;
 
 		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_IMPLICIT_SEMI_COLON))
 		{
+
 			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
 			EatNewLine();
 		}
@@ -2192,6 +2227,12 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			if (peek_tkn()->type != tkn_type2::T_MUL && peek_tkn()->type != tkn_type2::T_MINUS)
 			{
 				PARSER_CHECK
+			}
+			if (cur->type == T_CLOSE_PARENTHESES)
+			{
+				REPORT_ERROR(cur->line, cur->line_offset,
+					VAR_ARGS("unexpected token '%s'\n", cur->ToString().c_str()))
+					ExitProcess(1);
 			}
 			cur_node->r = parse_(cur_prec, parser_cond::LESSER_EQUAL);
 			//EatNewLine();
@@ -3701,6 +3742,7 @@ void GetIfExprType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type, 
 }
 
 // $NameFindingGetType $NameType
+#define NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE 2
 #define NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE 1
 bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_type, int flags)
 {
@@ -4044,6 +4086,11 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			case enum_type2::TYPE_VOID:
 			case enum_type2::TYPE_CHAR:
 			case enum_type2::TYPE_VECTOR:
+				if (ret_type.ptr == 0)
+				{
+					REPORT_ERROR(n->r->t->line, n->r->t->line_offset, VAR_ARGS("It's not a ptr to be derefd"));
+					ExitProcess(1);
+				}
 				ret_type.ptr--;
 				break;
 			case enum_type2::TYPE_TEMPLATE:
@@ -4105,6 +4152,10 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				if (IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 					ReportUndeclaredIdentifier(lang_stat, n->t);
 				return false;
+			}
+			if (IS_FLAG_ON(flags, NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE))
+			{
+				n->flags |= NODE_FLAGS_RETURN_IDENT_EVEN_NOT_DONE;
 			}
 			ret_type.e_decl = ident;
 		}
@@ -4941,8 +4992,18 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	decl2* lhs;
 	type2 dummy_type;
 
+	bool rhs_type_not_done_but_its_ptr = false;
 	if (ncall->r && !DescendNameFinding(lang_stat, ncall->r, scp))
-		return nullptr;
+	{
+		if (ncall->r->type != N_BINOP && NameFindingGetType(lang_stat, ncall->r, scp, dummy_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE | NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE))
+		{
+			if (dummy_type.ptr > 0)
+				rhs_type_not_done_but_its_ptr = true;
+		}
+
+		if(!rhs_type_not_done_but_its_ptr)
+			return nullptr;
+	}
 
 	//	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 	//		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
@@ -4977,7 +5038,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		if (!lhs)
 			return nullptr;
 
-		if (ncall->r && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && !DescendNameFinding(lang_stat, ncall->r, scp))
+		if (ncall->r && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && !DescendNameFinding(lang_stat, ncall->r, scp) && !rhs_type_not_done_but_its_ptr)
 		{
 			//	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 			//		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
@@ -5203,8 +5264,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					}
 					else
 					{
-						if (lhs->type.overload_funcs->templated)
-						{
+						//if (lhs->type.overload_funcs->templated)
+						//{
 							std::string fname = FuncNameWithTempls(lang_stat, lhs->name, &args_types);
 
 							auto found_decl = FindIdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
@@ -5218,9 +5279,9 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 								gotten_func = found_decl->type.fdecl;
 
 							is_templated_overload_so_no_need_to_get_templ_types = true;
-						}
-						else
-							return false;
+						//}
+						//else
+							//return false;
 					}
 				}
 
@@ -5472,7 +5533,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 		auto type = DescendNameFinding(lang_stat, ncall->r, scp);
 
-		if (!type)
+		if (!type && !rhs_type_not_done_but_its_ptr)
 			return nullptr;
 
 		if (lhs->type.strct->templates.size() != args.size())
@@ -5491,7 +5552,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		// is a plain template without any type whitin it
 		// Or if it's a builting type (in this case, the value will be simply 1)
 		// Because we can't instantiate a tempalte without type
-		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_NO_INSTANTIATION_BUT_RET_STRCT) || (long long)type != 1 && type->type.type == enum_type2::TYPE_TEMPLATE)
+		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_NO_INSTANTIATION_BUT_RET_STRCT) || 
+			!rhs_type_not_done_but_its_ptr && ((long long)type != 1 && type->type.type == enum_type2::TYPE_TEMPLATE))
 		{
 			ret_type->type = enum_type2::TYPE_STRUCT_TYPE;
 			ret_type->strct = lhs->type.strct;
@@ -5846,9 +5908,15 @@ node* NewUnopNode(lang_state *lang_stat, node* lhs, tkn_type2 t, node* rhs)
 	un->type = node_type::N_UNOP;
 	un->t = new_t;
 	if (lhs)
+	{
+		un->t->line = lhs->t->line;
 		un->l = lhs;
+	}
 	else
+	{
+		un->t->line = rhs->t->line;
 		un->r = rhs;
+	}
 
 	return un;
 }
@@ -6402,6 +6470,7 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 		decl_exist->type.overload_funcs->templated = true;
 		//f->name = MangleFuncNameWithArgs(lang_stat, f, f->name, 0);
 	}
+	decl_exist->type.overload_funcs->ovrld_op = f->op_overload;
 
 
 	type2 tp = {};
@@ -6418,6 +6487,7 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 void AddNewDeclToFileGlobalScope(lang_state *lang_stat, decl2* d)
 {
 	lang_stat->cur_file->global->AddDecl(d);
+	lang_stat->funcs_scp->vars.emplace_back(d);
 }
 node* CreateDeclNode(lang_state *lang_stat, std::string name, type2* tp, token2 *t)
 {
@@ -6564,7 +6634,7 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node* n, scope* sc
 		type2 dummy_tp;
 		decl2* decl = FindIdentifier(n->l->t->str, scp, &dummy_tp);
 
-		if (decl->type.type == TYPE_STATIC_ARRAY || decl->type.ptr > 0 || IS_FLAG_ON(decl->flags, DECL_IS_GLOBAL))
+		if (decl->type.type == TYPE_STATIC_ARRAY || IS_FLAG_ON(decl->flags, DECL_IS_GLOBAL))
 			return;
 
 		ASSERT(decl)
@@ -7432,10 +7502,47 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 				if (lhs_type.ptr > 0)
 				{
-					REPORT_ERROR(n->t->line, n->t->line,
-						VAR_ARGS("variable '%s' is pointer, and pointers cannot be indexed\n", lhs->name.c_str())
-					);
-					ExitProcess(1);
+					bool has_index_op = false;
+					if (lhs_type.type == TYPE_STRUCT)
+					{
+						own_std::vector<type2> tps;
+						tps.emplace_back(DescendNode(lang_stat, n->r, scp));
+						func_decl *found = lhs_type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n, &tps);
+						if (!found)
+						{
+							if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+							{
+								REPORT_ERROR(n->t->line, n->t->line,
+									VAR_ARGS("struct '%s' doesnt have [] overload\n", lhs_type.strct->name.c_str())
+								);
+								ExitProcess(1);
+							}
+							else
+								return nullptr;
+						}
+						node* deref_bottom = new_node(lang_stat, n->l);
+						node* deref_top = deref_bottom;
+						char ptr = lhs_type.ptr;
+						do
+						{
+							deref_top = NewUnOpNode(lang_stat, T_MUL, deref_top, n->t);
+							ptr--;
+						} while (ptr > 0);
+						memcpy(n->l, deref_top, sizeof(node));
+						auto a = 0;
+						has_index_op = true;
+						DescendNameFinding(lang_stat, n, scp);
+						return (decl2*)1;
+
+						//deref_bottom
+					}
+					if(!has_index_op)
+					{
+						REPORT_ERROR(n->t->line, n->t->line,
+							VAR_ARGS("variable '%s' is pointer, and pointers cannot be indexed\n", lhs->name.c_str())
+						);
+						ExitProcess(1);
+					}
 				}
 				if (!lhs_type.IsStrct(nullptr) && lhs_type.type != TYPE_STATIC_ARRAY)
 				{
@@ -8019,7 +8126,17 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					int flags_to_get_type = was_ptr * NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE * !is_ret_nil;
 					//DescendNameNM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE
 					if (!NameFindingGetType(lang_stat, n->r, scp, ret_type, flags_to_get_type))
+					{
+						bool found = false;
+						if (NameFindingGetType(lang_stat, n->r, scp, ret_type, flags_to_get_type | NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE))
+						{
+							if (ret_type.ptr > 0)
+								found = true;
+						}
+
+						if(!found)
 						return nullptr;
+					}
 
 					if (ret_type.type == TYPE_STRUCT_TYPE && ret_type.strct->templates.size() > 0 && IS_FLAG_OFF(ret_type.flags, TYPE_NOT_INSTANTIATED_YET))
 					{
@@ -8223,6 +8340,11 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 									if(!c->n->tstrct)
 										c->n->tstrct = (type_struct2*)AllocMiscData(lang_stat, sizeof(type_struct2));
 									type_struct2* cur_strct = c->n->tstrct;
+									if (!c->n->r)
+									{
+										c->n->r = new_node(lang_stat, c->n->t);
+
+									}
 									scope* new_struct_scp = GetScopeFromParent(lang_stat, c->n->r, child_scp);
 									cur_strct->scp = new_struct_scp;
 									if (!DescendNameFinding(lang_stat, c->n->r, new_struct_scp))
@@ -8687,6 +8809,55 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	case node_type::N_ELSE_IF:
 	case node_type::N_IF:
 	{
+		/*
+		if (CMP_NTYPE_BIN(n->l->l, T_COLON))
+		{
+			ASSERT(n->l->l->l->type == N_IDENTIFIER);
+			
+			node* ident = n->l->l->l;
+			node* type = n->l->l->r;
+
+			if (!DescendNameFinding(lang_stat, type, scp))
+			{
+				return nullptr;
+			}
+
+			// only accepting this kinda of syntax "if new_var : var.IDX == etruct.IDX"
+
+			ASSERT(CMP_NTYPE_BIN(type, T_COND_EQ))
+
+			ret_type = DescendNode(lang_stat, type->r, scp);
+
+			ASSERT(ret_type.type == TYPE_ENUM_IDX_32);
+
+			ASSERT(ret_type.from_enum->type.type == TYPE_STRUCT_TYPE);
+
+			type_struct2* strct = ret_type.from_enum->type.strct;
+
+			ASSERT(IS_FLAG_ON(strct->flags, TP_STRCT_ETRUCT));
+
+			if (!n->l->r->scp)
+				n->l->r->scp = GetScopeFromParent(lang_stat, n, scp);
+			scope* new_scp = n->l->r->scp;
+
+			decl2* type_from_enum = strct->scp->vars[ret_type.e_idx + 1];
+
+			decl2* d = NewDecl(lang_stat, ident->t->str, type_from_enum->type);
+
+			node* new_n = NewBinOpNode(lang_stat, type->l, T_POINT, NewIdentNode(lang_stat, type_from_enum->name, n->t));
+			//new_n = NewBinOpNode(lang_stat, new_node(lang_stat, new_n), T_POINT, );
+
+
+			d->flags |= DECL_FROM_USING;
+			d->using_node = new_n;
+
+			new_scp->vars.emplace_back(d);
+
+			auto a = 0;
+			memcpy(n->l->l, type->r, sizeof(node));
+		}
+		*/
+
 		//scp = GetScopeFromParent(n, given_scp);
 		if (n->l->l != nullptr && !DescendNameFinding(lang_stat, n->l->l, scp) && scp->parent != nullptr)
 			return nullptr;
@@ -8912,6 +9083,7 @@ node* MakeFuncCallArgs(lang_state *lang_stat, std::string fname, node* ref, own_
 	{
 		n_args->r = ref->NewTree(lang_stat);
 		n_args->t->type = tkn_type2::T_AMPERSAND;
+		n_args->t->line = ref->t->line;
 		n_args->type = node_type::N_UNOP;
 	}
 
@@ -8984,7 +9156,7 @@ void ModifyFuncDeclToName(lang_state *lang_stat, func_decl *fdecl, node *n, scop
 	
 	char buffer[64];
 	snprintf(buffer, 64, "func_ptr_decl%d", rand() % 100000);
-	fdecl->name = buffer;
+	fdecl->name = std::string(buffer);
 	//weird assert here, but sometimes, for only god knows why, the string gets currupted
 	// data when assigning
 	ASSERT(fdecl->name == buffer);
@@ -9378,7 +9550,22 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case enum_type2::TYPE_STRUCT_TYPE:
 			// can only convert to struct type, if the struct type is ptr and the rhs is 8 bytes
 
-			if (lhs_type.ptr == 0 && (rhs_type.type != enum_type2::TYPE_U64 || rhs_type.type != enum_type2::TYPE_S64))
+			if(IS_FLAG_ON(lhs_type.strct->flags, TP_STRCT_ETRUCT))
+			{
+				if (rhs_type.type == TYPE_INT)
+				{
+					ret_type.type = TYPE_ENUM_IDX_32;
+					ret_type.i = rhs_type.i;
+				}
+				else
+				{
+					ret_type.type = TYPE_ENUM;
+				}
+				ret_type.from_enum = lhs_type.strct->this_decl;
+				return ret_type;
+			}
+
+			else if (lhs_type.ptr == 0 && (rhs_type.type != enum_type2::TYPE_U64 || rhs_type.type != enum_type2::TYPE_S64))
 			{
 				ReportMessage(lang_stat, n->l->t, "Cast cannot be a plain struct, try a struct ptr");
 				ExitProcess(1);
@@ -9406,37 +9593,46 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			ret_type = DescendNode(lang_stat, n->r, scp);
 
 			// assigning to a arbitrary value
-			tkn_type2 opposite = T_PLUS;
 
-			// changing bool expression operators to its opposite
-			if (n->r->type == N_BINOP)
+			if(ret_type.ptr > 0)
 			{
-				switch (n->r->t->type)
+				node* new_n = NewBinOpNode(lang_stat, n->r, T_COND_EQ, NewIntNode(lang_stat, 0, n->t));
+				
+				memcpy(n, new_n, sizeof(node));
+			}
+			else
+			{
+				tkn_type2 opposite = T_PLUS;
+				// changing bool expression operators to its opposite
+				if (n->r->type == N_BINOP)
 				{
-				case tkn_type2::T_COND_EQ:
-					opposite = T_COND_NE;
-					break;
-				case tkn_type2::T_COND_NE:
-					opposite = T_COND_EQ;
-					break;
-				case tkn_type2::T_LESSER_THAN:
-					opposite = T_GREATER_EQ;
-					break;
-				case tkn_type2::T_LESSER_EQ:
-					opposite = T_GREATER_THAN;
-					break;
-				case tkn_type2::T_GREATER_THAN:
-					opposite = T_LESSER_EQ;
-					break;
-				case tkn_type2::T_GREATER_EQ:
-					opposite = T_LESSER_THAN;
-					break;
-				}
+					switch (n->r->t->type)
+					{
+					case tkn_type2::T_COND_EQ:
+						opposite = T_COND_NE;
+						break;
+					case tkn_type2::T_COND_NE:
+						opposite = T_COND_EQ;
+						break;
+					case tkn_type2::T_LESSER_THAN:
+						opposite = T_GREATER_EQ;
+						break;
+					case tkn_type2::T_LESSER_EQ:
+						opposite = T_GREATER_THAN;
+						break;
+					case tkn_type2::T_GREATER_THAN:
+						opposite = T_LESSER_EQ;
+						break;
+					case tkn_type2::T_GREATER_EQ:
+						opposite = T_LESSER_THAN;
+						break;
+					}
 
-				if (opposite != T_PLUS)
-				{
-					n->r->t->type = opposite;
-					memcpy(n, n->r, sizeof(node));
+					if (opposite != T_PLUS)
+					{
+						n->r->t->type = opposite;
+						memcpy(n, n->r, sizeof(node));
+					}
 				}
 			}
 		}break;
@@ -9786,7 +9982,10 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				}
 			}
 			else
-				decl = FindIdentifier(n->t->str, scp, &ret_type);
+			{
+				int flags = FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE * IS_FLAG_ON(n->flags, NODE_FLAGS_RETURN_IDENT_EVEN_NOT_DONE);
+				decl = FindIdentifier(n->t->str, scp, &ret_type, flags);
+			}
 			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl)
 				ReportUndeclaredIdentifier(lang_stat, n->t);
 
@@ -10210,6 +10409,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
 
 			ret_type = ltp;
+			ret_type.type = TYPE_BOOL;
 
 			// creating an implict "... == true"
 
@@ -11202,10 +11402,16 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 						break;
 					}
 				}
+				if (ret)
+				{
+					//ASSERT(ret->this_decl->type.type != TYPE_OVERLOADED_FUNCS);
+					break;
+				}
 			}
 		}
 		if (ret)
 		{
+			//ASSERT(ret->this_decl->type.type != TYPE_OVERLOADED_FUNCS);
 			if (!CheckOverloadFunction(lang_stat, ret))
 				return nullptr;
 

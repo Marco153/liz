@@ -149,6 +149,7 @@ struct type_data
 		// entries is how many members a strct has
 		int entries;
 	};
+	long long strct_sz;
 	long long offset;
 	char ptr;
 	enum_type2 tp;
@@ -576,10 +577,18 @@ struct type_struct2
 		decl2 *found_op = nullptr;
 		FOR_VEC(f, op_overloads_funcs)
 		{
-			if (op == (*f)->type.fdecl->op_overload)
+			if ((*f)->type.type == TYPE_OVERLOADED_FUNCS && (*f)->type.overload_funcs->ovrld_op == op)
 			{
 				found_op = (*f);
 				break;
+			}
+			else
+			{
+				if (op == (*f)->type.fdecl->op_overload)
+				{
+					found_op = (*f);
+					break;
+				}
 			}
 		}
 	
@@ -589,7 +598,10 @@ struct type_struct2
 				TransformSingleFuncToOvrlStrct(lang_stat, found_op);
 				
 			if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_NAME_INSERTED))
-				fdecl->name = MangleFuncNameWithArgs(lang_stat, fdecl, this->name, 1) + OvrldOpToStr(fdecl->op_overload);
+			{
+				fdecl->name = std::string(found_op->name);
+				fdecl->name = MangleFuncNameWithArgs(lang_stat, fdecl, fdecl->name, 0);
+			}
 
 			type2 tp = {};
 			tp.type = TYPE_FUNC;
@@ -617,6 +629,8 @@ struct type_struct2
 			fdecl->this_decl->type = f_tp;
 			fdecl->templated_in_file = lang_stat->cur_file;
 			fdecl->templated_in_file_line = line;
+			if (fdecl->this_decl->name == "string==")
+				auto a = 0;
 			op_overloads_funcs.push_back(fdecl->this_decl);
 
 			NewDeclToCurFilseGlobalsScope(lang_stat, fdecl->this_decl);
@@ -663,6 +677,7 @@ struct type_struct2
 		strct_ptr->tp = enum_type2::TYPE_STRUCT_DECL;
 		strct_ptr->entries = vars.size();
 		strct_ptr->flags = flags;
+		strct_ptr->strct_sz = sizeof(this);
 
 		InsertIntoCharVector(&strct_str_tbl, (void *)this->name.data(), this->name.size());
 

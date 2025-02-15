@@ -279,7 +279,10 @@ std::string TypeToString(type2 &tp)
 	}break;
 	case enum_type2::TYPE_ENUM:
 	{
-		ret += std::string("enum ") + tp.e_decl->type.e_decl->name;
+		if (tp.e_decl->type.type == TYPE_STRUCT_TYPE)
+			ret += std::string("enum ") + tp.e_decl->name;
+		else
+			ret += std::string("enum ") + tp.e_decl->type.e_decl->name;
 	}break;
 	case enum_type2::TYPE_BOOL:
 	{
@@ -902,6 +905,28 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 							ch[cur_idx + 1] = '\n';
 							tkn.str.push_back('\n');
 						}
+						else if(ch[cur_idx + 1] == '"')
+						{
+							ch[cur_idx + 1] = '\"';
+							tkn.str.push_back('\"');
+						}
+						else if(ch[cur_idx + 1] == 't')
+						{
+							ch[cur_idx + 1] = '\t';
+							tkn.str.push_back('\t');
+						}
+						else if(ch[cur_idx + 1] == '}')
+						{
+							//ch[cur_idx + 1] = '\n';
+							tkn.str.push_back('\\');
+							tkn.str.push_back('}');
+						}
+						else if(ch[cur_idx + 1] == '{')
+						{
+							//ch[cur_idx + 1] = '\n';
+							tkn.str.push_back('\\');
+							tkn.str.push_back('{');
+						}
 						else if(ch[cur_idx + 1] != 0)
 						{
 							ASSERT(false)
@@ -947,6 +972,20 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					{
 						
 						tkn.i = 0xa;
+					}
+					else if (input[i + 1] == '"')
+					{
+						
+						tkn.i = '\"';
+					}
+					else if (input[i + 1] == '\\')
+					{
+						tkn.i = '\\';
+					}
+					else if (input[i + 1] == 't')
+					{
+						
+						tkn.i = '\t';
 					}
 					else
 						ASSERT(0)

@@ -326,6 +326,7 @@ struct get_func_bc_info
 		int wasm_bc_idx;
 	};
 };
+
 struct lang_state
 {
 	int cur_idx;
@@ -346,6 +347,8 @@ struct lang_state
 
 	byte_code2* bcs2_start;
 	byte_code2* bcs2_end;
+
+	own_std::vector<own_std::vector<int>> inside_ifs;
 
 	lsp_stage_enum lsp_stage;
 	lsp_intention_enum intentions_to_lsp;
@@ -2834,6 +2837,7 @@ struct dbg_state
 	own_std::vector<dbg_expr *> exprs;
 	own_std::vector<dbg_expr2 *> exprs2;
 	std::string scene_folder;
+	long long same_func_stack_ptr;
 	//own_std::vector<command_info> cmds;
 
 	command_info* global_cmd;
@@ -9501,6 +9505,8 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		{
 		case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
 		{
+			//int rsp = *(int*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+
 			if (dbg->next_stat_break_func && (offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end))
 			{
 				breakpoint bp;
@@ -9770,7 +9776,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					//MakeCurBcToBeBreakpoint(dbg, func_call_first_st_bc, found_f_first_stat->line);
 					*/
 					release_inst = true;
-					dbg->break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
+					dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
 					byte_code2* dst_bc = out + out->i;
 					func_decl *dst_func = GetFuncBasedOnBc2(dbg, dst_bc);
 					dbg->next_stat_break_func = dst_func;
@@ -9807,6 +9813,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					}
 				}
 				dbg->next_stat_break_func = dbg->cur_func;
+				dbg->same_func_stack_ptr = *(int*) & dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 				release_inst = true;
 			}
 
@@ -10385,7 +10392,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 	char buffer[256];
 	//ImGui::Text("offset: %d", d->offset);
 	//ImGui::SameLine();
-	if (d->name == "test")
+	if (d->name == "l_ptr")
 	{
 		auto a = 0;
 	}
@@ -10435,8 +10442,14 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 	}
 	else if (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE)
 	{
-		int offset = base_ptr;
+		//int offset = base_ptr;
 		char ptr = ptr_decl;
+		auto original_addr = base_ptr;
+		while (ptr > 0)
+		{
+			base_ptr = *(int*)&dbg.mem_buffer[base_ptr];
+			ptr--;
+		}
 
 		std::string name = d->name;
 		std::string ptr_str = "";
@@ -10454,6 +10467,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 				if (len <= 0 || len >= 256)
 				{
 					ImGui::Text("cant display this string");
+					ImGui::TreePop();  // This is required at the end of the if block
 					return;
 				}
 
@@ -10531,7 +10545,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 				if (ImGui::TreeNodeEx(buffer, flag))
 				{
-					ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, offset);
+					ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, base_ptr);
 					ImGui::TreePop();  // This is required at the end of the if block
 				}
 			}
@@ -10542,11 +10556,16 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 					ImGui::Text("%s higher than max: %d", d->name.c_str(), dbg.mem_size);
 					return;
 				}
-				int addr = *(int*)&dbg.mem_buffer[base_ptr];
-				snprintf(buffer, 64, "%d->%d", base_ptr, addr);
+				if (base_ptr < 0)
+				{
+					ImGui::Text("%s less than zero", d->name.c_str());
+					return;
+				}
+				//int addr = base_ptr;
+				snprintf(buffer, 64, "%d->%d", original_addr, base_ptr);
 				ImGui::Text(buffer);
 				ImGui::SameLine();
-				ImGuiPrintVar(buffer, dbg, d, addr, ptr_decl - 1);
+				ImGuiPrintVar(buffer, dbg, d, base_ptr, 0);
 			}
 
 		}
@@ -12530,7 +12549,7 @@ void GenX64AddGetFuncAddrReloc(lang_state* lang_stat, own_std::vector<byte_code>
 void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 	own_std::vector<byte_code>& ret,
 	own_std::vector<ir_rep>& irs,
-	wasm_gen_state* gen_state,
+	wasm_gen_state* gen_state, ir_rep *ir,
 	assign_info &assign, int line)
 {
 	byte_code bc = {};
@@ -12552,6 +12571,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				bc.rel.offset = assign.lhs.on_data_sect_offset;
 				ret.emplace_back(bc);
 				bc.type = MOV_R_2_REG_PARAM;
+				bc.ir = ir;
 				bc.bin.lhs.reg = assign.to_assign.reg;
 				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
 				bc.bin.rhs.reg = str_on_reg;
@@ -12582,6 +12602,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 					else
 						bc.type = MOV_R_2_REG_PARAM;
 				}
+				bc.ir = ir;
 				bc.bin.lhs.reg = assign.to_assign.reg;
 				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
 				bc.bin.rhs.reg = lhs.reg;
@@ -12635,6 +12656,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				{
 					GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false, false);
 					bc.type = MOV_R_2_REG_PARAM;
+					bc.ir = ir;
 					bc.bin.lhs.reg = assign.to_assign.reg;
 					bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
 					bc.bin.rhs.reg = lhs.reg;
@@ -14451,7 +14473,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			GenX64BytecodeFromAssignIR(lang_stat,
 				ret,
 				irs,
-				gen_state,
+				gen_state, ir,
 				ir->assign, cur_line);
 			break;
 
@@ -14469,7 +14491,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				byte_code_enum inst = CVTSD_REG_2_SS;
 				if(ir->bin.rhs.type == IR_TYPE_INT)
 				{
-					char reg = AllocReg(lang_stat);
+					char reg = AllocFloatReg(lang_stat);
 					rhs.reg = reg;
 					rhs.reg_sz = 4;
 					GenX64ImmToReg(ret, reg, 4, ir->bin.rhs.i, MOV_I);
@@ -14505,6 +14527,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				bc.bin.rhs.voffset = rhs.voffset;
 				bc.bin.rhs.reg_sz = 1;
 				ret.emplace_back(bc);
+				AllocSpecificFloatReg(lang_stat, bc.bin.lhs.reg);
 			}break;
 			default:
 				ASSERT(false);
@@ -14542,6 +14565,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				ir_val_aux src;
 				switch (ir->bin.rhs.type)
 				{
+				case IR_TYPE_INT:
+				{
+					bc.type = MOV_I;
+					bc.ir = ir;
+					bc.bin.lhs.reg_sz = 4;
+					bc.bin.rhs.i = ir->bin.rhs.i;
+					//bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+					ret.emplace_back(bc);
+				}break;
 				case IR_TYPE_REG:
 				{
 					GenX64ToIrValReg2(lang_stat, ret, &src, &ir->bin.rhs, false, false);
@@ -14738,6 +14770,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			else
 			{
 				ret.emplace_back(byte_code(rel_type::REL_FUNC, (char*)ir->call.fdecl->name.c_str(), (int)0, (char)0, ir->call.fdecl));
+				ret.back().ir = (ir_rep *)(long long)cur_line;
 			}
 		}break;
 		case IR_CAST_F32_TO_INT:
@@ -15256,6 +15289,9 @@ void GenWasm(web_assembly_state* wasm_state)
 
 		switch (ex->type.type)
 		{
+		case TYPE_OVERLOADED_FUNCS:
+		{
+		}break;
 		case TYPE_WASM_MEMORY:
 		{
 			exports_sect.emplace_back(2);
@@ -16932,7 +16968,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
-	lang_stat->max_decl = 4000;
+	lang_stat->max_decl = 4500;
 	lang_stat->cur_decl = 0;
 	lang_stat->decl_arena = (decl2*)AllocMiscData(lang_stat, lang_stat->max_decl * sizeof(decl2));
 	//lang_stat->max_misc = 16 * 1024 * 1024;

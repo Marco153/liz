@@ -5036,7 +5036,17 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		else
 			lhs = DescendNameFinding(lang_stat, ncall->l, scp);
 		if (!lhs)
-			return nullptr;
+		{
+			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+			{
+				REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
+					VAR_ARGS("func not found")
+					)
+				ExitProcess(1);
+			}
+			else
+				return nullptr;
+		}
 
 		if (ncall->r && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && !DescendNameFinding(lang_stat, ncall->r, scp) && !rhs_type_not_done_but_its_ptr)
 		{

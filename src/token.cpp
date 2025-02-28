@@ -815,6 +815,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					tkn.type = T_LESSER_EQ;
 					i++;
 				}
+				else if(ch[1] == '<')
+				{
+					tkn.type = T_SHIFT_LEFT;
+					i++;
+				}
 				else
 					tkn.type = T_LESSER_THAN;
 			}break;
@@ -824,6 +829,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				if(ch[1] == '=')
 				{
 					tkn.type = T_GREATER_EQ;
+					i++;
+				}
+				else if(ch[1] == '>')
+				{
+					tkn.type = T_SHIFT_RIGHT;
 					i++;
 				}
 				else

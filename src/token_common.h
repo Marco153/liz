@@ -35,6 +35,8 @@ enum tkn_type2 : unsigned char
 	T_TILDE,
 	T_COMMA,
 	T_POINT,
+	T_SHIFT_LEFT,
+	T_SHIFT_RIGHT,
 
 	T_GREATER_THAN,
 	T_GREATER_EQ,

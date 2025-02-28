@@ -66,6 +66,27 @@ enum byte_code_enum : unsigned char
 	XOR_SSE_2_MEM,
 	XOR_SSE_2_RMEM,
 
+	SHIFTR_R,
+	SHIFTR_M,
+	SHIFTR_M_2_M,
+	SHIFTR_R_2_M,
+	SHIFTR_M_2_R,
+	SHIFTR_I_2_R,
+	SHIFTR_I_2_M,
+	SHIFTR_I_2_RM,
+	SHIFTR_R_2_RM,
+	SHIFTR_R_2_R,
+
+	SHIFTL_R,
+	SHIFTL_M,
+	SHIFTL_M_2_M,
+	SHIFTL_R_2_M,
+	SHIFTL_M_2_R,
+	SHIFTL_I_2_R,
+	SHIFTL_I_2_M,
+	SHIFTL_I_2_RM,
+	SHIFTL_R_2_RM,
+	SHIFTL_R_2_R,
 
 	DIV_R,
 	DIV_M,
@@ -367,6 +388,7 @@ struct byte_code
 	};
 
 	unsigned int machine_code_idx;
+	unsigned int _line;
 	union
 	{
 		struct

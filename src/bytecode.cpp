@@ -1288,6 +1288,22 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case CMP_M_2_R:
 			CreateMemToReg(&*bc, 0x3a, 0x3b, false, ret);
 			break;
+
+		case SHIFTR_I_2_R:
+		{
+			char reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			bool is_rex = IS_FLAG_ON(reg, 0x80);
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc0, 0xc1, is_rex, ret.code);
+			//char op = 0xe8 | bc->bin.lhs.r;
+		}break;
+		case SHIFTL_I_2_R:
+		{
+			char reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			bool is_rex = IS_FLAG_ON(reg, 0x80);
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc0, 0xc1, is_rex, ret.code);
+			//char op = 0xe0 | bc->bin.lhs.r;
+		}break;
+
 		case CMP_I_2_R:
 			CreateImmToReg(0x3c, 0x3d, 7, &*bc, ret);
 			break;

@@ -333,6 +333,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		case T_GREATER_EQ:
 		case T_GREATER_THAN:
 		case T_MINUS:
+		case T_SHIFT_LEFT:
+		case T_SHIFT_RIGHT:
 		case T_DIV:
 		case T_PERCENT:
 		{
@@ -1022,6 +1024,11 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val)
 		}
 		else if(ast->decl->type.type != TYPE_STRUCT)
 			val->is_unsigned = IsUnsigned(ast->decl->type.type);
+		else if(ast->decl->type.type == TYPE_STRUCT
+			&& IS_FLAG_ON(ast->decl->type.strct->flags, TP_STRCT_ETRUCT))
+		{
+			val->reg_sz = GetTypeSize(&ast->decl->type.strct->vars[0]->type);
+		}
 		//if (ast->decl->type.ptr > 0)
 			//val->is_unsigned = true;
 		val->is_float = ast->decl->type.type == TYPE_F32;
@@ -2186,6 +2193,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						ir.assign.to_assign.i = cur_spill_offset;
 						ir.assign.only_lhs = true;
 						ir.assign.lhs = *to_spill;
+						ir.assign.lhs.deref = -1;
+						ir.assign.lhs.reg_sz = 8;
 						ir.assign.to_assign.is_float = ir.assign.lhs.is_float;
 						//ir.assign.lhs.deref = 1;
 						out->emplace_back(ir);

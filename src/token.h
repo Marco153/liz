@@ -36,6 +36,7 @@ std::string MangleFuncNameWithArgs(lang_state *, func_decl *fdecl, std::string o
 decl2 *NewDecl(lang_state *, std::string name, type2 tp);
 decl2 *GetDeclFromStruct(type_struct2*);
 void TransformSingleFuncToOvrlStrct(lang_state *, decl2 *decl_exist);
+int GetTypeSize(type2* tp);
 
 
 
@@ -152,6 +153,7 @@ struct type_data
 	long long strct_sz;
 	long long offset;
 	char ptr;
+	decl2* serializable_func;
 	enum_type2 tp;
 	int flags;
 	int name;
@@ -316,6 +318,7 @@ struct template_to_be_assigned
 #define FUNC_DECL_LABEL 0x400000
 #define FUNC_DECL_LABELS_GOTTEN 0x800000
 #define FUNC_DECL_INSTANTIATED 0x1000000
+#define FUNC_DECL_CAST 0x2000000
 
 struct stmnt_dbg
 {
@@ -526,6 +529,8 @@ std::string OvrldOpToStr(overload_op op);
 #define TP_STRCT_STRUCT_SERIALIZED 4
 #define TP_STRCT_TUPLE 8
 #define TP_STRCT_ETRUCT 0x10
+#define TP_STRCT_IS_DYN_ARRAY 0x20
+#define TP_STRCT_ACTUAL_SERIALIZED 0x40
 //#define TP_STRCT_DONE 8
 struct type_struct2
 {
@@ -547,8 +552,10 @@ struct type_struct2
 	own_std::vector<decl2 *> op_overloads_funcs;
 	own_std::vector<func_overload_strct> op_overloads_intern;
 	own_std::vector<func_overload_strct> constructors;
+	own_std::vector<int> depends_on_me;
 
 	own_std::vector<type_struct2 *> instantiated_strcts;
+	decl2* ser_func;
 	type_struct2 *original_strct;
 	node *strct_node;
 	scope *scp;
@@ -656,7 +663,7 @@ struct type_struct2
 	}
 
 #define NEXT_TYPE_DATA(st, name_sz) (type_data *)(((char*)(st + 1)) + (name_sz))
-	void ToTypeSect(own_std::vector<own_std::vector<char>> *str_tbl, own_std::vector<char> *type_sect, int *str_tbl_sz)
+	void ToTypeSect(lang_state *lang_stat, own_std::vector<char> *type_sect, int *str_tbl_sz)
 	{
 		// the name of the struct and variables go at the of the struct
 		own_std::vector<char> buffer;
@@ -677,12 +684,35 @@ struct type_struct2
 		strct_ptr->tp = enum_type2::TYPE_STRUCT_DECL;
 		strct_ptr->entries = vars.size();
 		strct_ptr->flags = flags;
-		strct_ptr->strct_sz = sizeof(this);
+		strct_ptr->strct_sz = size;
+
+
+		if (ser_func)
+		{
+			strct_ptr->serializable_func = ser_func;
+			lang_stat->ser_funcs_type_data.emplace_back(type_sect->size());
+		}
+
+		if (original_strct && original_strct->name == "dyn_array")
+		{
+			strct_ptr->flags |= TP_STRCT_IS_DYN_ARRAY;
+			if (name == "dyn_array_1layer_sprites")
+				auto a = 0;
+		}
+		if (name == "layer_sprites")
+			auto a = 0;
 
 		InsertIntoCharVector(&strct_str_tbl, (void *)this->name.data(), this->name.size());
 
 		type_data *var_ptr = nullptr;
 
+		int total_vars = 0;
+		FOR_VEC(v, vars)
+		{
+			if (IS_FLAG_ON((*v)->flags, DECL_FROM_USING))
+				continue;
+			total_vars++;
+		}
 		int i = 0;
 		FOR_VEC(v, vars)
 		{
@@ -695,7 +725,7 @@ struct type_struct2
 
 			var_ptr = (type_data*)&buffer[last_size];
 			
-			offset_to_str_tbl  = (vars.size() - i) * sizeof(type_data);
+			offset_to_str_tbl  = (total_vars - i) * sizeof(type_data);
 			offset_to_str_tbl += strct_str_tbl.size();
 			offset_to_str_tbl -= offsetof(type_data, name);
 
@@ -706,7 +736,9 @@ struct type_struct2
 			}
 			var_ptr->offset = (*v)->offset;
 			var_ptr->tp = (*v)->type.type;
+			var_ptr->ptr = (*v)->type.ptr;
 			var_ptr->name = offset_to_str_tbl;
+			var_ptr->strct_sz = GetTypeSize(&(*v)->type);
 			var_ptr->name_len = (*v)->name.length();
 			var_ptr->flags = (*v)->flags;
 
@@ -716,14 +748,32 @@ struct type_struct2
 			{
 				var_ptr->flags |= IS_FLAG_ON((*v)->type.strct->flags, TP_STRCT_ETRUCT) * TP_STRCT_ETRUCT;
 				var_ptr->_u64 = (*v)->type.strct->type_sect_offset + MEM_PTR_START_ADDR;
+				if(IS_FLAG_OFF((*v)->type.strct->flags, TP_STRCT_ACTUAL_SERIALIZED))
+				{
+					(*v)->type.strct->depends_on_me.emplace_back(type_sect_offset + last_size);
+				}
 			}
-
 			i++;
 		}
 		
 
+		strct_ptr = (type_data *)buffer.data();
+		strct_ptr->entries = total_vars;
+		strct_ptr->name = sizeof(type_data) * (total_vars + 1);
+		strct_ptr->name    -= offsetof(type_data, name);
+
 		type_sect->insert(type_sect->end(), buffer.begin(), buffer.end());
 		type_sect->insert(type_sect->end(), strct_str_tbl.begin(), strct_str_tbl.end());
+
+		FOR_VEC(cur, depends_on_me)
+		{
+			var_ptr = (type_data*)&(*type_sect)[*cur];
+			var_ptr->_u64 = type_sect_offset + MEM_PTR_START_ADDR;
+			auto a = 0;
+
+		}
+
+		flags |= TP_STRCT_ACTUAL_SERIALIZED;
 
 	}
 };
@@ -890,6 +940,14 @@ std::string OperatorToString(tkn_type2 type)
 		case tkn_type2::T_OPEN_CURLY:
 		{
 			return std::string("\n{\n");
+		}break;
+		case tkn_type2::T_SHIFT_RIGHT:
+		{
+			return std::string(">>");
+		}break;
+		case tkn_type2::T_SHIFT_LEFT:
+		{
+			return std::string("<<");
 		}break;
 		case tkn_type2::T_LESSER_THAN:
 		{

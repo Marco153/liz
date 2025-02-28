@@ -822,8 +822,20 @@ enum_test : etruct
 	)
 }
 
+test_strct_ser:struct
+{
+	a : u32,
+}
+test_strct_ser_func::fn() !u32
+{
+	return 5;
+}
+
+#assign_ser_func(test_strct_ser, test_strct_ser_func)
+
 tests :: fn(ret : *u32)
 {
+
 	i:= 7;
 	if i != 7
 		debug_break();
@@ -1469,12 +1481,6 @@ tests :: fn(ret : *u32)
 		debug_break();
 
 
-
-	//__dbg_break
-
-	//buffer: dyn_array(char);
-	//Serialize(&buffer, GetTypeData(enum_test), &etest)
-
 	etest: enum_test
 	if etest == enum_test.VAL1
 	{
@@ -1494,6 +1500,11 @@ tests :: fn(ret : *u32)
 	if etest.VAL2.ch != 'a
 		debug_break();
 
+	//__dbg_break
+
+	//buffer: dyn_array(char);
+	//Serialize(&buffer, GetTypeData(enum_test), &etest)
+
 	str1 :string
 	str1.data.data = cast(*char)"joe"
 	str1.data.count = 3
@@ -1505,5 +1516,22 @@ tests :: fn(ret : *u32)
 	if str1 == str2
 		debug_break();
 
+	test_tp: = GetTypeData(test_strct_ser);
+
+
+	i = (cast(fn() !s32)test_tp.ser_func)();
+
+	if i != 5
+		debug_break();
+
+
+	i = 1;
+	i = i << 2
+	if i != 0x4
+		debug_break();
+
+	i = i >> 2
+	if i != 1
+		debug_break();
 
 }

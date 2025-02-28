@@ -1,3 +1,11 @@
+int clamp(int a, int min, int max)
+{
+	if (a >= max)
+		return max;
+	if (a <= min)
+		return min;
+	return a;
+}
 #include <iostream>
 #include <windows.h>
 #include <stdio.h>

@@ -424,6 +424,8 @@ bool node_iter::is_operator(token2* tkn, int* precedence)
 	case tkn_type2::T_PLUS:
 	case tkn_type2::T_PIPE:
 	case tkn_type2::T_PLUS_PLUS:
+	case tkn_type2::T_SHIFT_RIGHT:
+	case tkn_type2::T_SHIFT_LEFT:
 	case tkn_type2::T_MINUS_MINUS:
 	{
 		*precedence = PREC_PLUS;
@@ -1155,6 +1157,15 @@ node* node_iter::parse_expr()
 
 			ExpectTkn(T_CLOSE_PARENTHESES);
 			get_tkn();
+		}
+		else if(peek->str == "assign_ser_func")
+		{
+			get_tkn();
+			EatNewLine();
+			n->type = N_ASSIGN_SER_FUNC;
+			n->r = parse_expr();
+			n->r->flags &= ~NODE_FLAGS_COMMA_INSIDE_PARENTHESES;
+			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
 		}
 		else if(peek->str == "serializable")
 		{
@@ -3404,6 +3415,8 @@ T GetExpressionValT(tkn_type2 tp, T a, T b)
 	case tkn_type2::T_AMPERSAND:	return a & b;
 	case tkn_type2::T_MUL:	return a * b;
 	case tkn_type2::T_DIV:	return a / b;
+	case tkn_type2::T_SHIFT_LEFT:	return a << b;
+	case tkn_type2::T_SHIFT_RIGHT:	return a >> b;
 	case tkn_type2::T_PIPE:	return (int)a | (int)b;
 	default:ASSERT(false)
 	}
@@ -3549,6 +3562,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 
 		new_strct->flags = TP_STRCT_STRUCT_NOT_NODE;
 		new_strct->this_decl = instantions_exist;
+		new_strct->name = std::string(new_strct->this_decl->name);
 	}
 	else
 	{
@@ -3615,6 +3629,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 
 	ret_type.type = enum_type2::TYPE_STRUCT_TYPE;
 	ret_type.strct = new_strct;
+	new_strct->ToTypeSect(lang_stat, &lang_stat->type_sect, nullptr);
 
 	//ncall->l->t->str = templ_name;
 
@@ -4989,6 +5004,7 @@ void CreateTemplateInstantiationName(std::string &name, own_std::vector<comma_re
 bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, decl2* decl_func)
 {
 	char msg_hdr[256];
+	decl2 aux_decl;
 	decl2* lhs;
 	type2 dummy_type;
 
@@ -5016,7 +5032,12 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				return false;
 			ModifyFuncDeclToName(lang_stat, ncall->l->fdecl, ncall->l, scp);
 		}
-		if (ncall->l->type == N_IDENTIFIER)
+		else if (ncall->l->type == N_CAST)
+		{
+			NameFindingGetType(lang_stat, ncall->l, scp, aux_decl.type);
+			lhs = &aux_decl;
+		}
+		else if (ncall->l->type == N_IDENTIFIER)
 		{
 			lhs = FindIdentifier(ncall->l->t->str, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 			bool is_self_ref = scp->fdecl && scp->fdecl->this_decl == lhs;
@@ -5027,10 +5048,21 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				if (lhs->type.fdecl->call_not_found == scp->fdecl)
 					is_self_ref = true;
 			}
-			if (lhs && lhs->type.type == TYPE_FUNC && 
-				lhs->type.fdecl->templates.size() == 0 && 
+			if (lhs && lhs->type.type == TYPE_FUNC &&
+				lhs->type.fdecl->templates.size() == 0 &&
 				IS_FLAG_ON(lhs->flags, DECL_NOT_DONE) && !is_self_ref)
-				return nullptr;
+			{
+
+				if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+				{
+					REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
+						VAR_ARGS("for some reason func was not done")
+						)
+					ExitProcess(1);
+				}
+				else
+					return nullptr;
+			}
 
 		}
 		else
@@ -5058,7 +5090,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	else
 		lhs = decl_func;
 
-	if (IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_X64) && lhs && lhs->type.type == TYPE_FUNC && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_X64 | FUNC_DECL_MACRO | FUNC_DECL_INTERNAL))
+	if (lang_stat->cur_func && IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_X64) && lhs && lhs->type.type == TYPE_FUNC && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_X64 | FUNC_DECL_MACRO | FUNC_DECL_INTERNAL))
 	{
 		REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 			VAR_ARGS("function '%s' is x64, but the call to the function '%s' is not.",
@@ -5192,6 +5224,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 			auto new_tree = fdecl->func_node->r->r->NewTree(lang_stat);
 
+			if (ncall->r && !DescendNameFinding(lang_stat, ncall->r, scp))
+				return false;
 			auto last_tkn = ncall->t;
 			BuildMacroTree(lang_stat, fdecl->scp, new_tree, ncall->t->line);
 			if (lang_stat->is_lsp)
@@ -6971,14 +7005,86 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		return FindIdentifier(n->l->t->str, scp, &ret_type);
 	}break;
+	case N_ASSIGN_SER_FUNC:
+	{
+		if (IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2))
+			return (decl2*)1;
+		ASSERT(CMP_NTYPE_BIN(n->r, T_COMMA));
+		ASSERT(n->r->r->type == N_IDENTIFIER);
+
+		decl2* lhs = DescendNameFinding(lang_stat, n->r->l, scp);
+		decl2* rhs = DescendNameFinding(lang_stat, n->r->r, scp);
+
+		if (!lhs)
+			return nullptr;
+		if (!rhs)
+			return nullptr;
+
+		ASSERT(n->r->l->type == N_IDENTIFIER);
+
+		lhs = FindIdentifier(n->r->l->t->str, scp, &ret_type);
+		rhs = FindIdentifier(n->r->r->t->str, scp, &ret_type);
+
+		ASSERT(lhs->type.type == TYPE_STRUCT_TYPE);
+		ASSERT(rhs->type.type == TYPE_FUNC);
+
+		lhs->type.strct->ser_func = rhs;
+
+		int offset = lhs->type.strct->type_sect_offset;
+		type_data * tp = (type_data *)&lang_stat->type_sect[offset];
+
+		tp->serializable_func = rhs;
+
+		lang_stat->ser_funcs_type_data.emplace_back(offset);
+		n->flags |= NODE_FLAGS_IS_PROCESSED2;
+
+	}break;
 	case N_SERIALIZABLE:
 	{
 		own_std::vector<comma_ret> commas;
 		DescendComma(lang_stat, n->r, scp, commas);
 		FOR_VEC(c, commas)
 		{
-			decl2* d = FindIdentifier(c->decl.name, scp, &ret_type);
-			d->flags |= DECL_SERIALIZABLE;
+			switch (c->type)
+			{
+			case COMMA_RET_EXPR:
+			{
+				ASSERT(CMP_NTYPE_BIN(c->n, T_EQUAL));
+				ASSERT(c->n->r->type == N_IDENTIFIER);
+				if (c->n->l->t->str == "ser_func")
+				{
+					decl2* d = FindIdentifier(c->n->r->t->str, scp, &ret_type);
+					if (!d)
+					{
+						if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+						{
+							ReportUndeclaredIdentifier(lang_stat, n->t);	
+							return nullptr;
+
+						}
+						else
+							return nullptr;
+					}
+
+					ASSERT(d->type.type == TYPE_FUNC);
+
+					ASSERT(scp->type == SCP_TYPE_STRUCT);
+
+					scp->tstrct->ser_func = d;
+				}
+				else
+				{
+					ASSERT(0);
+				}
+			}break;
+			case COMMA_RET_IDENT:
+			{
+				decl2* d = FindIdentifier(c->decl.name, scp, &ret_type);
+				d->flags |= DECL_SERIALIZABLE;
+			}break;
+			default:
+				ASSERT(0)
+			}
 		}
 	}break;
 	case N_MAKE_PTR_LEN:
@@ -7698,7 +7804,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !ident)
 		{
-			decl2* ent = FindIdentifier("entity", scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 			ReportUndeclaredIdentifier(lang_stat, n->t);
 		}
 
@@ -7790,6 +7895,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		type2 r;
 		if (!CallNode(lang_stat, n, scp, &r))
 			return nullptr;
+
 
 
 	}break;
@@ -8385,10 +8491,13 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 									ret_type.strct = c->n->tstrct;
 									decl2* new_decl_type = NewDecl(lang_stat, name + "__type__", ret_type);
 									struct_types.emplace_back(new_decl_type);
+
 									c->n->tstrct->this_decl = new_decl_type;
 									c->n->tstrct->vars = c->n->tstrct->scp->vars;
 									c->n->tstrct->scp->tstrct = c->n->tstrct;
+
 									ret_type.from_enum = decl_exist;
+
 									c->n->tstrct->scp->tstrct->name = std::string(new_decl_type->name);
 									type_struct2* st = c->n->tstrct;
 									st->size = SetVariablesAddress(&st->vars, 0, &st->biggest_type);
@@ -8398,7 +8507,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 									ret_type.strct = c->n->tstrct;
 
 									//c->n->tstrct->ToTypeSect()
-									c->n->tstrct->ToTypeSect(&lang_stat->type_sect_str_table2, &lang_stat->type_sect, &lang_stat->type_sect_str_tbl_sz);
+									c->n->tstrct->ToTypeSect(lang_stat, &lang_stat->type_sect, &lang_stat->type_sect_str_tbl_sz);
 								}
 								else
 								{
@@ -8458,17 +8567,18 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						{
 							int biggest_var = 0;
 							tstrct->biggest_type = 0;
+							int type_var_sz = 4;
 							FOR_VEC(v, child_scp->vars)
 							{
 								if ((*v)->type.type == TYPE_STRUCT_TYPE)
 									continue;
-								(*v)->offset = 4;
+								(*v)->offset = type_var_sz;
 								int cur_vsize = GetTypeSize(&(*v)->type);
 								if (cur_vsize > biggest_var)
 									biggest_var = cur_vsize;
 								tstrct->biggest_type = CheckBiggestType(&(*v)->type, tstrct->biggest_type);
 							}
-							tstrct->size += biggest_var;
+							tstrct->size = biggest_var + 1;
 							tstrct->vars[0]->offset = 0;
 						}
 						// union
@@ -8504,7 +8614,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 					if (decl_exist->type.type == TYPE_STRUCT_TYPE && decl_exist->type.strct->templates.size() == 0)
 					{
-						decl_exist->type.strct->ToTypeSect(&lang_stat->type_sect_str_table2, &lang_stat->type_sect, &lang_stat->type_sect_str_tbl_sz);
+						decl_exist->type.strct->ToTypeSect(lang_stat, &lang_stat->type_sect, &lang_stat->type_sect_str_tbl_sz);
 						std::string final_name = std::string("$$") + decl_exist->type.strct->name;
 						// inserting an symbol for the type
 						//
@@ -8909,14 +9019,18 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			lang_stat->cur_stmnt = cur_node;
 
-
-
 			if (cur_node->l != nullptr && IS_FLAG_OFF(cur_node->l->flags, NODE_FLAGS_IS_PROCESSED))
 			{
 				auto ret_decl = DescendNameFinding(lang_stat, cur_node->l, scp);
 				// we only want to return if we're not in global scope
 				if (!ret_decl && IS_FLAG_OFF(scp->flags, SCOPE_IS_GLOBAL))
+				{
+					if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
+					{
+						scp->fdecl->reached_nd = cur_node->l;
+					}
 					return nullptr;
+				}
 
 #ifdef DEBUG_GLOBAL_NOT_FOUND
 				if (!ret_decl && IS_FLAG_ON(scp->flags, SCOPE_IS_GLOBAL))
@@ -8933,7 +9047,13 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			{
 				auto ret_decl = DescendNameFinding(lang_stat, cur_node->r, scp);
 				if (!ret_decl && IS_FLAG_OFF(scp->flags, SCOPE_IS_GLOBAL))
+				{
+					if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
+					{
+						scp->fdecl->reached_nd = cur_node->r;
+					}
 					return nullptr;
+				}
 
 #ifdef DEBUG_GLOBAL_NOT_FOUND
 				if (!ret_decl && IS_FLAG_ON(scp->flags, SCOPE_IS_GLOBAL))
@@ -9499,6 +9619,11 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			lhs_type.from_enum = lhs_type.e_decl;
 		}
+		if (lhs_type.type == TYPE_FUNC_DEF)
+		{
+			lhs_type.type = TYPE_FUNC_PTR;
+			lhs_type.fdecl->flags |= FUNC_DECL_CAST;
+		}
 		auto rhs_type = DescendNode(lang_stat, n->r, scp);
 
 		bool can_rhs_be_ptr = rhs_type.ptr > 0 || rhs_type.type == TYPE_STATIC_ARRAY
@@ -9555,6 +9680,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case enum_type2::TYPE_U8_TYPE:
 		case enum_type2::TYPE_VOID_TYPE:
 		case enum_type2::TYPE_VECTOR_TYPE:
+		case enum_type2::TYPE_FUNC_PTR:
 		case enum_type2::TYPE_BOOL_TYPE:
 			break;
 		case enum_type2::TYPE_STRUCT_TYPE:
@@ -9587,7 +9713,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 
 		ret_type = lhs_type;
-		ret_type.type = FromTypeToVarType(ret_type.type);
+		if(ret_type.type != TYPE_FUNC_PTR)
+			ret_type.type = FromTypeToVarType(ret_type.type);
 	}break;
 	case node_type::N_UNOP:
 	{
@@ -9840,7 +9967,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 		func_decl* fdecl = ltp.fdecl;
 		// cant call regular functions inside comp ones, unless it has code, in that case it should be from base.lng file
-		if (IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_COMP) && IS_FLAG_OFF(fdecl->flags, FUNC_DECL_INTERNAL) && fdecl->code != nullptr)
+		if (scp->fdecl && IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_COMP) && IS_FLAG_OFF(fdecl->flags, FUNC_DECL_INTERNAL) && fdecl->code != nullptr)
 		{
 			ReportMessage(lang_stat, n->t, "Regular funtions cant be called inside comp ones");
 			ExitProcess(1);

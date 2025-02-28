@@ -71,7 +71,7 @@ typedef long long s64;
 //#define DEBUG_GLOBAL_NOT_FOUND 
 
 
-#define INSTS_SWITCH(type, add, sub, cmp, equal, lea, or_, and_, mod, mul, div)\
+#define INSTS_SWITCH(type, add, sub, cmp, equal, lea, or_, and_, mod, mul, div, shiftl, shiftr)\
 	switch(type){\
 	case MOD_M_2_M:\
 	case MOD_R_2_M:\
@@ -115,6 +115,22 @@ typedef long long s64;
 	case AND_MEM_2_SSE:\
 	case AND_SSE_2_MEM:\
 			and_;\
+		break;\
+	case SHIFTR_M_2_M:\
+	case SHIFTR_R_2_M:\
+	case SHIFTR_M_2_R:\
+	case SHIFTR_I_2_R:\
+	case SHIFTR_I_2_M:\
+	case SHIFTR_R_2_R:\
+			shiftr;\
+		break;\
+	case SHIFTL_M_2_M:\
+	case SHIFTL_R_2_M:\
+	case SHIFTL_M_2_R:\
+	case SHIFTL_I_2_R:\
+	case SHIFTL_I_2_M:\
+	case SHIFTL_R_2_R:\
+			shiftl;\
 		break;\
 	case OR_M_2_M:\
 	case OR_R_2_M:\
@@ -349,6 +365,7 @@ struct lang_state
 	byte_code2* bcs2_end;
 
 	own_std::vector<own_std::vector<int>> inside_ifs;
+	own_std::vector<int> ser_funcs_type_data;
 
 	lsp_stage_enum lsp_stage;
 	lsp_intention_enum intentions_to_lsp;
@@ -739,156 +756,6 @@ struct dbg_reloc
 		char* strct_name;
 	};
 };
-/*
-struct dbg_state
-{
-	dbg_scp_info *scp_info;
-	dbg_func_info *cur_func;
-
-	std::vector<dbg_reloc> rels;
-	std::vector<dbg_scp> scps;
-	std::vector<dbg_decl> decls;
-	std::vector<dbg_type> types;
-	std::vector<dbg_func> funcs;
-
-
-};
-*/
-
-
-/*
-void FillDbgScpInfo(dbg_scp_info *info, scope *ref_scp, dbg_state *state)
-{
-	int decls_sz = ref_scp->vars.size() * sizeof(dbg_decl);
-	int name_sz = 0;
-
-	FOR_VEC(d, ref_scp->vars)
-	{
-		name_sz += (*d)->name.length();
-	}
-
-	info->data           = AllocMiscData(lang_stat, decls_sz + name_sz);
-	info->decls_offset   = (dbg_decl *)info->data;
-	info->str_tbl_offset = info->data + decls_sz;
-
-	//info->total_sz = total_sz;
-
-	int cur_decl = 0;
-
-	// assigning the decls to buffer
-	dbg_decl *d_decl = (dbg_decl *)info->decls_offset;
-	FOR_VEC(dd, ref_scp->vars)
-	{
-		auto d = *dd;
-		//gettind the dst name addr
-		char *name_offset = (char *)(info->str_tbl_offset + info->str_tbl_sz);
-
-		d_decl->name = (char *)(info->str_tbl_offset + info->str_tbl_sz);
-
-		int name_sz = d->name.length();
-
-		memcpy(name_offset, d->name.data(), name_sz);
-
-		// one is because the string is null-terminated
-		info->str_tbl_sz += name_sz + 1;
-
-		dbg_reloc rel;
-
-		if(d->type.type == TYPE_STRUCT)
-		{
-			rel.type = 1;
-			rel.strct_name = (char *)d->type.strct->name.data();
-		}
-		else
-		{
-			rel.type = 0;
-			rel.tp   = d->type.type;
-		}
-
-		if(IS_FLAG_ON(d->flags, DECL_IS_ARG))
-			d_decl->reg = 5;
-		else
-			d_decl->reg = 4;
-
-		d_decl->offset = d->offset;
-
-
-		rel.to_fill = (char *)&d_decl->type;
-		state->rels.push_back(rel);
-
-		d_decl++;
-		cur_decl++;
-	}
-}
-dbg_file *GetDbgFile(char *name)
-{
-	return nullptr;
-}
-
-int CreateDbg(std::vector<byte_code> *byte_codes, int start, dbg_state *state)
-{
-	std::vector<dbg_line> lines;
-
-	int i = 0;
-
-	dbg_scp_info *last_scp;
-
-	while(i < byte_codes->size())
-	{
-		auto bc = &(*byte_codes)[i];
-
-		switch(bc->type)
-		{
-		case BEGIN_SCP:
-		{
-			last_scp = state->scp_info;
-			auto new_scp = (dbg_scp_info *)AllocMiscData(lang_stat, sizeof(dbg_scp_info));;
-
-			FillDbgScpInfo(new_scp, bc->scp, state);
-
-			state->scp_info = new_scp;
-
-			i += CreateDbg(byte_codes, i + 1, state);
-		}break;
-		case END_SCP:
-		{
-			state->scp_info = last_scp;
-		}break;
-		case BEGIN_FUNC:
-		{
-			last_scp = state->scp_info;
-			auto new_scp  = (dbg_scp_info *)AllocMiscData(lang_stat, sizeof(dbg_scp_info));;
-			auto new_func = (dbg_func_info *)AllocMiscData(lang_stat, sizeof(dbg_func_info));
-
-
-			FillDbgScpInfo(new_scp, bc->fdecl->scp, state);
-
-			state->scp_info = new_scp;
-			state->cur_func = new_func;
-			i += CreateDbg(byte_codes, i + 1, state);
-		}break;
-		case END_FUNC:
-		{
-			state->cur_func = nullptr;
-			state->scp_info = last_scp;
-		}break;
-		case NEW_LINE:
-		{
-			dbg_line ln;
-			ln.code_idx = bc->machine_code_idx;
-			ln.ln_num  = bc->line;
-
-			state->cur_func->lines.push_back(ln);
-		}break;
-		}
-
-		i++;
-	}
-
-	return i;
-}
-*/
-
 int ForeignFuncAdd(char a)
 {
 	return a + 2;
@@ -1604,6 +1471,7 @@ enum wstack_val_type
 
 void WasmPushInst(tkn_type2 op, bool is_unsigned, own_std::vector<unsigned char>& code_sect, wstack_val_type type = WSTACK_VAL_INT)
 {
+	return;
 	if (type == WSTACK_VAL_INT)
 	{
 		switch (op)
@@ -2382,6 +2250,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			int inst = WASM_STORE_OP;
 			if (cur_ir->assign.to_assign.is_float)
 				inst = WASM_STORE_F32_OP;
+			return;
 			WasmStoreInst(lang_stat, code_sect, r_sz, inst);
 		}break;
 		default:
@@ -5424,6 +5293,8 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, std::string &str, int stack_reg, int lin
 		node_iter niter(&tkns, dbg->lang_stat);
 		dbg->lang_stat->use_node_arena = true;
 		n = niter.parse_all();
+		DescendNameFinding(dbg->lang_stat, n, scp);
+		DescendNode(dbg->lang_stat, n, scp);
 
 		int dummy_prec = 0;
 		if (CMP_NTYPE_BIN(n, T_COMMA))
@@ -6817,7 +6688,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 	{
 	case SCP_TYPE_FUNC:
 	{
-		if (IS_FLAG_OFF(scp->fdecl->flags, FUNC_DECL_TEMPLATED))
+		if (IS_FLAG_OFF(scp->fdecl->flags, FUNC_DECL_TEMPLATED | FUNC_DECL_CAST))
 		{
 			ASSERT(IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_SERIALIZED));
 		}
@@ -7126,6 +6997,16 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	return d;
 
 }
+func_decl *SizeofFunc(lang_state *lang_stat)
+{
+	type2 tp;
+	func_decl* sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
+	sz_of_fdecl->ret_type.type = enum_type2::TYPE_INT;
+	sz_of_fdecl->flags |= FUNC_DECL_INTERNAL;
+	sz_of_fdecl->name = std::string("sizeof");
+	sz_of_fdecl->args.push_back(NewDecl(lang_stat, "dummy", tp));
+	return sz_of_fdecl;
+}
 void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize* file, scope_dbg *scp_pre, scope *scp_final)
 {
 	unsigned char* string_sect = data + file->string_sect;
@@ -7263,10 +7144,17 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			}
 			d->type.tp = ar_tp;
 		}
-		if (d->type.type == TYPE_ENUM)
+		else if (d->type.type == TYPE_ENUM)
 		{
 			ASSERT(from_enum);
 			d->type.from_enum = from_enum;
+		}
+		else if (d->type.type == TYPE_FUNC)
+		{
+			if(d->name == "sizeof")
+			{
+				d->type.fdecl = SizeofFunc(lang_stat);;
+			}
 		}
 		d->flags = cur_var->flags;
 		if (IS_FLAG_ON(cur_var->strct_flags, DECL_PTR_HAS_LEN) || IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
@@ -8110,7 +7998,7 @@ void Write(HANDLE hFile, char *str, int sz)
 
 tkn_type2 GetOpBasedOnInst(byte_code_enum type)
 {
-	INSTS_SWITCH(type, return T_PLUS, return T_MINUS, return T_MINUS, return T_EQUAL, return T_EQUAL, return T_PIPE, return T_AMPERSAND, return T_PERCENT, return T_MUL, return T_DIV);
+	INSTS_SWITCH(type, return T_PLUS, return T_MINUS, return T_MINUS, return T_EQUAL, return T_EQUAL, return T_PIPE, return T_AMPERSAND, return T_PERCENT, return T_MUL, return T_DIV, return T_SHIFT_LEFT, return T_SHIFT_RIGHT);
 }
 void DoOperationOnPtrFloat(char* ptr, char sz, float rhs, tkn_type2 op)
 {
@@ -8225,7 +8113,7 @@ char *SizeToStr(char sz)
 }
 char *InstToStr(byte_code_enum type)
 {
-	INSTS_SWITCH(type, return "add", return "sub", return "cmp", return "mov", return "lea", return "or", return "and", return "mod", return "mul", return "div");
+	INSTS_SWITCH(type, return "add", return "sub", return "cmp", return "mov", return "lea", return "or", return "and", return "mod", return "mul", return "div", return "shl", return "shr");
 }
 void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 {
@@ -8326,6 +8214,8 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case CMP_I_2_R:
 	case AND_I_2_R:
 	case SUB_I_2_R:
+	case SHIFTL_I_2_R:
+	case SHIFTR_I_2_R:
 	case MOD_I_2_R:
 	case MUL_I_2_R:
 	case DIV_I_2_R:
@@ -8646,10 +8536,19 @@ inline void DoMovSXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 		*dst_ptr = *(long long*)src_ptr;
 	}break;
 	*/
-	// dword to qword
+	// word to qword
+	case 0x13:
+	{
+		*dst_ptr = *(short*)src_ptr;
+	}break;
 	case 0x23:
 	{
 		*dst_ptr = *(int*)src_ptr;
+	}break;
+	// byte to word
+	case 0x1:
+	{
+		*(short *)dst_ptr = *(char *)src_ptr;
 	}break;
 	// byte to dword
 	case 0x2:
@@ -8841,16 +8740,6 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		u64* mem_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
 		u64* reg = GetRegValPtr(dbg, reg_dst);
 
-		if (*reg == 4575657222473777172)
-		{
-			stmnt_dbg* cur_st;
-			func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
-			if (cur_func)
-			{
-				cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
-			}
-			auto a = 0;
-		}
 		DoOperationOnPtr((char *)reg, sz, *mem_ptr, op); 
 	}break;
 	case SUB_R_2_R:
@@ -8890,6 +8779,8 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	case AND_I_2_R:
 	case MOD_I_2_R:
 	case MUL_I_2_R:
+	case SHIFTL_I_2_R:
+	case SHIFTR_I_2_R:
 	case DIV_I_2_R:
 	case ADD_I_2_R:
 	case SUB_I_2_R:
@@ -10459,7 +10350,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			int len  = *(int*)&dbg.mem_buffer[base_ptr + 4];
 			char *chars = (char *)&dbg.mem_buffer[base_ptr + offset];
 
-			snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), base_ptr, base_ptr);
+			snprintf(buffer, 64, "%s(&%d, off: %d)##%d",  d->name.c_str(), base_ptr, offset, base_ptr);
 
 			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 			if (ImGui::TreeNodeEx(buffer, flag))
@@ -12758,6 +12649,8 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				bc.bin.lhs.reg_sz = reg_sz;
 				bc.bin.lhs.voffset = voffset;
 				bc.bin.rhs.i = assign.lhs.i;
+				bc._line = line;
+
 
 				ret.emplace_back(bc);
 			}break;
@@ -13120,6 +13013,12 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			base_inst_sse = ADD_SSE_2_SSE;
 
 		break;
+		case T_SHIFT_RIGHT:
+			base_inst = SHIFTR_M_2_M;
+			break;
+		case T_SHIFT_LEFT:
+			base_inst = SHIFTL_M_2_M;
+			break;
 		case T_MINUS:
 			base_inst = SUB_M_2_M;
 			base_inst_sse = SUB_SSE_2_SSE;
@@ -15057,6 +14956,8 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case MOV_I_2_REG_PARAM:
 		case SUB_I_2_R:
 		case CMP_I_2_R:
+		case SHIFTL_I_2_R:
+		case SHIFTR_I_2_R:
 		case AND_I_2_R:
 		case OR_I_2_R:
 		case MUL_I_2_R:
@@ -15102,7 +15003,8 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 }
 #pragma optimize("", off)
 void GenWasm(web_assembly_state* wasm_state)
-{
+{	
+	lang_state* lang_stat = wasm_state->lang_stat;
 	//ASSERT(func->func_bcode);
 	own_std::vector<unsigned char>* ret = &wasm_state->final_buf;
 	own_std::vector<unsigned char> type_sect;
@@ -15489,6 +15391,13 @@ void GenWasm(web_assembly_state* wasm_state)
 	EndTimer(&tmr);
 	printf("x64 code gen %d\n", GetTimerMS(&tmr));
 
+	FOR_VEC(f_offset, lang_stat->ser_funcs_type_data)
+	{
+		auto tp = (type_data *)&lang_stat->type_sect[*f_offset];
+		tp->serializable_func = (decl2*)(u64)tp->serializable_func->type.fdecl->bcs2_start;
+		
+	}
+
 	//ResolveJmpInsts(&mcode);
 	/*
 	FOR_VEC(f, x64_funcs)
@@ -15546,7 +15455,6 @@ void GenWasm(web_assembly_state* wasm_state)
 	INSERT_VEC((*ret), element_sect);
 	INSERT_VEC((*ret), final_code_sect);
 
-	lang_state* lang_stat = wasm_state->lang_stat;
 	WriteFileLang((char*)(wasm_state->wasm_dir + wasm_state->folder_name + ".wasm").c_str(), ret->begin(), ret->size());
 	WriteFileLang((char*)(wasm_state->wasm_dir + wasm_state->folder_name + "_data_sect").c_str(), lang_stat->data_sect.begin(), lang_stat->data_sect.size());
 
@@ -16710,7 +16618,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 
 			int a = 0;
 			iterations++;
-			if (iterations >= 99)
+			if (iterations >= 150)
 			{
 				FOR_VEC(cur, names_not_found)
 				{
@@ -16968,7 +16876,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
-	lang_stat->max_decl = 4500;
+	lang_stat->max_decl = 5500;
 	lang_stat->cur_decl = 0;
 	lang_stat->decl_arena = (decl2*)AllocMiscData(lang_stat, lang_stat->max_decl * sizeof(decl2));
 	//lang_stat->max_misc = 16 * 1024 * 1024;
@@ -16993,18 +16901,13 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 
 	type2 tp;
 	tp.type = enum_type2::TYPE_FUNC;
-	func_decl* sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
-	memset(sz_of_fdecl, 0, sizeof(func_decl));
-	sz_of_fdecl->ret_type.type = enum_type2::TYPE_INT;
-	tp.fdecl = sz_of_fdecl;
-	tp.fdecl->flags |= FUNC_DECL_INTERNAL;
-	tp.fdecl->name = std::string("sizeof");
-	tp.fdecl->args.push_back(dummy_decl);
+	tp.fdecl = SizeofFunc(lang_stat);
 
-	lang_stat->root->vars.push_back(NewDecl(lang_stat, "sizeof", tp));
+	decl2* d = NewDecl(lang_stat, "sizeof", tp);
+	lang_stat->root->vars.push_back(d);
 
 
-	sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
+	func_decl *sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 	memset(sz_of_fdecl, 0, sizeof(func_decl));
 	tp.fdecl = sz_of_fdecl;
 	sz_of_fdecl->flags |= FUNC_DECL_INTERNAL;

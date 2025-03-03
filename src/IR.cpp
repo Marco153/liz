@@ -72,6 +72,28 @@ ast_rep* CreateAstBin(lang_state* lang_stat, tkn_type2 op, ast_rep *lhs, ast_rep
 
 	return ret;
 }
+void InsertDeferd(ast_rep **out, scope *scp)
+{
+	while(scp)
+	{
+		if (scp->defered.size() > 0)
+		{
+			if ((*out)->type != AST_STATS)
+			{
+				ast_rep* new_ret = NewAst();
+				new_ret->type = AST_STATS;
+				INSERT_VEC(new_ret->stats, scp->defered);
+				new_ret->stats.emplace_back(*out);
+				*out = new_ret;
+			}
+			else
+			{
+				INSERT_VEC((*out)->stats, scp->defered);
+			}
+		}
+		scp = scp->parent;
+	}
+}
 ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 {
     ast_rep *ret = NewAst();
@@ -459,6 +481,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				ret->ret.tp = DescendNode(lang_stat, n->r, scp);
 
 			}
+			InsertDeferd(&ret, scp);
         }break;
 		default:
 			ASSERT(0);
@@ -478,6 +501,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			INSERT_VEC(ret->stats, rhs->stats);
 		else
 			ret->stats.emplace_back(rhs);
+		InsertDeferd(&ret, n->scp);
 		/*
 		if (n->r && n->r->type != N_STMNT && n->r->type != N_IF)
 		{
@@ -625,6 +649,18 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
 		lang_stat->cur_func = last;
 
+	}break;
+	case node_type::N_DEFER:
+	{
+		ret = AstFromNode(lang_stat, n->r, scp);
+		if (ret->type == AST_STATS)
+		{
+			INSERT_VEC(scp->defered, ret->stats);
+		}
+		else
+		{
+			scp->defered.emplace_back(ret);
+		}
 	}break;
 	case node_type::N_CALL:
 	{
@@ -2393,13 +2429,14 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				}
 				
 			}
-			val.deref = -1;
 			val.is_packed_float = e->call.fdecl->ret_type.type == TYPE_VECTOR;
 			val.is_float = val.is_float || val.is_packed_float;
+			val.deref = -1;
 
 			if(call->ret_type.type != TYPE_VOID || call->ret_type.ptr > 0)
 			{
 				AllocSpecificReg(lang_stat, 0);
+				val.ptr = call->ret_type.ptr - 1;
 			}
 
 			stack.emplace_back(val);;

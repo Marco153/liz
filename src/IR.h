@@ -16,6 +16,7 @@ enum ast_type
     AST_RET,
     AST_BINOP,
     AST_UNOP,
+    AST_DEFER,
     AST_STR_LIT,
     AST_ADDRESS_OF,
     AST_EXPR,

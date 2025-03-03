@@ -229,6 +229,7 @@ struct type2
 			scope *scp;
 			decl2 *e_decl;
 			own_std::vector<char*>* enum_names;
+			std::string templ_name;
 		};
 
 		template_expr templ;
@@ -242,7 +243,6 @@ struct type2
 		{
 			union
 			{
-				std::string templ_name;
 				int ar_size;
 			};
 			int *decl_offset;

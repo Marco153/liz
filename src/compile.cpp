@@ -54,7 +54,7 @@ typedef long long s64;
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 4048
-#define DATA_SECT_OFFSET 1024 * 1024 * 8
+#define DATA_SECT_OFFSET 1024 * 1024 * 16
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 #define STACK_PTR_REG 10
@@ -6611,7 +6611,8 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		}break;
 		case TYPE_ENUM:
 		{
-			vdbg->type_idx = d->type.from_enum->offset;
+			if(d->type.from_enum)
+				vdbg->type_idx = d->type.from_enum->offset;
 		}break;
 		case TYPE_BOOL:
 		case TYPE_INT:
@@ -6630,11 +6631,16 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_STR_LIT:
 		case TYPE_ENUM_IDX_32:
 		case TYPE_OVERLOADED_FUNCS:
-		case TYPE_U32_TYPE:
-		case TYPE_S32_TYPE:
 		case TYPE_CHAR_TYPE:
 		case TYPE_VECTOR_TYPE:
 		case TYPE_U8_TYPE:
+		case TYPE_U16_TYPE:
+		case TYPE_U32_TYPE:
+		case TYPE_U64_TYPE:
+		case TYPE_S8_TYPE:
+		case TYPE_S16_TYPE:
+		case TYPE_S32_TYPE:
+		case TYPE_S64_TYPE:
 		case TYPE_CHAR:
 		case TYPE_VECTOR:
 		
@@ -7110,10 +7116,17 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_S64:
 		case TYPE_VOID:
 		case TYPE_U64:
-		case TYPE_U32_TYPE:
-		case TYPE_S32_TYPE:
-		case TYPE_CHAR_TYPE:
+
 		case TYPE_U8_TYPE:
+		case TYPE_U16_TYPE:
+		case TYPE_U32_TYPE:
+		case TYPE_S8_TYPE:
+		case TYPE_S16_TYPE:
+		case TYPE_S32_TYPE:
+		case TYPE_U64_TYPE:
+		case TYPE_S64_TYPE:
+
+		case TYPE_CHAR_TYPE:
 		case TYPE_VECTOR_TYPE:
 		case TYPE_VECTOR:
 			break;
@@ -8536,7 +8549,15 @@ inline void DoMovSXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 		*dst_ptr = *(long long*)src_ptr;
 	}break;
 	*/
-	// word to qword
+	// word to byte
+	case 0x21:
+	{
+		*(char *)dst_ptr = *(short*)src_ptr;
+	}break;
+	case 0x12:
+	{
+		*(int *)dst_ptr = *(short*)src_ptr;
+	}break;
 	case 0x13:
 	{
 		*dst_ptr = *(short*)src_ptr;
@@ -9124,7 +9145,8 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		}break;
 		case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
 		{
-			if(offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end)
+
+			if((dbg->same_func_stack_ptr == *reg_stack_ptr )&& offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end || dbg->same_func_stack_ptr < *reg_stack_ptr)
 				dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
 		}break;
 		}
@@ -9396,9 +9418,9 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		{
 		case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
 		{
-			//int rsp = *(int*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+			int rsp = *(int*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 
-			if (dbg->next_stat_break_func && (offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end))
+			if (dbg->next_stat_break_func && ((dbg->same_func_stack_ptr == rsp ) && offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end))
 			{
 				breakpoint bp;
 				cur_st = GetStmntBasedOnOffset(&dbg->next_stat_break_func->wasm_stmnts, offset);
@@ -12028,7 +12050,7 @@ void GenX64AutomaticDeclDeref(lang_state* lang_stat, own_std::vector<byte_code>&
 	{
 		if (deref > 0)
 		{
-			GenX64AutomaticAddress(lang_stat, ret, deref, reg, voffset, reg_sz, false, false, false, reg_dst);
+			GenX64AutomaticAddress(lang_stat, ret, deref, reg, voffset, reg_sz, false, false, false, false, reg_dst);
 		}
 		else
 		{
@@ -13272,7 +13294,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			}
 			// R R R
 			else if ((assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_REG) ||
-					 (assign.lhs.type == IR_TYPE_ARG_REG && assign.rhs.type == IR_TYPE_REG))
+					 (assign.lhs.type == IR_TYPE_ARG_REG && assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
 			{
 				ir_val_aux lhs;
 				//assign.lhs.deref += assign.lhs.ptr;
@@ -16856,9 +16878,9 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	new(&lang_stat->winterp->outsiders) std::unordered_map<std::string, OutsiderFuncType>();
 	lang_stat->wasm_state = (web_assembly_state *) AllocMiscData(lang_stat, sizeof(web_assembly_state));
 	lang_stat->dstate = (dbg_state *) AllocMiscData(lang_stat, sizeof(dbg_state));
-	lang_stat->dstate->mem_size = 128000;
+	lang_stat->dstate->mem_size = 1024 * 1024 * 4;
 	lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size);
-	lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size);
+	//lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size);
 	int stack_offset = 10000;
 	*(int*)&lang_stat->dstate->mem_buffer[STACK_PTR_REG * 8] = stack_offset;
 	*(int*)&lang_stat->dstate->mem_buffer[BASE_STACK_PTR_REG * 8] = stack_offset;

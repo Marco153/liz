@@ -1689,6 +1689,17 @@ node* node_iter::parse_expr()
 			n->r = parse_expr();
 			n->t = cur_tkn;
 		}
+		else if (cur_tkn->str == "defer")
+		{
+			//lang_stat->flags |= PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
+			EatNewLine();
+			n->r = parse_(0, parser_cond::LESSER_EQUAL);
+			//lang_stat->flags &= ~PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD;
+			n->t = cur_tkn;
+
+			n->type = N_DEFER;
+			lang_stat->flags |= PSR_FLAGS_IMPLICIT_SEMI_COLON;
+		}
 		else if (cur_tkn->str == "fn")
 		{
 			n = node_iter::parse_func_like();
@@ -2574,6 +2585,11 @@ void DescendComma(lang_state *lang_stat, node* n, scope* scp, own_std::vector<co
 			NameFindingGetType(lang_stat, n->r, scp, cret.decl.type);
 			cret.decl.name = n->l->t->str.substr();
 
+			if(cret.decl.type.type == TYPE_TEMPLATE)
+			{
+				cret.decl.type.templ_name = cret.decl.type.e_decl->name;
+				//cret.decl.type.e_decl = cret.decl.type.e_decl->name;
+			}
 			ret.emplace_back(cret);
 		}
 
@@ -2672,6 +2688,10 @@ scope* NewScope(lang_state *lang_stat, scope* scp)
 		scp->children.emplace_back(ret);
 	memset(ret, 0, sizeof(scope));
 	ret->parent = scp;
+	if(scp)
+	{
+		INSERT_VEC(ret->defered, scp->defered);
+	}
 	return ret;
 }
 decl2* NewDecl(lang_state *lang_stat, std::string name, type2 tp)
@@ -2734,6 +2754,7 @@ own_std::vector<type2> TemplatesTypeToLangArray(lang_state *lang_stat, own_std::
 		{
 			given_arg->decl.type.type = FromVarTypeToType(given_arg->decl.type.type);
 			ret.emplace_back(given_arg->decl.type);
+			given_arg->decl.type.type = FromTypeToVarType(given_arg->decl.type.type);
 		}
 		else if (og_a->type.type == enum_type2::TYPE_STRUCT)
 		{
@@ -5052,15 +5073,16 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				lhs->type.fdecl->templates.size() == 0 &&
 				IS_FLAG_ON(lhs->flags, DECL_NOT_DONE) && !is_self_ref)
 			{
-
+				/*
 				if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 				{
 					REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 						VAR_ARGS("for some reason func was not done")
 						)
-					ExitProcess(1);
+					//ExitProcess(1);
 				}
 				else
+				*/
 					return nullptr;
 			}
 
@@ -5304,7 +5326,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 						REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 							VAR_ARGS("no overload found for func %s", lhs->name.c_str())
 						);
-						ExitProcess(1);
+						//ExitProcess(1);
+						return false;
 					}
 					else
 					{
@@ -6162,6 +6185,15 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 	case enum_type2::TYPE_STRUCT_TYPE:
 	{
 		decl2* d = FindIdentifier(n->r->t->str, lhs->type.strct->scp, ret_tp);
+		if(!d)
+		{
+			REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
+				VAR_ARGS("'%s' is not part of struct '%s'\n",
+					n->r->t->str.c_str(), lhs->type.strct->name.c_str()
+				)
+			)
+			ExitProcess(1);
+		}
 		if (d->type.type == TYPE_INT)
 		{
 			n->type = N_INT;
@@ -7000,6 +7032,11 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}
 	switch (n->type)
 	{
+	case N_DEFER:
+	{
+		if (!DescendNameFinding(lang_stat, n->r, scp))
+			return (decl2*)0;
+	}break;
 	case N_CONST_DECL:
 	{
 

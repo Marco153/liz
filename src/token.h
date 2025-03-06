@@ -232,7 +232,7 @@ struct type2
 			std::string templ_name;
 		};
 
-		template_expr templ;
+		//template_expr templ;
 
 		struct
 		{

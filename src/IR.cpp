@@ -74,7 +74,8 @@ ast_rep* CreateAstBin(lang_state* lang_stat, tkn_type2 op, ast_rep *lhs, ast_rep
 }
 void InsertDeferd(ast_rep **out, scope *scp)
 {
-	while(scp)
+	auto start_func = scp->fdecl;
+	while(scp && scp->fdecl == start_func)
 	{
 		if (scp->defered.size() > 0)
 		{
@@ -1152,7 +1153,8 @@ int IRCreateBeginBlock(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_t
     out->emplace_back(ir);
 	if (type == IR_BEGIN_STMNT)
 	{
-		out->back().block.stmnt.line = (int)(long long)data;
+		auto l = (int)(long long)data;
+		out->back().block.stmnt.line = l;
 		//ir.type = IR_NOP;
 		//out->emplace_back(ir);
 	}
@@ -3634,10 +3636,10 @@ void GenLhsEqual(lang_state* lang_stat, ast_rep* lhs_ast, type2 *lhs_tp, own_std
 	*assign = ir.assign.to_assign;
 	*/
 }
-short MaybeAllocDiffAssignReg(lang_state* lang_stat, ir_rep &ir, own_std::vector<ir_rep> *out) 
+short MaybeAllocDiffAssignReg(lang_state* lang_stat, ir_val &ir, own_std::vector<ir_rep> *out) 
 {
-	char final_reg = ir.assign.to_assign.reg;
-	if (ir.assign.to_assign.type == IR_TYPE_REG || ir.assign.to_assign.deref >=0)
+	char final_reg = ir.reg;
+	if (ir.type == IR_TYPE_REG || ir.deref >=0)
 	{
 		final_reg = AllocReg(lang_stat);
 		ir_rep new_ir = {};
@@ -3647,9 +3649,9 @@ short MaybeAllocDiffAssignReg(lang_state* lang_stat, ir_rep &ir, own_std::vector
 		new_ir.assign.to_assign.reg_sz = 8;
 		new_ir.assign.to_assign.deref = -1;
 		new_ir.assign.only_lhs = true;
-		new_ir.assign.lhs = ir.assign.to_assign;
-		new_ir.assign.lhs.deref = ir.assign.to_assign.ptr - 1;
-		ir.assign.to_assign.type = IR_TYPE_REG;
+		new_ir.assign.lhs = ir;
+		new_ir.assign.lhs.deref = ir.ptr - 1;
+		ir.type = IR_TYPE_REG;
 		out->emplace_back(new_ir);
 		
 	}
@@ -3865,7 +3867,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		if (IsIrValFloat(&ir.assign.lhs))
 			ir.assign.to_assign.is_float = true;
 
-		ir.assign.to_assign.reg = MaybeAllocDiffAssignReg(lang_stat, ir, out);
+		ir.assign.to_assign.reg = MaybeAllocDiffAssignReg(lang_stat, ir.assign.to_assign, out);
 
 		out->emplace_back(ir);
 		//ir.assign.rhs.ptr++////;
@@ -3977,12 +3979,33 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			//GetIRVal(lang_stat, ast->expr[0], &ir.assign.to_assign);
 			if (ast->op == T_PLUS_EQUAL || ast->op == T_MINUS_EQUAL)
 			{
-				short final_reg = MaybeAllocDiffAssignReg(lang_stat, ir, out);
+				ir.assign.rhs = ir.assign.lhs;
+				if(ir.assign.to_assign.type == IR_TYPE_DECL && ir.assign.to_assign.deref >= 0)
+				{
+					ir_rep new_ir = {};
+					new_ir.type = IR_ASSIGNMENT;
+					new_ir.assign.to_assign.type = IR_TYPE_REG;
+					new_ir.assign.to_assign.reg = AllocReg(lang_stat);
+					new_ir.assign.to_assign.reg_sz = 8;
+					new_ir.assign.to_assign.deref = -1;
+					new_ir.assign.lhs = ir.assign.to_assign;
+					new_ir.assign.lhs.deref++;
+					//new_ir.assign.lhs.deref = 0;
+					new_ir.assign.only_lhs = true;
+
+					out->emplace_back(new_ir);
+
+					ir.assign.lhs = new_ir.assign.to_assign;
+
+				}
+				else
+				{
+					ir.assign.lhs = ir.assign.to_assign;
+					ir.assign.lhs.deref = 0;
+				}
+				short final_reg = MaybeAllocDiffAssignReg(lang_stat, ir.assign.to_assign, out);
 				ir.assign.only_lhs = false;
 				ir.assign.op = ast->op == T_PLUS_EQUAL ? T_PLUS : T_MINUS;
-				ir.assign.rhs = ir.assign.lhs;
-				ir.assign.lhs = ir.assign.to_assign;
-				ir.assign.lhs.deref = 0;
 				ir.assign.lhs.is_unsigned = ir.assign.rhs.is_unsigned;
 				ir.assign.lhs.is_float = ir.assign.rhs.is_float;
 				ir.assign.to_assign.reg = final_reg;

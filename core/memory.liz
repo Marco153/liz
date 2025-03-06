@@ -55,7 +55,7 @@ debug_break::fn macro()
 
 ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 {
-	(cast(*type)(cast(u64)ptr + cast(u64)((offset) * sizeof(type))))
+	(cast(*type)(cast(s64)ptr + cast(s64)offset * sizeof(type)))
 }
 heap_insert_unallocated::fn(alloc : *mem_alloc, a : *mem_chunk)
 {

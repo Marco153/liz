@@ -204,9 +204,6 @@ struct node
 
 	node_type type;
 
-#ifdef DEBUG_NAME
-	node *not_found_nd;
-#endif
 	union
 	{
 

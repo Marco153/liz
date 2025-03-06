@@ -117,7 +117,7 @@ struct mem_alloc
     heap_hash in_use;
     mem_chunk *all;
     mem_chunk **probable_unallocated;
-	unsigned int chunks_cap =(1024 * 1024 * 16);
+	unsigned int chunks_cap =(1024 * 1024 * 32);
 
 	char* main_buffer;
 };

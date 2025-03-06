@@ -6716,7 +6716,7 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node* n, scope* sc
 		ASSERT(decl)
 
 			node* final_nd;
-		if (decl->type.type == TYPE_STRUCT)
+		if (decl->type.type == TYPE_STRUCT && decl->type.ptr == 0)
 		{
 			auto ref_nd = NewUnopNode(lang_stat, nullptr, T_AMPERSAND, n->l);
 			ref_nd->t->line = n->t->line;
@@ -9445,7 +9445,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	case node_type::N_FOR:
 	{
 		//scp = GetScopeFromParent(n->r, given_scp);
-		if (IsNodeOperator(n->l, T_IN) && n->l->r->type == N_IDENTIFIER)
+		if (IsNodeOperator(n->l, T_IN) && (n->l->r->type == N_IDENTIFIER || CMP_NTYPE_BIN(n->l->r, T_POINT)))
 		{
 			type2 rhs = DescendNode(lang_stat, n->l->r, scp);
 

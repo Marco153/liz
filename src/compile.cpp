@@ -2045,6 +2045,11 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_END_STMNT:
 	{
+		if (gen_state->cur_func->name == "it_start_1ast_rep")
+		{
+			auto a = 1;
+		}
+
 		stmnt_dbg st;
 		ir_rep* begin = irs->begin() + cur_ir->block.other_idx;
 		ASSERT(begin->type == IR_BEGIN_STMNT);
@@ -5505,7 +5510,8 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 		std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
 		ImGui::Text("spill[%d, &%d]: %s", r, addr, mem_val.c_str());
 	}
-	ImGui::Text("func's stack sz: %d, on return stack sz %d", fdecl->stack_size, base_ptr + fdecl->stack_size);
+	auto ret_addr = *(int*)&dbg.mem_buffer[base_ptr + fdecl->stack_size];
+	ImGui::Text("func's stack sz: %d, on return stack sz %d, ret addr %d", fdecl->stack_size, base_ptr + fdecl->stack_size, ret_addr);
 
 	ImGui::Text("call stack:");
 	if (dbg.return_stack_bc2_func.size() == 0)
@@ -5513,6 +5519,8 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 		FOR_VEC(bc, dbg.return_stack_bc2)
 		{
 			func_decl* f = GetFuncBasedOnBc2(&dbg, **bc);
+			if (!f)
+				continue;
 			call_stack_info st;
 			st.fdecl = f;
 			int offset = **bc - dbg.lang_stat->bcs2_start;
@@ -9656,6 +9664,10 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			else
 			{
 			}
+			if (offset < dbg->cur_func->bcs2_start || offset > dbg->cur_func->bcs2_end)
+			{
+				auto a = 0;
+			}
 
 			FOR_VEC(b, dbg->breakpoints)
 			{
@@ -10326,7 +10338,6 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			d->type.ptr = ptr_decl;
 			d->type.ptr--;
 			int tp_sz = GetTypeSize(&d->type);
-			d->type.ptr++;
 			d->flags &= ~DECL_PTR_HAS_LEN;
 			for (int i = 0; i < len; i++)
 			{
@@ -10456,6 +10467,15 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			{
 				snprintf(buffer, 64, "%s(&%d)##%d",  name.c_str(), base_ptr, base_ptr);
 				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+				if (d->type.strct->scp->vars.size() > 0)
+				{
+					auto first = d->type.strct->scp->vars[0];
+					if (first && first->type.type == TYPE_ENUM)
+					{
+						ImGuiPrintVar((char*)d->name.c_str(), dbg, first, base_ptr + first->offset, 0);
+						ImGui::SameLine();
+					}
+				}
 				if (ImGui::TreeNodeEx(buffer, flag))
 				{
 					ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, base_ptr);
@@ -13353,7 +13373,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 					GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, false, lhs.is_packed_float);
 				}
 				else
-					GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, true, false);
+					GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, false, false);
 
 				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
 
@@ -16894,11 +16914,11 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//printf("hello");
 
     
-	lang_stat->max_nd = 80000;
+	lang_stat->max_nd = 90000;
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
-	lang_stat->max_decl = 5500;
+	lang_stat->max_decl = 6500;
 	lang_stat->cur_decl = 0;
 	lang_stat->decl_arena = (decl2*)AllocMiscData(lang_stat, lang_stat->max_decl * sizeof(decl2));
 	//lang_stat->max_misc = 16 * 1024 * 1024;

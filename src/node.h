@@ -219,6 +219,7 @@ struct node
 	};
 	union
 	{
+		std::string str_val;
 		scope *scp;
 		node *call_templates;
 		type_struct2 *tstrct;
@@ -377,7 +378,6 @@ struct scope
 	void AddDecl(decl2 *d)
 	{
 		vars.emplace_back(d);
-		//vars_map[d->name] = d;
 	}
 	int GetNameSimpleHash(std::string &str)
 	{
@@ -509,7 +509,7 @@ struct import_strct
 	import_type type;
 	std::string alias;
 	unit_file *fl;
-	decl2 *FindDecl(std::string name)
+	decl2 *FindDecl(std::string &name)
 	{
 
 		ASSERT(fl->global);

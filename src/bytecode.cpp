@@ -1884,6 +1884,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			//TODO
 			*/
 		}break;
+		case SHIFTR_R_2_R:
+		case SHIFTL_R_2_R:
+		{
+			//TODO
+		}break;
 		case SHUFFLE_128_PS:
 		{
 			//TODO

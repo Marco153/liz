@@ -24,6 +24,7 @@ bool IsUnsigned(enum_type2 tp)
 		case enum_type2::TYPE_U64:
 		case enum_type2::TYPE_ENUM:
 		case enum_type2::TYPE_ENUM_TYPE:
+		case enum_type2::TYPE_STRUCT_TYPE:
 		case enum_type2::TYPE_CHAR:
 		case enum_type2::TYPE_BOOL:
 		case enum_type2::TYPE_F32:
@@ -982,6 +983,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					{
 						
 						tkn.i = 0xa;
+					}
+					else if (input[i + 1] == 'r')
+					{
+						
+						tkn.i = '\r';
 					}
 					else if (input[i + 1] == '"')
 					{

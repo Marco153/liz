@@ -1091,7 +1091,7 @@ void ImGuiEnumCombo(dbg_state* dbg)
 
 	scope *scp = FindScpWithLine(dbg->cur_func, line);
 	type2 dummy;
-	decl2 *e = FindIdentifier(name, scp, &dummy);
+	decl2 *e = FindIdentifier(std::string(name), scp, &dummy);
 	if (!e)
 	{
 		ImGui::Text("enum not found: %s", name);

@@ -72,7 +72,7 @@ ast_rep* CreateAstBin(lang_state* lang_stat, tkn_type2 op, ast_rep *lhs, ast_rep
 
 	return ret;
 }
-void InsertDeferd(ast_rep **out, scope *scp)
+void InsertDeferd(ast_rep **out, scope *scp, bool recursive)
 {
 	auto start_func = scp->fdecl;
 	while(scp && scp->fdecl == start_func)
@@ -92,6 +92,8 @@ void InsertDeferd(ast_rep **out, scope *scp)
 				INSERT_VEC((*out)->stats, scp->defered);
 			}
 		}
+		if (!recursive)
+			return;
 		scp = scp->parent;
 	}
 }
@@ -143,6 +145,17 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		{
 			ret->type = AST_ADDRESS_OF;
 			ret->ast = AstFromNode(lang_stat, n->r, scp);
+			type2* tp = &ret->ast->lhs_tp;
+			if(tp->type == TYPE_VECTOR && !CMP_NTYPE_BIN(n->r, T_POINT))
+			{
+				ret->goes_onto_stack = true;
+				ret->at_stack_offset = lang_stat->cur_strct_constrct_size_per_statement;
+
+				lang_stat->cur_strct_constrct_size_per_statement += 16;
+
+				int cur_sz = lang_stat->cur_func->strct_constrct_size_per_statement;
+				lang_stat->cur_func->strct_constrct_size_per_statement = max(cur_sz, lang_stat->cur_strct_constrct_size_per_statement);
+			}
 		}break;
 		case T_MUL:
 		{
@@ -442,7 +455,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
             ret->type = AST_RET;
 			if(IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_COROUTINE))
 			{
-				decl2* d = FindIdentifier("CoroutineEnding", scp, &dummy_type);
+				decl2* d = FindIdentifier(std::string("CoroutineEnding"), scp, &dummy_type);
 
 				decl2* first_arg = d->type.fdecl->args[0];
 
@@ -482,7 +495,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 				ret->ret.tp = DescendNode(lang_stat, n->r, scp);
 
 			}
-			InsertDeferd(&ret, scp);
+			InsertDeferd(&ret, scp, true);
         }break;
 		default:
 			ASSERT(0);
@@ -502,7 +515,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			INSERT_VEC(ret->stats, rhs->stats);
 		else
 			ret->stats.emplace_back(rhs);
-		InsertDeferd(&ret, n->scp);
+		InsertDeferd(&ret, n->scp, false);
 		/*
 		if (n->r && n->r->type != N_STMNT && n->r->type != N_IF)
 		{
@@ -605,7 +618,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		ast_rep* coroutine_prolegue = nullptr;
 		if (IS_FLAG_ON(n->fdecl->flags, FUNC_DECL_COROUTINE))
 		{
-			decl2* d = FindIdentifier("CoroutinePrologue", scp, &dummy_type);
+			decl2* d = FindIdentifier(std::string("CoroutinePrologue"), scp, &dummy_type);
 			node* new_tree = n->fdecl->coroutine_prologue_tree;
 			//BuildMacroTree(lang_stat, n->fdecl->scp, new_tree, n->t->line);
 
@@ -668,6 +681,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		ret->type = AST_CALL;
 
 		ret->call.in_func = scp->fdecl;
+		
 		if (n->l->type != N_IDENTIFIER)
 		{
 			ret->call.lhs = AstFromNode(lang_stat, n->l, scp);
@@ -678,6 +692,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		{
 			decl2* decl = FindIdentifier(n->l->t->str, scp, &dummy_type);
 			ret->call.fdecl = decl->type.fdecl;
+
+			ret->call.fdecl->references++;
 
 			ret->call.indirect = false;
 			if (decl->type.type == TYPE_FUNC_PTR)
@@ -1281,6 +1297,10 @@ bool HasCall(lang_state *lang_stat, ast_rep *ast)
 		{
 			return true;
 		}
+		return false;
+	}break;
+	case AST_FLOAT:
+	{
 		return false;
 	}break;
 	case AST_DEREF:
@@ -2296,8 +2316,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 
 
+			bool there_is_exps_in_stack = (j + 1) < exps.size();
 			// if is not last, we will move to some reg
-			if ((j + 1) < exps.size())
+			if (there_is_exps_in_stack)
 			{
 				ir = {};
 				ir.type = IR_ASSIGNMENT;
@@ -2413,6 +2434,16 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					{
 						ir = {};
 						ir.type = IR_ASSIGNMENT;
+						if (there_is_exps_in_stack && begin->reg == 0)
+						{
+							if (begin->is_float)
+							{
+								begin->reg = AllocFloatReg(lang_stat);
+								begin->deref = -1;
+							}
+							//else
+								//ir.assign.to_assign.reg = AllocReg(lang_stat);
+						}
 						ir.assign.to_assign = *begin;
 						ir.assign.to_assign.deref = -1;
 						ir.assign.to_assign.reg_sz = 8;
@@ -2439,6 +2470,11 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			{
 				AllocSpecificReg(lang_stat, 0);
 				val.ptr = call->ret_type.ptr - 1;
+				if(call->ret_type.type == TYPE_VECTOR)
+				{
+					val.ptr++;
+				}
+
 			}
 
 			stack.emplace_back(val);;
@@ -2478,6 +2514,21 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				*top = ir.assign.to_assign;
 				//ir.assign.lhs.ptr = e->deref.times;
 				out->emplace_back(ir);
+			}
+			if (e->goes_onto_stack && top->is_packed_float)
+			{
+				ir.type = IR_ASSIGNMENT;
+				ir.assign.to_assign.type = IR_TYPE_ON_STACK;
+				ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
+				ir.assign.to_assign.reg_sz = 8;
+				ir.assign.to_assign.deref = -1;
+				ir.assign.to_assign.i = e->at_stack_offset;
+				ir.assign.only_lhs = true;
+				ir.assign.lhs = *top;
+
+				out->emplace_back(ir);
+
+				*top = ir.assign.to_assign;
 			}
 			top->ptr = -1;
 			top->reg_sz = 8;
@@ -3138,6 +3189,10 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						{
 							ir.assign.lhs.deref--;
 							ir.assign.lhs.reg_ex &= ~IR_VAL_FROM_POINT;
+						}
+						if (ir.assign.lhs.type == IR_TYPE_REG && ir.assign.lhs.is_packed_float)
+						{
+							ir.assign.lhs.deref--;
 						}
 
 						if (cur->decl->type.type == TYPE_STATIC_ARRAY && cur->decl->type.tp->IsFloat())
@@ -4375,7 +4430,7 @@ ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat)
 	ast_rep *rhs = NewAst();
 
 	lhs->type = AST_IDENT;
-	lhs->decl = FindIdentifier("__global_dummy", lang_stat->root, &rhs->lhs_tp);
+	lhs->decl = FindIdentifier(std::string("__global_dummy"), lang_stat->root, &rhs->lhs_tp);
 
 	bin->type = AST_BINOP;
 	bin->op = T_EQUAL;

@@ -53,7 +53,7 @@ typedef long long s64;
 #define STACK_PTR_START 20000
 #define MEM_PTR_MAX_ADDR 18008
 
-#define DATA_SECT_MAX 4048
+#define DATA_SECT_MAX 5048
 #define DATA_SECT_OFFSET 1024 * 1024 * 16
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
@@ -763,10 +763,10 @@ int ForeignFuncAdd(char a)
 
 bool GetTypeInTypeSect(lang_state* lang_stat, machine_reloc* c, own_std::vector<machine_sym>& symbols, int data_sect_start, unsigned int& sym_idx)
 {
-	std::string cur_rel_name = std::string(c->name);
+	//std::string cur_rel_name = std::string(c->name);
 	FOR_VEC(sym, symbols)
 	{
-		if (cur_rel_name == std::string(sym->name))
+		if (c->name == std::string(sym->name))
 		{
 			sym_idx = sym->idx;
 
@@ -811,6 +811,7 @@ char* CompleteMachineCode(lang_state* lang_stat, machine_code& code)
 		*to_fill = dst - end_call_inst;
 	}
 	// resolving calls to internal funcs as if they were dll funcs
+		/*
 	FOR_VEC(c, code.rels)
 	{
 		char* addr = nullptr;
@@ -829,6 +830,7 @@ char* CompleteMachineCode(lang_state* lang_stat, machine_code& code)
 			*to_fill = dst - end_call_inst;
 		}
 	}
+		*/
 	//code.symbols.insert(code.symbols.end(), lang_stat->type_sect_syms.begin(), plang_stat->type_sect_syms.end());
 
 
@@ -935,6 +937,7 @@ struct wasm_gen_state
 	//int to_spill_offset;
 
 	func_decl* cur_func;
+	block_linked* blocks;
 	web_assembly_state* wasm_state;
 
 	int cur_line;
@@ -1116,12 +1119,14 @@ int GenUleb128(own_std::vector<unsigned char>* out, unsigned int val)
 
 void WasmPushImm(int imm, own_std::vector<unsigned char>* out)
 {
+	return;
 	own_std::vector<unsigned char> uleb;
 	encodeSLEB128(&uleb, imm);
 	out->insert(out->end(), uleb.begin(), uleb.end());
 }
 void WasmPushConst(char type_int_or_float, char size, int offset, own_std::vector<unsigned char>* out)
 {
+	return;
 	if (type_int_or_float == WASM_TYPE_INT)
 	{
 		out->emplace_back(WASM_I32_CONST + size);
@@ -1149,6 +1154,7 @@ void WasmPushConst(char type_int_or_float, char size, int offset, own_std::vecto
 
 void WasmStoreInst(lang_state *lang_stat, own_std::vector<unsigned char>& code_sect, int size, char inst = WASM_STORE_OP)
 {
+	return;
 	int final_inst = 0;
 	if (lang_stat->release && size == 8)
 		size = 4;
@@ -1653,8 +1659,8 @@ void WasmPushMultiple(wasm_gen_state* gen_state, bool only_lhs, ir_val& lhs, ir_
 
 		if (lhs.type == IR_TYPE_REG)
 		{
-			if(lhs.ptr == -1)
-				lhs.ptr = 1;
+			//if(lhs.ptr == -1)
+				//lhs.ptr = 1;
 			deref = true;
 		}
 		if (op == T_POINT)
@@ -1705,12 +1711,14 @@ ir_type GetOppositeCondIR(ir_type type)
 
 void WasmBeginStack(lang_state *lang_stat, own_std::vector<unsigned char>& code_sect, int stack_size)
 {
+	return;
 	WesmGenMovR(lang_stat, STACK_PTR_REG, BASE_STACK_PTR_REG, code_sect);
 	// sub inst
 	WasmGenBinOpImmToReg(lang_stat, STACK_PTR_REG, 4, stack_size, code_sect, 0x6b);
 }
 void WasmEndStack(lang_state *lang_stat, own_std::vector<unsigned char>& code_sect, int stack_size)
 {
+	return;
 	// sum inst
 	WasmGenBinOpImmToReg(lang_stat, STACK_PTR_REG, 4, stack_size, code_sect, 0x6a);
 	WesmGenMovR(lang_stat, STACK_PTR_REG, BASE_STACK_PTR_REG, code_sect);
@@ -1992,6 +2000,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_BREAK_OUT_IF_BLOCK:
     {
+
 		int depth = 0;
 
 		block_linked *aux = *cur;
@@ -2058,8 +2067,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		st.start_ir = cur_ir->block.other_idx;
 		st.end_ir = ir_idx;
 		st.line = begin->block.stmnt.line;
-		ASSERT(st.end >= st.start);
-		ASSERT(st.end_ir >= st.start_ir && st.end_ir >= 0);
+		//ASSERT(st.end >= st.start);
+		//ASSERT(st.end_ir >= st.start_ir && st.end_ir >= 0);
 
 		//if(st.start != st.end)
 		gen_state->cur_func->wasm_stmnts.emplace_back(st);
@@ -2161,6 +2170,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		}
 
 
+		/*
 		WasmPushMultiple(gen_state, cur_ir->bin.only_lhs, cur_ir->bin.lhs, cur_ir->bin.rhs, last_on_stack, opposite, code_sect, true);
 		if (aux->ir->type == IR_BEGIN_LOOP_BLOCK)
 		{
@@ -2170,6 +2180,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		{
 			cur_ir->dst_ir_rel_idx = aux->ir->block.other_idx - cur_ir->idx;
 		}
+		*/
 
 		//WasmPushConst(WASM_TYPE_INT, 0, 7, &code_sect);
 		// br if
@@ -2184,8 +2195,8 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		ir_val* lhs = &cur_ir->assign.lhs;;
 		ir_val* rhs = &cur_ir->assign.rhs;;
 
-		gen_state->similar.emplace_back(lhs);
-		gen_state->similar.emplace_back(rhs);
+		//gen_state->similar.emplace_back(lhs);
+		//gen_state->similar.emplace_back(rhs);
 
 		ir_rep* next = cur_ir + 1;
 
@@ -2213,7 +2224,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
 		bool float_val = cur_ir->assign.to_assign.is_float;
 		//cur_ir->assign.to_assign.is_float = false;
-		WasmPushIRVal(gen_state, &cur_ir->assign.to_assign, code_sect, false);
+		//WasmPushIRVal(gen_state, &cur_ir->assign.to_assign, code_sect, false);
 		//cur_ir->assign.to_assign.is_float = float_val;
 
 		cur_ir->assign.to_assign.reg_sz = prev_reg_sz;
@@ -5481,7 +5492,7 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 		ImGui::Text("%s: %s", addr_name.c_str(), mem_val.c_str());
 	}
 	int base_ptr = WasmGetMemOffsetVal(&dbg, stack_reg * 8);
-	for (int r = 0; r < 6; r++)
+	for (int r = 0; r < 8; r++)
 	{
 		int addr = base_ptr + r * 8;
 		mem_val = GetMemAddrString(dbg, addr, type_sz, 8, mem_wnd_show_type);
@@ -7984,7 +7995,7 @@ void CheckPipeAndGetString(HANDLE pipe, std::string &final_str)
 	if (res == 0)
 	{
 		int code = GetLastError();
-		printf("error pipe peek %d\n", code);
+		//printf("error pipe peek %d\n", code);
 		FlushFileBuffers(GetStdHandle(STD_OUTPUT_HANDLE));
 	}
 	if (availableBytes > 0)
@@ -8168,6 +8179,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		sprintf(buffer, "%s", "begin func");
 		//ret = "begin func";
 	}break;;
+	case PUSH_STACK_SIZE:
 	case BEGIN_FUNC_FOR_INTERPRETER:
 	{
 	}break;
@@ -8216,6 +8228,8 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		snprintf(buffer, 128, "movzx %s, %s", reg_dst_str, reg_src_str);
 		
 	}break;
+	case SHIFTL_R_2_R:
+	case SHIFTR_R_2_R:
 	case ADD_R_2_R:
 	case AND_R_2_R:
 	case CMP_R_2_R:
@@ -8723,6 +8737,11 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	char sz = bc->regs >> REG_SZ_BIT;
 	switch (bc->bc_type)
 	{
+	case PUSH_STACK_SIZE:
+	{
+		*ptr += 1;
+		*inc_ptr = false;
+	}break;
 	case BEGIN_FUNC:
 	case BEGIN_FUNC_FOR_INTERPRETER:
 	{
@@ -8773,6 +8792,8 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	}break;
 	case SUB_R_2_R:
 	case DIV_R_2_R:
+	case SHIFTL_R_2_R:
+	case SHIFTR_R_2_R:
 	case MUL_R_2_R:
 	case MOD_R_2_R:
 	case ADD_R_2_R:
@@ -10465,7 +10486,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 
 			if (ptr_decl == 0)
 			{
-				snprintf(buffer, 64, "%s(&%d)##%d",  name.c_str(), base_ptr, base_ptr);
+				snprintf(buffer, 64, "%s (&%d) %s##%d",  name.c_str(), base_ptr, buffer_in, base_ptr);
 				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 				if (d->type.strct->scp->vars.size() > 0)
 				{
@@ -10496,8 +10517,8 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 				}
 				//int addr = base_ptr;
 				snprintf(buffer, 64, "%d->%d", original_addr, base_ptr);
-				ImGui::Text(buffer);
-				ImGui::SameLine();
+				//ImGui::Text(buffer);
+				//ImGui::SameLine();
 				ImGuiPrintVar(buffer, dbg, d, base_ptr, 0);
 			}
 
@@ -12617,8 +12638,12 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 			voffset = GetOnStackOffsetWithIrVal(lang_stat, &assign.to_assign);
 			
-			if(assign.to_assign.type == IR_TYPE_ON_STACK)
+			if (assign.to_assign.type == IR_TYPE_ON_STACK)
+			{
+				//GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false, 4);
+		//void GenX64AutomaticDeclDeref(lang_state* lang_stat, own_std::vector<byte_code>& ret, char deref, short *reg, int *voffset, char reg_sz, bool is_float, bool address, bool is_packed_float, bool decl_is_vector, short reg_dst = -1)
 				GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true, false, false);
+			}
 			else
 				GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true, assign.to_assign.decl->type.type == TYPE_VECTOR, false);
 
@@ -12632,6 +12657,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			{
 
 			}break;
+			case IR_TYPE_ON_STACK:
 			case IR_TYPE_DECL:
 			{
 				ir_val_aux lhs;
@@ -12944,8 +12970,9 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		case T_POINT:
 		{
 			ir_val_aux lhs = {};
-			if  (assign.lhs.type == IR_TYPE_REG &&assign.lhs.is_packed_float)
+			if  (assign.lhs.type == IR_TYPE_REG &&assign.lhs.is_packed_float && assign.lhs.ptr <= 0)
 			{
+				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false, true, assign.lhs.reg);
 				bc.type = SHUFFLE_128_PS;
 				bc.shuffle.reg_1 = assign.lhs.reg;
 				bc.shuffle.reg_2 = assign.lhs.reg;
@@ -12960,17 +12987,17 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				// y
 				case 4:
 				{
-					bc.shuffle.mask = _MM_SHUFFLE(1, 0, 0, 0);
+					bc.shuffle.mask = _MM_SHUFFLE(0, 0, 0, 1);
 				}break;
 				// z
 				case 8:
 				{
-					bc.shuffle.mask = _MM_SHUFFLE(2, 0, 0, 0);
+					bc.shuffle.mask = _MM_SHUFFLE(0, 0, 0, 2);
 				}break;
 				// w
 				case 12:
 				{
-					bc.shuffle.mask = _MM_SHUFFLE(3, 0, 0, 0);
+					bc.shuffle.mask = _MM_SHUFFLE(0, 0, 0, 3);
 				}break;
 				default:
 					ASSERT(0);
@@ -13018,7 +13045,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			case IR_TYPE_REG:
 			{
 				ir_val_aux dst;
-				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, false);
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, false, false, -1);
 				byte_code_enum inst;
 				if (dst.deref > 0)
 					if (lhs.is_float)
@@ -13433,6 +13460,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				ir_val_aux dst;
 				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				//GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true, false);
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
@@ -13441,15 +13469,25 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 
 				if (rhs.reg != PRE_X64_RSP_REG)
-					FreeSpecificReg(lang_stat, rhs.reg);
+				{
+					if(rhs.is_float)
+						FreeSpecificFloatReg(lang_stat, rhs.reg);
+					else
+						FreeSpecificReg(lang_stat, rhs.reg);
+				}
 
 				if (lhs.reg != PRE_X64_RSP_REG)
-					FreeSpecificReg(lang_stat, lhs.reg);
+				{
+					if(rhs.is_float)
+						FreeSpecificFloatReg(lang_stat, lhs.reg);
+					else
+						FreeSpecificReg(lang_stat, lhs.reg);
+				}
 			}
 			// R F R
 			else if (assign.lhs.type == IR_TYPE_F32  && assign.rhs.type == IR_TYPE_REG)
 			{
-				char sse_reg = 0;
+				char sse_reg = AllocFloatReg(lang_stat);
 				ir_val_aux lhs;
 				GenX64ToIrValFloatRaw(lang_stat, ret, &lhs, &assign.lhs, assign.rhs.is_packed_float, sse_reg);
 				lhs.type = IR_TYPE_REG;
@@ -13597,9 +13635,11 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst));
 				
 				ir_val_aux dst;
-				GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true, false);
 				
 				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
+				dst.is_packed_float = false;
+				lhs.is_packed_float = false;
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				if(lhs.reg != PRE_X64_RSP_REG)
 					FreeSpecificReg(lang_stat, lhs.reg);
@@ -14265,7 +14305,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->bin.lhs, false, false);
 
 				ir_val_aux rhs;
-				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, true, lhs.is_packed_float);
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, false, lhs.is_packed_float);
 				AllocSpecificReg(lang_stat, rhs.reg);
 
 
@@ -14767,9 +14807,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		/*
 		FOR_VEC(bcc, ret)
 		{
-			if (bcc->type == AND_M_2_M)
+			if (bcc->type == PUSH_STACK_SIZE)
 			{
-				ASSERT(0);
+				lang_stat->cur_nd = 0;
 			}
 		}
 		*/
@@ -14779,6 +14819,9 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	}
 	free(cur);
 }
+
+
+//#pragma optimize("", off)
 void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *from, own_std::vector<byte_code2> *to)
 {
 	int idx = 0;
@@ -14857,6 +14900,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case BEGIN_FUNC:
 		case RET:
 		case BEGIN_FUNC_FOR_INTERPRETER:
+		case PUSH_STACK_SIZE:
 		{
 		}break;
 		case MOV_M_2_REG_PARAM:
@@ -14899,6 +14943,8 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case SQRT_SSE:
 		case AND_R_2_R:
 		case OR_R_2_R:
+		case SHIFTL_R_2_R:
+		case SHIFTR_R_2_R:
 		case MOV_SSE_2_SSE:
 		case ADD_SSE_2_SSE:
 		case ADD_PCKD_SSE_2_PCKD_SSE:
@@ -15043,6 +15089,8 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		idx++;
 	}
 }
+//#pragma optimize("", on)
+
 #pragma optimize("", off)
 void GenWasm(web_assembly_state* wasm_state)
 {	
@@ -15304,9 +15352,18 @@ void GenWasm(web_assembly_state* wasm_state)
 	own_std::vector<func_decl*> x64_funcs;
 
 	machine_code mcode;
+	mcode.bcs.reserve(1024);
+	mcode.code.reserve(10000);
+	mcode.call_rels.reserve(128);
+	mcode.jmp_rels.reserve(128);
+	mcode.symbols.reserve(128);
+	mcode.rels.reserve(128);
 	own_std::vector<byte_code2> bcs2;
 	func_decl* asm_test = nullptr;
 	// wasm
+	wasm_gen_state gen;
+	gen.wasm_state = wasm_state;
+	gen.similar.reserve(8);
 	FOR_VEC(f, wasm_state->funcs)
 	{
 		own_std::vector<unsigned char> code_sect;
@@ -15321,14 +15378,12 @@ void GenWasm(web_assembly_state* wasm_state)
 
 		func->wasm_code_sect_idx = final_code_sect.size();
 
+		gen.cur_func = func;
+
 		std::unordered_map<decl2*, int> decl_to_local_idx;
 		int total_of_args = 0;
 		int stack_size = 0;
 		ir_val last_on_stack;
-		wasm_gen_state gen;
-		gen.wasm_state = wasm_state;
-		gen.cur_func = func;
-		gen.similar.reserve(8);
 		ir_rep* cur_ir = ir->begin();
 		int i = 0;
 		while (cur_ir < ir->end())
@@ -15410,7 +15465,7 @@ void GenWasm(web_assembly_state* wasm_state)
 	{
 		func_decl* func = *f;
 		own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & func->ir;
-		if (IS_FLAG_ON(func->flags, FUNC_DECL_X64))
+		if (IS_FLAG_ON(func->flags, FUNC_DECL_X64) && func->references > 0)
 		{
 			//func->code = (machine_code *)AllocMiscData(wasm_state->lang_stat, sizeof(machine_code));
 
@@ -15439,6 +15494,13 @@ void GenWasm(web_assembly_state* wasm_state)
 		tp->serializable_func = (decl2*)(u64)tp->serializable_func->type.fdecl->bcs2_start;
 		
 	}
+
+	int lines = 0;
+	FOR_VEC(fl, lang_stat->files)
+	{
+		lines += (*fl)->lines.size();
+	}
+	printf("lines processed %d\n", lines);
 
 	//ResolveJmpInsts(&mcode);
 	/*
@@ -16046,6 +16108,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			}\n\
 		}\n\
 		start::fn(a : s32) ! s32{\n\
+			__dbg_break;\n\
 			f32_ar: = []f32{ 1.0, 2.0, 3.0 };\n\
 			f := *f32_ar[0] + *f32_ar[1] + *f32_ar[2];\n\
 			if f < 5.9 || f > 6.1\n\
@@ -16372,7 +16435,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		val = ExecuteString(&info, "\
 		ModifyStrctPtr::fn x64(a : u32, b : u32, c : u32, d : u32, e : u32, f : *f32)\n\
 		{\n\
-			__dbg_break;\n\
 			*f = 3.0 + cast(f32)e;\n\
 		}\n\
 		start::fn(a : s32) ! s32{\n\
@@ -16468,6 +16530,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			return arg;\n\
 		}\n\
 		", 3);
+
 	ASSERT(val == 3)
 
 		val = ExecuteString(&info, "\
@@ -16477,7 +16540,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			y : f32,\n\
 			z : f32,\n\
 		}\n\
-		DoTwoLinesIntersect::fn(startA : *v3, endA : *v3, startB : *v3, endB : *v3, p : *v3) !bool\n\
+		DoTwoLinesIntersect::fn(startA : *_vec, endA : *_vec, startB : *_vec, endB : *_vec, p : *_vec) !bool\n\
 		{\n\
 			x1:f32;\n\
 			x2:f32; \n\
@@ -16519,11 +16582,11 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		start::fn(a : s32) ! s32{\n\
 			i :u32= 5;\n\
-			startA :v3=?;\n\
-			endA :v3=?;\n\
-			startB :v3=?;\n\
-			endB :v3=?;\n\
-			p :v3=?;\n\
+			startA :_vec=?;\n\
+			endA :_vec=?;\n\
+			startB :_vec=?;\n\
+			endB :_vec=?;\n\
+			p :_vec=?;\n\
 			startA.x = 0.0;\n\
 			startA.y = 0.0;\n\
 			endA.x = 0.0;\n\
@@ -16532,7 +16595,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			startB.y = 0.5;\n\
 			endB.x = -1.0;\n\
 			endB.y = 0.5;\n\
-			__dbg_break;\n\
 			ret :=DoTwoLinesIntersect(&startA, &endA, &startB, &endB, &p);\n\
 			if ret != true\n\
 			{\n\
@@ -16569,7 +16631,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//lang_stat->base_lang = NewDecl(lang_stat, "base", tp);
 
 	type2 dummy_type;
-	decl2* release = FindIdentifier("RELEASE", lang_stat->root, &dummy_type);
+	decl2* release = FindIdentifier(std::string("RELEASE"), lang_stat->root, &dummy_type);
 	release->type.i = lang_stat->release;
 
 
@@ -16914,7 +16976,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//printf("hello");
 
     
-	lang_stat->max_nd = 90000;
+	lang_stat->max_nd = 100000;
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
@@ -17142,7 +17204,7 @@ bool GetDeclOnCursor(lang_state *lang_stat, int line, int offset, type2 *out)
 void LspAddFolder(lang_state *lang_stat, std::string folder)
 {
 	type2 dummy_type;
-	decl2* release = FindIdentifier("RELEASE", lang_stat->root, &dummy_type);
+	decl2* release = FindIdentifier(std::string("RELEASE"), lang_stat->root, &dummy_type);
 	release->type.i = lang_stat->release;
 
 

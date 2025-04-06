@@ -27,6 +27,7 @@ struct heap_hash
 	};
 	inner *data;
 	unsigned int hash_table_size = (1024 * 1024);
+	unsigned int used;
 
 	void Clear()
 	{
@@ -79,6 +80,7 @@ struct heap_hash
 				break;
 			}
 		}
+		used--;
 		ASSERT(removed);
 	}
 	void Store(void *key, void *value)
@@ -106,6 +108,7 @@ struct heap_hash
 				break;
 			}
 		}
+		used++;
 		ASSERT(put);
 	}
 };

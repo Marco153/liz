@@ -358,6 +358,7 @@ struct func_decl
 	scope *scp;
 	scope *wasm_scp;
 
+
     func_byte_code *func_bcode;
 	node *reached_nd;
 
@@ -375,6 +376,8 @@ struct func_decl
 	ast_rep* ast;
 
     machine_code *code;
+
+	int references;
 
 	int code_start_idx;
 	int for_interpreter_code_start_idx;

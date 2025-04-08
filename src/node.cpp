@@ -2664,7 +2664,7 @@ own_std::vector<template_expr> DescendNodeTemplates(node* n, scope* scp)
 void DescendTemplates(node* n, scope* scp, own_std::vector<template_expr>* ret)
 {
 
-	template_expr tret = {};
+	template_expr tret;
 	if (IS_IDENT(n))
 	{
 		ASSERT(n->type == node_type::N_IDENTIFIER)
@@ -2938,7 +2938,7 @@ decl2* FindIdentifier(own_std::string &name, scope* scp, type2* ret_type, int fl
 	}
 
 
-	auto decl = scp->FindVariable(name);
+	auto decl = scp->FindVariable((own_std::string &)name);
 #ifdef DO_TIMERS
 	EndTimer(&tm);
 	__lang_globals.find_ident_timer += GetTimerMSFloat(&tm);
@@ -3846,7 +3846,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 
 
 			if (!NameFindingGetType(lang_stat, rnode->r, scp, *tp))
-				return nullptr;
+				return false;
 
 			ret_type.rel_rhs = tp;
 			ret_type.flags |= TYPE_IS_REL;
@@ -3963,7 +3963,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 					ExitProcess(1);
 				}
 				if (!index_op)
-					return nullptr;
+					return false;
 
 				DescendNode(lang_stat, n, scp);
 
@@ -5059,7 +5059,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		}
 
 		if(!rhs_type_not_done_but_its_ptr)
-			return nullptr;
+			return false;
 	}
 
 	//	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
@@ -5103,7 +5103,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				}
 				else
 				*/
-					return nullptr;
+					return false;
 			}
 
 		}
@@ -5119,14 +5119,14 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				ExitProcess(1);
 			}
 			else
-				return nullptr;
+				return false;
 		}
 
 		if (ncall->r && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && !DescendNameFinding(lang_stat, ncall->r, scp) && !rhs_type_not_done_but_its_ptr)
 		{
 			//	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 			//		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
-			return nullptr;
+			return false;
 		}
 	}
 	else
@@ -5243,7 +5243,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		else if (fdecl->name == "GetTypeData")
 		{
 			if (!DescendNameFinding(lang_stat, ncall->r, scp))
-				return nullptr;
+				return false;
 			//ret_type = fdecl->ret_type;
 
 			//ret_type.i = GetTypeSize(&args[0].decl.type);
@@ -5252,7 +5252,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		{
 			int a = 0;
 			if (!DescendNameFinding(lang_stat, ncall->r, scp))
-				return nullptr;
+				return false;
 			lhs->type.fdecl->flags |= FUNC_DECL_INTERNAL;
 		}
 		else if (IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && lhs->type.type != TYPE_OVERLOADED_FUNCS)
@@ -5602,7 +5602,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			else if (t->type == COMMA_RET_EXPR && t->n->type == N_BINOP && t->n->t->type == T_COMMA)
 			{
 				if (!DescendNameFinding(lang_stat, t->n, scp))
-					return nullptr;
+					return false;
 				
 				decl2 *tuple = CreateStructTuple(lang_stat, t->n, scp);
 				t->type = COMMA_RET_IDENT;
@@ -5621,7 +5621,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		auto type = DescendNameFinding(lang_stat, ncall->r, scp);
 
 		if (!type && !rhs_type_not_done_but_its_ptr)
-			return nullptr;
+			return false;
 
 		if (lhs->type.strct->templates.size() != args.size())
 		{
@@ -6120,7 +6120,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 		lhs_decl = n->decl;
 
 	if (!lhs_decl)
-		return nullptr;
+		return false;
 
 	type2 lhs_tp;
 
@@ -6173,7 +6173,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 			ExitProcess(1);
 		}
 		if (!e_decl)
-			return nullptr;
+			return false;
 
 		ret_tp->e_idx = e_decl->type.e_idx;
 		return e_decl;
@@ -6238,7 +6238,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 				n->r->scp = GetScopeFromParent(lang_stat, n->r, scp);
 			AddStructMembersToScopeWithUsing(lang_stat, lhs->type.strct, n->r->scp, n->l);
 			if (!DescendNameFinding(lang_stat, n->r, scp))
-				return nullptr;
+				return false;
 			DescendNode(lang_stat, n->r, scp);
 			return (decl2 *)1;
 			
@@ -6304,7 +6304,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 							ExitProcess(1);
 					}
 					else
-						return nullptr;
+						return false;
 				}
 
 			}
@@ -6337,7 +6337,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 			ReportUndeclaredIdentifier(lang_stat, n->t);
 
 		if (!ret_decl)
-			return nullptr;
+			return false;
 
 		switch (ret_decl->type.type)
 		{
@@ -6364,7 +6364,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 		ExitProcess(1);
 
 	}
-	return nullptr;
+	return false;
 }
 
 void ReportUndeclaredIdentifier(lang_state *lang_stat, token2* t)
@@ -8143,7 +8143,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		//%COLON
 		case tkn_type2::T_COLON:
 		{
-			own_std::string &decl_name = n->l != nullptr ? n->l->t->str : own_std::to_string((long long)n);
+			const own_std::string &decl_name = n->l != nullptr ? n->l->t->str : own_std::to_string((long long)n);
 
 
 			// creating a new node for an implied name
@@ -8157,7 +8157,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				//auto decl_exist = FindIdentifier(decl_name, scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 			}
 
-			auto decl_exist = FindIdentifier(decl_name, scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+			auto decl_exist = FindIdentifier((own_std::string &)decl_name, scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 
 			/*
 			if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl_exist)
@@ -8725,12 +8725,12 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						auto colon = DescendNameFinding(lang_stat, n->r, scp);
 						if (overload_strct && first_time)
 						{
-							decl_name = MangleFuncNameWithArgs(lang_stat, ret_type.fdecl, decl_name, 0);
-							ret_type.fdecl->name = decl_name;
+							own_std::string new_name = MangleFuncNameWithArgs(lang_stat, ret_type.fdecl, decl_name, 0);
+							ret_type.fdecl->name = new_name;
 							FOR_VEC(fdecl, overload_strct->fdecls)
 							{
 								func_decl* f = *fdecl;
-								if (f->name == decl_name)
+								if (f->name == new_name)
 								{
 									REPORT_ERROR(n->t->line, n->t->line_offset,
 										VAR_ARGS("function '%s' has already an overload declared here\n%s(%d): %s", 
@@ -8740,7 +8740,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 								}
 							}
 							overload_strct->fdecls.emplace_back(ret_type.fdecl);
-							decl2 *d = DeclareDeclToScopeAndMaybeToFunc(lang_stat, decl_name, &ret_type, scp, n);
+							decl2 *d = DeclareDeclToScopeAndMaybeToFunc(lang_stat, new_name, &ret_type, scp, n);
 							lang_stat->funcs_scp->AddDecl(d);
 
 						}
@@ -8756,7 +8756,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							}
 #endif
 							colon = FindIdentifier(n->l->t->str, scp, &ret_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE);
-							if (colon)
+							if (colon && colon->type.type == TYPE_FUNC)
 							{
 								colon->type.fdecl->this_decl = colon;
 							}

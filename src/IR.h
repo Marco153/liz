@@ -180,7 +180,7 @@ struct ast_rep
 		struct
 		{
 			own_std::vector<ast_rep*> expr;
-		};
+		}e_holder;
 		
 		struct
 		{

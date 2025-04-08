@@ -534,6 +534,8 @@ HANDLE OpenFileLang(char* name)
 
 		ExitProcess(0);
 	}
+	auto a = 0;
+	return file;
 }
 char* ReadEntireFileLang(char* name, int* read)
 {
@@ -4305,20 +4307,20 @@ dbg_expr* WasmGetExprFromTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 	//exp_str = "";
 	if (ast->type == AST_BINOP && ast->op == T_COMMA)
 	{
-		ASSERT(ast->expr.size() >= 2);
+		ASSERT(ast->e_holder.expr.size() >= 2);
 
 
-		PushAstsInOrder(dbg->lang_stat, ast->expr[0], &exp->expr);
-		PushAstsInOrder(dbg->lang_stat, ast->expr[1], &exp->x_times);
+		PushAstsInOrder(dbg->lang_stat, ast->e_holder.expr[0], &exp->expr);
+		PushAstsInOrder(dbg->lang_stat, ast->e_holder.expr[1], &exp->x_times);
 
-		if(ast->expr.size() == 2)
+		if(ast->e_holder.expr.size() == 2)
 			exp->type = DBG_EXPR_SHOW_VAL_X_TIMES;
-		else if (ast->expr.size() == 3)
+		else if (ast->e_holder.expr.size() == 3)
 		{
 			exp->type = DBG_EXPR_FILTER;
 			ast_rep* ret = NewAst();
 			ret->type = AST_RET;
-			ret->ast = ast->expr[2];
+			ret->ast = ast->e_holder.expr[2];
 			FreeAllRegs(dbg->lang_stat);
 			GetIRFromAst(dbg->lang_stat, ret, &exp->filter_cond);
 		}
@@ -5401,7 +5403,7 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int
 	ir_rep ir = {};
 	ir.type = IR_ASSIGNMENT;
 	ir.assign.to_assign.type = IR_TYPE_DECL;
-	ir.assign.to_assign.decl = dbg->lang_stat->dbg_equal->expr[0]->decl;
+	ir.assign.to_assign.decl = dbg->lang_stat->dbg_equal->e_holder.expr[0]->decl;
 	ir.assign.to_assign.deref = -1;
 	ir.assign.only_lhs = true;
 	ast_rep* dbg_equal = dbg->lang_stat->dbg_equal;
@@ -5425,7 +5427,7 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int
 		}
 		else
 		{
-			dbg_equal->expr[1] = ast;
+			dbg_equal->e_holder.expr[1] = ast;
 			GetIRFromAst(dbg->lang_stat, dbg_equal, &exp->irs);
 		}
 		exp->offset = *GetRegValPtr(dbg, stack_reg) + ast->decl->offset;
@@ -5438,7 +5440,7 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int
 		dbg_equal->lhs_tp = exp->d.type;
 
 		
-		dbg_equal->expr[1] = ast;
+		dbg_equal->e_holder.expr[1] = ast;
 		GetIRFromAst(dbg->lang_stat, dbg_equal, &exp->irs);
 	}
 	if (len)
@@ -6859,7 +6861,9 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 
 		auto cur_dbg_f = (file_dbg*)(ser_state.file_sect.begin() + file_offset);
 
-		WasmSerializePushString(&ser_state, &(f->path + f->name), &cur_dbg_f->name);
+		auto aux = (f->path + f->name);
+		WasmSerializePushString(&ser_state, &aux, &cur_dbg_f->name);
+
 		i++;
 
 	}
@@ -17253,7 +17257,7 @@ bool GetDeclOnCursor(lang_state *lang_stat, int line, int offset, type2 *out)
 
 	ast_rep* exp = nullptr;
 
-	FOR_VEC(ex, stat->expr)
+	FOR_VEC(ex, stat->e_holder.expr)
 	{
 		ast_rep* e = *ex;
 		if(offset <= e->line_offset_start)

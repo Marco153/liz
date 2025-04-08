@@ -725,7 +725,7 @@ void Draw(dbg_state* dbg)
 		glEnable(GL_STENCIL_TEST);
 		glStencilMask(0xFF);
 		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE); 
-		switch (draw->stencil_func)
+		switch ((stencil_func)draw->stencil_func)
 		{
 		case stencil_func::EQUAL:
 		{

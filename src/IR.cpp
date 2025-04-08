@@ -68,8 +68,8 @@ ast_rep* CreateAstBin(lang_state* lang_stat, tkn_type2 op, ast_rep *lhs, ast_rep
 	ret->type = AST_BINOP;
 	ret->op = op;
 	ret->lhs_tp = DescendNode(lang_stat, lhs_n, scp);
-	ret->expr.emplace_back(lhs);
-	ret->expr.emplace_back(rhs);
+	ret->e_holder.expr.emplace_back(lhs);
+	ret->e_holder.expr.emplace_back(rhs);
 
 	return ret;
 }
@@ -272,8 +272,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		if(!CMP_NTYPE_BIN(cur, T_POINT))
 			rhs->lhs_tp = DescendNode(lang_stat, cur->r, scp);
 
-		ret->expr.emplace_back(lhs);
-		ret->expr.emplace_back(rhs);
+		ret->e_holder.expr.emplace_back(lhs);
+		ret->e_holder.expr.emplace_back(rhs);
 
         for(int i = node_stack.size() - 2; i >= 0; i--)
         {
@@ -281,7 +281,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
             rhs = AstFromNode(lang_stat, cur->r, scp);
 			if(!CMP_NTYPE_BIN(cur, T_POINT))
 				rhs->lhs_tp = DescendNode(lang_stat, cur->r, scp);
-            ret->expr.emplace_back(rhs);
+            ret->e_holder.expr.emplace_back(rhs);
         }
 
 
@@ -315,7 +315,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
 				ast_point aux;
 				aux.decl_strct = dummy_type.strct->this_decl;
-				aux.exp = ret->expr[0];
+				aux.exp = ret->e_holder.expr[0];
 				new_ar->emplace_back(aux);
 
 				decl2* strct = aux.decl_strct;
@@ -745,7 +745,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			if (n->r->type == N_BINOP && n->r->t->type == T_COMMA)
 			{
 				ast_rep* args = AstFromNode(lang_stat, n->r, scp);
-				ret->call.args = args->expr;
+				ret->call.args = args->e_holder.expr;
 			}
 			else
 			{
@@ -963,8 +963,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 					bin_plus->type = AST_BINOP;
 					bin_plus->op = T_PLUS;
 					bin_plus->lhs_tp = var_type;
-					bin_plus->expr.emplace_back(cast_to_u64);
-					bin_plus->expr.emplace_back(type_size);
+					bin_plus->e_holder.expr.emplace_back(cast_to_u64);
+					bin_plus->e_holder.expr.emplace_back(type_size);
 
 					if (is_rev)
 						bin_plus->op = T_MINUS;
@@ -973,8 +973,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 					equal->type = AST_BINOP;
 					equal->op = T_EQUAL;
 					equal->lhs_tp = var_type;
-					equal->expr.emplace_back(var_name);
-					equal->expr.emplace_back(bin_plus);
+					equal->e_holder.expr.emplace_back(var_name);
+					equal->e_holder.expr.emplace_back(bin_plus);
 					ret->for_info.at_loop_end_stat = equal;
 					equal->line_number = n->t->line;
 
@@ -1320,14 +1320,14 @@ bool HasCall(lang_state *lang_stat, ast_rep *ast)
 	{
 		if(ast->op == T_POINT)
 		{
-			if (HasCall(lang_stat, ast->expr[0]))
+			if (HasCall(lang_stat, ast->e_holder.expr[0]))
 			{
 				return true;
 			}
 		}
 		else
 		{
-			FOR_VEC(a, ast->expr)
+			FOR_VEC(a, ast->e_holder.expr)
 			{
 				if (HasCall(lang_stat, *a))
 				{
@@ -1407,7 +1407,7 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 	//ir.assign.to_assign.reg = AllocReg(lang_stat);
 
 
-	if(ast_bin->expr[0]->type == AST_BINOP && (ast_bin->expr[0]->op == T_COND_AND || ast_bin->expr[0]->op == T_COND_OR))
+	if(ast_bin->e_holder.expr[0]->type == AST_BINOP && (ast_bin->e_holder.expr[0]->op == T_COND_AND || ast_bin->e_holder.expr[0]->op == T_COND_OR))
 	{
 		own_std::vector<ir_rep> irs;
 
@@ -1415,13 +1415,13 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 		int sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
 		int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
 
-		GetIRFromAst(lang_stat, ast_bin->expr[0], out);
+		GetIRFromAst(lang_stat, ast_bin->e_holder.expr[0], out);
 
 		IRCreateEndBlock(lang_stat,cond_idx, out, IR_END_COND_BLOCK);
 
 		char reg = AllocReg(lang_stat);
 
-		GenStackThenIR(lang_stat, ast_bin->expr[1], out, &ir.bin.rhs, &ir.bin.rhs);
+		GenStackThenIR(lang_stat, ast_bin->e_holder.expr[1], out, &ir.bin.rhs, &ir.bin.rhs);
 
 		CreateOppositeRegAssigmentAfterCondChecking(lang_stat, out, sub_if_idx, if_idx, reg);
 
@@ -1442,7 +1442,7 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 		ir.bin.rhs.type = IR_TYPE_REG;
 		ir.bin.rhs.reg_sz = 8;
 		ir.bin.rhs.reg = AllocReg(lang_stat);
-		GenStackThenIR(lang_stat, ast_bin->expr[1], out, &ir.bin.rhs, &ir.bin.rhs);
+		GenStackThenIR(lang_stat, ast_bin->e_holder.expr[1], out, &ir.bin.rhs, &ir.bin.rhs);
 
 		if (ir.bin.rhs.type == IR_TYPE_RET_REG)
 		{
@@ -1471,12 +1471,12 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 		ir.bin.lhs.reg = AllocReg(lang_stat);
 		int had_spilled_reg = -1;
 
-		if (HasCall(lang_stat, ast_bin->expr[0]) && ir.bin.rhs.type == IR_TYPE_REG)
+		if (HasCall(lang_stat, ast_bin->e_holder.expr[0]) && ir.bin.rhs.type == IR_TYPE_REG)
 		{
 			had_spilled_reg = ir.bin.rhs.reg;
 			SpillRegisters(lang_stat, had_spilled_reg, out);
 		}
-		GenStackThenIR(lang_stat, ast_bin->expr[0], out, &ir.bin.lhs, &ir.bin.lhs);
+		GenStackThenIR(lang_stat, ast_bin->e_holder.expr[0], out, &ir.bin.lhs, &ir.bin.lhs);
 		MaybeUnspillRegisters(lang_stat, &had_spilled_reg, out);
 
 		if (ir.bin.lhs.ptr > 0)
@@ -1613,8 +1613,8 @@ void GetIRCond(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out
 
 void GenIRSubBin(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val_type to, void* data)
 {
-	ast_rep* lhs_exp = ast->expr[0];
-	ast_rep* rhs_exp = ast->expr[1];
+	ast_rep* lhs_exp = ast->e_holder.expr[0];
+	ast_rep* rhs_exp = ast->e_holder.expr[1];
 
 	bool lhs_complex = IsAstSimple(lang_stat, lhs_exp);
 	bool rhs_complex = IsAstSimple(lang_stat, rhs_exp);
@@ -1742,11 +1742,11 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 		}
 		else if (ast->op == T_COND_EQ || ast->op == T_COND_NE)
 		{
-			ASSERT(ast->expr.size() == 2);
+			ASSERT(ast->e_holder.expr.size() == 2);
 
 			//out->emplace_back((ast_rep*)(long long)(IR_BEGIN_OR| (ast->line_number << 16) | ((long long)0xbeba << 32)));
 
-			if(ast->expr[0]->type == AST_BINOP && (ast->expr[0]->op == T_COND_AND || ast->expr[0]->op == T_COND_OR))
+			if(ast->e_holder.expr[0]->type == AST_BINOP && (ast->e_holder.expr[0]->op == T_COND_AND || ast->e_holder.expr[0]->op == T_COND_OR))
 			{
 				own_std::vector<ir_rep> irs;
 				
@@ -1758,7 +1758,7 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 				int sub_if_idx = IRCreateBeginBlock(lang_stat, last, IR_BEGIN_SUB_IF_BLOCK);
 				int cond_idx = IRCreateBeginBlock(lang_stat, last, IR_BEGIN_COND_BLOCK);
 
-				GetIRFromAst(lang_stat, ast->expr[0], last);
+				GetIRFromAst(lang_stat, ast->e_holder.expr[0], last);
 
 				IRCreateEndBlock(lang_stat,cond_idx, last, IR_END_COND_BLOCK);
 
@@ -1778,16 +1778,16 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 
 
 				out->emplace_back((ast_rep*)(long long)(IR_BEGIN_INSIDE_IF| ((lang_stat->inside_ifs.size() - 1) << 16) | ((long long)0xbeba << 32)));
-				PushAstsInOrder(lang_stat, ast->expr[1], out);
-				//PushAstsInOrder(lang_stat, ast->expr[0], out);
-				//PushAstsInOrder(lang_stat, ast->expr[1], out);
+				PushAstsInOrder(lang_stat, ast->e_holder.expr[1], out);
+				//PushAstsInOrder(lang_stat, ast->e_holder.expr[0], out);
+				//PushAstsInOrder(lang_stat, ast->e_holder.expr[1], out);
 				out->emplace_back(ast);
 
 			}
 			else
 			{
-				PushAstsInOrder(lang_stat, ast->expr[0], out);
-				PushAstsInOrder(lang_stat, ast->expr[1], out);
+				PushAstsInOrder(lang_stat, ast->e_holder.expr[0], out);
+				PushAstsInOrder(lang_stat, ast->e_holder.expr[1], out);
 				out->emplace_back(ast);
 			}
 			//out->emplace_back((ast_rep*)(long long)(IR_END_OR| (ast->line_number << 16) | ((long long)0xbeba << 32)));
@@ -1795,18 +1795,18 @@ void PushAstsInOrder(lang_state* lang_stat, ast_rep* ast, own_std::vector<ast_re
 		else if (ast->op == T_COND_OR)
 		{
 			out->emplace_back((ast_rep*)(long long)(IR_BEGIN_OR|(ast->line_number << 16) | ((long long)0xbeba << 32)));
-			PushArrayOfAsts(lang_stat, &ast->expr, ast, out);
+			PushArrayOfAsts(lang_stat, &ast->e_holder.expr, ast, out);
 			out->emplace_back((ast_rep*)(long long)(IR_END_OR| (ast->line_number << 16) | ((long long)0xbeba << 32)));
 		}
 		else if (ast->op == T_COND_AND)
 		{
 			out->emplace_back((ast_rep*)(long long)(IR_BEGIN_AND| (ast->line_number << 16) | ((long long)0xbeba << 32)));
-			PushArrayOfAsts(lang_stat, &ast->expr, ast, out);
+			PushArrayOfAsts(lang_stat, &ast->e_holder.expr, ast, out);
 			out->emplace_back((ast_rep*)(long long)(IR_END_AND| (ast->line_number << 16) | ((long long)0xbeba << 32)));
 		}
 		else
 		{
-			PushArrayOfAsts(lang_stat, &ast->expr, ast, out);
+			PushArrayOfAsts(lang_stat, &ast->e_holder.expr, ast, out);
 		}
 	}break;
 	default:
@@ -3437,7 +3437,7 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	//out->emplace_back(ir);
 
 	/*
-	if (ast->expr.size() == 2)
+	if (ast->e_holder.expr.size() == 2)
 	{
 		
 
@@ -3449,8 +3449,8 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 	ir_rep ir;
 
 	ASSERT(ast->type == AST_BINOP);
-	ast_rep* lhs_exp = ast->expr[0];
-	ast_rep* rhs_exp = ast->expr[1];
+	ast_rep* lhs_exp = ast->e_holder.expr[0];
+	ast_rep* rhs_exp = ast->e_holder.expr[1];
 
 	int reg = dst_val->reg;
 
@@ -3492,9 +3492,9 @@ void GenStackThenIR(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep>
 
 	out->emplace_back(ir);
 
-	for(int i = 2; i < ast->expr.size(); i++)
+	for(int i = 2; i < ast->e_holder.expr.size(); i++)
 	{
-		ast_rep* cur = ast->expr[i];
+		ast_rep* cur = ast->e_holder.expr[i];
 
 		if (IsAstSimple(lang_stat, cur))
 		{
@@ -3581,7 +3581,7 @@ int GetAstTypeSize(lang_state* lang_stat, ast_rep* ast)
 			return GetAstTypeSize(lang_stat, ast->points.back().exp);
 		}
 		else
-			return GetAstTypeSize(lang_stat, ast->expr[0]);
+			return GetAstTypeSize(lang_stat, ast->e_holder.expr[0]);
 	}break;
 	case AST_CAST:
 	{
@@ -3941,8 +3941,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
             ir_val lhs;
             ir_val rhs;
 
-            ast_rep *rhs_ast = ast->expr[1];
-            ast_rep *lhs_ast = ast->expr[0];
+            ast_rep *rhs_ast = ast->e_holder.expr[1];
+            ast_rep *lhs_ast = ast->e_holder.expr[0];
 
 			ir.type = IR_ASSIGNMENT;
             
@@ -4032,7 +4032,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			//ir.assign.to_assign.deref += ir.assign.to_assign.ptr;
 			//GenLhsEqual(lang_stat, lhs_ast, &ast->lhs_tp, out, &ir.assign.to_assign);
 
-			//GetIRVal(lang_stat, ast->expr[0], &ir.assign.to_assign);
+			//GetIRVal(lang_stat, ast->e_holder.expr[0], &ir.assign.to_assign);
 			if (ast->op == T_PLUS_EQUAL || ast->op == T_MINUS_EQUAL)
 			{
 				ir.assign.rhs = ir.assign.lhs;
@@ -4106,7 +4106,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
         }break;
 		case T_COND_AND:
 		{
-            FOR_VEC(expr, ast->expr)
+            FOR_VEC(expr, ast->e_holder.expr)
             {
                 ast_rep *e = *expr;
                 if(e->type == AST_BINOP && e->op == T_COND_OR)
@@ -4160,10 +4160,10 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
         case T_COND_OR:
         {
 			int idx = 0;
-            FOR_VEC(expr, ast->expr)
+            FOR_VEC(expr, ast->e_holder.expr)
             {
                 ast_rep *e = *expr;
-				bool last = idx == (ast->expr.size() - 1);
+				bool last = idx == (ast->e_holder.expr.size() - 1);
                 if(last && e->type == AST_BINOP && e->op == T_COND_AND)
                 {
                     GetIRFromAst(lang_stat, e, out);
@@ -4189,7 +4189,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				else if (e->type == AST_BINOP && e->op != T_POINT)
 				{
 					tkn_type2 op = e->op;
-					if (idx == (ast->expr.size() - 1))
+					if (idx == (ast->e_holder.expr.size() - 1))
 					{
 						tkn_type2 opposite = OppositeCondCmp(e->op);
 						e->op = opposite;
@@ -4435,8 +4435,8 @@ ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat)
 
 	bin->type = AST_BINOP;
 	bin->op = T_EQUAL;
-	bin->expr.emplace_back(lhs);
-	bin->expr.emplace_back(rhs);
+	bin->e_holder.expr.emplace_back(lhs);
+	bin->e_holder.expr.emplace_back(rhs);
 	return bin;
 
 }

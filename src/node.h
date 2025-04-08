@@ -335,7 +335,7 @@ enum msg_type
 	 int hit;
 	 decl2* d;
  };
-int GetNameSimpleHash(own_std::string &str)
+int GetNameSimpleHash(const own_std::string &str)
 {
 	int sz = str.size();
 	int sum = sz;
@@ -509,7 +509,7 @@ struct import_strct
 	import_type type;
 	own_std::string alias;
 	unit_file *fl;
-	decl2 *FindDecl(own_std::string &name)
+	decl2 *FindDecl(const own_std::string &name)
 	{
 
 		ASSERT(fl->global);

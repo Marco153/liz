@@ -173,6 +173,9 @@ struct template_expr
 	node *func;
 	scope *scp;
 
+	template_expr()
+	{
+	}
 	~template_expr()
 	{
 	}
@@ -1194,6 +1197,7 @@ struct comma_ret
 bool CompareTypes(type2* lhs, type2* rhs, bool assert);
 func_decl *type2::ChooseFuncOverload(lang_state *lang_stat, own_std::vector<type2> *tps)
 {
+	ASSERT(overload_funcs);
 	FOR_VEC(f, overload_funcs->fdecls)
 	{
 		if ((*f)->args.size() == tps->size())

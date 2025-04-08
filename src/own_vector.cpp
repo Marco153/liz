@@ -144,6 +144,24 @@ namespace own_std
 			c_str_vec_count = 0;
 			c_str_vec_len = 0;
 		}
+		/*
+		void operator =(const string &src)
+		{
+			u64 l = src.len;
+			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, l);
+			memcpy(buffer, src.data_, l);
+			data_ = buffer;
+			len = l;
+		}
+		*/
+		void operator =(const string &src)
+		{
+			u64 l = src.len;
+			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, l);
+			memcpy(buffer, src.data_, l);
+			data_ = buffer;
+			len = l;
+		}
 		void operator =(string &src)
 		{
 			u64 l = src.len;
@@ -386,6 +404,20 @@ namespace own_std
 			data_ = buffer;
 			len = total;
 		}
+		void operator +=(const string &other)
+		{
+			u64 total = other.len + len;
+			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
+			memcpy(buffer, data_, len);
+			memcpy(buffer + len, other.data_, other.len);
+
+			if(data_)
+				__lang_globals.free(__lang_globals.data, data_);
+
+			data_ = buffer;
+			len = total;
+
+		}
 		void operator +=(string &other)
 		{
 			u64 total = other.len + len;
@@ -418,6 +450,15 @@ namespace own_std
 			// use concat_in_place instead
 			//ASSERT(0);
 			return concat(other);
+		}
+		char& operator [](u64 idx) const
+		{
+			if (idx >= len)
+			{
+				*(u64*)0 = 0;
+			}
+
+			return data_[idx];
 		}
 		char& operator [](u64 idx)
 		{
@@ -513,10 +554,27 @@ namespace own_std
 			return *ar[idx];
 		}
 
+		vector(const vector& a)
+		{
+			memset(this, 0, sizeof(*this));
+			this->assign(((vector &)a).begin(), ((vector &)a).end());
+		}
 		vector(vector& a)
 		{
 			memset(this, 0, sizeof(*this));
 			this->assign(a.begin(), a.end());
+		}
+		vector& operator=(const vector& a)
+		{
+			this->assign(((vector &)a).begin(), ((vector &)a).end());
+			return *this;
+
+		}
+		vector& operator=(const vector& a) const
+		{
+			this->assign(((vector &)a).begin(), ((vector &)a).end());
+			return *this;
+
 		}
 		vector& operator=(vector& a)
 		{
@@ -536,15 +594,21 @@ namespace own_std
 			memcpy(ar.start, start, count * sizeof(T));
 		}
 
-		T* end()
+		T* end() const
 		{
 			return begin() + ar.count;
 		}
 		T* begin()
 		{
 			if (ar.start == nullptr)
+			{
 				Init(1);
+			}
 			return ar.start;
+		}
+		T* end()
+		{
+			return begin() + ar.count;
 		}
 		void make_count(u64 new_size)
 		{
@@ -589,7 +653,8 @@ namespace own_std
 		}
 		void pop_back()
 		{
-			ar.Pop();
+			if(this->ar.count > 0)
+				ar.Pop();
 		}
 		bool empty()
 		{
@@ -669,6 +734,42 @@ namespace own_std
 					T val = arg;
 					insert(a, val);
 				}
+		}
+		T* insert(u64 a, const T& arg)
+		{
+			ASSERT(a >= 0 && a <= this->ar.count)
+				ar.count += 1;
+			TestSizeAndRegrow();
+
+
+			u64 diff = ar.count - a;
+#ifdef USE_C
+			char* aux_buffer = (char*)malloc(diff * sizeof(T));
+#else
+			char* aux_buffer = (char*)__lang_globals.alloc(__lang_globals.data, diff * sizeof(T));
+#endif
+			//char* aux_buffer = (char*)__lang_globals.alloc(__lang_globals.data, diff * sizeof(T));
+			memcpy(aux_buffer, ar.start + a, sizeof(T) * diff);
+
+			T* t = this->ar.start + a;
+
+			if (diff > 0)
+			{
+				diff = this->ar.count - a - 1;
+				memcpy(t + 1, aux_buffer, sizeof(T) * diff);
+#ifdef USE_C
+				free(aux_buffer);
+#else
+				__lang_globals.free(__lang_globals.data, aux_buffer);
+#endif
+
+			}
+
+			memcpy(t, &arg, sizeof(T));
+
+			//ar.count += 1;
+			return t;
+
 		}
 		T* insert(u64 a, T& arg)
 		{

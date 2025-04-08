@@ -284,7 +284,7 @@ struct machine_sym;
 struct lang_state;
 char* AllocMiscData(lang_state*, int sz);
 
-void split(const std::string& s, char separator, own_std::vector<std::string>& ret, std::string* aux)
+void split(own_std::string& s, char separator, own_std::vector<own_std::string>& ret, own_std::string* aux)
 {
 	int start = 0;
 	for (int i = 0; i < s.size(); i++)
@@ -405,11 +405,11 @@ struct lang_state
 	own_std::vector<ptr_decl_that_have_len> ptrs_have_len;
 	func_decl* plugins_for_func;
 	std::unordered_map<func_decl*, func_decl*> comp_time_funcs;
-	std::unordered_map<std::string, unsigned int> symbols_offset_on_type_sect;
+	//std::unordered_map<own_std::string, unsigned int> symbols_offset_on_type_sect;
 
-	std::unordered_map<std::string, char*> internal_funcs_addr;
+	//std::unordered_map<own_std::string, char*> internal_funcs_addr;
 
-	std::string liz_file_path;
+	own_std::string liz_file_path;
 
 	wasm_interp* winterp;
 	dbg_state* dstate;
@@ -437,7 +437,7 @@ struct lang_state
 	own_std::vector<own_std::vector<char>> type_sect_str_table2;
 
 
-	std::vector<std::string> struct_scope;
+	std::vector<own_std::string> struct_scope;
 
 
 	int type_sect_str_tbl_sz;
@@ -451,8 +451,8 @@ struct lang_state
 
 	own_std::vector<func_decl*> global_funcs;
 
-	std::string work_dir;
-	std::string exe_dir;
+	own_std::string work_dir;
+	own_std::string exe_dir;
 
 	int call_regs_used;
 	int max_bytes_in_ar_lit;
@@ -462,7 +462,7 @@ struct lang_state
 	int cur_per_stmnt_strct_val_sz;
 	int cur_per_stmnt_strct_val_offset;
 
-	std::string linker_options;
+	own_std::string linker_options;
 	web_assembly_state* wasm_state;
 
 	//for_it_desugared fit_dsug;
@@ -689,9 +689,10 @@ struct wasm_func
 
 // forward decls
 bool AreIRValsEqual(ir_val* lhs, ir_val* rhs);
-std::string GetTypeInfoLangArrayStr(std::string str)
+/*
+own_std::string GetTypeInfoLangArrayStr(own_std::string str)
 {
-	std::string final_ret;
+	own_std::string final_ret;
 	final_ret.reserve(64);
 
 	for (auto c : str)
@@ -703,6 +704,7 @@ std::string GetTypeInfoLangArrayStr(std::string str)
 	}
 	return final_ret;
 }
+*/
 
 void MapMacro(node* n, node* marco_inner, node* stmnt, void* out)
 {
@@ -720,11 +722,11 @@ void call(int a, int b, int c, int d, int e, int f, int g)
 	return;
 }
 
-char* std_str_to_heap(lang_state*, std::string* str);
+char* std_str_to_heap(lang_state*, own_std::string* str);
 
 void NewTypeToSection(lang_state* lang_stat, char* type_name, enum_type2 idx)
 {
-	std::string final_name = std::string("$$") + type_name;
+	own_std::string final_name = own_std::string("$$") + type_name;
 	lang_stat->type_sect_syms.push_back(
 		machine_sym(lang_stat, SYM_TYPE_DATA, (unsigned int)lang_stat->type_sect.size() + sizeof(type_data), std_str_to_heap(lang_stat, &final_name))
 	);
@@ -763,10 +765,10 @@ int ForeignFuncAdd(char a)
 
 bool GetTypeInTypeSect(lang_state* lang_stat, machine_reloc* c, own_std::vector<machine_sym>& symbols, int data_sect_start, unsigned int& sym_idx)
 {
-	//std::string cur_rel_name = std::string(c->name);
+	//own_std::string cur_rel_name = own_std::string(c->name);
 	FOR_VEC(sym, symbols)
 	{
-		if (c->name == std::string(sym->name))
+		if (own_std::string(sym->name) == c->name)
 		{
 			sym_idx = sym->idx;
 
@@ -815,7 +817,7 @@ char* CompleteMachineCode(lang_state* lang_stat, machine_code& code)
 	FOR_VEC(c, code.rels)
 	{
 		char* addr = nullptr;
-		auto name = std::string(c->name);
+		auto name = own_std::string(c->name);
 		if (lang_stat->internal_funcs_addr.find(name) != lang_stat->internal_funcs_addr.end())
 		{
 			addr = (char*)lang_stat->internal_funcs_addr[name];
@@ -881,7 +883,7 @@ void SetNodeIdent(lang_state* lang_stat, node* n, char* data, int len)
 	{
 		n->t = (token2*)AllocMiscData(lang_stat, sizeof(token2));
 	}
-	n->t->str = std::string(data, len);
+	n->t->str = own_std::string(data, len);
 	n->flags |= NODE_FLAGS_WAS_MODIFIED;
 }
 node* GetNodeR(node* n)
@@ -906,13 +908,67 @@ node_type GetNodeType(node* n)
 }
 
 
+struct outsider_info
+{
+	char* name;
+	OutsiderFuncType func;
+};
+
+#define TOTAL_OUTSIDERS 128
+
 struct wasm_interp;
+
 struct wasm_interp
 {
 	dbg_state *dbg;
 	own_std::vector<func_decl*> funcs;
-	std::unordered_map<std::string, OutsiderFuncType> outsiders;
+	outsider_info outsiders[TOTAL_OUTSIDERS];
+
+	OutsiderFuncType get_func(own_std::string& str)
+	{
+		u64 hash = GetNameSimpleHash(str);
+		
+		u64 start = hash;
+
+		bool found = false;
+		while (true)
+		{
+			if(str == outsiders[hash].name)
+			{
+				found = true;
+				break;
+			}
+
+			hash = (hash + 1) % TOTAL_OUTSIDERS;
+
+			ASSERT(hash != start);
+		}
+		ASSERT(found);
+		return outsiders[hash].func;
+	}
+	void add_func(own_std::string &str, OutsiderFuncType f)
+	{
+		u64 hash = GetNameSimpleHash(str);
+		
+		u64 start = hash;
+
+		while (outsiders[hash].func == nullptr)
+		{
+			hash = (hash + 1) % TOTAL_OUTSIDERS;
+
+			ASSERT(hash != start);
+		}
+		outsider_info* ptr = &outsiders[hash];
+
+		int sz = str.size();
+		auto buffer = (char *)__lang_globals.alloc(__lang_globals.data, sz + 1);
+		memcpy(buffer, str.data(), sz);
+		buffer[sz] = 0;
+
+		ptr->name = buffer;
+	}
 };
+
 struct web_assembly_state
 {
 	own_std::vector<decl2*> types;
@@ -920,11 +976,11 @@ struct web_assembly_state
 	own_std::vector<decl2*> imports;
 	own_std::vector<decl2*> exports;
 
-	std::unordered_map<std::string, OutsiderFuncType> outsiders;
+	//std::unordered_map<own_std::string, OutsiderFuncType> outsiders;
 
 	own_std::vector<unsigned char> final_buf;
-	std::string wasm_dir;
-	std::string folder_name;
+	own_std::string wasm_dir;
+	own_std::string folder_name;
 
 	lang_state* lang_stat;
 };
@@ -948,7 +1004,7 @@ func_decl* WasmGetFuncAtIdx(wasm_interp* state, int idx)
 {
 	return (state->funcs[idx]);
 }
-func_decl *FuncAddedWasmInterp(wasm_interp* interp, std::string name)
+func_decl *FuncAddedWasmInterp(wasm_interp* interp, own_std::string name)
 {
 	int i = 0;
 	bool found = false;
@@ -963,7 +1019,7 @@ func_decl *FuncAddedWasmInterp(wasm_interp* interp, std::string name)
 
 	return nullptr;
 }
-bool FuncAddedWasm(web_assembly_state* state, std::string name, int* idx = nullptr)
+bool FuncAddedWasm(web_assembly_state* state, own_std::string name, int* idx = nullptr)
 {
 	int i = 0;
 	bool found = false;
@@ -1307,12 +1363,15 @@ void WasmGenRegToMem(lang_state *lang_stat, byte_code* bc, own_std::vector<unsig
 	WasmStoreInst(lang_stat, code_sect, size);
 }
 
-static std::string base64_encode(const std::string& in) {
+static own_std::string base64_encode(own_std::string& in) {
 
-	std::string out;
+	own_std::string out;
 
 	int val = 0, valb = -6;
-	for (unsigned char c : in) {
+
+	for (int i = 0; i < in.size(); i++)
+	{
+		unsigned char c = in[i];
 		val = (val << 8) + c;
 		valb += 8;
 		while (valb >= 0) {
@@ -1325,9 +1384,9 @@ static std::string base64_encode(const std::string& in) {
 	return out;
 }
 
-static std::string base64_decode(const std::string& in) {
+static own_std::string base64_decode(own_std::string& in) {
 
-	std::string out;
+	own_std::string out;
 
 	std::vector<int> T(256, -1);
 	for (int i = 0; i < 64; i++) {
@@ -1335,7 +1394,9 @@ static std::string base64_decode(const std::string& in) {
 	}
 
 	int val = 0, valb = -8;
-	for (unsigned char c : in) {
+	for (int i = 0; i < in.size(); i++)
+	{
+		unsigned char c = in[i];
 		if (T[c] == -1) break;
 		val = (val << 6) + T[c];
 		valb += 6;
@@ -2642,9 +2703,9 @@ struct dbg_expr2
 	decl2 d;
 	int multiple_vals;
 	int offset;
-	std::string str;
-	std::string val;
-	std::string tp_str;
+	own_std::string str;
+	own_std::string val;
+	own_std::string tp_str;
 	own_std::vector<ir_rep> irs;
 };
 struct dbg_expr
@@ -2655,19 +2716,19 @@ struct dbg_expr
 	own_std::vector<ir_rep > filter_cond;
 
 	func_decl* from_func;
-	std::string exp_str;
+	own_std::string exp_str;
 };
 struct command_info_args
 {
-	std::string incomplete_str;
+	own_std::string incomplete_str;
 	int cur_tkn;
 	own_std::vector<token2>* tkns;
 
 };
-typedef std::string(*CommandFunc)(dbg_state* dbg, command_info_args *info);
+typedef own_std::string(*CommandFunc)(dbg_state* dbg, command_info_args *info);
 struct command_info
 {
-	own_std::vector<std::string> names;
+	own_std::vector<own_std::string> names;
 	own_std::vector<command_info *> cmds;
 	CommandFunc func;
 	CommandFunc execute;
@@ -2721,7 +2782,7 @@ struct dbg_state
 	own_std::vector<wasm_stack_val> wasm_stack;
 	own_std::vector<dbg_expr *> exprs;
 	own_std::vector<dbg_expr2 *> exprs2;
-	std::string scene_folder;
+	own_std::string scene_folder;
 	long long same_func_stack_ptr;
 	//own_std::vector<command_info> cmds;
 
@@ -2749,9 +2810,9 @@ enum print_num_type
 	PRINT_CHAR,
 };
 
-std::string WasmNumToString(dbg_state* dbg, int num, char limit = -1, print_num_type num_type = PRINT_INT)
+own_std::string WasmNumToString(dbg_state* dbg, int num, char limit = -1, print_num_type num_type = PRINT_INT)
 {
-	std::string ret = "";
+	own_std::string ret = "";
 	char buffer[32];
 	if (num_type == PRINT_FLOAT)
 	{
@@ -2796,10 +2857,10 @@ std::string WasmNumToString(dbg_state* dbg, int num, char limit = -1, print_num_
 	return ret;
 }
 
-std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_std::vector<wasm_bc>* bcs)
+own_std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_std::vector<wasm_bc>* bcs)
 {
 	char buffer[64];
-	std::string ret = "       ";
+	own_std::string ret = "       ";
 	switch (bc->type)
 	{
 	case WASM_INST_DBG_BREAK:
@@ -2940,13 +3001,13 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 	}break;
 	case WASM_INST_INDIRECT_CALL:
 	{
-		std::string func_name = WasmGetFuncAtIdx(dbg->wasm_state, bc->i)->name;
+		own_std::string func_name = WasmGetFuncAtIdx(dbg->wasm_state, bc->i)->name;
 		ret += "indirect call ";
 		ret += "\t \\" + func_name;
 	}break;
 	case WASM_INST_CALL:
 	{
-		std::string func_name = WasmGetFuncAtIdx(dbg->wasm_state, bc->i)->name;
+		own_std::string func_name = WasmGetFuncAtIdx(dbg->wasm_state, bc->i)->name;
 		ret += "call "+ WasmNumToString(dbg, bc->i);
 		ret += "\t \\" + func_name;
 	}break;
@@ -3021,11 +3082,11 @@ std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, own_st
 		bool loading_var_address = is_base_ptr && is_n1_load && is_n2_i32_const && is_n3_i32_add;
 
 		wasm_bc* probable_var_offset = bc + 2;
-		std::string loaded_var = "";
+		own_std::string loaded_var = "";
 		decl2* var;
 		if (loading_var_address && FindVarWithOffset(func, probable_var_offset->i, &var, dbg->cur_st->line))
 		{
-			loaded_var = std::string("\t//pushing $") + var->name + " on the stack";
+			loaded_var = own_std::string("\t//pushing $") + var->name + " on the stack";
 		}
 		ret += "i32.const " + WasmNumToString(dbg, bc->i) + loaded_var;
 	}break;
@@ -3039,9 +3100,9 @@ u64 WasmGetRegVal(dbg_state* dbg, int reg)
 	return *(u64*)&dbg->mem_buffer[reg * 8];
 
 }
-std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
+own_std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 {
-	std::string ret = "";
+	own_std::string ret = "";
 	char buffer[64];
 	int ptr = 0;
 	int deref = val->deref;
@@ -3060,13 +3121,13 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 	case IR_TYPE_REG:
 	{
 		int r_sz = val->reg_sz;
-		std::string reg_sz_str = "";
+		own_std::string reg_sz_str = "";
 		if (r_sz > 0)
 		{
 			r_sz = max(r_sz, 4);
 			r_sz = 2 << r_sz;
 		}
-		std::string float_str = "";
+		own_std::string float_str = "";
 		if(val->is_float)
 			float_str = "_f32_";
 		snprintf(buffer, 32, "reg%s%d[%s]", float_str.c_str(), r_sz, WasmNumToString(dbg, val->reg).c_str());
@@ -3075,7 +3136,7 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 	case IR_TYPE_ON_STACK:
 	{
 		int base_ptr = WasmGetRegVal(dbg, BASE_STACK_PTR_REG);
-		std::string stack_type_name = "";
+		own_std::string stack_type_name = "";
 		switch (val->on_stack_type)
 		{
 		case ON_STACK_STRUCT_RET:
@@ -3146,28 +3207,28 @@ std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 	return ret;
 }
 
-std::string WasmGetBinIR(dbg_state* dbg, ir_rep* ir)
+own_std::string WasmGetBinIR(dbg_state* dbg, ir_rep* ir)
 {
 	char buffer[64];
-	std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
-	std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
-	std::string op = OperatorToString(ir->bin.op);
+	own_std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
+	own_std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+	own_std::string op = OperatorToString(ir->bin.op);
 	snprintf(buffer, 64, "%s %s %s", lhs.c_str(), op.c_str(), rhs.c_str());
 	return buffer;
 }
 
-std::string WasmIrAssignment(dbg_state* dbg, assign_info* assign)
+own_std::string WasmIrAssignment(dbg_state* dbg, assign_info* assign)
 {
 	char buffer[128];
-	std::string ret = "";
-	std::string to_assign = WasmIrValToString(dbg, &assign->to_assign);
-	std::string lhs = WasmIrValToString(dbg, &assign->lhs);
+	own_std::string ret = "";
+	own_std::string to_assign = WasmIrValToString(dbg, &assign->to_assign);
+	own_std::string lhs = WasmIrValToString(dbg, &assign->lhs);
 	if (assign->only_lhs)
 		snprintf(buffer, 128, "%s = %s", to_assign.c_str(), lhs.c_str());
 	else
 	{
-		std::string rhs = WasmIrValToString(dbg, &assign->rhs);
-		std::string op = OperatorToString(assign->op);
+		own_std::string rhs = WasmIrValToString(dbg, &assign->rhs);
+		own_std::string op = OperatorToString(assign->op);
 		snprintf(buffer, 128, "%s = %s %s %s", to_assign.c_str(), lhs.c_str(), op.c_str(), rhs.c_str());
 	}
 	ret = buffer;
@@ -3175,7 +3236,7 @@ std::string WasmIrAssignment(dbg_state* dbg, assign_info* assign)
 	return ret;
 
 }
-void WasmIrToString(dbg_state* dbg, ir_rep *ir, std::string &ret)
+void WasmIrToString(dbg_state* dbg, ir_rep *ir, own_std::string &ret)
 {
 	char buffer[128];
 	ret="";
@@ -3211,8 +3272,8 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, std::string &ret)
 	}break;
 	case IR_CAST_INT_TO_INT:
 	{
-		std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
-		std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		own_std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
+		own_std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
 		snprintf(buffer, 64, "cast int to int: %s = %s\n", lhs.c_str(), rhs.c_str());
 		ret = buffer;
 	}break;
@@ -3272,8 +3333,8 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, std::string &ret)
 	case IR_CAST_INT_TO_F32:
 	{
 		ret = "cast int to f32\n";
-		std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
-		std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		own_std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
+		own_std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
 		snprintf(buffer, 64, "cast int to f32: %s = %s\n", lhs.c_str(), rhs.c_str());
 		ret = buffer;
 	}break;
@@ -3283,8 +3344,8 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, std::string &ret)
 	}break;
 	case IR_CAST_F32_TO_INT:
 	{
-		std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
-		std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		own_std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
+		own_std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
 		snprintf(buffer, 64, "cast f32 to int: %s = %s\n", lhs.c_str(), rhs.c_str());
 		ret = buffer;
 	}break;
@@ -3356,9 +3417,9 @@ void WasmGetIrWithIdx(dbg_state* dbg, func_decl *func, int idx, ir_rep **ir_star
 	*ir_start = nullptr;
 }
 
-std::string WasmPrintVars(dbg_state *dbg)
+own_std::string WasmPrintVars(dbg_state *dbg)
 {
-	std::string ret = "";
+	own_std::string ret = "";
 	char* mem_buffer = dbg->mem_buffer;
 	func_decl* func = dbg->cur_func;
 	stmnt_dbg* stmnt = dbg->cur_st;
@@ -3377,15 +3438,15 @@ std::string WasmPrintVars(dbg_state *dbg)
 
 			int val = *(int*)&mem_buffer[base_stack_ptr + d->offset];
 
-			std::string type;
+			own_std::string type;
 
 			if (IS_FLAG_ON(d->flags, DECL_IS_ARG))
 				type = "param";
 			else
 				type = "local";
 
-			std::string offset_str = WasmNumToString(dbg, d->offset);
-			std::string val_str = WasmNumToString(dbg, val);
+			own_std::string offset_str = WasmNumToString(dbg, d->offset);
+			own_std::string val_str = WasmNumToString(dbg, val);
 
 			char buffer[512];
 			sprintf(buffer, "%s: %s, value: %s, offset: %s\n", type.c_str(), d->name.c_str(), val_str.c_str(), offset_str.c_str());
@@ -3461,15 +3522,15 @@ stmnt_dbg* GetStmntBasedOnOffset(own_std::vector<stmnt_dbg>* ar, int offset)
 
 
 
-std::string WasmGetStack(dbg_state* dbg)
+own_std::string WasmGetStack(dbg_state* dbg)
 {
-	std::string ret = "stack: \n";
+	own_std::string ret = "stack: \n";
 	char buffer[512];
 	int i = 0;
 	FOR_VEC(s, dbg->wasm_stack)
 	{
-		std::string type = "";
-		std::string val_str = "";
+		own_std::string type = "";
+		own_std::string val_str = "";
 		switch (s->type)
 		{
 			// f32
@@ -3632,14 +3693,14 @@ void WasmFromAstArrToStackVal(dbg_state* dbg, own_std::vector<ast_rep *> expr, t
 	*out = expr_stack.back();
 
 }
-std::string WasmGenRegStr(dbg_state* dbg, int reg, int reg_sz, std::string reg_name)
+own_std::string WasmGenRegStr(dbg_state* dbg, int reg, int reg_sz, own_std::string reg_name)
 {
 	unsigned int reg_val = WasmGetMemOffsetVal(dbg, reg);
 	char buffer[64];
-	std::string reg_idx = WasmNumToString(dbg, reg);
-	std::string reg_val_str = WasmNumToString(dbg, reg_val);
-	std::string ptr_val_str;
-	std::string reg_size_str;
+	own_std::string reg_idx = WasmNumToString(dbg, reg);
+	own_std::string reg_val_str = WasmNumToString(dbg, reg_val);
+	own_std::string ptr_val_str;
+	own_std::string reg_size_str;
 
 	if (reg_sz > 4)
 		reg_sz = 4;
@@ -3647,7 +3708,7 @@ std::string WasmGenRegStr(dbg_state* dbg, int reg, int reg_sz, std::string reg_n
 	reg_sz = 2 << reg_sz;
 
 	if (reg_sz != 0)
-		reg_size_str = std::to_string(reg_sz);
+		reg_size_str = own_std::to_string(reg_sz);
 
 
 	if (reg_val < 0 || reg_val >dbg->mem_size)
@@ -3664,7 +3725,7 @@ std::string WasmGenRegStr(dbg_state* dbg, int reg, int reg_sz, std::string reg_n
 }
 void WasmPrintRegisters(dbg_state* dbg)
 {
-	std::string str = "";
+	own_std::string str = "";
 	char buffer[64];
 	for (int i = 0; i < 16; i++)
 	{
@@ -3705,7 +3766,7 @@ void WasmPrintRegisters(dbg_state* dbg)
 	}
 	printf("%s", str.c_str());
 }
-std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset, char ptr, bool is_self_ref = false)
+own_std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset, char ptr, bool is_self_ref = false)
 {
 
 	char buffer[512];
@@ -3714,13 +3775,13 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 	memset(indent_buffer, ' ', indent);
 	indent_buffer[indent] = 0;
 
-	std::string ptr_val_str = "";
+	own_std::string ptr_val_str = "";
 	if (ptr > 0)
 	{
 		int ptr_val = WasmGetMemOffsetVal(dbg, struct_offset);
-		ptr_val_str = std::string("(*") + WasmNumToString(dbg, ptr_val) + std::string(")");
+		ptr_val_str = own_std::string("(*") + WasmNumToString(dbg, ptr_val) + own_std::string(")");
 	}
-	std::string ret;
+	own_std::string ret;
 	if (!is_self_ref && (d->type.type == TYPE_STRUCT || d->type.type == TYPE_STRUCT_TYPE))
 	{
 
@@ -3746,14 +3807,14 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 		else
 		{
 
-			//std::string ptr_addr = WasmNumToString(dbg, struct_offset);
+			//own_std::string ptr_addr = WasmNumToString(dbg, struct_offset);
 			FOR_VEC(struct_d, strct_scp->vars)
 			{
 				decl2* ds = *struct_d;
 				bool is_self_ref = ds->type.type == TYPE_STRUCT && ds->type.strct == d->type.strct;
 				if (ds->type.type == TYPE_STRUCT_TYPE)
 					continue;
-				std::string var_str = WasmVarToString(dbg, indent, ds, struct_offset + ds->offset, ds->type.ptr, is_self_ref);
+				own_std::string var_str = WasmVarToString(dbg, indent, ds, struct_offset + ds->offset, ds->type.ptr, is_self_ref);
 				snprintf(buffer, 512, "%s,\n", var_str.c_str());
 				ret += buffer;
 			}
@@ -3774,7 +3835,7 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 	else// if(d->type.type != TYPE_STRUCT_TYPE)
 	{
 
-		std::string val_str = "";
+		own_std::string val_str = "";
 		if (struct_offset < 128)
 			val_str = "0";
 		else
@@ -3788,15 +3849,15 @@ std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_of
 
 	return ret;
 }
-std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
+own_std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 {
-	std::string ret = "expression: " + exp->exp_str;
+	own_std::string ret = "expression: " + exp->exp_str;
 
 	//if(exp->)
 	typed_stack_val expr_val;
 	WasmFromAstArrToStackVal(dbg, exp->expr, &expr_val);
 	char buffer[512];
-	std::string addr_str = WasmNumToString(dbg, expr_val.offset);
+	own_std::string addr_str = WasmNumToString(dbg, expr_val.offset);
 
 	int ptr = expr_val.type.ptr;
 
@@ -3814,7 +3875,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 	if (expr_val.type.type == TYPE_STRUCT)
 	{
 		decl2* d = expr_val.type.strct->this_decl;
-		//std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset)
+		//own_std::string WasmVarToString(dbg_state* dbg, char indent, decl2* d, int struct_offset)
 
 
 		ptr = expr_val.type.ptr;
@@ -3825,14 +3886,14 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 		}
 		
 
-		std::string struct_str = WasmVarToString(dbg, 0, d, expr_val.offset, ptr);
+		own_std::string struct_str = WasmVarToString(dbg, 0, d, expr_val.offset, ptr);
 		snprintf(buffer, 512," addr(%s) (%s) %s ", addr_str.c_str(), TypeToString(expr_val.type).c_str(), struct_str.c_str());
 	}
 	else
 	{
 		int val = 0;
 		print_num_type print_type = PRINT_INT;
-		std::string str_val = "";
+		own_std::string str_val = "";
 		if (expr_val.type.ptr > 0)
 		{
 			val = WasmGetMemOffsetVal(dbg, expr_val.offset);
@@ -3920,7 +3981,7 @@ std::string WasmGetSingleExprToStr(dbg_state* dbg, dbg_expr* exp)
 		void *ptr_buffer = (void *) & dbg->mem_buffer[expr_val.offset];
 		//if(1expr_val.no_deref)
 		//ptr_buffer = *) & dbg->mem_buffer[expr_val.offset];
-		std::string show = "";
+		own_std::string show = "";
 		if (expr_val.type.ptr == 1 || expr_val.type.type == TYPE_STATIC_ARRAY)
 		{
 			if (expr_val.type.type != TYPE_STATIC_ARRAY)
@@ -4045,13 +4106,16 @@ void WasmBreakOnNextStmnt(dbg_state* dbg, bool *args_break)
 	*args_break = true;
 }
 
-void printInput(const std::string& input, size_t cursorPos) {
+/*
+
+void printInput(const own_std::string& input, size_t cursorPos) {
 	std::cout << "\033[2K\r" << input<<"\r";  // Clear the current line and print the input
 	if(cursorPos > 0)
 		std::cout << "\033[" << cursorPos<< "C";  // Move the cursor back
 
 }
-command_info* GetSuggestion(command_info *cur, std::string incomplete_str)
+*/
+command_info* GetSuggestion(command_info *cur, own_std::string incomplete_str)
 {
 
 	FOR_VEC(cmd, cur->cmds)
@@ -4067,7 +4131,7 @@ command_info* GetSuggestion(command_info *cur, std::string incomplete_str)
 			bool choose_command = false;
 			FOR_VEC(name, c->names)
 			{
-				std::string n = *name;
+				own_std::string n = *name;
 				bool is_equal = true;
 				for (int j = 0; j < incomplete_str.size(); j++)
 				{
@@ -4084,11 +4148,11 @@ command_info* GetSuggestion(command_info *cur, std::string incomplete_str)
 	}
 	return nullptr;
 }
-void InsertSuggestion(dbg_state* dbg, std::string &input, int *cursor_pos)
+void InsertSuggestion(dbg_state* dbg, own_std::string &input, int *cursor_pos)
 {
-	own_std::vector<std::string> args;
+	own_std::vector<own_std::string> args;
 
-	//std::string aux;
+	//own_std::string aux;
 	//split(input, ' ', args, &aux);
 	own_std::vector<token2> tkns;
 	Tokenize2((char *)input.c_str(), input.size(), &tkns);
@@ -4116,7 +4180,7 @@ void InsertSuggestion(dbg_state* dbg, std::string &input, int *cursor_pos)
 				args.incomplete_str = t->str;
 
 				ASSERT(cur->func);
-				std::string final_str = cur->func(dbg, &args);
+				own_std::string final_str = cur->func(dbg, &args);
 
 				input.erase(t->line_offset, t->str.size());
 				input.insert(t->line_offset, final_str);
@@ -4130,7 +4194,7 @@ void InsertSuggestion(dbg_state* dbg, std::string &input, int *cursor_pos)
 		if (c)
 		{
 			input.erase(t->line_offset, t->str.size());
-			std::string final_str = c->names[0];
+			own_std::string final_str = c->names[0];
 
 			input.insert(t->line_offset,  final_str);
 			*cursor_pos = t->line_offset + final_str.size();
@@ -4192,7 +4256,7 @@ dbg_expr* WasmGetExprFromTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 			cur_scp = scp;
 
 			auto _ptr = (decl2*)AllocMiscData(dbg->lang_stat, sizeof(decl2));
-			_ptr->name = std::string("_ptr");
+			_ptr->name = own_std::string("_ptr");
 			_ptr->flags = DECL_ABSOLUTE_ADDRESS;
 			_ptr->offset = FILTER_PTR;
 			_ptr->type = strct;
@@ -4263,7 +4327,7 @@ dbg_expr* WasmGetExprFromTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 
 	return exp;
 }
-dbg_expr* WasmGetExprFromStr(dbg_state* dbg, std::string exp_str)
+dbg_expr* WasmGetExprFromStr(dbg_state* dbg, own_std::string exp_str)
 {
 	func_decl* func = dbg->cur_func;
 
@@ -4991,16 +5055,15 @@ bool IrLogic2(dbg_state* dbg, ir_rep** ptr, ir_rep *start)
 		func_decl* call_f = ir->call.fdecl;
 		if (IS_FLAG_ON(call_f->flags, FUNC_DECL_IS_OUTSIDER))
 		{
-			if (dbg->wasm_state->outsiders.find(call_f->name) != dbg->wasm_state->outsiders.end())
-			{
+			OutsiderFuncType found = dbg->wasm_state->get_func(call_f->name);
+			//if (dbg->wasm_state->outsiders.find(call_f->name) != dbg->wasm_state->outsiders.end())
+			//{
 				auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
 				*stack_reg -= 8;
-				OutsiderFuncType func_ptr = dbg->wasm_state->outsiders[call_f->name];
-				func_ptr(dbg);
+				//OutsiderFuncType func_ptr = dbg->wasm_state->outsiders[call_f->name];
+				found(dbg);
 				*stack_reg += 8;
-			}
-			else
-				ASSERT(0);
+			//}
 
 		}
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
@@ -5191,9 +5254,9 @@ void AdvanceIrToNext(ir_rep** ptr)
 		(*ptr)++;
 	}
 }
-std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, int limit, int mem_wnd_show_type)
+own_std::string GetMemAddrString(dbg_state &dbg, int mem_wnd_offset, int type_sz, int limit, int mem_wnd_show_type)
 {
-	std::string ret = "";
+	own_std::string ret = "";
 	for (int i = 0; i < limit; i += type_sz)
 	{
 		long long val = 0;
@@ -5281,13 +5344,13 @@ void UpdateExprWindow(dbg_state& dbg, int stack_reg, int line)
 		// all dbgs vals at end are put in __global_dummy var, which it is at this offset
 		auto val = (u64 *)&dbg.mem_buffer[GLOBALS_OFFSET - 8];
 		e->offset = *val;
-		e->val = std::to_string(*val);
+		e->val = own_std::to_string(*val);
 
 	}
 	memcpy(dbg.mem_buffer, saved_regs, 258);
 }
 u64* GetRegValPtr(dbg_state* dbg, short reg);
-void MaybeAddNewDbgExpr(dbg_state* dbg, std::string &str, int stack_reg, int line)
+void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int line)
 {
 	dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
 	//own_std::vector<token2> tkns;
@@ -5426,7 +5489,7 @@ void ShowExprWindow(dbg_state& dbg, int stack_reg, int line)
 
 		InitMemAlloc(dbg.dbg_alloc);
 
-		std::string str = buffer;
+		own_std::string str = buffer;
 		int val = setjmp(dbg.lang_stat->jump_buffer);
 		int prev_nd = dbg.lang_stat->cur_nd;
 		void* prev_alloc = __lang_globals.data;
@@ -5476,12 +5539,12 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 	//ImGui::ListBox("type: ", &mem_wnd_show_type, mem_wnd_items, IM_ARRAYSIZE(mem_wnd_items));
 	ImGui::InputInt("address: ", &mem_wnd_offset);
 	char type_sz = BuiltinTypeSize((enum_type2)(mem_wnd_show_type + TYPE_U8));
-	std::string mem_val;
+	own_std::string mem_val;
 	for (int r = 0; r <= (BASE_STACK_PTR_REG + 7); r++)
 	{
 		mem_val = GetMemAddrString(dbg, mem_wnd_offset + r * 8, type_sz, 8, mem_wnd_show_type);
 
-		std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+		own_std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
 
 		int cur_addr = mem_wnd_offset + r;
 		if (cur_addr == (BASE_STACK_PTR_REG))
@@ -5497,17 +5560,17 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 		int addr = base_ptr + r * 8;
 		mem_val = GetMemAddrString(dbg, addr, type_sz, 8, mem_wnd_show_type);
 
-		std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+		own_std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
 		ImGui::Text("arg_reg[%d, &%d]: %s", r, addr, mem_val.c_str());
 	}
 	for (int r = 0; r < 7; r++)
 	{
 		int addr = (FLOAT_REG_0 + r) *  FLOAT_REG_SIZE_BYTES;
-		std::string f_str;
+		own_std::string f_str;
 		for (int i = 0; i < 4; i++)
 		{
 			float f = *(float*)&dbg.mem_buffer[addr + i * 4];
-			f_str += std::to_string(f);
+			f_str += own_std::to_string(f);
 			f_str += " ";
 
 		}
@@ -5518,7 +5581,7 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 		int addr = base_ptr + fdecl->to_spill_offset + r * 8;
 		mem_val = GetMemAddrString(dbg, addr, type_sz, 8, mem_wnd_show_type);
 
-		std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+		own_std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
 		ImGui::Text("spill[%d, &%d]: %s", r, addr, mem_val.c_str());
 	}
 	auto ret_addr = *(int*)&dbg.mem_buffer[base_ptr + fdecl->stack_size];
@@ -5620,7 +5683,7 @@ void WasmOnArgs(dbg_state* dbg)
 			printf("\n", cur_line);
 		}
 
-		std::string input;
+		own_std::string input;
 
 		// chatgt helped me here
 		unsigned char ch;
@@ -5682,7 +5745,7 @@ void WasmOnArgs(dbg_state* dbg)
 
 
 		//std::cin >> input;
-		own_std::vector<std::string> args;
+		own_std::vector<own_std::string> args;
 
 		own_std::vector<token2> tkns;
 		Tokenize2((char*)input.c_str(), input.size(), &tkns);
@@ -5743,13 +5806,13 @@ void WasmOnArgs(dbg_state* dbg)
 					}
 				}
 
-				//std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines, true, print_bc);
+				//own_std::string ret = WasmPrintCodeGranular(dbg, fdecl, cur_bc, cur_st->start, cur_st->end, lines, true, print_bc);
 				printf("%s\n", ret.c_str());
 			}
 			else if (tkns[i].str == "ex")
 			{
 				i++;
-				std::string exp_str = "";
+				own_std::string exp_str = "";
 				tkns.ar.start += i;
 				PrintExpressionTkns(dbg, &tkns);
 				tkns.ar.start -= i;
@@ -5771,7 +5834,7 @@ void WasmOnArgs(dbg_state* dbg)
 				}
 			}
 		}
-		std::string aux;
+		own_std::string aux;
 		split(input, ' ', args, &aux);
 
 		if (args[0] == "print")
@@ -5785,7 +5848,7 @@ void WasmOnArgs(dbg_state* dbg)
 			}
 			else if (args[1] == "filter")
 			{
-				std::string exp_str = "";
+				own_std::string exp_str = "";
 				for (int i = 2; i < args.size(); i++)
 				{
 					exp_str += args[i];
@@ -5824,7 +5887,7 @@ void WasmOnArgs(dbg_state* dbg)
 
 				memcpy(saved_regs, dbg->mem_buffer, 128);
 
-				std::string filtered = "";
+				own_std::string filtered = "";
 				decl2* strct_decl = expr_val.type.strct->this_decl;
 
 				for (int i = 0; i < x_times.offset; i++)
@@ -5855,7 +5918,7 @@ void WasmOnArgs(dbg_state* dbg)
 			}
 			else if (args[1] == "onnext")
 			{
-				std::string exp_str = "";
+				own_std::string exp_str = "";
 				for (int i = 2; i < args.size(); i++)
 				{
 					exp_str += args[i];
@@ -5897,7 +5960,7 @@ void WasmOnArgs(dbg_state* dbg)
 				}
 				int cur_offset = expr_val.offset;
 
-				std::string struct_str = WasmVarToString(dbg, 0, next_var->type.strct->this_decl, cur_offset, 0);
+				own_std::string struct_str = WasmVarToString(dbg, 0, next_var->type.strct->this_decl, cur_offset, 0);
 				while (WasmGetMemOffsetVal(dbg, cur_offset + next_var->offset) != 0)
 				{
 					cur_offset = WasmGetMemOffsetVal(dbg, cur_offset + next_var->offset);
@@ -5994,7 +6057,7 @@ void WasmOnArgs(dbg_state* dbg)
 				continue;
 			if (args[1] == "ex")
 			{
-				std::string exp_str = "";
+				own_std::string exp_str = "";
 				for (int i = 2; i < args.size(); i++)
 				{
 					exp_str += args[i];
@@ -6253,7 +6316,7 @@ struct serialize_state
 	unsigned int f32_type_offset;
 	unsigned int u32_type_offset;
 };
-void WasmSerializePushString(serialize_state* ser_state, std::string* name, str_dbg *);
+void WasmSerializePushString(serialize_state* ser_state, own_std::string* name, str_dbg *);
 void WasmSerializeStructType(web_assembly_state* wasm_state, serialize_state* ser_state, type_struct2* strct);
 
 var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state* ser_state, decl2* var, int var_idx)
@@ -6409,7 +6472,7 @@ void WasmSerializeFuncIr(serialize_state *ser_state, func_decl *fdecl)
 	unsigned char* end = (unsigned char *)ir_ar->end();
 	ser_state->ir_sect.insert(ser_state->ir_sect.end(), start, end);
 }
-void TestFuncsWithSameName(own_std::vector<func_decl*> *funcs, std::string name, own_std::vector<int>* idxs)
+void TestFuncsWithSameName(own_std::vector<func_decl*> *funcs, own_std::string name, own_std::vector<int>* idxs)
 {
 	int i = 0;
 
@@ -6751,7 +6814,7 @@ void WasmSerializeBuiltTypes(serialize_state* ser_state)
 	auto f32_type = (type_dbg *)(ser_state->types_sect.begin() + offset);
 	f32_type->type = TYPE_F32;
 }
-void WasmSerializePushString(serialize_state* ser_state, std::string* name, str_dbg *out)
+void WasmSerializePushString(serialize_state* ser_state, own_std::string* name, str_dbg *out)
 {
 	out->name_on_string_sect = ser_state->string_sect.size();
 	out->name_len = name->size();
@@ -6894,16 +6957,16 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	WriteFileLang((char *)(wasm_state->wasm_dir + wasm_state->folder_name + ".dbg").c_str(), final_buffer.begin(), final_buffer.size());
 
 }
-std::string WasmInterpNameFromOffsetAndLen(unsigned char* data, dbg_file_seriealize* file, str_dbg *name)
+own_std::string WasmInterpNameFromOffsetAndLen(unsigned char* data, dbg_file_seriealize* file, str_dbg *name)
 {
 	ASSERT(name->name_on_string_sect >= 0);
 	unsigned char* string_sect = data + file->string_sect;
-	return std::string((const char *)string_sect + name->name_on_string_sect, name->name_len);
+	return own_std::string((const char *)string_sect + name->name_on_string_sect, name->name_len);
 }
 
 decl2 *WasmInterpBuildSimplaVar(unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize* file, scope* scp_final, var_dbg* var)
 {
-	std::string name = WasmInterpNameFromOffsetAndLen(data, file, &var->name);
+	own_std::string name = WasmInterpNameFromOffsetAndLen(data, file, &var->name);
 	type2 tp;
 	tp.type = var->type;
 	decl2* ret = NewDecl(lang_stat, name, tp);
@@ -6922,9 +6985,9 @@ decl2 *WasmInterpBuildStruct(unsigned char* data, unsigned int len, lang_state* 
 	type2 tp;
 	tp.type = TYPE_STRUCT_TYPE;
 	tp.strct = final_struct;
-	std::string name = WasmInterpNameFromOffsetAndLen(data, file, &dstrct->name);
+	own_std::string name = WasmInterpNameFromOffsetAndLen(data, file, &dstrct->name);
 	dstrct->strct = final_struct;
-	final_struct->name = std::string(name);
+	final_struct->name = own_std::string(name);
 	final_struct->size = dstrct->struct_size;
 	final_struct->flags = dstrct->strct_flags;
 	dstrct->flags = TYPE_DBG_CREATED_TYPE_STRUCT;
@@ -6934,7 +6997,7 @@ decl2 *WasmInterpBuildStruct(unsigned char* data, unsigned int len, lang_state* 
 	return d;
 
 }
-unit_file* WasmInterpSearchFile(lang_state* lang_stat, std::string* name);
+unit_file* WasmInterpSearchFile(lang_state* lang_stat, own_std::string* name);
 decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state *lang_stat, dbg_file_seriealize *file, func_dbg *fdbg)
 {
 	if (fdbg->created)
@@ -6944,10 +7007,10 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	fdecl->flags = fdbg->flags;
 	fdecl->line = fdbg->line;
 
-	std::string fname = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
+	own_std::string fname = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
 	if (fname == "dyn_array_item[]")
 		int a = 0;
-	fdecl->name = std::string(fname);
+	fdecl->name = own_std::string(fname);
 	type2 tp;
 	tp.type = TYPE_FUNC;
 	tp.fdecl = fdecl;
@@ -6972,7 +7035,7 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_MACRO))
 	{
 		auto fl_dbg = (file_dbg*)(data + file->files_sect + fdbg->file_idx);
-		//std::string file_name = WasmInterpNameFromOffsetAndLen(data, file, &fl_dbg->name);
+		//own_std::string file_name = WasmInterpNameFromOffsetAndLen(data, file, &fl_dbg->name);
 		fdecl->from_file = fl_dbg->fl;
 		fl_dbg->fl->funcs_scp->vars.emplace_back(d);
 		ASSERT(fdecl->from_file);
@@ -7028,7 +7091,7 @@ func_decl *SizeofFunc(lang_state *lang_stat)
 	func_decl* sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 	sz_of_fdecl->ret_type.type = enum_type2::TYPE_INT;
 	sz_of_fdecl->flags |= FUNC_DECL_INTERNAL;
-	sz_of_fdecl->name = std::string("sizeof");
+	sz_of_fdecl->name = own_std::string("sizeof");
 	sz_of_fdecl->args.push_back(NewDecl(lang_stat, "dummy", tp));
 	return sz_of_fdecl;
 }
@@ -7039,7 +7102,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 	for (int i = 0; i < scp_pre->num_of_vars; i++)
 	{
 		type2 tp = {};
-		std::string name = std::string((const char *)string_sect + cur_var->name.name_on_string_sect, cur_var->name.name_len);
+		own_std::string name = own_std::string((const char *)string_sect + cur_var->name.name_on_string_sect, cur_var->name.name_len);
 		decl2* from_enum = nullptr;
 		if (name == "main_type")
 			int a = 0;
@@ -7068,20 +7131,20 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			auto fl_dbg = (file_dbg*)(data + file->files_sect + tp_dbg->imp.file_idx);
 			//auto fl_dbg = (file_dbg *)(data + file->files_sect + tp_dbg->imp.file_idx)
 
-			//std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type_strct->name);
+			//own_std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type_strct->name);
 			type2 tp;
 			tp.type = enum_type2::TYPE_IMPORT;
 
-			std::string alias;
+			own_std::string alias;
 			if (tp_dbg->imp.alias.name_len > 0)
 			{
-				alias = std::string((const char*)string_sect + tp_dbg->imp.alias.name_on_string_sect, tp_dbg->imp.alias.name_len);
+				alias = own_std::string((const char*)string_sect + tp_dbg->imp.alias.name_on_string_sect, tp_dbg->imp.alias.name_len);
 			}
 
 			tp.imp = NewImport(lang_stat, tp_dbg->imp.imp_type, alias, fl_dbg->fl);
 			tp.imp->alias = alias.substr();
 
-			std::string name = std::string("imp_") + alias;
+			own_std::string name = own_std::string("imp_") + alias;
 
 			scp_final->imports.emplace_back(NewDecl(lang_stat, name, tp));
 		}break;
@@ -7092,7 +7155,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			ASSERT(IS_FLAG_ON(type_strct->flags, TYPE_DBG_CREATED_TYPE_STRUCT));
 			type_struct2 * strct = type_strct->strct;
 			strct->size = type_strct->struct_size;
-			//std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type_strct->name);
+			//own_std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type_strct->name);
 			//decl2* d = FindIdentifier(name, scp_final, &tp);
 			//ASSERT(d);
 			tp.type = TYPE_STRUCT;
@@ -7192,7 +7255,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		if (IS_FLAG_ON(cur_var->strct_flags, DECL_PTR_HAS_LEN) || IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
 		{
 			d->flags |= DECL_PTR_HAS_LEN;
-			std::string ptr_len_name = std::string((const char *)string_sect + cur_var->ptr_has_len_var_name.name_on_string_sect, cur_var->ptr_has_len_var_name.name_len);
+			own_std::string ptr_len_name = own_std::string((const char *)string_sect + cur_var->ptr_has_len_var_name.name_on_string_sect, cur_var->ptr_has_len_var_name.name_len);
 			d->len_for_ptr_name = ptr_len_name.substr();
 			ptr_decl_that_have_len ptr_decl;
 			ptr_decl.decl = d;
@@ -7205,7 +7268,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 	}
 
 }
-unit_file *WasmInterpSearchFile(lang_state* lang_stat, std::string *name)
+unit_file *WasmInterpSearchFile(lang_state* lang_stat, own_std::string *name)
 {
 	FOR_VEC(file, lang_stat->files)
 	{
@@ -7259,7 +7322,7 @@ scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned
 			else
 			{
 
-				std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type->name);
+				own_std::string name = WasmInterpNameFromOffsetAndLen(data, file, &type->name);
 				type2 tp;
 				tp.type = TYPE_ENUM_TYPE;
 				d = NewDecl(lang_stat, name, tp);
@@ -7449,13 +7512,14 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 		func_decl* call_f = dbg.wasm_state->funcs[(*cur_bc)->i];
 		if (IS_FLAG_ON(call_f->flags, FUNC_DECL_IS_OUTSIDER))
 		{
-			if (winterp->outsiders.find(call_f->name) != winterp->outsiders.end())
-			{
-				OutsiderFuncType func_ptr = winterp->outsiders[call_f->name];
-				func_ptr(&dbg);
-			}
-			else
-				ASSERT(0);
+			OutsiderFuncType found = winterp->get_func(call_f->name);
+			//if (winterp->outsiders.find(call_f->name) != winterp->outsiders.end())
+			//{
+				//OutsiderFuncType func_ptr = winterp->outsiders[call_f->name];
+				found(&dbg);
+			//}
+			//else
+				//ASSERT(0);
 
 		}
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
@@ -7985,7 +8049,7 @@ void ImGuiDrawSquare(dbg_state &dbg, int addr, ImU32 col_a)
 	draw_list->AddLine(im_s1_rb, im_s1_lb, col_a, 1.0);
 
 }
-void CheckPipeAndGetString(HANDLE pipe, std::string &final_str)
+void CheckPipeAndGetString(HANDLE pipe, own_std::string &final_str)
 {
 	DWORD bytesRead;
 	DWORD availableBytes = 0;
@@ -8006,7 +8070,7 @@ void CheckPipeAndGetString(HANDLE pipe, std::string &final_str)
 			ReadFile(pipe, read_buffer, sizeof(read_buffer) - 1, &bytesRead, NULL);
 			read_buffer[bytesRead] = 0;
 			cur_read += bytesRead;
-			final_str += std::string(read_buffer, bytesRead);
+			final_str += own_std::string(read_buffer, bytesRead);
 		}
 	}
 }
@@ -8105,7 +8169,7 @@ u64 *GetMemValPtr(dbg_state *dbg, short reg, int offset)
 }
 char * GetRegStr(short reg, char sz, char *buffer)
 {
-	//std::string ret = "r" + std::to_string(reg);
+	//own_std::string ret = "r" + std::to_string(reg);
 	char sz_char;
 	switch (sz)
 	{
@@ -9191,8 +9255,9 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		func_decl* call_f = wasm_state->funcs[bc->i];
 		if (IS_FLAG_ON(call_f->flags, FUNC_DECL_IS_OUTSIDER))
 		{
-			if (wasm_state->outsiders.find(call_f->name) != wasm_state->outsiders.end())
-			{
+			OutsiderFuncType found = wasm_state->get_func(call_f->name);
+			//if (wasm_state->outsiders.find(call_f->name) != wasm_state->outsiders.end())
+			//{
 				u64 prev_reg_val = *(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8];
 				u64 prev_base_reg_val = *(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
 
@@ -9202,8 +9267,8 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 				*(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8] = *stack_reg;
 				*(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8] = *stack_reg;
 
-				OutsiderFuncType func_ptr = wasm_state->outsiders[call_f->name];
-				func_ptr(dbg);
+				//OutsiderFuncType func_ptr = wasm_state->outsiders[call_f->name];
+				found(dbg);
 				*stack_reg += 8;
 				auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
 				auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
@@ -9214,9 +9279,9 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 
 				*(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8] = prev_reg_val;
 				*(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8] = prev_base_reg_val;
-			}
-			else
-				ASSERT(0);
+			//}
+			//else
+				//ASSERT(0);
 
 		}
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
@@ -9410,7 +9475,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	byte_code2* func_start_bc = cur_bc;
 	byte_code2* func_end_bc = dbg->lang_stat->bcs2_start + start_f->bcs2_end;;
 	*(u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8] = STACK_PTR_START;
-	std::string str;
+	own_std::string str;
 	byte_code2* aux_bc = cur_bc;
 
 
@@ -9432,7 +9497,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	bool center_inst = true;
 	dbg->cur_bc2 = &cur_bc;
 
-	std::string aux_string;
+	own_std::string aux_string;
 	while (cur_bc != nullptr)
 	{
 		if (dbg->break_type != DBG_BREAK_RIP_CORRUPTED)
@@ -9806,7 +9871,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 }
 void GetMsgFromGame(void* gl_state);
 int GetMem(dbg_state* dbg, int sz);
-void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int len, std::string func_start, long long* args, int total_args)
+void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int len, own_std::string func_start, long long* args, int total_args)
 {
 	char buffer[64];
 	dbg_state& dbg = *winterp->dbg;
@@ -9919,7 +9984,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	int square_1_addr = 0;
 	int square_2_addr = 0;
 	//int total_wasm_bcs = 100;
-	std::string from_engine_str;
+	own_std::string from_engine_str;
 
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 	func_stack.clear();
@@ -10044,7 +10109,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 						
 					}
-					std::string wstr = "";
+					own_std::string wstr = "";
 					ir_rep *cur_ir_aux = cur_ir;
 
 					wasm_bc* aux_bc = bc;
@@ -10075,7 +10140,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 							}
 							buffer[max(cur_tab, 0)] = 0;
 							//if (aux_bc->type == WASM_INST_BLOCK ||aux_bc->type == WASM_INST_BREAK  || aux_bc->type == WASM_INST_LOOP ||  aux_bc->type == WASM_INST_BREAK_IF){
-								wstr = std::string(buffer) + WasmGetBCString(&dbg, dbg.cur_func, aux_bc, &bcs) + "\n";
+								wstr = own_std::string(buffer) + WasmGetBCString(&dbg, dbg.cur_func, aux_bc, &bcs) + "\n";
 
 
 								snprintf(buffer, 64, "O##%d", i);
@@ -10136,7 +10201,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 			FOR_VEC(val, dbg.wasm_stack)
 			{
-				std::string type = "";
+				own_std::string type = "";
 				switch (val->type)
 				{
 				case WSTACK_VAL_INT:
@@ -10177,12 +10242,12 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			//ImGui::ListBox("type: ", &mem_wnd_show_type, mem_wnd_items, IM_ARRAYSIZE(mem_wnd_items));
 			ImGui::InputInt("address: ", &mem_wnd_offset);
 			char type_sz = BuiltinTypeSize((enum_type2)(mem_wnd_show_type + TYPE_U8));
-			std::string mem_val;
+			own_std::string mem_val;
 			for (int r = 0; r <= BASE_STACK_PTR_REG; r++)
 			{
 				mem_val = GetMemAddrString(dbg, mem_wnd_offset + r * 8, type_sz, 8, mem_wnd_show_type);
 
-				std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+				own_std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
 
 				int cur_addr = mem_wnd_offset + r;
 				if (cur_addr == (BASE_STACK_PTR_REG))
@@ -10198,7 +10263,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				int addr = base_ptr + r * 8;
 				mem_val = GetMemAddrString(dbg, addr, type_sz, 8, mem_wnd_show_type);
 
-				std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+				own_std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
 				ImGui::Text("arg_reg[%d, &%d]: %s", r, addr, mem_val.c_str());
 			}
 			ImGui::Separator();
@@ -10313,7 +10378,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	printf("wasm time: %.3f\n", time);
 }
 
-void RunDbgFunc(lang_state* lang_stat, std::string func, long long* args, int total_args)
+void RunDbgFunc(lang_state* lang_stat, own_std::string func, long long* args, int total_args)
 {
 
 
@@ -10396,8 +10461,8 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			ptr--;
 		}
 
-		std::string name = d->name;
-		std::string ptr_str = "";
+		own_std::string name = d->name;
+		own_std::string ptr_str = "";
 		if (d->type.strct->name == "rel_string")
 		{
 			int offset = *(int*)&dbg.mem_buffer[base_ptr];
@@ -10658,10 +10723,10 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			}
 		}
 
-		std::string name = d->name;
+		own_std::string name = d->name;
 		if (d->type.ptr > 0)
 		{
-			name += std::string("(&") + WasmNumToString(&dbg, offset)+")";
+			name += own_std::string("(&") + WasmNumToString(&dbg, offset)+")";
 		}
 		if (d->type.type == TYPE_CHAR)
 		{
@@ -10757,7 +10822,9 @@ void WasmInterpPatchIr(own_std::vector<ir_rep>* ir_ar, wasm_interp* winterp, dbg
 			ASSERT(fdbg->created);
 			func_decl* fdecl = fdbg->decl->type.fdecl;
 			if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_IS_OUTSIDER))
-				ir->call.outsider = winterp->outsiders[fdecl->name];
+			{
+				ir->call.outsider = winterp->get_func(fdecl->name);
+			}
 
 			ASSERT(fdecl);
 
@@ -10766,10 +10833,10 @@ void WasmInterpPatchIr(own_std::vector<ir_rep>* ir_ar, wasm_interp* winterp, dbg
 		}
 	}
 }
-std::string PrintScpPre(unsigned char* start, scope_dbg* s)
+own_std::string PrintScpPre(unsigned char* start, scope_dbg* s)
 {
 
-	std::string ret = "{";
+	own_std::string ret = "{";
 	char buffer[512];
 	snprintf(buffer, 512, "type: %d", s->type);
 	ret += buffer;
@@ -10797,7 +10864,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	unsigned char* code = data + file->code_sect;
 
 	//int point_idx = file_name.find_last_of('.');
-	//std::string data_file_name = file_name.substr(0, point_idx)+"_data.dbg";
+	//own_std::string data_file_name = file_name.substr(0, point_idx)+"_data.dbg";
 	auto file_data_sect = (char*)data + file->data_sect;
 	auto globals_sect = (char*)data + file->globals_sect;
 	auto type_sect = (char*)data + file->serialized_types_sect;
@@ -10813,7 +10880,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 		auto cur_file = (file_dbg*)(data + file->files_sect + i * sizeof(file_dbg));
 
-		std::string name = WasmInterpNameFromOffsetAndLen(data, file, &cur_file->name);
+		own_std::string name = WasmInterpNameFromOffsetAndLen(data, file, &cur_file->name);
 
 		int last_bar = name.find_last_of("\\/");
 		new_f->path = name.substr(0, last_bar + 1);
@@ -10843,7 +10910,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		auto fdbg = (func_dbg*)(data + file->func_sect + f * sizeof(func_dbg));
 		if (IS_FLAG_ON(fdbg->flags, FUNC_DECL_MACRO))
 			continue;
-		std::string name = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
+		own_std::string name = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
 		//printf("\n%d: func_name: %s", (int)strs.size(), name.c_str());
 		strs.emplace_back(std_str_to_heap(lang_stat, &name));
 
@@ -10858,7 +10925,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	auto scp_pre = (scope_dbg*)(data + file->scopes_sect);
 	scope* root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, false);
 	root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, true);
-	std::string scp_pre_str = PrintScpPre(data + file->scopes_sect, scp_pre);
+	own_std::string scp_pre_str = PrintScpPre(data + file->scopes_sect, scp_pre);
 
 	//printf("\nscop 3:\n%s", root->Print(0).c_str());
 
@@ -10875,7 +10942,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		auto fdbg = (func_dbg*)(data + file->func_sect + i * sizeof(func_dbg));
 		if (IS_FLAG_ON(fdbg->flags, FUNC_DECL_IS_OUTSIDER))
 		{
-			//std::string name = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
+			//own_std::string name = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
 
 		}
 	}
@@ -11637,7 +11704,7 @@ void WasmIrInterp(dbg_state* dbg, GLFWwindow *window, func_decl *start)
 	}
 }
 #endif
-func_decl* WasmInterpFindFunc(wasm_interp* winterp, std::string func_name)
+func_decl* WasmInterpFindFunc(wasm_interp* winterp, own_std::string func_name)
 {
 	FOR_VEC(func, winterp->funcs)
 	{
@@ -11652,15 +11719,15 @@ func_decl* WasmInterpFindFunc(wasm_interp* winterp, std::string func_name)
 
 
 
-std::string WasmCmdPrintWasmFuncAutoComplete(dbg_state* dbg, command_info_args *info)
+own_std::string WasmCmdPrintWasmFuncAutoComplete(dbg_state* dbg, command_info_args *info)
 {
-	std::string ret = "";
+	own_std::string ret = "";
 
-	own_std::vector<std::string> names_found;
+	own_std::vector<own_std::string> names_found;
 		
 	FOR_VEC(func, dbg->lang_stat->winterp->funcs)
 	{
-		std::string n = (*func)->name;
+		own_std::string n = (*func)->name;
 		bool is_equal = true;
 		for (int j = 0; j < info->incomplete_str.size(); j++)
 		{
@@ -11695,8 +11762,8 @@ std::string WasmCmdPrintWasmFuncAutoComplete(dbg_state* dbg, command_info_args *
 		i++;
 	}
 
-	std::string shortest_str = names_found[shortest_str_idx];
-	std::string second_shortest_str = names_found[second_shortest_str_idx];
+	own_std::string shortest_str = names_found[shortest_str_idx];
+	own_std::string second_shortest_str = names_found[second_shortest_str_idx];
 
 	int j = 0;
 	for (; j < shortest_str.size(); j++)
@@ -11715,7 +11782,7 @@ std::string WasmCmdPrintWasmFuncAutoComplete(dbg_state* dbg, command_info_args *
 
 
 
-void WasmPushNameIntoArray(own_std::vector<unsigned char>* out, std::string name)
+void WasmPushNameIntoArray(own_std::vector<unsigned char>* out, own_std::string name)
 {
 	own_std::vector<unsigned char> uleb;
 	int name_len = name.size();
@@ -13675,7 +13742,7 @@ void PatchJmps(own_std::vector<byte_code>& ret, block_linked* cur)
 	}
 }
 
-void GenX64AsmGetReg(lang_state* lang_stat, std::string& reg_str, byte_code::operand* op)
+void GenX64AsmGetReg(lang_state* lang_stat, own_std::string& reg_str, byte_code::operand* op)
 {
 	char reg = reg_str[1] -'0';
 	char reg_sz_char = reg_str[2];
@@ -13832,7 +13899,7 @@ token2 *GenX64AsmBin(lang_state* lang_stat, byte_code &bc, token2 *t,
 
 void GenX64ByteCodeFromStr(lang_state* lang_stat,
 	own_std::vector<byte_code>& ret,
-	std::string& str,
+	own_std::string& str,
 	scope *scp)
 {
 	type2 dummy_tp;
@@ -15567,13 +15634,13 @@ void GenWasm(web_assembly_state* wasm_state)
 		int read = 0;
 		char* images_data = ReadEntireFileLang("../web/images.data", &read);
 
-		std::string code_str((char*)ret->begin(), ret->size());
-		std::string encoded_str = base64_encode(code_str);
-		std::string data_sect_str((char*)lang_stat->data_sect.begin(), lang_stat->data_sect.size());
-		std::string data_sect_encoded_str = base64_encode(data_sect_str);
+		own_std::string code_str((char*)ret->begin(), ret->size());
+		own_std::string encoded_str = base64_encode(code_str);
+		own_std::string data_sect_str((char*)lang_stat->data_sect.begin(), lang_stat->data_sect.size());
+		own_std::string data_sect_encoded_str = base64_encode(data_sect_str);
 
-		std::string page =
-			std::string(
+		own_std::string page =
+			own_std::string(
 				"<!DOCTYPE html>\n\
 <html>\
 <script src = \"main.js\"></script>\
@@ -15584,9 +15651,9 @@ Your browser does not support the audio element.\
 </audio>\
 <canvas id = \"glcanvas\" width = \"640\" height = \"480\">< / canvas>\
 <p id = \"dt\">< / p>\
-<p id = \"wasm_module\">") + encoded_str + std::string("</p>\
-<p id = \"wasm_data_sect\">") + data_sect_encoded_str + std::string("</p>\
-<p id = \"wasm_images\">") + images_data + std::string("</p>\
+<p id = \"wasm_module\">") + encoded_str + own_std::string("</p>\
+<p id = \"wasm_data_sect\">") + data_sect_encoded_str + own_std::string("</p>\
+<p id = \"wasm_images\">") + images_data + own_std::string("</p>\
 </html>\
 ");
 
@@ -15606,7 +15673,7 @@ Your browser does not support the audio element.\
 	{
 		func_decl* d = *decl;
 		
-		std::string st = d->name;
+		own_std::string st = d->name;
 		//printf("%d: %s\n", i, st.c_str());
 
 		i++;
@@ -15639,14 +15706,14 @@ void CreateAstFromFunc(lang_state* lang_stat, func_decl* f)
 
 struct compile_options
 {
-	std::string file;
-	std::string wasm_dir;
-	std::string folder_name;
+	own_std::string file;
+	own_std::string wasm_dir;
+	own_std::string folder_name;
 	bool release;
 	bool run;
 };
 
-void AssignDbgFile(lang_state* lang_stat, std::string file_name)
+void AssignDbgFile(lang_state* lang_stat, own_std::string file_name)
 {
 	int read;
 	web_assembly_state *wasm_state = lang_stat->wasm_state;
@@ -15655,7 +15722,7 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 	wasm_state->lang_stat = lang_stat;
 	wasm_state->funcs.clear();
 	wasm_state->imports.clear();
-	wasm_state->outsiders.clear();
+	//wasm_state->outsiders.clear();
 	auto file = (unsigned char *)ReadEntireFileLang((char *)file_name.c_str(), &read);
 
 	
@@ -15670,15 +15737,15 @@ void AssignDbgFile(lang_state* lang_stat, std::string file_name)
 #endif
 
 }
-void AssignOutsiderFunc(lang_state* lang_stat, std::string name, OutsiderFuncType func)
+void AssignOutsiderFunc(lang_state* lang_stat, own_std::string name, OutsiderFuncType func)
 {
-	lang_stat->winterp->outsiders[name] = func;
+	lang_stat->winterp->add_func(name, func);
 }
 
 char* heap_alloc(mem_alloc* alloc, int size);//, mem_chunk **out = nullptr)
-void AddFolder(lang_state* lang_stat, std::string folder)
+void AddFolder(lang_state* lang_stat, own_std::string folder)
 {
-	own_std::vector<std::string> file_contents;
+	own_std::vector<own_std::string> file_contents;
 	own_std::vector<char *> file_names;
 	GetFilesInDirectory(lang_stat->exe_dir+folder, nullptr, &file_names);
 
@@ -15692,7 +15759,7 @@ void AddFolder(lang_state* lang_stat, std::string folder)
 	FOR_VEC(str, file_names)
 	{
 		TCHAR name_buffer[MAX_PATH];
-		std::string dir = lang_stat->exe_dir + folder+"\\";
+		own_std::string dir = lang_stat->exe_dir + folder+"\\";
 		for(int i= 0; i < dir.size(); i++)
 		{
 			if (dir[i] == '/')
@@ -15713,7 +15780,7 @@ struct code_info
 	machine_code mcode;
 };
 
-int ExecuteString(code_info *info, std::string str, int param)
+int ExecuteString(code_info *info, own_std::string str, int param)
 {
 
 	printf("NEW TASK");
@@ -15764,13 +15831,13 @@ int ExecuteString(code_info *info, std::string str, int param)
 
 		info->lang_stat->dstate->print_numbers_format = dbg_print_numbers_format::DBG_PRINT_HEX;
 		info->lang_stat->dstate->cur_func = fdecl;
-		std::string all;
+		own_std::string all;
 		for (int i = 0; i < ir->size(); i++)
 		{
 			char buffer[512];
 			ir_rep* ir_cur = ir->data() + i;
 			ir_cur->idx = info->lang_stat->cur_idx;
-			std::string ir_str;
+			own_std::string ir_str;
 			WasmIrToString(info->lang_stat->dstate, ir_cur, ir_str);
 			if (ir_str.size() != 0)
 			{
@@ -16610,28 +16677,28 @@ void AssertFuncByteCode(lang_state* lang_stat)
 }
 int Compile(lang_state* lang_stat, compile_options *opts)
 {
-	//own_std::vector<std::string> args;
-	//std::string aux;
+	//own_std::vector<own_std::string> args;
+	//own_std::string aux;
 	//split(args_str, ' ', args, &aux);
 	
 	//AssertFuncByteCode(lang_stat);
 	
 	int i = 0;
-	std::string file = opts->file;
-	std::string wasm_dir = opts->wasm_dir;
-	std::string target = "";
+	own_std::string file = opts->file;
+	own_std::string wasm_dir = opts->wasm_dir;
+	own_std::string target = "";
 
 	lang_stat->gen_wasm = true;
 	lang_stat->release = opts->release;
-	lang_stat->wasm_state->folder_name = std::string(opts->folder_name);
-	lang_stat->wasm_state->wasm_dir = std::string(opts->wasm_dir);
+	lang_stat->wasm_state->folder_name = own_std::string(opts->folder_name);
+	lang_stat->wasm_state->wasm_dir = own_std::string(opts->wasm_dir);
 	//auto base_fl = AddNewFile(lang_stat, "Core/base.lng");
 	//tp.type = enum_type2::TYPE_IMPORT;
 	//tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", base_fl);
 	//lang_stat->base_lang = NewDecl(lang_stat, "base", tp);
 
 	type2 dummy_type;
-	decl2* release = FindIdentifier(std::string("RELEASE"), lang_stat->root, &dummy_type);
+	decl2* release = FindIdentifier(own_std::string("RELEASE"), lang_stat->root, &dummy_type);
 	release->type.i = lang_stat->release;
 
 
@@ -16817,7 +16884,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		lang_stat->cur_file = f;
 		lang_stat->lhs_saved = 0;
 		lang_stat->call_regs_used = 0;
-		//std::string scp_str = lang_stat->root->Print(0);
+		//own_std::string scp_str = lang_stat->root->Print(0);
 		//printf("file: %s, scp: \n %s", f->name.c_str(), scp_str.c_str());
 		DescendNode(lang_stat, f->s, f->global);
 
@@ -16856,7 +16923,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	wasm_state.wasm_dir = opts->wasm_dir;
 
     auto mem_decl = (decl2 *)AllocMiscData(lang_stat, sizeof(decl2));
-    mem_decl->name = std::string("mem");
+    mem_decl->name = own_std::string("mem");
     mem_decl->type.type = TYPE_WASM_MEMORY;
     wasm_state.exports.emplace_back(mem_decl);
 
@@ -16865,7 +16932,7 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		auto f = *f_ptr;
 		auto fdecl = (decl2 *)AllocMiscData(lang_stat, sizeof(decl2));
 		fdecl->type.type = TYPE_FUNC;
-		fdecl->name = std::string(f->name);
+		fdecl->name = own_std::string(f->name);
 		fdecl->type.fdecl = f;
 		f->this_decl = fdecl;
 		wasm_state.imports.emplace_back(f->this_decl);
@@ -16957,7 +17024,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//lang_stat->jump_buffer = (jmp_buf*)AllocMiscData(lang_stat, sizeof(jmp_buf));
 
 	lang_stat->winterp = (wasm_interp *) AllocMiscData(lang_stat, sizeof(wasm_interp));
-	new(&lang_stat->winterp->outsiders) std::unordered_map<std::string, OutsiderFuncType>();
+	//new(&lang_stat->winterp->outsiders) std::unordered_map<own_std::string, OutsiderFuncType>();
 	lang_stat->wasm_state = (web_assembly_state *) AllocMiscData(lang_stat, sizeof(web_assembly_state));
 	lang_stat->dstate = (dbg_state *) AllocMiscData(lang_stat, sizeof(dbg_state));
 	lang_stat->dstate->mem_size = 1024 * 1024 * 4;
@@ -16976,7 +17043,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//printf("hello");
 
     
-	lang_stat->max_nd = 100000;
+	lang_stat->max_nd = 240000;
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
@@ -17015,14 +17082,14 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	memset(sz_of_fdecl, 0, sizeof(func_decl));
 	tp.fdecl = sz_of_fdecl;
 	sz_of_fdecl->flags |= FUNC_DECL_INTERNAL;
-	tp.fdecl->name = std::string("enum_count");
+	tp.fdecl->name = own_std::string("enum_count");
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "enum_count", tp));
 
 	sz_of_fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 	memset(sz_of_fdecl, 0, sizeof(func_decl));
 	tp.fdecl = sz_of_fdecl;
 	sz_of_fdecl->flags |= FUNC_DECL_INTERNAL;
-	tp.fdecl->name = std::string("__is_struct");
+	tp.fdecl->name = own_std::string("__is_struct");
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "enum_count", tp));
 
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "get_type_data", tp));
@@ -17118,18 +17185,18 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	//printf("full exe path: %s", buffer);
 
 	// addind the file name to the path
-	std::string exe_dir = buffer;
+	own_std::string exe_dir = buffer;
 	int last_bar_comp = exe_dir.find_last_of('\\');
 	/*
-	std::string file_name_dir = std::string(argv[1]);
+	own_std::string file_name_dir = own_std::string(argv[1]);
 	int last_bar_main = file_name_dir.find_last_of('/');
 	*/
-	//std::string dir = exe_dir.substr(0, last_bar_comp) + "\\" + file_name_dir.substr(0, last_bar_main);
-	std::string dir = exe_dir.substr(0, last_bar_comp + 1);
+	//own_std::string dir = exe_dir.substr(0, last_bar_comp) + "\\" + file_name_dir.substr(0, last_bar_main);
+	own_std::string dir = exe_dir.substr(0, last_bar_comp + 1);
 	lang_stat->exe_dir = dir;
 
 
-	//std::string file_name = file_name_dir.substr(last_bar_main+1);
+	//own_std::string file_name = file_name_dir.substr(last_bar_main+1);
 
     return 0;
 }
@@ -17201,10 +17268,10 @@ bool GetDeclOnCursor(lang_state *lang_stat, int line, int offset, type2 *out)
 
 }
 
-void LspAddFolder(lang_state *lang_stat, std::string folder)
+void LspAddFolder(lang_state *lang_stat, own_std::string folder)
 {
 	type2 dummy_type;
-	decl2* release = FindIdentifier(std::string("RELEASE"), lang_stat->root, &dummy_type);
+	decl2* release = FindIdentifier(own_std::string("RELEASE"), lang_stat->root, &dummy_type);
 	release->type.i = lang_stat->release;
 
 
@@ -17236,7 +17303,7 @@ void LspAddFolder(lang_state *lang_stat, std::string folder)
 		}
 	}
 }
-void LspCompile(lang_state *lang_stat, std::string folder, int line, int line_offset, own_std::vector<decl2> *out_decls)
+void LspCompile(lang_state *lang_stat, own_std::string folder, int line, int line_offset, own_std::vector<decl2> *out_decls)
 {
 	switch (lang_stat->lsp_stage)
 	{
@@ -17325,7 +17392,7 @@ void LspCompile(lang_state *lang_stat, std::string folder, int line, int line_of
 				lang_stat->cur_file = f;
 				lang_stat->lhs_saved = 0;
 				lang_stat->call_regs_used = 0;
-				//std::string scp_str = lang_stat->root->Print(0);
+				//own_std::string scp_str = lang_stat->root->Print(0);
 				//printf("file: %s, scp: \n %s", f->name.c_str(), scp_str.c_str());
 				DescendNode(lang_stat, f->s, f->global);
 				lang_stat->call_regs_used = 0;

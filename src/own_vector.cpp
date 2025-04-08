@@ -1,3 +1,4 @@
+#pragma once
 
 #include "memory.h"
 namespace own_std
@@ -22,6 +23,10 @@ namespace own_std
 			}
 			return false;
 		}
+		bool empty()
+		{
+			return len == 0;
+		}
 		/*
 		u64 insert(u64 offset, u64 sz)
 		{
@@ -35,7 +40,7 @@ namespace own_std
 			len = total;
 		}
 		*/
-		u64 insert(u64 offset, own_std::string other)
+		void insert(u64 offset, own_std::string other)
 		{
 			u64 total = len + other.len;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
@@ -47,7 +52,7 @@ namespace own_std
 			data_ = buffer;
 			len = total;
 		}
-		u64 erase(u64 offset, u64 sz)
+		void erase(u64 offset, u64 sz)
 		{
 			u64 total = len - sz;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
@@ -67,9 +72,9 @@ namespace own_std
 		}
 		s64 find_last_of(const char* chars)
 		{
-			u64 l = strlen(chars);
+			u64 l = strlen(chars) - 1;
 
-			for (u64 i = l; i >= 0; i--)
+			for (s64 i = l; i >= 0; i--)
 			{
 				u64 idx = 0;
 				if (contains_char_rev(chars[i], &idx))
@@ -90,7 +95,7 @@ namespace own_std
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, len + 1);
 			memcpy(buffer, data_, len);
 
-			buffer[len + 1] = 0;
+			buffer[len] = 0;
 			if (c_str_vec_len <= 0 || c_str_vec_len >= 64)
 			{
 				new_c_str_vec(4);
@@ -135,6 +140,8 @@ namespace own_std
 			memcpy(buffer, other.data_, other.len);
 			data_ = buffer;
 			len = other.len;
+			c_str_vec_count = 0;
+			c_str_vec_len = 0;
 		}
 		void operator =(string &src)
 		{
@@ -159,6 +166,8 @@ namespace own_std
 			memcpy(buffer, src, strlen(src));
 			data_ = buffer;
 			len = l;
+			c_str_vec_count = 0;
+			c_str_vec_len = 0;
 		}
 		string(const char* src, u64 size)
 		{
@@ -167,6 +176,8 @@ namespace own_std
 			memcpy(buffer, src, size);
 			data_ = buffer;
 			len = size;
+			c_str_vec_count = 0;
+			c_str_vec_len = 0;
 			//pru64f("data_
 		}
 		string(char* src, u64 size)
@@ -176,6 +187,8 @@ namespace own_std
 			memcpy(buffer, src, size);
 			data_ = buffer;
 			len = size;
+			c_str_vec_count = 0;
+			c_str_vec_len = 0;
 		}
 		~string()
 		{
@@ -196,7 +209,7 @@ namespace own_std
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, new_l);
 			string new_one;
 			memcpy(buffer, data_ + idx, new_l);
-			new_one.data_;
+			new_one.data_ = buffer;
 			new_one.len = new_l;
 
 			return new_one;
@@ -245,7 +258,8 @@ namespace own_std
 			memcpy(buffer, data_, len);
 			memcpy(buffer + len, other_buffer, other_len);
 
-			__lang_globals.free(__lang_globals.data, data_);
+			if(data_)
+				__lang_globals.free(__lang_globals.data, data_);
 			data_ = buffer;
 			len = total;
 
@@ -329,21 +343,55 @@ namespace own_std
 
 			return memcmp(data_, other.data_, len) == 0;
 		}
-		string operator +=(char other)
+		void operator +=(char other)
 		{
-			return concat(&other, 1);
+			u64 total = len + 1;
+			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
+			memcpy(buffer, data_, len);
+			buffer[len] = other;
+			if(data_)
+				__lang_globals.free(__lang_globals.data, data_);
+			data_ = buffer;
+			len = total;
 		}
-		string operator +=(const char* other)
+		void operator +=(const char* other)
 		{
-			return concat(other, strlen(other));
+			u64 other_len = strlen(other);
+			u64 total = other_len + len;
+			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
+			memcpy(buffer, data_, len);
+			memcpy(buffer + len, other, other_len);
+			if(data_)
+				__lang_globals.free(__lang_globals.data, data_);
+			data_ = buffer;
+			len = total;
+
 		}
-		string operator +=(char* other)
+		void operator +=(char* other)
 		{
-			return concat(other, strlen(other));
+			u64 other_len = strlen(other);
+			u64 total = other_len + len;
+			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
+			memcpy(buffer, data_, len);
+			memcpy(buffer + len, other, other_len);
+			
+			__lang_globals.free(__lang_globals.data, data_);
+			data_ = buffer;
+			len = total;
 		}
-		string operator +=(string other)
+		void operator +=(string &other)
 		{
-			return concat(other);
+			u64 total = other.len + len;
+			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
+			memcpy(buffer, data_, len);
+			memcpy(buffer + len, other.data_, other.len);
+
+			if(data_)
+				__lang_globals.free(__lang_globals.data, data_);
+
+			data_ = buffer;
+			len = total;
+
 		}
 		void push_back(char other)
 		{
@@ -357,6 +405,7 @@ namespace own_std
 		{
 			concat_in_place(other);
 		}
+		friend string operator+(const char*, const string&);
 		string operator +(string other)
 		{
 			// use concat_in_place instead
@@ -373,6 +422,50 @@ namespace own_std
 			return data_[idx];
 		}
 	};
+	long long stoi(string str)
+	{
+		auto prev_char = str.data_[str.len];
+		str.data_[str.len] = 0;
+
+		long long i = atoi(str.data_);
+		
+		str.data_[str.len] = prev_char;
+		return i;
+	}
+	float stof(string str)
+	{
+		auto prev_char = str.data_[str.len];
+		str.data_[str.len] = 0;
+
+		float f = atof(str.data_);
+		
+		str.data_[str.len] = prev_char;
+		return f;
+	}
+	string to_string(int i)
+	{
+		char buffer[32];
+		snprintf(buffer, 32, "%d", i);
+		return string(buffer);
+	}
+	string to_string(u64 i)
+	{
+		char buffer[32];
+		snprintf(buffer, 32, "%p", (void *)i);
+		return string(buffer);
+	}
+	string to_string(long long i)
+	{
+		char buffer[32];
+		snprintf(buffer, 32, "%p", (void *)i);
+		return string(buffer);
+	}
+	string to_string(float f)
+	{
+		char buffer[32];
+		snprintf(buffer, 32, "%.3f", f);
+		return string(buffer);
+	}
 
 	template<typename T, u64 method = 0>
 	struct vector
@@ -679,6 +772,16 @@ namespace own_std
 			return (U )table.Get(key);
 		}
 	};
+	template<typename T, typename U>
+	struct unordered_map
+	{
+		hash_map<long long, U> map;
+	};
+	string operator+(const char*lhs, const string&rhs)
+	{
+		own_std::string ret(lhs);
+		return ret + rhs;
+	}
 }
 
 

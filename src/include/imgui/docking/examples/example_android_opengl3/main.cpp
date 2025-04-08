@@ -23,7 +23,7 @@ static EGLContext           g_EglContext = EGL_NO_CONTEXT;
 static struct android_app*  g_App = nullptr;
 static bool                 g_Initialized = false;
 static char                 g_LogTag[] = "ImGuiExample";
-static std::string          g_IniFilename = "";
+static own_std::string          g_IniFilename = "";
 
 // Forward declarations of helper functions
 static void Init(struct android_app* app);
@@ -140,7 +140,7 @@ void Init(struct android_app* app)
 
     // Redirect loading/saving of .ini file to our location.
     // Make sure 'g_IniFilename' persists while we use Dear ImGui.
-    g_IniFilename = std::string(app->activity->internalDataPath) + "/imgui.ini";
+    g_IniFilename = own_std::string(app->activity->internalDataPath) + "/imgui.ini";
     io.IniFilename = g_IniFilename.c_str();;
 
     // Setup Dear ImGui style

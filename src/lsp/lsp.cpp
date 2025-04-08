@@ -32,7 +32,7 @@ void Write(HANDLE hFile, char *str, int sz)
 	} 
 	*/
 }
-void Log(std::string message)
+void Log(own_std::string message)
 {
 	HANDLE hFile;
 	char DataBuffer[] = "message from lsp";
@@ -295,7 +295,7 @@ scope *GetScopeWithLspLineStr(lang_state *lang_stat, to_lsp_linestr *line_info)
 	char* str_tbl = (char*)(line_info + 1);
 
 	char* file_path = str_tbl + line_info->line_str_len;
-	std::string file = file_path;
+	own_std::string file = file_path;
 	unit_file *ufile = ThereIsFile(lang_stat, file);
 	if (!ufile)
 		return nullptr;
@@ -349,7 +349,7 @@ int main()
 	char* str_cont = "Content-Length: ";
 	int len = strlen(str_cont);
 
-	std::string inputBuffer;
+	own_std::string inputBuffer;
 	mem_alloc alloc;
 	lang_state lang_stat;
 	alloc.main_buffer = nullptr;
@@ -357,7 +357,7 @@ int main()
 	InitMemAlloc(&alloc);
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 	while (true) {
-		std::string line;
+		own_std::string line;
 		// Obtain the standard input handle
 
 
@@ -385,12 +385,12 @@ int main()
 					InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 					int str_sz = *(int*)(cur_ptr);
 					cur_ptr += 4;
-					std::string folder(cur_ptr, str_sz);
+					own_std::string folder(cur_ptr, str_sz);
 					cur_ptr += str_sz;
 
 					str_sz = *(int*)(cur_ptr);
 					cur_ptr += 4;
-					std::string exe_dir(cur_ptr, str_sz);
+					own_std::string exe_dir(cur_ptr, str_sz);
 					lang_stat.exe_dir = exe_dir;
 					cur_ptr += str_sz;
 					lang_stat.lsp_stage = LSP_STAGE_NAME_FINDING;
@@ -432,7 +432,7 @@ int main()
 					auto pos = (lsp_pos*)(hdr + 1);
 					auto dir = (char *)(pos + 1);
 					auto file_name = (char *)(dir + 1);
-					unit_file *fl = ThereIsFile(&lang_stat, std::string(file_name));
+					unit_file *fl = ThereIsFile(&lang_stat, own_std::string(file_name));
 					if (!fl)
 						continue;
 
@@ -503,7 +503,7 @@ int main()
 					if (!d)
 						continue;
 
-					std::string file_name = d->from_file->path + d->from_file->name;
+					own_std::string file_name = d->from_file->path + d->from_file->name;
 
 					lsp_header hdr;
 					hdr.magic = 0x77;
@@ -537,11 +537,11 @@ int main()
 				}
 				if (hdr->msg_type == lsp_msg_enum::LSP_SYNTAX)
 				{
-					std::string file_name = (char*)(hdr + 1);
+					own_std::string file_name = (char*)(hdr + 1);
 					own_std::vector<char> final_buffer;
 					int last_bar = file_name.find_last_of("\\/");
-					std::string name = file_name.substr(last_bar + 1);
-					std::string path = file_name.substr(0, last_bar+1);
+					own_std::string name = file_name.substr(last_bar + 1);
+					own_std::string path = file_name.substr(0, last_bar+1);
 					unit_file *file = AddNewFile(&lang_stat, name, path);
 					CreateSyntaxHighlightingWholeFile(&lang_stat, file, &final_buffer);
 					Write(hStdout, final_buffer.data(), final_buffer.size());

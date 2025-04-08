@@ -874,7 +874,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTERNAL))
 				{
 
-					ASSERT(lang_stat->internal_funcs_addr.find(fdecl->name.c_str()) != lang_stat->internal_funcs_addr.end())
+					//ASSERT(lang_stat->internal_funcs_addr.find(fdecl->name.c_str()) != lang_stat->internal_funcs_addr.end())
 				}
 				else
 				{
@@ -922,7 +922,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			else if (bc->rel.type == rel_type::REL_TYPE)
 			{
-				std::string name = std::string("$$") + bc->rel.name;
+				own_std::string name = own_std::string("$$") + bc->rel.name;
 
 				// puttinf the name into the heap
 				char *new_str = std_str_to_heap(lang_stat, &name);
@@ -1977,7 +1977,7 @@ void FromByteCodeToX64(lang_state *lang_stat, own_std::vector<func_byte_code *> 
 	}
 }
 
-func_byte_code *interpreter::SearchFinalFunc(std::string name)
+func_byte_code *interpreter::SearchFinalFunc(own_std::string name)
 {
 	FOR_VEC(f, (*ar))
 	{
@@ -2805,7 +2805,7 @@ void EmplaceDataSectReloc(char reg_dst, int offset, descend_func_ret *ret)
 	ret->bcodes.emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)offset, reg_dst));
 }
 
-void MovStrLitToReg(lang_state *lang_stat, char reg, std::string str, descend_func_ret *ret)
+void MovStrLitToReg(lang_state *lang_stat, char reg, own_std::string str, descend_func_ret *ret)
 {
 	int str_sz = str.size();
 	char *str_data = (char *)str.data();
@@ -3366,9 +3366,9 @@ void DerefDFR(func_byte_code *final_func, descend_func_ret *ret)
 				ret.voffset = 0;\
 				\
 				final_voffset = 0;
-std::string TypeToRelType(type2 *tp)
+own_std::string TypeToRelType(type2 *tp)
 {
-	std::string ret = "$$";
+	own_std::string ret = "$$";
 
 	switch(tp->type)
 	{

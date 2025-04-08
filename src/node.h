@@ -84,7 +84,7 @@ struct node_iter
 	node *node_iter::parse_stmnts();
 	node *node_iter::parse_sub_expr(int prec);
 	node *node_iter::parse_expr();
-	node *node_iter::parse_str(std::string &, int *, int);
+	node *node_iter::parse_str(own_std::string &, int *, int);
 	node *node_iter::parse_(int prec,  parser_cond);
 	void EatNewLine();
 	void CreateCondAndScope(node **n);
@@ -219,7 +219,7 @@ struct node
 	};
 	union
 	{
-		std::string str_val;
+		own_std::string str_val;
 		scope *scp;
 		node *call_templates;
 		type_struct2 *tstrct;
@@ -228,7 +228,7 @@ struct node
 		struct
 		{
 			func_decl *fdecl;
-			std::string *str;
+			own_std::string *str;
 		};
 
 		type2 decl_type;
@@ -310,7 +310,7 @@ enum msg_type
 };
  struct variable
  {
-	std::string name;
+	own_std::string name;
 	type2 type;
  };
 
@@ -335,12 +335,22 @@ enum msg_type
 	 int hit;
 	 decl2* d;
  };
+int GetNameSimpleHash(own_std::string &str)
+{
+	int sz = str.size();
+	int sum = sz;
+	for(int i = 0; i < sz; i++)
+	{
+		sum += (str[i] * 2) << 1;
+	}
+	return sum;
+}
 #define CACHED_DECLS_MAX  128
 struct scope
 {
 	scope *parent;
 	own_std::vector<decl2 *> vars;
-	std::unordered_map<std::string, decl2 *> vars_map;
+	std::unordered_map<own_std::string, decl2 *> vars_map;
 	own_std::vector<scope *> children;
 	own_std::vector<ast_rep *> defered;
 	own_std::vector<template_to_be_assigned> templs_to_be_assigned;
@@ -362,9 +372,9 @@ struct scope
 	decl2* e_decl;
 	unit_file *file;
 
-	decl2 *FindVariable(std::string &name);
-	decl2 *FindVariableCached(std::string &name);
-	std::string Print(int);
+	decl2 *FindVariable(own_std::string &name);
+	decl2 *FindVariableCached(own_std::string &name);
+	own_std::string Print(int);
 
 	void AssignDecls(decl2 **start, decl2 **end)
 	{
@@ -378,16 +388,6 @@ struct scope
 	void AddDecl(decl2 *d)
 	{
 		vars.emplace_back(d);
-	}
-	int GetNameSimpleHash(std::string &str)
-	{
-		int sz = str.size();
-		int sum = sz;
-		for(int i = 0; i < sz; i++)
-		{
-			sum += (str[i] * 2) << 1;
-		}
-		return sum;
 	}
 	void CacheDecl(decl2 *d)
 	{
@@ -434,9 +434,9 @@ struct message
 };
 struct unit_file
 {
-	std::string name;
-	std::string path;
-//	std::string contents;
+	own_std::string name;
+	own_std::string path;
+//	own_std::string contents;
 	char* contents;
 	unsigned long long contents_sz;
 	own_std::vector<token2> tkns;
@@ -453,7 +453,7 @@ struct unit_file
 	bool is_done;
 };
 
-bool decl2::AssignTemplate(lang_state *lang_stat, std::string tname, type2 *tp, comma_ret *given_arg)
+bool decl2::AssignTemplate(lang_state *lang_stat, own_std::string tname, type2 *tp, comma_ret *given_arg)
 {
 	switch(type.type)
 	{
@@ -507,9 +507,9 @@ enum import_type
 struct import_strct
 {
 	import_type type;
-	std::string alias;
+	own_std::string alias;
 	unit_file *fl;
-	decl2 *FindDecl(std::string &name)
+	decl2 *FindDecl(own_std::string &name)
 	{
 
 		ASSERT(fl->global);

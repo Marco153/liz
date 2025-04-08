@@ -1,5 +1,6 @@
 #pragma once
 #include "Array.h"
+#include "assert.cpp"
 #include <unordered_map>
 
 #define CHUNK_FREE 1

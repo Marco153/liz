@@ -1,6 +1,10 @@
 #pragma once
 #include <windows.h>
 #include "serializable_pound_defines.h"
+typedef unsigned long long u64;
+typedef unsigned int u32;
+typedef unsigned char u8;
+typedef long long s64;
 #define FOR_ARRAY(index_name, ar_name, type_ar) for(int index_name = 0; index_name < (ar_name).count; index_name++){ type_ar *it = (ar_name)[index_name];
 #define FOR(ar_name) for(auto it = (ar_name)[0]; it < (ar_name).end; it++)
 #define FOR2(ar_name, idx_name) for(auto idx_name = (ar_name)[0]; idx_name < (ar_name).end; idx_name++)

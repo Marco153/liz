@@ -3450,7 +3450,7 @@ NLOHMANN_JSON_NAMESPACE_END
     template<template<typename U, typename V, typename... Args> class ObjectType =
     std::map,
     template<typename U, typename... Args> class ArrayType = std::vector,
-    class StringType = std::string, class BooleanType = bool,
+    class StringType = own_std::string, class BooleanType = bool,
     class NumberIntegerType = std::int64_t,
     class NumberUnsignedType = std::uint64_t,
     class NumberFloatType = double,
@@ -4396,7 +4396,7 @@ inline void concat_into(OutStringType& out, const Arg& arg, Args&& ... rest)
     concat_into(out, std::forward<Args>(rest)...);
 }
 
-template<typename OutStringType = std::string, typename... Args>
+template<typename OutStringType = own_std::string, typename... Args>
 inline OutStringType concat(Args && ... args)
 {
     OutStringType str;
@@ -4447,21 +4447,21 @@ class exception : public std::exception
     JSON_HEDLEY_NON_NULL(3)
     exception(int id_, const char* what_arg) : id(id_), m(what_arg) {} // NOLINT(bugprone-throw-keyword-missing)
 
-    static std::string name(const std::string& ename, int id_)
+    static own_std::string name(const own_std::string& ename, int id_)
     {
         return concat("[json.exception.", ename, '.', std::to_string(id_), "] ");
     }
 
-    static std::string diagnostics(std::nullptr_t /*leaf_element*/)
+    static own_std::string diagnostics(std::nullptr_t /*leaf_element*/)
     {
         return "";
     }
 
     template<typename BasicJsonType>
-    static std::string diagnostics(const BasicJsonType* leaf_element)
+    static own_std::string diagnostics(const BasicJsonType* leaf_element)
     {
 #if JSON_DIAGNOSTICS
-        std::vector<std::string> tokens;
+        std::vector<own_std::string> tokens;
         for (const auto* current = leaf_element; current != nullptr && current->m_parent != nullptr; current = current->m_parent)
         {
             switch (current->m_parent->type())
@@ -4510,8 +4510,8 @@ class exception : public std::exception
             return "";
         }
 
-        auto str = std::accumulate(tokens.rbegin(), tokens.rend(), std::string{},
-                                   [](const std::string & a, const std::string & b)
+        auto str = std::accumulate(tokens.rbegin(), tokens.rend(), own_std::string{},
+                                   [](const own_std::string & a, const own_std::string & b)
         {
             return concat(a, '/', detail::escape(b));
         });
@@ -4542,17 +4542,17 @@ class parse_error : public exception
     @return parse_error object
     */
     template<typename BasicJsonContext, enable_if_t<is_basic_json_context<BasicJsonContext>::value, int> = 0>
-    static parse_error create(int id_, const position_t& pos, const std::string& what_arg, BasicJsonContext context)
+    static parse_error create(int id_, const position_t& pos, const own_std::string& what_arg, BasicJsonContext context)
     {
-        const std::string w = concat(exception::name("parse_error", id_), "parse error",
+        const own_std::string w = concat(exception::name("parse_error", id_), "parse error",
                                      position_string(pos), ": ", exception::diagnostics(context), what_arg);
         return {id_, pos.chars_read_total, w.c_str()};
     }
 
     template<typename BasicJsonContext, enable_if_t<is_basic_json_context<BasicJsonContext>::value, int> = 0>
-    static parse_error create(int id_, std::size_t byte_, const std::string& what_arg, BasicJsonContext context)
+    static parse_error create(int id_, std::size_t byte_, const own_std::string& what_arg, BasicJsonContext context)
     {
-        const std::string w = concat(exception::name("parse_error", id_), "parse error",
+        const own_std::string w = concat(exception::name("parse_error", id_), "parse error",
                                      (byte_ != 0 ? (concat(" at byte ", std::to_string(byte_))) : ""),
                                      ": ", exception::diagnostics(context), what_arg);
         return {id_, byte_, w.c_str()};
@@ -4573,7 +4573,7 @@ class parse_error : public exception
     parse_error(int id_, std::size_t byte_, const char* what_arg)
         : exception(id_, what_arg), byte(byte_) {}
 
-    static std::string position_string(const position_t& pos)
+    static own_std::string position_string(const position_t& pos)
     {
         return concat(" at line ", std::to_string(pos.lines_read + 1),
                       ", column ", std::to_string(pos.chars_read_current_line));
@@ -4586,9 +4586,9 @@ class invalid_iterator : public exception
 {
   public:
     template<typename BasicJsonContext, enable_if_t<is_basic_json_context<BasicJsonContext>::value, int> = 0>
-    static invalid_iterator create(int id_, const std::string& what_arg, BasicJsonContext context)
+    static invalid_iterator create(int id_, const own_std::string& what_arg, BasicJsonContext context)
     {
-        const std::string w = concat(exception::name("invalid_iterator", id_), exception::diagnostics(context), what_arg);
+        const own_std::string w = concat(exception::name("invalid_iterator", id_), exception::diagnostics(context), what_arg);
         return {id_, w.c_str()};
     }
 
@@ -4604,9 +4604,9 @@ class type_error : public exception
 {
   public:
     template<typename BasicJsonContext, enable_if_t<is_basic_json_context<BasicJsonContext>::value, int> = 0>
-    static type_error create(int id_, const std::string& what_arg, BasicJsonContext context)
+    static type_error create(int id_, const own_std::string& what_arg, BasicJsonContext context)
     {
-        const std::string w = concat(exception::name("type_error", id_), exception::diagnostics(context), what_arg);
+        const own_std::string w = concat(exception::name("type_error", id_), exception::diagnostics(context), what_arg);
         return {id_, w.c_str()};
     }
 
@@ -4621,9 +4621,9 @@ class out_of_range : public exception
 {
   public:
     template<typename BasicJsonContext, enable_if_t<is_basic_json_context<BasicJsonContext>::value, int> = 0>
-    static out_of_range create(int id_, const std::string& what_arg, BasicJsonContext context)
+    static out_of_range create(int id_, const own_std::string& what_arg, BasicJsonContext context)
     {
-        const std::string w = concat(exception::name("out_of_range", id_), exception::diagnostics(context), what_arg);
+        const own_std::string w = concat(exception::name("out_of_range", id_), exception::diagnostics(context), what_arg);
         return {id_, w.c_str()};
     }
 
@@ -4638,9 +4638,9 @@ class other_error : public exception
 {
   public:
     template<typename BasicJsonContext, enable_if_t<is_basic_json_context<BasicJsonContext>::value, int> = 0>
-    static other_error create(int id_, const std::string& what_arg, BasicJsonContext context)
+    static other_error create(int id_, const own_std::string& what_arg, BasicJsonContext context)
     {
-        const std::string w = concat(exception::name("other_error", id_), exception::diagnostics(context), what_arg);
+        const own_std::string w = concat(exception::name("other_error", id_), exception::diagnostics(context), what_arg);
         return {id_, w.c_str()};
     }
 
@@ -6792,8 +6792,8 @@ typename container_input_adapter_factory_impl::container_input_adapter_factory<C
     return container_input_adapter_factory_impl::container_input_adapter_factory<ContainerType>::create(container);
 }
 
-// specialization for std::string
-using string_input_adapter_type = decltype(input_adapter(std::declval<std::string>()));
+// specialization for own_std::string
+using string_input_adapter_type = decltype(input_adapter(std::declval<own_std::string>()));
 
 #ifndef JSON_NO_IO
 // Special cases with fast paths
@@ -8228,7 +8228,7 @@ scan_number_done:
     {
         token_buffer.clear();
         token_string.clear();
-        decimal_point_position = std::string::npos;
+        decimal_point_position = own_std::string::npos;
         token_string.push_back(char_traits<char_type>::to_char_type(current));
     }
 
@@ -8338,7 +8338,7 @@ scan_number_done:
     string_t& get_string()
     {
         // translate decimal points from locale back to '.' (#4084)
-        if (decimal_point_char != '.' && decimal_point_position != std::string::npos)
+        if (decimal_point_char != '.' && decimal_point_position != own_std::string::npos)
         {
             token_buffer[decimal_point_position] = '.';
         }
@@ -8358,10 +8358,10 @@ scan_number_done:
     /// return the last read token (for errors only).  Will never contain EOF
     /// (an arbitrary value that is not a valid char value, often -1), because
     /// 255 may legitimately occur.  May contain NUL, which should be escaped.
-    std::string get_token_string() const
+    own_std::string get_token_string() const
     {
         // escape control characters
-        std::string result;
+        own_std::string result;
         for (const auto c : token_string)
         {
             if (static_cast<unsigned char>(c) <= '\x1F')
@@ -8374,7 +8374,7 @@ scan_number_done:
             else
             {
                 // add character as is
-                result.push_back(static_cast<std::string::value_type>(c));
+                result.push_back(static_cast<own_std::string::value_type>(c));
             }
         }
 
@@ -8540,7 +8540,7 @@ scan_number_done:
     /// the decimal point
     const char_int_type decimal_point_char = '.';
     /// the position of the decimal point in the input
-    std::size_t decimal_point_position = std::string::npos;
+    std::size_t decimal_point_position = own_std::string::npos;
 };
 
 }  // namespace detail
@@ -8664,7 +8664,7 @@ struct json_sax
     @return whether parsing should proceed (must return false)
     */
     virtual bool parse_error(std::size_t position,
-                             const std::string& last_token,
+                             const own_std::string& last_token,
                              const detail::exception& ex) = 0;
 
     json_sax() = default;
@@ -8850,7 +8850,7 @@ class json_sax_dom_parser
     }
 
     template<class Exception>
-    bool parse_error(std::size_t /*unused*/, const std::string& /*unused*/,
+    bool parse_error(std::size_t /*unused*/, const own_std::string& /*unused*/,
                      const Exception& ex)
     {
         errored = true;
@@ -8909,7 +8909,7 @@ class json_sax_dom_parser
                 // LCOV_EXCL_START
                 case value_t::discarded:
                 {
-                    v.end_position = std::string::npos;
+                    v.end_position = own_std::string::npos;
                     v.start_position = v.end_position;
                     break;
                 }
@@ -9245,7 +9245,7 @@ class json_sax_dom_callback_parser
     }
 
     template<class Exception>
-    bool parse_error(std::size_t /*unused*/, const std::string& /*unused*/,
+    bool parse_error(std::size_t /*unused*/, const own_std::string& /*unused*/,
                      const Exception& ex)
     {
         errored = true;
@@ -9299,7 +9299,7 @@ class json_sax_dom_callback_parser
 
                 case value_t::discarded:
                 {
-                    v.end_position = std::string::npos;
+                    v.end_position = own_std::string::npos;
                     v.start_position = v.end_position;
                     break;
                 }
@@ -9503,7 +9503,7 @@ class json_sax_acceptor
         return true;
     }
 
-    bool parse_error(std::size_t /*unused*/, const std::string& /*unused*/, const detail::exception& /*unused*/)
+    bool parse_error(std::size_t /*unused*/, const own_std::string& /*unused*/, const detail::exception& /*unused*/)
     {
         return false;
     }
@@ -9589,7 +9589,7 @@ using end_array_function_t = decltype(std::declval<T&>().end_array());
 
 template<typename T, typename Exception>
 using parse_error_function_t = decltype(std::declval<T&>().parse_error(
-        std::declval<std::size_t>(), std::declval<const std::string&>(),
+        std::declval<std::size_t>(), std::declval<const own_std::string&>(),
         std::declval<const Exception&>()));
 
 template<typename SAX, typename BasicJsonType>
@@ -9674,7 +9674,7 @@ struct is_sax_static_asserts
     static_assert(
         is_detected_exact<bool, parse_error_function_t, SAX, exception_t>::value,
         "Missing/invalid function: bool parse_error(std::size_t, const "
-        "std::string&, const exception&)");
+        "own_std::string&, const exception&)");
 };
 
 }  // namespace detail
@@ -9985,7 +9985,7 @@ class binary_reader
             {
                 std::array<char, 3> cr{{}};
                 static_cast<void>((std::snprintf)(cr.data(), cr.size(), "%.2hhX", static_cast<unsigned char>(element_type))); // NOLINT(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-                const std::string cr_str{cr.data()};
+                const own_std::string cr_str{cr.data()};
                 return sax->parse_error(element_type_parse_position, cr_str,
                                         parse_error::create(114, element_type_parse_position, concat("Unsupported BSON record type 0x", cr_str), nullptr));
             }
@@ -11579,7 +11579,7 @@ class binary_reader
                 break;
         }
         auto last_token = get_token_string();
-        std::string message;
+        own_std::string message;
 
         if (input_format != input_format_t::bjdata)
         {
@@ -11860,7 +11860,7 @@ class binary_reader
                 break;
         }
         auto last_token = get_token_string();
-        std::string message;
+        own_std::string message;
 
         if (input_format != input_format_t::bjdata)
         {
@@ -12585,11 +12585,11 @@ class binary_reader
     /*!
     @return a string representation of the last read byte
     */
-    std::string get_token_string() const
+    own_std::string get_token_string() const
     {
         std::array<char, 3> cr{{}};
         static_cast<void>((std::snprintf)(cr.data(), cr.size(), "%.2hhX", static_cast<unsigned char>(current))); // NOLINT(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-        return std::string{cr.data()};
+        return own_std::string{cr.data()};
     }
 
     /*!
@@ -12598,11 +12598,11 @@ class binary_reader
     @param[in] context  further context information
     @return a message string to use in the parse_error exceptions
     */
-    std::string exception_message(const input_format_t format,
-                                  const std::string& detail,
-                                  const std::string& context) const
+    own_std::string exception_message(const input_format_t format,
+                                  const own_std::string& detail,
+                                  const own_std::string& context) const
     {
-        std::string error_msg = "syntax error while parsing ";
+        own_std::string error_msg = "syntax error while parsing ";
 
         switch (format)
         {
@@ -13186,9 +13186,9 @@ class parser
         return last_token = m_lexer.scan();
     }
 
-    std::string exception_message(const token_type expected, const std::string& context)
+    own_std::string exception_message(const token_type expected, const own_std::string& context)
     {
-        std::string error_msg = "syntax error ";
+        own_std::string error_msg = "syntax error ";
 
         if (!context.empty())
         {
@@ -19236,9 +19236,9 @@ class serializer
      * @param[in] byte byte to represent
      * @return representation ("00".."FF")
      */
-    static std::string hex_bytes(std::uint8_t byte)
+    static own_std::string hex_bytes(std::uint8_t byte)
     {
-        std::string result = "FF";
+        own_std::string result = "FF";
         constexpr const char* nibble_to_hex = "0123456789ABCDEF";
         result[0] = nibble_to_hex[byte / 16];
         result[1] = nibble_to_hex[byte % 16];
@@ -21092,8 +21092,8 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
         other.m_data.m_value = {};
 
 #if JSON_DIAGNOSTIC_POSITIONS
-        other.start_position = std::string::npos;
-        other.end_position = std::string::npos;
+        other.start_position = own_std::string::npos;
+        other.end_position = own_std::string::npos;
 #endif
 
         set_parents();
@@ -21473,7 +21473,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
     to other types. There a few things to note: (1) Floating-point numbers can
     be converted to integers\, (2) A JSON array can be converted to a standard
     `std::vector<short>`\, (3) A JSON object can be converted to C++
-    associative containers such as `std::unordered_map<std::string\,
+    associative containers such as `std::unordered_map<own_std::string\,
     json>`.,get__ValueType_const}
 
     @since version 2.1.0
@@ -21738,7 +21738,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
     instance `int` for JSON integer numbers, `bool` for JSON booleans, or
     `std::vector` types for JSON arrays. The character type of @ref string_t
     as well as an initializer list of this type is excluded to avoid
-    ambiguities as these types implicitly convert to `std::string`.
+    ambiguities as these types implicitly convert to `own_std::string`.
 
     @return copy of the JSON value, converted to type @a ValueType
 
@@ -21752,7 +21752,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
     to other types. There a few things to note: (1) Floating-point numbers can
     be converted to integers\, (2) A JSON array can be converted to a standard
     `std::vector<short>`\, (3) A JSON object can be converted to C++
-    associative containers such as `std::unordered_map<std::string\,
+    associative containers such as `std::unordered_map<own_std::string\,
     json>`.,operator__ValueType}
 
     @since version 1.0.0
@@ -21766,7 +21766,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
                                         detail::negation<detail::is_basic_json<ValueType>>,
                                         detail::negation<std::is_same<ValueType, std::initializer_list<typename string_t::value_type>>>,
 #if defined(JSON_HAS_CPP_17) && (defined(__GNUC__) || (defined(_MSC_VER) && _MSC_VER >= 1910 && _MSC_VER <= 1914))
-                                                detail::negation<std::is_same<ValueType, std::string_view>>,
+                                                detail::negation<std::is_same<ValueType, own_std::string_view>>,
 #endif
 #if defined(JSON_HAS_CPP_17) && JSON_HAS_STATIC_RTTI
                                                 detail::negation<std::is_same<ValueType, std::any>>,
@@ -24107,9 +24107,9 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
 
 #if JSON_DIAGNOSTIC_POSITIONS
     /// the start position of the value
-    std::size_t start_position = std::string::npos;
+    std::size_t start_position = own_std::string::npos;
     /// the end position of the value
-    std::size_t end_position = std::string::npos;
+    std::size_t end_position = own_std::string::npos;
   public:
     constexpr std::size_t start_pos() const noexcept
     {
@@ -25049,7 +25049,7 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
 /// @brief user-defined to_string function for JSON values
 /// @sa https://json.nlohmann.me/api/basic_json/to_string/
 NLOHMANN_BASIC_JSON_TPL_DECLARATION
-std::string to_string(const NLOHMANN_BASIC_JSON_TPL& j)
+own_std::string to_string(const NLOHMANN_BASIC_JSON_TPL& j)
 {
     return j.dump();
 }
@@ -25080,7 +25080,7 @@ JSON_HEDLEY_NON_NULL(1)
     inline nlohmann::json::json_pointer operator "" _json_pointer(const char* s, std::size_t n)
 #endif
 {
-    return nlohmann::json::json_pointer(std::string(s, n));
+    return nlohmann::json::json_pointer(own_std::string(s, n));
 }
 
 }  // namespace json_literals

@@ -4,7 +4,7 @@
 
 #ifdef COMPILER
 /*
-type_struct2 *SearchSerializedStruct(LangArray<type_struct2> * ar, std::string name)
+type_struct2 *SearchSerializedStruct(LangArray<type_struct2> * ar, own_std::string name)
 {
 	FOR(*ar)
 	{
@@ -177,9 +177,9 @@ int GetTypeSize(type2 *tp)
 }
 #endif
 
-std::string TypeToString(type2 &tp)
+own_std::string TypeToString(type2 &tp)
 {
-	std::string ret;
+	own_std::string ret;
 	int ptr = 0;
 	for(int i = 0; i < tp.ptr; i++)
 	{
@@ -187,7 +187,7 @@ std::string TypeToString(type2 &tp)
 		
 	}
 	if(ptr > 0)
-		ret += std::to_string(ptr);
+		ret += own_std::to_string(ptr);
 
 	switch(tp.type)
 	{
@@ -274,16 +274,16 @@ std::string TypeToString(type2 &tp)
 	case enum_type2::TYPE_ENUM_TYPE:
 	{
 		if (tp.e_decl)
-			ret += std::string("enum ") + tp.e_decl->name;
+			ret += own_std::string("enum ") + tp.e_decl->name;
 		else
-			ret += std::string("enum (dec not found)");
+			ret += own_std::string("enum (dec not found)");
 	}break;
 	case enum_type2::TYPE_ENUM:
 	{
 		if (tp.e_decl->type.type == TYPE_STRUCT_TYPE)
-			ret += std::string("enum ") + tp.e_decl->name;
+			ret += own_std::string("enum ") + tp.e_decl->name;
 		else
-			ret += std::string("enum ") + tp.e_decl->type.e_decl->name;
+			ret += own_std::string("enum ") + tp.e_decl->type.e_decl->name;
 	}break;
 	case enum_type2::TYPE_BOOL:
 	{
@@ -338,7 +338,7 @@ std::string TypeToString(type2 &tp)
 	case enum_type2::TYPE_STRUCT_TYPE:
 	case enum_type2::TYPE_STRUCT:
 	{
-		std::string name;
+		own_std::string name;
 		ret += tp.strct->name.substr();
 	}break;
 	default:
@@ -369,7 +369,7 @@ type_struct2 *GetStructFromTkns(own_std::vector<token2> *tkns, int *i)
 		globals.struct_scope.emplace_back(s);
 
 		// getting strct name based if it's inside another structs
-		std::string sname = "";
+		own_std::string sname = "";
 
 		for (auto str : globals.struct_scope)
 		{
@@ -417,9 +417,9 @@ type_struct2 *GetStructFromTkns(own_std::vector<token2> *tkns, int *i)
 }
 */
 
-std::string TknsToString(own_std::vector<token2> *tkns)
+own_std::string TknsToString(own_std::vector<token2> *tkns)
 {
-	std::string final_str;
+	own_std::string final_str;
 	final_str.reserve(64);
 	for(auto t : *tkns)
 	{
@@ -439,7 +439,7 @@ bool IsNumber(char c)
 {
 	return c >= '0' && c <= '9';
 }
-bool GetWordStr(char *input, int sz, int start, std::string *out)
+bool GetWordStr(char *input, int sz, int start, own_std::string *out)
 {
 	int i = 0;
 	bool ret = false;
@@ -458,7 +458,7 @@ bool GetWordStr(char *input, int sz, int start, std::string *out)
 		ret = true;
 		c = data[start + i];
 	}
-	*out = std::string(&data[start], i);
+	*out = own_std::string(&data[start], i);
 
 	return ret;
 }
@@ -472,7 +472,7 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
 	if (next_ch > input_sz)
 		next_ch = input_sz - 1;
 	char c2 = data[next_ch];
-	std::string str;
+	own_std::string str;
 
 	if (IsNumber(data[start + i]))
 	{
@@ -541,18 +541,18 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
 			{
 				return 0;
 			}
-			str = std::string(&data[start], i);
+			str = own_std::string(&data[start], i);
 
 			if (found_point)
 			{
 				out.type = tkn_type2::T_FLOAT;
-				out.f = std::stof(str);
+				out.f = own_std::stof(str);
 				return i;
 			}
 			else
 			{
 				out.type = tkn_type2::T_INT;
-				out.i = std::stoi(str);
+				out.i = own_std::stoi(str);
 				return i;
 			}
 		}
@@ -571,7 +571,7 @@ void EatSpace(char *input, int *i)
 	}
 }
 /*
-std::string GetQuoteStr(char *input, int i, char *ch,  int &line, char **line_str, own_std::vector<char *> *lines_out = nullptr)
+own_std::string GetQuoteStr(char *input, int i, char *ch,  int &line, char **line_str, own_std::vector<char *> *lines_out = nullptr)
 {
 	int cur_idx = 1;
 	//we only want to stop if the find a single quotantion, and not a \" 
@@ -601,7 +601,7 @@ std::string GetQuoteStr(char *input, int i, char *ch,  int &line, char **line_st
 		}
 		cur_idx++;
 	}
-	return std::string(&input[i + 1], cur_idx - 1);
+	return own_std::string(&input[i + 1], cur_idx - 1);
 
 }
 */
@@ -892,7 +892,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			case '\"':
 			{
 				int cur_idx = 1;
-				tkn.str = std::string();
+				tkn.str = own_std::string();
 				//we only want to stop if the find a single quotantion, and not a \" 
 				while (ch[cur_idx - 1] != '\\' && ch[cur_idx] != '\"')
 				{
@@ -955,7 +955,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				
 				found_char = true;
 				tkn.type = T_STR_LIT;
-				//tkn.str  = std::string(&input[i + 1], cur_idx - 1);
+				//tkn.str  = own_std::string(&input[i + 1], cur_idx - 1);
 
 				i += cur_idx;
 			}break;
@@ -1088,7 +1088,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 
 bool GetTypeFromTkns(token2 *tkn, type2 &tp)
 {
-	std::string one_str = tkn->ToString();
+	own_std::string one_str = tkn->ToString();
 
 	if(one_str == "s64")
 	{
@@ -1177,7 +1177,7 @@ bool GetDeclFromTkns(own_std::vector<token2> *tkns, int *i, decl2 *d)
 	return false;
 }
 */
-void TokenizeLine(std::string& line, std::vector<token2> *out)
+void TokenizeLine(own_std::string& line, std::vector<token2> *out)
 {
 	own_std::vector<token2> aux;
 	Tokenize2((char*)line.data(), line.size(), &aux);

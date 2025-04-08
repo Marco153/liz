@@ -17,23 +17,23 @@ bool IsNodeOperator(node* nd, tkn_type2 tkn);
 type2 DescendNode(lang_state*, node* n, scope* scp);
 enum_type2 FromTypeToVarType(enum_type2 tp);
 void ModifyFuncDeclToName(lang_state* lang_stat, func_decl* fdecl, node* n, scope* scp);
-std::string StringifyNode(node* n);
+own_std::string StringifyNode(node* n);
 bool CallNode(lang_state*, node* ncall, scope* scp, type2* ret_type, decl2* = nullptr);
-unit_file* AddNewFile(lang_state*, std::string name, std::string path);
+unit_file* AddNewFile(lang_state*, own_std::string name, own_std::string path);
 bool NameFindingGetType(lang_state*, node* n, scope* scp, type2& ret_type, int = 0);
 decl2* PointLogic(lang_state*, node* n, scope* scp, type2* ret_tp);
 decl2* DescendNameFinding(lang_state*, node* n, scope* given_scp);
-std::string FuncNameWithTempls(lang_state*, std::string fname, own_std::vector<type2>* types);
-node* ParseString(lang_state*, std::string str, int = 0);
-decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state*, std::string name, type2* tp, scope* scp, node* nd = nullptr);
-node* NewIdentNode(lang_state*, std::string name, token2*);
-std::string OvrldOpToStr(overload_op op);
+own_std::string FuncNameWithTempls(lang_state*, own_std::string fname, own_std::vector<type2>* types);
+node* ParseString(lang_state*, own_std::string str, int = 0);
+decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state*, own_std::string name, type2* tp, scope* scp, node* nd = nullptr);
+node* NewIdentNode(lang_state*, own_std::string name, token2*);
+own_std::string OvrldOpToStr(overload_op op);
 void MakeRelPtrDerefFuncCall(lang_state*, func_decl* op_func, node* n);
-decl2* FindIdentifier(std::string &name, scope* scp, type2* ret_type, int = 0);
+decl2* FindIdentifier(own_std::string &name, scope* scp, type2* ret_type, int = 0);
 node* NewBinOpNode(lang_state*, node* lhs, tkn_type2 t, node* rhs);
 decl2* FromBuiltinTypeToDecl(lang_state*, enum_type2 tp);
 void ReportUndeclaredIdentifier(lang_state*, token2* t);
-node* MakeFuncCallArgs(lang_state*, std::string op_func, node* ref, own_std::vector<node*>& args, token2*);
+node* MakeFuncCallArgs(lang_state*, own_std::string op_func, node* ref, own_std::vector<node*>& args, token2*);
 enum_type2 FromVarTypeToType(enum_type2 tp);
 void CheckStructValToFunc(func_decl* fdecl, type2* type);
 void ReportMessage(lang_state*, token2* tkn, char* msg);
@@ -65,7 +65,7 @@ int min(int a, int b)
 }
 */
 
-char* std_str_to_heap(lang_state*, std::string* str);
+char* std_str_to_heap(lang_state*, own_std::string* str);
 #define PSR_FLAGS_LAMBDA_ARGS 1
 #define PSR_FLAGS_IMPLICIT_SEMI_COLON 2
 #define PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD 4
@@ -120,7 +120,7 @@ char* std_str_to_heap(lang_state*, std::string* str);
 #define DONT_DESCEND_ARGS  2
 #define FUNCTION_IS_DONE_FLAGS_ONLY_DECLARE_SCOPE_AND_FUNC  4
 
-std::string scope::Print(int indent)
+own_std::string scope::Print(int indent)
 {
 	indent += 1;
 	char buffer[512];
@@ -132,14 +132,14 @@ std::string scope::Print(int indent)
 	memset(tabs, ' ', indent);
 	tabs[indent] = 0;
 
-	std::string type_name = "";
+	own_std::string type_name = "";
 	if (type == SCP_TYPE_FUNC)
 	{
-		type_name = std::string("func, name ,") + fdecl->name.c_str();
+		type_name = own_std::string("func, name ,") + fdecl->name.c_str();
 	}
 	if (type == SCP_TYPE_STRUCT)
 	{
-		type_name = std::string("struct, name ,") + tstrct->name.c_str();
+		type_name = own_std::string("struct, name ,") + tstrct->name.c_str();
 	}
 	snprintf(buffer, 512, "%s{%s lstart: %d, lend: %d\n", tabs, type_name.c_str(), line_start, line_end);
 
@@ -147,7 +147,7 @@ std::string scope::Print(int indent)
 	memset(tabs, ' ', indent + 1);
 	tabs[indent + 1] = 0;
 
-	std::string ret = buffer;
+	own_std::string ret = buffer;
 	FOR_VEC(decl, vars)
 	{
 		decl2* d = *decl;
@@ -170,7 +170,7 @@ std::string scope::Print(int indent)
 
 }
 
-decl2* type2::GetEnumDecl(std::string name)
+decl2* type2::GetEnumDecl(own_std::string name)
 {
 	auto last_prnt = scp->parent;
 	scp->parent = nullptr;
@@ -216,7 +216,7 @@ func_decl *IsThereAFunction(lang_state *lang_stat, char *name)
 	FOR_VEC(it, lang_stat->global_funcs)
 	{
 		auto f = *it;
-		if (f->name == std::string(name))
+		if (f->name == own_std::string(name))
 			return f;
 	}
 	return nullptr;
@@ -226,7 +226,7 @@ char *GetFuncAddrBasedOnName(lang_state *lang_stat, char *name)
 	FOR_VEC(it, lang_stat->global_funcs)
 	{
 		auto f = *it;
-		if (f->name == std::string(name))
+		if (f->name == own_std::string(name))
 			return lang_stat->GetCodeAddr(f->code_start_idx);
 	}
 	return nullptr;
@@ -259,7 +259,7 @@ void NewFuncToCompile(lang_state *lang_stat, func_decl *fdecl)
 }
 void NewTypeDataSymbol(lang_state *lang_stat, int offset, char* name)
 {
-	lang_stat->symbols_offset_on_type_sect[std::string(name)] = offset;
+	//lang_stat->symbols_offset_on_type_sect[own_std::string(name)] = offset;
 }
 
 char* AllocMiscData(lang_state *lang_stat, int sz)
@@ -280,7 +280,7 @@ char* AllocMiscData(lang_state *lang_stat, int sz)
 	*/
 	return ret;
 }
-char* std_str_to_heap(lang_state *lang_stat, std::string* str)
+char* std_str_to_heap(lang_state *lang_stat, own_std::string* str)
 {
 	int sz = str->size();
 	auto buffer = (char*)AllocMiscData(lang_stat, sz);
@@ -308,7 +308,7 @@ void SwapNodesIf(node** n)
 }
 void InsertIntoCharVector(own_std::vector<char>* vec, void* src, int size)
 {
-	std::string data((char*)src, size);
+	own_std::string data((char*)src, size);
 	for (int i = 0; i < size; i++)
 	{
 		int idx = vec->size();
@@ -1101,7 +1101,7 @@ void CheckParenthesesLevel(lang_state *lang_stat, token2* tkn)
 		ExitProcess(1);
 	}
 }
-node* node_iter::parse_str(std::string& str, int* i, int start_line)
+node* node_iter::parse_str(own_std::string& str, int* i, int start_line)
 {
 	int end = *i + 1;
 	while (end < str.size() && str[end] != '}')
@@ -1109,7 +1109,7 @@ node* node_iter::parse_str(std::string& str, int* i, int start_line)
 
 		end++;
 	}
-	std::string new_str = str.substr(*i + 1, end - 1);
+	own_std::string new_str = str.substr(*i + 1, end - 1);
 
 	*i = end;
 
@@ -1238,7 +1238,7 @@ node* node_iter::parse_expr()
 		auto& str = cur_tkn->str;
 		own_std::vector<node*> args;
 
-		std::string ref_str;
+		own_std::string ref_str;
 		int open_curly_open = 0;
 		while (i < str.size())
 		{
@@ -1398,7 +1398,7 @@ node* node_iter::parse_expr()
 			{
 				if (n->r->type == N_STRUCT_DECL)
 				{
-					std::string name = std::string("unamed") + std::to_string(rand() % 0xffffff);
+					own_std::string name = own_std::string("unamed") + own_std::to_string(rand() % 0xffffff);
 					node* name_nd = NewIdentNode(lang_stat, name, n->r->t);
 					node* decl_nd = NewBinOpNode(lang_stat, name_nd, tkn_type2::T_COLON, new_node(lang_stat, n->r));
 					memcpy(n->r, decl_nd, sizeof(node));
@@ -2541,7 +2541,7 @@ void TypeCheckTree(node* n, scope* scp, void(*callback)())
 
 }
 */
-node* ParseString(lang_state *lang_stat, std::string str, int start_line)
+node* ParseString(lang_state *lang_stat, own_std::string str, int start_line)
 {
 	auto tkns = (own_std::vector<token2> *)AllocMiscData(lang_stat, sizeof(own_std::vector<token2>));
 	memset(tkns, 0, sizeof(own_std::vector<token2>));
@@ -2706,7 +2706,7 @@ scope* NewScope(lang_state *lang_stat, scope* scp)
 	}
 	return ret;
 }
-decl2* NewDecl(lang_state *lang_stat, std::string name, type2 tp)
+decl2* NewDecl(lang_state *lang_stat, own_std::string name, type2 tp)
 {
 	ASSERT(lang_stat->cur_decl + 1 < lang_stat->max_decl);
 	auto ret = lang_stat->decl_arena + lang_stat->cur_decl;
@@ -2719,7 +2719,7 @@ decl2* NewDecl(lang_state *lang_stat, std::string name, type2 tp)
 	return ret;
 }
 
-bool TemplTypeFromStruct(type2* in, type2* out, type2* arg, std::string target_templ_name)
+bool TemplTypeFromStruct(type2* in, type2* out, type2* arg, own_std::string target_templ_name)
 {
 	if (arg->strct->original_strct && in->strct->name == arg->strct->original_strct->name)
 	{
@@ -2752,7 +2752,7 @@ own_std::vector<type2> TemplatesTypeToLangArray(lang_state *lang_stat, own_std::
 {
 	own_std::vector<type2> ret;
 	int i = 0;
-	//std::string ret;
+	//own_std::string ret;
 	FOR_VEC(t, *templates)
 	{
 		decl2* og_a = (*original)[i];
@@ -2782,10 +2782,10 @@ own_std::vector<type2> TemplatesTypeToLangArray(lang_state *lang_stat, own_std::
 	return ret;
 }
 // $TemplatesType
-std::string TemplatesTypeToString(own_std::vector<template_expr>* templates, func_decl* original, own_std::vector<comma_ret>* args)
+own_std::string TemplatesTypeToString(own_std::vector<template_expr>* templates, func_decl* original, own_std::vector<comma_ret>* args)
 {
 	int i = 0;
-	std::string ret;
+	own_std::string ret;
 	ret += "{";
 	FOR_VEC(t, *templates)
 	{
@@ -2906,7 +2906,7 @@ own_std::vector<decl2*> DescendTemplatesToDecl(lang_state *lang_stat, node* n, s
 
 
 #define FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE 1
-decl2* FindIdentifier(std::string &name, scope* scp, type2* ret_type, int flags)
+decl2* FindIdentifier(own_std::string &name, scope* scp, type2* ret_type, int flags)
 {
 #ifdef DO_TIMERS
 	timer tm;
@@ -3528,7 +3528,7 @@ int GetExpressionVal(node* n, scope* scp)
 		ASSERT(false)
 	}
 }
-bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::string templ_name, scope* scp, type_struct2** ret, own_std::vector<comma_ret>& args, type2* from_type = nullptr)
+bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, own_std::string templ_name, scope* scp, type_struct2** ret, own_std::vector<comma_ret>& args, type2* from_type = nullptr)
 {
 	auto strct = original;
 	own_std::vector<template_expr> in_vec;
@@ -3595,7 +3595,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 
 		new_strct->flags = TP_STRCT_STRUCT_NOT_NODE;
 		new_strct->this_decl = instantions_exist;
-		new_strct->name = std::string(new_strct->this_decl->name);
+		new_strct->name = own_std::string(new_strct->this_decl->name);
 	}
 	else
 	{
@@ -3673,7 +3673,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, std::st
 bool InstantiateArFromType(lang_state *lang_stat, type2& ar_type, scope* scp, type2* ret_type, type_struct2** ret_struct, node* n)
 {
 	type2 dummy_tp;
-	auto ar_strct = FindIdentifier(std::string("array"), scp, &dummy_tp);
+	auto ar_strct = FindIdentifier(own_std::string("array"), scp, &dummy_tp);
 
 	if (!ar_strct)
 	{
@@ -3692,7 +3692,7 @@ bool InstantiateArFromType(lang_state *lang_stat, type2& ar_type, scope* scp, ty
 
 	own_std::vector<type2> types;
 	types.emplace_back(ar_type);
-	std::string sname = FuncNameWithTempls(lang_stat, "array", &types);
+	own_std::string sname = FuncNameWithTempls(lang_stat, "array", &types);
 
 	own_std::vector<comma_ret> dummy_ar;
 
@@ -4334,7 +4334,7 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 	{
 		if (t->type == COMMA_VAR_ARGS)
 		{
-			decl2* var_arg = FindIdentifier(std::string("var_arg"), child_scp, &dummy_type);
+			decl2* var_arg = FindIdentifier(own_std::string("var_arg"), child_scp, &dummy_type);
 			if (!var_arg)
 				return false;
 		}
@@ -4351,8 +4351,8 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 		if (t->type == COMMA_VAR_ARGS)
 		{
 			dummy_type.type = TYPE_STRUCT_TYPE;
-			decl2* rel_ar = FindIdentifier(std::string("rel_array"), child_scp, &dummy_type);
-			decl2* var_arg = FindIdentifier(std::string("var_arg"), child_scp, &dummy_type);
+			decl2* rel_ar = FindIdentifier(own_std::string("rel_array"), child_scp, &dummy_type);
+			decl2* var_arg = FindIdentifier(own_std::string("var_arg"), child_scp, &dummy_type);
 			if (!rel_ar || !var_arg)
 				return false;
 			type_struct2* rel_ar_var_arg;
@@ -4463,7 +4463,7 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 
 			if (normal_function_unamed)
 			{
-				new_decl->name += std::to_string(rand() % 0xffffff);
+				new_decl->name += own_std::to_string(rand() % 0xffffff);
 				normal_func_first_arg_decl_with_using = new_decl;
 			}
 		}
@@ -4519,7 +4519,7 @@ bool TemplatedStructMatches(lang_state* lang_stat, node* ncall, scope* scp, type
 				{
 					decl2* new_aux_temp = (decl2 *)AllocMiscData(lang_stat, sizeof(decl2));
 					new_aux_temp->type = *d->type.tp;
-					new_aux_temp->name = std::string(d->name);
+					new_aux_temp->name = own_std::string(d->name);
 					new_aux_temp->type.type = FromTypeToVarType(new_aux_temp->type.type);
 					lang_stat->aux_scp->vars.emplace_back(new_aux_temp);
 				}
@@ -4599,7 +4599,7 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 			continue;
 		if (TemplatedFuncMatchWithTypes(lang_stat, ncall, scp, given_args, f))
 		{
-			std::string fname = FuncNameWithTempls(lang_stat, overload->name, given_args);
+			own_std::string fname = FuncNameWithTempls(lang_stat, overload->name, given_args);
 			auto found_decl = FindIdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 			if (!found_decl)
 			{
@@ -4653,7 +4653,7 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 	return false;
 }
 // this adds a function to the parent scope of the found function scope
-bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::string original_name, scope* scp, own_std::vector<type2>* final_types, node*ncall, func_decl** fdecl_out = nullptr)
+bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, own_std::string original_name, scope* scp, own_std::vector<type2>* final_types, node*ncall, func_decl** fdecl_out = nullptr)
 {
 	type2 ret_type;
 	// instantiating a new it_next func
@@ -4663,7 +4663,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, std::s
 
 
 	func_decl* fdecl;
-	std::string fname = FuncNameWithTempls(lang_stat, original_name, final_types);
+	own_std::string fname = FuncNameWithTempls(lang_stat, original_name, final_types);
 	auto found_decl = FindIdentifier(fname, scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 	if (!found_decl)
 	{
@@ -4942,7 +4942,7 @@ decl2 *CreateStructTuple(lang_state* lang_stat, node* n, scope* scp)
 	DescendComma(lang_stat, n, scp, commas);
 	n->flags = prev_flags;
 
-	std::string tuple_name = "tuple_";
+	own_std::string tuple_name = "tuple_";
 
 	bool all_builtin = true;
 	FOR_VEC(c, commas)
@@ -4973,7 +4973,7 @@ decl2 *CreateStructTuple(lang_state* lang_stat, node* n, scope* scp)
 		scope* child_scp = GetScopeFromParent(lang_stat, n, scp);
 		n->type = N_BINOP;
 		n->scp = nullptr;
-		tstrct->name = std::string(tuple_name);
+		tstrct->name = own_std::string(tuple_name);
 
 		child_scp->flags = SCOPE_INSIDE_STRUCT;
 		int i = 0;
@@ -4986,7 +4986,7 @@ decl2 *CreateStructTuple(lang_state* lang_stat, node* n, scope* scp)
 			}
 			else
 			{
-				d->name = std::string("t") + std::to_string(i);
+				d->name = own_std::string("t") + own_std::to_string(i);
 			}
 
 			i++;
@@ -5017,7 +5017,7 @@ decl2 *CreateStructTuple(lang_state* lang_stat, node* n, scope* scp)
 	return ret;
 }
 	;
-void CreateTemplateInstantiationName(std::string &name, own_std::vector<comma_ret> &args, std::string &templ_name)
+void CreateTemplateInstantiationName(own_std::string &name, own_std::vector<comma_ret> &args, own_std::string &templ_name)
 {
 	templ_name += name;
 	templ_name += "_";
@@ -5345,7 +5345,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					{
 						//if (lhs->type.overload_funcs->templated)
 						//{
-							std::string fname = FuncNameWithTempls(lang_stat, lhs->name, &args_types);
+							own_std::string fname = FuncNameWithTempls(lang_stat, lhs->name, &args_types);
 
 							auto found_decl = FindIdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 							if (!found_decl)
@@ -5420,7 +5420,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 				auto last_fl = lang_stat->cur_file;
 				lang_stat->cur_file = fdecl->from_file;
-				//std::string func_name = lhs->name;
+				//own_std::string func_name = lhs->name;
 				//if(lhs->type.type == TYPE_OVERLOADED_FUNCS)
 					//func_name 
 
@@ -5641,7 +5641,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		}
 
 
-		std::string templ_name;
+		own_std::string templ_name;
 		CreateTemplateInstantiationName(ncall->l->t->str, args, templ_name);
 		/*
 		templ_name += ncall->l->t->str;
@@ -5718,13 +5718,13 @@ void CheckStructValToFunc(func_decl* fdecl, type2* type)
 void NewVarArgToScope(lang_state *lang_stat, scope* scp, type2* tp, func_decl* fdecl)
 {
 	type2 aux_type;
-	auto ar_decl = FindIdentifier(std::string("array"), scp, &aux_type);
+	auto ar_decl = FindIdentifier(own_std::string("array"), scp, &aux_type);
 
 	ASSERT(ar_decl)
 
 		own_std::vector<comma_ret> dummy_arg;
 
-	std::string sname = std::string("array_") + TypeToString(aux_type);
+	own_std::string sname = own_std::string("array_") + TypeToString(aux_type);
 
 	type_struct2* ret_strct;
 	if (!TryInstantiateStruct(lang_stat, ar_decl->type.strct, sname, scp, &ret_strct, dummy_arg, tp))
@@ -5897,7 +5897,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_COROUTINE))
 	{
 		type2 dummy_type;
-		decl2* d = FindIdentifier(std::string("CoroutinePrologue"), scp, &dummy_type);
+		decl2* d = FindIdentifier(own_std::string("CoroutinePrologue"), scp, &dummy_type);
 		// instatiating new tree to get prologue vars into the func scope
 		if (!fdecl->coroutine_prologue_tree)
 		{
@@ -5966,7 +5966,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	return true;
 }
 
-import_strct* NewImport(lang_state *lang_stat, import_type type, std::string alias, unit_file* fl)
+import_strct* NewImport(lang_state *lang_stat, import_type type, own_std::string alias, unit_file* fl)
 {
 	auto ret = (import_strct*)AllocMiscData(lang_stat, sizeof(import_strct));
 	memset(ret, 0, sizeof(import_strct));
@@ -6068,7 +6068,7 @@ node* NewIntNode(lang_state *lang_stat, long long i, token2 *t)
 
 	return ident;
 }
-node* NewIdentNode(lang_state *lang_stat, std::string name, token2 *t)
+node* NewIdentNode(lang_state *lang_stat, own_std::string name, token2 *t)
 {
 	auto new_tkn = (token2*)AllocMiscData(lang_stat, sizeof(token2));
 	memset(new_tkn, 0, sizeof(token2));
@@ -6310,7 +6310,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 	}break;
 	case enum_type2::TYPE_IMPORT:
 	{
-		std::string name;
+		own_std::string name;
 
 		bool was_call = false;
 
@@ -6371,9 +6371,9 @@ void ReportUndeclaredIdentifier(lang_state *lang_stat, token2* t)
 	printf("-------------**-----------\n");
 	//ExitProcess(1);
 }
-std::string FuncNameWithTempls(lang_state *lang_stat, std::string fname, own_std::vector<type2>* types)
+own_std::string FuncNameWithTempls(lang_state *lang_stat, own_std::string fname, own_std::vector<type2>* types)
 {
-	std::string ret;
+	own_std::string ret;
 	ret += fname;
 	ret += "_";
 
@@ -6386,7 +6386,7 @@ std::string FuncNameWithTempls(lang_state *lang_stat, std::string fname, own_std
 
 	return ret;
 }
-decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, std::string name, type2* tp, scope* scp, node* nd)
+decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, own_std::string name, type2* tp, scope* scp, node* nd)
 {
 	/*
 	if (name == "entry")
@@ -6462,9 +6462,9 @@ decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, std::string name,
 
 	return new_decl;
 }
-std::string MangleFuncNameWithArgs(lang_state *lang_stat, func_decl* fdecl, std::string original_name, int start_arg)
+own_std::string MangleFuncNameWithArgs(lang_state *lang_stat, func_decl* fdecl, own_std::string original_name, int start_arg)
 {
-	std::string name;
+	own_std::string name;
 	own_std::vector<type2> args_types;
 	for (auto a = fdecl->args.begin() + start_arg; a < fdecl->args.end(); a++)
 	{
@@ -6578,7 +6578,7 @@ void AddNewDeclToFileGlobalScope(lang_state *lang_stat, decl2* d)
 	lang_stat->cur_file->global->AddDecl(d);
 	lang_stat->funcs_scp->vars.emplace_back(d);
 }
-node* CreateDeclNode(lang_state *lang_stat, std::string name, type2* tp, token2 *t)
+node* CreateDeclNode(lang_state *lang_stat, own_std::string name, type2* tp, token2 *t)
 {
 	auto new_decl = NewBinOpNode(lang_stat, NewIdentNode(lang_stat, name, t),
 		T_COLON,
@@ -6586,7 +6586,7 @@ node* CreateDeclNode(lang_state *lang_stat, std::string name, type2* tp, token2 
 
 	return new_decl;
 }
-node* CreateDeclNode(lang_state *lang_stat, std::string name, enum_type2 type, token2 *t)
+node* CreateDeclNode(lang_state *lang_stat, own_std::string name, enum_type2 type, token2 *t)
 {
 	type2 tp_;
 	memset(&tp_, 0, sizeof(type2));
@@ -6684,7 +6684,7 @@ node* ProcessArgNd(lang_state *lang_stat, void* arg, int flags)
 	return arg_nd;
 
 }
-node* NewThreeArgNd(lang_state *lang_stat, std::string name, node* arg1, node* arg2, node* arg3)
+node* NewThreeArgNd(lang_state *lang_stat, own_std::string name, node* arg1, node* arg2, node* arg3)
 {
 	own_std::vector<node*> args;
 	args.emplace_back(arg1);
@@ -6696,7 +6696,7 @@ node* NewThreeArgNd(lang_state *lang_stat, std::string name, node* arg1, node* a
 	return call_nd;
 }
 /*
-node* NewThreeArgNd2(std::string name, void* arg1, int arg1_type, void* arg2, int arg2_type, void* arg3, int arg3_type)
+node* NewThreeArgNd2(own_std::string name, void* arg1, int arg1_type, void* arg2, int arg2_type, void* arg3, int arg3_type)
 {
 	node* arg1_nd = ProcessArgNd(lang_stat, arg1, arg1_type);
 	node* arg2_nd = ProcessArgNd(lang_stat, arg2, arg2_type);
@@ -6777,7 +6777,7 @@ bool IsSameStrct(type2* lhs, type_struct2* strct)
 	return false;
 }
 
-void EnumToTypeSect(lang_state *lang_stat, std::string enum_name, scope* scp)
+void EnumToTypeSect(lang_state *lang_stat, own_std::string enum_name, scope* scp)
 {
 	auto type_sect = &lang_stat->type_sect;
 	auto& vars = scp->vars;
@@ -6888,7 +6888,7 @@ node* MakeMemCpyCall(lang_state *lang_stat, node *lhs, node *rhs, node *top, int
 
 #define GET_FILES_DIR_RECURSIVE 1
 #define GET_FILES_DIR_ADD_PATH_TO_FILE_NAME 2
-void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own_std::vector<char *>* file_names, int flags = 0)
+void GetFilesInDirectory(own_std::string dir, own_std::vector<char *>* contents, own_std::vector<char *>* file_names, int flags = 0)
 {
 	WIN32_FIND_DATA ffd;
 	char buffer[128];
@@ -6912,13 +6912,13 @@ void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own
 			break;
 		int read = 0;
 		//char *data = ReadEntireFileLang(ffd.cFileName, &read);
-		//contents->emplace_back(std::string(data, read));
+		//contents->emplace_back(own_std::string(data, read));
 		int len = strlen(ffd.cFileName) + 1;
 		char* name = heap_alloc((mem_alloc *)__lang_globals.data, len);
 		memcpy(name, ffd.cFileName, len);
 		if (add_path_to_name)
 		{
-			std::string name_with_path = dir+"/" + name;
+			own_std::string name_with_path = dir+"/" + name;
 			int sz = name_with_path.size();
 			auto buffer = (char*)heap_alloc((mem_alloc *)__lang_globals.data, sz + 1);
 			memcpy(buffer, name_with_path.data(), sz);
@@ -6932,11 +6932,11 @@ void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own
 
 		if (recursive)
 		{
-			std::string name_str = name;
+			own_std::string name_str = name;
 			if (name_str == ".git" || name_str.empty())
 				continue;
 
-			std::string path = dir + name;
+			own_std::string path = dir + name;
 			char* pcstr = (char *)path.c_str();
 			if (PathIsDirectory(pcstr))
 			{
@@ -6945,7 +6945,7 @@ void GetFilesInDirectory(std::string dir, own_std::vector<char *>* contents, own
 		}
 	}
 }
-void GetLongFileName(std::string *f)
+void GetLongFileName(own_std::string *f)
 {
 	TCHAR name_buffer[MAX_PATH];
 
@@ -6958,15 +6958,15 @@ void GetLongFileName(std::string *f)
 	int res = GetFullPathName((char*)f->c_str(), MAX_PATH, name_buffer, nullptr);
 	*f = name_buffer;
 }
-void AddFolderToScope(lang_state * lang_stat, scope *scp, std::string folder, import_type imp_type, std::string imp_name)
+void AddFolderToScope(lang_state * lang_stat, scope *scp, own_std::string folder, import_type imp_type, own_std::string imp_name)
 {
-	own_std::vector<std::string> file_contents;
+	own_std::vector<own_std::string> file_contents;
 	own_std::vector<char *> file_names;
 
 	GetFilesInDirectory(lang_stat->work_dir+"/"+ folder, nullptr, &file_names);
 
 	own_std::vector<unit_file*> files_added;
-	std::string prev_work_dir = lang_stat->work_dir;
+	own_std::string prev_work_dir = lang_stat->work_dir;
 	lang_stat->work_dir +=  "/"+folder+"/";
 
 	GetLongFileName(&lang_stat->work_dir);
@@ -7248,7 +7248,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				return (decl2*)1;
 
 			node* by_name_nd = nullptr;;
-			std::string by_name_str;
+			own_std::string by_name_str;
 			decl2* decl_to_get_from;
 			switch (n->r->type)
 			{
@@ -7382,7 +7382,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		type2 other_type;
 
-		std::string name = n->r->r->t->str;
+		own_std::string name = n->r->r->t->str;
 		auto decl_exist = FindIdentifier(name, scp, &other_type);
 
 		if (!decl_exist)
@@ -7400,8 +7400,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		if (n->r->type == node_type::N_BINOP && n->r->t->str == "as")
 		{
 			bool was_added = false;
-			std::string alias = n->r->r->t->str.substr();
-			std::string imp_name = n->r->l->t->str.substr();
+			own_std::string alias = n->r->r->t->str.substr();
+			own_std::string imp_name = n->r->l->t->str.substr();
 			FOR_VEC(dcl, scp->imports)
 			{
 				if ((*dcl)->type.imp->alias == alias)
@@ -7417,7 +7417,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				tp.imp = NewImport(lang_stat, import_type::IMP_BY_ALIAS, alias, ret_fl);
 				tp.imp->alias = alias.substr();
 
-				std::string name = std::string("imp_") + alias;
+				own_std::string name = own_std::string("imp_") + alias;
 
 				scp->imports.emplace_back(NewDecl(lang_stat, name, tp));
 				*/
@@ -7427,7 +7427,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		else
 		{
 			bool was_added = false;
-			std::string file_name = n->r->t->str.substr();
+			own_std::string file_name = n->r->t->str.substr();
 			FOR_VEC(dcl, scp->imports)
 			{
 				if ((*dcl)->type.imp->fl->name == file_name)
@@ -7465,7 +7465,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			}
 
 			//ar[i..0];
-			std::string fname = FuncNameWithTempls(lang_stat, std::string("constr_") + TypeToString(n->fdecl->ret_type), &tps);
+			own_std::string fname = FuncNameWithTempls(lang_stat, own_std::string("constr_") + TypeToString(n->fdecl->ret_type), &tps);
 
 			n->fdecl->name = fname;
 			auto array_ctor = &n->fdecl->ret_type.strct->constructors;
@@ -8094,7 +8094,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					}
 					else if (is_struct_val && !zero_initialization)
 					{
-						decl2* memcpy_func = FindIdentifier(std::string("memcpy"), scp, &ret_type);
+						decl2* memcpy_func = FindIdentifier(own_std::string("memcpy"), scp, &ret_type);
 						if (!memcpy_func)
 							return nullptr;
 						auto arg1 = NewUnopNode(lang_stat, nullptr, T_AMPERSAND, equal_stmnt->l);
@@ -8135,7 +8135,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		//%COLON
 		case tkn_type2::T_COLON:
 		{
-			std::string &decl_name = n->l != nullptr ? n->l->t->str : std::to_string((long long)n);
+			own_std::string &decl_name = n->l != nullptr ? n->l->t->str : own_std::to_string((long long)n);
 
 
 			// creating a new node for an implied name
@@ -8145,7 +8145,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				n->l->type = node_type::N_IDENTIFIER;
 				n->l->t = (token2*)AllocMiscData(lang_stat, sizeof(token2));
 				memset(n->l->t, 0, sizeof(token2));
-				n->l->t->str = std::to_string((long long)n);
+				n->l->t->str = own_std::to_string((long long)n);
 				//auto decl_exist = FindIdentifier(decl_name, scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
 			}
 
@@ -8381,7 +8381,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					ret_type.scp = child_scp;
 					decl_exist->type.e_decl = decl_exist;
 					EnumToTypeSect(lang_stat, decl_exist->name, child_scp);
-					std::string final_name = std::string("$$enum ") + decl_exist->name;
+					own_std::string final_name = own_std::string("$$enum ") + decl_exist->name;
 					// inserting an symbol for the type
 					//
 					lang_stat->type_sect_syms.emplace_back(
@@ -8511,7 +8511,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							for(int cidx = commas->size() - 1; cidx >= 0; cidx--)
 							{
 								comma_ret* c = &(*commas)[cidx];
-								std::string name;
+								own_std::string name;
 								if (c->n->type == N_CALL)
 								{
 									name = c->n->l->t->str;
@@ -8527,7 +8527,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 									ret_type.from_enum = decl_exist;
 
-									c->n->tstrct->scp->tstrct->name = std::string(new_decl_type->name);
+									c->n->tstrct->scp->tstrct->name = own_std::string(new_decl_type->name);
 									type_struct2* st = c->n->tstrct;
 									st->size = SetVariablesAddress(&st->vars, 0, &st->biggest_type);
 									//struct_types
@@ -8644,7 +8644,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					if (decl_exist->type.type == TYPE_STRUCT_TYPE && decl_exist->type.strct->templates.size() == 0)
 					{
 						decl_exist->type.strct->ToTypeSect(lang_stat, &lang_stat->type_sect, &lang_stat->type_sect_str_tbl_sz);
-						std::string final_name = std::string("$$") + decl_exist->type.strct->name;
+						own_std::string final_name = own_std::string("$$") + decl_exist->type.strct->name;
 						// inserting an symbol for the type
 						//
 						lang_stat->type_sect_syms.emplace_back(
@@ -8744,7 +8744,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							{
 								//lang_stat->not_found_nd = n;
 								//lang_stat->not_founds.emplace_back(plang_stat->not_found_nd);
-								auto st = FindIdentifier(std::string("string"), scp, &ret_type);
+								auto st = FindIdentifier(own_std::string("string"), scp, &ret_type);
 							}
 #endif
 							colon = FindIdentifier(n->l->t->str, scp, &ret_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE);
@@ -8768,7 +8768,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						decl2 *tuple = CreateStructTuple(lang_stat, n->r, scp);
 
 						n->r->type = N_IDENTIFIER;
-						n->r->t->str = std::string(tuple->name);
+						n->r->t->str = own_std::string(tuple->name);
 
 						type_struct2 *tstrct = tuple->type.strct;
 
@@ -9233,7 +9233,7 @@ node* CreateTreeArgs(lang_state *lang_stat, own_std::vector<node*>& args, node_t
 	return n_args;
 }
 
-node* MakeFuncCallArgs(lang_state *lang_stat, std::string fname, node* ref, own_std::vector<node*>& args, token2 *t)
+node* MakeFuncCallArgs(lang_state *lang_stat, own_std::string fname, node* ref, own_std::vector<node*>& args, token2 *t)
 {
 	node* n_args = new_node(lang_stat, t);
 
@@ -9303,7 +9303,7 @@ int Return5()
 {
 	return 5;
 }
-std::string StringifyNode(node* n);
+own_std::string StringifyNode(node* n);
 void ModifyFuncDeclToName(lang_state *lang_stat, func_decl *fdecl, node *n, scope *scp)
 {
 	lang_stat->func_ptrs_decls.emplace_back(fdecl);
@@ -9314,7 +9314,7 @@ void ModifyFuncDeclToName(lang_state *lang_stat, func_decl *fdecl, node *n, scop
 	
 	char buffer[64];
 	snprintf(buffer, 64, "func_ptr_decl%d", rand() % 100000);
-	fdecl->name = std::string(buffer);
+	fdecl->name = own_std::string(buffer);
 	//weird assert here, but sometimes, for only god knows why, the string gets currupted
 	// data when assigning
 	ASSERT(fdecl->name == buffer);
@@ -9479,7 +9479,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		else
 		{
 
-			std::string iterated = n->l->l->t->str;
+			own_std::string iterated = n->l->l->t->str;
 
 			type2 ar_type;
 
@@ -9496,10 +9496,10 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 				ASSERT(ar_type.ptr == 0)
 
-				std::string ar_type_str = StringifyNode(n->l->r);
+				own_std::string ar_type_str = StringifyNode(n->l->r);
 
-			std::string iterator = iterated + "iterator";
-			std::string ar_str = n->l->r->t->str;
+			own_std::string iterator = iterated + "iterator";
+			own_std::string ar_str = n->l->r->t->str;
 
 			char code[256];
 			char* it_name = (char*)iterator.c_str();
@@ -10340,7 +10340,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			{
 				type2 t_bool;
 				t_bool.type = TYPE_BOOL_TYPE;
-				std::string var_name = "ret_bool32132";
+				own_std::string var_name = "ret_bool32132";
 				DeclareDeclToScopeAndMaybeToFunc(lang_stat, var_name, &t_bool, scp);
 				// creating a ret_var
 				auto decl = CreateDeclNode(lang_stat, var_name, TYPE_BOOL, n->t);
@@ -10947,7 +10947,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 								{
 									ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 								}
-								decl2* memcpy_func = FindIdentifier(std::string("memcpy"), scp, &ret_type);
+								decl2* memcpy_func = FindIdentifier(own_std::string("memcpy"), scp, &ret_type);
 								if (!memcpy_func)
 								{
 									ReportMessage(lang_stat, n->t, "Theres no 'memcpy' function to do a copy of a struct");
@@ -11204,7 +11204,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 			if (n->type == N_IDENTIFIER)
 			{
-				auto t_name = std::string("$$") + TypeToString(ret_type);
+				auto t_name = own_std::string("$$") + TypeToString(ret_type);
 				ASSERT(lang_stat->symbols_offset_on_type_sect.find(t_name) != lang_stat->symbols_offset_on_type_sect.end());
 				int offset_in_type_sect = lang_stat->symbols_offset_on_type_sect[t_name];
 				offset_in_type_sect = lang_stat->type_sect.size() - offset_in_type_sect;
@@ -11231,9 +11231,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 	return ret_type;
 }
-std::string StringifyNode(node* n)
+own_std::string StringifyNode(node* n)
 {
-	std::string ret;
+	own_std::string ret;
 	if (IS_FLAG_ON(n->flags, NODE_FLAGS_IS_SCOPE))
 	{
 		ret += "{";
@@ -11473,7 +11473,7 @@ bool CheckOverloadFunction(lang_state* lang_stat, func_decl* f)
 
 	return true;
 }
-std::string OvrldOpToStr(overload_op op)
+own_std::string OvrldOpToStr(overload_op op)
 {
 	switch (op)
 	{
@@ -11529,7 +11529,7 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 	}
 	else
 	{
-		std::string fname;
+		own_std::string fname;
 		overload_op op = (overload_op)(long long)data;
 
 		type2 dummy_tp;
@@ -11560,7 +11560,7 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 				// getting the overloaded name first
 
 
-				std::string fname = this->name;
+				own_std::string fname = this->name;
 				fname += OvrldOpToStr(op) + "_1"+this->name+"_";
 				switch (op)
 				{
@@ -11685,7 +11685,7 @@ func_decl* type_struct2::FindOpOverload(lang_state *lang_stat, overload_op tp, n
 		auto found_in_og = original_strct->FindOpOverload(lang_stat, tp, n);
 		if (found_in_og)
 		{
-			std::string f_name = this->name.substr() + OvrldOpToStr(tp);
+			own_std::string f_name = this->name.substr() + OvrldOpToStr(tp);
 
 			type2 dummy_tp;
 			auto found_f = FindIdentifier(f_name, lang_stat->funcs_scp, &dummy_tp);
@@ -11744,7 +11744,7 @@ void CompileFile(lang_state *lang_stat, unit_file* fl)
 	lang_stat->use_node_arena = false;
 }
 
-unit_file *ThereIsFile(lang_state *lang_stat, std::string &dir)
+unit_file *ThereIsFile(lang_state *lang_stat, own_std::string &dir)
 {
 	TCHAR name_buffer[MAX_PATH];
 
@@ -11763,9 +11763,9 @@ unit_file *ThereIsFile(lang_state *lang_stat, std::string &dir)
 	}
 	return nullptr;
 }
-unit_file* AddNewFile(lang_state *lang_stat, std::string name, std::string path)
+unit_file* AddNewFile(lang_state *lang_stat, own_std::string name, own_std::string path)
 {
-	std::string dir = path + name;
+	own_std::string dir = path + name;
 	unit_file* theres_file = ThereIsFile(lang_stat, dir);
 	if (theres_file)
 		return theres_file;
@@ -11860,7 +11860,7 @@ func_decl* type_struct2::CreateNewOpOverload(lang_state *lang_stat, func_decl* o
 	return new_func;
 }
 
-decl2* scope::FindVariableCached(std::string &name)
+decl2* scope::FindVariableCached(own_std::string &name)
 {
 	if (__lang_globals.use_cached_decls)
 	{
@@ -11882,7 +11882,7 @@ decl2* scope::FindVariableCached(std::string &name)
 	}
 	return nullptr;
 }
-decl2* scope::FindVariable(std::string &name)
+decl2* scope::FindVariable(own_std::string &name)
 {
 	scope* cur_scope = this;
 

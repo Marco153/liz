@@ -8,6 +8,7 @@ void CreateOppositeRegAssigmentAfterCondChecking(lang_state* lang_stat, own_std:
 bool IsNodeOperator(node* nd, tkn_type2 tkn);
 
 
+int clamp(int, int, int);
 
 #define MAKE_DST_IR_VAL(ir_tp, ptr) (((short)ir_tp) | (((int)ptr)<<16))
 #define MAKE_DST_IR_VAL(ir_tp, ptr) (((short)ir_tp) | (((int)ptr)<<16))
@@ -455,13 +456,13 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
             ret->type = AST_RET;
 			if(IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_COROUTINE))
 			{
-				decl2* d = FindIdentifier(std::string("CoroutineEnding"), scp, &dummy_type);
+				decl2* d = FindIdentifier(own_std::string("CoroutineEnding"), scp, &dummy_type);
 
 				decl2* first_arg = d->type.fdecl->args[0];
 
 				node* label_name = new_node(lang_stat, n->t);
 				label_name->type = N_IDENTIFIER;
-				label_name->t->str = std::string("_ret_label") + std::to_string(scp->fdecl->total_hidden_ret_labels);
+				label_name->t->str = own_std::string("_ret_label") + own_std::to_string(scp->fdecl->total_hidden_ret_labels);
 
 				scp->fdecl->total_hidden_ret_labels++;
 
@@ -504,7 +505,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 	case node_type::N_STR_LIT:
 	{
 		ret->type = AST_STR_LIT;
-		ret->str = std::string(n->t->str);
+		ret->str = own_std::string(n->t->str);
 	}break;
 	case node_type::N_SCOPE:
     {
@@ -618,7 +619,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		ast_rep* coroutine_prolegue = nullptr;
 		if (IS_FLAG_ON(n->fdecl->flags, FUNC_DECL_COROUTINE))
 		{
-			decl2* d = FindIdentifier(std::string("CoroutinePrologue"), scp, &dummy_type);
+			decl2* d = FindIdentifier(own_std::string("CoroutinePrologue"), scp, &dummy_type);
 			node* new_tree = n->fdecl->coroutine_prologue_tree;
 			//BuildMacroTree(lang_stat, n->fdecl->scp, new_tree, n->t->line);
 
@@ -4430,7 +4431,7 @@ ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat)
 	ast_rep *rhs = NewAst();
 
 	lhs->type = AST_IDENT;
-	lhs->decl = FindIdentifier(std::string("__global_dummy"), lang_stat->root, &rhs->lhs_tp);
+	lhs->decl = FindIdentifier(own_std::string("__global_dummy"), lang_stat->root, &rhs->lhs_tp);
 
 	bin->type = AST_BINOP;
 	bin->op = T_EQUAL;

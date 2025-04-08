@@ -31,7 +31,7 @@ enum line_mode
 struct YankBuffer
 {
 	char ch;
-	std::string str;
+	own_std::string str;
 };
 
 #define TEXT_ED_DONT_HAVE_CURSOR_FOCUS 1
@@ -79,7 +79,7 @@ public:
 	{
 		int mLine;
 		bool mEnabled;
-		std::string mCondition;
+		own_std::string mCondition;
 
 		Breakpoint()
 			: mLine(-1)
@@ -157,13 +157,13 @@ public:
 	struct Identifier
 	{
 		Coordinates mLocation;
-		std::string mDeclaration;
+		own_std::string mDeclaration;
 	};
 
-	typedef std::string String;
-	typedef std::unordered_map<std::string, Identifier> Identifiers;
-	typedef std::unordered_set<std::string> Keywords;
-	typedef std::map<int, std::string> ErrorMarkers;
+	typedef own_std::string String;
+	typedef std::unordered_map<own_std::string, Identifier> Identifiers;
+	typedef std::unordered_set<own_std::string> Keywords;
+	typedef std::map<int, own_std::string> ErrorMarkers;
 	typedef std::unordered_set<int> Breakpoints;
 	typedef std::array<ImU32, (unsigned)PaletteIndex::Max> Palette;
 	typedef uint8_t Char;
@@ -190,15 +190,15 @@ public:
 
 	struct LanguageDefinition
 	{
-		typedef std::pair<std::string, PaletteIndex> TokenRegexString;
+		typedef std::pair<own_std::string, PaletteIndex> TokenRegexString;
 		typedef std::vector<TokenRegexString> TokenRegexStrings;
 		typedef bool(*TokenizeCallback)(const char * in_begin, const char * in_end, const char *& out_begin, const char *& out_end, PaletteIndex & paletteIndex);
 
-		std::string mName;
+		own_std::string mName;
 		Keywords mKeywords;
 		Identifiers mIdentifiers;
 		Identifiers mPreprocIdentifiers;
-		std::string mCommentStart, mCommentEnd, mSingleLineComment;
+		own_std::string mCommentStart, mCommentEnd, mSingleLineComment;
 		char mPreprocChar;
 		bool mAutoIndentation;
 
@@ -370,18 +370,18 @@ public:
 	void RemoveBreakpoint(int line) { mBreakpoints.erase(line); }
 
 	void Render(const char* aTitle, const ImVec2& aSize = ImVec2(), int flags = 0, bool aBorder = false);
-	void SetText(const std::string& aText);
-	std::string GetText() const;
-	std::string GetText2(const Coordinates& aStart, const Coordinates& aEnd) const;
+	void SetText(const own_std::string& aText);
+	own_std::string GetText() const;
+	own_std::string GetText2(const Coordinates& aStart, const Coordinates& aEnd) const;
 
-	void SetTextLines(const std::vector<std::string>& aLines);
-	std::vector<std::string> GetTextLines() const;
+	void SetTextLines(const std::vector<own_std::string>& aLines);
+	std::vector<own_std::string> GetTextLines() const;
 
 	VIM_mode_enum GetVimMode();
 
-	std::string GetSelectedText() const;
-	std::string GetSelectedText2() const;
-	std::string GetCurrentLineText()const;
+	own_std::string GetSelectedText() const;
+	own_std::string GetSelectedText2() const;
+	own_std::string GetCurrentLineText()const;
 
 	int GetCharacterIndex(const Coordinates& aCoordinates) const;
 	int GetCharacterIndex2(const Coordinates& aCoordinates) const;
@@ -444,7 +444,7 @@ public:
 		return tab;
 	}
 
-	void InsertText(const std::string& aValue);
+	void InsertText(const own_std::string& aValue);
 	void InsertText(const char* aValue);
 
 	void MoveUp(int aAmount = 1, bool aSelect = false);
@@ -472,7 +472,7 @@ public:
 	void Copy();
 	void Cut();
 	void Paste();
-	void Paste(std::string);
+	void Paste(own_std::string);
 	void Delete();
 
 	bool CanUndo() const;
@@ -531,7 +531,7 @@ public:
 		}
 	}
 
-	std::string GetWordUnderCursor() const;
+	own_std::string GetWordUnderCursor() const;
 
 	void ClearSearchStringHighlight()
 	{
@@ -561,7 +561,7 @@ public:
 		}
 	}
 
-	bool SearchStringRange(std::string str, int *line, int *column, int start = -1, int end = -1)
+	bool SearchStringRange(own_std::string str, int *line, int *column, int start = -1, int end = -1)
 	{
 #define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
 		searchWord = false;
@@ -641,7 +641,7 @@ public:
 	{
 		return IsLetter(ch) || IsNumber(ch) || ch == '_';
 	}
-	bool SearchStringInLine(std::string str, u64 str_hash, int line, int column_start, int *column)
+	bool SearchStringInLine(own_std::string str, u64 str_hash, int line, int column_start, int *column)
 	{
 		char buffer[256];
 
@@ -690,10 +690,10 @@ public:
 	}
 
 	int GetLineMaxColumn(int aLine) const;
-	std::string GetText(const Coordinates& aStart, const Coordinates& aEnd) const;
+	own_std::string GetText(const Coordinates& aStart, const Coordinates& aEnd) const;
 
 	line_mode lnMode;
-	std::string insertBuffer;
+	own_std::string insertBuffer;
 	bool firstChInInsertBufferIsSlash;
 	bool haveKeyboardFocusAnyway;
 
@@ -706,7 +706,7 @@ public:
 	EditorState mState;
 	Lines mLines;
 
-	std::string cmdBuffer;
+	own_std::string cmdBuffer;
 	VIM_mode_enum mVimMode;
 	void* data;
 	char lastInsertedChar;
@@ -726,11 +726,11 @@ public:
 		~UndoRecord() {}
 
 		UndoRecord(
-			const std::string& aAdded,
+			const own_std::string& aAdded,
 			const TextEditor::Coordinates aAddedStart,
 			const TextEditor::Coordinates aAddedEnd,
 
-			const std::string& aRemoved,
+			const own_std::string& aRemoved,
 			const TextEditor::Coordinates aRemovedStart,
 			const TextEditor::Coordinates aRemovedEnd,
 
@@ -740,11 +740,11 @@ public:
 		void Undo(TextEditor* aEditor);
 		void Redo(TextEditor* aEditor);
 
-		std::string mAdded;
+		own_std::string mAdded;
 		Coordinates mAddedStart;
 		Coordinates mAddedEnd;
 
-		std::string mRemoved;
+		own_std::string mRemoved;
 		Coordinates mRemovedStart;
 		Coordinates mRemovedEnd;
 
@@ -860,7 +860,7 @@ public:
 		}
 	}
 	void DeleteSelection();
-	std::string GetWordAt(const Coordinates& aCoords) const;
+	own_std::string GetWordAt(const Coordinates& aCoords) const;
 	ImU32 GetGlyphColor(const Glyph& aGlyph) const;
 
 	void HandleKeyboardInputs();
@@ -872,7 +872,7 @@ public:
 	UndoBuffer mUndoBuffer;
 	UndoBuffer mUndoBuffer2;
 	int mUndoIndex;
-	std::string auxInsertBuffer;
+	own_std::string auxInsertBuffer;
 
 	int mTabSize;
 	bool mOverwrite;
@@ -906,7 +906,7 @@ public:
 	ErrorMarkers mErrorMarkers;
 	ImVec2 mCharAdvance;
 	Coordinates mInteractiveStart, mInteractiveEnd, mStartLineVisual;
-	std::string mLineBuffer;
+	own_std::string mLineBuffer;
 	uint64_t mStartTime;
 
 	std::vector<GotoMark> gotoMarks;

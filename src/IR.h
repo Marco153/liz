@@ -171,7 +171,7 @@ struct ast_rep
         long long num;
         ast_rep *ast;
         decl2 *decl;
-        std::string str;
+        own_std::string str;
 		struct
 		{
 			own_std::vector<ast_rep*> stats;

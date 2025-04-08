@@ -1,13 +1,16 @@
 #pragma once
 
+
 template <typename T, typename U>
 struct rel_ptr
 {
 	T offset;
 	
-	void operator=(std::string &ptr)
+	/*
+	void operator=(own_std::string &ptr)
 	{
 	}
+	*/
 	void operator=(char *ptr)
 	{
 		offset = ptr ? (int)(ptr - (char *)&offset):0;
@@ -48,7 +51,9 @@ struct rel_type2
 	int type;
 };
 
-void rel_ptr<char, char *>::operator=(std::string &s)
+/*
+void rel_ptr<char, char *>::operator=(own_std::string &s)
 {
 	*this = (char *)s.data();
 }
+*/

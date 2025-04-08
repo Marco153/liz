@@ -1,5 +1,6 @@
 #pragma once
 #include<string>
+#include "own_vector.cpp"
 
 struct lang_state;
 enum tkn_type2 : unsigned char
@@ -70,7 +71,7 @@ struct token2
 	char *line_str;
 	union
 	{
-		std::string str;
+		own_std::string str;
 		union
 		{
 			int i;
@@ -96,7 +97,7 @@ struct token2
 	~token2(){}
 
 	token2* NewTkn(lang_state* lang_stat);
-	std::string ToString();
+	own_std::string ToString();
 	
 };
 //void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns, own_std::vector<char *> *lines_out = nullptr)

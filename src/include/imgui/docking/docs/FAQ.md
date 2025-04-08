@@ -27,7 +27,7 @@ or view this file with any Markdown viewer.
 | [How can I display an image? What is ImTextureID, how does it work?](#q-how-can-i-display-an-image-what-is-imtextureid-how-does-it-work)|
 | [How can I use maths operators with ImVec2?](#q-how-can-i-use-maths-operators-with-imvec2) |
 | [How can I use my own maths types instead of ImVec2/ImVec4?](#q-how-can-i-use-my-own-maths-types-instead-of-imvec2imvec4) |
-| [How can I interact with standard C++ types (such as std::string and std::vector)?](#q-how-can-i-interact-with-standard-c-types-such-as-stdstring-and-stdvector) |
+| [How can I interact with standard C++ types (such as own_std::string and std::vector)?](#q-how-can-i-interact-with-standard-c-types-such-as-stdstring-and-stdvector) |
 | [How can I display custom shapes? (using low-level ImDrawList API)](#q-how-can-i-display-custom-shapes-using-low-level-imdrawlist-api) |
 | **Q&A: Fonts, Text** |
 | [How should I handle DPI in my application?](#q-how-should-i-handle-dpi-in-my-application) |
@@ -475,9 +475,9 @@ This way you will be able to use your own types everywhere, e.g. passing `MyVect
 
 ---
 
-### Q: How can I interact with standard C++ types (such as std::string and std::vector)?
-- Being highly portable (backends/bindings for several languages, frameworks, programming styles, obscure or older platforms/compilers), and aiming for compatibility & performance suitable for every modern real-time game engine, Dear ImGui does not use any of std C++ types. We use raw types (e.g. char* instead of std::string) because they adapt to more use cases.
-- To use ImGui::InputText() with a std::string or any resizable string class, see [misc/cpp/imgui_stdlib.h](https://github.com/ocornut/imgui/blob/master/misc/cpp/imgui_stdlib.h).
+### Q: How can I interact with standard C++ types (such as own_std::string and std::vector)?
+- Being highly portable (backends/bindings for several languages, frameworks, programming styles, obscure or older platforms/compilers), and aiming for compatibility & performance suitable for every modern real-time game engine, Dear ImGui does not use any of std C++ types. We use raw types (e.g. char* instead of own_std::string) because they adapt to more use cases.
+- To use ImGui::InputText() with a own_std::string or any resizable string class, see [misc/cpp/imgui_stdlib.h](https://github.com/ocornut/imgui/blob/master/misc/cpp/imgui_stdlib.h).
 - To use combo boxes and list boxes with `std::vector` or any other data structure: the `BeginCombo()/EndCombo()` API
 lets you iterate and submit items yourself, so does the `ListBoxHeader()/ListBoxFooter()` API.
 Prefer using them over the old and awkward `Combo()/ListBox()` api.
@@ -485,8 +485,8 @@ Prefer using them over the old and awkward `Combo()/ListBox()` api.
 You may write your own one-liner wrappers to facilitate user code (tip: add new functions in ImGui:: namespace from your code).
 - Dear ImGui applications often need to make intensive use of strings. It is expected that many of the strings you will pass
 to the API are raw literals (free in C/C++) or allocated in a manner that won't incur a large cost on your application.
-Please bear in mind that using `std::string` on applications with a large amount of UI may incur unsatisfactory performances.
-Modern implementations of `std::string` often include small-string optimization (which is often a local buffer) but those
+Please bear in mind that using `own_std::string` on applications with a large amount of UI may incur unsatisfactory performances.
+Modern implementations of `own_std::string` often include small-string optimization (which is often a local buffer) but those
 are not configurable and not the same across implementations.
 - If you are finding your UI traversal cost to be too large, make sure your string usage is not leading to an excessive amount
 of heap allocations. Consider using literals, statically sized buffers, and your own helper functions. A common pattern

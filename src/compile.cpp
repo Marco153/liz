@@ -926,14 +926,14 @@ struct wasm_interp
 
 	OutsiderFuncType get_func(own_std::string& str)
 	{
-		u64 hash = GetNameSimpleHash(str);
+		u64 hash = GetNameSimpleHash(str) % TOTAL_OUTSIDERS;
 		
 		u64 start = hash;
 
 		bool found = false;
 		while (true)
 		{
-			if(str == outsiders[hash].name)
+			if(outsiders[hash].func != nullptr && str == outsiders[hash].name)
 			{
 				found = true;
 				break;
@@ -948,11 +948,11 @@ struct wasm_interp
 	}
 	void add_func(own_std::string &str, OutsiderFuncType f)
 	{
-		u64 hash = GetNameSimpleHash(str);
+		u64 hash = GetNameSimpleHash(str) % TOTAL_OUTSIDERS;
 		
 		u64 start = hash;
 
-		while (outsiders[hash].func == nullptr)
+		while (outsiders[hash].func != nullptr)
 		{
 			hash = (hash + 1) % TOTAL_OUTSIDERS;
 
@@ -966,6 +966,7 @@ struct wasm_interp
 		buffer[sz] = 0;
 
 		ptr->name = buffer;
+		ptr->func = f;
 	}
 };
 
@@ -1369,16 +1370,24 @@ static own_std::string base64_encode(own_std::string& in) {
 
 	int val = 0, valb = -6;
 
+	own_std::vector<unsigned char> vec;
+	vec.reserve(128);
+
+
 	for (int i = 0; i < in.size(); i++)
 	{
 		unsigned char c = in[i];
 		val = (val << 8) + c;
 		valb += 8;
 		while (valb >= 0) {
-			out.push_back("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[(val >> valb) & 0x3F]);
+			vec.push_back("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[(val >> valb) & 0x3F]);
 			valb -= 6;
 		}
 	}
+
+	
+	out.concat_in_place((char *)vec.data(), vec.size());
+
 	if (valb > -6) out.push_back("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[((val << 8) >> (valb + 8)) & 0x3F]);
 	while (out.size() % 4) out.push_back('=');
 	return out;

@@ -10,6 +10,7 @@ namespace own_std
 		u64 c_str_vec_count;
 		u64 c_str_vec_len;
 		unsigned long long len;
+		unsigned long long max_len;
 
 		bool contains_char_rev(char c, u64* p)
 		{
@@ -214,10 +215,14 @@ namespace own_std
 
 			return new_one;
 		}
-		string substr(u64 idx, u64 size)
+		string substr(u64 idx, s64 size)
 		{
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			string new_one;
+			if (size == -1)
+			{
+				size = len - idx;
+			}
 			memcpy(buffer, data_ + idx, size);
 			new_one.data_ = buffer;
 			new_one.len = size;
@@ -245,7 +250,9 @@ namespace own_std
 			memcpy(buffer, data_, len);
 			memcpy(buffer + len, other_buffer, other_len);
 
-			__lang_globals.free(__lang_globals.data, data_);
+			if(data_)
+				__lang_globals.free(__lang_globals.data, data_);
+
 			data_ = buffer;
 			len = total;
 

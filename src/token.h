@@ -163,12 +163,19 @@ struct type_data
 };
 struct template_expr
 {
-	own_std::string name;
+	union
+	{
+		own_std::string name;
+	};
 	int type;
 	type2 *final_type;
 	node *expr;
 	node *func;
 	scope *scp;
+
+	~template_expr()
+	{
+	}
 };
 struct func_overload_strct
 {
@@ -630,12 +637,12 @@ struct type_struct2
 
 			//if (fdecl->op_overload == COND_EQ_OP)
 			if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_NAME_INSERTED))
-				fdecl->name = fname.substr();
+				fdecl->name = fname;
 
 			if (!fdecl->this_decl)
 				fdecl->this_decl = NewDecl(lang_stat, "", f_tp);
 
-			fdecl->this_decl->name = fname.substr();
+			fdecl->this_decl->name = fname;
 			fdecl->this_decl->type = f_tp;
 			fdecl->templated_in_file = lang_stat->cur_file;
 			fdecl->templated_in_file_line = line;
@@ -795,7 +802,7 @@ token2 *token2::NewTkn(lang_state *lang_stat)
 		ret->line = line;
 		ret->line_str = line_str;
 		ret->line_offset = line_offset;
-		ret->str = str.substr();
+		ret->str = str;
 	}
 	else
 	{

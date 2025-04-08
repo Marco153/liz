@@ -339,7 +339,7 @@ own_std::string TypeToString(type2 &tp)
 	case enum_type2::TYPE_STRUCT:
 	{
 		own_std::string name;
-		ret += tp.strct->name.substr();
+		ret += tp.strct->name;
 	}break;
 	default:
 		ASSERT(false)
@@ -376,7 +376,7 @@ type_struct2 *GetStructFromTkns(own_std::vector<token2> *tkns, int *i)
 			sname += str;
 		}
 
-		tstrct->name = sname.substr();
+		tstrct->name = sname;
 		globals.struct_scope.emplace_back("::");
 	}
 	else
@@ -1166,7 +1166,7 @@ bool GetDeclFromTkns(own_std::vector<token2> *tkns, int *i, decl2 *d)
 	// if a struct was as declared, the var name if optional
 	if (cur == tkn_type2::T_WORD)
 	{
-		d->name = (*tkns)[(*i)++].str.substr();
+		d->name = (*tkns)[(*i)++].str;
 		return true;
 	}
 	if (was_struct && cur != tkn_type2::T_SEMI_COLON)

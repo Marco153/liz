@@ -4856,6 +4856,10 @@ int main(int argc, char* argv[])
 	}
 
 	MaybeAddBarToEndOfStr(&opts.wasm_dir);
+
+	auto wasm_dir = std_str_to_heap2(&opts.wasm_dir);
+	auto folder_name = std_str_to_heap2(&opts.folder_name);
+
 	Compile(&lang_stat, &opts);
 	memset(&lang_stat, 0, sizeof(lang_stat));
 	InitMemAlloc(&alloc);
@@ -4963,6 +4967,9 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow", (OutsiderFuncType)IsMouseOnGameWindow);
 	AssignOutsiderFunc(&lang_stat, "GetTopStackPtr", (OutsiderFuncType)GetTopStackPtr);
 	AssignOutsiderFunc(&lang_stat, "GetInstRealAddr", (OutsiderFuncType)GetInstRealAddr);
+
+	opts.wasm_dir = wasm_dir;
+	opts.folder_name = folder_name;
 
 	if (!opts.release)
 	{

@@ -400,7 +400,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		ret->decl = FindIdentifier(n->l->t->str, scp, &ret_type);
 		if (!ret->decl)
 		{
-			ret->str = n->t->str.substr();
+			ret->str = n->t->str;
 		}
     }break;
 	case node_type::N_IDENTIFIER:
@@ -417,7 +417,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			ret->decl = FindIdentifier(n->t->str, scp, &ret_type);
 		if (!ret->decl)
 		{
-			ret->str = n->t->str.substr();
+			ret->str = n->t->str;
 		}
     }break;
 	case node_type::N_KEYWORD:

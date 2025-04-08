@@ -225,7 +225,10 @@ struct WindowEditor
 struct open_gl_state
 {
 	int vao;
+	int line_vao;
+	int line_vbo;
 	int shader_program;
+	int line_shader_program;
 	int shader_program_no_texture;
 	int color_u;
 	int tex_size;
@@ -509,10 +512,11 @@ void Print(dbg_state* dbg)
 }
 #define DRAW_INFO_HAS_TEXTURE 1
 #define DRAW_INFO_NO_SCREEN_RATIO 2
-#define DRAW_INFO_LINE 4
+#define DRAW_INFO_WIREFRAME 4
 #define DRAW_INFO_STENCIL_WRITE 8
 #define DRAW_INFO_STENCIL_TEST 16
 #define DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER 32
+#define DRAW_INFO_LINE 64
 enum class stencil_func
 {
 	EQUAL,
@@ -589,6 +593,7 @@ void Draw(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 
 	int prog = gl_state->shader_program;
+	int vao = gl_state->vao;
 
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
 	{
@@ -607,6 +612,16 @@ void Draw(dbg_state* dbg)
 
 		glBindTexture(GL_TEXTURE_2D, t->id);
 	}
+	else if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+	{
+		prog = gl_state->line_shader_program;
+		vao = gl_state->line_vao;
+		glUseProgram(prog);
+		glBindVertexArray(vao);
+		glBindBuffer(GL_ARRAY_BUFFER, gl_state->line_vbo);
+
+		glBufferSubData(GL_ARRAY_BUFFER, 0, 4 * 4, &draw->pos_x);
+	}
 	else
 	{
 		prog = gl_state->shader_program_no_texture;
@@ -614,7 +629,7 @@ void Draw(dbg_state* dbg)
 	}
 
 	glUseProgram(prog);
-	glBindVertexArray(gl_state->vao);
+	glBindVertexArray(vao);
 
 	gl_state->color_u = glGetUniformLocation(prog, "color");
 	glUniform4f(gl_state->color_u, draw->color_r, draw->color_b, draw->color_g, draw->color_a);
@@ -727,9 +742,13 @@ void Draw(dbg_state* dbg)
 	}
 	//else
 	//{
-		if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+		if (IS_FLAG_ON(draw->flags, DRAW_INFO_WIREFRAME))
 		{
 			glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+		}
+		else if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+		{
+			glDrawArrays(GL_LINES, 0, 2);
 		}
 		else
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -3987,10 +4006,21 @@ void OpenWindow(dbg_state* dbg)
 		0, 1, 3,   // first triangle
 		1, 2, 3    // second triangle
 	};
+	unsigned int LINEVAO;
+	unsigned int VBO;
+	glGenVertexArrays(1, &LINEVAO);
+	glBindVertexArray(LINEVAO);
+	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, 4 * 4, vertices, GL_DYNAMIC_DRAW);
+	GL_CALL(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0));
+	glEnableVertexAttribArray(0);
+
+	gl_state->line_vbo = VBO;
+
 	unsigned int VAO;
 	glGenVertexArrays(1, &VAO);
 	glBindVertexArray(VAO);
-	unsigned int VBO;
 	glGenBuffers(1, &VBO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
@@ -4006,6 +4036,46 @@ void OpenWindow(dbg_state* dbg)
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 
 
+	const char* lineVertexShaderSource = "#version 330 core\n"
+		"layout (location = 0) in vec3 aPos;\n"
+		"layout (location = 1) in vec2 uv;\n"
+		"uniform vec3 pos;\n"
+		"uniform vec3 pivot;\n"
+		"uniform float cam_size;\n"
+		"uniform float screen_ratio;\n"
+		"uniform vec3 ent_size;\n"
+		"uniform vec3 cam_pos;\n"
+		"uniform vec3 cam_rot;\n"
+		"uniform vec3 ent_rot;\n"
+		"out vec2 TexCoord;\n"
+		"void main()\n"
+		"{\n"
+		"	mat3 A = mat3(cos(cam_rot.z), -sin(cam_rot.z), 0.0,\n"
+		"		 sin(cam_rot.z), cos(cam_rot.z), 0.0,\n"
+		"		 0.0, 0.0, 1.0);\n"
+		"	mat3 rot = mat3(cos(ent_rot.z), -sin(ent_rot.z), 0.0,\n"
+		"		 sin(ent_rot.z), cos(ent_rot.z), 0.0,\n"
+		"		 0.0, 0.0, 1.0);\n"
+		"   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+		"   gl_Position.xy -= cam_pos.xy;\n"
+		"   gl_Position.xy /= cam_size;\n"
+		"   gl_Position = vec4(A * gl_Position.xyz, 1.0);\n"
+		"}\0";
+	u32 lineVertexShader;
+	lineVertexShader = glCreateShader(GL_VERTEX_SHADER);
+	GL_CALL(glShaderSource(lineVertexShader, 1, &lineVertexShaderSource, NULL));
+	GL_CALL(glCompileShader(lineVertexShader));
+
+	int  success;
+	char infoLog[512];
+	glGetShaderiv(lineVertexShader, GL_COMPILE_STATUS, &success);
+
+	if (!success)
+	{
+		glGetShaderInfoLog(lineVertexShader, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+		ASSERT(false);
+	}
 	const char* vertexShaderSource = "#version 330 core\n"
 		"layout (location = 0) in vec3 aPos;\n"
 		"layout (location = 1) in vec2 uv;\n"
@@ -4039,13 +4109,10 @@ void OpenWindow(dbg_state* dbg)
 		"   TexCoord = uv;\n"
 		"}\0";
 
-	unsigned int vertexShader;
-	vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	u32 vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	GL_CALL(glShaderSource(vertexShader, 1, &vertexShaderSource, NULL));
 	GL_CALL(glCompileShader(vertexShader));
 
-	int  success;
-	char infoLog[512];
 	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
 
 	if (!success)
@@ -4076,20 +4143,17 @@ void OpenWindow(dbg_state* dbg)
 		//"vec4 tex_col =  texture(tex, uv);\n"
 		"FragColor =  tex_col * color;\n"
 		"}\n";
-	const char* fragmentShaderSourceLight = "#version 330 core\n"
-		"out vec4 FragColor;\n"
-		"in vec2 TexCoord;\n"
-		"uniform vec4 color;\n"
-		"uniform sampler2D tex;\n"
-		"void main(){\n"
-		"vec4 tex_col =  texture(tex, TexCoord);\n"
-		//"vec4 tex_col =  texture(tex, uv);\n"
-		"FragColor =  tex_col * color;\n"
-		"}\n";
 
 	unsigned int fragmentShader = CompileShader((char*)fragmentShaderSource, GL_FRAGMENT_SHADER);
 	unsigned int fragmentNoTextureShader = CompileShader((char*)fragmentShaderNoTextureSource, GL_FRAGMENT_SHADER);
 
+
+	unsigned int lineShaderProgram;
+	lineShaderProgram = glCreateProgram();
+	glAttachShader(lineShaderProgram, lineVertexShader);
+	glAttachShader(lineShaderProgram, fragmentNoTextureShader);
+	glLinkProgram(lineShaderProgram);
+	glUseProgram(lineShaderProgram);
 
 	unsigned int shaderProgram;
 	shaderProgram = glCreateProgram();
@@ -4107,6 +4171,8 @@ void OpenWindow(dbg_state* dbg)
 
 
 	gl_state->vao = VAO;
+	gl_state->line_vao = LINEVAO;
+	gl_state->line_shader_program = lineShaderProgram;
 	gl_state->shader_program = shaderProgram;
 	gl_state->shader_program_no_texture = shaderProgramNoTexture;
 

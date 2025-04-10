@@ -9,6 +9,8 @@ int GetCurFileNameAndLine(lang_state *lang_stat, char *buffer, int sz, int ln)
 }
 char *GetFileLn(lang_state *lang_stat, int line, unit_file *fl)
 {
+	if (line == -1)
+		return "line given was -1";
 	if (fl == nullptr)
 	{
 		return lang_stat->cur_file->lines[line];
@@ -26,7 +28,7 @@ void ReportError(lang_state *lang_stat, int line, int line_offset, char *str, in
 	char* cur_line = (*lines)[line - 1];
 
 	
-	printf(ANSI_RESET "%s%s\n", str, msg_hdr);
+	printf(ANSI_RESET "%s\n", str);
 	
 	printf("\x1b[31m");
 	

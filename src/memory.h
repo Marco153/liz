@@ -1,5 +1,6 @@
 #pragma once
 #include "Array.h"
+#include "assert.cpp"
 #include <unordered_map>
 
 #define CHUNK_FREE 1
@@ -27,6 +28,7 @@ struct heap_hash
 	};
 	inner *data;
 	unsigned int hash_table_size = (1024 * 1024);
+	unsigned int used;
 
 	void Clear()
 	{
@@ -79,6 +81,7 @@ struct heap_hash
 				break;
 			}
 		}
+		used--;
 		ASSERT(removed);
 	}
 	void Store(void *key, void *value)
@@ -106,6 +109,7 @@ struct heap_hash
 				break;
 			}
 		}
+		used++;
 		ASSERT(put);
 	}
 };
@@ -117,7 +121,7 @@ struct mem_alloc
     heap_hash in_use;
     mem_chunk *all;
     mem_chunk **probable_unallocated;
-	unsigned int chunks_cap =(1024 * 1024 * 64);
+	unsigned int chunks_cap =(1024 * 1024 * 32);
 
 	char* main_buffer;
 };

@@ -27,18 +27,16 @@ v.reg = 5;
 			}
 
 
-enum byte_code_enum
+// **DONT TRY TO MODIFY THE ORDER** of bin operations like add, sub, mul etc
+// because when we're generating code we try to find the correct find by hard offsets
+// from the base inst
+// for example, if we're summing a register and register, the base inst will be  ADD_M_2_M
+// and, to get to ADD_R_2_R we are summing a number  to the base inst to get there
+
+enum byte_code_enum : unsigned char
 {
 	NOP, 
 
-	NEW_LINE,
-	BEGIN_FUNC,
-	END_FUNC,
-	BEGIN_SCP,
-	END_SCP,
-
-	ASSIGN_FUNC_SIZE,
-		
 	RET, 
 
 	BREAK,
@@ -47,6 +45,8 @@ enum byte_code_enum
 
 	NOT_R,
 	NOT_M,
+
+	SHUFFLE_128_PS,
 
 	NEG_R,
 	NEG_M,
@@ -66,8 +66,27 @@ enum byte_code_enum
 	XOR_SSE_2_MEM,
 	XOR_SSE_2_RMEM,
 
-	X64_WASM_BEGIN_BLOCK,
-	X64_WASM_END_BLOCK,
+	SHIFTR_R,
+	SHIFTR_M,
+	SHIFTR_M_2_M,
+	SHIFTR_R_2_M,
+	SHIFTR_M_2_R,
+	SHIFTR_I_2_R,
+	SHIFTR_I_2_M,
+	SHIFTR_I_2_RM,
+	SHIFTR_R_2_RM,
+	SHIFTR_R_2_R,
+
+	SHIFTL_R,
+	SHIFTL_M,
+	SHIFTL_M_2_M,
+	SHIFTL_R_2_M,
+	SHIFTL_M_2_R,
+	SHIFTL_I_2_R,
+	SHIFTL_I_2_M,
+	SHIFTL_I_2_RM,
+	SHIFTL_R_2_RM,
+	SHIFTL_R_2_R,
 
 	DIV_R,
 	DIV_M,
@@ -82,7 +101,8 @@ enum byte_code_enum
 	DIV_SSE_2_SSE,
 	DIV_MEM_2_SSE,
 	DIV_SSE_2_MEM,
-	DIV_SSE_2_RMEM,
+	//DIV_SSE_2_RMEM,
+	DIV_PCKD_SSE_2_PCKD_SSE,
 
 	OR_M_2_M,
 	OR_R_2_M,
@@ -109,8 +129,8 @@ enum byte_code_enum
 	MUL_SSE_2_SSE,
 	MUL_MEM_2_SSE,
 	MUL_SSE_2_MEM,
-	MUL_SSE_2_RMEM,
-	MUL_SSE_2_REG,
+	//MUL_SSE_2_REG,
+	MUL_PCKD_SSE_2_PCKD_SSE,
 
 	AND_M_2_M,
 	AND_R_2_M,
@@ -123,8 +143,7 @@ enum byte_code_enum
 	AND_SSE_2_SSE,
 	AND_MEM_2_SSE,
 	AND_SSE_2_MEM,
-	AND_SSE_2_RMEM,
-
+	AND_PCKD_SSE_2_PCKD_SSE,
 
 	SUB_M_2_M,
 	SUB_R_2_M,
@@ -137,7 +156,16 @@ enum byte_code_enum
 	SUB_SSE_2_SSE,
 	SUB_MEM_2_SSE,
 	SUB_SSE_2_MEM,
-	SUB_SSE_2_RMEM,
+	SUB_PCKD_SSE_2_PCKD_SSE,
+
+	MOD_M_2_M,
+	MOD_R_2_M,
+	MOD_M_2_R,
+	MOD_I_2_R,
+	MOD_I_2_M,
+	MOD_I_2_RM,
+	MOD_R_2_RM,
+	MOD_R_2_R,
 
 	ADD_M_2_M,
 	ADD_R_2_M,
@@ -150,7 +178,7 @@ enum byte_code_enum
 	ADD_SSE_2_SSE,
 	ADD_MEM_2_SSE,
 	ADD_SSE_2_MEM,
-	ADD_SSE_2_RMEM,
+	ADD_PCKD_SSE_2_PCKD_SSE,
 
 	STORE_M_2_M,
 	STORE_R_2_M,
@@ -183,6 +211,13 @@ enum byte_code_enum
 	MOV_M_2_SSE,
 	MOV_R_2_SSE,
 	MOV_SSE_2_R,
+	MOV_F_2_SSE,
+	MOV_F_2_PCKED_SSE,
+	MOV_M_2_PCKD_SSE,
+	MOV_PCKD_SSE_2_M,
+	MOV_PCKD_SSE_2_PCKD_SSE,
+	FILL_M_2_PCKED_SSE,
+	FILL_SSE_2_PCKED_SSE,
 
 	MOV_I,
 	MOV_ABS,
@@ -212,7 +247,8 @@ enum byte_code_enum
 	CMP_SSE_2_SSE,
 	CMP_MEM_2_SSE,
 	CMP_SSE_2_MEM,
-	CMP_SSE_2_RMEM,
+	//CMP_SSE_2_RMEM,
+	CMP_PCKD_SSE_2_PCKD_SSE,
 
 	RELOC,
 	INST_CALL,
@@ -221,10 +257,12 @@ enum byte_code_enum
 	INST_RET,
 	INST_LEA,
 
-	MOVSX_M,
 	MOVSX_R,
+	MOVSX_M,
 	MOVZX_R,
 	MOVZX_M,
+
+	SQRT_SSE,
 
 	REP_B,
 
@@ -242,14 +280,49 @@ enum byte_code_enum
 	JMP_L,
 	JMP_LE,
 
+	NEW_LINE,
+	BEGIN_FUNC_FOR_INTERPRETER,
+	BEGIN_FUNC,
+	END_FUNC,
+
+	ASSIGN_FUNC_SIZE,
+
 	COMMENT,
 };
-enum rel_type
+enum rel_type : short
 {
 	REL_FUNC,
 	REL_GET_FUNC_ADDR,
 	REL_DATA,
 	REL_TYPE,
+};
+struct byte_code2
+{
+	union
+	{
+		byte_code_enum bc_type;
+		short type;
+	};
+	union
+	{
+		short regs;
+		rel_type rel_type;
+	};
+	int mem_offset;
+	union
+	{
+		struct
+		{
+			char reg_dst;
+			char reg_1;
+			char reg_2;
+			char mask;
+		}shuffle;
+		char rhs_and_lhs_reg_sz;
+		int i;
+		float f32;
+		int mem_offset2;
+	};
 };
 struct lea_strct
 {
@@ -268,10 +341,15 @@ struct reg_strct
 	{
 	}
 };
+struct ir_rep;
 struct byte_code
 {
 	byte_code_enum type;
-	node* nd;
+	union
+	{
+		ir_rep* ir;
+		node* nd;
+	};
 	struct operand
 	{
 		union
@@ -310,13 +388,23 @@ struct byte_code
 	};
 
 	unsigned int machine_code_idx;
+	unsigned int _line;
 	union
 	{
 		struct
 		{
 			operand lhs;
 			operand rhs;
+			bool is_unsigned : 1;
+			bool is_float_param : 1;
 		}bin;
+		struct 
+		{
+			char reg_dst;
+			char reg_1;
+			char reg_2;
+			char mask;
+		}shuffle;
 		struct
 		{
 			operand val;
@@ -355,9 +443,15 @@ struct byte_code
 				{
 					char *name;
 				
-					int offset;
+					bool is_float;
+					bool is_packed_float;
 					char reg_dst;
-					func_decl *call_func;
+					union
+					{
+						func_decl* call_func;
+						int offset;
+					};
+					float f;
 				};
 			};
 
@@ -565,74 +659,7 @@ struct func_byte_code;
 
 #define SIGN_FLAG 2
 #define ZERO_FLAG 1
-struct interpreter
-{
-	struct outsider_func
-	{
-		const char *name;
-		void *addr;
-		outsider_func(const char *name, void *addr)
-		{
-			this->name = name;
-			this->addr = addr;
-		}
-	};
-	struct reg
-	{
-		union
-		{
 
-			long long i64;
-			int i32;
-			short i16;
-			char i8;
-			void *ptr;
-		};
-	};
-	own_std::vector<outsider_func> outsider_funcs;
-	own_std::vector<byte_code> bcode;
-	own_std::vector<func_byte_code *> *ar;
-	struct
-	{
-		reg r0;
-		reg r1;
-		reg r2;
-		reg r3;
-		reg ip;
-		reg sp;
-		reg r6;
-		reg r7;
-		reg r8;
-		reg r9;
-		reg r10;
-		reg r11;
-		reg r12;
-		reg r13;
-		reg r14;
-		reg flags;
-	}regs;
-
-	char regs_info[16];
-	char *mem;
-	own_std::vector<int> stack_sizes;
-	void NextInst();
-	void ExecInst();
-	void Init();
-	int GetCurStackSize();
-	void CmpSetFlags(long long lhs, long long rhs, char size, bool is_unsigned);
-	
-	func_byte_code *SearchFinalFunc(own_std::string name);
-	void *GetOutsiderFunc(own_std::string);
-
-	void SetBCode(own_std::vector<func_byte_code *> *ar);
-	long long GetRegVal(char idx);
-	long long *GetRegValPtr(char idx);
-	void PushVal(long long  val);
-
-	long long *GetMem(int offset, char reg_idx);
-	void SetRegFromMem(int offset, char out_reg_idx, char mem_size, char base_reg = 5);
-	void SetMemFromReg(char reg_idx, int offset);
-};
 
 struct func_byte_code
 {
@@ -673,6 +700,12 @@ struct jmp_rel
 		dst_bc = bc;
 	}
 };
+struct get_func_addr_info
+{
+	byte_code2 *bc;
+	func_decl *fdecl;
+
+};
 struct call_rel
 {
 	int call_idx;
@@ -691,6 +724,8 @@ struct machine_code
 	own_std::vector<machine_sym> symbols;
 	own_std::vector<jmp_rel> jmp_rels;
 	own_std::vector<call_rel> call_rels;
+	own_std::vector<get_func_addr_info> insert_func_addr_in;
+	own_std::vector<byte_code> bcs;
 
     int executable;
 

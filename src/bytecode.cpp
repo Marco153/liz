@@ -175,7 +175,9 @@ void CreateImmToReg(char r0_byte_imm_byte, char r0_imm, char inst_reg, byte_code
 		}
 		else
 		{
-			AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, false, ret.code, bc->bin.lhs.reg == 4);
+			bool is_rex = IS_FLAG_ON(bc->bin.lhs.reg, 0x80);
+			*(int *)&is_rex *= 2;
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, is_rex, ret.code, bc->bin.lhs.reg == 4);
 			ret.code.emplace_back(inst);
 			ret.code.emplace_back(bc->bin.rhs.u8);
 		}
@@ -220,6 +222,8 @@ char FromAsmRegToWasmReg(unsigned char bc_reg)
 	}
 	return -1;
 }
+#define PRE_X64_RSP_REG 5
+#define BC2_RSP_REG 11
 char FromBCRegToAsmReg(char bc_reg)
 {
 	switch(bc_reg)
@@ -237,9 +241,9 @@ char FromBCRegToAsmReg(char bc_reg)
 	case 5:
 		return 4;
 	case 6:
-		return 1;
+		return 2 | (1 << 7);
 	case 7:
-		return 2;
+		return 3 | (1 << 7);
 	case 8:
 		return 0 | (1 << 7);
 	case 9:
@@ -313,12 +317,16 @@ void AddPreMemInsts(char size, char byte, char greater_byte, char is_rex, own_st
 		code.emplace_back(greater_byte);
 	break;
 	case 8:
+		// none are rex
 		if(is_rex == 0)
 			code.emplace_back(0x48);
+		// only rhs is rex
 		else if(is_rex == 1)
 			code.emplace_back(0x4c);
+		// only lhs is rex
 		else if(is_rex == 2)
 			code.emplace_back(0x49);
+		// both are rex
 		else if(is_rex == 3)
 			code.emplace_back(0x4d);
 		
@@ -372,46 +380,76 @@ void CreateMemToReg(byte_code *bc, char byte, char greater_byte, bool is_rex_par
 	if(bc->bin.rhs.voffset > 0)
 		AddImm(bc->bin.rhs.voffset, bc->bin.rhs.voffset < 0x80 ? 1 : 4, ret);
 }
-void CreateRegToMem(byte_code* bc, char byte, char greater_byte, machine_code& ret, char base_reg = 5)
+void CreateRegToMem(byte_code* bc, char byte, char greater_byte, machine_code& ret, char base_reg = 5, bool rhs_is_final_reg = false)
 {
 	base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
 
-	char reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
+	char reg = bc->bin.rhs.reg;
+	if(!rhs_is_final_reg)
+		reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
 	
 	bc->bin.lhs.reg = base_reg;
 	bc->bin.rhs.reg = reg;
 
-	bool is_rex = IS_FLAG_ON(reg, 0x80);
+	bool is_rex = false;
+	*(char *)&is_rex = IS_FLAG_ON(reg, 0x80) | (IS_FLAG_ON(base_reg, 0x80) << 1);
 	AddPreMemInsts(bc->bin.lhs.reg_sz, byte, greater_byte, is_rex, ret.code);
 	//ret.code.emplace_back(byte);
+	reg &= 0xf;
+	base_reg &= 0xf;
 	AddModRM(true, bc->bin.lhs.voffset, base_reg, reg & 0xf, ret, bc->bin.lhs.sib);
 
 
 	if(bc->bin.lhs.voffset > 0)
 		AddImm(bc->bin.lhs.voffset, bc->bin.lhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
 }
+void CreateMemToMem(byte_code *bc, char byte, char greater_byte, machine_code &ret)
+{
+	byte_code aux = *bc;
+		
+	aux.bin.lhs.reg = 0;
+	aux.bin.lhs.reg_sz = bc->bin.rhs.reg_sz;
+	aux.bin.rhs.reg = bc->bin.rhs.reg;
+	aux.bin.rhs.reg_sz = bc->bin.rhs.reg_sz;
+	aux.bin.rhs.voffset = bc->bin.rhs.voffset;
+
+	CreateMemToReg(&aux, 0x8a, 0x8b, false, ret);
+	aux.bin.rhs.reg = 0;
+	aux.bin.rhs.reg_sz = bc->bin.rhs.reg_sz;
+	aux.bin.lhs.reg = bc->bin.lhs.reg;
+	aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
+	aux.bin.lhs.voffset = bc->bin.lhs.voffset;
+	CreateRegToMem(&aux, byte, greater_byte, ret);
+}
 void CreateStoreImmToMem(byte_code *bc, machine_code &ret)
 {
 	char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
-	AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, false, ret.code);
+	bool is_rex = IS_FLAG_ON(base_reg, 0x80);
+	*(int*)&is_rex *= 2;
+	AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, is_rex, ret.code);
+	base_reg &= 0xf;
 	AddModRM(true, bc->bin.lhs.voffset, base_reg, 0, ret);
 	// mem offset first
 	if(bc->bin.lhs.voffset != 0)
 		AddImm(bc->bin.lhs.voffset, (unsigned int)(bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
 	AddImm(bc->bin.rhs.s32, bc->bin.lhs.reg_sz, ret);
 }
-void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, char base_reg = 5)
+void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, short base_reg = 5)
 {
 	base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
-	if (bc->bin.rhs.u64 <= 0xff)
-		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, false, ret.code);
+	char one_byte_imm = bc->bin.rhs.u64 < 0x80 ? 1 : 4;
+	bool is_rex = IS_FLAG_ON(base_reg, 0x80);
+	*(int*)&is_rex *= 2;
+	if (one_byte_imm == 1)
+		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, is_rex, ret.code);
 	else
-		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x81, false, ret.code);
+		AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x81, is_rex, ret.code);
 	
 	//ret.code.emplace_back(byte);
+	base_reg &= 0xf;
 
 	AddModRM(true, bc->bin.lhs.voffset, base_reg, byte, ret);
 	//char mod_rm = MakeModRM(true, bc->bin.lhs.voffset, base_reg, byte);
@@ -422,7 +460,7 @@ void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, char base_reg =
 		AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
 
 	// adding imm
-	AddImm(bc->bin.rhs.u64, bc->bin.rhs.u64 <= 0xff ? 1 : 4, ret);
+	AddImm(bc->bin.rhs.u64, one_byte_imm, ret);
 
 }
 void AddJump(byte_code *bc, char jmp, machine_code& ret)
@@ -487,7 +525,15 @@ void CreateSSERegToSSEReg(byte_code *bc, char op, machine_code *ret)
 {
 	unsigned char src = bc->bin.lhs.reg;
 	unsigned char dst = bc->bin.rhs.reg;
-	ret->code.emplace_back(0xf3);
+	ret->code.emplace_back(0x0f);
+	ret->code.emplace_back(op);
+	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
+	ret->code.emplace_back(modrm);
+}
+void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
+{
+	unsigned char src = bc->bin.lhs.reg;
+	unsigned char dst = bc->bin.rhs.reg;
 	ret->code.emplace_back(0x0f);
 	ret->code.emplace_back(op);
 	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
@@ -554,15 +600,15 @@ void CreateSSERegToMem(byte_code *bc, char op, machine_code *ret, char reg_base 
 
 void Create0FMemToReg(byte_code *bc, char op, machine_code *ret)
 {
-	char dst = bc->bin.lhs.reg;
+	char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
 	auto reg_base = FromBCRegToAsmReg(bc->bin.rhs.reg);
 
 	AddPreMemInsts(8, 0x0f, 0x0f, false, ret->code);
 
-	if (bc->bin.rhs.reg_sz == 2)
+	if (bc->bin.rhs.reg_sz == 2 || bc->bin.rhs.reg_sz == 8)
 		ret->code.emplace_back(op + 1);
 
-	else if(bc->bin.rhs.reg_sz == 1)
+	else if(bc->bin.rhs.reg_sz == 1 || bc->bin.rhs.reg_sz == 4)
 		ret->code.emplace_back(op);
 
 	else
@@ -625,10 +671,1253 @@ void AddLeaInst(machine_code &ret, char reg_dst)
 	ret.code.emplace_back(0x5 | (reg_dst << 3));
 	AddImm(0, 4, ret);
 }
+//mov rax, rcx
+//mov rcx, qword[rax]
+//mov rdx, qword[rax + 8]
+//mov r8, qword[rax + 16]
+//mov r9, qword[rax + 24]
+
+char *distribute_regs_from_interpreter_bytes= "\x48\x89\xC8"
+                  "\x48\x8B\x08"
+                  "\x48\x8B\x50\x08"
+                  "\x4C\x8B\x40\x10"
+                  "\x4C\x8B\x48\x18";
+void MovImmToReg(machine_code &m, short reg, char reg_sz, long long imm)
+{
+	char base_reg = FromBCRegToAsmReg(reg);
+	bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
+	AddPreMemInsts(reg_sz, 0xc6, 0xc7, reg_is_rex, m.code);
+	m.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
+	AddImm(imm, reg_sz, m);
+
+}
+
+int GetArgRegIdx(int reg)
+{
+	short final_reg = 0;
+	switch (reg)
+	{
+	case 0:
+		final_reg = 1;
+		break;
+	case 1:
+		final_reg = 2;
+		break;
+	case 2:
+		final_reg = 0 | (1 << 7);
+		break;
+	case 3:
+		final_reg = 1 | (1 << 7);
+		break;
+	default:
+		final_reg = reg;
+	}
+	return final_reg;
+
+}
+void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_code& ret)
+{
+#define CHANGE_JMP_DST_BC ret.jmp_rels.back().dst_bc = &bcodes[i + bc->val + 1];
+	int i = 0;
+
+	func_decl* cur_func = nullptr;
+
+	int cur_func_start = 0;
+	FOR_VEC(bc, bcodes)
+	{
+
+		char* data = (char*)ret.code.data();
+		bc->machine_code_idx = ret.code.size();
+		switch(bc->type)
+		{
+		case NOP:
+		{
+		}break;
+		case BEGIN_FUNC:
+		{
+			func_decl* fdecl = bc->fdecl;
+			fdecl->code_start_idx = ret.code.size();
+			cur_func = fdecl;
+		}break;
+		case BEGIN_FUNC_FOR_INTERPRETER:
+		{
+			func_decl* fdecl = bc->fdecl;
+
+			fdecl->for_interpreter_code_start_idx = ret.code.size();
+
+		}break;
+		case ASSIGN_FUNC_SIZE:
+		{
+			//bc->fdecl->code_size = (ret.code.size() + sum_of_onter_insts) - bc->fdecl->code_start_idx;
+		}break;
+		case CVTSD_MEM_2_SS:
+		{
+			ret.code.emplace_back(0xf3);
+			auto prev_size = bc->bin.rhs.reg_sz;
+
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			auto reg_base = FromBCRegToAsmReg(bc->bin.rhs.reg);
+
+			bc->bin.rhs.reg_sz = max(bc->bin.rhs.reg_sz, 4);
+			AddPreMemInsts(bc->bin.rhs.reg_sz, 0x0f, 0x0f, false, ret.code);
+			ret.code.emplace_back(0x2a);
+
+			AddModRM(true, bc->bin.rhs.voffset, reg_base, dst & 0xf, ret);
+			if(bc->bin.rhs.voffset != 0)
+				AddImm(bc->bin.rhs.voffset, (unsigned int) bc->bin.rhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
+
+			bc->bin.rhs.reg_sz = prev_size;
+
+		}break;
+		case CVTSD_REG_2_SS:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
+			ret.code.emplace_back(0xf3);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x2a);
+			ret.code.emplace_back(mod);
+		}break;
+		case INT3:
+			ret.code.emplace_back(0xcc);
+		break;
+		case MOVSX_R:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
+			if(bc->bin.rhs.reg_sz == 4)
+			{
+				ret.code.emplace_back(0x48);
+				ret.code.emplace_back(0x63);
+				ret.code.emplace_back(mod);
+			}
+			else
+			{
+				char i_sz = bc->bin.rhs.reg_sz == 1 ? 0xbe : 0xbf;
+
+				ret.code.emplace_back(0x48);
+				ret.code.emplace_back(0x0f);
+				ret.code.emplace_back(i_sz);
+				ret.code.emplace_back(mod);
+
+			}
+		}break;
+		case MOVZX_R:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
+			if(bc->bin.rhs.reg_sz == 4)
+			{
+				char lhs_r = bc->bin.lhs.reg;
+				char rhs_r = bc->bin.lhs.reg;
+				// mov edi, rhs
+				bc->bin.lhs.reg = 7;
+				bc->bin.lhs.reg_sz = 4;
+				bc->bin.rhs.reg_sz = 4;
+				bc->bin.rhs.reg_sz = 4;
+				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+
+				// mov lhs, edi
+				bc->bin.lhs.reg = lhs_r;
+				bc->bin.lhs.reg_sz = 4;
+				bc->bin.rhs.reg_sz = 7;
+				bc->bin.rhs.reg = rhs_r;
+				bc->bin.rhs.reg_sz = 4;
+				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+
+			}
+			else
+			{
+				char i_sz = bc->bin.rhs.reg_sz == 1 ? 0xb6 : 0xb7;
+
+				ret.code.emplace_back(0x48);
+				ret.code.emplace_back(0x0f);
+				ret.code.emplace_back(i_sz);
+				ret.code.emplace_back(mod);
+
+			}
+		}break;
+		case MOVSX_M:
+		{
+			char mod = MakeModRM(false, 0, 4, bc->bin.lhs.reg);
+			if (bc->bin.rhs.reg_sz == 4)
+			{
+				CreateMemToReg(&*bc, 0x63, 0x63, false, ret);
+				//ret.code.emplace_back(0x48);
+				//ret.code.emplace_back(0x63);
+				//ret.code.emplace_back(mod);
+			}
+			else
+				Create0FMemToReg(&*bc, 0xbe, &ret);
+			
+		}break;
+		case SQRT_SSE:
+		{
+			// movssinstruction here
+			char mod = 0xc0 | ((bc->bin.lhs.reg & 0xf) << 3) | ((bc->bin.rhs.reg & 0xf));
+			ret.code.emplace_back(0xf3);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x51);
+			ret.code.emplace_back(mod);
+
+		}break;
+		case MOVZX_M:
+		{
+			Create0FMemToReg(&*bc, 0xb6, &ret);
+		}break;
+		case RELOC:
+		{
+			bool is_rel_func = bc->rel.type == rel_type::REL_FUNC;
+			bool is_get_func_addr = bc->rel.type == rel_type::REL_GET_FUNC_ADDR;
+
+			if (is_rel_func || is_get_func_addr)
+			{
+				auto fdecl = bc->rel.call_func;
+				
+				if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTERNAL))
+				{
+
+					//ASSERT(lang_stat->internal_funcs_addr.find(fdecl->name.c_str()) != lang_stat->internal_funcs_addr.end())
+				}
+				else
+				{
+					auto found_ptr_func = IsThereAFunction(lang_stat, (char *)bc->rel.call_func->name.c_str());
+
+					if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_IS_OUTSIDER))
+					{
+
+						MovImmToReg(ret, 0, 4, fdecl->func_idx);
+						ret.code.emplace_back(0xcc);
+					}
+					else if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_LABEL))
+					{
+						//TODO
+					}
+					else
+					{
+						// asserting that the function was already compiled
+						ASSERT(found_ptr_func && IS_FLAG_ON(fdecl->flags, FUNC_DECL_CODE_WAS_GENERATED))
+					}
+
+				}
+
+				int offset_addr = is_rel_func ? 1 : 3;
+				auto fdecl_flags = bc->rel.call_func->flags;
+
+				// check if function is defined by the compiler, by means of testing if the fdecl has a body
+				if(!IS_FLAG_ON(fdecl_flags, FUNC_DECL_EXTERN) 
+					&& !IS_FLAG_ON(fdecl_flags, FUNC_DECL_IS_OUTSIDER)
+					&& !IS_FLAG_ON(fdecl_flags, FUNC_DECL_LINK_NAME))
+				{
+					ret.call_rels.emplace_back(call_rel(ret.code.size() + offset_addr, bc->rel.call_func));
+				}
+				else
+					ret.rels.emplace_back(machine_reloc(INSIDE_FUNC, ret.code.size() + offset_addr, bc->rel.name));
+
+				if(is_rel_func)
+				{
+					ret.code.emplace_back(0xe8);
+					AddImm(0, 4, ret);
+				}
+				else
+					AddLeaInst(ret, bc->rel.reg_dst);
+
+			}
+			else if (bc->rel.type == rel_type::REL_TYPE)
+			{
+				own_std::string name = own_std::string("$$") + bc->rel.name;
+
+				// puttinf the name into the heap
+				char *new_str = std_str_to_heap(lang_stat, &name);
+
+				ret.rels.emplace_back(machine_reloc(machine_rel_type::TYPE_DATA, ret.code.size() + 3, new_str));
+
+				ASSERT((unsigned char)bc->rel.reg_dst < 7)
+
+				// emplacing a lea instruction here
+				AddLeaInst(ret, bc->rel.reg_dst);
+				/*
+				ret.code.emplace_back(0x48);
+				ret.code.emplace_back(0x8d);
+				ret.code.emplace_back(0x5 | (bc->rel.reg_dst << 3));
+				AddImm(0, 4, ret);
+				*/
+
+			}
+			else if (bc->rel.type == rel_type::REL_DATA)
+			{
+				char* data_sym_name = (char*)AllocMiscData(lang_stat, 16);
+				snprintf(data_sym_name, 16, "$%d", ret.generated_data_symbols++);
+				
+				ret.symbols.emplace_back(machine_sym(lang_stat, machine_sym_type::SYM_DATA, bc->rel.offset, data_sym_name));
+				// float 
+				if(IS_FLAG_ON(bc->rel.reg_dst, 0x40))
+				{
+					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 4, data_sym_name));
+
+					// movssinstruction here
+					ret.code.emplace_back(0xf3);
+					ret.code.emplace_back(0x0f);
+					ret.code.emplace_back(0x10);
+					ret.code.emplace_back(0x5 | ((bc->rel.reg_dst &0xf) << 3));
+					AddImm(0, 4, ret);
+				}
+				else
+				{
+					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 3, data_sym_name));
+
+					// emplacing a lea instruction here
+					AddLeaInst(ret, bc->rel.reg_dst);
+					/*
+					ret.code.emplace_back(0x48);
+					ret.code.emplace_back(0x8d);
+					ret.code.emplace_back(0x5 | (bc->rel.reg_dst << 3));
+					AddImm(0, 4, ret);
+					*/
+				}
+			}
+		}break;
+		case INST_CALL_OUTSIDER:
+		{
+			
+			machine_rel_type r_type = bc->out_func.is_link_name ? DLL_FUNC :DLL_FUNC_NO_IMP_ADDING; 
+
+			ret.rels.emplace_back(machine_reloc(DLL_FUNC, ret.code.size() + 2, bc->name));
+
+			ret.code.emplace_back(0xff);
+			ret.code.emplace_back(0x15);
+			AddImm(0, 4, ret);
+		}break;
+		case JMP_E:
+			//int jmp_sz = (bc->val * 4) > 0xff ? 4 : 1;
+			AddJump(&*bc, 0x74, ret);
+			CHANGE_JMP_DST_BC
+			//ret.jmp_rels.emplace_back(jmp_sz
+			break;
+		case JMP_NE:
+			AddJump(&*bc, 0x75, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		//unsigned
+		case JMP_B:
+			AddJump(&*bc, 0x72, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_BE:
+			AddJump(&*bc, 0x76, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_A:
+			AddJump(&*bc, 0x77, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_AE:
+			AddJump(&*bc, 0x73, ret);
+			CHANGE_JMP_DST_BC
+		break;
+		//signed
+		case JMP_L:
+			AddJump(&*bc, 0x7c, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_LE:
+			AddJump(&*bc, 0x7e, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_G:
+			AddJump(&*bc, 0x7d, ret);
+			CHANGE_JMP_DST_BC
+			break;
+		case JMP_GE:
+			AddJump(&*bc, 0x7d, ret);
+			CHANGE_JMP_DST_BC
+		break;
+		case MOV_F_2_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+				CreateSSERegToSSEReg(&*bc, 0x10, &ret);
+			else
+				CreateSSERegToMem(&*bc, 0x11, &ret);
+		}break;
+		case MOV_R_2_SSE:
+		case MOV_SSE_2_R:
+		{
+			CreateSSERegToSSEReg(&*bc, 0x2c, &ret);
+		}break;
+		case MOV_SSE_2_SSE:
+		{
+			CreateSSERegToSSEReg(&*bc, 0x10, &ret);
+			//CreateMemToSSE(&*bc, 0x10, &ret);
+		}break;
+		case MOV_M_2_SSE:
+		{
+			CreateMemToSSE(&*bc, 0x10, &ret);
+		}break;
+		
+		case MOV_SSE_2_RM:
+			CreateSSERegToMem(&*bc, 0x11, &ret, bc->bin.lhs.reg, false);
+		break;
+		case MOV_SSE_2_MEM:
+		{
+			CreateSSERegToMem(&*bc, 0x11, &ret);
+		}break;
+		case MOV_SSE_2_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+			{
+				//bc->bin.lhs.reg = bc->bin.lhs.reg - 6;
+				CreateSSERegToSSEReg(&*bc, 0x10, &ret);
+			}
+			else
+			{
+				bc->bin.lhs.reg = 5;
+				CreateSSERegToMem(&*bc, 0x11, &ret);
+			}
+		}break;
+		case POP_REG_PARAM:
+		{
+			if (bc->bin.lhs.reg <= 9)
+			{
+				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
+			}
+			else
+			{
+				StoreMemToMem(&*bc, bc->bin.rhs.voffset, ret);
+			}
+		}break;
+		case PUSH_REG_PARAM:
+		{
+			if (bc->bin.rhs.reg <= 9)
+			{
+				CreateRegToMem(&*bc, 0x88, 0x89, ret);
+			}
+			else
+			{
+				StoreMemToMem(&*bc, bc->bin.lhs.voffset, ret);
+			}
+		}break;
+		case MOV_R_2_REG_PARAM:
+		{
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			if (bc->bin.lhs.reg < 4)
+			{
+				short base_reg = final_reg;
+				bool base_reg_is_rex = IS_FLAG_ON(base_reg, 0x80);
+
+				char src_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
+				bool src_reg_is_rex = IS_FLAG_ON(src_reg, 0x80);
+
+				char rex = ((char)base_reg_is_rex << 1) | ((char)src_reg_is_rex);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x88, 0x89, rex, ret.code);
+
+				base_reg &= 0xf;
+				src_reg &= 0xf;
+				char inst = (3 << 6) | (base_reg) | (src_reg << 3);
+				ret.code.emplace_back(inst);
+			}
+			else
+			{
+				char stack_reg = (final_reg - 4) * 8 + 32;
+				auto bin = bc->bin;
+				bc->bin.lhs.reg = 5;
+				bc->bin.lhs.voffset  = stack_reg;
+				bc->bin.lhs.var_size = 8;
+				CreateRegToMem(&*bc, 0x88, 0x89, ret);
+				bc->bin = bin;
+			}
+		}break;
+		case MOV_M_2_REG_PARAM:
+		{
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			if (bc->bin.lhs.reg < 4)
+			{
+				auto saved_reg = bc->bin.lhs.reg;
+				if (IS_FLAG_ON(final_reg, 1 << 7))
+				{
+					bc->bin.lhs.reg = (bc->bin.lhs.reg % 2) + 8;
+					CreateMemToReg(&*bc, 0x8a, 0x8b, true, ret);
+				}
+				else
+				{
+					bc->bin.lhs.reg = (bc->bin.lhs.reg % 2) + 1;
+					CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
+				}
+
+				bc->bin.lhs.reg = saved_reg;
+			}
+			else
+			{
+				int stack_reg = (int)((bc->bin.lhs.reg - 4) * 8 + 32);
+				StoreMemToMem(&*bc, stack_reg, ret);
+			}
+		}break;
+		case MOV_I_2_REG_PARAM:
+		{
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			if (bc->bin.lhs.reg < 4)
+			{
+				char dst_reg = final_reg;
+				bool reg_is_rex = IS_FLAG_ON(dst_reg, 0x80);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, ((char)reg_is_rex) << 1, ret.code);
+				ret.code.emplace_back(0xc0 + (char)(dst_reg & 0xf));
+				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
+			}
+			else
+			{
+				char stack_reg = final_reg - 4;
+				bc->bin.lhs.voffset = stack_reg * 8 + 32;
+				bc->bin.lhs.var_size = bc->bin.lhs.reg_sz;
+				bc->bin.lhs.reg = 5;
+				CreateStoreImmToMem(&*bc, ret);
+			}
+		}break;
+		case STORE_REG_PARAM:
+		{
+			if ((bc->bin.rhs.reg & 0xf) < 4)
+			{
+				short final_reg = GetArgRegIdx(bc->bin.rhs.reg);
+				auto prev_reg = bc->bin.rhs.reg;
+				bc->bin.rhs.reg = final_reg;
+				bool is_sse = IS_FLAG_ON(bc->bin.rhs.reg, 0x10);
+				if (is_sse)
+				{
+					bc->bin.rhs.reg &= 0xf;
+					CreateSSERegToMem(&*bc, 0x11, &ret);
+				}
+				else
+				{
+					char stack_reg = (final_reg - 4) * 8 + 32;
+					auto bin = bc->bin;
+					bc->bin.rhs.reg = final_reg;
+					//bc->bin.rhs.voffset  = stack_reg;
+					//bc->bin.rhs.var_size = 8;
+					CreateRegToMem(&*bc, 0x88, 0x89, ret, 5, true);
+					bc->bin = bin;
+				}
+				bc->bin.lhs.reg = prev_reg;
+			}
+			else
+				ASSERT(false);
+		}break;
+		case JMP:
+		{
+			int jmp = (int)bc->val * 4;
+			if ((unsigned int)jmp <= 0x80)
+			{
+				ret.jmp_rels.emplace_back(jmp_rel(1, ret.code.size() + 1, &*bc));
+				CHANGE_JMP_DST_BC
+
+				ret.code.emplace_back(0xeb);
+				ret.code.emplace_back(0x00);
+			}
+			else
+			{
+				ret.jmp_rels.emplace_back(jmp_rel(4, ret.code.size() + 1, &*bc));
+				CHANGE_JMP_DST_BC
+
+				ret.code.emplace_back(0xe9);
+
+				ret.code.emplace_back(0x00);
+				ret.code.emplace_back(0x00);
+				ret.code.emplace_back(0x00);
+				ret.code.emplace_back(0x00);
+			}
+		}break;
+
+
+		case CMP_R_2_M:
+		{
+			CreateRegToMem(&*bc, 0x38, 0x39, ret);
+		}break;
+		case CMP_R_2_R:
+		{
+			CreateRegToReg(&*bc, 0x38, 0x39, &ret);
+		}break;
+		case CMP_I_2_RM:
+		{
+			CreateImmToMem(&*bc, 7, ret);
+		}break;
+		//
+		case CMP_MEM_2_SSE:
+		{
+			// we moving the mem to reg 4, so the lhs sse must be a different reg
+			ASSERT(bc->bin.rhs.reg != 4)
+
+			auto last_lhs = bc->bin.lhs;
+			
+			// first we're moving the mem to xmm4
+			bc->bin.lhs.reg = 4;
+
+			// movss xmm4, mem
+			CreateMemToSSE(&*bc, 0x10, &ret);
+
+			bc->bin.lhs = last_lhs;
+			bc->bin.rhs.reg = 4;
+
+			// comiss xmm?, xmm4
+			Create0FMemToReg(&*bc, 0x2f, &ret);
+		}break;
+		case CMP_SSE_2_MEM:
+		{
+			char src = bc->bin.rhs.reg;
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x2f);
+
+			AddModRM(true, bc->bin.lhs.voffset, dst, src & 0xf, ret);
+			if (bc->bin.lhs.voffset != 0)
+				AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
+		}
+		break;
+		/*
+		case CMP_SSE_2_RMEM:
+			// not handled
+			ASSERT(false)
+			break;
+			*/
+		case CMP_SSE_2_SSE:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.rhs.reg, bc->bin.lhs.reg);
+
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x2f);
+			ret.code.emplace_back(mod);
+		}break;
+		//
+		case CMP_I_2_M:
+		{
+			CreateImmToMem(&*bc, 7, ret);
+		}break;
+		case CMP_M_2_R:
+			CreateMemToReg(&*bc, 0x3a, 0x3b, false, ret);
+			break;
+
+		case SHIFTR_I_2_R:
+		{
+			char reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			bool is_rex = IS_FLAG_ON(reg, 0x80);
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc0, 0xc1, is_rex, ret.code);
+			//char op = 0xe8 | bc->bin.lhs.r;
+		}break;
+		case SHIFTL_I_2_R:
+		{
+			char reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			bool is_rex = IS_FLAG_ON(reg, 0x80);
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc0, 0xc1, is_rex, ret.code);
+			//char op = 0xe0 | bc->bin.lhs.r;
+		}break;
+
+		case CMP_I_2_R:
+			CreateImmToReg(0x3c, 0x3d, 7, &*bc, ret);
+			break;
+
+		case STORE_RM_2_R:
+		case INST_LEA:
+		{
+			char base_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_base);
+			char dst_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_dst);
+
+			bool is_rex = IS_FLAG_ON(base_reg, 0x80);
+			*(int*)&is_rex *= 2;
+			AddPreMemInsts(bc->bin.rhs.lea.size, 0x8d, 0x8d, is_rex, ret.code);
+			//ret.code.emplace_back(byte);
+
+			base_reg &= 0xf;
+			AddModRM(true, bc->bin.rhs.lea.offset, base_reg, dst_reg, ret);
+			if(bc->bin.rhs.lea.offset != 0)
+				AddImm(bc->bin.rhs.lea.offset, ((unsigned int)bc->bin.rhs.lea.offset) < DISP_BYTE_MAX ? 1 : 4, ret);
+		}break;
+		case COMMENT:
+		{
+			/*if (f->name == "it_init{entity}")
+				int a = 0;
+				*/
+		}
+			break;
+		case MOV_R:
+		{
+			if (bc->bin.lhs.reg == bc->bin.rhs.reg)
+				break;
+			CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+		}break;
+		case MOV_RM:
+		{
+			CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret, bc->bin.rhs.reg);
+		}break;
+		case MOV_M:
+		{
+			CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
+		}break;
+		case STORE_R_2_RM:
+		{
+			CreateRegToMem(&*bc, 0x88, 0x89, ret, bc->bin.lhs.reg);
+		}break;
+		case STORE_RM_2_M:
+		case STORE_R_2_M:
+		{
+
+			CreateRegToMem(&*bc, 0x88, 0x89, ret);
+
+		}break;
+		case STORE_I_2_M:
+		{
+			CreateStoreImmToMem(&*bc, ret);
+		}break;
+		case REP_B:
+		{
+			ret.code.emplace_back(0xf3);
+			ret.code.emplace_back(0xa4);
+		}break;
+		case NOT_M:
+		{
+			ASSERT(false)
+		}break;
+		case NOT_R:
+		{
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char mod = MakeModRM(false,0, dst, 2);
+			ret.code.emplace_back(mod);
+		}break;
+		case NEG_M:
+		{
+			ASSERT(false)
+		}break;
+		case NEG_R:
+		{
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char mod = MakeModRM(false,0, dst, 3);
+			ret.code.emplace_back(mod);
+		}break;
+
+		case MOD_R_2_R:
+		{
+			// xor rdx, rdx
+			byte_code aux;
+			aux.bin.lhs.reg = 2;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			CreateRegToReg(&aux, 0x30, 0x31, &ret);
+
+			if (bc->bin.lhs.reg != 0)
+			{
+				// moving register to rax
+				aux.bin.lhs.reg = 0;
+				aux.bin.lhs.reg_sz = 8;
+				aux.bin.rhs.reg = bc->bin.lhs.reg;
+				aux.bin.rhs.reg_sz = bc->bin.lhs.reg_sz;
+				CreateRegToReg(&aux, 0x88, 0x89, &ret);
+			}
+
+
+			// moving mem to rbx
+			aux.bin.lhs.reg = 3;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = bc->bin.rhs.reg;
+			aux.bin.rhs.reg_sz = bc->bin.rhs.reg_sz;
+			aux.bin.rhs.voffset = bc->bin.rhs.voffset;
+			CreateRegToReg(&aux, 0x8a, 0x8b, &ret);
+
+			MovImmToReg(ret, 3, 4, bc->bin.rhs.u64);
+
+			// multiplying rax by src
+
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			char mod = MakeModRM(false, 0, 3, 7);
+			ret.code.emplace_back(mod);
+
+			// moving the the remainign rdx to dst reg
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			aux.bin.lhs.reg = bc->bin.lhs.reg;
+			aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
+			CreateRegToReg(&aux, 0x88, 0x89, &ret);
+		}break;
+		case MOD_M_2_R:
+		{
+			// xor rdx, rdx
+			byte_code aux;
+			aux.bin.lhs.reg = 2;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			CreateRegToReg(&aux, 0x30, 0x31, &ret);
+
+			if (bc->bin.lhs.reg != 0)
+			{
+				// moving register to rax
+				aux.bin.lhs.reg = 0;
+				aux.bin.lhs.reg_sz = 8;
+				aux.bin.rhs.reg = bc->bin.lhs.reg;
+				aux.bin.rhs.reg_sz = bc->bin.lhs.reg_sz;
+				CreateRegToReg(&aux, 0x88, 0x89, &ret);
+			}
+
+
+			// moving mem to rbx
+			aux.bin.lhs.reg = 3;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = bc->bin.rhs.reg;
+			aux.bin.rhs.reg_sz = bc->bin.rhs.reg_sz;
+			aux.bin.rhs.voffset = bc->bin.rhs.voffset;
+			CreateMemToReg(&aux, 0x8a, 0x8b, false, ret);
+
+			MovImmToReg(ret, 3, 4, bc->bin.rhs.u64);
+
+			// multiplying rax by src
+
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			char mod = MakeModRM(false, 0, 3, 7);
+			ret.code.emplace_back(mod);
+
+			// moving the the remainign rdx to dst reg
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			aux.bin.lhs.reg = bc->bin.lhs.reg;
+			aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
+			CreateRegToReg(&aux, 0x88, 0x89, &ret);
+		}break;
+		case MOD_I_2_R:
+		{
+			// xor rdx, rdx
+			byte_code aux;
+			aux.bin.lhs.reg = 2;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			CreateRegToReg(&aux, 0x30, 0x31, &ret);
+
+			if (bc->bin.lhs.reg != 0)
+			{
+				// moving register to rax
+				aux.bin.lhs.reg = 0;
+				aux.bin.lhs.reg_sz = 8;
+				aux.bin.rhs.reg = bc->bin.lhs.reg;
+				aux.bin.rhs.reg_sz = bc->bin.lhs.reg_sz;
+				CreateRegToReg(&aux, 0x88, 0x89, &ret);
+			}
+
+
+			MovImmToReg(ret, 3, 4, bc->bin.rhs.u64);
+
+			// multiplying rax by src
+
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			char mod = MakeModRM(false, 0, 3, 7);
+			ret.code.emplace_back(mod);
+
+			// moving the the remainign rdx to dst reg
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			aux.bin.lhs.reg = bc->bin.lhs.reg;
+			aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
+			CreateRegToReg(&aux, 0x88, 0x89, &ret);
+		}break;
+		case DIV_R:
+		{
+			// multiplying rax by src
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			char mod = MakeModRM(false,0, src, 7);
+			ret.code.emplace_back(mod);
+		}break;
+		case DIV_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x5e, &ret);
+			break;
+		case DIV_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x5e, &ret);
+			break;
+			/*
+		case DIV_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x5e, &ret, bc->bin.lhs.reg, false);
+			break;
+			*/
+		case DIV_SSE_2_SSE:
+			CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
+			break;
+
+		case XOR_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x57, &ret);
+			break;
+		case XOR_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x57, &ret);
+			break;
+			/*
+		case XOR_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x57, &ret, bc->bin.lhs.reg, false);
+			break;
+			*/
+		case XOR_SSE_2_SSE:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x57);
+			ret.code.emplace_back(mod);
+
+		}break;
+
+		case MUL_R_2_R:
+		{
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			dst &= 0xf;
+			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
+			src &= 0xf;
+
+			
+			// moving dst to rax
+			bc->bin.lhs.reg = 0;
+			bc->bin.rhs.reg = dst;
+
+			if (bc->bin.lhs.reg != bc->bin.rhs.reg)
+				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+			
+
+			// multiplying rax by src
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+
+			//  I'm not sure why the third byte reg should be 4
+			char mod = MakeModRM(false,0, src, 4);
+			ret.code.emplace_back(mod);
+		
+			// moving rax to dst
+			bc->bin.lhs.reg = dst;
+			bc->bin.rhs.reg = 0;
+			if (bc->bin.lhs.reg != bc->bin.rhs.reg)
+				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+
+		}break;
+		case MUL_M_2_R:
+		{
+			int code = ret.code.size();
+			Create0FMemToReg(&*bc, 0xaf, &ret);
+		}break;
+		case MUL_I_2_R:
+		{
+			char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			base_reg &= 0xf;
+			bool less_than_byte = bc->bin.rhs.u32 < 0x80;
+
+			if(less_than_byte)
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x6b, 0x6b, false, ret.code);
+			else
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x69, 0x69, false, ret.code);
+
+			char r = (3 << 6) | (base_reg << 3) | base_reg;
+
+			ret.code.emplace_back(r);
+
+			AddImm(bc->bin.rhs.u32, less_than_byte ? 1 : 4, ret);
+		}break;
+		case MUL_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x59, &ret);
+			break;
+		case MUL_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x59, &ret);
+			break;
+			/*
+		case MUL_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x59, &ret, bc->bin.lhs.reg, false);
+			break;
+			*/
+		case MUL_SSE_2_SSE:
+			CreateSSERegToSSEReg(&*bc, 0x59, &ret);
+			break;
+
+
+		case MOV_I:
+		{
+				MovImmToReg(ret, bc->bin.lhs.reg, bc->bin.lhs.reg_sz, bc->bin.rhs.u64);
+				/*
+				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+				bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, reg_is_rex, ret.code);
+				ret.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
+				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
+				*/
+		}break;
+
+		
+		case MOV_ABS:
+		{
+				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+				bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
+				AddPreMemInsts(8, 0xb8, 0xb8, reg_is_rex, ret.code);
+				AddImm(bc->bin.rhs.u64, 4, ret);
+				AddImm(bc->bin.rhs.u64 >> 32, 4, ret);
+		}break;
+
+		case AND_M_2_R:
+			CreateMemToReg(&*bc, 0x22, 0x23, false, ret);
+			break;
+		case AND_I_2_R:
+			CreateImmToReg(0x24, 0x25, 4, &*bc, ret);
+			break;
+		case AND_R_2_R:
+			CreateRegToReg(&*bc, 0x20, 0x21, &ret);
+		break;
+
+
+		case SUB_I_2_M:
+			CreateImmToMem(&*bc, 0x5, ret);
+			break;
+		case SUB_R_2_M:
+			CreateRegToMem(&*bc, 0x28, 0x29, ret);
+			break;
+		case SUB_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x5c, &ret);
+			break;
+		case SUB_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x5c, &ret);
+			break;
+			/*
+		case SUB_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x5c, &ret, bc->bin.lhs.reg, false);
+			break;
+			*/
+		case SUB_SSE_2_SSE:
+			CreateSSERegToSSEReg(&*bc, 0x5c, &ret);
+			break;
+		case SUB_M_2_R:
+			CreateMemToReg(&*bc, 0x2a, 0x2b, false, ret);
+			break;
+		case SUB_R_2_R:
+			CreateRegToReg(&*bc, 0x28, 0x29, &ret);
+			break;
+		case SUB_I_2_R:
+			CreateImmToReg(0x2c, 0x2d, 5, &*bc, ret);
+			break;
+
+
+
+		case ADD_M_2_M:
+			CreateMemToMem(&*bc, 0x0, 0x1, ret);
+		break;
+		case ADD_R_2_RM:
+			CreateRegToMem(&*bc, 0x0, 0x1, ret, bc->bin.lhs.reg);
+		break;
+		case ADD_I_2_M:
+			CreateImmToMem(&*bc, 0x0, ret);
+		break;
+		case ADD_R_2_M:
+			CreateRegToMem(&*bc, 0x0, 0x1, ret);
+		break;
+		case ADD_MEM_2_SSE:
+			CreateMemToSSE(&*bc, 0x58, &ret);
+		break;
+		case ADD_SSE_2_MEM:
+			CreateSSERegToMem(&*bc, 0x58, &ret);
+		break;
+		/*
+		case ADD_SSE_2_RMEM:
+			CreateSSERegToMem(&*bc, 0x58, &ret, bc->bin.lhs.reg, false);
+			break;
+			*/
+		case ADD_SSE_2_SSE:
+			CreateSSERegToSSEReg(&*bc, 0x58, &ret);
+		break;
+		case ADD_M_2_R:
+			CreateMemToReg(&*bc, 0x2, 0x3, false, ret);
+			break;
+		case ADD_R_2_R:
+			CreateRegToReg(&*bc, 0x0, 0x1, &ret);
+			break;
+		case ADD_I_2_RM:
+			CreateImmToMem(&*bc, 0x0, ret, bc->bin.lhs.reg);
+			break;
+		case ADD_I_2_R:
+			CreateImmToReg(0x4, 0x5, 0, &*bc, ret);
+			break;
+
+		case OR_R_2_RM:
+			CreateRegToMem(&*bc, 0x08, 0x9, ret, bc->bin.lhs.reg);
+		break;
+		case OR_I_2_M:
+			CreateImmToMem(&*bc, 0x1, ret);
+		break;
+		case OR_R_2_M:
+			CreateRegToMem(&*bc, 0x8, 0x9, ret);
+		break;
+		case OR_M_2_R:
+			CreateMemToReg(&*bc, 0xa, 0xb, false, ret);
+			break;
+		case OR_R_2_R:
+			CreateRegToReg(&*bc, 0x8, 0x9, &ret);
+			break;
+		case OR_I_2_RM:
+			CreateImmToMem(&*bc, 0x1, ret, bc->bin.lhs.reg);
+			break;
+		case OR_I_2_R:
+			CreateImmToReg(0xc, 0xd, 1, &*bc, ret);
+			break;
+		case INST_CALL_REG:
+		{
+			ret.code.emplace_back(0xff);
+			ret.code.emplace_back(0xd0 + bc->val);
+		}break;
+
+		case POP_STACK_SIZE:
+		case PUSH_STACK_SIZE:
+		{
+		}break;
+		case PUSH_R:
+		{
+			char reg = FromBCRegToAsmReg(bc->val);
+			ret.code.emplace_back(0x50 + (reg & 0xf));
+		}break;
+		case RET:
+		{
+			ret.code.emplace_back(0xc3);
+		}break;
+		case ADD_PCKD_SSE_2_PCKD_SSE:
+		{
+			CreateSSERegToSSEReg(&*bc, 0x58, &ret);
+		}break;
+		case MOV_M_2_PCKD_SSE:
+		{
+			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
+			char dst = bc->bin.lhs.reg;
+			//CreateMemToSSE(&*bc, 0x10, &ret);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x10);
+			AddModRM(true, bc->bin.rhs.voffset, src, dst & 0xf, ret);
+			if(bc->bin.rhs.voffset != 0)
+				AddImm(bc->bin.rhs.voffset, (unsigned int) bc->bin.rhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
+			//TODO
+		}break;
+		case DIV_R_2_R:
+		{
+			//TODO
+		}break;
+		case DIV_PCKD_SSE_2_PCKD_SSE:
+		{
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x5e, &ret);
+			//CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
+		}break;
+		case SUB_PCKD_SSE_2_PCKD_SSE:
+		{
+			//CreateSSERegToSSEReg(&*bc, 0x5c, &ret);
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x5c, &ret);
+		}break;
+		case MUL_PCKD_SSE_2_PCKD_SSE:
+		{
+			//CreateSSERegToSSEReg(&*bc, 0x59, &ret);
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x59, &ret);
+			//TODO
+		}break;
+		case FILL_SSE_2_PCKED_SSE:
+		{
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0xc6);
+			char modrm = (3 << 6) | (bc->bin.lhs.reg & 0xf) | (bc->bin.rhs.reg << 3);
+			ret.code.emplace_back(modrm);
+			ret.code.emplace_back(0x0);
+			//TODO
+		}break;
+		case FILL_M_2_PCKED_SSE:
+		{
+			// movss xmm6, m
+			byte_code _bc;
+			_bc.type = MOV_M_2_SSE;
+			char reg_start = 6;
+			for (int i = reg_start; i < (reg_start + 4); i++)
+			{
+				_bc.bin.lhs.reg = 6;
+				_bc.bin.rhs = bc->bin.rhs;
+				CreateMemToSSE(&*bc, 0x10, &ret);
+			}
+			// unpacklps 
+			_bc.bin.lhs.reg = reg_start;
+			_bc.bin.rhs.reg = reg_start + 1;
+			CreateSSERegToSSEReg(&*bc, 0x14, &ret);
+
+			_bc.bin.lhs.reg = reg_start + 2;
+			_bc.bin.rhs.reg = reg_start + 3;
+			CreateSSERegToSSEReg(&*bc, 0x14, &ret);
+
+			// movlps
+			_bc.bin.lhs.reg = reg_start;
+			_bc.bin.rhs.reg = reg_start + 2;
+			CreateSSERegToSSEReg(&*bc, 0x12, &ret);
+
+			// movss
+			_bc.bin.lhs.reg = bc->bin.lhs.reg;
+			_bc.bin.rhs.reg = reg_start;
+			CreatePckdSSERegToPckdSSEReg(&_bc, 0x11, &ret);
+			//CreateSSERegToSSEReg(&*bc, 0x11, &ret);
+		}break;
+		case MOV_PCKD_SSE_2_PCKD_SSE:
+		{
+			//CreateSSERegToSSEReg(&*bc, 0x11, &ret);
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x10, &ret);
+			/*
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x10);
+			char modrm = (3 << 6) | (bc->bin.lhs.reg & 0xf) | (bc->bin.rhs.reg << 3);
+			ret.code.emplace_back(modrm);
+			*/
+			//TODO
+		}break;
+		case MOV_PCKD_SSE_2_M:
+		{
+			char src =  bc->bin.rhs.reg;
+			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x11);
+
+			AddModRM(true, bc->bin.lhs.voffset, dst, src & 0xf, ret);
+			if(bc->bin.lhs.voffset != 0)
+				AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
+
+			/*
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x11);
+			AddModRM(true, bc->bin.rhs.voffset, bc->bin.rhs.reg, bc->bin.lhs.reg & 0xf, ret);
+			if(bc->bin.rhs.voffset != 0)
+				AddImm(bc->bin.rhs.voffset, (unsigned int) bc->bin.rhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
+			//TODO
+			*/
+		}break;
+		case SHIFTR_R_2_R:
+		case SHIFTL_R_2_R:
+		{
+			//TODO
+		}break;
+		case SHUFFLE_128_PS:
+		{
+			//TODO
+		}break;
+		case DIV_I_2_R:
+		{
+			//TODO
+		}break;
+		case DIV_M_2_R:
+		{
+			//TODO
+		}break;
+		case POP_R:
+		{
+			char reg = FromBCRegToAsmReg(bc->val);
+			ret.code.emplace_back(0x58 + (reg & 0xf));
+		}break;
+		default:
+		{
+			ASSERT(false)
+		}break;
+		}
+		i++;
+	}
+	
+}
 void FromByteCodeToX64(lang_state *lang_stat, own_std::vector<func_byte_code *> *funcs, machine_code &ret)
 {
 // we're adding one because we're getting the difference for the jmp, with the offset of the next inst
-#define CHANGE_JMP_DST_BC ret.jmp_rels.back().dst_bc = &f->bcodes[i + bc->val + 1];
 	ret.code.reserve(128);
 
 	FOR_VEC(func, *funcs)
@@ -683,812 +1972,11 @@ void FromByteCodeToX64(lang_state *lang_stat, own_std::vector<func_byte_code *> 
 		int sum_of_onter_insts = lang_stat->code_sect.size() - lang_stat->already_inserted_of_type_sect_in_code_sect;;
 		f->fdecl->code_start_idx = ret.code.size() + sum_of_onter_insts;
 		
-		FOR_VEC(bc, f->bcodes)
-		{
-
-			char* data = (char*)ret.code.data();
-			bc->machine_code_idx = ret.code.size();
-			switch(bc->type)
-			{
-			case ASSIGN_FUNC_SIZE:
-			{
-				bc->fdecl->code_size = (ret.code.size() + sum_of_onter_insts) - bc->fdecl->code_start_idx;
-			}break;
-			case CVTSD_REG_2_SS:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-				ret.code.emplace_back(0xf2);
-				ret.code.emplace_back(0x0f);
-				ret.code.emplace_back(0x5a);
-				ret.code.emplace_back(mod);
-			}break;
-			case INT3:
-				ret.code.emplace_back(0xcc);
-			break;
-			case MOVSX_R:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-				if(bc->bin.rhs.reg_sz == 4)
-				{
-					ret.code.emplace_back(0x48);
-					ret.code.emplace_back(0x63);
-					ret.code.emplace_back(mod);
-				}
-				else
-				{
-					char i_sz = bc->bin.rhs.reg_sz == 1 ? 0xbe : 0xbf;
-
-					ret.code.emplace_back(0x48);
-					ret.code.emplace_back(0x0f);
-					ret.code.emplace_back(i_sz);
-					ret.code.emplace_back(mod);
-
-				}
-			}break;
-			case MOVZX_R:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-				if(bc->bin.rhs.reg_sz == 4)
-				{
-					char lhs_r = bc->bin.lhs.reg;
-					// mov edi, rhs
-					bc->bin.lhs.reg = 7;
-					bc->bin.lhs.reg_sz = 4;
-					bc->bin.rhs.reg_sz = 4;
-					bc->bin.rhs.reg_sz = 4;
-					CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-
-					// mov lhs, edi
-					bc->bin.lhs.reg = lhs_r;
-					bc->bin.lhs.reg_sz = 4;
-					bc->bin.rhs.reg_sz = 7;
-					bc->bin.rhs.reg_sz = 4;
-					CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-
-				}
-				else
-				{
-					char i_sz = bc->bin.rhs.reg_sz == 1 ? 0xb6 : 0xb7;
-
-					ret.code.emplace_back(0x48);
-					ret.code.emplace_back(0x0f);
-					ret.code.emplace_back(i_sz);
-					ret.code.emplace_back(mod);
-
-				}
-			}break;
-			case MOVSX_M:
-			{
-				char mod = MakeModRM(false, 0, 4, bc->bin.lhs.reg);
-				if (bc->bin.rhs.reg_sz == 4)
-				{
-					CreateMemToReg(&*bc, 0x63, 0x63, false, ret);
-					//ret.code.emplace_back(0x48);
-					//ret.code.emplace_back(0x63);
-					//ret.code.emplace_back(mod);
-				}
-				else
-					Create0FMemToReg(&*bc, 0xbe, &ret);
-				
-			}break;
-			case MOVZX_M:
-			{
-				Create0FMemToReg(&*bc, 0xb6, &ret);
-			}break;
-			case RELOC:
-			{
-				bool is_rel_func = bc->rel.type == rel_type::REL_FUNC;
-				bool is_get_func_addr = bc->rel.type == rel_type::REL_GET_FUNC_ADDR;
-
-				if (is_rel_func || is_get_func_addr)
-				{
-                    auto fdecl = bc->rel.call_func;
-                    
-                    if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTERNAL))
-                    {
-
-                        ASSERT(lang_stat->internal_funcs_addr.find(fdecl->name.c_str()) != lang_stat->internal_funcs_addr.end())
-                    }
-                    else
-                    {
-                        auto found_ptr_func = IsThereAFunction(lang_stat, (char *)bc->rel.call_func->name.c_str());
-
-                        // asserting that the function was already compiled
-                        ASSERT(found_ptr_func && IS_FLAG_ON(fdecl->flags, FUNC_DECL_CODE_WAS_GENERATED))
-
-                    }
-
-					int offset_addr = is_rel_func ? 1 : 3;
-					auto fdecl_flags = bc->rel.call_func->flags;
-
-					// check if function is defined by the compiler, by means of testing if the fdecl has a body
-					if(!IS_FLAG_ON(fdecl_flags, FUNC_DECL_EXTERN) 
-						&& !IS_FLAG_ON(fdecl_flags, FUNC_DECL_IS_OUTSIDER)
-						&& !IS_FLAG_ON(fdecl_flags, FUNC_DECL_LINK_NAME))
-					{
-						ret.call_rels.emplace_back(call_rel(ret.code.size() + offset_addr, bc->rel.call_func));
-					}
-					else
-						ret.rels.emplace_back(machine_reloc(INSIDE_FUNC, ret.code.size() + offset_addr, bc->rel.name));
-
-					if(is_rel_func)
-					{
-						ret.code.emplace_back(0xe8);
-						AddImm(0, 4, ret);
-					}
-					else
-						AddLeaInst(ret, bc->rel.reg_dst);
-
-				}
-				else if (bc->rel.type == rel_type::REL_TYPE)
-				{
-					own_std::string name = own_std::string("$$") + bc->rel.name;
-
-					// puttinf the name into the heap
-					char *new_str = std_str_to_heap(lang_stat, &name);
-
-					ret.rels.emplace_back(machine_reloc(machine_rel_type::TYPE_DATA, ret.code.size() + 3, new_str));
-
-					ASSERT((unsigned char)bc->rel.reg_dst < 7)
-
-					// emplacing a lea instruction here
-					AddLeaInst(ret, bc->rel.reg_dst);
-					/*
-					ret.code.emplace_back(0x48);
-					ret.code.emplace_back(0x8d);
-					ret.code.emplace_back(0x5 | (bc->rel.reg_dst << 3));
-					AddImm(0, 4, ret);
-					*/
-
-				}
-				else if (bc->rel.type == rel_type::REL_DATA)
-				{
-					char* data_sym_name = (char*)AllocMiscData(lang_stat, 16);
-					snprintf(data_sym_name, 16, "$%d", ret.generated_data_symbols++);
-					
-					ret.symbols.emplace_back(machine_sym(lang_stat, machine_sym_type::SYM_DATA, bc->rel.offset, data_sym_name));
-					// float 
-					if(IS_FLAG_ON(bc->rel.reg_dst, 0x40))
-					{
-						ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 4, data_sym_name));
-
-						// movssinstruction here
-						ret.code.emplace_back(0xf3);
-						ret.code.emplace_back(0x0f);
-						ret.code.emplace_back(0x10);
-						ret.code.emplace_back(0x5 | ((bc->rel.reg_dst &0xf) << 3));
-						AddImm(0, 4, ret);
-					}
-					else
-					{
-						ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 3, data_sym_name));
-
-						// emplacing a lea instruction here
-						AddLeaInst(ret, bc->rel.reg_dst);
-						/*
-						ret.code.emplace_back(0x48);
-						ret.code.emplace_back(0x8d);
-						ret.code.emplace_back(0x5 | (bc->rel.reg_dst << 3));
-						AddImm(0, 4, ret);
-						*/
-					}
-				}
-			}break;
-			case INST_CALL_OUTSIDER:
-			{
-				
-				machine_rel_type r_type = bc->out_func.is_link_name ? DLL_FUNC :DLL_FUNC_NO_IMP_ADDING; 
-
-				ret.rels.emplace_back(machine_reloc(DLL_FUNC, ret.code.size() + 2, bc->name));
-
-				ret.code.emplace_back(0xff);
-				ret.code.emplace_back(0x15);
-				AddImm(0, 4, ret);
-			}break;
-			case JMP_E:
-				//int jmp_sz = (bc->val * 4) > 0xff ? 4 : 1;
-				AddJump(&*bc, 0x74, ret);
-				CHANGE_JMP_DST_BC
-				//ret.jmp_rels.emplace_back(jmp_sz
-				break;
-			case JMP_NE:
-				AddJump(&*bc, 0x75, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			//unsigned
-			case JMP_B:
-				AddJump(&*bc, 0x72, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_BE:
-				AddJump(&*bc, 0x76, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_A:
-				AddJump(&*bc, 0x77, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_AE:
-				AddJump(&*bc, 0x73, ret);
-				CHANGE_JMP_DST_BC
-			break;
-			//signed
-			case JMP_L:
-				AddJump(&*bc, 0x7c, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_LE:
-				AddJump(&*bc, 0x7e, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_G:
-				AddJump(&*bc, 0x7d, ret);
-				CHANGE_JMP_DST_BC
-				break;
-			case JMP_GE:
-				AddJump(&*bc, 0x7d, ret);
-				CHANGE_JMP_DST_BC
-			break;
-			case MOV_F_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-					CreateSSERegToSSEReg(&*bc, 0x10, &ret);
-				else
-					CreateSSERegToMem(&*bc, 0x11, &ret);
-			}break;
-			case MOV_R_2_SSE:
-			case MOV_SSE_2_R:
-			{
-				CreateSSERegToSSEReg(&*bc, 0x2c, &ret);
-			}break;
-			case MOV_SSE_2_SSE:
-			{
-				CreateSSERegToSSEReg(&*bc, 0x10, &ret);
-				//CreateMemToSSE(&*bc, 0x10, &ret);
-			}break;
-			case MOV_M_2_SSE:
-			{
-				CreateMemToSSE(&*bc, 0x10, &ret);
-			}break;
-			
-			case MOV_SSE_2_RM:
-				CreateSSERegToMem(&*bc, 0x11, &ret, bc->bin.lhs.reg, false);
-			break;
-			case MOV_SSE_2_MEM:
-			{
-				CreateSSERegToMem(&*bc, 0x11, &ret);
-			}break;
-			case MOV_SSE_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					bc->bin.lhs.reg = bc->bin.lhs.reg - 6;
-					CreateSSERegToSSEReg(&*bc, 0x10, &ret);
-				}
-				else
-				{
-					bc->bin.lhs.reg = 5;
-					CreateSSERegToMem(&*bc, 0x11, &ret);
-				}
-			}break;
-			case POP_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
-				}
-				else
-				{
-					StoreMemToMem(&*bc, bc->bin.rhs.voffset, ret);
-				}
-			}break;
-			case PUSH_REG_PARAM:
-			{
-				if (bc->bin.rhs.reg <= 9)
-				{
-					CreateRegToMem(&*bc, 0x88, 0x89, ret);
-				}
-				else
-				{
-					StoreMemToMem(&*bc, bc->bin.lhs.voffset, ret);
-				}
-			}break;
-			case MOV_R_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-					bool base_reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
-
-					char src_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
-					bool src_reg_is_rex = IS_FLAG_ON(src_reg, 0x800);
-
-					char rex = ((char)base_reg_is_rex << 1) | ((char)src_reg_is_rex);
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0x88, 0x89, rex, ret.code);
-
-					base_reg &= 0xf;
-					src_reg &= 0xf;
-					char inst = (3 << 6) | (base_reg) | (src_reg << 3);
-					ret.code.emplace_back(inst);
-				}
-				if (bc->bin.lhs.reg > 9)
-				{
-					char stack_reg = ((short)bc->bin.lhs.reg - 10) * 8 + 32;
-					auto bin = bc->bin;
-					bc->bin.lhs.reg = 5;
-					bc->bin.lhs.voffset  = stack_reg;
-					bc->bin.lhs.var_size = 8;
-					CreateRegToMem(&*bc, 0x88, 0x89, ret);
-					bc->bin = bin;
-				}
-			}break;
-			case MOV_M_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
-				}
-				if (bc->bin.lhs.reg > 9)
-				{
-					char stack_reg = (short)bc->bin.lhs.reg - 10;
-					StoreMemToMem(&*bc, stack_reg * 8 + 32, ret);
-				}
-			}break;
-			case MOV_I_2_REG_PARAM:
-			{
-				if (bc->bin.lhs.reg <= 9)
-				{
-					char dst_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-					bool reg_is_rex = IS_FLAG_ON(dst_reg, 0x800);
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, ((char)reg_is_rex) << 1, ret.code);
-					ret.code.emplace_back(0xc0 + (char)(dst_reg & 0xf));
-					AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
-				}
-				if (bc->bin.lhs.reg > 9)
-				{
-					char stack_reg = (short)bc->bin.lhs.reg - 10;
-					bc->bin.lhs.voffset = stack_reg * 8 + 32;
-					bc->bin.lhs.var_size = bc->bin.lhs.reg_sz;
-					bc->bin.lhs.reg = 5;
-					CreateStoreImmToMem(&*bc, ret);
-				}
-			}break;
-			case STORE_REG_PARAM:
-			{
-				if ((bc->bin.rhs.reg & 0xf)<= 9)
-				{
-					bool is_sse = IS_FLAG_ON(bc->bin.rhs.reg, 0x10);
-					if (is_sse)
-					{
-						bc->bin.rhs.reg &= 0xf;
-						CreateSSERegToMem(&*bc, 0x11, &ret);
-					}
-					else
-						CreateRegToMem(&*bc, 0x88, 0x89, ret);
-				}
-			}break;
-			case JMP:
-			{
-				int jmp = (int)bc->val * 4;
-				if ((unsigned int)jmp <= 0x80)
-				{
-					ret.jmp_rels.emplace_back(jmp_rel(1, ret.code.size() + 1, &*bc));
-					CHANGE_JMP_DST_BC
-
-					ret.code.emplace_back(0xeb);
-					ret.code.emplace_back(0x00);
-				}
-				else
-				{
-					ret.jmp_rels.emplace_back(jmp_rel(4, ret.code.size() + 1, &*bc));
-					CHANGE_JMP_DST_BC
-
-					ret.code.emplace_back(0xe9);
-
-					ret.code.emplace_back(0x00);
-					ret.code.emplace_back(0x00);
-					ret.code.emplace_back(0x00);
-					ret.code.emplace_back(0x00);
-				}
-			}break;
-
-
-			case CMP_R_2_M:
-			{
-				CreateRegToMem(&*bc, 0x38, 0x39, ret);
-			}break;
-			case CMP_R_2_R:
-			{
-				CreateRegToReg(&*bc, 0x38, 0x39, &ret);
-			}break;
-			case CMP_I_2_RM:
-			{
-				CreateImmToMem(&*bc, 7, ret);
-			}break;
-			//
-			case CMP_MEM_2_SSE:
-			{
-				// we moving the mem to reg 4, so the lhs sse must be a different reg
-				ASSERT(bc->bin.rhs.reg != 4)
-
-				auto last_lhs = bc->bin.lhs;
-				
-				// first we're moving the mem to xmm4
-				bc->bin.lhs.reg = 4;
-
-				// movss xmm4, mem
-				CreateMemToSSE(&*bc, 0x10, &ret);
-
-				bc->bin.lhs = last_lhs;
-				bc->bin.rhs.reg = 4;
-
-				// comiss xmm?, xmm4
-				Create0FMemToReg(&*bc, 0x2f, &ret);
-			}break;
-			case CMP_SSE_2_MEM:
-				// not handled
-				ASSERT(false)
-				CreateSSERegToMem(&*bc, 0x58, &ret);
-			break;
-			case CMP_SSE_2_RMEM:
-				// not handled
-				ASSERT(false)
-				break;
-			case CMP_SSE_2_SSE:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.rhs.reg, bc->bin.lhs.reg);
-
-				ret.code.emplace_back(0x0f);
-				ret.code.emplace_back(0x2f);
-				ret.code.emplace_back(mod);
-			}break;
-			//
-			case CMP_I_2_M:
-			{
-				CreateImmToMem(&*bc, 7, ret);
-			}break;
-			case CMP_M_2_R:
-				CreateMemToReg(&*bc, 0x3a, 0x3b, false, ret);
-				break;
-			case CMP_I_2_R:
-				CreateImmToReg(0x3c, 0x3d, 7, &*bc, ret);
-				break;
-
-			case STORE_RM_2_R:
-			case INST_LEA:
-			{
-				char base_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_base);
-				char dst_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_dst);
-
-				AddPreMemInsts(bc->bin.rhs.lea.size, 0x8d, 0x8d, false, ret.code);
-				//ret.code.emplace_back(byte);
-
-				AddModRM(true, bc->bin.rhs.lea.offset, base_reg, dst_reg, ret);
-				if(bc->bin.rhs.lea.offset != 0)
-					AddImm(bc->bin.rhs.lea.offset, ((unsigned int)bc->bin.rhs.lea.offset) < DISP_BYTE_MAX ? 1 : 4, ret);
-			}break;
-			case COMMENT:
-			{
-				if(f->name == "it_init{entity}")
-					int a = 0;
-			}
-				break;
-			case MOV_R:
-			{
-				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-			}break;
-			case MOV_RM:
-			{
-				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret, bc->bin.rhs.reg);
-			}break;
-			case MOV_M:
-			{
-				CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
-			}break;
-			case STORE_R_2_RM:
-			{
-				CreateRegToMem(&*bc, 0x88, 0x89, ret, bc->bin.lhs.reg);
-			}break;
-			case STORE_RM_2_M:
-			case STORE_R_2_M:
-			{
-
-				CreateRegToMem(&*bc, 0x88, 0x89, ret);
-
-			}break;
-			case STORE_I_2_M:
-			{
-				CreateStoreImmToMem(&*bc, ret);
-			}break;
-			case REP_B:
-			{
-				ret.code.emplace_back(0xf3);
-				ret.code.emplace_back(0xa4);
-			}break;
-			case NOT_M:
-			{
-				ASSERT(false)
-			}break;
-			case NOT_R:
-			{
-				char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
-				char mod = MakeModRM(false,0, dst, 2);
-				ret.code.emplace_back(mod);
-			}break;
-			case NEG_M:
-			{
-				ASSERT(false)
-			}break;
-			case NEG_R:
-			{
-				char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
-				char mod = MakeModRM(false,0, dst, 3);
-				ret.code.emplace_back(mod);
-			}break;
-
-			case DIV_R:
-			{
-				// multiplying rax by src
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
-				char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
-
-				char mod = MakeModRM(false,0, src, 7);
-				ret.code.emplace_back(mod);
-			}break;
-			case DIV_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x5e, &ret);
-				break;
-			case DIV_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x5e, &ret);
-				break;
-			case DIV_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x5e, &ret, bc->bin.lhs.reg, false);
-				break;
-			case DIV_SSE_2_SSE:
-				CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
-				break;
-
-			case XOR_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x57, &ret);
-				break;
-			case XOR_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x57, &ret);
-				break;
-			case XOR_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x57, &ret, bc->bin.lhs.reg, false);
-				break;
-			case XOR_SSE_2_SSE:
-			{
-				char mod = MakeModRM(false, 0, bc->bin.lhs.reg, bc->bin.rhs.reg);
-				ret.code.emplace_back(0x0f);
-				ret.code.emplace_back(0x57);
-				ret.code.emplace_back(mod);
-
-			}break;
-
-			case MUL_R_2_R:
-			{
-				char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-				dst &= 0xf;
-				char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
-				src &= 0xf;
-
-				
-				// moving dst to rax
-				bc->bin.lhs.reg = 0;
-				bc->bin.rhs.reg = dst;
-
-				if (bc->bin.lhs.reg != bc->bin.rhs.reg)
-					CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-				
-
-				// multiplying rax by src
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
-
-				//  I'm not sure why the third byte reg should be 4
-				char mod = MakeModRM(false,0, src, 4);
-				ret.code.emplace_back(mod);
-			
-				// moving rax to dst
-				bc->bin.lhs.reg = dst;
-				bc->bin.rhs.reg = 0;
-				if (bc->bin.lhs.reg != bc->bin.rhs.reg)
-					CreateRegToReg(&*bc, 0x88, 0x89, &ret);
-
-			}break;
-			case MUL_I_2_R:
-			{
-				char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-
-				base_reg &= 0xf;
-				bool less_than_byte = bc->bin.rhs.u32 < 0x80;
-
-				if(less_than_byte)
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0x6b, 0x6b, false, ret.code);
-				else
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0x69, 0x69, false, ret.code);
-
-				char r = (3 << 6) | (base_reg << 3) | base_reg;
-
-				ret.code.emplace_back(r);
-
-				AddImm(bc->bin.rhs.u32, less_than_byte ? 1 : 4, ret);
-			}break;
-			case MUL_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x59, &ret);
-				break;
-			case MUL_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x59, &ret);
-				break;
-			case MUL_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x59, &ret, bc->bin.lhs.reg, false);
-				break;
-			case MUL_SSE_2_SSE:
-				CreateSSERegToSSEReg(&*bc, 0x59, &ret);
-				break;
-
-
-			case MOV_I:
-			{
-					char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-					bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
-					AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, reg_is_rex, ret.code);
-					ret.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
-					AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
-			}break;
-
-			
-			case MOV_ABS:
-			{
-					char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
-					bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
-					AddPreMemInsts(8, 0xb8, 0xb8, reg_is_rex, ret.code);
-					AddImm(bc->bin.rhs.u64, 4, ret);
-					AddImm(bc->bin.rhs.u64 >> 32, 4, ret);
-			}break;
-
-			case AND_I_2_R:
-				CreateImmToReg(0x24, 0x25, 4, &*bc, ret);
-				break;
-			case AND_R_2_R:
-				CreateRegToReg(&*bc, 0x20, 0x21, &ret);
-			break;
-
-
-			case SUB_I_2_M:
-				CreateImmToMem(&*bc, 0x5, ret);
-				break;
-			case SUB_R_2_M:
-				CreateRegToMem(&*bc, 0x28, 0x29, ret);
-				break;
-			case SUB_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x5c, &ret);
-				break;
-			case SUB_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x5c, &ret);
-				break;
-			case SUB_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x5c, &ret, bc->bin.lhs.reg, false);
-				break;
-			case SUB_SSE_2_SSE:
-				CreateSSERegToSSEReg(&*bc, 0x5c, &ret);
-				break;
-			case SUB_M_2_R:
-				CreateMemToReg(&*bc, 0x2a, 0x2b, false, ret);
-				break;
-			case SUB_R_2_R:
-				CreateRegToReg(&*bc, 0x28, 0x29, &ret);
-				break;
-			case SUB_I_2_R:
-				CreateImmToReg(0x2c, 0x2d, 5, &*bc, ret);
-				break;
-
-
-
-			case ADD_R_2_RM:
-				CreateRegToMem(&*bc, 0x0, 0x1, ret, bc->bin.lhs.reg);
-			break;
-			case ADD_I_2_M:
-				CreateImmToMem(&*bc, 0x0, ret);
-			break;
-			case ADD_R_2_M:
-				CreateRegToMem(&*bc, 0x0, 0x1, ret);
-			break;
-			case ADD_MEM_2_SSE:
-				CreateMemToSSE(&*bc, 0x58, &ret);
-			break;
-			case ADD_SSE_2_MEM:
-				CreateSSERegToMem(&*bc, 0x58, &ret);
-			break;
-			case ADD_SSE_2_RMEM:
-				CreateSSERegToMem(&*bc, 0x58, &ret, bc->bin.lhs.reg, false);
-				break;
-			case ADD_SSE_2_SSE:
-				CreateSSERegToSSEReg(&*bc, 0x58, &ret);
-			break;
-			case ADD_M_2_R:
-				CreateMemToReg(&*bc, 0x2, 0x3, false, ret);
-				break;
-			case ADD_R_2_R:
-				CreateRegToReg(&*bc, 0x0, 0x1, &ret);
-				break;
-			case ADD_I_2_RM:
-				CreateImmToMem(&*bc, 0x0, ret, bc->bin.lhs.reg);
-				break;
-			case ADD_I_2_R:
-				CreateImmToReg(0x4, 0x5, 0, &*bc, ret);
-				break;
-
-			case OR_R_2_RM:
-				CreateRegToMem(&*bc, 0x08, 0x9, ret, bc->bin.lhs.reg);
-			break;
-			case OR_I_2_M:
-				CreateImmToMem(&*bc, 0x1, ret);
-			break;
-			case OR_R_2_M:
-				CreateRegToMem(&*bc, 0x8, 0x9, ret);
-			break;
-			case OR_M_2_R:
-				CreateMemToReg(&*bc, 0xa, 0xb, false, ret);
-				break;
-			case OR_R_2_R:
-				CreateRegToReg(&*bc, 0x8, 0x9, &ret);
-				break;
-			case OR_I_2_RM:
-				CreateImmToMem(&*bc, 0x1, ret, bc->bin.lhs.reg);
-				break;
-			case OR_I_2_R:
-				CreateImmToReg(0xc, 0xd, 1, &*bc, ret);
-				break;
-			case INST_CALL_REG:
-			{
-				ret.code.emplace_back(0xff);
-				ret.code.emplace_back(0xd0 + bc->val);
-			}break;
-
-			case POP_STACK_SIZE:
-			case X64_WASM_BEGIN_BLOCK:
-			case X64_WASM_END_BLOCK:
-			case PUSH_STACK_SIZE:
-			{
-			}break;
-			case PUSH_R:
-			{
-				char reg = FromBCRegToAsmReg(bc->val);
-				ret.code.emplace_back(0x50 + (reg & 0xf));
-			}break;
-			case RET:
-			{
-				ret.code.emplace_back(0xc3);
-			}break;
-			case POP_R:
-			{
-				char reg = FromBCRegToAsmReg(bc->val);
-				ret.code.emplace_back(0x58 + (reg & 0xf));
-			}break;
-			default:
-			{
-				ASSERT(false)
-			}break;
-			}
-			i++;
-		}
+		GenX64(lang_stat, f->bcodes, ret);
 		
 	}
 }
 
-func_byte_code *interpreter::SearchFinalFunc(own_std::string name)
-{
-	FOR_VEC(f, (*ar))
-	{
-		if((*f)->name == name)
-			return (*f);
-	}
-	return nullptr;
-
-}
 
 /*
 void interpreter::SetBCode(lang_state *lang_stat, own_std::vector<func_byte_code *> *ar)
@@ -1564,35 +2052,11 @@ enum byte_code_instr
 
 
 #define NEW_INST(NAME)\
-		if(DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_INT))\
-		{\
-			ret.type = byte_code_enum::NAME##_I_2_RM;	\
-			ret.bin.lhs.lea = lhs->lea;\
-			ret.bin.rhs.var = rhs->var;\
-		}\
 		if(DESCEND_FTP_EQ(lhs, R_MEM) && DESCEND_FTP_EQ(rhs, R_MEM))\
 		{\
 			ret.type = byte_code_enum::NAME##_M_2_M;	\
 			ret.bin.lhs.var = lhs->var;\
 			ret.bin.rhs.var = rhs->var;\
-		}\
-		else if(DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_INT))\
-		{\
-			ret.type = byte_code_enum::NAME##_I_2_RM;	\
-			ret.bin.rhs.i = rhs->i;\
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);\
-		}\
-		else if(DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_REG))\
-		{\
-			ret.type = byte_code_enum::NAME##_R_2_RM;	\
-			ret.bin.rhs.r = rhs->r;\
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);\
-		}\
-		else if(DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_SSE_REG))\
-		{\
-			ret.type = byte_code_enum::NAME##_SSE_2_RMEM;	\
-			ret.bin.rhs.r = rhs->r;\
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);\
 		}\
 		else if(DESCEND_FTP_EQ(lhs, R_MEM) && DESCEND_FTP_EQ(rhs, R_SSE_REG))\
 		{\
@@ -1754,25 +2218,7 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 	}break;
 	case byte_code_instr::BC_EQUAL:
 	{
-		if(DESCEND_FTP_EQ(lhs, R_MEM) && DESCEND_FTP_EQ(rhs, R_RMEM))
-		{
-			ret.type = byte_code_enum::STORE_RM_2_M;
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);
-		}
-		if (DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_RMEM))
-		{
-			ret.type = byte_code_enum::STORE_RM_2_M;
-			
-			FROM_DFR_TO_BIN_BC_VAR(lhs, ret.bin.lhs);
-			ret.bin.lhs.reg = lhs->reg;
-		}
-		else if (DESCEND_FTP_EQ(lhs, R_REG) && DESCEND_FTP_EQ(rhs, R_RMEM))
-		{
-			ret.type = byte_code_enum::MOV_RM;
-			ret.bin.lhs.r = lhs->r;
-			FROM_DFR_TO_BIN_BC_VAR(rhs, ret.bin.rhs);
-		}
-		else if (DESCEND_FTP_EQ(lhs, R_PARAM_REG) && DESCEND_FTP_EQ(rhs, R_SSE_REG))
+		if (DESCEND_FTP_EQ(lhs, R_PARAM_REG) && DESCEND_FTP_EQ(rhs, R_SSE_REG))
 		{
 			ret.type = byte_code_enum::MOV_SSE_2_REG_PARAM;
 			ret.bin.lhs.r = lhs->r;
@@ -1786,6 +2232,7 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			//ret.bin.lhs = lhs->voffset;
 			ret.bin.rhs.f32 = rhs->f32;
 		}
+		/*
 		else if (DESCEND_FTP_EQ(lhs, R_PARAM_REG) && DESCEND_FTP_EQ(rhs, R_RMEM))
 		{
 			ret.type = byte_code_enum::MOV_R_2_REG_PARAM;
@@ -1793,6 +2240,7 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			//ret.bin.lhs = lhs->voffset;
 			ret.bin.rhs.lea = rhs->lea;
 		}
+		*/
 		else if (DESCEND_FTP_EQ(lhs, R_PARAM_REG) && DESCEND_FTP_EQ(rhs, R_REG))
 		{
 			ret.type = byte_code_enum::MOV_R_2_REG_PARAM;
@@ -1832,12 +2280,14 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			ret.bin.lhs.var = lhs->var;
 			ret.bin.rhs.var = rhs->var;
 		}
+		/*
 		else if (DESCEND_FTP_EQ(lhs, R_MEM) && DESCEND_FTP_EQ(rhs, R_RMEM))
 		{
 			ret.type = byte_code_enum::STORE_R_2_M;
 			ret.bin.lhs.var = lhs->var;
 			ret.bin.rhs.r   = rhs->r;
 		}
+		*/
 		else if(DESCEND_FTP_EQ(lhs, R_REG) && DESCEND_FTP_EQ(rhs, R_MEM))
 		{
 			ret.type = byte_code_enum::MOV_M;	
@@ -1853,6 +2303,8 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			ret.bin.rhs.s32 = rhs->i;
 
 		}
+		/*
+		
 		else if (DESCEND_FTP_EQ(lhs, R_RMEM) && DESCEND_FTP_EQ(rhs, R_INT))
 		{
 			ret.type = byte_code_enum::STORE_I_2_M;
@@ -1875,6 +2327,7 @@ byte_code ReturnBCode(byte_code_instr op, descend_func_ret *lhs, descend_func_re
 			ret.bin.rhs.r = rhs->r;
 
 		}
+		*/
 		else if(DESCEND_FTP_EQ(lhs, R_REG) && DESCEND_FTP_EQ(rhs, R_REG))
 		{
 			ret.type = byte_code_enum::MOV_R;	
@@ -1998,7 +2451,7 @@ void EmplaceInstRMToReg(func_byte_code *func, char reg_dst, char reg_base, int o
 	
 	descend_func_ret r;
 	descend_func_ret rm;
-	rm.type = fret_type::R_RMEM;
+	//rm.type = fret_type::R_RMEM;
 	rm.reg	   = reg_base;
 	rm.voffset = offset;
 	rm.reg_sz = 8;
@@ -2224,12 +2677,6 @@ void EmplaceInstRepStos(func_byte_code* func, char dst_mem_base, int offset_dst,
 
 }
 
-void interpreter::PushVal(long long  val)
-{
-	long long *ptr = (long long *)(regs.sp.i64);
-	*ptr = val;
-	regs.sp.i64 += 8;
-}
 void EmplaceRetGroup(func_byte_code *final_func, func_decl *fdecl, descend_func_ret *rhs_ret, descend_func_ret * out)
 {
 	descend_func_ret r0;
@@ -2269,36 +2716,38 @@ descend_func_ret DescendFunc(lang_state *, func_byte_code *final_func, node *n, 
 
 #define INC_PRS_CALL_REGS_USED 1
 
-own_std::vector<descend_func_ret> DescendCommaFunc(lang_state *lang_stat, func_byte_code *final_func, node *n, scope *scp, int flags = INC_PRS_CALL_REGS_USED)
+void EmplaceCondJmpInst2(tkn_type2 t, int offset, own_std::vector<byte_code> &ret, bool is_unsigned)
 {
-	own_std::vector<descend_func_ret> ret;
-	if(IS_COMMA(n))
-	{
-		auto lvalue = DescendCommaFunc(lang_stat, final_func, n->l, scp, flags);
-		if (!lvalue.empty())
-			ret.insert(ret.end(), lvalue.begin(), lvalue.end());
+	byte_code bc;
 
-		auto rvalue = DescendCommaFunc(lang_stat, final_func, n->r, scp, flags);
-		if (!rvalue.empty())
-			ret.insert(ret.end(), rvalue.begin(), rvalue.end());
+	if(is_unsigned)
+	{
+		switch(t)
+		{
+		case tkn_type2::T_EXCLAMATION:
+		case tkn_type2::T_COND_EQ: bc.type = byte_code_enum::JMP_E; break;
+		case tkn_type2::T_COND_NE: bc.type = byte_code_enum::JMP_NE; break;
+		case tkn_type2::T_LESSER_THAN: bc.type = byte_code_enum::JMP_B; break;
+		case tkn_type2::T_LESSER_EQ: bc.type = byte_code_enum::JMP_BE; break;
+		case tkn_type2::T_GREATER_THAN: bc.type = byte_code_enum::JMP_A; break;
+		case tkn_type2::T_GREATER_EQ: bc.type = byte_code_enum::JMP_AE; break;
+		}
 	}
 	else
 	{
-		int start_idx = final_func->aux_buffer.size();
-		auto lvalue = DescendFunc(lang_stat, final_func, n, scp);
-
-		if(IS_FLAG_ON(flags, INC_PRS_CALL_REGS_USED))
-			lang_stat->call_regs_used++;
-
-		int end_idx = final_func->aux_buffer.size();
-
-		lvalue.aux_buffer_start = start_idx;
-		lvalue.aux_buffer_end   = end_idx;
-
-		ret.emplace_back(lvalue);
-		
+		switch(t)
+		{
+		case tkn_type2::T_EXCLAMATION:
+		case tkn_type2::T_COND_EQ: bc.type = byte_code_enum::JMP_E; break;
+		case tkn_type2::T_COND_NE: bc.type = byte_code_enum::JMP_NE; break;
+		case tkn_type2::T_LESSER_THAN: bc.type = byte_code_enum::JMP_L; break;
+		case tkn_type2::T_LESSER_EQ: bc.type = byte_code_enum::JMP_LE; break;
+		case tkn_type2::T_GREATER_THAN: bc.type = byte_code_enum::JMP_G; break;
+		case tkn_type2::T_GREATER_EQ: bc.type = byte_code_enum::JMP_GE; break;
+		}
 	}
-	return ret;
+	bc.jmp_rel = offset;
+	ret.emplace_back(bc);
 }
 void EmplaceCondJmpInst(tkn_type2 t, int offset, descend_func_ret *out, bool is_unsigned)
 {
@@ -2355,6 +2804,22 @@ void MovStrLitToReg(lang_state *lang_stat, char reg, own_std::string str, descen
 	EmplaceDataSectReloc(reg, (int)lang_stat->data_sect.size(), ret);
 	//ret->bcodes.emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), (char)reg));
 	InsertIntoDataSect(lang_stat, (void *)str_data, str_sz + 1);
+}
+void MovFloatToSSEReg2(lang_state *lang_stat, char reg, float f, own_std::vector<byte_code> *ret, bool is_packed)
+{
+	char xmm_r = reg | (1 << 6);
+
+	// this will insert a movss instruction to xmm0
+	ret->emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), xmm_r));
+	if (lang_stat->is_x64_bc_backend)
+	{
+		byte_code* last = &ret->back();
+		last->rel.is_float = true;
+		last->rel.f = f;
+		last->rel.reg_dst = reg;
+		last->rel.is_packed_float = is_packed;
+	}
+	InsertIntoDataSect(lang_stat, (void *)&f, sizeof(float));
 }
 void MovFloatToSSEReg(lang_state *lang_stat, char reg, float f, descend_func_ret *ret)
 {
@@ -2461,7 +2926,7 @@ void GenInstFromLhsAndRhs(lang_state *lang_stat, func_byte_code *final_func, nod
 			IREG_TO_REG(rhs_bcode.reg, 1, rhs_bcode.reg_sz, ret, BC_EQUAL)
 			rhs_bcode.reg = 1;
 		}break;
-		case fret_type::R_RMEM:
+		//case fret_type::R_RMEM:
 		case fret_type::R_MEM:
 		{
 			EmplaceInstMemOffsetToReg2(final_func, 2, rhs_bcode.voffset, rhs_bcode.reg, byte_code_instr::BC_EQUAL, &ret, rhs_bcode.var);
@@ -2697,119 +3162,6 @@ void GenInstFromLhsAndRhs(lang_state *lang_stat, func_byte_code *final_func, nod
 	MaybePoppingPramRegsInDivAndMulInsts(lang_stat, final_func, n->t->type, &ret);
 }
 
-void CondsAndScopeGenBCode(lang_state *lang_stat, func_byte_code *final_func, node *cond_n, node *scp_n, descend_func_ret *ret, scope *scp, int *cond_bc_sz, node *else_block, int *scope_bc_sz, int inst_to_add_to_scp = 0)
-{
-	descend_func_ret conds;
-	descend_func_ret scope_bc;
-
-	if (cond_n )
-	{
-		int wasm_begin_block_idx = ret->bcodes.size();
-        if(lang_stat->gen_wasm)
-        {
-			ret->bcodes.emplace_back(byte_code(byte_code_enum::X64_WASM_BEGIN_BLOCK));
-			ret->bcodes.emplace_back(byte_code(byte_code_enum::X64_WASM_BEGIN_BLOCK));
-        }
-		if(cond_n->type != N_STMNT)
-			conds = DescendFunc(lang_stat, final_func, cond_n, scp);
-		else
-			conds = DescendFunc(lang_stat, final_func, cond_n->r, scp);
-
-		if (conds.type == fret_type::R_INT)
-		{
-			// infinite loop
-			if (conds.i == 1)
-			{
-
-			}
-			else
-			{
-				//conds.false_bool_bcode_idx.emplace_back((int)conds.bcodes.size());
-				//EmplaceCondJmpInst(tkn_type2::T_COND_NE, 1, &conds);
-			}
-
-			//conds.false_bool_bcode_idx.emplace_back((int)conds.bcodes.size());
-			//EmplaceCondJmpInst(tkn_type2::T_COND_NE, 1, &conds);
-		}
-		
-		else if (conds.type == fret_type::R_MEM)
-		{
-			descend_func_ret imm;
-			CREATE_IMM(imm, 0);
-			conds.bcodes.emplace_back(ReturnBCode(byte_code_instr::BC_CMP, &conds, &imm));
-
-			conds.false_bool_bcode_idx.emplace_back((int)conds.bcodes.size());
-			EmplaceCondJmpInst(tkn_type2::T_COND_EQ, 0, &conds, false);
-		}
-		
-		else if (conds.type == fret_type::R_BOOL )
-		{
-			conds.false_bool_bcode_idx.emplace_back((int)conds.bcodes.size());
-			EmplaceCondJmpInst(OppositeCondCmp(cond_n->t->type), 0, &conds, cond_n->is_unsigned);
-		}
-		else if(conds.type == fret_type::R_REG)
-		{
-			conds.type = fret_type::R_REG;
-			descend_func_ret imm;
-			CREATE_IMM(imm, 1);
-			conds.bcodes.emplace_back(ReturnBCode(byte_code_instr::BC_CMP, &conds, &imm));
-
-			conds.false_bool_bcode_idx.emplace_back((int)conds.bcodes.size());
-			EmplaceCondJmpInst(tkn_type2::T_COND_NE, 0, &conds, false);
-		}
-		else if(conds.type == fret_type::R_COND)
-		{
-
-		}
-		else
-		{
-			ASSERT(false)
-		}
-
-        if(lang_stat->gen_wasm)
-        {
-			conds.bcodes.emplace_back(byte_code(byte_code_enum::X64_WASM_END_BLOCK));
-			auto wasm_bc = ret->bcodes.begin() + wasm_begin_block_idx + 1;
-			wasm_bc->val = conds.bcodes.size();
-        }
-		if(scp_n)
-			scope_bc = DescendFunc(lang_stat, final_func, scp_n, scp);
-		
-		if(else_block)
-			scope_bc.bcodes.emplace_back(byte_code(byte_code_enum::JMP));
-
-        if(lang_stat->gen_wasm)
-        {
-			scope_bc.bcodes.emplace_back(byte_code(byte_code_enum::X64_WASM_END_BLOCK));
-			auto wasm_bc = ret->bcodes.begin() + wasm_begin_block_idx;
-			wasm_bc->val = conds.bcodes.size() + scope_bc.bcodes.size() + 1;
-			int a = 0;
-        }
-		// assigning true conds to inside the scope
-		FOR_VEC(c, conds.true_bool_bcode_idx)
-		{
-			auto bc_ptr = &conds.bcodes[*c];
-			bc_ptr->jmp_rel = conds.bcodes.size() - (*c + 1) ;
-		}
-		// assigning true conds to after the scope
-		FOR_VEC(c, conds.false_bool_bcode_idx)
-		{
-			auto bc_ptr = &conds.bcodes[*c];
-			int diff_to_end_cond = conds.bcodes.size() - (*c + 1);
-			bc_ptr->jmp_rel = diff_to_end_cond + scope_bc.bcodes.size() + inst_to_add_to_scp;
-			int t = 0;
-		}
-
-		INSERT_VEC(ret->bcodes, conds.bcodes);
-		INSERT_VEC(ret->bcodes, scope_bc.bcodes);
-	}
-
-	if(scope_bc_sz)
-		*scope_bc_sz = scope_bc.bcodes.size();
-
-	if(scope_bc_sz)
-		*cond_bc_sz = conds.bcodes.size();
-}
 void EmlaceInstPopParamReg(func_byte_code *final_func, func_decl *fdecl, char reg, descend_func_ret &ret)
 {
 	ASSERT((final_func->cur_call_size / 8) > 0)
@@ -2877,15 +3229,18 @@ char *IdxToArgStr(int idx)
 #define GEN_CALL_IS_PTR 1
 #define GEN_CALL_IS_PTR_FAR 2
 
-void GenCall(lang_state *lang_stat, func_byte_code *final_func, node *n, scope *scp, func_decl *fdecl, 
-	descend_func_ret &ret,
-	descend_func_ret &lhs_bcode, 
-	descend_func_ret &rhs_bcode,
-	int flags = 0,
-	void *data = nullptr,
-	void *data2 = nullptr
-	)
+void EmplaceLeaInst2(char reg_dst, char reg_base, int offset, char reg_sz, own_std::vector<byte_code> &ret)
 {
+	if (reg_dst == reg_base && offset == 0)
+		return;
+	byte_code lea;
+	lea.type = byte_code_enum::INST_LEA;
+	lea.bin.lhs.reg = reg_dst;
+	lea.bin.rhs.lea.reg_dst = reg_dst;
+	lea.bin.rhs.lea.reg_base = reg_base;
+	lea.bin.rhs.lea.size = 8;
+	lea.bin.rhs.lea.offset = offset;
+	ret.emplace_back(lea);
 }
 void EmplaceLeaInst(char reg_dst, char reg_base, int offset, char reg_sz, descend_func_ret *out)
 {
@@ -2926,6 +3281,8 @@ decl2 *FromBuiltinTypeToDecl(lang_state *lang_stat, enum_type2 tp)
 	case enum_type2::TYPE_S8:
 		return lang_stat->s8_decl;
 
+	case enum_type2::TYPE_VECTOR:
+		return lang_stat->_vec_strct;
 	case enum_type2::TYPE_U64:
 		return lang_stat->u64_decl;
 
@@ -2954,6 +3311,7 @@ decl2 *FromBuiltinTypeToDecl(lang_state *lang_stat, enum_type2 tp)
 	default:
 		ASSERT(false)
 	}
+	return nullptr;
 }
 
 decl2 *FromTypeToDecl(lang_state *lang_stat, type2 *tp)
@@ -3129,21 +3487,15 @@ void InsertFalseTrueConds(descend_func_ret &dst, descend_func_ret &src)
 }
 
 // $DescendFunc
-descend_func_ret DescendFunc(lang_state *lang_stat, func_byte_code *final_func, node *n, scope *scp, int flags)
-{
-	descend_func_ret ret;
-	
-	return ret;
-}
 own_std::vector<decl2 *> GetScopeDecls(scope *scp)
 {
 	own_std::vector<decl2 *> ret;
 	return ret;
 }
-void ParametersToStack(func_byte_code *final_func, func_decl *fdecl, descend_func_ret *out)
+void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 {
 	int cur_arg = 6;
-	descend_func_ret sp;
+	//descend_func_ret sp;
 	
 	// byte code stack
 	if (false)
@@ -3163,7 +3515,7 @@ void ParametersToStack(func_byte_code *final_func, func_decl *fdecl, descend_fun
 				reg.type = fret_type::R_PARAM_REG;
 
 			// bool param is if the reg is lhs or not
-			out->bcodes.emplace_back(ReturnBCode(byte_code_instr::BC_EQUAL, &var, &reg));
+			//out->bcodes.emplace_back(ReturnBCode(byte_code_instr::BC_EQUAL, &var, &reg));
 			//EmplaceInstRegToMem(final_func, cur_arg, a, byte_code_instr::BC_EQUAL, out);
 
 			cur_arg++;
@@ -3178,6 +3530,7 @@ void ParametersToStack(func_byte_code *final_func, func_decl *fdecl, descend_fun
 		
 		//if(final_func->fdecl->name == "entry")
 			//offset -= 8;
+		int float_reg = 0;
 			
 		for(int i = 3; i >= 0; i--)
 		{
@@ -3192,17 +3545,18 @@ void ParametersToStack(func_byte_code *final_func, func_decl *fdecl, descend_fun
 			bc.bin.lhs.voffset = offset;
 			bc.bin.lhs.reg_sz = 8;
 			bc.bin.lhs.var_size= 8;
-			bc.bin.rhs.reg = 6 + i;
+			bc.bin.rhs.reg = i;
 
 			if(a && (a->type.IsFloat() && a->type.ptr == 0))
 			{
-				bc.bin.rhs.reg = i;
+				bc.bin.rhs.reg = float_reg;
 				bc.bin.rhs.reg |= 1 << 4;
+				float_reg++;
 			}
 
 			bc.bin.rhs.reg_sz = 8;
 			// bool param is if the reg is lhs or not
-			out->bcodes.emplace_back(bc);
+			out->emplace_back(bc);
 
 			// bool param is if the reg is lhs or not
 			//out->bcodes.emplace_back(byte_code(STORE_REG_PARAM, false, (char) 6 + i, (char)8, (int)offset, (int)8));
@@ -3211,378 +3565,9 @@ void ParametersToStack(func_byte_code *final_func, func_decl *fdecl, descend_fun
 	}
 	
 }
-func_byte_code *GetFunc(lang_state *lang_stat, func_decl *fdecl)
-{
-	lang_stat->global_funcs.emplace_back(fdecl);
-
-	ASSERT(IS_FLAG_ON(fdecl->flags, FUNC_DECL_IS_DONE))
-	auto final_func = new func_byte_code();
-	memset(final_func, 0, sizeof(func_byte_code));
-	final_func->fdecl = fdecl;
-    fdecl->func_bcode = final_func;
-
-	descend_func_ret ret_bcode;
-	memset(&ret_bcode, 0, sizeof(descend_func_ret));
-	/*
-	byte_code bc;
-	bc.type  = BEGIN_FUNC;
-	bc.fdecl = fdecl;;
-	ret_bcode.bcodes.emplace_back(bc);
-	*/
-
-	EmplaceComment(&ret_bcode, fdecl->func_node->t->line_str);
-	own_std::string fname = own_std::string("// func name ") + fdecl->name;
-	EmplaceComment(&ret_bcode, std_str_to_heap(lang_stat, &fname));
 
 	
-	
-	// moving rsp to rax
-	IREG_TO_REG(5, 0, 8, ret_bcode, BC_EQUAL);
 
-	
-	
-	ParametersToStack(final_func, fdecl, &ret_bcode);
-
-	// making the stack 16 byte aligned
-	EmplaceInstImmToReg(final_func, 5, 0xf0, byte_code_instr::BC_AND, &ret_bcode, 1);
-	//EmplaceInstImmToReg(final_func, 5, 16, byte_code_instr::BC_SUB, &ret_bcode, 1);
-	//
-
-	// subing the stack pointer
-	EmplaceInstImmToReg(final_func, 5, fdecl->stack_size, byte_code_instr::BC_SUB, &ret_bcode);
-	//EmplacePushStackSize(final_func, fdecl->stack_size, &ret_bcode);
-
-	
-	// pushing rbx
-	int offset = final_func->fdecl->saved_lhs_offset;
-	EmplaceInstRegToMemOffset(final_func, 3, 8, offset, 8, byte_code_instr::BC_EQUAL, &ret_bcode);
-
-	lang_stat->lhs_saved++;
-	// pushing rbp
-	EmplaceInstRegToMemOffset(final_func, 34, 8, offset + 8, 8, byte_code_instr::BC_EQUAL, &ret_bcode);
-	lang_stat->lhs_saved++;
-
-	// moving rax to rbp
-	IREG_TO_REG(0, 34, 8, ret_bcode, BC_EQUAL);
-
-	
-	descend_func_ret func_bcodes;
-	if(fdecl->func_node->r)
-		func_bcodes = DescendFunc(lang_stat, final_func, fdecl->func_node->r->r, fdecl->scp);
-
-	lang_stat->lhs_saved--;
-	lang_stat->lhs_saved--;
-
-	ret_bcode.bcodes.insert(ret_bcode.bcodes.end(), func_bcodes.bcodes.begin(), func_bcodes.bcodes.end());
-
-
-	EmplaceRetGroup(final_func, fdecl, nullptr, &ret_bcode);
-	ret_bcode.bcodes.emplace_back(byte_code(byte_code_enum::ASSIGN_FUNC_SIZE, (long long)fdecl));
-
-	/*
-	bc.type = END_FUNC;
-	ret_bcode.bcodes.emplace_back(bc);
-	*/
-
-	//ret_bcode.bcodes.insert(ret_bcode.bcodes.end(), ret_bcode.bcodes.begin(), ret_bcode.bcodes.end());
-	ASSIGN_VEC(final_func->bcodes, ret_bcode.bcodes);
-    fdecl->flags |= FUNC_DECL_CODE_WAS_GENERATED;
-	return final_func;
-}
-
-	
-void GenFuncByteCode(lang_state *lang_stat, func_decl *fdecl, own_std::vector<func_byte_code *> &ret)
-{
-
-    fdecl->biggest_saved_lhs = 6;
-
-    bool is_entry = fdecl->name == "entry";
-
-    int shadow_stack_size = 32 + 8;
-    // we already account for 4 args anyway in the shadow stack, so we're checking if the 
-    // func call has more than 4 args so that we can add the reamining args to the size of the stack
-    if (fdecl->biggest_call_args > 4)
-        shadow_stack_size += (fdecl->biggest_call_args - 4) * 8;
-    
-
-    int dummy_biggest_size = 0;
-    // local vars stack size
-    int stack_size = SetVariablesAddress(&fdecl->vars, fdecl->args.size(), &dummy_biggest_size, shadow_stack_size);
-
-    stack_size = get_even_address_with(16, stack_size);
-    // getting the offset of the saved regs, this is the place where we store call regs
-    // that need to be saved after a func call inside another func call
-    // 
-    // I dont know if we need to add this 8 here
-    stack_size += 8;
-    fdecl->biggest_saved_regs += 4;
-    fdecl->saved_regs_offset = stack_size;
-    stack_size += fdecl->biggest_saved_regs * 8;
-    
-    // skiping the an saved reg
-    stack_size += 8;
-    fdecl->saved_rsp_offset = stack_size;
-    stack_size += 8;
-
-    
-
-    // strct vals per stmnt
-    fdecl->per_stmnt_strct_val_offset = stack_size;
-    stack_size += fdecl->per_stmnt_strct_val_sz;
-
-    // making space for lhs saved regs
-    fdecl->saved_lhs_offset = stack_size;
-    fdecl->biggest_saved_lhs += 4;
-    stack_size += fdecl->biggest_saved_lhs * 8;
-
-    // making space for strct_vals
-    fdecl->strct_vals_offset = stack_size;
-
-    // offset for the struct ret val
-    fdecl->strct_val_ret_offset = stack_size + fdecl->strct_val_ret_offset;
-    fdecl->strct_vals_sz += 32;
-    stack_size += fdecl->strct_vals_sz;
-
-    // offset to call strct vals
-    fdecl->call_strcts_val_offset = stack_size;
-    fdecl->call_strcts_val_sz += 16;
-    stack_size += fdecl->call_strcts_val_sz;
-
-
-    // offset for the array literal instantiation
-    fdecl->array_literal_offset = stack_size;
-    stack_size += fdecl->array_literal_sz;
-
-    // making the satck 16 byte aligned
-    //if (fdecl->name == "entry" || fdecl->name == "main")
-        stack_size = get_even_address_with(16, stack_size);
-    //else
-    //	stack_size |= 8;
-
-    /*
-    if (fdecl->name == "entry" || fdecl->name == "main")
-        stack_size += 16 - (stack_size % 16);
-    else
-        stack_size += 8 - (stack_size % 8);
-    */
-    fdecl->stack_size = stack_size;
-
-    // we adding more 8 bytes because we want to skip the ret address
-
-    //int arg_start_addr = stack_size + (is_entry ? 0 : 8);
-    int arg_start_addr =  8;
-    // getting this func parameters offset
-    FOR_VEC(arg, fdecl->args)
-    {
-        auto a = *arg;
-        a->flags |= DECL_IS_ARG;
-        a->offset = arg_start_addr;
-
-        arg_start_addr += 8;
-        
-    }
-    auto ret_func = GetFunc(lang_stat, fdecl);
-    bool is_test = IS_FLAG_ON(fdecl->flags, FUNC_DECL_TEST);
-    ret_func->is_test = is_test;
-    ret_func->name = fdecl->name.substr();
-    ret.emplace_back(ret_func);
-}
-own_std::vector<func_byte_code *> GetFuncs(lang_state *lang_stat, scope *scp)
-{
-	own_std::vector<func_byte_code *> ret;
-	FOR_VEC(var, scp->vars)
-	{
-		auto v = *var;
-		switch(v->type.type)
-		{
-		case enum_type2::TYPE_FUNC_EXTERN:
-		{
-
-			auto new_f = new func_byte_code();
-			memset(new_f, 0, sizeof(func_byte_code));
-			new_f->name = v->name.substr();
-			new_f->fdecl = v->type.fdecl;
-
-			bool is_link_name = IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_LINK_NAME);
-			bool is_outsider = IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_IS_OUTSIDER);
-			bool is_test = IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_TEST);
-			new_f->is_outsider  = is_link_name | is_outsider;
-			new_f->is_link_name = is_link_name;
-			
-
-			if(is_link_name)
-				new_f->name = new_f->fdecl->link_name;
-
-
-			ret.emplace_back(new_f);
-			continue;
-		}break;
-		case enum_type2::TYPE_FUNC:
-		{
-			if(v->type.fdecl->templates.size() == 0)
-			{
-				if (IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_TEMPLATED)
-					|| IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_INTERNAL) ||IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_MACRO) )
-				{
-					continue;
-				}
-				else if (IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_IS_OUTSIDER))
-				{
-					auto new_f = new func_byte_code();
-					memset(new_f, 0, sizeof(func_byte_code));
-					new_f->name = v->name;
-					new_f->fdecl = v->type.fdecl;
-					new_f->is_outsider = true;
-					ret.emplace_back(new_f);
-					continue;
-				}
-                GenFuncByteCode(lang_stat, v->type.fdecl, ret);
-
-                continue;
-
-				v->type.fdecl->biggest_saved_lhs = 6;
-
-				bool is_entry = v->name == "entry";
-
-				int shadow_stack_size = 32 + 8;
-				// we already account for 4 args anyway in the shadow stack, so we're checking if the 
-				// func call has more than 4 args so that we can add the reamining args to the size of the stack
-				if (v->type.fdecl->biggest_call_args > 4)
-					shadow_stack_size += (v->type.fdecl->biggest_call_args - 4) * 8;
-				
-
-				int dummy_biggest_size = 0;
-				// local vars stack size
-				int stack_size = SetVariablesAddress(&v->type.fdecl->vars, v->type.fdecl->args.size(), &dummy_biggest_size, shadow_stack_size);
-
-				stack_size = get_even_address_with(16, stack_size);
-				// getting the offset of the saved regs, this is the place where we store call regs
-				// that need to be saved after a func call inside another func call
-				// 
-				// I dont know if we need to add this 8 here
-				stack_size += 8;
-				v->type.fdecl->biggest_saved_regs += 4;
-				v->type.fdecl->saved_regs_offset = stack_size;
-				stack_size += v->type.fdecl->biggest_saved_regs * 8;
-				
-				// skiping the an saved reg
-				stack_size += 8;
-				v->type.fdecl->saved_rsp_offset = stack_size;
-				stack_size += 8;
-
-				
-
-				// strct vals per stmnt
-				v->type.fdecl->per_stmnt_strct_val_offset = stack_size;
-				stack_size += v->type.fdecl->per_stmnt_strct_val_sz;
-
-				// making space for lhs saved regs
-				v->type.fdecl->saved_lhs_offset = stack_size;
-				v->type.fdecl->biggest_saved_lhs += 4;
-				stack_size += v->type.fdecl->biggest_saved_lhs * 8;
-
-				// making space for strct_vals
-				v->type.fdecl->strct_vals_offset = stack_size;
-
-				// offset for the struct ret val
-				v->type.fdecl->strct_val_ret_offset = stack_size + v->type.fdecl->strct_val_ret_offset;
-				v->type.fdecl->strct_vals_sz += 32;
-				stack_size += v->type.fdecl->strct_vals_sz;
-
-				// offset to call strct vals
-				v->type.fdecl->call_strcts_val_offset = stack_size;
-				v->type.fdecl->call_strcts_val_sz += 16;
-				stack_size += v->type.fdecl->call_strcts_val_sz;
-
-
-				// offset for the array literal instantiation
-				v->type.fdecl->array_literal_offset = stack_size;
-				stack_size += v->type.fdecl->array_literal_sz;
-
-				// making the satck 16 byte aligned
-				//if (v->type.fdecl->name == "entry" || v->type.fdecl->name == "main")
-					stack_size = get_even_address_with(16, stack_size);
-				//else
-				//	stack_size |= 8;
-
-				/*
-				if (v->type.fdecl->name == "entry" || v->type.fdecl->name == "main")
-					stack_size += 16 - (stack_size % 16);
-				else
-					stack_size += 8 - (stack_size % 8);
-				*/
-				v->type.fdecl->stack_size = stack_size;
-
-				// we adding more 8 bytes because we want to skip the ret address
-
-				//int arg_start_addr = stack_size + (is_entry ? 0 : 8);
-				int arg_start_addr =  8;
-				// getting this func parameters offset
-				FOR_VEC(arg, v->type.fdecl->args)
-				{
-					auto a = *arg;
-					a->flags |= DECL_IS_ARG;
-					a->offset = arg_start_addr;
-
-					arg_start_addr += 8;
-					
-				}
-				auto ret_func = GetFunc(lang_stat, v->type.fdecl);
-				bool is_test = IS_FLAG_ON(v->type.fdecl->flags, FUNC_DECL_TEST);
-				ret_func->is_test = is_test;
-				ret_func->name = v->name.substr();
-				ret.emplace_back(ret_func);
-			}
-		}break;
-		}
-	}
-	return ret;
-}
-
-long long *interpreter::GetRegValPtr(char idx)
-{
-	long long *r = ((long long *)&regs.r0) + idx;
-	return r;
-}
-long long interpreter::GetRegVal(char idx)
-{
-	long long* r = (long long *)(((interpreter::reg*) & regs.r0) + idx);
-	return *r;
-}
-void interpreter::NextInst()
-{
-}
-
-int interpreter::GetCurStackSize()
-{
-	ASSERT(stack_sizes.size() > 0)
-	return *(stack_sizes.end() - 1);
-}
-long long *interpreter::GetMem(int offset, char reg_idx = 5)
-{
-	long long reg_val = GetRegVal(reg_idx);
-	long long *cur_ptr = (long long *)((reg_val - GetCurStackSize()) + offset);
-
-	return cur_ptr;
-}
-void interpreter::SetRegFromMem(int offset, char out_reg_idx, char mem_size, char base_reg)
-{
-	auto mem_ptr = GetMem(offset, base_reg);
-
-	auto out_reg = GetRegValPtr(out_reg_idx);
-	ASSERT(mem_size <= 8)
-	memcpy(out_reg, mem_ptr, mem_size);
-}
-void interpreter::SetMemFromReg(char reg_idx, int offset)
-{
-	auto mem_ptr = GetMem(offset, 5);
-
-	auto reg_val = GetRegVal(reg_idx);
-	// getting to the base of the stack and adding the var offset
-	
-
-	*mem_ptr = reg_val;
-}
 #define CREATE_BIN_OP(sgn)\
 		if(is_unsigned)\
 		{\
@@ -3645,33 +3630,16 @@ long long PerformBinOp(long long lhs, long long rhs, char mem_size, bool is_unsi
 	}
 	return 0;
 }
-void interpreter::ExecInst()
+char GetSizeMin(char sz)
 {
-
-	
-}
-void *interpreter::GetOutsiderFunc(own_std::string name)
-{
-	FOR_VEC(f, outsider_funcs)
+	switch(sz)
 	{
-		if(name == f->name)
-			return f->addr;
+	case 1: return 0;
+	case 2: return 1;
+	case 4: return 2;
+	case 8: return 3;
 	}
-	return nullptr;
 }
-void interpreter::CmpSetFlags(long long lhs, long long rhs, char size, bool is_unsigned)
-{
-	int res = PerformBinOp(lhs, rhs,
-		size,
-		is_unsigned,
-		byte_code_instr::BC_SUB
-	);
-
-	regs.flags.i64 &= ~(ZERO_FLAG | SIGN_FLAG);
-
-	if (res == 0)
-		regs.flags.i64 |= ZERO_FLAG;
-	if (res < 0)
-		regs.flags.i64 |= SIGN_FLAG;
-}
-
+#define REG_SZ_BIT 13
+#define FLAG_UNSIGNED 12
+#define RHS_REG_BIT 6

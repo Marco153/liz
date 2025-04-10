@@ -7,13 +7,16 @@ enum ast_type
     AST_BREAK,
     AST_DBG_BREAK,
     AST_STATS,
+    AST_CONTINUE,
     AST_FUNC,
     AST_INT,
+    AST_GET_FUNC_BC,
     AST_CHAR,
     AST_IDENT,
     AST_RET,
     AST_BINOP,
     AST_UNOP,
+    AST_DEFER,
     AST_STR_LIT,
     AST_ADDRESS_OF,
     AST_EXPR,
@@ -29,6 +32,7 @@ enum ast_type
     AST_ARRAY_COSTRUCTION,
 
     AST_DEREF,
+    AST_LABEL,
 
     AST_FLOAT,
 
@@ -86,6 +90,7 @@ struct ast_call
 	decl2 *func_ptr_var;
     func_decl *fdecl;
     func_decl *in_func;
+    ast_rep* lhs;
 };
 struct ast_struct_construct_info
 {
@@ -103,6 +108,7 @@ struct ast_array_construct
 struct ast_struct_construct
 {
     type_struct2 *strct;
+    bool is_vector;
 
     int at_offset;
 
@@ -145,12 +151,19 @@ struct ast_rep
 {
     ast_type type;
     tkn_type2 op;
-	bool stmnt_without_semicolon;
+	bool stmnt_without_semicolon : 1;
+	bool dont_make_dbg_stmnt : 1;
+	bool goes_onto_stack : 1;
 
+	int line_number;
+
+    int line_offset_start;
     union
     {
-        int line_number;
+        int line_offset_end;
+        int at_stack_offset;
     };
+	type2 lhs_tp;
 
     union
     {
@@ -167,8 +180,7 @@ struct ast_rep
 		struct
 		{
 			own_std::vector<ast_rep*> expr;
-			type2 lhs_tp;
-		};
+		}e_holder;
 		
 		struct
 		{
@@ -206,54 +218,58 @@ struct ast_rep
 
 enum ir_type
 {
-	IR_NONE,
-	IR_NOP,
+    IR_NONE,
+    IR_NOP,
 
-	IR_ASSIGNMENT,
-	IR_RET,
-	IR_CMP_EQ,
-	IR_CMP_NE,
-	IR_CMP_LT,
-	IR_CMP_LE,
-	IR_CMP_GE,
-	IR_CMP_GT,
-	IR_BREAK_OUT_IF_BLOCK,
+    IR_ASSIGNMENT,
+    IR_RET,
+    IR_LABEL,
+    IR_CMP_EQ,
+    IR_CMP_NE,
+    IR_CMP_LT,
+    IR_CMP_LE,
+    IR_CMP_GE,
+    IR_CMP_GT,
+    IR_BREAK_OUT_IF_BLOCK,
 
-	IR_CAST_INT_TO_F32,
-	IR_CAST_F32_TO_INT,
+    IR_CAST_INT_TO_F32,
+    IR_CAST_F32_TO_INT,
+    IR_CAST_INT_TO_INT,
 
-	IR_SPILL_REG,
-	IR_UNSPILL_REG,
+    IR_SPILL_REG,
+    IR_UNSPILL_REG,
 
-	IR_SKIPABLE,
+    IR_SKIPABLE,
 
-	IR_BEGIN_CALL,
-	IR_END_CALL,
+    IR_BEGIN_CALL,
+    IR_END_CALL,
 
-	IR_STACK_BEGIN,
-	IR_STACK_END,
-	IR_DECLARE_LOCAL,
-	IR_DECLARE_ARG,
+    IR_STACK_BEGIN,
+    IR_STACK_END,
+    IR_DECLARE_LOCAL,
+    IR_DECLARE_ARG,
 
-	IR_BREAK,
+    IR_BREAK,
 
-	IR_SPILL,
-	IR_UNSPILL,
+    IR_SPILL,
+    IR_UNSPILL,
 
-	IR_BEGIN_BLOCK,
-	IR_END_BLOCK,
+    IR_BEGIN_BLOCK,
+    IR_END_BLOCK,
 
-	IR_BEGIN_LOOP_BLOCK,
-	IR_END_LOOP_BLOCK,
+    IR_BEGIN_LOOP_BLOCK,
+    IR_END_LOOP_BLOCK,
 
-	IR_BEGIN_OR_BLOCK,
-	IR_END_OR_BLOCK,
+    IR_BEGIN_OR_BLOCK,
+    IR_END_OR_BLOCK,
 
-	IR_BEGIN_AND_BLOCK,
-	IR_END_AND_BLOCK,
+    IR_BEGIN_AND_BLOCK,
+    IR_END_AND_BLOCK,
 
-	IR_BEGIN_COND_BLOCK,
-	IR_END_COND_BLOCK,
+    IR_BEGIN_COND_BLOCK,
+    IR_END_COND_BLOCK,
+
+    IR_CONTINUE,
 
 	IR_BEGIN_IF_EXPR_BLOCK,
 	IR_END_IF_EXPR_BLOCK,
@@ -287,7 +303,9 @@ enum ir_val_type
     IR_TYPE_ARG_REG,
     IR_TYPE_RET_REG,
     IR_TYPE_DECL,
+    IR_TYPE_GET_FUNC_BC,
     IR_TYPE_ON_STACK,
+    IR_TYPE_TYPE,
 };
 enum on_stack_type
 {
@@ -298,20 +316,19 @@ enum on_stack_type
 struct ir_val
 {
     ir_val_type type;
-    bool is_unsigned;
-	bool is_float;
-    char ptr;
-	char deref;
-    char reg_sz;
     union
     {
-        decl2 *decl;
+        decl2* decl;
+        func_decl* fdecl;
+    };
+    union
+    {
+        int decl_offset;
 		struct
 		{
 			on_stack_type on_stack_type;
 			int i;
 		};
-        int on_data_sect_offset;
         float f32;
 		char* str;
         struct
@@ -319,10 +336,17 @@ struct ir_val
 			union
 			{
 				char reg;
-				short reg_ex;
 			};
         };
     };
+	short reg_ex;
+	int on_data_sect_offset;
+    bool is_unsigned : 1;
+	bool is_float:1;
+	bool is_packed_float:1;
+    char ptr;
+	char deref;
+    char reg_sz;
 };
 
 struct assign_info
@@ -338,8 +362,24 @@ struct ir_rep
 {
     ir_type type;
     int idx;
-    int start;
-    int end;
+    union
+    {
+        int start;
+        int dst_ir_rel_idx;
+    };
+    union
+    {
+        int end;
+    };
+    union
+    {
+        int dbg_int;
+        struct
+        {
+            bool dbg_break;
+            bool one_dbg_break;
+        };
+    };
     union
     {
         struct
@@ -364,7 +404,9 @@ struct ir_rep
                 int code_start;
                 int line;
             }stmnt;
+            bool is_for_loop;
             int other_idx;
+            int for_loop_end_stat;
         }block;
         struct
         {

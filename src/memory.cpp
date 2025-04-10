@@ -25,11 +25,6 @@ mem_chunk *GetUnallocatedChunk(mem_alloc *alloc)
 			mem_chunk* cur2 = &alloc->all[i + 2];
 			mem_chunk* cur3 = &alloc->all[i + 3];
 
-			int f1 = IS_FLAG_OFF(cur0->flags, CHUNK_ALLOCATED);
-			int f2 = IS_FLAG_OFF(cur1->flags, CHUNK_ALLOCATED);
-			int f3 = IS_FLAG_OFF(cur2->flags, CHUNK_ALLOCATED);
-			int f4 = IS_FLAG_OFF(cur3->flags, CHUNK_ALLOCATED);
-
 			// Prefetching the next cache lines
 			_mm_prefetch((char*)&alloc->all[(i + 4) % alloc->chunks_cap], _MM_HINT_T0);
 
@@ -378,8 +373,14 @@ void InitMemAlloc(mem_alloc *alloc)
 
 	long long total_size = all_chunks_sz + chunks_total_size + in_use_hash_sz + unallocated_sz;
 
-	char* start = (char *)PlatformGetMem(total_size, 0);
-//	char* start = (char *)VirtualAlloc(0, total_size, MEM_COMMIT, PAGE_READWRITE);
+
+	char* start = nullptr;
+	if (!alloc->main_buffer)
+	{
+		start = (char *)PlatformGetMem(total_size, 0);
+	}
+	else
+		start = alloc->main_buffer;
 	char* buffer = start;
 	memset(start, 0, total_size);
 

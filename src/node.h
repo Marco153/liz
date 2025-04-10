@@ -21,12 +21,16 @@
 #define NODE_FLAGS_IS_PROCESSED3 0x10000
 #define NODE_FLAGS_FUNC_COMP 0x20000
 #define NODE_FLAGS_WAS_MODIFIED 0x40000
-#define NODE_FLAGS_FUNC_THIS 0x80000
+#define NODE_FLAGS_FUNC_COROUTINE 0x80000
 #define NODE_FLAGS_STMNT_ZERO_INITIALIZED 0x100000
 #define NODE_FLAGS_POINT_FROM_USING 0x200000
 #define NODE_FLAGS_STMNT_WITHOUT_SEMICOLON 0x400000
 #define NODE_FLAGS_CALL_WAS_MACRO 0x800000
 #define NODE_FLAGS_COMMA_INSIDE_PARENTHESES 0x1000000
+#define NODE_FLAGS_NO_ZERO_INITIALIZATION 0x2000000
+#define NODE_FLAGS_FUNC_X64 0x4000000
+#define NODE_FLAGS_FUNC_INTRINSIC 0x8000000
+#define NODE_FLAGS_RETURN_IDENT_EVEN_NOT_DONE 0x10000000
 
 #define ASSIGN_VEC(v1, v2) v1.assign(v2.begin(), v2. end())
 #define INSERT_VEC(v1, v2) v1.insert(v1.end(), v2.begin(), v2.end())
@@ -36,7 +40,7 @@
 struct lang_state;
 node *new_node(lang_state* );
 node *new_node(lang_state *, node *src);
-enum tkn_type2;
+enum tkn_type2 : unsigned char;
 struct import_strct;
 struct func_byte_code;
 struct node;
@@ -48,6 +52,7 @@ enum parser_cond
 	LESSER,
 	LESSER_EQUAL,
 	EQUAL,
+	NEQUAL,
 };
 
 struct node;
@@ -56,6 +61,7 @@ struct node_iter
 	own_std::vector<token2> *tkns;
 	int cur_idx;
 	int cur_scope_count;
+	bool rev;
 
     lang_state *lang_stat;
 
@@ -78,8 +84,9 @@ struct node_iter
 	node *parse_stmnts();
 	node *parse_sub_expr(int prec);
 	node *parse_expr();
-	node *parse_str(own_std::string &, int *);
+	node *parse_str(own_std::string &, int *, int);
 	node *parse_(int prec,  parser_cond);
+	void EatNewLine();
 	void CreateCondAndScope(node **n);
 
 	//Znode *parse_expression();
@@ -122,6 +129,12 @@ enum node_type
 	N_STMNT,
 	N_UNOP,
 	N_IDENTIFIER,
+	N_DEFER,
+	N_WHEN_USED,
+	N_MAKE_PTR_LEN,
+	N_SERIALIZABLE,
+	N_ASSIGN_SER_FUNC,
+	N_CONST_DECL,
 	N_APOSTROPHE,
 	N_FOR,
 	N_WHILE,
@@ -149,6 +162,8 @@ enum node_type
 	N_VAR_ARGS,
 	N_LAMBDA,
 
+	N_QUESTION_MARK,
+
 	N_HASHTAG,
 
 	N_STRUCT_CONSTRUCTION,
@@ -158,10 +173,12 @@ enum node_type
 
 	N_ENUM_DECL,
 	N_UNION_DECL,
+	N_ETRUCT_DECL,
 
 	N_DESUGARED,
 
 	N_STR_LIT,
+	N_TEMPLATES,
 };
 struct stmnt_nd
 {
@@ -173,21 +190,23 @@ struct node
 	node *l;
 	node *r;
 
+	bool modified;
+	node* original;
+
     union
     {
         own_std::vector<node *> *extra;
         own_std::vector<comma_ret> *exprs;
     };
+	decl2* decl;
 
 	token2 *t;
 
 	node_type type;
 
-#ifdef DEBUG_NAME
-	node *not_found_nd;
-#endif
 	union
 	{
+
 		tkn_type2 op_type;
 		overload_op ovrld_op;
 		node_type extra_type;
@@ -200,6 +219,7 @@ struct node
 	};
 	union
 	{
+		own_std::string str_val;
 		scope *scp;
 		node *call_templates;
 		type_struct2 *tstrct;
@@ -306,17 +326,39 @@ enum msg_type
  {
 	 SCP_TYPE_UNDEFINED,
 	 SCP_TYPE_STRUCT,
+	 SCP_TYPE_ENUM,
 	 SCP_TYPE_FUNC,
 	 SCP_TYPE_FILE,
  };
+ struct cached_decl
+ {
+	 int hit;
+	 decl2* d;
+ };
+int GetNameSimpleHash(const own_std::string &str)
+{
+	int sz = str.size();
+	int sum = sz;
+	for(int i = 0; i < sz; i++)
+	{
+		sum += (str[i] * 2) << 1;
+	}
+	return sum;
+}
+#define CACHED_DECLS_MAX  128
 struct scope
 {
 	scope *parent;
 	own_std::vector<decl2 *> vars;
+	std::unordered_map<own_std::string, decl2 *> vars_map;
 	own_std::vector<scope *> children;
+	own_std::vector<ast_rep *> defered;
 	own_std::vector<template_to_be_assigned> templs_to_be_assigned;
 
 	own_std::vector<decl2 *> imports;
+
+	cached_decl cached_decls[CACHED_DECLS_MAX];
+	
 
 	int flags;
 	//int flags;
@@ -327,10 +369,59 @@ struct scope
 
 	func_decl *fdecl;
 	type_struct2 *tstrct;
+	decl2* e_decl;
 	unit_file *file;
 
-	decl2 *FindVariable(own_std::string name);
+	decl2 *FindVariable(own_std::string &name);
+	decl2 *FindVariableCached(own_std::string &name);
 	own_std::string Print(int);
+
+	void AssignDecls(decl2 **start, decl2 **end)
+	{
+		vars.assign(start, end);
+	}
+	void ClearDecls()
+	{
+		vars.clear();
+		memset(cached_decls, 0, sizeof(cached_decls));
+	}
+	void AddDecl(decl2 *d)
+	{
+		vars.emplace_back(d);
+	}
+	void CacheDecl(decl2 *d)
+	{
+		bool cached = false;
+		cached_decl* cached_ptr;
+		u32 cur_min = 0xffffffff;
+		u32 cur_min_idx = 0xffffffff;
+
+		int simple_hash = GetNameSimpleHash(d->name);
+		for(int i = 0; i < CACHED_DECLS_MAX; i++)
+		{
+			int idx = (i + simple_hash) % CACHED_DECLS_MAX;
+			cached_ptr = &cached_decls[idx];
+			decl2* d_aux = cached_ptr->d;
+
+			if (d_aux == nullptr)
+			{
+				cached_ptr->d = d;
+				cached = true;
+				break;
+			}
+			if (cached_ptr->hit < cur_min)
+			{
+				cur_min = cached_ptr->hit;
+				cur_min_idx = i;
+			}
+		}
+		if (cached)
+			return;
+
+		cached_decls[cur_min_idx].d = d;
+		cached_decls[cur_min_idx].hit = 1;
+	}
+
 };
 struct message
 {
@@ -354,6 +445,7 @@ struct unit_file
 	own_std::vector<char *> lines;
 
 	scope *global;
+	scope *funcs_scp;
 	node *s;
 
 	int file_dbg_idx;
@@ -417,7 +509,7 @@ struct import_strct
 	import_type type;
 	own_std::string alias;
 	unit_file *fl;
-	decl2 *FindDecl(own_std::string name)
+	decl2 *FindDecl(const own_std::string &name)
 	{
 
 		ASSERT(fl->global);
@@ -461,4 +553,5 @@ tkn_type2 OppositeCondCmp(tkn_type2 t)
 	case tkn_type2::T_GREATER_EQ: return tkn_type2::T_LESSER_THAN; break;
 	default: ASSERT(false)
 	}
+	return tkn_type2::T_LESSER_THAN;
 }

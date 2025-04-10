@@ -3,9 +3,9 @@
 #include<string>
 #include "machine_rel.h"
 #include "rel_utils.h"
+#include "token_common.h"
 
 
-#define FOR_VEC(a, vec) for(auto a = (vec).begin(); a < (vec).end(); a++)
 
 struct decl2;
 struct node;
@@ -36,6 +36,7 @@ own_std::string MangleFuncNameWithArgs(lang_state *, func_decl *fdecl, own_std::
 decl2 *NewDecl(lang_state *, own_std::string name, type2 tp);
 decl2 *GetDeclFromStruct(type_struct2*);
 void TransformSingleFuncToOvrlStrct(lang_state *, decl2 *decl_exist);
+int GetTypeSize(type2* tp);
 
 
 
@@ -49,59 +50,6 @@ enum overload_op
 	DEREF_OP,
 	COND_EQ_OP,
 	FOR_OP,
-};
-enum tkn_type2
-{
-	T_WORD,
-	T_PLUS,
-	T_PIPE,
-	T_EQUAL,
-	T_COND_AND,
-	T_COND_EQ,
-	T_COND_NE,
-	T_PLUS_EQUAL,
-	T_MINUS_EQUAL,
-	T_COND_OR,
-	T_EXCLAMATION,
-	T_MINUS,
-	T_DIV,
-	T_AT,
-	T_PLUS_PLUS,
-	T_MINUS_MINUS,
-	T_OPEN_PARENTHESES,
-	T_CLOSE_PARENTHESES,
-	T_NEW_LINE,
-	T_SEMI_COLON,
-	T_OPEN_BRACKETS,
-	T_CLOSE_BRACKETS,
-	T_NUM,
-	T_INT,
-	T_HASHTAG,
-	T_FLOAT,
-	T_DOLLAR,
-	T_OPEN_CURLY,
-	T_COLON,
-	T_CLOSE_CURLY,
-	T_TILDE,
-	T_COMMA,
-	T_POINT,
-	T_GREATER_THAN,
-	T_GREATER_EQ,
-	T_LESSER_THAN,
-	T_LESSER_EQ,
-	T_MUL,
-	T_AMPERSAND,
-	T_PERCENT,
-
-	T_STR_LIT,
-	T_APOSTROPHE,
-
-	T_TWO_POINTS,
-	T_IN,
-
-	T_THREE_POINTS,
-
-	T_EOF,
 };
 enum enum_type2
 {
@@ -129,14 +77,16 @@ enum enum_type2
 	TYPE_CHAR_TYPE,
 	TYPE_STR_LIT,
 	TYPE_STATIC_ARRAY_TYPE,
-	TYPE_U64_TYPE,
-	TYPE_U32_TYPE,
-	TYPE_U16_TYPE,
+
 	TYPE_U8_TYPE,
-	TYPE_S64_TYPE,
-	TYPE_S32_TYPE,
-	TYPE_S16_TYPE,
 	TYPE_S8_TYPE,
+	TYPE_U16_TYPE,
+	TYPE_S16_TYPE,
+	TYPE_U32_TYPE,
+	TYPE_S32_TYPE,
+	TYPE_U64_TYPE,
+	TYPE_S64_TYPE,
+
 	TYPE_BOOL_TYPE,
 	TYPE_UNION_TYPE,
 	TYPE_FUNC_TYPE,
@@ -152,20 +102,21 @@ enum enum_type2
 	TYPE_REL_TYPE,
 	TYPE_REL,
 
-	TYPE_U64,
-	TYPE_U32,
-	TYPE_U16,
 	TYPE_U8,
-	TYPE_S64,
-	TYPE_S32,
-	TYPE_S16,
 	TYPE_S8,
+	TYPE_U16,
+	TYPE_S16,
+	TYPE_U32,
+	TYPE_S32,
+	TYPE_U64,
+	TYPE_S64,
+
 	TYPE_F32,
+	TYPE_CHAR,
 	TYPE_F64,
+	TYPE_BOOL,
 	TYPE_F32_RAW,
 	TYPE_F64_RAW,
-	TYPE_BOOL,
-	TYPE_CHAR,
 
 	TYPE_UNION_DECL,
 	TYPE_UNION,
@@ -186,6 +137,8 @@ enum enum_type2
 	TYPE_FUNC,
 	TYPE_COMMA,
 	TYPE_TEMPLATE,
+	TYPE_VECTOR_TYPE,
+	TYPE_VECTOR,
 	TYPE_MAX,
 };
 struct type_data
@@ -193,30 +146,48 @@ struct type_data
 	union
 	{
 		// offset holds a ptr to the another strct type_data
-		long long offset;
+		long long _u64;
 		// entries is how many members a strct has
 		int entries;
 	};
+	long long strct_sz;
+	long long offset;
+	char ptr;
+	decl2* serializable_func;
 	enum_type2 tp;
-	short name;
-	short name_len;
+	int flags;
+	int name;
+	int name_len;
+	int decl_offset_for_ptr_len;
 
 };
 struct template_expr
 {
-	own_std::string name;
+	union
+	{
+		own_std::string name;
+	};
 	int type;
 	type2 *final_type;
 	node *expr;
 	node *func;
 	scope *scp;
+
+	template_expr()
+	{
+	}
+	~template_expr()
+	{
+	}
 };
 struct func_overload_strct
 {
 	own_std::string name;
 
+	bool templated;
 	overload_op ovrld_op;
 	own_std::vector<func_decl *> fdecls;
+	own_std::hash_map<node *, func_decl *> cached;
 };
 #define TYPE_CONST_WAS_DECLARED 1
 #define TYPE_IS_REL   2
@@ -226,6 +197,7 @@ struct func_overload_strct
 #define TYPE_NOT_INSTANTIATED_YET 0x20
 #define TYPE_FLAGS_AUTO_CAST 0x40
 #define TYPE_FUNC_RECURSIVE 8
+#define TYPE_IS_GLOBAL 0x10
 struct type2
 {
 	enum_type2 type;
@@ -266,9 +238,11 @@ struct type2
 		{
 			scope *scp;
 			decl2 *e_decl;
+			own_std::vector<char*>* enum_names;
+			own_std::string templ_name;
 		};
 
-		template_expr templ;
+		//template_expr templ;
 
 		struct
 		{
@@ -279,7 +253,6 @@ struct type2
 		{
 			union
 			{
-				own_std::string templ_name;
 				int ar_size;
 			};
 			int *decl_offset;
@@ -288,14 +261,11 @@ struct type2
 		};
 		struct
 		{
-			decl2 *from_enum;
-			int e_idx;
 		};
 	};
-	// ***
-	// DONT PUT ANY VARIABLES PAST THIS UNION
-	// ***
 
+	decl2 *from_enum;
+	int e_idx;
 #endif
 	decl2 *GetEnumDecl(own_std::string name);
 	func_decl *ChooseFuncOverload(lang_state *, own_std::vector<type2> *tps);
@@ -351,15 +321,24 @@ struct template_to_be_assigned
 #define FUNC_DECL_ALIGN_STACK_WHEN_CALL 0x8000
 #define FUNC_DECL_COMP 0x10000
 #define FUNC_DECL_CODE_WAS_GENERATED 0x20000
-#define FUNC_DECL_THIS 0x40000
+#define FUNC_DECL_COROUTINE 0x40000
 #define FUNC_DECL_SERIALIZED 0x80000
+#define FUNC_DECL_X64 0x100000
+#define FUNC_DECL_INTRINSIC 0x200000
+#define FUNC_DECL_LABEL 0x400000
+#define FUNC_DECL_LABELS_GOTTEN 0x800000
+#define FUNC_DECL_INSTANTIATED 0x1000000
+#define FUNC_DECL_CAST 0x2000000
 
 struct stmnt_dbg
 {
 	int start;
 	int end;
+	int start_ir;
+	int end_ir;
 	int line;
 };
+struct ast_rep;
 struct func_decl
 {
 	own_std::string name;
@@ -373,9 +352,14 @@ struct func_decl
 	own_std::vector<func_decl *> plugins;
 	own_std::vector<func_decl *> this_functions;
 	own_std::vector<stmnt_dbg> wasm_stmnts;
+	own_std::vector<int> bcs2;
 
 	own_std::vector<int> ir;
-	int flags;
+
+	func_decl* call_not_found;
+
+	node* coroutine_prologue_tree;
+	long long flags;
 	//tkn_type2 op_overload;
 	overload_op op_overload;
 	type2 ret_type;
@@ -384,16 +368,29 @@ struct func_decl
 	scope *scp;
 	scope *wasm_scp;
 
+
     func_byte_code *func_bcode;
 	node *reached_nd;
 
 	unit_file *from_file;
 
+	unit_file *templated_in_file;
+	int templated_in_file_line;
+
 	decl2 *this_decl;
+
+	decl2 *from_overload;
+
+	int ir_stack_begin_idx;
+
+	ast_rep* ast;
 
     machine_code *code;
 
+	int references;
+
 	int code_start_idx;
+	int for_interpreter_code_start_idx;
 	int code_size;
 
     int wasm_func_sect_idx;
@@ -401,6 +398,8 @@ struct func_decl
 	int stack_size;
 
 	int func_dbg_idx;
+
+	int func_idx;
 
 	int biggest_saved_regs = 2;
 	int biggest_call_args;
@@ -410,6 +409,9 @@ struct func_decl
 	//int biggest_call_args;
 
 	int biggest_saved_lhs;
+
+	int bcs2_start;
+	int bcs2_end;
 
 
 	int strct_ret_size_per_statement;
@@ -441,8 +443,10 @@ struct func_decl
 	int array_literal_offset;
 	int array_literal_sz;
 
+	int total_hidden_ret_labels;
 
 	int var_args_start_offset;
+	int line;
 	/*
 	func_decl *NewFuncComplete()
 	{
@@ -460,6 +464,7 @@ struct func_decl
 		//memcpy(ret, this, sizeof(func_decl));
 		//ret->args.assign(args.begin(), args.end());
 		ret->func_node = this->func_node;
+		//ret->args = this->args;
 		ret->templates.assign(templates.begin(), templates.end());
 		ret->temps_to_be_assigned.assign(temps_to_be_assigned.begin(), temps_to_be_assigned.end());
 		ret->scp = nullptr;
@@ -475,6 +480,9 @@ struct func_decl
 #define DECL_IS_GLOBAL  0x10
 #define DECL_IS_SERIALIZED  0x20
 #define DECL_ABSOLUTE_ADDRESS  0x40
+#define DECL_PTR_HAS_LEN  0x80
+#define DECL_IS_VAR_ARG  0x100
+#define DECL_SERIALIZABLE  0x200
 
 struct decl2
 {
@@ -493,11 +501,18 @@ struct decl2
     int wasm_type_idx;
     int func_arg_idx;
 	int serialized_type_idx;
+	own_std::vector<int>* when_used_code;
 
 	node *using_node;
 	node *bottom_n;
 
 	node *decl_nd;
+	union
+	{
+		decl2* len_for_ptr;
+		u64 len_for_ptr_offset;
+		own_std::string len_for_ptr_name;
+	};
 
 	unit_file *from_file;
 
@@ -526,6 +541,9 @@ own_std::string OvrldOpToStr(overload_op op);
 #define TP_STRCT_STRUCT_NOT_NODE 2
 #define TP_STRCT_STRUCT_SERIALIZED 4
 #define TP_STRCT_TUPLE 8
+#define TP_STRCT_ETRUCT 0x10
+#define TP_STRCT_IS_DYN_ARRAY 0x20
+#define TP_STRCT_ACTUAL_SERIALIZED 0x40
 //#define TP_STRCT_DONE 8
 struct type_struct2
 {
@@ -543,11 +561,14 @@ struct type_struct2
 	own_std::vector<template_expr> templates;
 	own_std::vector<template_to_be_assigned> temps_to_be_assigned;
 	own_std::vector<func_decl *> op_overloads;
+	own_std::vector<func_decl *> this_funcs;
 	own_std::vector<decl2 *> op_overloads_funcs;
 	own_std::vector<func_overload_strct> op_overloads_intern;
 	own_std::vector<func_overload_strct> constructors;
+	own_std::vector<int> depends_on_me;
 
 	own_std::vector<type_struct2 *> instantiated_strcts;
+	decl2* ser_func;
 	type_struct2 *original_strct;
 	node *strct_node;
 	scope *scp;
@@ -568,7 +589,7 @@ struct type_struct2
 	{
 		constructors[0].fdecls.emplace_back(fdecl);
 	}
-	void AddOpOverload(lang_state *lang_stat, func_decl *fdecl, overload_op op)
+	void AddOpOverload(lang_state *lang_stat, func_decl *fdecl, overload_op op, int line, int line_offset)
 	{
 		op_overloads.push_back(fdecl);
 
@@ -576,10 +597,18 @@ struct type_struct2
 		decl2 *found_op = nullptr;
 		FOR_VEC(f, op_overloads_funcs)
 		{
-			if (op == (*f)->type.fdecl->op_overload)
+			if ((*f)->type.type == TYPE_OVERLOADED_FUNCS && (*f)->type.overload_funcs->ovrld_op == op)
 			{
 				found_op = (*f);
 				break;
+			}
+			else
+			{
+				if (op == (*f)->type.fdecl->op_overload)
+				{
+					found_op = (*f);
+					break;
+				}
 			}
 		}
 	
@@ -589,13 +618,17 @@ struct type_struct2
 				TransformSingleFuncToOvrlStrct(lang_stat, found_op);
 				
 			if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_NAME_INSERTED))
-				fdecl->name = MangleFuncNameWithArgs(lang_stat, fdecl, this->name, 1) + OvrldOpToStr(fdecl->op_overload);
+			{
+				fdecl->name = own_std::string(found_op->name);
+				fdecl->name = MangleFuncNameWithArgs(lang_stat, fdecl, fdecl->name, 0);
+			}
 
 			type2 tp = {};
 			tp.type = TYPE_FUNC;
 			tp.fdecl = fdecl;
 			AddNewDeclToFileGlobalScope(lang_stat, NewDecl(lang_stat, fdecl->name, tp));
 			found_op->type.overload_funcs->fdecls.push_back(fdecl);
+			//lang_stat->fu
 		}
 		else
 		{
@@ -607,13 +640,17 @@ struct type_struct2
 
 			//if (fdecl->op_overload == COND_EQ_OP)
 			if (IS_FLAG_OFF(fdecl->flags, FUNC_DECL_NAME_INSERTED))
-				fdecl->name = fname.substr();
+				fdecl->name = fname;
 
 			if (!fdecl->this_decl)
 				fdecl->this_decl = NewDecl(lang_stat, "", f_tp);
 
-			fdecl->this_decl->name = fname.substr();
+			fdecl->this_decl->name = fname;
 			fdecl->this_decl->type = f_tp;
+			fdecl->templated_in_file = lang_stat->cur_file;
+			fdecl->templated_in_file_line = line;
+			if (fdecl->this_decl->name == "string==")
+				auto a = 0;
 			op_overloads_funcs.push_back(fdecl->this_decl);
 
 			NewDeclToCurFilseGlobalsScope(lang_stat, fdecl->this_decl);
@@ -621,9 +658,9 @@ struct type_struct2
 		fdecl->flags |= FUNC_DECL_NAME_INSERTED;
 	}
 #endif
-	func_decl *FindOpOverload(lang_state *, overload_op tp, own_std::vector<type2> * = nullptr);
-	func_decl *FindExistingOverload(lang_state*, own_std::vector<func_overload_strct> *funcs, void * op, own_std::vector<type2> *tps, bool search_operator_ovrld);
-	decl2 *FindDecl(own_std::string name)
+	func_decl *FindOpOverload(lang_state *, overload_op tp, node *, own_std::vector<type2> * = nullptr);
+	func_decl *FindExistingOverload(lang_state*, own_std::vector<func_overload_strct> *funcs, void * op, own_std::vector<type2> *tps, bool search_operator_ovrld, node *);
+	decl2 *FindDecl(own_std::string &name)
 	{
 #ifdef COMPILER
 		for(int i = 0; i < this->vars.size(); i++)
@@ -639,7 +676,7 @@ struct type_struct2
 	}
 
 #define NEXT_TYPE_DATA(st, name_sz) (type_data *)(((char*)(st + 1)) + (name_sz))
-	void ToTypeSect(own_std::vector<own_std::vector<char>> *str_tbl, own_std::vector<char> *type_sect, int *str_tbl_sz)
+	void ToTypeSect(lang_state *lang_stat, own_std::vector<char> *type_sect, int *str_tbl_sz)
 	{
 		// the name of the struct and variables go at the of the struct
 		own_std::vector<char> buffer;
@@ -647,6 +684,7 @@ struct type_struct2
 		//buffer.resize(128);
 		//strct_str_tbl.resize(128);
 
+        type_sect_offset = type_sect->size();
 		buffer.insert(buffer.end(), sizeof(type_data), 0);
 		
 		type_data *strct_ptr = (type_data *)buffer.data();
@@ -658,42 +696,98 @@ struct type_struct2
 		strct_ptr->name_len = this->name.length();
 		strct_ptr->tp = enum_type2::TYPE_STRUCT_DECL;
 		strct_ptr->entries = vars.size();
+		strct_ptr->flags = flags;
+		strct_ptr->strct_sz = size;
+
+
+		if (ser_func)
+		{
+			strct_ptr->serializable_func = ser_func;
+			lang_stat->ser_funcs_type_data.emplace_back(type_sect->size());
+		}
+
+		if (original_strct && original_strct->name == "dyn_array")
+		{
+			strct_ptr->flags |= TP_STRCT_IS_DYN_ARRAY;
+			if (name == "dyn_array_1layer_sprites")
+				auto a = 0;
+		}
+		if (name == "layer_sprites")
+			auto a = 0;
 
 		InsertIntoCharVector(&strct_str_tbl, (void *)this->name.data(), this->name.size());
 
 		type_data *var_ptr = nullptr;
 
+		int total_vars = 0;
+		FOR_VEC(v, vars)
+		{
+			if (IS_FLAG_ON((*v)->flags, DECL_FROM_USING))
+				continue;
+			total_vars++;
+		}
 		int i = 0;
 		FOR_VEC(v, vars)
 		{
 			if (IS_FLAG_ON((*v)->flags, DECL_FROM_USING))
 				continue;
 
+
 			int last_size = buffer.size();
 			buffer.insert(buffer.end(), sizeof(type_data), 0);
 
 			var_ptr = (type_data*)&buffer[last_size];
 			
-			offset_to_str_tbl  = (vars.size() - i) * sizeof(type_data);
+			offset_to_str_tbl  = (total_vars - i) * sizeof(type_data);
 			offset_to_str_tbl += strct_str_tbl.size();
 			offset_to_str_tbl -= offsetof(type_data, name);
 
+			if (IS_FLAG_ON((*v)->flags, DECL_PTR_HAS_LEN))
+			{
+				var_ptr->flags = (*v)->flags;
+				var_ptr->decl_offset_for_ptr_len = (*v)->len_for_ptr->offset;
+			}
+			var_ptr->offset = (*v)->offset;
 			var_ptr->tp = (*v)->type.type;
+			var_ptr->ptr = (*v)->type.ptr;
 			var_ptr->name = offset_to_str_tbl;
+			var_ptr->strct_sz = GetTypeSize(&(*v)->type);
 			var_ptr->name_len = (*v)->name.length();
+			var_ptr->flags = (*v)->flags;
 
 			InsertIntoCharVector(&strct_str_tbl, (void *)(*v)->name.data(), (*v)->name.size());
 
-			if((*v)->type.type == enum_type2::TYPE_STRUCT)
-				var_ptr->offset = (*v)->type.strct->type_sect_offset;
-
+			if ((*v)->type.type == enum_type2::TYPE_STRUCT)
+			{
+				var_ptr->flags |= IS_FLAG_ON((*v)->type.strct->flags, TP_STRCT_ETRUCT) * TP_STRCT_ETRUCT;
+				var_ptr->_u64 = (*v)->type.strct->type_sect_offset + MEM_PTR_START_ADDR;
+				if(IS_FLAG_OFF((*v)->type.strct->flags, TP_STRCT_ACTUAL_SERIALIZED))
+				{
+					(*v)->type.strct->depends_on_me.emplace_back(type_sect_offset + last_size);
+				}
+			}
 			i++;
 		}
 		
-		type_sect->insert(type_sect->begin(), strct_str_tbl.begin(), strct_str_tbl.end());
-		type_sect->insert(type_sect->begin(), buffer.begin(), buffer.end());
 
-        type_sect_offset = type_sect->size();
+		strct_ptr = (type_data *)buffer.data();
+		strct_ptr->entries = total_vars;
+		strct_ptr->name = sizeof(type_data) * (total_vars + 1);
+		strct_ptr->name    -= offsetof(type_data, name);
+
+		type_sect->insert(type_sect->end(), buffer.begin(), buffer.end());
+		type_sect->insert(type_sect->end(), strct_str_tbl.begin(), strct_str_tbl.end());
+
+		FOR_VEC(cur, depends_on_me)
+		{
+			var_ptr = (type_data*)&(*type_sect)[*cur];
+			var_ptr->_u64 = type_sect_offset + MEM_PTR_START_ADDR;
+			auto a = 0;
+
+		}
+
+		flags |= TP_STRCT_ACTUAL_SERIALIZED;
+
 	}
 };
 
@@ -701,65 +795,31 @@ decl2 *GetDeclFromStruct(type_struct2 *st)
 {
     return st->this_decl;
 }
+token2 *token2::NewTkn(lang_state *lang_stat)
+{
+	auto ret = (token2 *)AllocMiscData(lang_stat, sizeof(token2));
+	memset(ret, 0, sizeof(token2));
+	
+	if (type == T_WORD)
+	{
+		ret->line = line;
+		ret->line_str = line_str;
+		ret->line_offset = line_offset;
+		ret->str = str;
+	}
+	else
+	{
+		memcpy(ret, this, sizeof(token2));
+	}
+	
+	return ret;
+}
 
 #define TKN_FLAGS_IS_NEW_LINE 1
-
-struct token2
+int IsTknWordStr(token2 *tkn, const char *str)
 {
-	tkn_type2 type;
-	int line;
-	int line_offset;
-	char *line_str;
-	union
-	{
-		char buffer[24];
-		own_std::string str;
-		union
-		{
-			int i;
-			long long i64;
-			unsigned long long u64;
-		};
-		float f;
-	};
-	int flags;
-
-	token2(){}
-	token2 operator=(const token2& other) 
-	{
-		token2 t;
-		memcpy(this, &other, sizeof(other));
-
-		return t;
-	}
-	token2(const token2& other) 
-	{
-		memcpy(this, &other, sizeof(*this));
-	}
-	~token2(){}
-
-	own_std::string ToString();
-	
-	token2 *NewTkn(lang_state *lang_stat)
-	{
-		auto ret = (token2 *)AllocMiscData(lang_stat, sizeof(token2));
-		memset(ret, 0, sizeof(token2));
-		
-		if (type == T_WORD)
-		{
-			ret->line = line;
-			ret->line_str = line_str;
-			ret->line_offset = line;
-			ret->str = str.substr();
-		}
-		else
-		{
-			memcpy(ret, this, sizeof(token2));
-		}
-		
-		return ret;
-	}
-};
+	return tkn->type == tkn_type2::T_WORD && tkn->str == str;
+}
 int IsTknWordStr(token2 *tkn, own_std::string str)
 {
 	return tkn->type == tkn_type2::T_WORD && tkn->str == str;
@@ -894,6 +954,14 @@ own_std::string OperatorToString(tkn_type2 type)
 		{
 			return own_std::string("\n{\n");
 		}break;
+		case tkn_type2::T_SHIFT_RIGHT:
+		{
+			return own_std::string(">>");
+		}break;
+		case tkn_type2::T_SHIFT_LEFT:
+		{
+			return own_std::string("<<");
+		}break;
 		case tkn_type2::T_LESSER_THAN:
 		{
 			return own_std::string("<");
@@ -993,11 +1061,11 @@ own_std::string token2::ToString()
 		}break;
 		case tkn_type2::T_FLOAT:
 		{
-			return std::to_string(this->f).c_str();
+			return own_std::to_string(this->f).c_str();
 		}break;
 		case tkn_type2::T_INT:
 		{
-			return std::to_string(this->i).c_str();
+			return own_std::to_string(this->i).c_str();
 		}break;
 		case tkn_type2::T_WORD:
 		{
@@ -1096,6 +1164,8 @@ bool is_type_unsigned(enum_type2 tp)
 	case enum_type2::TYPE_S8:
 		return false;
 	}
+
+	return false;
 }
 struct comma_ret
 {
@@ -1123,14 +1193,29 @@ struct comma_ret
 	~comma_ret(){
 	}
 };
+
+bool CompareTypes(type2* lhs, type2* rhs, bool assert);
 func_decl *type2::ChooseFuncOverload(lang_state *lang_stat, own_std::vector<type2> *tps)
 {
-	own_std::string name = FuncNameWithTempls(lang_stat, overload_funcs->name, tps);;
-
+	ASSERT(overload_funcs);
 	FOR_VEC(f, overload_funcs->fdecls)
 	{
-		if((*f)->name == name)
-			return *f;
+		if ((*f)->args.size() == tps->size())
+		{
+			int i = 0;
+			bool matches = true;
+			FOR_VEC(t, (*tps))
+			{
+				if (!CompareTypes(&(*f)->args[i]->type, t, false))
+				{
+					matches = false;
+					break;
+				}
+			}
+			if(matches)
+				return (*f);
+
+		}
 	}
 	return nullptr;
 } 

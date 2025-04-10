@@ -23,13 +23,18 @@ bool IsUnsigned(enum_type2 tp)
 		case enum_type2::TYPE_U32:
 		case enum_type2::TYPE_U64:
 		case enum_type2::TYPE_ENUM:
+		case enum_type2::TYPE_ENUM_TYPE:
+		case enum_type2::TYPE_STRUCT_TYPE:
 		case enum_type2::TYPE_CHAR:
 		case enum_type2::TYPE_BOOL:
 		case enum_type2::TYPE_F32:
 		case enum_type2::TYPE_F32_RAW:
 		case enum_type2::TYPE_F64:
 		case enum_type2::TYPE_INT:
+		case enum_type2::TYPE_VOID:
+		case enum_type2::TYPE_STRUCT:
 		case enum_type2::TYPE_STR_LIT:
+		case enum_type2::TYPE_VECTOR:
 			return true;
 		case enum_type2::TYPE_S8:
 		case enum_type2::TYPE_S16:
@@ -78,6 +83,7 @@ int BuiltinTypeSize(enum_type2 tp)
 		case enum_type2::TYPE_U8:
 		case enum_type2::TYPE_BOOL:
 		case enum_type2::TYPE_S8:
+		case enum_type2::TYPE_CHAR:
 			return 1;
 		case enum_type2::TYPE_U16_TYPE:
 		case enum_type2::TYPE_S16_TYPE:
@@ -161,9 +167,13 @@ int GetTypeSize(type2 *tp)
 		case enum_type2::TYPE_STRUCT_TYPE:
 		case enum_type2::TYPE_STRUCT:
 			return tp->strct->size;
+		case enum_type2::TYPE_VECTOR_TYPE:
+		case enum_type2::TYPE_VECTOR:
+			return 16;
 		default:
 			ASSERT(false)
 	}
+	return false;
 }
 #endif
 
@@ -177,7 +187,7 @@ own_std::string TypeToString(type2 &tp)
 		
 	}
 	if(ptr > 0)
-		ret += std::to_string(ptr).c_str();
+		ret += own_std::to_string(ptr);
 
 	switch(tp.type)
 	{
@@ -263,15 +273,26 @@ own_std::string TypeToString(type2 &tp)
 	}break;
 	case enum_type2::TYPE_ENUM_TYPE:
 	{
-		ret += own_std::string("enum ") + tp.e_decl->name;
+		if (tp.e_decl)
+			ret += own_std::string("enum ") + tp.e_decl->name;
+		else
+			ret += own_std::string("enum (dec not found)");
 	}break;
 	case enum_type2::TYPE_ENUM:
 	{
-		ret += own_std::string("enum ") + tp.e_decl->type.e_decl->name;
+		if (tp.e_decl->type.type == TYPE_STRUCT_TYPE)
+			ret += own_std::string("enum ") + tp.e_decl->name;
+		else
+			ret += own_std::string("enum ") + tp.e_decl->type.e_decl->name;
 	}break;
 	case enum_type2::TYPE_BOOL:
 	{
 		ret += "bool";
+	}break;
+	case enum_type2::TYPE_VECTOR:
+	case enum_type2::TYPE_VECTOR_TYPE:
+	{
+		ret += "_vec";
 	}break;
 	case enum_type2::TYPE_F32_RAW:
 	{
@@ -289,13 +310,10 @@ own_std::string TypeToString(type2 &tp)
 	{
 		ret = "auto";
 	}break;
-	case enum_type2::TYPE_FUNC:
-	{
-		ret = "func";
-	}break;
 	case enum_type2::TYPE_TEMPLATE:
 		ret += "template";
 		break;
+	case enum_type2::TYPE_FUNC:
 	case enum_type2::TYPE_FUNC_EXTERN:
 	case enum_type2::TYPE_FUNC_PTR:
 	{
@@ -309,12 +327,19 @@ own_std::string TypeToString(type2 &tp)
 		ret.pop_back();
 		ret += ")";
 
+		type2* ret_type = &tp.fdecl->ret_type;
+		if (ret_type->type != TYPE_VOID || ret_type->type == TYPE_VOID && ret_type->ptr > 0)
+		{
+			ret += " ! ";
+			ret += TypeToString(*ret_type);
+		}
+
 	}break;
 	case enum_type2::TYPE_STRUCT_TYPE:
 	case enum_type2::TYPE_STRUCT:
 	{
 		own_std::string name;
-		ret += tp.strct->name.substr();
+		ret += tp.strct->name;
 	}break;
 	default:
 		ASSERT(false)
@@ -351,7 +376,7 @@ type_struct2 *GetStructFromTkns(own_std::vector<token2> *tkns, int *i)
 			sname += str;
 		}
 
-		tstrct->name = sname.substr();
+		tstrct->name = sname;
 		globals.struct_scope.emplace_back("::");
 	}
 	else
@@ -433,10 +458,7 @@ bool GetWordStr(char *input, int sz, int start, own_std::string *out)
 		ret = true;
 		c = data[start + i];
 	}
-	new(out)own_std::string("");
 	*out = own_std::string(&data[start], i);
-	
-	//printf("data is %s\n", out->c_str());
 
 	return ret;
 }
@@ -524,13 +546,13 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
 			if (found_point)
 			{
 				out.type = tkn_type2::T_FLOAT;
-				out.f = std::stof(str.c_str());
+				out.f = own_std::stof(str);
 				return i;
 			}
 			else
 			{
 				out.type = tkn_type2::T_INT;
-				out.i = std::stoi(str.c_str());
+				out.i = own_std::stoi(str);
 				return i;
 			}
 		}
@@ -583,21 +605,9 @@ own_std::string GetQuoteStr(char *input, int i, char *ch,  int &line, char **lin
 
 }
 */
-void PrintTkns(own_std::vector<token2> *tkns)
-{
-	FOR_VEC(t, *tkns)
-	{
-		if(t->type == T_WORD)
-		{
-			printf("word: %s\n", t->str.c_str());
-		}
-		else
-			printf("other: %d\n", t->type);
-	}
-}
 void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns, own_std::vector<char *> *lines_out = nullptr)
 {
-	*tkns = own_std::vector<token2>();
+	//*tkns = own_std::vector<token2>();
 	tkns->reserve(256);
 
 	int i = 0;
@@ -614,16 +624,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 	}
 
 	bool new_line_was_found = false;
-	token2 *longer_lifed_tkn = new token2();
-	token2 &tkn = *longer_lifed_tkn;
-	memset(&tkn, 0, sizeof(tkn));
-	new(&tkn.str)own_std::string();
-	tkn.str = own_std::string();
 	while(i < input_sz)
 	{
-		tkn.u64 = 0;
+		token2 tkn;
+		memset(&tkn, 0, sizeof(tkn));
 		EatSpace(input, &i);
-		tkn.type = T_WORD;
 		tkn.line = line;
 
 		if(new_line_was_found)
@@ -641,6 +646,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			{
 				found_char = true;
 				tkn.type = T_TILDE;
+			}break;
+			case '?':
+			{
+				found_char = true;
+				tkn.type = T_QUESTION_MARK;
 			}break;
 			case '}':
 			{
@@ -684,11 +694,49 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 						j++;
 						//ch[i] = 0;
 					}
+					cur_line_start_ch = i + 1;
 					line++;
 
 					if (lines_out)
 						lines_out->emplace_back(line_str);
 
+					found_char = false;
+				}
+				// block comment
+				if (ch[1] == '*')
+				{
+					int block_level = 1;
+					
+					i += 2;
+					while (i < input_sz)
+					{
+						if (input[i] == '/' && input[i + 1] == '*')
+						{
+							i++;
+							block_level++;
+						}
+						else if (input[i] == '\n')
+						{
+							if (lines_out)
+								lines_out->emplace_back(line_str);
+							input[i] = 0;
+							line++;
+							cur_line_start_ch = i + 1;
+							line_str = (char*)(&input[i + 1]);
+
+						}
+						else if (input[i] == '*' && input[i + 1] == '/')
+						{
+							i++;
+							block_level--;
+							if (block_level == 0)
+							{
+								i++;
+								break;
+							}
+						}
+						i++;
+					}
 					found_char = false;
 				}
 				else
@@ -768,6 +816,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					tkn.type = T_LESSER_EQ;
 					i++;
 				}
+				else if(ch[1] == '<')
+				{
+					tkn.type = T_SHIFT_LEFT;
+					i++;
+				}
 				else
 					tkn.type = T_LESSER_THAN;
 			}break;
@@ -777,6 +830,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				if(ch[1] == '=')
 				{
 					tkn.type = T_GREATER_EQ;
+					i++;
+				}
+				else if(ch[1] == '>')
+				{
+					tkn.type = T_SHIFT_RIGHT;
 					i++;
 				}
 				else
@@ -834,7 +892,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			case '\"':
 			{
 				int cur_idx = 1;
-				new(&tkn.str)own_std::string();
+				tkn.str = own_std::string();
 				//we only want to stop if the find a single quotantion, and not a \" 
 				while (ch[cur_idx - 1] != '\\' && ch[cur_idx] != '\"')
 				{
@@ -845,18 +903,42 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 						if (lines_out)
 							lines_out->emplace_back(line_str);
 						line++;
+						cur_line_start_ch = cur_idx + 1;
 					}
 
-					if (ch[cur_idx] == '\\')
+					if (ch[cur_idx] == '\\' && cur_idx < input_sz)
 					{
 						///*
 						//ch[cur_idx] = 255;
+						char* cur = &ch[cur_idx + 1];
 						if(ch[cur_idx + 1] == 'n')
 						{
 							ch[cur_idx + 1] = '\n';
 							tkn.str.push_back('\n');
 						}
-						else
+						else if(ch[cur_idx + 1] == '"')
+						{
+							ch[cur_idx + 1] = '\"';
+							tkn.str.push_back('\"');
+						}
+						else if(ch[cur_idx + 1] == 't')
+						{
+							ch[cur_idx + 1] = '\t';
+							tkn.str.push_back('\t');
+						}
+						else if(ch[cur_idx + 1] == '}')
+						{
+							//ch[cur_idx + 1] = '\n';
+							tkn.str.push_back('\\');
+							tkn.str.push_back('}');
+						}
+						else if(ch[cur_idx + 1] == '{')
+						{
+							//ch[cur_idx + 1] = '\n';
+							tkn.str.push_back('\\');
+							tkn.str.push_back('{');
+						}
+						else if(ch[cur_idx + 1] != 0)
 						{
 							ASSERT(false)
 						}
@@ -902,6 +984,25 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 						
 						tkn.i = 0xa;
 					}
+					else if (input[i + 1] == 'r')
+					{
+						
+						tkn.i = '\r';
+					}
+					else if (input[i + 1] == '"')
+					{
+						
+						tkn.i = '\"';
+					}
+					else if (input[i + 1] == '\\')
+					{
+						tkn.i = '\\';
+					}
+					else if (input[i + 1] == 't')
+					{
+						
+						tkn.i = '\t';
+					}
 					else
 						ASSERT(0)
 				}
@@ -945,12 +1046,13 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					lines_out->emplace_back(line_str);
 
 				cur_line_start_ch = i + 1;
-				//found_char = true;
+				found_char = true;
 				tkn.type = T_NEW_LINE;
 				line++;
 			}break;
 		}
 		tkn.line_offset = i - cur_line_start_ch;
+		tkn.line_offset_end = i;
 		if (found_char)
 		{
 			tkns->emplace_back(tkn);
@@ -967,8 +1069,6 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			}
 
 			tkns->emplace_back(tkn);
-			tkns->back().str = tkn.str.substr();
-			PrintTkns(tkns);
 			continue;
 		}
 		int num_len = GetWordNum(input, input_sz, i, tkn);
@@ -981,11 +1081,9 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 		i++;
 
 	}
-	PrintTkns(tkns);
 	token2 eof;
 	eof.type = tkn_type2::T_EOF;
 	tkns->emplace_back(eof);
-	//free (longer_lifed_tkn);
 }
 
 bool GetTypeFromTkns(token2 *tkn, type2 &tp)
@@ -1068,7 +1166,7 @@ bool GetDeclFromTkns(own_std::vector<token2> *tkns, int *i, decl2 *d)
 	// if a struct was as declared, the var name if optional
 	if (cur == tkn_type2::T_WORD)
 	{
-		d->name = (*tkns)[(*i)++].str.substr();
+		d->name = (*tkns)[(*i)++].str;
 		return true;
 	}
 	if (was_struct && cur != tkn_type2::T_SEMI_COLON)
@@ -1079,3 +1177,9 @@ bool GetDeclFromTkns(own_std::vector<token2> *tkns, int *i, decl2 *d)
 	return false;
 }
 */
+void TokenizeLine(own_std::string& line, std::vector<token2> *out)
+{
+	own_std::vector<token2> aux;
+	Tokenize2((char*)line.data(), line.size(), &aux);
+	out->insert(out->begin(), aux.begin(), aux.end());
+}

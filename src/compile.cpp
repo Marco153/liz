@@ -5747,6 +5747,7 @@ void WasmOnArgs(dbg_state* dbg)
 		int cursorPos = 0;
 		bool done = false;
 
+		/*
 		while (!done) {
 			ch = _getch(); // Get a single character
 
@@ -5799,9 +5800,12 @@ void WasmOnArgs(dbg_state* dbg)
 			break;
 			}
 		}
+		*/
 
 
-		//std::cin >> input;
+		std::string input_std;
+		std::cin >> input_std;
+		input = input_std.c_str();
 		own_std::vector<own_std::string> args;
 
 		own_std::vector<token2> tkns;
@@ -9976,7 +9980,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	dbg.wasm_state = winterp;
 
 	int first_start_offset = dbg.cur_func->wasm_stmnts[0].start;
-	//bcs[first_start_offset].one_time_dbg_brk = true;
+	bcs[first_start_offset].one_time_dbg_brk = true;
 	
 	// WASM BYTECODE
 
@@ -10070,7 +10074,9 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				cur_st = &dbg.cur_func->wasm_stmnts[0];
 			dbg.cur_st = cur_st;
 			dbg.cur_ir = cur_ir;
+
 			WasmOnArgs(&dbg);
+
 			if (dbg.some_bc_modified)
 			{
 				dbg.some_bc_modified = false;
@@ -15747,6 +15753,8 @@ Your browser does not support the audio element.\
 		WasmSerialize(wasm_state, final_code_sect, bcs2);
 #endif
 
+	int a = 0;
+
 	//WasmInterp(final_code_sect, buffer, mem_size, "wasm_test_func_ptr", wasm_state, args, 3);
 
 	//WriteFileLang("../../wabt/test.html", (void*)page.data(), page.size());
@@ -15820,6 +15828,7 @@ void AddFolder(lang_state* lang_stat, own_std::string folder)
 
 	FOR_VEC(str, file_names)
 	{
+<<<<<<< HEAD
 		own_std::string dir = lang_stat->exe_dir + folder+"\\";
 
 	#ifdef LINUX
@@ -15839,6 +15848,13 @@ void AddFolder(lang_state* lang_stat, own_std::string folder)
 	#endif
 		
 		AddNewFile(lang_stat, *str, dir);
+=======
+		own_std::string s = *str;
+		int point = s.find_last_of('.');
+		own_std::string ext = s.substr(point + 1);
+		if(ext == "liz")
+			AddNewFile(lang_stat, *str);
+>>>>>>> 4c6e139702c92597858b42c4ace2ef2a3a11c8d9
 	}
 }
 struct code_info
@@ -16962,8 +16978,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 		lang_stat->cur_file = f;
 		lang_stat->lhs_saved = 0;
 		lang_stat->call_regs_used = 0;
-		//own_std::string scp_str = lang_stat->root->Print(0);
-		//printf("file: %s, scp: \n %s", f->name.c_str(), scp_str.c_str());
+		own_std::string scp_str = lang_stat->root->Print(0);
+		printf("file: %s, scp: \n %s", f->name.c_str(), scp_str.c_str());
 		DescendNode(lang_stat, f->s, f->global);
 
 		/*
@@ -17080,6 +17096,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	}
 
     GenWasm(&wasm_state);
+    return;
+
 	/*
 	FOR_VEC(i1, lang_stat->files)
 	{

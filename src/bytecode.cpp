@@ -176,7 +176,7 @@ void CreateImmToReg(char r0_byte_imm_byte, char r0_imm, char inst_reg, byte_code
 		else
 		{
 			bool is_rex = IS_FLAG_ON(bc->bin.lhs.reg, 0x80);
-			*(int *)&is_rex *= 2;
+			*(bool *)&is_rex *= 2;
 			AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, is_rex, ret.code, bc->bin.lhs.reg == 4);
 			ret.code.emplace_back(inst);
 			ret.code.emplace_back(bc->bin.rhs.u8);
@@ -427,7 +427,7 @@ void CreateStoreImmToMem(byte_code *bc, machine_code &ret)
 	char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
 	bool is_rex = IS_FLAG_ON(base_reg, 0x80);
-	*(int*)&is_rex *= 2;
+	*(bool*)&is_rex *= 2;
 	AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc6, 0xc7, is_rex, ret.code);
 	base_reg &= 0xf;
 	AddModRM(true, bc->bin.lhs.voffset, base_reg, 0, ret);
@@ -1315,7 +1315,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			char dst_reg = FromBCRegToAsmReg(bc->bin.rhs.lea.reg_dst);
 
 			bool is_rex = IS_FLAG_ON(base_reg, 0x80);
-			*(int*)&is_rex *= 2;
+			*(bool*)&is_rex *= 2;
 			AddPreMemInsts(bc->bin.rhs.lea.size, 0x8d, 0x8d, is_rex, ret.code);
 			//ret.code.emplace_back(byte);
 
@@ -1977,57 +1977,6 @@ void FromByteCodeToX64(lang_state *lang_stat, own_std::vector<func_byte_code *> 
 	}
 }
 
-func_byte_code *interpreter::SearchFinalFunc(own_std::string name)
-{
-	FOR_VEC(f, (*ar))
-	{
-		if((*f)->name == name)
-			return (*f);
-	}
-	return nullptr;
-
-}
-
-/*
-void interpreter::SetBCode(lang_state *lang_stat, own_std::vector<func_byte_code *> *ar)
-{
-	memset(this, 0, sizeof(*this));
-	this->ar = ar;
-
-	//setting bcode
-	FOR_VEC(f, (*ar))
-	{
-		(*f)->start_idx = bcode.size();
-		INSERT_VEC(bcode, (*f)->bcodes);
-		for (int i = 0; i < 2; i++)
-		{
-			bcode.emplace_back(byte_code_enum::NOP);
-		}
-	}
-	FOR_VEC(bc, bcode)
-	{
-		if(bc->type == byte_code_enum::RELOC)
-		{
-			if (bc->rel.type == rel_type::REL_FUNC)
-			{
-				auto found_func = SearchFinalFunc(bc->rel.name);
-				ASSERT(found_func != nullptr)
-					bc->type = byte_code_enum::INST_CALL;
-				bc->val = found_func->start_idx;
-			}
-			if (bc->rel.type == rel_type::REL_DATA)
-			{
-				long long data_addr = (long long)&lang_stat->data_sect.data()[bc->rel.offset];
-				bc->type = byte_code_enum::MOV_I;
-				bc->bin.lhs.reg = 0;
-				bc->bin.rhs.s64 = data_addr;
-			}
-		}
-
-	}
-	
-}
-*/
 enum byte_code_instr
 {
 	BC_EQUAL,
@@ -2687,12 +2636,6 @@ void EmplaceInstRepStos(func_byte_code* func, char dst_mem_base, int offset_dst,
 
 }
 
-void interpreter::PushVal(long long  val)
-{
-	long long *ptr = (long long *)(regs.sp.i64);
-	*ptr = val;
-	regs.sp.i64 += 8;
-}
 void EmplaceRetGroup(func_byte_code *final_func, func_decl *fdecl, descend_func_ret *rhs_ret, descend_func_ret * out)
 {
 	descend_func_ret r0;
@@ -3584,50 +3527,6 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 
 	
 
-long long *interpreter::GetRegValPtr(char idx)
-{
-	long long *r = ((long long *)&regs.r0) + idx;
-	return r;
-}
-long long interpreter::GetRegVal(char idx)
-{
-	long long* r = (long long *)(((interpreter::reg*) & regs.r0) + idx);
-	return *r;
-}
-void interpreter::NextInst()
-{
-}
-
-int interpreter::GetCurStackSize()
-{
-	ASSERT(stack_sizes.size() > 0)
-	return *(stack_sizes.end() - 1);
-}
-long long *interpreter::GetMem(int offset, char reg_idx = 5)
-{
-	long long reg_val = GetRegVal(reg_idx);
-	long long *cur_ptr = (long long *)((reg_val - GetCurStackSize()) + offset);
-
-	return cur_ptr;
-}
-void interpreter::SetRegFromMem(int offset, char out_reg_idx, char mem_size, char base_reg)
-{
-	auto mem_ptr = GetMem(offset, base_reg);
-
-	auto out_reg = GetRegValPtr(out_reg_idx);
-	ASSERT(mem_size <= 8)
-	memcpy(out_reg, mem_ptr, mem_size);
-}
-void interpreter::SetMemFromReg(char reg_idx, int offset)
-{
-	auto mem_ptr = GetMem(offset, 5);
-
-	auto reg_val = GetRegVal(reg_idx);
-	// getting to the base of the stack and adding the var offset
-	
-
-	*mem_ptr = reg_val;
-}
 #define CREATE_BIN_OP(sgn)\
 		if(is_unsigned)\
 		{\
@@ -3699,6 +3598,7 @@ char GetSizeMin(char sz)
 	case 4: return 2;
 	case 8: return 3;
 	}
+	return 0;
 }
 #define REG_SZ_BIT 13
 #define FLAG_UNSIGNED 12

@@ -351,8 +351,19 @@ char *heap_alloc(mem_alloc *alloc, int size)//, mem_chunk **out = nullptr)
 
 void FreeMemAlloc(mem_alloc* alloc)
 {
-	VirtualFree(alloc->main_buffer, 0, MEM_RELEASE);
+	//VirtualFree(alloc->main_buffer, 0, MEM_RELEASE);
 }
+unsigned char *PlatformGetMem(unsigned int sz, int flags)
+{
+	printf("size is %d\n", sz);
+#ifdef LINUX 
+	return (unsigned char *)mmap(0, sz, PROT_READ | PROT_EXEC | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#else
+	return (unsigned char *)VirtualAlloc(0, sz, MEM_COMMIT, PAGE_READWRITE);
+	
+#endif
+}
+
 void InitMemAlloc(mem_alloc *alloc)
 {
     long long all_chunks_sz = alloc->chunks_cap * sizeof(mem_chunk);
@@ -366,7 +377,7 @@ void InitMemAlloc(mem_alloc *alloc)
 	char* start = nullptr;
 	if (!alloc->main_buffer)
 	{
-		start = (char*)VirtualAlloc(0, total_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		start = (char *)PlatformGetMem(total_size, 0);
 	}
 	else
 		start = alloc->main_buffer;

@@ -656,6 +656,12 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			{
 				found_char = true;
 				tkn.type = T_CLOSE_CURLY;
+				/*
+				if(line == 111)
+				{
+					raise(SIGTRAP);
+				}
+					*/
 			}break;
 			case '|':
 			{

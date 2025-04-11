@@ -400,7 +400,8 @@ namespace own_std
 			memcpy(buffer, data_, len);
 			memcpy(buffer + len, other, other_len);
 			
-			__lang_globals.free(__lang_globals.data, data_);
+			if(data_)
+				__lang_globals.free(__lang_globals.data, data_);
 			data_ = buffer;
 			len = total;
 		}
@@ -547,6 +548,16 @@ namespace own_std
 		{
 			memset(this, 0, sizeof(*this));
 			Init(1);
+		}
+		void operator +=(const char*str)
+		{
+			this->assign(this->end(), str, str + strlen(str));
+
+		}
+		void operator +=(const vector& a)
+		{
+			this->assign(this->end(), a.begin(), a.end());
+
 		}
 
 		T& operator [](u64 idx)

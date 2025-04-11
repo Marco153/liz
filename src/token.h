@@ -902,6 +902,135 @@ int FindTokenClose(own_std::vector<token2> *to_search, int start, tkn_type2 targ
 	i--;
 	return start + i;
 }
+const char* OperatorToStringConst(tkn_type2 type)
+{
+	switch(type)
+	{
+		case tkn_type2::T_PIPE:
+		{
+			return "|";
+		}break;
+		case tkn_type2::T_EXCLAMATION:
+		{
+			return "!";
+		}break;
+		case tkn_type2::T_PERCENT:
+		{
+			return "%";
+		}break;
+		case tkn_type2::T_COLON:
+		{
+			return ":";
+		}break;
+		case tkn_type2::T_PLUS:
+		{
+			return "+";
+		}break;
+		case tkn_type2::T_COND_OR:
+		{
+			return "|";
+		}break;
+		case tkn_type2::T_NEW_LINE:
+		{
+			return "\n";
+		}break;
+		case tkn_type2::T_AT:
+		{
+			return "@";
+		}break;
+		case tkn_type2::T_POINT:
+		{
+			return ".";
+		}break;
+		case tkn_type2::T_COMMA:
+		{
+			return ",";
+		}break;
+		case tkn_type2::T_CLOSE_CURLY:
+		{
+			return "\n}\n";
+		}break;
+		case tkn_type2::T_OPEN_CURLY:
+		{
+			return "\n{\n";
+		}break;
+		case tkn_type2::T_SHIFT_RIGHT:
+		{
+			return ">>";
+		}break;
+		case tkn_type2::T_SHIFT_LEFT:
+		{
+			return "<<";
+		}break;
+		case tkn_type2::T_LESSER_THAN:
+		{
+			return "<";
+		}break;
+		case tkn_type2::T_LESSER_EQ:
+		{
+			return "<=";
+		}break;
+		case tkn_type2::T_GREATER_THAN:
+		{
+			return ">";
+		}break;
+		case tkn_type2::T_OPEN_BRACKETS:
+		{
+			return "[";
+		}break;
+		case tkn_type2::T_CLOSE_BRACKETS:
+		{
+			return "]";
+		}break;
+		case tkn_type2::T_OPEN_PARENTHESES:
+		{
+			return "(";
+		}break;
+		case tkn_type2::T_CLOSE_PARENTHESES:
+		{
+			return "";
+		}break;
+		case tkn_type2::T_MINUS:
+		{
+			return "-";
+		}break;
+		case tkn_type2::T_EQUAL:
+		{
+			return "=";
+		}break;
+		case tkn_type2::T_AMPERSAND:
+		{
+			return "&";
+		}break;
+		case tkn_type2::T_SEMI_COLON:
+		{
+			return ";\n";
+		}break;
+		case tkn_type2::T_COND_NE:
+		{
+			return "!=";
+		}break;
+		case tkn_type2::T_COND_EQ:
+		{
+			return "==";
+		}break;
+		case tkn_type2::T_GREATER_EQ:
+		{
+			return ">=";
+		}break;
+		case tkn_type2::T_DIV:
+		{
+			return "/";
+		}break;
+		case tkn_type2::T_MUL:
+		{
+			return "*";
+		}break;
+		default:
+			ASSERT(0);
+	}
+	return "";
+}
 own_std::string OperatorToString(tkn_type2 type)
 {
 	switch(type)

@@ -1,0 +1,1 @@
+clang++ -ferror-limit=5 -Isrc/include -Isrc/include/imgui/docking -o build/a.out -gfull -L./src/lib -l:libglfw.so.3.4 -std=c++11 src/main.cpp imgui*.o  -Waddress-of-temporary -Wwritable-strings -Wno-everything 

@@ -10,14 +10,17 @@ typedef long long s64;
 #endif // !1
 #include "compile.h"
 #include "timer.cpp"
+#ifdef LINUX
+#else
 #include <windows.h>
+#include <conio.h>
+#endif
 #include <iostream>
 #include <string>
 #include <chrono> 
 #include <thread>
 #include <vector>
 #include <unordered_map>
-#include <conio.h>
 #include <setjmp.h>
 #include <emmintrin.h>  // SSE2 intrinsics
 
@@ -361,6 +364,10 @@ struct lang_state
 
 	scope* aux_scp;
 
+	bool node_break;
+
+	scope *cur_scp;
+
 	byte_code2* bcs2_start;
 	byte_code2* bcs2_end;
 
@@ -513,9 +520,37 @@ struct lang_state
 
 struct type_struct2;
 
-
-HANDLE OpenFileLang(char* name)
+char* ReadEntireFileLang(char* name, unsigned int* read_out)
 {
+#ifdef LINUX
+	int fh, n;
+	struct stat v;
+
+	fh = open(name, O_RDONLY);
+	if (fh == -1) {
+		perror("open");
+		printf("file not found\"%s\"", name);
+		close(fh);
+		return nullptr;
+	}
+
+	/* first find the size of file .. use stat() system call */
+	stat(name, &v);
+
+	char* string = (char*)__lang_globals.alloc(__lang_globals.data, v.st_size + 1);
+	ASSERT(string);
+	int res=read(fh, string, v.st_size);
+	if (res == -1) {
+		perror("read");
+		close(fh);
+		return nullptr;
+	}
+	close(fh);
+
+	string[v.st_size] = 0;
+	*read_out = v.st_size + 1;
+	return string;
+#else
 	HANDLE file = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
 	if (file == nullptr )
 	{
@@ -534,12 +569,7 @@ HANDLE OpenFileLang(char* name)
 
 		ExitProcess(0);
 	}
-	auto a = 0;
-	return file;
-}
-char* ReadEntireFileLang(char* name, int* read)
-{
-	HANDLE file = OpenFileLang(name);
+
 	LARGE_INTEGER file_size;
 	GetFileSizeEx(file, &file_size);
 	char* f = (char*)__lang_globals.alloc(__lang_globals.data, file_size.QuadPart + 1);
@@ -552,17 +582,32 @@ char* ReadEntireFileLang(char* name, int* read)
 
 	CloseHandle(file);
 	return f;
+#endif
 }
 void WriteFileLang(char* name, void* data, int size)
 {
+#ifdef LINUX
+	int fd = creat(name, 0644 );
+	//fd = open(name, O_CREAT | O_WRONLY );
+	if( fd == -1 ) {
+		printf( "Error opening file: errno: %d - %s\n", errno, strerror( errno ) );
+		printf("file \"%s\"", name);
+		close(fd);
+		ExitProcess(1);
+		return;
+	}
+	write(fd, data, size);
+	close(fd);
+#else
 	HANDLE file = CreateFile(name, GENERIC_WRITE, FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
-	ASSERT(file != INVALID_HANDLE_VALUE);
 
 	int written;
 	WriteFile(file, data, size, (LPDWORD)&written, nullptr);
 
 	CloseHandle(file);
+#endif
 }
+
 struct node;
 struct scope;
 
@@ -578,7 +623,12 @@ void DescendStmntMode(node* stmnt, scope* scp, int mode, void* data);
 #include "token.cpp"
 #include "node.cpp"
 #include "bytecode.cpp"
+
+#ifdef LINUX
+#else
 #include "obj_generator.h"
+#endif
+
 #include "IR.cpp"
 #include "memory.h"
 
@@ -8062,6 +8112,8 @@ void ImGuiDrawSquare(dbg_state &dbg, int addr, ImU32 col_a)
 	draw_list->AddLine(im_s1_rb, im_s1_lb, col_a, 1.0);
 
 }
+#ifdef LINUX
+#else
 void CheckPipeAndGetString(HANDLE pipe, own_std::string &final_str)
 {
 	DWORD bytesRead;
@@ -8104,6 +8156,7 @@ void Write(HANDLE hFile, char *str, int sz)
 	} 
 	*/
 }
+#endif
 
 tkn_type2 GetOpBasedOnInst(byte_code_enum type)
 {
@@ -10898,7 +10951,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 		int last_bar = name.find_last_of("\\/");
 		new_f->path = name.substr(0, last_bar + 1);
 		new_f->name = name.substr(last_bar + 1, -1);
-		int read = 0;
+		u32 read = 0;
 		new_f->contents = ReadEntireFileLang((char*)name.c_str(), &read);
 		new_f->funcs_scp = NewScope(lang_stat, nullptr);
 		char* cur_str = new_f->contents;
@@ -15644,7 +15697,7 @@ void GenWasm(web_assembly_state* wasm_state)
 
 	if (wasm_state->lang_stat->release)
 	{
-		int read = 0;
+		u32 read = 0;
 		char* images_data = ReadEntireFileLang("../web/images.data", &read);
 
 		own_std::string code_str((char*)ret->begin(), ret->size());
@@ -15728,7 +15781,7 @@ struct compile_options
 
 void AssignDbgFile(lang_state* lang_stat, own_std::string file_name)
 {
-	int read;
+	u32 read;
 	web_assembly_state *wasm_state = lang_stat->wasm_state;
 	lang_stat->data_sect.clear();
 	lang_stat->globals_sect.clear();
@@ -15771,8 +15824,17 @@ void AddFolder(lang_state* lang_stat, own_std::string folder)
 
 	FOR_VEC(str, file_names)
 	{
-		TCHAR name_buffer[MAX_PATH];
+
+	#ifdef LINUX
+		own_std::string dir = lang_stat->exe_dir + folder+"/";
+		char name_buffer[PATH_MAX];
+		realpath(dir.c_str(), name_buffer);
+		dir = name_buffer;
+		dir += '/';
+	#else
+
 		own_std::string dir = lang_stat->exe_dir + folder+"\\";
+		TCHAR name_buffer[MAX_PATH];
 		for(int i= 0; i < dir.size(); i++)
 		{
 			if (dir[i] == '/')
@@ -15780,6 +15842,7 @@ void AddFolder(lang_state* lang_stat, own_std::string folder)
 		}
 		int res = GetFullPathName((char*)dir.c_str(), MAX_PATH, name_buffer, nullptr);
 		dir = name_buffer;
+	#endif
 		
 		AddNewFile(lang_stat, *str, dir);
 	}
@@ -16688,7 +16751,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	int a = 0;
 	lang_stat->gen_type = gen_enum::GEN_WASM;
 }
-int Compile(lang_state* lang_stat, compile_options *opts)
+void Compile(lang_state* lang_stat, compile_options *opts)
 {
 	//own_std::vector<own_std::string> args;
 	//own_std::string aux;
@@ -16711,7 +16774,8 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	//lang_stat->base_lang = NewDecl(lang_stat, "base", tp);
 
 	type2 dummy_type;
-	decl2* release = FindIdentifier(own_std::string("RELEASE"), lang_stat->root, &dummy_type);
+	own_std::string str("RELEASE");
+	decl2* release = FindIdentifier(str, lang_stat->root, &dummy_type);
 	release->type.i = lang_stat->release;
 
 
@@ -16721,9 +16785,17 @@ int Compile(lang_state* lang_stat, compile_options *opts)
 	timer tmr;
 	InitTimer(&tmr);
 	StartTimer(&tmr);
+#ifdef LINUX
+	char name_buffer[PATH_MAX];
+	realpath(file.c_str(), name_buffer);
+	lang_stat->work_dir = name_buffer;
+	lang_stat->work_dir += '/';
+#else
 	TCHAR buffer[MAX_PATH] = { 0 };
 	GetFullPathName(file.c_str(), MAX_PATH, buffer, nullptr);
 	lang_stat->work_dir = buffer;
+#endif
+
 
 	AddFolder(lang_stat, file);
 
@@ -17192,13 +17264,18 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	
 	srand(time(0));
 	// getting the compiler exe path 
+
+
+#ifdef LINUX
+	char path[1024];
+    ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+	own_std::string exe_dir = path;
+#else
 	TCHAR buffer[MAX_PATH] = { 0 };
 	GetModuleFileName(NULL, buffer, MAX_PATH);
-
-	//printf("full exe path: %s", buffer);
-
-	// addind the file name to the path
 	own_std::string exe_dir = buffer;
+#endif
+
 	int last_bar_comp = exe_dir.find_last_of('\\');
 	/*
 	own_std::string file_name_dir = own_std::string(argv[1]);
@@ -17281,10 +17358,12 @@ bool GetDeclOnCursor(lang_state *lang_stat, int line, int offset, type2 *out)
 
 }
 
+/*
 void LspAddFolder(lang_state *lang_stat, own_std::string folder)
 {
 	type2 dummy_type;
-	decl2* release = FindIdentifier(own_std::string("RELEASE"), lang_stat->root, &dummy_type);
+	own_std::string str("RELEASE");
+	decl2* release = FindIdentifier(str, lang_stat->root, &dummy_type);
 	release->type.i = lang_stat->release;
 
 
@@ -17415,25 +17494,12 @@ void LspCompile(lang_state *lang_stat, own_std::string folder, int line, int lin
 
 
 
-		/*
-		FOR_VEC(cur_f, lang_stat->funcs_scp->vars)
-		{
-			auto f = *cur_f;
-			if (f->type.type != TYPE_FUNC)
-				continue;
-			auto fdecl = f->type.fdecl;
-			if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_IS_OUTSIDER | FUNC_DECL_TEMPLATED | FUNC_DECL_INTRINSIC))
-				continue;
-
-			CreateAstFromFunc(lang_stat, f->type.fdecl);
-			int  a = 0;
-		}
-		*/
 		lang_stat->lsp_stage = LSP_STAGE_DONE;
 
 	}break;
 	}
 }
+*/
 
 func_decl *GetFuncWithLine2(lang_state *lang_stat, int line, unit_file *file)
 {

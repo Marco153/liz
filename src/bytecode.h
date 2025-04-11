@@ -723,8 +723,6 @@ struct interpreter
 	long long *GetRegValPtr(char idx);
 	void PushVal(long long  val);
 
-	long long *interpreter::GetMem(int offset, char reg_idx);
-	void interpreter::SetRegFromMem(int offset, char out_reg_idx, char mem_size, char base_reg = 5);
 	void SetMemFromReg(char reg_idx, int offset);
 };
 

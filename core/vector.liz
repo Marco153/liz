@@ -285,4 +285,3 @@ DoTwoLinesIntersect::fn x64(startA : *_vec, endA : *_vec, startB : *_vec, endB :
 }
 
 
-

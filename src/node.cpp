@@ -4,7 +4,11 @@
 #include "bytecode.h"
 #include <algorithm>
 #include <time.h>
+#ifdef LINUX
+#else
 #include <shlwapi.h>
+#endif
+
 //#include "FileIO.cpp"
 
 #define CMP_NTYPE(a, t) ((a)->type == node_type::t)
@@ -358,6 +362,11 @@ node* new_node(lang_state *lang_stat, token2 *t)
 		ASSERT(t);
 		cur_node->t = t;
 	}
+	if(lang_stat->node_break)
+	{
+		cur_node->flags = NODE_FLAGS_BREAK;
+		lang_stat->node_break = false;
+	}
 	return cur_node;
 }
 node* new_node(lang_state *lang_stat, node* src)
@@ -522,8 +531,17 @@ token2* node_iter::get_tkn()
 		cur_idx--;
 	else
 		cur_idx++;
+	token2 *ret = &(*this->tkns)[idx];;
+	/*
+	if(ret->type == T_WORD && ret->str == "comp_break")
+	{
+		lang_stat->node_break = true;
+		ret = &(*this->tkns)[cur_idx];;
+		cur_idx++;
+	}
+		*/
 
-	return &(*this->tkns)[idx];
+	return ret;
 }
 void node_iter::SetNodeScopeIdx(lang_state *lang_stat, node** nd, unsigned char val, int scope_start, int scope_end)
 {
@@ -1961,7 +1979,20 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 	while (1)
 	{
 
-		begin_tkn = peek_tkn();
+		auto tkn = peek_tkn();
+		auto tt = peek_tkn();
+		auto peek = peek_tkn();
+		int cur_prec = 0;
+
+		bool break_when_node_head = false;
+		bool scope_without_curly = false;
+		bool cur_is_ident_or_int = false;
+		bool return_without_semicolon_on_scope_end = false;
+
+		token2 * cur;
+
+		bool next_is_curly;
+		bool next_is_else;
 		if (cur_node->l == nullptr)
 			cur_node->l = parse_expr();
 		else if (peek_tkn()->type == T_OPEN_CURLY && cur_node->l->type == N_STMNT)
@@ -1978,16 +2009,16 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			goto double_colon_scope_label;
 		}
 
-		int cur_prec = 0;
+		cur_prec = 0;
 
-		bool break_when_node_head = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD);
-		bool scope_without_curly = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY);
-		bool cur_is_ident_or_int = peek_tkn()->type == tkn_type2::T_WORD || peek_tkn()->type == tkn_type2::T_INT || peek_tkn()->type == tkn_type2::T_FLOAT;
-		bool return_without_semicolon_on_scope_end = false;
+		break_when_node_head = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_BREAK_WHEN_NODE_HEAD_IS_WORD);
+		scope_without_curly = IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY);
+		cur_is_ident_or_int = peek_tkn()->type == tkn_type2::T_WORD || peek_tkn()->type == tkn_type2::T_INT || peek_tkn()->type == tkn_type2::T_FLOAT;
+		return_without_semicolon_on_scope_end = false;
 
-		auto cur = peek_tkn();
-		bool next_is_curly = cur->type == T_CLOSE_CURLY;
-		bool next_is_else = cur->type == T_CLOSE_CURLY;
+		cur = peek_tkn();
+		next_is_curly = cur->type == T_CLOSE_CURLY;
+		next_is_else = cur->type == T_CLOSE_CURLY;
 		if (scope_without_curly)
 			next_is_else = cur->type == T_WORD && cur->str == "else";
 
@@ -2015,7 +2046,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 
 		PARSER_CHECK;
 
-		auto peek = peek_tkn();
+		peek = peek_tkn();
 		switch (peek->type)
 		{
 		case tkn_type2::T_MINUS_MINUS:
@@ -2162,7 +2193,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 		}
 
 
-		auto tkn = peek_tkn();
+		tkn = peek_tkn();
 		if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY) && (tkn->type == T_SEMI_COLON|| tkn->type == T_NEW_LINE))
 			return cur_node->l;
 
@@ -2227,7 +2258,7 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 			}
 		}
 
-		auto tt = peek_tkn();
+		tt = peek_tkn();
 		// checking the the first tkn is'nt an unary one
 		// because we dont want to get its precedence
 
@@ -2677,7 +2708,7 @@ void DescendTemplates(node* n, scope* scp, own_std::vector<template_expr>* ret)
 	else if (IS_EQUAL(n))
 	{
 		template_expr tret = {};
-		memset(&tret, 0, sizeof(comma_ret));
+		memset(&tret, 0, sizeof(template_expr));
 		tret.type = 1;
 		tret.name = n->l->t->str;
 		tret.expr = n->r;
@@ -2693,7 +2724,7 @@ void DescendTemplates(node* n, scope* scp, own_std::vector<template_expr>* ret)
 	{
 		ASSERT(n->type == node_type::N_IDENTIFIER)
 			template_expr tret = {};
-		memset(&tret, 0, sizeof(comma_ret));
+		memset(&tret, 0, sizeof(template_expr));
 		tret.name = n->t->str;
 		tret.scp = scp->parent;
 		ret->emplace_back(tret);
@@ -2914,8 +2945,9 @@ own_std::vector<decl2*> DescendTemplatesToDecl(lang_state *lang_stat, node* n, s
 
 
 #define FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE 1
+
 decl2* FindIdentifier(own_std::string &name, scope* scp, type2* ret_type, int flags)
-{
+{     
 #ifdef DO_TIMERS
 	timer tm;
 	InitTimer(&tm);
@@ -3681,7 +3713,8 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2* original, own_std
 bool InstantiateArFromType(lang_state *lang_stat, type2& ar_type, scope* scp, type2* ret_type, type_struct2** ret_struct, node* n)
 {
 	type2 dummy_tp;
-	auto ar_strct = FindIdentifier(own_std::string("array"), scp, &dummy_tp);
+	own_std::string str("array");
+	auto ar_strct = FindIdentifier(str, scp, &dummy_tp);
 
 	if (!ar_strct)
 	{
@@ -4342,7 +4375,8 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 	{
 		if (t->type == COMMA_VAR_ARGS)
 		{
-			decl2* var_arg = FindIdentifier(own_std::string("var_arg"), child_scp, &dummy_type);
+			own_std::string str("var_arg");
+			decl2* var_arg = FindIdentifier(str, child_scp, &dummy_type);
 			if (!var_arg)
 				return false;
 		}
@@ -4359,8 +4393,12 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 		if (t->type == COMMA_VAR_ARGS)
 		{
 			dummy_type.type = TYPE_STRUCT_TYPE;
-			decl2* rel_ar = FindIdentifier(own_std::string("rel_array"), child_scp, &dummy_type);
-			decl2* var_arg = FindIdentifier(own_std::string("var_arg"), child_scp, &dummy_type);
+			
+			own_std::string str("rel_array");
+			decl2* rel_ar = FindIdentifier(str, child_scp, &dummy_type);
+
+			str = "var_arg";
+			decl2* var_arg = FindIdentifier(str, child_scp, &dummy_type);
 			if (!rel_ar || !var_arg)
 				return false;
 			type_struct2* rel_ar_var_arg;
@@ -5330,6 +5368,31 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				lhs = lhs->type.fdecl->from_overload;
 
 			}
+			/*
+			if(ncall->t->line == 955)
+			{
+				//raise(SIGTRAP);
+				func_overload_strct *overload = lhs->type.overload_funcs;
+				printf("total overs %d\n", overload->fdecls.size());
+				FOR_VEC(f, overload->fdecls)
+				{
+					func_decl *cur_f = *f;
+					printf("func: %s\n", cur_f->name.c_str()); 
+					printf("args: \n");
+					FOR_VEC(arg, cur_f->args)
+					{
+						decl2 *a = *arg;
+						if(a)
+						{
+							printf("a is null");
+						}
+						else
+							printf("%s, ", TypeToString(a->type).c_str());
+					}
+					printf("\n");
+				}
+			}
+				*/
 			if (lhs->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
 			{
 				FOR_VEC(t, args)
@@ -5726,7 +5789,8 @@ void CheckStructValToFunc(func_decl* fdecl, type2* type)
 void NewVarArgToScope(lang_state *lang_stat, scope* scp, type2* tp, func_decl* fdecl)
 {
 	type2 aux_type;
-	auto ar_decl = FindIdentifier(own_std::string("array"), scp, &aux_type);
+	own_std::string str("array");
+	auto ar_decl = FindIdentifier(str, scp, &aux_type);
 
 	ASSERT(ar_decl)
 
@@ -5905,7 +5969,9 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_COROUTINE))
 	{
 		type2 dummy_type;
-		decl2* d = FindIdentifier(own_std::string("CoroutinePrologue"), scp, &dummy_type);
+
+		own_std::string str("CoroutinePrologue");
+		decl2* d = FindIdentifier(str, scp, &dummy_type);
 		// instatiating new tree to get prologue vars into the func scope
 		if (!fdecl->coroutine_prologue_tree)
 		{
@@ -6120,7 +6186,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 		lhs_decl = n->decl;
 
 	if (!lhs_decl)
-		return false;
+		return nullptr;
 
 	type2 lhs_tp;
 
@@ -6173,7 +6239,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 			ExitProcess(1);
 		}
 		if (!e_decl)
-			return false;
+			return nullptr;
 
 		ret_tp->e_idx = e_decl->type.e_idx;
 		return e_decl;
@@ -6238,7 +6304,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 				n->r->scp = GetScopeFromParent(lang_stat, n->r, scp);
 			AddStructMembersToScopeWithUsing(lang_stat, lhs->type.strct, n->r->scp, n->l);
 			if (!DescendNameFinding(lang_stat, n->r, scp))
-				return false;
+				return nullptr;
 			DescendNode(lang_stat, n->r, scp);
 			return (decl2 *)1;
 			
@@ -6304,7 +6370,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 							ExitProcess(1);
 					}
 					else
-						return false;
+						return nullptr;
 				}
 
 			}
@@ -6337,7 +6403,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 			ReportUndeclaredIdentifier(lang_stat, n->t);
 
 		if (!ret_decl)
-			return false;
+			return nullptr;
 
 		switch (ret_decl->type.type)
 		{
@@ -6364,11 +6430,13 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 		ExitProcess(1);
 
 	}
-	return false;
+	return nullptr;
 }
 
 void ReportUndeclaredIdentifier(lang_state *lang_stat, token2* t)
 {
+	//own_std::string s = StringifyNode(lang_stat->cur_file->s);
+	//printf("%s", s.c_str());
 	char msg_hdr[256];
 	REPORT_ERROR(t->line, t->line_offset,
 		VAR_ARGS("undeclared identifier: %s\n", t->str.c_str())
@@ -6898,6 +6966,59 @@ node* MakeMemCpyCall(lang_state *lang_stat, node *lhs, node *rhs, node *top, int
 #define GET_FILES_DIR_ADD_PATH_TO_FILE_NAME 2
 void GetFilesInDirectory(own_std::string dir, own_std::vector<char *>* contents, own_std::vector<char *>* file_names, int flags = 0)
 {
+	bool recursive = IS_FLAG_ON(flags, GET_FILES_DIR_RECURSIVE);
+	bool add_path_to_name = IS_FLAG_ON(flags, GET_FILES_DIR_ADD_PATH_TO_FILE_NAME);
+#ifdef LINUX
+	DIR *dir_info = opendir(dir.c_str());
+    if (!dir_info) {
+        perror("opendir");
+        return;
+    }
+
+    struct dirent *entry;
+    char filepath[1024];
+
+
+    while ((entry = readdir(dir_info)) != NULL) {
+        // Skip . and ..
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        // Build full file path
+        u32 len = strlen(entry->d_name);
+		char* name = heap_alloc((mem_alloc *)__lang_globals.data, len + 1);
+		memcpy(name, entry->d_name, len);
+		name[len] = 0;
+
+		if (add_path_to_name)
+		{
+			own_std::string name_with_path = dir+"/" + name;
+			int sz = name_with_path.size();
+			auto buffer = (char*)heap_alloc((mem_alloc *)__lang_globals.data, sz + 1);
+			memcpy(buffer, name_with_path.data(), sz);
+			buffer[sz] = 0;
+			file_names->emplace_back(buffer);
+		}
+		else
+			file_names->emplace_back(name);
+
+
+
+		if (recursive)
+		{
+			own_std::string name_str = name;
+			if (name_str == ".git" || name_str.empty())
+				continue;
+
+			own_std::string path = dir + name;
+			char* pcstr = (char *)path.c_str();
+			if (entry->d_type == DT_DIR)
+			{
+				GetFilesInDirectory(pcstr, nullptr, file_names, flags);
+			}
+		}
+	}
+#else
 	WIN32_FIND_DATA ffd;
 	char buffer[128];
 
@@ -6952,9 +7073,16 @@ void GetFilesInDirectory(own_std::string dir, own_std::vector<char *>* contents,
 			}
 		}
 	}
+#endif
 }
 void GetLongFileName(own_std::string *f)
 {
+#ifdef LINUX
+	char name_buffer[PATH_MAX];
+	realpath(f->c_str(), name_buffer);
+	*f = name_buffer;
+	*f += "/";
+#else
 	TCHAR name_buffer[MAX_PATH];
 
 	for (int i = 0; i < f->size(); i++)
@@ -6965,6 +7093,7 @@ void GetLongFileName(own_std::string *f)
 	}
 	int res = GetFullPathName((char*)f->c_str(), MAX_PATH, name_buffer, nullptr);
 	*f = name_buffer;
+#endif
 }
 void AddFolderToScope(lang_state * lang_stat, scope *scp, own_std::string folder, import_type imp_type, own_std::string imp_name)
 {
@@ -7036,6 +7165,11 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 	{
 		scp->fdecl->reached_nd = n;
+	}
+	lang_stat->cur_scp = given_scp;
+	if (IS_FLAG_ON(n->flags, NODE_FLAGS_BREAK))
+	{
+		raise(SIGTRAP);
 	}
 	switch (n->type)
 	{
@@ -7347,7 +7481,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			else
 				ident = n->r->decl;
 
-			if (!ident) return false;
+			if (!ident) return nullptr;
 
 			ASSERT(ident->type.type == TYPE_ENUM_IDX_32)
 
@@ -8035,7 +8169,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							lhs->type.is_const = was_const;
 						}
 						else
-							return false;
+							return nullptr;
 
 						// str lit to array
 						if (is_str_lit)
@@ -8102,7 +8236,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					}
 					else if (is_struct_val && !zero_initialization)
 					{
-						decl2* memcpy_func = FindIdentifier(own_std::string("memcpy"), scp, &ret_type);
+						own_std::string str("memcpy");
+						decl2* memcpy_func = FindIdentifier(str, scp, &ret_type);
 						if (!memcpy_func)
 							return nullptr;
 						auto arg1 = NewUnopNode(lang_stat, nullptr, T_AMPERSAND, equal_stmnt->l);
@@ -8158,6 +8293,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			}
 
 			auto decl_exist = FindIdentifier((own_std::string &)decl_name, scp, &ret_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+			//if(n->t->line == 163 && decl_exist)
 
 			/*
 			if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl_exist)
@@ -8168,6 +8304,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				// another func with the same name found
 			if (decl_exist && decl_exist->type.type == enum_type2::TYPE_FUNC && decl_exist->decl_nd != n)
 			{
+				//raise(SIGTRAP);
 				ASSERT(decl_exist->decl_nd);
 				if (decl_exist->decl_nd->type == N_OP_OVERLOAD)
 				{
@@ -8752,7 +8889,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							{
 								//lang_stat->not_found_nd = n;
 								//lang_stat->not_founds.emplace_back(plang_stat->not_found_nd);
-								auto st = FindIdentifier(own_std::string("string"), scp, &ret_type);
+								own_std::string str("string");
+								auto st = FindIdentifier(str, scp, &ret_type);
 							}
 #endif
 							colon = FindIdentifier(n->l->t->str, scp, &ret_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE);
@@ -10759,8 +10897,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			ModifyNodeIntOrFloat(ltp, n->l);
 			ModifyNodeIntOrFloat(rtp, n->r);
 			
-
 			ret_type = ltp;
+			
 
 			if (ltp.type == TYPE_INT && rtp.type == TYPE_INT)
 			{
@@ -10955,7 +11093,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 								{
 									ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 								}
-								decl2* memcpy_func = FindIdentifier(own_std::string("memcpy"), scp, &ret_type);
+								own_std::string str("memcpy");
+								decl2* memcpy_func = FindIdentifier(str, scp, &ret_type);
 								if (!memcpy_func)
 								{
 									ReportMessage(lang_stat, n->t, "Theres no 'memcpy' function to do a copy of a struct");
@@ -11744,7 +11883,12 @@ func_decl* type_struct2::FindOpOverload(lang_state *lang_stat, overload_op tp, n
 }
 void CompileFile(lang_state *lang_stat, unit_file* fl)
 {
-
+	/*
+	if(fl->name == "anim.liz")
+	{
+		raise(SIGTRAP);
+	}
+		*/
 	Tokenize2(fl->contents, fl->contents_sz, &fl->tkns, &fl->lines);
 	node_iter niter(&fl->tkns, lang_stat);
 	lang_stat->use_node_arena = true;
@@ -11754,6 +11898,11 @@ void CompileFile(lang_state *lang_stat, unit_file* fl)
 
 unit_file *ThereIsFile(lang_state *lang_stat, own_std::string &dir)
 {
+#ifdef LINUX
+	char name_buffer[PATH_MAX];
+	realpath(dir.c_str(), name_buffer);
+	dir = name_buffer;
+#else
 	TCHAR name_buffer[MAX_PATH];
 
 	for(int i= 0; i < dir.size(); i++)
@@ -11763,6 +11912,7 @@ unit_file *ThereIsFile(lang_state *lang_stat, own_std::string &dir)
 	}
 	int res = GetFullPathName((char*)dir.c_str(), MAX_PATH, name_buffer, nullptr);
 	dir = name_buffer;
+#endif
 
 	FOR_VEC(f, lang_stat->files)
 	{
@@ -11779,13 +11929,14 @@ unit_file* AddNewFile(lang_state *lang_stat, own_std::string name, own_std::stri
 		return theres_file;
 	//dir = lang_stat->work_dir + "\\" + name;
 
-	int read;
+	u32 read = 0;
 	char* file_cstr = (char*)dir.c_str();
 	char* file = ReadEntireFileLang(file_cstr, &read);
 
 	if (read == 0)
 	{
 		printf("file \"%s\" is empty, will not be compiled\n", file_cstr);
+		ASSERT(false);
 		return nullptr;
 	}
 

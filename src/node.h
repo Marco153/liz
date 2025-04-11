@@ -31,6 +31,7 @@
 #define NODE_FLAGS_FUNC_X64 0x4000000
 #define NODE_FLAGS_FUNC_INTRINSIC 0x8000000
 #define NODE_FLAGS_RETURN_IDENT_EVEN_NOT_DONE 0x10000000
+#define NODE_FLAGS_BREAK 0x20000000
 
 #define ASSIGN_VEC(v1, v2) v1.assign(v2.begin(), v2. end())
 #define INSERT_VEC(v1, v2) v1.insert(v1.end(), v2.begin(), v2.end())
@@ -74,25 +75,25 @@ struct node_iter
 	}
 
 	void CheckTwoBinaryOparatorsTogether(node *);
-	bool node_iter::IsOpUnary(token2* tkn, node*);
-	void node_iter::SetNodeScopeIdx(lang_state* lang_stat, node** nd, unsigned char val, int, int);
+	bool IsOpUnary(token2* tkn, node*);
+	void SetNodeScopeIdx(lang_state* lang_stat, node** nd, unsigned char val, int, int);
 
-	void node_iter::ExpectTkn(tkn_type2);
-	node *node_iter::parse_func_like();
-	node *node_iter::parse_strct_like();
-	node *node_iter::parse_all();
-	node *node_iter::parse_stmnts();
-	node *node_iter::parse_sub_expr(int prec);
-	node *node_iter::parse_expr();
-	node *node_iter::parse_str(own_std::string &, int *, int);
-	node *node_iter::parse_(int prec,  parser_cond);
+	void ExpectTkn(tkn_type2);
+	node *parse_func_like();
+	node *parse_strct_like();
+	node *parse_all();
+	node *parse_stmnts();
+	node *parse_sub_expr(int prec);
+	node *parse_expr();
+	node *parse_str(own_std::string &, int *, int);
+	node *parse_(int prec,  parser_cond);
 	void EatNewLine();
 	void CreateCondAndScope(node **n);
 
 	//Znode *parse_expression();
 	node* parse_expression(int);
 
-	node *node_iter::parse_sub_expression();
+	node *parse_sub_expression();
 	node *parse(tkn_type2 target);
 
 	token2 *peek_tkn();
@@ -393,8 +394,8 @@ struct scope
 	{
 		bool cached = false;
 		cached_decl* cached_ptr;
-		u32 cur_min = INT_MAX;
-		u32 cur_min_idx = INT_MAX;
+		u32 cur_min = 0xffffffff;
+		u32 cur_min_idx = 0xffffffff;
 
 		int simple_hash = GetNameSimpleHash(d->name);
 		for(int i = 0; i < CACHED_DECLS_MAX; i++)

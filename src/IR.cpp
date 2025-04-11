@@ -456,7 +456,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
             ret->type = AST_RET;
 			if(IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_COROUTINE))
 			{
-				decl2* d = FindIdentifier(own_std::string("CoroutineEnding"), scp, &dummy_type);
+				own_std::string str("CoroutineEnding");
+				decl2* d = FindIdentifier(str, scp, &dummy_type);
 
 				decl2* first_arg = d->type.fdecl->args[0];
 
@@ -619,7 +620,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		ast_rep* coroutine_prolegue = nullptr;
 		if (IS_FLAG_ON(n->fdecl->flags, FUNC_DECL_COROUTINE))
 		{
-			decl2* d = FindIdentifier(own_std::string("CoroutinePrologue"), scp, &dummy_type);
+			own_std::string str("CoroutinePrologue");
+			decl2* d = FindIdentifier(str, scp, &dummy_type);
 			node* new_tree = n->fdecl->coroutine_prologue_tree;
 			//BuildMacroTree(lang_stat, n->fdecl->scp, new_tree, n->t->line);
 
@@ -4430,8 +4432,10 @@ ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat)
 	ast_rep *lhs = NewAst();
 	ast_rep *rhs = NewAst();
 
+	own_std::string str("__global_dummy");
+	
 	lhs->type = AST_IDENT;
-	lhs->decl = FindIdentifier(own_std::string("__global_dummy"), lang_stat->root, &rhs->lhs_tp);
+	lhs->decl = FindIdentifier(str, lang_stat->root, &rhs->lhs_tp);
 
 	bin->type = AST_BINOP;
 	bin->op = T_EQUAL;

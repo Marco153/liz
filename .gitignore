@@ -1,8 +1,6 @@
 build/.vs
 build/
 dev/
-src/lsp/.vs
 *.pdb
+*.out
 *.ilk
-*.obj
-_offset

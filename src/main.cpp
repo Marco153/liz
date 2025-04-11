@@ -1,4 +1,39 @@
 //#define USE_TEXT_EDITOR 
+#define LINUX
+
+#ifdef LINUX
+#include <sys/mman.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <limits.h>       //For PATH_MAX
+#include <signal.h>       //For PATH_MAX
+int min(int a, int b)
+{
+	return a < b ?a : b;
+}
+int max(int a, int b)
+{
+	return a >b ?a : b;
+}
+void TerminateProcess(int val, int val2)
+{
+	kill(val, SIGKILL);
+}
+void ExitProcess(int val)
+{
+	*(int *)0=0;
+	_exit(val);
+	
+}
+#else
+#include <sndfile.h>  // Library for reading WAV files
+#include <dsound.h>
+#include <xaudio2.h>
+#endif
 
 int clamp(int v, int min, int max)
 {
@@ -164,9 +199,6 @@ struct v3
 #include <stb_image_write.h> 
 #include <iostream>
 #include <vector>
-#include <sndfile.h>  // Library for reading WAV files
-#include <dsound.h>
-#include <xaudio2.h>
 #define DR_FLAC_IMPLEMENTATION
 #include "dr_flac.h"
 #include <fstream>
@@ -228,6 +260,12 @@ struct WindowEditor
 	own_std::vector<Buffer*>ed_buffers;
 	open_gl_state* gl_state;
 };
+
+#ifdef LINUX
+#define LANG_FILE int
+#else
+#define LANG_FILE HANDLE
+#endif
 
 struct open_gl_state
 {
@@ -296,15 +334,15 @@ struct open_gl_state
 	own_std::vector<decl2> intellisense_suggestion;
 	own_std::vector<RatedStuff<int>> intellisense_suggestion_aux;
 
-	HANDLE lsp_process;
-	HANDLE lsp_thread;
-    HANDLE hStdInRead, hStdInWrite;
-    HANDLE hStdOutRead, hStdOutWrite;
+	LANG_FILE lsp_process;
+	LANG_FILE lsp_thread;
+    LANG_FILE hStdInRead, hStdInWrite;
+    LANG_FILE hStdOutRead, hStdOutWrite;
 
-	HANDLE for_engine_game_process;
-	HANDLE for_engine_game_thread;
-	HANDLE for_engine_game_stdin;
-	HANDLE for_engine_game_stdout;
+	LANG_FILE for_engine_game_process;
+	LANG_FILE for_engine_game_thread;
+	LANG_FILE for_engine_game_stdin;
+	LANG_FILE for_engine_game_stdout;
 
 	/*
 	Buffer* cur_buffer;
@@ -315,22 +353,6 @@ struct open_gl_state
 };
 
 class XAudioClass;
-typedef struct  WAV_HEADER {
-	char                RIFF[4];        // RIFF Header      Magic header
-	unsigned long       ChunkSize;      // RIFF Chunk Size  
-	char                WAVE[4];        // WAVE Header      
-	char                fmt[4];         // FMT header       
-	unsigned long       Subchunk1Size;  // Size of the fmt chunk                                
-	unsigned short      AudioFormat;    // Audio format 1=PCM,6=mulaw,7=alaw, 257=IBM Mu-Law, 258=IBM A-Law, 259=ADPCM 
-	unsigned short      NumOfChan;      // Number of channels 1=Mono 2=Sterio                   
-	unsigned long       SamplesPerSec;  // Sampling Frequency in Hz                             
-	unsigned long       bytesPerSec;    // bytes per second 
-	unsigned short      blockAlign;     // 2=16-bit mono, 4=16-bit stereo 
-	unsigned short      bitsPerSample;  // Number of bits per sample      
-	char                Subchunk2ID[4]; // "data"  string   
-	unsigned long       Subchunk2Size;  // Sampled data length    
-
-}wav_hdr;
 #define AUDIO_CLIP_FLAGS_LOOP 1
 struct AudioClip
 {
@@ -352,10 +374,13 @@ struct sound_state
 	int hz = 440;
 	unsigned long long running_idx = 0;
 	char* harmonics_buffer;
+#ifdef LINUX
+#else
 	IXAudio2SourceVoice* pSourceVoice;
 	XAUDIO2_BUFFER buffers[2];
 	unsigned char cur_buffer_to_submit = 0;
 	XAudioClass *audio_class;
+#endif
 	own_std::vector<AudioClip *> audio_clips_src;
 	own_std::vector<AudioClipQueued> audio_clips_to_play;
 
@@ -436,6 +461,8 @@ void FillBuffer(sound_state *sound, char* buffer, int total_samples_in_buffer, i
 }
 
 
+#ifdef LINUX
+#else
 class XAudioClass : public IXAudio2VoiceCallback
 {
 public :
@@ -507,6 +534,136 @@ public :
 	{
 	}
 };
+DWORD WINAPI GameAndEngineMsgThread(
+  _In_ LPVOID lpParameter
+)
+{
+	auto dbg = (dbg_state* )lpParameter;
+	auto gl_state = (open_gl_state*)dbg->data;;
+	auto lang_stat = (lang_state*)dbg->lang_stat;;
+	HANDLE std_in = GetStdHandle(STD_INPUT_HANDLE);
+	HANDLE std_out = GetStdHandle(STD_OUTPUT_HANDLE);
+	while(true)
+	{
+		if(!gl_state->is_engine)
+		{
+			own_std::string str;
+			CheckPipeAndGetString(std_in, str);
+			if (str.size() > 0)
+			{
+				auto br = (engine_msg_break *)str.data();
+				char* file_name = (char*)(br + 1);
+
+				own_std::string file_name_str = file_name;
+				unit_file *fl=ThereIsFile(dbg->lang_stat, file_name_str);
+				if (!fl)
+					continue;
+				func_decl* fdecl = GetFuncWithLine2(dbg->lang_stat, br->line, fl);
+				if (!fdecl)
+					continue;
+
+				stmnt_dbg* s = nullptr;
+				FOR_VEC(st, fdecl->wasm_stmnts)
+				{
+					if(st->line == br->line)
+					{
+						s = st;
+						break;
+					}
+				}
+
+				if (!s)
+					continue;
+				
+				
+				if (lang_stat->is_x64_bc_backend)
+				{
+					byte_code2* bc = lang_stat->bcs2_start + s->start;
+					MakeCurBcToBeBreakpoint(dbg, bc, s->line, false);
+				}
+				else
+				{
+					dbg->bcs[s->start].dbg_brk = br->add;
+					dbg->bcs[s->start].from_engine_break = br->add;
+				}
+			}
+			//FlushFileBuffers(std_out);
+		}
+		else if(gl_state->game_started)
+		{
+			own_std::string str;
+			CheckPipeAndGetString(gl_state->for_engine_game_stdout, str);
+			if (str.size() > 0)
+			{
+				printf("from game:%s", str.c_str());
+			}
+			//FlushFileBuffers(std_out);
+		}
+
+		Sleep(500);
+	}
+}
+HRESULT InitXAudio2(sound_state &sound, bool start_playing)
+{
+	sound.harmonics_buffer = (char*)malloc(sound.samples_in_buffer * 4 * 4);
+	memset(sound.buffers, 0, sizeof(sound.buffers));
+	void *src = &sound.harmonics_buffer[sound.samples_in_buffer * 4];
+	void *dst = sound.harmonics_buffer;
+
+	HRESULT hr;
+	hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	if (FAILED(hr))
+		return hr;
+
+	IXAudio2* pXAudio2 = nullptr;
+	if (FAILED(hr = XAudio2Create(&pXAudio2, 0,  XAUDIO2_DEFAULT_PROCESSOR | XAUDIO2_DEBUG_ENGINE)))
+		return hr;
+
+
+	XAUDIO2_EFFECT_CHAIN chain = {};
+
+	IXAudio2MasteringVoice* pMasterVoice = nullptr;
+	if (FAILED(hr = pXAudio2->CreateMasteringVoice(&pMasterVoice)))
+		return hr;
+
+	WAVEFORMATEX wave_format = {};
+
+	wave_format.wFormatTag = WAVE_FORMAT_PCM;
+	wave_format.nChannels = 2;
+	wave_format.nSamplesPerSec = sound.samples_per_sec;
+	wave_format.wBitsPerSample = 16;
+	wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
+	wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
+
+
+	if (FAILED(hr = pXAudio2->CreateSourceVoice(&sound.pSourceVoice, (WAVEFORMATEX*)&wave_format, XAUDIO2_VOICE_NOPITCH, XAUDIO2_MAX_FREQ_RATIO, sound.audio_class, nullptr, nullptr)))
+		return hr;
+
+
+	XAUDIO2_BUFFER& xaudio_buff = sound.buffers[0];
+	xaudio_buff.Flags = 0;
+	xaudio_buff.AudioBytes = sound.samples_in_buffer * 4;
+	xaudio_buff.pAudioData = (BYTE*)src;
+	xaudio_buff.PlayLength = 0;
+
+
+	XAUDIO2_BUFFER& xaudio_buff2 = sound.buffers[1];
+	memcpy((void*)&xaudio_buff2, (void*)&xaudio_buff, sizeof(XAUDIO2_BUFFER));
+	xaudio_buff2.pAudioData = (BYTE*)dst;
+
+	if (FAILED(hr = sound.pSourceVoice->SubmitSourceBuffer(&sound.buffers[sound.cur_buffer_to_submit], nullptr)))
+	{
+	}
+	//cpy_thread = CreateThread(NULL, 0, ThreadProc, nullptr, 0, nullptr);
+
+	if (start_playing)
+	{
+		if (FAILED(hr = sound.pSourceVoice->Start(0)))
+			return hr;
+	}
+	return 0;
+}
+#endif
 
 void Print(dbg_state* dbg)
 {
@@ -1117,7 +1274,8 @@ void ImGuiEnumCombo(dbg_state* dbg)
 
 	scope *scp = FindScpWithLine(dbg->cur_func, line);
 	type2 dummy;
-	decl2 *e = FindIdentifier(own_std::string(name), scp, &dummy);
+	own_std::string str(name);
+	decl2 *e = FindIdentifier(str, scp, &dummy);
 	if (!e)
 	{
 		ImGui::Text("enum not found: %s", name);
@@ -1259,8 +1417,6 @@ void ImGuiSetWindowFontScale(dbg_state* dbg)
 	ImGui::SetWindowFontScale(fsz);
 
 }
-void LspSendFolderToCompile(open_gl_state* lang_stat, HANDLE hStdInWrite, own_std::string folder);
-void CheckLspProcess(lang_state* lang_stat, open_gl_state* gl_state);
 
 bool IsKeyHeld(dbg_state* dbg, key_enum keye)
 {
@@ -1272,84 +1428,6 @@ bool IsKeyHeld(dbg_state* dbg, key_enum keye)
 	}
 	return false;
 
-}
-void StartGame(open_gl_state *gl_state, own_std::string game_dir)
-{
-	DWORD code;
-	GetExitCodeProcess(gl_state->for_engine_game_process, &code);
-	if (code == STILL_ACTIVE)
-	{
-		TerminateProcess(gl_state->for_engine_game_process, 0);
-		CloseHandle(gl_state->for_engine_game_process);
-		CloseHandle(gl_state->for_engine_game_thread);
-	}
-HANDLE hStdInRead, hStdInWrite;
-HANDLE hStdOutRead, hStdOutWrite;
-#define CREATE_STDIN 
-#ifdef CREATE_STDIN
-	SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
-
-	// Create pipes for stdin and stdout
-
-	if (!CreatePipe(&hStdInRead, &hStdInWrite, &sa, 0)) {
-		std::cerr << "Failed to create stdin pipe.\n";
-		return;
-	}
-	if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
-		std::cerr << "Failed to create stdout pipe.\n";
-		return;
-	}
-
-	// Ensure the write handle to stdin and read handle to stdout are not inherited
-	if (!SetHandleInformation(hStdInWrite, HANDLE_FLAG_INHERIT, 0) ||
-		!SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0)) {
-		std::cerr << "Failed to set pipe handle information.\n";
-		return;
-	}
-
-
-	// Set up the STARTUPINFO structure
-	STARTUPINFO si = {};
-	si.cb = sizeof(STARTUPINFO);
-	si.hStdInput = hStdInRead;    // Child's stdin
-	si.hStdOutput = hStdOutWrite; // Child's stdout
-	si.hStdError = hStdOutWrite;  // Redirect stderr (optional)
-	si.dwFlags |= STARTF_USESTDHANDLES;
-#else
-	STARTUPINFO si = {};
-	si.cb = sizeof(STARTUPINFO);
-#endif
-
-	PROCESS_INFORMATION pi = {};
-
-	// Create the child process
-	own_std::string full_cmd = "E:/projects/WasmGame/lang2/build/liz.exe run ";
-	full_cmd += game_dir;
-	if (!CreateProcess(
-		nullptr,
-		(char*) full_cmd.c_str(), // Replace with your command
-		NULL,
-		NULL,
-		TRUE, // Inherit handles
-		0,
-		NULL,
-		NULL,
-		&si,
-		&pi)) {
-			printf( "CreateProcess failed (%d).\n", GetLastError() );
-			return;
-	}
-
-#ifdef CREATE_STDIN
-	// Close unused pipe ends in the parent process
-	gl_state->for_engine_game_process = pi.hProcess;
-	gl_state->for_engine_game_thread = pi.hThread;
-	gl_state->for_engine_game_stdin = hStdInWrite;
-	gl_state->for_engine_game_stdout = hStdOutRead;
-	CloseHandle(hStdInRead);
-	CloseHandle(hStdOutWrite);
-#endif
-	gl_state->game_started = true;
 }
 void RenderFuncDef(void *data, float screen_x, float screen_y)
 {
@@ -1384,6 +1462,10 @@ void RenderFuncDef(void *data, float screen_x, float screen_y)
 	//draw_list->AddRectFilled(min, max, IM_COL32(50, 50, 50, 255));
 }
 
+
+
+#ifdef USE_TEXT_EDITOR
+
 void PrintGameStdOut(open_gl_state* gl_state)
 {
 	own_std::string str;
@@ -1402,10 +1484,8 @@ void GetMsgFromGame(void* data)
 		//printf("msg from game: %s", from_game_str.c_str());
 
 }
-
-
-#ifdef USE_TEXT_EDITOR
-
+void LspSendFolderToCompile(open_gl_state* lang_stat, HANDLE hStdInWrite, own_std::string folder);
+void CheckLspProcess(lang_state* lang_stat, open_gl_state* gl_state);
 void GotoPrevBuffer(void* data)
 {
 	auto wnd = (WindowEditor*)data;
@@ -2100,6 +2180,84 @@ void LspSendCursorPosAndString(HANDLE hStdInWrite, lsp_msg_enum msg_type, int li
 	WriteFile(hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
 }
 
+void StartGame(open_gl_state *gl_state, own_std::string game_dir)
+{
+	DWORD code;
+	GetExitCodeProcess(gl_state->for_engine_game_process, &code);
+	if (code == STILL_ACTIVE)
+	{
+		TerminateProcess(gl_state->for_engine_game_process, 0);
+		CloseHandle(gl_state->for_engine_game_process);
+		CloseHandle(gl_state->for_engine_game_thread);
+	}
+HANDLE hStdInRead, hStdInWrite;
+HANDLE hStdOutRead, hStdOutWrite;
+#define CREATE_STDIN 
+#ifdef CREATE_STDIN
+	SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+
+	// Create pipes for stdin and stdout
+
+	if (!CreatePipe(&hStdInRead, &hStdInWrite, &sa, 0)) {
+		std::cerr << "Failed to create stdin pipe.\n";
+		return;
+	}
+	if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
+		std::cerr << "Failed to create stdout pipe.\n";
+		return;
+	}
+
+	// Ensure the write handle to stdin and read handle to stdout are not inherited
+	if (!SetHandleInformation(hStdInWrite, HANDLE_FLAG_INHERIT, 0) ||
+		!SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0)) {
+		std::cerr << "Failed to set pipe handle information.\n";
+		return;
+	}
+
+
+	// Set up the STARTUPINFO structure
+	STARTUPINFO si = {};
+	si.cb = sizeof(STARTUPINFO);
+	si.hStdInput = hStdInRead;    // Child's stdin
+	si.hStdOutput = hStdOutWrite; // Child's stdout
+	si.hStdError = hStdOutWrite;  // Redirect stderr (optional)
+	si.dwFlags |= STARTF_USESTDHANDLES;
+#else
+	STARTUPINFO si = {};
+	si.cb = sizeof(STARTUPINFO);
+#endif
+
+	PROCESS_INFORMATION pi = {};
+
+	// Create the child process
+	own_std::string full_cmd = "E:/projects/WasmGame/lang2/build/liz.exe run ";
+	full_cmd += game_dir;
+	if (!CreateProcess(
+		nullptr,
+		(char*) full_cmd.c_str(), // Replace with your command
+		NULL,
+		NULL,
+		TRUE, // Inherit handles
+		0,
+		NULL,
+		NULL,
+		&si,
+		&pi)) {
+			printf( "CreateProcess failed (%d).\n", GetLastError() );
+			return;
+	}
+
+#ifdef CREATE_STDIN
+	// Close unused pipe ends in the parent process
+	gl_state->for_engine_game_process = pi.hProcess;
+	gl_state->for_engine_game_thread = pi.hThread;
+	gl_state->for_engine_game_stdin = hStdInWrite;
+	gl_state->for_engine_game_stdout = hStdOutRead;
+	CloseHandle(hStdInRead);
+	CloseHandle(hStdOutWrite);
+#endif
+	gl_state->game_started = true;
+}
 
 void ImGuiRenderTextEditor(dbg_state* dbg)
 {
@@ -3121,7 +3279,7 @@ int CreateSpriteFromLayer(lang_state *lang_stat, open_gl_state *gl_state, aux_la
 
 int LoadSpriteSheet(dbg_state* dbg, own_std::string sp_file_name, int *tex_width, int *tex_height, int *channels, char **tex_data)
 {
-	int read;
+	u32 read;
 	char* file = ReadEntireFileLang((char *)sp_file_name.c_str(), &read);
 
 
@@ -3305,7 +3463,7 @@ void ReadFileInterp(dbg_state* dbg)
 	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	char *buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
 
-	int size;
+	u32 size;
 	own_std::string work_dir = dbg->cur_func->from_file->path;
 	work_dir = work_dir + name;
 	char *file = ReadEntireFileLang((char *)work_dir.c_str(), &size);
@@ -3318,6 +3476,15 @@ void GetFileSize(dbg_state* dbg)
 	char* name = (char*)&dbg->mem_buffer[name_offset];
 
 
+#ifdef LINUX
+	struct stat st;
+
+    if (stat(name, &st) != 0) {
+        perror("stat");
+        return;
+    }
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = st.st_size;
+#else
 	LARGE_INTEGER file_size;
 	own_std::string work_dir = dbg->cur_func->from_file->path;
 	work_dir = work_dir + name;
@@ -3328,6 +3495,7 @@ void GetFileSize(dbg_state* dbg)
 
 	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = file_size.QuadPart;
 	CloseHandle(file);
+#endif
 }
 int GetMem(dbg_state* dbg, int sz)
 {
@@ -3786,75 +3954,6 @@ void UpdateLastTime(dbg_state* dbg)
 		gl_state->last_time = glfwGetTime();
 
 }
-DWORD WINAPI GameAndEngineMsgThread(
-  _In_ LPVOID lpParameter
-)
-{
-	auto dbg = (dbg_state* )lpParameter;
-	auto gl_state = (open_gl_state*)dbg->data;;
-	auto lang_stat = (lang_state*)dbg->lang_stat;;
-	HANDLE std_in = GetStdHandle(STD_INPUT_HANDLE);
-	HANDLE std_out = GetStdHandle(STD_OUTPUT_HANDLE);
-	while(true)
-	{
-		if(!gl_state->is_engine)
-		{
-			own_std::string str;
-			CheckPipeAndGetString(std_in, str);
-			if (str.size() > 0)
-			{
-				auto br = (engine_msg_break *)str.data();
-				char* file_name = (char*)(br + 1);
-
-				own_std::string file_name_str = file_name;
-				unit_file *fl=ThereIsFile(dbg->lang_stat, file_name_str);
-				if (!fl)
-					continue;
-				func_decl* fdecl = GetFuncWithLine2(dbg->lang_stat, br->line, fl);
-				if (!fdecl)
-					continue;
-
-				stmnt_dbg* s = nullptr;
-				FOR_VEC(st, fdecl->wasm_stmnts)
-				{
-					if(st->line == br->line)
-					{
-						s = st;
-						break;
-					}
-				}
-
-				if (!s)
-					continue;
-				
-				
-				if (lang_stat->is_x64_bc_backend)
-				{
-					byte_code2* bc = lang_stat->bcs2_start + s->start;
-					MakeCurBcToBeBreakpoint(dbg, bc, s->line, false);
-				}
-				else
-				{
-					dbg->bcs[s->start].dbg_brk = br->add;
-					dbg->bcs[s->start].from_engine_break = br->add;
-				}
-			}
-			//FlushFileBuffers(std_out);
-		}
-		else if(gl_state->game_started)
-		{
-			own_std::string str;
-			CheckPipeAndGetString(gl_state->for_engine_game_stdout, str);
-			if (str.size() > 0)
-			{
-				printf("from game:%s", str.c_str());
-			}
-			//FlushFileBuffers(std_out);
-		}
-
-		Sleep(500);
-	}
-}
 
 void SetIsEngine(dbg_state* dbg)
 {
@@ -3864,7 +3963,10 @@ void SetIsEngine(dbg_state* dbg)
 	gl_state->lang_stat->is_engine = val;
 	gl_state->is_engine = val;
 
+#ifdef LINUX
+#else
 	CreateThread(nullptr, 0, GameAndEngineMsgThread, (LPVOID)dbg, 0, nullptr);
+#endif
 	if(val)
 	{
 		gl_state->scene_srceen_width = 800;
@@ -4305,10 +4407,14 @@ void PrintV3Int(dbg_state* dbg)
 	int x = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int y = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int z = *(int*)&dbg->mem_buffer[base_ptr + 24];
+#ifdef LINUX
+	printf("x: %d, y: %d, z: %d\n", x, y, z);
+#else
 	char buffer[128];
 	int sz = snprintf(buffer, 128, "x: %d, y: %d, z: %d\n", x, y, z);
 	DWORD written = 0;
 	WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, sz, &written, NULL);
+#endif
 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
@@ -4625,66 +4731,6 @@ void ScreenRatio(dbg_state* dbg)
 }
 
 
-HRESULT InitXAudio2(sound_state &sound, bool start_playing)
-{
-	sound.harmonics_buffer = (char*)malloc(sound.samples_in_buffer * 4 * 4);
-	memset(sound.buffers, 0, sizeof(sound.buffers));
-	void *src = &sound.harmonics_buffer[sound.samples_in_buffer * 4];
-	void *dst = sound.harmonics_buffer;
-
-	HRESULT hr;
-	hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-	if (FAILED(hr))
-		return hr;
-
-	IXAudio2* pXAudio2 = nullptr;
-	if (FAILED(hr = XAudio2Create(&pXAudio2, 0,  XAUDIO2_DEFAULT_PROCESSOR | XAUDIO2_DEBUG_ENGINE)))
-		return hr;
-
-
-	XAUDIO2_EFFECT_CHAIN chain = {};
-
-	IXAudio2MasteringVoice* pMasterVoice = nullptr;
-	if (FAILED(hr = pXAudio2->CreateMasteringVoice(&pMasterVoice)))
-		return hr;
-
-	WAVEFORMATEX wave_format = {};
-
-	wave_format.wFormatTag = WAVE_FORMAT_PCM;
-	wave_format.nChannels = 2;
-	wave_format.nSamplesPerSec = sound.samples_per_sec;
-	wave_format.wBitsPerSample = 16;
-	wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
-	wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
-
-
-	if (FAILED(hr = pXAudio2->CreateSourceVoice(&sound.pSourceVoice, (WAVEFORMATEX*)&wave_format, XAUDIO2_VOICE_NOPITCH, XAUDIO2_MAX_FREQ_RATIO, sound.audio_class, nullptr, nullptr)))
-		return hr;
-
-
-	XAUDIO2_BUFFER& xaudio_buff = sound.buffers[0];
-	xaudio_buff.Flags = 0;
-	xaudio_buff.AudioBytes = sound.samples_in_buffer * 4;
-	xaudio_buff.pAudioData = (BYTE*)src;
-	xaudio_buff.PlayLength = 0;
-
-
-	XAUDIO2_BUFFER& xaudio_buff2 = sound.buffers[1];
-	memcpy((void*)&xaudio_buff2, (void*)&xaudio_buff, sizeof(XAUDIO2_BUFFER));
-	xaudio_buff2.pAudioData = (BYTE*)dst;
-
-	if (FAILED(hr = sound.pSourceVoice->SubmitSourceBuffer(&sound.buffers[sound.cur_buffer_to_submit], nullptr)))
-	{
-	}
-	//cpy_thread = CreateThread(NULL, 0, ThreadProc, nullptr, 0, nullptr);
-
-	if (start_playing)
-	{
-		if (FAILED(hr = sound.pSourceVoice->Start(0)))
-			return hr;
-	}
-	return 0;
-}
 
 bool fileExists(const char* filename) {
 	std::ifstream file(filename);
@@ -4760,21 +4806,33 @@ int main(int argc, char* argv[])
 	InitMemAlloc(&alloc);
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 
+#ifdef LINUX
+	char path[1024];
+    ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+	own_std::string exe_full = path;
+	int last_bar = exe_full.find_last_of("\\/");
+	own_std::string exe_dir = exe_full.substr(0, last_bar + 1);
+	chdir(exe_dir.c_str());
+#else
 	TCHAR buffer[MAX_PATH] = { 0 };
 	GetModuleFileName(NULL, buffer, MAX_PATH);
 	own_std::string exe_full = buffer;
 	int last_bar = exe_full.find_last_of("\\/");
 	own_std::string exe_dir = exe_full.substr(0, last_bar + 1);
 	SetCurrentDirectory(exe_dir.c_str());
+#endif
 
 
 
 	sound_state sound;
+#ifdef LINUX
+#else
 	sound.audio_class = new XAudioClass();
 	//memset(sound.audio_class, 0, sizeof(sound.audio_class));
 	sound.audio_class->sound = &sound;
 
 	InitXAudio2(sound, false);
+#endif
 	/*
 	auto addr = heap_alloc(&alloc, 12);
 	auto addr2 = heap_alloc(&alloc, 12);

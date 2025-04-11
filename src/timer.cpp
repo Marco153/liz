@@ -1,56 +1,47 @@
 #pragma once
 struct timer
 {
-	__int64 begin_timer;
-	__int64 end_timer;
+	u64 begin_timer;
+	u64 end_timer;
 
-	__int64 begin_cycles;
-	__int64 end_cycles;
+	u64 begin_cycles;
+	u64 end_cycles;
 
-	__int64 frequency;
+	u64 frequency;
 };
 
 void InitTimer(timer *t)
 {
-	LARGE_INTEGER I;
-	QueryPerformanceFrequency(&I);
-	t->frequency = I.QuadPart;
+	
 }
 void StartTimer(timer *t)
 {
-	LARGE_INTEGER I;
-	QueryPerformanceCounter(&I);
-	t->begin_timer  = I.QuadPart;
-	t->begin_cycles = __rdtsc();
+
 }
 void EndTimer(timer *t)
 {
-	LARGE_INTEGER I;
-	QueryPerformanceCounter(&I);
-	t->end_timer  = I.QuadPart;
-	t->end_cycles = __rdtsc();
+	
 }
 float GetTimerMSFloat(timer *t)
 {
-	float result = (t->end_timer - t->begin_timer);
 
-	return (float) (((float)result / (float)t->frequency) * 1000);
+	return 0.0;
 }
 u32 GetTimerMS(timer *t)
 {
 	u32 result = (t->end_timer - t->begin_timer);
 
-	return (u32) (((float)result / (float)t->frequency) * 1000);
+	return 1;
 }
 float GetTimerF(timer *t)
 {
-	__int64 result = (t->end_timer - t->begin_timer);
+	u64 result = (t->end_timer - t->begin_timer);
 
-	return ((float)result / (float)t->frequency);
+	return 1.0;
 }
-__int64 GetCyclesElapsed(timer *t)
+u64 GetCyclesElapsed(timer *t)
 {
-	return t->end_cycles - t->begin_cycles;
+	return 1;
 }
 
 /*

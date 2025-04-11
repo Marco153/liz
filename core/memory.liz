@@ -88,7 +88,7 @@ is_flag_on::fn macro(val : _expr, flag : _expr)
 {
 	((val & flag) != 0)
 }
-_own_memset::fn x64(dst : *u8, val : u8, sz : u64) !void
+_own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128);
 	i:u64 = 0;
@@ -131,7 +131,7 @@ else if MEM_TYPE == 1
 }
 else
 {
-	memset::fn(dst : *u8, val : u8, sz : u64) !void
+	memset::fn(dst : *void, val : u8, sz : u64) !void
 	{
 		ASSERT(cast(u64)dst > 128);
 		i:u64 = 0;
@@ -495,27 +495,6 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 	cur.size = min_alloc_size / BYTES_PER_CHUNK;
 
 	ASSERT(cur.next != cur);
-	//if (out)
-		//*out = cur;
-	/*
-	if globals.after_init
-	{
-		inserted := false
-		for i in 0..globals.allocs_occured.max
-		{
-			ptr := cast(**u8)ptr_offset(globals.allocs_occured.start, i, u64)
-			if !*ptr
-			{
-				*ptr = cur.addr
-				inserted = true
-			}
-		}
-		if !inserted
-		{
-			__dbg_break
-		}
-	}
-	*/
     return cur.addr;
 }
 InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
@@ -1021,6 +1000,7 @@ tests :: fn(ret : *u32)
 	if f > 2.0
 		debug_break();
 
+	__dbg_break
 	vec1:v3=?;
 	vec2:v3=?;
 	vec2.x = 1.0;

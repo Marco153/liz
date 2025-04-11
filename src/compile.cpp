@@ -9764,8 +9764,10 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 								while (cur_ir->start == offset_bc)
 								{
+									/*
 									WasmIrToString(dbg, cur_ir, aux_string);
 									ImGui::TextColored(ImVec4(0.6, 0.4, 0.6, 1.0), "%d|%s", cur_ir->idx, aux_string.c_str());
+									*/
 									cur_ir++;
 								}
 
@@ -15968,6 +15970,22 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	lang_stat->cur_file = new unit_file();
 	lang_stat->cur_file->funcs_scp = NewScope(lang_stat, nullptr);
 
+		val = ExecuteString(&info, "\
+		start::fn(a : s32) ! s32{\n\
+			__dbg_break\n\
+			d := 0;\n\
+			c := &d;\n\
+			e := 16;\n\
+			c = cast(*s32)(cast(u64)c + 4);\n\
+			e = 17;\n\
+			if cast(u64)c != (cast(u64)(&d) + 4)\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			return 1;\n\
+		}\n\
+		", 1);
+	ASSERT(val == 1)
 
 	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 		d := 2;\n\
@@ -16124,19 +16142,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 4)
 
-		val = ExecuteString(&info, "\
-		start::fn(a : s32) ! s32{\n\
-			d := 0;\n\
-			c := &d;\n\
-			c = cast(*s32)(cast(u64)c + 4);\n\
-			if cast(u64)c != (cast(u64)(&d) + 4)\n\
-			{\n\
-				return -1;\n\
-			}\n\
-			return 1;\n\
-		}\n\
-		", 1);
-	ASSERT(val == 1)
 
 		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
@@ -16170,6 +16175,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 1)
 
+	raise(SIGTRAP);
 		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
 			d := 2;\n\
@@ -16757,7 +16763,7 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::string aux;
 	//split(args_str, ' ', args, &aux);
 	
-	//AssertFuncByteCode(lang_stat);
+	AssertFuncByteCode(lang_stat);
 	
 	int i = 0;
 	own_std::string file = opts->file;

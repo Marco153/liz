@@ -103,6 +103,7 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
+	__dbg_break
 	while i < sz
 	{
 		*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);

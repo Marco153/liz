@@ -4935,7 +4935,6 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
 	AssignOutsiderFunc(&lang_stat, "IsKeyUp", (OutsiderFuncType)IsKeyUp);
 
-	raise(SIGTRAP);
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
 	AssignOutsiderFunc(&lang_stat, "LoadSceneFolder", (OutsiderFuncType)LoadSceneFolder);

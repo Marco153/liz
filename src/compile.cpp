@@ -8280,6 +8280,32 @@ char *InstToStr(byte_code_enum type)
 {
 	INSTS_SWITCH(type, return "add", return "sub", return "cmp", return "mov", return "lea", return "or", return "and", return "mod", return "mul", return "div", return "shl", return "shr");
 }
+void MemToString(dbg_state *dbg, char *buffer, char reg, int mem_offset, char sz)
+{
+	auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg * 8];
+	u64 offset_ = *reg_src_ptr + mem_offset;
+	auto a = (u64*)&dbg->mem_buffer[offset_];
+	switch(sz)
+	{
+	case 0:
+	{
+		sprintf(buffer, "%d %c", (char) *a, (char)*a);
+	}break;
+	case 1:
+	{
+		sprintf(buffer, "%d", (short)*a);
+
+	}break;
+	case 2:
+	{
+		sprintf(buffer, "%d", (int)*a);
+	}break;
+	case 3:
+	{
+		sprintf(buffer, "%p", a);
+	}break;
+	}
+}
 void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 {
 	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
@@ -8291,6 +8317,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 
 	char* reg_src_str = GetRegStr(reg_src, sz, buffer + 64);
 	char* reg_dst_str = GetRegStr(reg_dst, sz, buffer + 128);
+	char aux_buffer[64];
 	char* inst_name;
 	switch (bc->bc_type)
 	{
@@ -8609,8 +8636,10 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case CMP_I_2_M:
 	case STORE_I_2_M:
 	{
-		 inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s[%s + %d], %d", inst_name, sz_str, reg_dst_str, mem_offset, imm);
+		inst_name = InstToStr(bc->bc_type);
+
+		MemToString(dbg, aux_buffer, reg_dst, mem_offset, sz);
+		snprintf(buffer, 128, "%s %s[%s + %d](%s), %d", inst_name, sz_str, reg_dst_str, mem_offset, aux_buffer, imm);
 		
 	}break;
 	case MOV_F_2_PCKED_SSE:

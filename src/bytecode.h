@@ -204,6 +204,7 @@ enum byte_code_enum : unsigned char
 	MOV_I_2_REG_PARAM,
 	MOV_M_2_REG_PARAM,
 	MOV_R_2_REG_PARAM,
+	MOV_REG_PARAM_2_REG,
 
 	MOV_SSE_2_MEM,
 	MOV_SSE_2_RM,

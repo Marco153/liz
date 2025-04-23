@@ -820,7 +820,7 @@ bool GetTypeInTypeSect(lang_state* lang_stat, machine_reloc* c, own_std::vector<
 	//own_std::string cur_rel_name = own_std::string(c->name);
 	FOR_VEC(sym, symbols)
 	{
-		if (own_std::string(sym->name) == c->name)
+		if (strcmp(sym->name, c->name) == 0)
 		{
 			sym_idx = sym->idx;
 
@@ -4892,6 +4892,7 @@ void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer
 
 	void* addr = nullptr;
 	__m128 vec_ret;
+	//raise(SIGTRAP);
 	if(call_f->ret_type.IsFloat() && call_f->ret_type.ptr == 0)
 		*(float *)&addr = (((float(*)(void *, void*))func_code)(dbg.mem_buffer, a_ptr));
 	else if (call_f->ret_type.type == TYPE_VECTOR)
@@ -5545,6 +5546,7 @@ void ShowExprWindow(dbg_state& dbg, int stack_reg, int line)
 	}
 
 	ImGui::InputText("##addexpr", buffer, 128);
+	/*
 	if(ImGui::IsItemDeactivatedAfterEdit())
 	{
 
@@ -5569,6 +5571,7 @@ void ShowExprWindow(dbg_state& dbg, int stack_reg, int line)
 		dbg.lang_stat->cur_nd = prev_nd;
 		__lang_globals.data = prev_alloc;
 	}
+		*/
 	ImGui::EndChild();
 }
 func_decl *GetFuncBasedOnBc2(dbg_state *dbg, byte_code2 *bc)
@@ -8464,6 +8467,10 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		snprintf(buffer, 128, "jge %d", imm);
 		
 	}break;
+	case MOV_REG_PARAM_2_REG:
+	{
+		snprintf(buffer, 128, "mov %s, param%d", reg_dst_str, reg_src);
+	}break;
 	case MOV_I_2_REG_PARAM:
 	{
 		 inst_name = InstToStr(bc->bc_type);
@@ -10448,10 +10455,15 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 void RunDbgFunc(lang_state* lang_stat, own_std::string func, long long* args, int total_args)
 {
-
-
 	int mem_size = BUFFER_MEM_MAX;
-	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size);
+	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size + 16);
+	auto  start = buffer;
+
+	auto mod_16 = ((u64)buffer % 16);
+	if(mod_16 != 0)
+	{
+		buffer = buffer + (16 - mod_16);
+	}
 	lang_stat->winterp->dbg->mem_size = mem_size;
 	*(int*)&buffer[MEM_PTR_CUR_ADDR] = MEM_PTR_START_ADDR + lang_stat->type_sect.size();
 	*(int*)&buffer[MEM_PTR_MAX_ADDR] = 0;
@@ -10463,7 +10475,7 @@ void RunDbgFunc(lang_state* lang_stat, own_std::string func, long long* args, in
 	memcpy(&buffer[GLOBALS_OFFSET], lang_stat->globals_sect.begin(), lang_stat->globals_sect.size());
 
 	WasmInterpRun(lang_stat->winterp, buffer, mem_size, func.c_str(), args, total_args);
-	__lang_globals.free(__lang_globals.data, buffer);
+	__lang_globals.free(__lang_globals.data, start);
 
 }
 void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl)
@@ -12412,7 +12424,12 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	{
 		if (!decl_is_global)
 		{
+#ifdef LINUX
+			reg_dst = AllocReg(lang_stat, 0);
+			aux->reg = reg_dst;
+#else
 			aux->reg = 32;
+#endif
 			EmplaceLeaInst2(aux->reg, PRE_X64_RSP_REG, aux->voffset, 8, ret);
 		}
 		else
@@ -14073,7 +14090,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 	bool print_ir = false;
 
-	unsigned int stack_size = 32 + on_stack_args * 8;
+	unsigned int stack_size = MAX_CALL_REGS * 8 + on_stack_args * 8;
 	int total_args = 0;
 	int cur_line = 0;
 	int start = ret.size();
@@ -14085,19 +14102,19 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	
 	
 	// moving dbg_start to rax
-	GenX64RegToReg(lang_stat, ret, 0, 8, 1, MOV_R);
+	GenX64RegToReg(lang_stat, ret, 0, 8, 0, MOV_REG_PARAM_2_REG);
 	char rbx_reg = 3;
-	char rsi_reg = 4;
+	char rsi_reg = 6;
 	int float_reg = 0;
 	// moving args to rbx
-	GenX64RegToReg(lang_stat, ret, rbx_reg, 8, 2, MOV_R);
+	GenX64RegToReg(lang_stat, ret, rbx_reg, 8, 1, MOV_REG_PARAM_2_REG);
 	//GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, 8, SUB_I_2_R);
 	for (int a = 0; a < fdecl->args.size(); a++)
 	{
 		byte_code bc = {};
 		int i = a;
 		decl2* d = fdecl->args[i];
-		if (i >= 4)
+		if (i >= MAX_CALL_REGS)
 			i++;
 		if (d->type.ptr <= 0)
 		{
@@ -15093,6 +15110,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case CMP_SSE_2_SSE:
 		case CVTSD_REG_2_SS:
 		case MOV_R_2_REG_PARAM:
+		case MOV_REG_PARAM_2_REG:
 		case MOV_SSE_2_REG_PARAM:
 		case FILL_SSE_2_PCKED_SSE:
 		case MOV_SSE_2_R:
@@ -15972,7 +15990,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 
 		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
-			__dbg_break\n\
 			d := 0;\n\
 			c := &d;\n\
 			e := 16;\n\
@@ -16175,7 +16192,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		", 1);
 	ASSERT(val == 1)
 
-	raise(SIGTRAP);
 		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
 			d := 2;\n\
@@ -16257,7 +16273,6 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			}\n\
 		}\n\
 		start::fn(a : s32) ! s32{\n\
-			__dbg_break;\n\
 			f32_ar: = []f32{ 1.0, 2.0, 3.0 };\n\
 			f := *f32_ar[0] + *f32_ar[1] + *f32_ar[2];\n\
 			if f < 5.9 || f > 6.1\n\
@@ -16588,6 +16603,7 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		start::fn(a : s32) ! s32{\n\
 			f : f32;\n\
+			__dbg_break\n\
 			ModifyStrctPtr(1, 2, 3, 4, 5, &f);\n\
 			if f < 7.9 || f > 8.1\n\
 			{\n\
@@ -16763,7 +16779,7 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 	//own_std::string aux;
 	//split(args_str, ' ', args, &aux);
 	
-	AssertFuncByteCode(lang_stat);
+	//AssertFuncByteCode(lang_stat);
 	
 	int i = 0;
 	own_std::string file = opts->file;
@@ -17119,7 +17135,10 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->wasm_state = (web_assembly_state *) AllocMiscData(lang_stat, sizeof(web_assembly_state));
 	lang_stat->dstate = (dbg_state *) AllocMiscData(lang_stat, sizeof(dbg_state));
 	lang_stat->dstate->mem_size = 1024 * 1024 * 4;
-	lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size);
+
+	lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size + 16);
+
+
 	//lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size);
 	int stack_offset = 10000;
 	*(int*)&lang_stat->dstate->mem_buffer[STACK_PTR_REG * 8] = stack_offset;

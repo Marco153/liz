@@ -166,7 +166,10 @@ int GetTypeSize(type2 *tp)
 			return 0;
 		case enum_type2::TYPE_STRUCT_TYPE:
 		case enum_type2::TYPE_STRUCT:
-			return tp->strct->size;
+		{
+			auto ret = tp->strct->size;
+			return ret;
+		}
 		case enum_type2::TYPE_VECTOR_TYPE:
 		case enum_type2::TYPE_VECTOR:
 			return 16;
@@ -721,7 +724,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 							i++;
 							block_level++;
 						}
-						else if (input[i] == '\n')
+						else if (input[i] == '\n' || input[i] == '\r')
 						{
 							if (lines_out)
 								lines_out->emplace_back(line_str);
@@ -729,6 +732,13 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 							line++;
 							cur_line_start_ch = i + 1;
 							line_str = (char*)(&input[i + 1]);
+							/*
+							if (input[i + 1] == '\n' || input[i+ 1] == '\r')
+							{
+								line++;
+								i++;
+							}
+								*/
 
 						}
 						else if (input[i] == '*' && input[i + 1] == '/')
@@ -737,7 +747,6 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 							block_level--;
 							if (block_level == 0)
 							{
-								i++;
 								break;
 							}
 						}

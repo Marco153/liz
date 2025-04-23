@@ -101,11 +101,17 @@ namespace own_std
 			{
 				new_c_str_vec(4);
 			}
-			if (c_str_vec_count >= c_str_vec_len)
+			if ((c_str_vec_count + 1) >= c_str_vec_len)
 				new_c_str_vec(c_str_vec_len * 2);
 
-			c_str_vec[c_str_vec_count] = buffer;
+			char **addr = &c_str_vec[c_str_vec_count];
 
+			if(*addr != nullptr)
+			{
+				__lang_globals.free(__lang_globals.data, *addr);
+			}
+			*addr = buffer;
+			//c_str_vec_count++;
 
 			return buffer;
 		}
@@ -213,6 +219,10 @@ namespace own_std
 		{
 			if (data_)
 				__lang_globals.free(__lang_globals.data, data_);
+			if(c_str_vec_len > 0)
+			{
+				__lang_globals.free(__lang_globals.data, c_str_vec);
+			}
 		}
 		string()
 		{

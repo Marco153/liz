@@ -4841,9 +4841,6 @@ int main(int argc, char* argv[])
 	*/
 
 
-	open_gl_state gl_state = {};
-	gl_state.sound = &sound;
-	gl_state.lang_stat = &lang_stat;
 
 	//sound.audio_clips_src.emplace_back(CreateNewAudioClip("02.flac"));
 	//AddAudioClipToPlay(&sound, sound.audio_clips_src[0]);
@@ -4938,6 +4935,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
 	AssignOutsiderFunc(&lang_stat, "IsKeyUp", (OutsiderFuncType)IsKeyUp);
 
+	raise(SIGTRAP);
 	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
 	AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
 	AssignOutsiderFunc(&lang_stat, "LoadSceneFolder", (OutsiderFuncType)LoadSceneFolder);
@@ -5032,6 +5030,10 @@ int main(int argc, char* argv[])
 	if (!opts.release)
 	{
 		long long args[] = { 0 };
+
+		open_gl_state gl_state = {};
+		gl_state.sound = &sound;
+		gl_state.lang_stat = &lang_stat;
 
 		AssignDbgFile(&lang_stat, (opts.wasm_dir + opts.folder_name + ".dbg").c_str());
 		//AssignDbgFile(&lang_stat, opts);

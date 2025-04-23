@@ -103,7 +103,6 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
-	__dbg_break
 	while i < sz
 	{
 		*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
@@ -817,7 +816,6 @@ test_strct_ser_func::fn() !u32
 
 tests :: fn(ret : *u32)
 {
-
 	i:= 7;
 	if i != 7
 		debug_break();
@@ -864,7 +862,7 @@ tests :: fn(ret : *u32)
 
 		//debug_break();
 
-	alloc :mem_alloc=?;
+	alloc :mem_alloc;
 	alloc.buffer = nil;
 
 	if alloc.buffer 
@@ -1001,7 +999,6 @@ tests :: fn(ret : *u32)
 	if f > 2.0
 		debug_break();
 
-	__dbg_break
 	vec1:v3=?;
 	vec2:v3=?;
 	vec2.x = 1.0;

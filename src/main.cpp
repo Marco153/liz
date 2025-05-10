@@ -269,9 +269,12 @@ struct WindowEditor
 
 struct open_gl_state
 {
+	int vao3d;
+
 	int vao;
 	int line_vao;
 	int line_vbo;
+	int shader_program3d;
 	int shader_program;
 	int line_shader_program;
 	int shader_program_no_texture;
@@ -284,6 +287,8 @@ struct open_gl_state
 	texture_info textures[TOTAL_TEXTURES];
 	own_std::vector<texture_raw> textures_raw;
 	double last_time;
+
+	float model[16], view[16], projection[16];
 
 	//YankBuffer yank[8];
 
@@ -745,6 +750,37 @@ int GetTextureSlotId(open_gl_state* gl_state)
 	return -1;
 }
 #define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("gl error %d", glGetError()); ASSERT(0)}
+void Draw3D(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+
+	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
+	auto draw = (draw_info*)(long long*)&dbg->mem_buffer[draw_addr];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	// Uniform locations
+	int shaderProgram = gl_state->shader_program3d;
+    glUseProgram(shaderProgram);
+    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
+    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
+    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
+    GLint time_3d = glGetUniformLocation(shaderProgram, "time");
+
+	glUseProgram(shaderProgram);
+	float time [16 ];
+	time[0] = glfwGetTime();;
+	printf("time %.3f\n", gl_state->last_time);
+	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, gl_state->model);
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gl_state->view);
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, gl_state->projection);
+	glUniformMatrix4fv(time_3d, 1, GL_FALSE, time);
+
+	glBindVertexArray(gl_state->vao3d);
+	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+
+}
 void Draw(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -4023,7 +4059,156 @@ void SetIsEngine(dbg_state* dbg)
 	*/
 
 }
+// Shader compilation helper
+GLuint compileShader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, NULL);
+    glCompileShader(shader);
+    GLint success;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char info[512];
+        glGetShaderInfoLog(shader, 512, NULL, info);
+        std::cerr << "Shader error:\n" << info << std::endl;
+    }
+    return shader;
+}
 
+// Matrix utility (replace with glm in serious projects)
+void loadIdentity(float* mat) {
+    std::fill(mat, mat + 16, 0.0f);
+    mat[0] = mat[5] = mat[10] = mat[15] = 1.0f;
+}
+
+void perspective(float* mat, float fov, float aspect, float near, float far) {
+    float tanHalfFov = tanf(fov / 2);
+    std::fill(mat, mat + 16, 0.0f);
+    mat[0] = 1 / (aspect * tanHalfFov);
+    mat[5] = 1 / tanHalfFov;
+    mat[10] = -(far + near) / (far - near);
+    mat[11] = -1;
+    mat[14] = -(2 * far * near) / (far - near);
+}
+void Init3D(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	const char* vertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
+	out vec4 interpCol;\n\
+	uniform mat4 model;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
+		// Extract quaternion components\n\
+		float w = q.w;\n\
+		vec3 u = q.xyz;\n\
+		// Apply rotation: v' = v + 2.0 * cross(u, cross(u, v) + w * v)\n\
+		return v + 2.0 * cross(u, cross(u, v) + w * v);\n\
+	}\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 q = vec4(cos(t), 0.0, t, 0.0);\n\
+		q = normalize(q);\n\
+		vec3 rot = rotate_by_quaternion(aPos, q);\n\
+		gl_Position = projection * view * model * vec4(rot, 1.0);\n\
+		gl_Position.y += sin(time[0][0]) * 2.0;\n\
+		interpCol = vec4(aPos.xyz, 1.0);\
+	}\
+	";
+
+	// Fragment Shader
+	const char* fragmentShaderSrc = "\n\
+	#version 330 core\n\
+	out vec4 FragColor;\n\
+	in vec4 interpCol;\n\
+	void main() {\n\
+		FragColor = vec4(interpCol.xyz, 1.0);\n\
+	}\
+	";
+
+	// Cube vertices
+	GLfloat vertices[] = {
+		-0.5f, -0.5f, -0.5f,
+		0.5f, -0.5f, -0.5f,
+		0.5f,  0.5f, -0.5f,
+		-0.5f,  0.5f, -0.5f,
+		-0.5f, -0.5f,  0.5f,
+		0.5f, -0.5f,  0.5f,
+		0.5f,  0.5f,  0.5f,
+		-0.5f,  0.5f,  0.5f
+	};
+
+	// Index array for drawing cube with triangles
+	GLuint indices[] = {
+		// Back face
+		0, 1, 2, 2, 3, 0,
+		// Front face
+		4, 5, 6, 6, 7, 4,
+		// Left face
+		4, 0, 3, 3, 7, 4,
+		// Right face
+		1, 5, 6, 6, 2, 1,
+		// Bottom face
+		4, 5, 1, 1, 0, 4,
+		// Top face
+		3, 2, 6, 6, 7, 3
+	};
+
+	// Compile shaders
+    GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d = shaderProgram;
+
+
+  // Vertex Array & Buffers
+    GLuint VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+	gl_state->vao3d = VAO;
+    glBindVertexArray(VAO);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glEnable(GL_DEPTH_TEST);
+
+	loadIdentity(gl_state->model);
+    loadIdentity(gl_state->view);
+    loadIdentity(gl_state->projection);
+
+    perspective(gl_state->projection, 45.0f * (3.14159f / 180.0f), 800.0f/600.0f, 0.1f, 100.0f);
+    gl_state->view[14] = -5.0f;  // translate view back
+    //gl_state->model[13] = -1.0f;  // translate view back
+	/*
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	// set the texture wrapping/filtering options (on the currently bound texture object)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	// load and generate the texture
+	int width, height, nrChannels;
+	*/
+
+
+}
 void OpenWindow(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -4202,6 +4387,7 @@ void OpenWindow(dbg_state* dbg)
 		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
 		ASSERT(false);
 	}
+
 	const char* vertexShaderSource = "#version 330 core\n"
 		"layout (location = 0) in vec3 aPos;\n"
 		"layout (location = 1) in vec2 uv;\n"
@@ -4312,19 +4498,10 @@ void OpenWindow(dbg_state* dbg)
 
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	/*
-	unsigned int texture;
-	glGenTextures(1, &texture);
-	glBindTexture(GL_TEXTURE_2D, texture);
-	// set the texture wrapping/filtering options (on the currently bound texture object)
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	// load and generate the texture
-	int width, height, nrChannels;
-	*/
 
+	Init3D(dbg);
+
+		// Vertex Shader
 
 }
 /*
@@ -4947,6 +5124,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ShouldClose", (OutsiderFuncType)ShouldClose);
 	AssignOutsiderFunc(&lang_stat, "ClearBackground", (OutsiderFuncType)ClearBackground);
 	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
+	AssignOutsiderFunc(&lang_stat, "Draw3D", (OutsiderFuncType)Draw3D);
 	AssignOutsiderFunc(&lang_stat, "GetTime", (OutsiderFuncType)GetTime);
 
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);

@@ -437,7 +437,7 @@ OpenWindow::fn outsider(width : u32, height : u32) ! *u8;
 ClearBackground::fn outsider(f32, f32, f32);
 ShouldClose::fn outsider(*u8) ! bool;
 Draw::fn outsider(*u8, *draw_info);
-Draw3D::fn outsider(*u8, *draw_info);
+Draw3D::fn outsider(*u8, *draw_info3d);
 EndFrame::fn outsider(wnd : *u8);
 
 type_enum : enum

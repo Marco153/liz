@@ -490,7 +490,6 @@ input_info:struct
 	left_key_held : bool,
 	right_key_held : bool,
 	up_key_held : bool,
-	down_key_held : bool,
 	horizontal_key_held : bool,
 	vertical_key_held : bool,
 	down_key_held : bool,
@@ -2428,7 +2427,9 @@ p-----..
 	*/
 	lerp_to_player_forward :_vec;
 
+	info_3d : draw_info3d
 	globals.after_init = true
+
 	while !ShouldClose(window)
 	{
 
@@ -2461,221 +2462,8 @@ p-----..
 		draw.cam_rot = &cam_rot;
 		ClearBackground(0.7, 0.7, 0.7);
 
+		Draw3D(window, &info_3d);
 
-		
-
-		DrawUpperInv(ctx, ctx.player.mov_info.cur_weapon);
-		
-		//__dbg_break;
-		/*
-		if IsMouseHeld(mouse_enum.LEFT)
-			CollisionTestItems(ctx, ctx.scn, mx, -my);
-			*/
-
-		mx = mx * ctx.cam_size;
-		my = my * ctx.cam_size;
-		nmx := GetMouseNormalizedPosX() * ctx.cam_size;
-		nmy := GetMouseNormalizedPosY() * ctx.cam_size;
-
-/*
-		//stencil tests
-		memset(&draw, 0, sizeof(draw_info));
-		draw.pos.x = nmx;
-		draw.pos.y = nmy;
-		draw.pos.z = 0.92;
-		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
-		draw.ent_size.x = 1.0;
-		draw.ent_size.y = 1.0;
-		draw.cam_size = 1.0;
-		draw.flags = DRAW_INFO_HAS_TEXTURE | DRAW_INFO_STENCIL_WRITE;
-		draw.texture_id = cast(u32)ctx.col_mask_tex;
-		draw.stencil_val = 7;
-		Draw(ctx.window, &draw);
-		draw.flags = 0;
-
-		draw.pos.x = 0.0;
-		draw.pos.y = 0.0;
-		draw.pos.z = 0.91;
-		draw.flags = DRAW_INFO_STENCIL_TEST | DRAW_INFO_HAS_TEXTURE;
-		//draw.flags = DRAW_INFO_HAS_TEXTURE;
-		draw.color = []f32{ 1.0, 0.0, 0.0, 1.0 };
-		draw.stencil_func = stencil_func_enum.EQUAL;
-		draw.stencil_val = 7;
-		Draw(ctx.window, &draw);
-		draw.flags = 0;
-		*/
-
-		smooth := false;
-		max := 0.1;
-		Cutscenes(&ctx.coroutines, ctx, &dt);
-		DoFreezeTime(ctx, max, smooth, &dt, &cam_rot);
-
-		MovPlayablesEntMov(ctx, &dt);
-		//ekeys.right_key_held = true;
-		//EnemyMovLogic(ctx, enemy_ent, player_ent, &ekeys, dt);
-		//__dbg_break;
-		/*
-		MovEntity(ctx, einfo, enemy_ent, &ekeys, &dt);
-		DoFreezeTime(ctx, max, smooth, &dt, &cam_rot);
-		*/
-		
-
-		MovTriggerToCloserToEnt(ctx);
-		PhysicsUpdate(ctx, dt);
-
-		//__dbg_break
-		//thinking_ents(ctx, &dt)
-
-		MovTriggerToCloserToEnt(ctx);
-		lerp_to_player_forward.x += (player_ent.forward.x * 1.5 - lerp_to_player_forward.x)* dt * 2.0;
-		if ctx.cutscene_idx == 0
-		{
-			cam_pos.x = player_ent.pos.x + lerp_to_player_forward.x;
-			cam_pos.y += (player_ent.pos.y - cam_pos.y) * dt;
-		}
-
-		/*
-		if enemy_ent.was_hit
-		{
-			p: f32;
-			t:*timer_info;
-			//ret := StartAndUpdateTimer(&ctx.timers, __LINE__, dt, &p, 0.05, 0, &t);
-			fint: = cast(s32)(last_time);
-			fmod :=cast(f32)((fint % 3) - 1);
-			fmod = fmod / 12.0;
-			enemy_ent.pos.x += fmod;
-			//PrintV3(cast(f32)fint, fmod, 0.0);
-			if ret == 2
-			{
-				enemy_ent.was_hit = false;
-				ClearTimerInfo(t);
-			}
-
-		}
-		*/
-
-		a_col : ent_col;
-		b_col : ent_col;
-		
-		a_col.pos = pos;
-		a_col.size.x = 1.0;
-		a_col.size.y = 1.0;
-
-		b_col.pos = other_block;
-		b_col.size.x = 1.0;
-		b_col.size.y = 1.0;
-		res :_vec;
-		
-		ratio :=  ScreenRatio();
-		
-		ctx.cam_col_bottom = false;
-		ctx.cam_col_top = false;
-		ctx.cam_col_right = false;
-		ctx.cam_col_left = false;
-		if ctx.cur_cam_rest
-		{
-			real_cam_width := ctx.cam_size / ratio;
-			real_cam_height := (ctx.cam_size / 2.0);
-			
-			min_cam_axis := min(real_cam_width, real_cam_height);
-			//ctx.cam_size = min(min_cam_axis, ctx.cam_size);
-			
-			left_cam_pos := cam_pos.x - real_cam_width;
-			right_cam_pos := cam_pos.x + real_cam_width;
-			top_cam_pos := cam_pos.y + (ctx.cam_size);
-			bottom_cam_pos := cam_pos.y - (ctx.cam_size);
-			
-			restraint_sz := &ctx.cur_cam_rest.size;
-			restraint_pos := &ctx.cur_cam_rest.pos;
-			
-			left_bound:f32;
-			right_bound:f32;
-			top_bound : f32;
-			bottom_bound : f32;
-			
-			if restraint_sz.y < 0.0
-			{
-				bottom_bound = restraint_pos.y + restraint_sz.y;
-				top_bound = restraint_pos.y;
-			}
-			else 
-			{
-				bottom_bound = restraint_pos.y;
-				top_bound = restraint_pos.y + restraint_sz.y;
-			}
-			
-			if restraint_sz.x < 0.0
-			{
-				left_bound = restraint_pos.x + restraint_sz.x;
-				right_bound = restraint_pos.x;
-			}
-			else
-				left_bound = restraint_pos.x;
-				right_bound = restraint_pos.x + restraint_sz.x;
-			
-			
-			if bottom_bound > bottom_cam_pos
-			{
-				ctx.cam_col_bottom = true;
-				cam_pos.y = bottom_bound + ctx.cam_size;
-			}
-			if top_bound < top_cam_pos
-			{
-				ctx.cam_col_top = true;
-				cam_pos.y = top_bound - ctx.cam_size;
-			}
-			if left_bound > left_cam_pos
-			{
-				ctx.cam_col_left = true;
-				cam_pos.x = left_bound + real_cam_width;
-			}
-			if right_bound < right_cam_pos
-			{
-				ctx.cam_col_right = true;
-				cam_pos.x = right_bound - real_cam_width;
-			}
-			
-		}
-
-		OpenLocalsWindow(__LINE__);
-
-		DrawEnts(ctx, &cam_pos, &cam_rot);
-
-		DrawCols(ctx);
-		
-		UpdateEntsWithClips(ctx, dt);
-		//__dbg_break;
-		UpdatePrinter(ctx, &ctx.prntr, dt);
-		FloatyPlatformLogic(ctx, &dt);
-		//DrawText(ctx);
-		for w in ctx.waypoints
-		{
-			draw.pos = w.pos
-			draw.cam_pos = ctx.cam_pos_global;
-			draw.cam_size = ctx.cam_size;
-			draw.ent_size.x = 0.5
-			draw.ent_size.y = 0.5
-			draw.ent_size.z = 0.5
-			*draw.color[0] = 1.0
-			*draw.color[1] = 0.0
-			*draw.color[2] = 0.0
-			*draw.color[3] = 1.0
-			draw.flags = DRAW_INFO_WIREFRAME;
-			Draw(window, &draw)
-		}
-		
-		draw.pos.x = -1.0 - (ratio / 2.0);
-		draw.pos.y = -1.0;
-		draw.cam_size = 1.0;
-		draw.ent_size.x = 2.0 / (ratio / 2.0);
-		draw.ent_size.y = 2.0;
-		draw.cam_pos = nil;
-		draw.color = ctx.curtain;
-		Draw(window, &draw);
-
-
-		//__dbg_break;
-		dyn_clear(&ctx.to_draw);
 		EndFrame(window);
 		ctx.frames_total++;
 	}

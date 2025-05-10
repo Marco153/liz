@@ -1,0 +1,2861 @@
+import "../../core";
+import "../common";
+
+THROW_ANIM_START_TEX_IDX: const s32= 32;
+THROW_AIR_ANIM_START_TEX_IDX: const s32= 53;
+
+cam_restraint: struct
+{
+	pos : _vec,
+	size : _vec,
+}
+start_pos_info : struct
+{
+	pos : _vec,
+	idx : u32,
+}
+obj_mov_based_on_cam_pos :struct
+{
+	obj_pos : _vec,
+	mul_vel : _vec,
+	texture_offset : bool,
+}
+context: struct
+{
+	//scenes : *scene_info,
+	//scene_cur : u32,
+	//scenes_max : u32,
+	alloc : *mem_alloc,
+	main_alloc : mem_alloc,
+	per_scene_alloc : mem_alloc,
+	frames : *frame_info,
+	frames_count : u32,
+	frames_max : u32,
+	cam_pos_global : *_vec,
+	window:*u8,
+	can_move :bool,
+	cur_clip : *clip,
+	alphabet : clip,
+	character_texs : clip,
+	wolf_texs : clip,
+	inv_texs : clip,
+	spear_texs : clip,
+	thraxer_texs : clip,
+	water_texs : clip,
+	axe_throw_texs : u32,
+	spear_throw_texs : u32,
+	
+	character_start_obj_idx : u32,
+	
+	cam_col_left : bool,
+	cam_col_right : bool,
+	cam_col_top : bool,
+	cam_col_bottom : bool,
+	
+	already_allocated_ents_count : u32,
+	already_allocated_str_count : u32,
+	already_allocated_mem_count : u32,
+	
+	cutscene_idx : u32,
+	cam_size :f32,
+
+	axe_tex : u64,
+	col_mask_tex : u64,
+
+	col_it : u64,
+	
+	frames_total : u64,
+	coroutines: coroutine_ctx,
+	
+	layers_ptr : *dyn_array(*layer_sprites),
+	masking_objs: dyn_array(*_vec),
+	
+	player_start_level_pos : _vec,
+	
+	character_idle : *clip2,
+	character_walk : *clip2,
+	character_kick : *clip2,
+	character_sweeped : *clip2,
+	character_medium_kick : *clip2,
+	character_high_kick : *clip2,
+	character_impacted : *clip2,
+	character_on_ground : *clip2,
+	character_falling : *clip2,
+	character_upward_punch : *clip2,
+	character_rising : *clip2,
+	character_descending : * clip2,
+	character_air_kick : *clip2,
+	character_axe_punch : *clip2,
+	character_axe_throw : *clip2,
+	character_axe_throw_air : *clip2,
+	water_clip : *clip2,
+	
+	thraxer_idle : *clip2,
+	thraxer_attack : *clip2,
+	thraxer_defend : *clip2,
+
+	wolf_idle : *clip2,
+	wolf_walk : *clip2,
+	
+	spear_clip : *clip2,
+
+	timers : timer_context,
+	prntr : printer,
+
+	thraxer_trigger : *entity,
+	
+	cur_cam_rest : *cam_restraint,
+	
+	undos_cur : u32,
+	undos_max : u32,
+
+	curtain : [4]f32,
+	ease_in_time : f32,
+
+	freeze_timer : f32,
+	enable_freeze_timer : bool,
+
+	to_draw : dyn_array(draw_info),
+	bodies : dyn_array(*entity),
+	broad_phase_ents : dyn_array(*entity),
+	narrow_phase_ents : dyn_array(contact_col),
+	hit_ents_in_col : dyn_array(*entity),
+	playable_ents : dyn_array(*entity),
+	floaty_platforms : dyn_array(*entity),
+	drawable_ents : dyn_array(*entity),
+	start_pos : dyn_array(start_pos_info),
+	axe_ents : dyn_array(*entity),
+	objs_with_camera_mov : dyn_array(*entity),
+
+	textures : dyn_array(texture_info),
+
+	ents_with_clip : dyn_array(*entity),
+	player : *entity,
+
+	draw_col :bool,
+	draw_origin :bool,
+}
+
+
+anim_type:enum
+{
+	MOV,
+}
+
+
+printer : struct
+{
+	texs : *u32,
+	str : *u8,
+	str_ln : u64,
+	cur_time : f32,
+	time_to_next_ch : f32,
+	cur_ch : u64,
+
+	pos : _vec,
+
+	done : bool,
+	end_cursor : bool,
+
+	chars_per_line : u32,
+}
+
+cel_type: enum
+{
+	EMPTY,
+	SOLID,
+	MOVABLE,
+	PLAYER,
+	TARGET,
+	LEVER,
+	RUBBER,
+	DOOR,
+	FLOW_LEFT,
+	FLOW_RIGHT,
+	FLOW_DOWN,	
+	FLOW_UP,	
+}
+cel_info :struct
+{
+	type:cel_type,
+	backup:cel_type,
+	original:cel_type,
+	is_lever :bool,
+	movable_on_water:bool,
+	using u ::union
+	{
+		mov: *movable,
+		door : *cel_info,
+	}
+}
+movable:struct
+{
+	cur : _vec,
+	final:_vec,
+	going :bool,
+}
+level :struct
+{
+	name : str_lit,
+	pos : _vec,
+}
+
+player_dir: enum
+{
+	LEFT,
+	RIGHT,
+	DOWN,
+	UP,
+}
+
+frame_action:enum
+{
+	FREE,
+	NOT_ASSIGNED,
+	MOV,
+}
+frame_action_stage:enum
+{
+	NOT_STARTED,
+	DOING,
+	FOLLOW_TO_POS,
+	DONE,
+}
+frame_info:struct
+{
+	type :frame_action,
+	stage:frame_action_stage,
+	holder_type :cel_type,
+
+	using u :: union
+	{
+		mov::struct
+		{
+			from_pos: _vec,
+			to_pos: _vec,
+			modify_pos: *_vec,
+			cur_pos: *_vec,
+			in_flow: *bool,
+		}
+	}
+}
+
+Rand01::fn outsider() ! f32;
+ScreenRatio::fn outsider() ! f32;
+GetTimeSinceStart::fn outsider() !f32;
+GetDeltaTime::fn outsider() !f32;
+GetTime::fn outsider() !f32;
+
+
+DebuggerCommand::fn outsider(cmd :str_lit);
+WasmDbg::fn outsider(*context);
+AssignCtxAddr::fn outsider(*context);
+AssignTexFolder::fn outsider(str_lit);
+AssignSoundFolder::fn outsider(str_lit);
+PlayAudio::fn outsider(str_lit);
+
+sin::fn outsider(f32) !f32;
+cos::fn outsider(f32) !f32;
+
+
+Max::fn(a : s32, b : s32) !s32
+{
+	ret: = if a > b a else b;
+	return ret;
+}
+
+
+DrawText::fn(ctx : *context)
+{
+	if ctx.to_draw.count == 0
+		return;
+	for d in ctx.to_draw
+	{
+		Draw(ctx.window, d);
+		
+	}
+}
+
+UpdatePrinter::fn(ctx : *context, p : *printer, dt : f32)
+{
+	p.cur_time += dt;
+
+	if p.cur_time >= p.time_to_next_ch && p.cur_ch < p.str_ln
+	{
+		p.cur_time = 0.0;
+
+		p.cur_ch++;
+		ch := *ptr_offset(p.str, cast(u64)p.cur_ch, u8);
+		if (cast(char)ch) == ' 
+			p.cur_ch++;
+	}
+	if p.cur_ch >= p.str_ln
+	{
+		p.done = true;
+	}
+
+	draw:draw_info;
+	cursor_time : global f32;
+	if p.cur_ch >= p.str_ln && p.str_ln > 0
+	{
+		time_int := cast(u32)cursor_time;
+		if (time_int % 2) == 0 && p.end_cursor
+		{
+			draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+			draw.flags = 0;
+			draw.pos.x = 0.0;
+			draw.pos.y = -0.5;
+			draw.cam_size = 1.0;
+			draw.ent_size.x = 0.1;
+			draw.ent_size.y = 0.1;
+
+			//Draw(ctx.window, &draw);
+		}
+		if IsKeyDown(key_enum.KEY_ACT0)
+			p.done = true;
+
+		cursor_time += dt;
+		if time_int > 3
+			cursor_time = 0.0;
+	}
+	
+	
+	// black background
+	if p.str_ln != nil
+	{
+		draw.pos.{
+			x = -1.0;
+			y = -1.0;
+			z = 0.1;
+		};
+		draw.ent_size.{
+			x = 2.0;
+			y = 0.6;
+		};
+		*draw.color[0] = 0.2;
+		*draw.color[1] = 0.2;
+		*draw.color[2] = 0.2;
+		*draw.color[3] = 0.8;
+		draw.cam_size = 1.0;
+		//draw.flags = DRAW_INFO_NO_SCREEN_RATIO | DRAW_INFO_STENCIL_WRITE;
+		draw.flags = DRAW_INFO_NO_SCREEN_RATIO;
+		//draw.stencil_val = 7;
+		Draw(ctx.window, &draw);
+	}
+	cursor_x := 0.0;
+	cursor_y := 0.0;
+	first_letter := true;
+	letter :u32= 0;
+	letter_h := 0.05;
+	for idx in 0..p.cur_ch
+	{
+		
+		if first_letter
+		{
+			cur_letter:=0;
+
+			if *ptr_offset(p.str, cast(u64)idx, char) == 's
+			{
+				//__dbg_break;
+			}
+
+			while !IsTerminalCharater(*ptr_offset(p.str, idx + cast(s64)(cur_letter), char)) && cast(u64)(idx + cur_letter) < p.str_ln
+			{
+				cur_letter++;
+			}
+
+
+			idx_in_line := cast(s32)letter;
+			if (cur_letter  + idx_in_line) > cast(s32)p.chars_per_line &&  (idx + cur_letter) < cast(s32)p.str_ln
+			{
+				cursor_x = 0.0;
+				cursor_y -= letter_h + letter_h/4.0;
+				letter = 0;
+			}
+			first_letter = false;
+		}
+
+		if letter >= p.chars_per_line
+		{
+			cursor_x = 0.0;
+			cursor_y -= letter_h + letter_h/4.0;
+			letter = 0;
+		}
+		ch := *ptr_offset(p.str, cast(u64)idx, u8);
+		//PrintV3(p.cur_time, cast(f32)idx, 0.0);
+		if (cast(char)ch) != '  
+		{
+			draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+			draw.pos.x = cursor_x + p.pos.x;
+			draw.pos.y = cursor_y + p.pos.y;
+			draw.pos.z = 0.09;
+			draw.ent_size.x = 0.05;
+			draw.ent_size.y = letter_h;
+			draw.flags = DRAW_INFO_HAS_TEXTURE;
+
+			ch_idx := GetCharTextureIdx(cast(char)ch);
+
+			draw.texture_id = *ptr_offset(p.texs, ch_idx, u32);
+			draw.cam_size = 1.0;
+			Draw(ctx.window, &draw);
+			first_letter = false;
+		}
+		else
+		{
+			first_letter = true;
+		}
+			
+		space_at_start := (cast(char)ch) == '  && letter == 0;
+
+		if !space_at_start
+			cursor_x += draw.ent_size.x;
+		letter++;
+	}
+}
+
+ClearPrinterStr::fn(ctx : *context)
+{
+	ctx.prntr.str = nil;
+	ctx.prntr.str_ln = 0;
+	ctx.prntr.cur_ch = 0;
+	ctx.prntr.done = false;
+}
+ChangePrinterStr::fn(ctx : *context, str : str_lit)
+{
+	ctx.prntr.str = str;
+	ctx.prntr.str_ln = str_ln(str);
+	ctx.prntr.cur_ch = 0;
+	ctx.prntr.done = false;
+}
+
+
+ent_col : struct
+{
+	pos : _vec,
+	size : _vec,
+	pivot : _vec,
+}
+AABB::fn(a : *ent_col, b : *ent_col, res : *_vec) ! bool
+{
+	a_center_x := a.pos.x - a.pivot.x * a.size.x;
+	a_center_y := a.pos.y - a.pivot.y * a.size.y;
+	b_center_x := b.pos.x - b.pivot.x * a.size.x;
+	b_center_y := b.pos.y - b.pivot.y * a.size.y;
+
+	a_right := (a_center_x + a.size.x);
+	a_left := (a_center_x);
+	b_right := (b_center_x + b.size.x);
+	b_left := (b_center_x);
+
+	a_top := (a_center_y + a.size.y);
+	a_bottom := (a_center_y);
+	b_top := (b_center_y + b.size.y);
+	b_bottom := (b_center_y);
+
+
+
+	right_check := a_right >= b_left && b_right > a_right;
+	left_check  := a_left <= b_right && b_left < a_left;
+
+	top_check := a_top >= b_bottom && b_top > a_top;
+	bottom_check  := a_bottom <= b_top && b_bottom < a_bottom;
+
+	right_diff := a_right - b_left;
+	left_diff := a_left - b_right;
+	top_diff := a_top - b_bottom;
+	bottom_diff := a_bottom - b_top;
+	
+	res.x = cast(f32)right_check * right_diff + cast(f32)left_check * left_diff;
+	res.y = cast(f32)top_check * top_diff + cast(f32)bottom_check * bottom_diff;
+
+	//cond2 := (y1 + szy1) >= y2 || y1 <= (y2 + szy2);
+	if (right_check || left_check) && (top_check || bottom_check)
+		return true;
+	return false;
+}
+
+
+
+input_info:struct
+{
+	jmp_key_held : bool,
+	jmp_key_up : bool,
+	left_key_held : bool,
+	right_key_held : bool,
+	horizontal_key_held : bool,
+	down_key_held : bool,
+	attack_key_down: bool,
+	attack2_key_down: bool,
+	attack2_key_up: bool,
+	attack2_key_held: bool,
+}
+
+
+
+ChangeState::fn(e : *entity, state : entity_state)
+{
+	if e.state != state
+	{
+		e.cl = nil;
+		e.state = state;
+		e.clip_time = 0.0;
+		e.clip_done = false;
+	}
+}
+
+clamp ::fn(v : f32, _min :f32, _max : f32) ! f32
+{
+	if v <= _min return _min;
+	if v >= _max return _max;
+	return v;
+}
+sign ::fn(f : f32) ! f32
+{
+	if f < 0.0 return -1.0;
+	return 1.0;
+}
+
+NextInvItem::fn(inv : *inventory, cur : **inv_slot)
+{
+	last := dyn_last(&inv.items);
+	
+	next := ptr_offset(*cur, 1, inv_slot);
+	if cast(u64)next <= cast(u64)last && next.item != inv_item.EMPTY
+	{
+		*cur = next;
+	}
+}
+PrevInvItem::fn(inv : *inventory, cur : **inv_slot)
+{
+	start := inv.items[0];
+	prev := ptr_offset(*cur, -1, inv_slot);
+	if cast(u64)prev >= cast(u64)start && prev.item != inv_item.EMPTY
+	{
+		*cur = prev;
+	}
+}
+MovEntity::fn(ctx : *context, mov_info : *player_info, player_ent : *entity, keys : *input_info, dt : *f32)
+{
+	using mov_info;
+	//if player_ent.collided_entered 
+		//__dbg_break;
+
+	key_pressed := false;
+	// drawing the mask of bracelet of sincerity
+	draw : draw_info;
+	draw.pos =player_ent.pos;
+	//draw.pos.y = nmy;
+	draw.pos.z = 0.92;
+	draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+	draw.ent_size.x = MASKING_DIAMETER;
+	draw.ent_size.y = MASKING_DIAMETER;
+	draw.pivot.x = 0.5;
+	draw.pivot.y = 0.5;
+	draw.cam_size = ctx.cam_size;
+	draw.cam_pos = ctx.cam_pos_global;
+	draw.flags = DRAW_INFO_HAS_TEXTURE | DRAW_INFO_STENCIL_WRITE;
+	draw.texture_id = cast(u32)ctx.col_mask_tex;
+	draw.stencil_val = 1;
+	Draw(ctx.window, &draw);
+
+	//cheking if spears that are on masked objs
+	// are still on the range of the mask
+	for i in 0..max_spears
+	{
+		spear := *ptr_offset(spears, i, *entity);
+		if !spear.is_active
+			continue;
+		if spear.vel.x == 0.0 && spear.vel.y == 0.0
+		{
+			
+			spear_forward := spear.pos + spear.forward;
+			// making the spear fall if it is caught by a masked obj
+			for in_col in spear.ents_in_collision
+			{
+				if in_col.in_col
+				{
+					if is_flag_off(in_col.ent.flags, ENTITY_IS_MASKED)
+						continue;
+					if !IsPosInsideMaskingObjs(&spear_forward, &ctx.masking_objs, MASKING_DIAMETER *0.5)
+					{
+						spear.vel.y = -5.0;
+						spear.is_static = false;
+						spear.is_trigger = true;
+					}
+				}
+			}
+			//__dbg_break;
+		}
+	}
+
+	if IsKeyDown(key_enum.KEY_Q)
+	{
+		PrevInvItem(weapons_inv, &cur_weapon);
+		// = cast(inv_item)(cast(u32)on_hand_item - 1);
+		key_pressed = true;
+	}
+	if IsKeyDown(key_enum.KEY_E)
+	{
+		NextInvItem(weapons_inv, &cur_weapon);
+	}
+
+	if player_ent.vel.y < 0.0
+	{
+		gravity_vel.y += mov_vel.y;
+		mov_vel.y = 0.0;
+	}
+	
+	if !axe_ent.axe.hit
+	{
+		axe_ent.vel.y += -20.0 * *dt;
+	}
+	
+	on_air_attack := player_ent.state == entity_state.AIR_KICK || player_ent.state == entity_state.AXE_AIR_THROW;
+	if player_ent.on_ground
+	{
+		jmp.time_off_ground = 0.0;
+		gravity_vel.y = -0.1;
+		can_jmp = true;
+		player_ent.dmg.hit = false;
+		if player_ent.state == entity_state.IMPACTED
+		{
+			ChangeState(player_ent, entity_state.IDLE)
+			can_move = true;
+		}
+		//PrintV3(1.0, 0.0, 1.0);
+		mov_vel.y = 0.0;
+
+	}
+	else
+	{
+		jmp.time_off_ground += *dt;
+		gravity_vel.y += -45.0 * *dt;
+		//mov_vel.y = 0.0;
+		
+		
+		//if player_ent.state == entity_state.IMPACTED
+			//__dbg_break;
+		if jmp.time_off_ground > 0.05 && !on_air_attack && player_ent.state != entity_state.IMPACTED
+		{
+			if player_ent.vel.y > 0.0
+			{
+				ChangeState(player_ent, entity_state.RISING);
+			}
+			else
+				ChangeState(player_ent, entity_state.DESCENDING);
+		}
+	}
+	if (keys.jmp_key_held && jmp.time_off_ground < jmp.off_ground_can_jmp_time) && can_move && can_jmp
+	{
+		mov_vel.y = jmp.speed;
+		can_jmp = false;
+		gravity_vel.y = 0.0;
+	}
+
+	if (keys.jmp_key_up && jmp.time_off_ground < jmp.off_ground_can_jmp_time) && !on_air_attack
+	{
+		mov_vel.y = -1.0;
+		gravity_vel.y = 0.0;
+		//PrintV3(2.0, 0.0, 1.0);
+	}
+
+
+
+	if (keys.left_key_held) && can_move
+	{
+		mov_vel.x = -speed;
+		forward.x = -1.0;
+	}
+	else if (keys.right_key_held) && can_move
+	{
+		mov_vel.x = speed;
+		forward.x = 1.0;
+	}
+	else
+		mov_vel.x += -mov_vel.x * *dt * 20.0;
+
+	if ((keys.attack_key_down || keys.attack2_key_down) && trigger != nil && can_move && (player_ent.state == entity_state.IDLE|| player_ent.state == entity_state.WALK || !player_ent.on_ground))
+	{
+		//PrintV3(3.0, 0.0, 0.0);
+		key_pressed = false;
+		which_combo:combo_enum;
+		impact_mul: = 1.0;
+		attack_state :=entity_state.KICK;
+		if player_ent.on_ground
+		{
+			has_axe = true;
+			key_pressed = true;
+			if keys.attack_key_down
+				attack_state = entity_state.AXE_PUNCH;
+			if keys.attack2_key_down
+			{
+				attack_state = entity_state.AXE_THROW;
+			}
+		}
+		else
+		{
+			has_axe = true;
+			key_pressed = true;
+			if keys.attack2_key_down
+			{
+				attack_state = entity_state.AXE_AIR_THROW;
+			}
+		}
+
+		//if has_axe
+		//{
+		//}
+		/*
+		else
+		{
+			if keys.attack_key_down
+			{			
+				which_combo = combo_enum.ATTACK_0;
+				key_pressed = true;
+				if !player_ent.on_ground
+				{
+					impact_mul = 5.0;
+					attack_state = entity_state.AIR_KICK;
+				}
+				else
+				{
+					if keys.down_key_held
+					{
+						which_combo = combo_enum.ATTACK_THROW_UPWARDS;
+						attack_state = entity_state.UPWARD_PUNCH;
+					}
+				}
+			}
+		}
+		*/
+		 if key_pressed
+		{
+			//in_combo = true;
+			mov_info.combo = which_combo;
+			mov_info.trig_info.state = 0;
+			trigger.dmg.impact_mul = impact_mul;
+			//trigger.is_active = true;
+			mov_info.wait_timer = 0.0;
+			mov_info.trig_info.state = 0;
+			if !player_ent.on_ground && mov_vel.y > 5.0
+				mov_vel.y = 10.0;
+			///player_ent.state = entity_state.KICK;
+			ChangeState(player_ent, attack_state);
+		}
+	}
+
+
+	clip_changed: = false;
+	if player_ent.state == entity_state.IDLE
+	{
+		player_ent.cl = ctx.character_idle;
+		//PrintV3(5.0, 0.0, 0.0);
+		if absf(mov_vel.x) > 0.1 && can_move
+		{
+			ChangeState(player_ent, entity_state.WALK);
+		}
+	}
+	else if player_ent.state == entity_state.WALK
+	{
+		player_ent.cl = character_walk;
+		if absf(mov_vel.x) < 0.1
+		{
+			ChangeState(player_ent, entity_state.IDLE);
+		}
+	}
+	else if player_ent.state == entity_state.SWEEPED
+	{
+		player_ent.cl = ctx.character_sweeped;
+		if player_ent.clip_done
+		{
+			clip_changed = true;
+
+			can_move = true;
+			trigger.is_active = false;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.AIR_KICK
+	{
+		player_ent.cl = ctx.character_air_kick;
+		can_move = false;
+		mov_info.trigger.dmg.impact_type = impact_enum.OPPOSITE_DIR;
+		if player_ent.clip_done || player_ent.on_ground
+		{
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.DESCENDING
+	{
+		player_ent.cl = ctx.character_descending;
+		if player_ent.on_ground
+		{
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.AXE_PUNCH
+	{
+		can_move = false;
+		player_ent.cl = character_axe_punch;
+		//PrintV3(15.0, 0.0, 0.0);
+		if player_ent.clip_done
+		{
+			clip_changed = true;
+			can_move = true;
+			player_ent.knockedout = false;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.AXE_THROW || player_ent.state == entity_state.AXE_AIR_THROW
+	{
+		can_move = false;
+		was_equal := true;
+		diff_tex :u32= 0;
+		
+		if player_ent.state == entity_state.AXE_THROW
+		{
+			was_equal = player_ent.cl == character_axe_throw;
+			player_ent.cl = character_axe_throw;
+			diff_tex = player_ent.tex_id - THROW_ANIM_START_TEX_IDX;
+		}
+		else
+		{
+			was_equal = player_ent.cl == ctx.character_axe_throw_air;
+			player_ent.cl = ctx.character_axe_throw_air;
+			diff_tex = player_ent.tex_id - THROW_AIR_ANIM_START_TEX_IDX;
+			gravity_vel.y = gravity_vel.y / 1.4;
+			player_ent.vel.y = player_ent.vel.y/1.4;
+			mov_vel.y = 0.0;
+		}
+
+		if !was_equal
+			return;
+		
+		
+		on_hand_item := cur_weapon.item;
+		anim_start_tex := ctx.axe_throw_texs;
+		if on_hand_item == inv_item.SPEAR
+			anim_start_tex = ctx.spear_throw_texs;
+		
+		
+		// weapon drawing
+		memset(&draw, 0, sizeof(draw));
+		draw.pos = player_ent.pos;
+		draw.pivot = player_ent.pivot;
+		draw.ent_size.x = 2.0 * player_ent.forward.x;
+		draw.ent_size.y = 2.0;
+		*draw.color[0] = 1.0;
+		*draw.color[1] = 1.0;
+		*draw.color[2] = 1.0;
+		*draw.color[3] = 1.0;
+		draw.cam_pos = ctx.cam_pos_global;
+		draw.cam_size = ctx.cam_size;
+		draw.flags = DRAW_INFO_HAS_TEXTURE;
+		draw.texture_id = diff_tex + anim_start_tex;
+		Draw(ctx.window, &draw);
+		
+		if player_ent.clip_time >= 0.3 && charge_attack_time == 0.0 && player_ent.on_ground
+		{
+			player_ent.cl.pause = true;
+			//player_ent.tex_id = 70;
+		}
+		if player_ent.cl.pause
+		{
+			charge_attack_time += *dt;
+			if keys.attack2_key_up || !keys.attack2_key_held || charge_attack_time > 1.0
+			{
+				player_ent.cl.pause = false;
+			}
+		}
+		if trigger.is_active && has_axe
+		{
+			summed_time := charge_attack_time * 3.0 + 1.0;
+			
+			has_axe = false;
+			if on_hand_item == inv_item.AXE
+			{
+				axe_ent.is_active = true;
+				axe_ent.pos.x = player_ent.pos.x + player_ent.forward.x;
+				axe_ent.pos.y = player_ent.pos.y;
+				axe_ent.vel.x = player_ent.forward.x * 4.0 * (summed_time);
+				axe_ent.vel.y = 5.0;
+				axe_ent.angle_rot.z = sign(player_ent.forward.x) * 5.0 * (charge_attack_time * 4.0 + 1.0);
+			}
+			else if on_hand_item == inv_item.SPEAR
+			{
+				spear := *ptr_offset(spears, cur_spear, *entity);
+				ASSERT(spear != nil)
+				spear.cl = ctx.spear_clip;
+				spear.pos.x = player_ent.pos.x - player_ent.forward.x;
+				spear.pos.y = player_ent.pos.y + 0.5;
+				spear.is_trigger = true;
+				spear.is_static = false;
+				spear.forward.x = player_ent.forward.x;
+				spear.is_active = true;
+				spear.vel.x = player_ent.forward.x * 10.0;
+				spear.vel.y = 0.0;
+				cur_spear = (cur_spear + 1) % max_spears;
+			}
+			//has_axe = false;1
+		}
+
+		
+		//PrintV3(15.0, 0.0, 0.0);
+		if player_ent.clip_done
+		{
+			
+			clip_changed = true;
+			can_move = true;
+			player_ent.knockedout = false;
+			ChangeState(player_ent, entity_state.IDLE);
+			charge_attack_time = 0.0;
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.RISING
+	{
+		player_ent.cl = ctx.character_rising;
+		if player_ent.on_ground
+		{
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.UPWARD_PUNCH
+	{
+		player_ent.cl = ctx.character_upward_punch;
+		can_move = false;
+		mov_info.trigger.dmg.impact_type = impact_enum.UP;
+		if player_ent.clip_done
+		{
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.HIGH_KICK
+	{
+		player_ent.cl = ctx.character_high_kick;
+		can_move = false;
+		mov_info.trigger.dmg.impact_type = impact_enum.UP_AND_OPPOSITE_DIR;
+		if player_ent.clip_done
+		{
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.ON_GROUND
+	{
+		can_move = false;
+		player_ent.cl = ctx.character_on_ground;
+		//PrintV3(15.0, 0.0, 0.0);
+		if player_ent.clip_done
+		{
+			clip_changed = true;
+			can_move = true;
+			player_ent.knockedout = false;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.FALLING
+	{
+		can_move = false;
+		player_ent.cl = ctx.character_falling;
+		if player_ent.clip_done
+		{
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.IMPACTED
+	{
+		can_move = false;
+		can_jmp = false;
+		player_ent.cl = ctx.character_impacted;
+		if player_ent.clip_done
+		{
+			__dbg_break;
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.MEDIUM_KICK
+	{
+		player_ent.cl = ctx.character_medium_kick;
+		can_move = false;
+		mov_info.trigger.dmg.impact_type = impact_enum.OPPOSITE_DIR;
+		if player_ent.clip_done
+		{
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+	}
+	else if player_ent.state == entity_state.KICK
+	{
+		player_ent.cl = ctx.character_kick;
+		//PrintV3(4.0, 0.0, 0.0);
+		if player_ent.clip_done
+		{
+			clip_changed = true;
+			can_move = true;
+			ChangeState(player_ent, entity_state.IDLE);
+			//aux = 1;
+			//__dbg_break;
+		}
+
+		if player_ent.can_start_combo
+		{
+			//PrintV3(10.0, 0.0, 0.0);
+			if keys.attack_key_down && keys.horizontal_key_held
+			{
+				ChangeState(player_ent, entity_state.HIGH_KICK);
+				clip_changed = true;
+			}
+			else if keys.attack_key_down && !keys.horizontal_key_held
+			{
+				ChangeState(player_ent, entity_state.MEDIUM_KICK);
+				clip_changed = true;
+			}
+		}
+	}
+	else
+		__dbg_break;
+
+	if player_ent.knockedout
+	{
+		if player_ent.on_ground
+		{
+			//PrintV3(13.0, 0.0, 0.0);
+			ChangeState(player_ent, entity_state.ON_GROUND);
+		}
+		else
+		{
+			//PrintV3(14.0, 0.0, 0.0);
+			ChangeState(player_ent, entity_state.FALLING);
+		}
+	}
+
+	if clip_changed
+	{
+		player_ent.can_start_combo = false;
+		trigger.is_active = false;
+		trigger.dmg.hit = false;
+	}
+
+
+	if in_combo
+	{
+		can_move = false;
+	}
+
+
+	if !can_move || player_ent.dmg.hit
+	{
+		mov_vel.x = 0.0;
+		//mov_vel.y = 0.0;
+	}
+	else
+	{
+		player_ent.forward = forward;
+	}
+
+	if player_ent.was_hit
+	{
+		//__dbg_break;
+		ChangeState(player_ent, entity_state.IMPACTED);
+		if enemy_state == entity_state.MEDIUM_KICK
+		{
+			ChangeState(player_ent, entity_state.IMPACTED);
+			ctx.enable_freeze_timer = true;
+		}
+		else if enemy_state == entity_state.UPWARD_PUNCH
+		{
+			ChangeState(player_ent, entity_state.FALLING);
+			player_ent.knockedout = true;
+			ctx.enable_freeze_timer = true;
+		}
+		else if enemy_state == entity_state.HIGH_KICK || enemy_state == entity_state.AIR_KICK 
+		{
+			ChangeState(player_ent, entity_state.FALLING);
+			player_ent.knockedout = true;
+			ctx.enable_freeze_timer = true;
+		}
+		if player_ent.mov_info.enemy_state == entity_state.KICK
+		{
+			ChangeState(player_ent, entity_state.SWEEPED);
+		}
+		player_ent.was_hit = false;
+		///player_ent.state = entity_state.HIT;
+	}
+	if platform
+	{
+		platform_vel = platform.vel;
+	}
+	player_ent.vel = mov_vel + gravity_vel + player_ent.impact_vel;
+	player_ent.vel = player_ent.vel + player_ent.mov_info.platform_vel
+
+	if player_ent.on_ground
+	{
+		player_ent.impact_vel = player_ent.impact_vel + player_ent.impact_vel * -(*dt * 10.0);
+		platform_vel.x = 0.0;
+		platform_vel.y = 0.0;
+	}
+	else
+		platform = nil;
+	
+
+	player_ent.on_ground = false;
+	if trigger
+		trigger.size = trig_info.size;
+	player_ent.vel.y = clamp(player_ent.vel.y, -20.0, 20.0);
+	player_ent.vel.x = clamp(player_ent.vel.x, -10.0, 10.0);
+	player_ent.collided_entered = false;
+
+}
+
+
+DoFreezeTime::fn(ctx : *context, max : f32, smooth : bool, dt : *f32, cam_rot : *_vec)
+{
+	cam_rot.z = 0.0;
+	if (ctx.enable_freeze_timer && ctx.freeze_timer == 0.0)
+	{
+		cam_rot.z = 0.01;
+	}
+	if smooth
+	{
+		if ctx.enable_freeze_timer && ctx.freeze_timer < max
+		{
+			ctx.freeze_timer += *dt;
+			*dt = *dt * (ctx.freeze_timer / max);
+			//dt = 0.0;
+		}
+		else
+		{
+			ctx.freeze_timer = 0.0;
+			ctx.enable_freeze_timer = false;
+		}
+	}
+	else
+	{
+		if ctx.enable_freeze_timer && ctx.freeze_timer < max
+		{
+			ctx.freeze_timer += *dt;
+			*dt = 0.0;
+			//dt = 0.0;
+		}
+		else
+		{
+			ctx.freeze_timer = 0.0;
+			ctx.enable_freeze_timer = false;
+		}
+	}
+}
+
+anim_add_tex_kf::fn(tm : *timeline, at : f32, in_tex_id : u32)
+{
+	kf: keyframe;
+	kf.{
+		time = at;
+		tex_id = in_tex_id;
+	};
+	dyn_add(&tm.kfs, &kf);
+	aoeu: = 0;
+}
+
+anim_add_activate_kf::fn(tm : *timeline, at : f32, val_in : bool, act_type : activate_type)
+{
+	kf: keyframe;
+	kf.{
+		time = at;
+		activate.type = act_type;
+		activate.val = val_in;
+	};
+	dyn_add(&tm.kfs, &kf);
+
+}
+anim_add_mov_kf::fn(tm : *timeline, at : f32, x : f32, y : f32, z : f32)
+{
+	kf: keyframe;
+	kf.{
+		time = at;
+		mov.pos.x = x;
+		mov.pos.y = y;
+		mov.pos.z = z;
+	};
+	dyn_add(&tm.kfs, &kf);
+}
+
+CreateNewClip::fn(ctx : *context)!*clip2
+{
+	ret:= cast(*clip2)heap_alloc(ctx.alloc, sizeof(clip2));
+	ret.loop = true;
+	ret.vel = 1.0;
+	dyn_init2(&ret.tms, 4, ctx.alloc);
+
+	ret.tms.count = 1;
+	tm: = ret.tms[0];
+	dyn_init2(&tm.kfs, 4, ctx.alloc);
+
+	return ret;
+}
+CreateAnim::fn(ctx : *context, start_idx : u32, end_idx : u32, texs_idxs : *u32, count_texs : u32) ! *clip2
+{
+	ASSERT(end_idx < (start_idx + count_texs));
+
+	clip1: = CreateNewClip(ctx);
+	clip1.loop = true;
+	//dyn_init2(&clip1.tms, 4, ctx.alloc);
+	tm: *timeline= clip1.tms[0];
+	tm.type = timeline_type.TEXTURE;
+
+
+	tex_ptr: = ctx.character_texs.tex_idxs;
+	
+	for i in start_idx..end_idx
+	{
+		idx: = i - start_idx;
+		anim_add_tex_kf(tm, (cast(f32)idx) * 0.1, *ptr_offset(texs_idxs, cast(u64)i, u32));
+	}
+	clip1.len = cast(f32)(end_idx - start_idx) * 0.1;
+	return clip1;
+}
+
+MakeClipStopCharacterAndMore::fn(ctx : *context, cl : *clip2, stop_move_at : f32, activate_trigger_at : f32, can_start_combo_at : f32)
+{
+
+	if cl.tms.count == 1
+	{
+		regrow(&cl.tms, cl.tms.count + 1);
+		cl.tms[1].type = timeline_type.CHANGE;
+		dyn_init2(&cl.tms[1].kfs, 4, ctx.alloc);
+	}
+	if stop_move_at >= 0.0
+		anim_add_activate_kf(cl.tms[1], stop_move_at, false, activate_type.CAN_MOVE);
+	if activate_trigger_at >= 0.0
+		anim_add_activate_kf(cl.tms[1], activate_trigger_at, true, activate_type.ACTIVATE_ATTACK_TRIGGER);
+	if can_start_combo_at >= 0.0
+		anim_add_activate_kf(cl.tms[1], can_start_combo_at, true, activate_type.CAN_START_COMBO);
+}
+
+ChangeBehaviour::fn(e_ent : *entity, to : behaviour_state)
+{
+	e_ent.mov_info.this_state = to;
+	e_ent.mov_info.behaviour_timer = 0.0;
+}
+
+ChangeIfBehaviourIfStateIsTerminal::fn(ent : *entity, to : behaviour_state)
+{
+	if ent.state == entity_state.MEDIUM_KICK || ent.state == entity_state.AIR_KICK
+	{
+		ent.mov_info.this_state = to;
+	}
+
+}
+dialogue_enum:enum
+{
+	LEVEL_1_SIGN,
+}
+GetDialogueStr::fn(idx : dialogue_enum, lang : u8) ! str_lit
+{
+	if idx == dialogue_enum.LEVEL_1_SIGN
+	{
+		
+		if lang == 1
+		{
+		}
+		else
+			return "only those sincere at heart can reach the castle";
+	}
+	else
+		__dbg_break;
+	return "TEXT NOT FOUND";
+}
+
+Cutscenes::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, dt : *f32)
+{
+	if ctx.cutscene_idx == 1
+	{
+		ctx.player.mov_info.can_move = false;
+		//ctx.
+		//ct
+		//ctx.player.can_move //=
+		//CorWait(4.0);
+		ChangePrinterStr(ctx, GetDialogueStr(dialogue_enum.LEVEL_1_SIGN, 0));
+		CorMoveVecTo(ctx.cam_pos_global, -29.0, 5.0, 0.0, 2.0, ctx.cam_col_left);
+		while true
+		{
+			if ctx.prntr.done && IsKeyDown(key_enum.KEY_JMP)
+			{
+				break;
+			}
+			return;
+		}
+		ClearPrinterStr(ctx);
+		ctx.player.mov_info.can_move = true;
+		ctx.cutscene_idx = 0;
+		ResetCoroutine();
+	}
+}
+
+FloatyPlatformLogic::fn(ctx : *context, dt : *f32)
+{
+	for e in ctx.floaty_platforms
+	{
+		prev_vel := &e.impact_vel;
+		if prev_vel.x == 0.0
+		{
+			*prev_vel = e.vel
+		}
+		if cast(u32)e.state  == 0
+		{
+			e.vel.x += (prev_vel.x - e.vel.x) * *dt * 2.0;
+			e.vel.y += (prev_vel.y - e.vel.y) * *dt * 2.0;
+			if e.was_hit
+			{
+				*cast(*u32)&e.state = 1;
+				e.platform_idle_time = 0.0;
+				e.was_hit = false
+				*prev_vel = e.vel;
+			}
+		}
+		if cast(u32)e.state  == 1
+		{
+			e.platform_idle_time += *dt
+			e.vel.x = 0.0;
+			e.vel.y = 0.0;
+			if e.platform_idle_time > 2.0
+			{
+				*cast(*u32)&e.state = 0;
+				prev_vel.x = -prev_vel.x;
+				prev_vel.y = -prev_vel.y;
+				e.platform_idle_time = 0.0;
+			}
+		}
+	}
+}
+
+MovPlayablesEntMov::fn(ctx : *context, dt : *f32)
+{
+    col: collision=?;
+	for e in ctx.playable_ents
+	{
+		if !e.is_active
+			continue;
+		keys: input_info;
+		if e.type == ent_type.PLAYER
+		{
+				//player_ent.vel.x = 0.0;
+			keys.left_key_held = IsKeyHeld(key_enum.KEY_LEFT);
+			keys.right_key_held = IsKeyHeld(key_enum.KEY_RIGHT);
+			keys.left_key_held = IsKeyHeld(key_enum.KEY_LEFT);
+			keys.horizontal_key_held = keys.left_key_held || keys.right_key_held;
+			keys.down_key_held = IsKeyHeld(key_enum.KEY_DOWN);
+			keys.jmp_key_held = IsKeyHeld(key_enum.KEY_JMP);
+			keys.jmp_key_up = IsKeyUp(key_enum.KEY_JMP);
+			keys.attack_key_down = IsKeyDown(key_enum.KEY_ACT0);
+			keys.attack2_key_down = IsKeyDown(key_enum.KEY_ACT1);
+			keys.attack2_key_up = IsKeyUp(key_enum.KEY_ACT1);
+			keys.attack2_key_held = IsKeyHeld(key_enum.KEY_ACT1);
+	
+			if e.mov_info 
+				MovEntity(ctx, e.mov_info, *e, &keys, dt);
+			hit_ent := e.dmg.hit_ent;
+			//changing scenes
+			if hit_ent != nil
+			{
+				if hit_ent.type == ent_type.CHANGE_SCENE_TRIGGER
+				{
+					aux_buffer :[64]char;
+					//__dbg_break;
+					sprintf(aux_buffer[0], 64, "%%", "../scenes/", hit_ent.scene.change_to_scene_name);
+					ctx.character_start_obj_idx = hit_ent.scene.character_start_idx;
+					OpenSceneGame(ctx, cast(str_lit)aux_buffer[0], ctx.layers_ptr, &ctx.textures);
+					return;
+				}
+				else if hit_ent.type == ent_type.RESET_LEVEL
+				{
+					e.pos = ctx.player_start_level_pos;
+				}
+				e.dmg.hit_ent = nil;
+				
+			}
+			//e.tex_size_x += *dt;
+			//e.tex_size_y += *dt;
+
+			if IsKeyDown(key_enum.KEY_UP) && ctx.cutscene_idx == 0
+			{
+				for c in e.ents_in_collision
+				{
+					if c.in_col && c.ent.type ==  ent_type.INTERACT
+					{
+						//idx := c.ent.event.interact_idx;
+						ctx.cutscene_idx = c.ent.event.interact_idx;
+						//__dbg_break;
+					}
+					
+				}
+			}
+		}
+		else if e.type == ent_type.ENEMY
+		{
+			if e.enemy_type == enemy_enum.THRAXER
+			{
+				//e.mov_info.
+				dist_to_axe := 400.0;
+				if !e.mov_info.axe_ent
+				{
+					max_dist := 40.0;
+					for a in ctx.axe_ents
+					{
+						cur_dist := absf(e.pos.x - a.pos.x);
+						if cur_dist < max_dist
+						{
+							max_dist = cur_dist;
+							e.mov_info.axe_ent = *a;
+						}
+					}
+				}
+				else
+				{
+					dir_to_axe := e.pos - e.mov_info.axe_ent.pos;
+					dist_to_axe = dot_vec(&dir_to_axe, &dir_to_axe);
+					if !e.mov_info.axe_ent.is_active
+					{
+						dist_to_axe = 400.0;
+					}
+				}
+				
+				dist_x := ctx.player.pos.x - e.pos.x;
+				e.forward.x = sign(dist_x);
+				if e.state == entity_state.THRAXER_IDLE
+				{
+					e.cl = ctx.thraxer_idle;
+					if dist_to_axe < 16.0
+					{
+						ChangeState(*e, entity_state.THRAXER_DEFEND);
+					}
+
+				}
+				else if e.state == entity_state.THRAXER_DEFEND
+				{
+					e.cl = ctx.thraxer_defend;
+					if e.mov_info.trigger.dmg.hit || dist_to_axe > 64.0
+					{
+						if e.cl.vel > 0.0
+							e.cl.vel = e.cl.vel * -1.0;
+						if e.clip_time <= 0.0
+						{
+							e.cl.vel = e.cl.vel * -1.0;
+							e.mov_info.trigger.dmg.hit = false;
+							e.mov_info.trigger.is_active = false;
+							ChangeState(*e, entity_state.THRAXER_IDLE);
+						}
+					}
+				}
+			}
+			else if e.enemy_type == enemy_enum.WOLF
+			{
+				dist_x := ctx.player.pos.x - e.pos.x;
+				e.mov_info.trigger.is_active = true;
+				//PrintV3(cast(f32)cast(u32)e.state, 0.0, 0.0);
+				if !e.on_ground
+				{
+					e.vel.y += -4.0 * *dt; 
+				}
+				else
+					e.vel.y = -0.0;
+				e.vel.y = clamp(e.vel.y, -20.0, 20.0);
+					
+				if e.state == entity_state.IDLE
+				{
+					e.cl = ctx.wolf_idle;
+					if dist_x < 5.0
+					{
+						e.state = entity_state.WALK;
+						e.mov_info.prev_player_pos = ctx.player.pos;
+						dir_to_player := e.mov_info.prev_player_pos.x - e.pos.x;
+						e.forward.x = sign(dir_to_player);
+
+					}
+				}
+				else if e.state == entity_state.WOLF_BACK_TO_ORIGIN
+				{
+					dist_to_origin_x := e.mov_info.origin_pos.x - e.pos.x;
+					sign_x := sign(dist_to_origin_x);
+					e.vel.x = sign_x * 3.0;
+					e.forward.x = sign_x;
+					
+					if absf(dist_to_origin_x)  < 1.0
+					{
+						e.state = entity_state.IDLE;
+						e.vel.x = 0.0;
+					}
+				}
+				else if e.state == entity_state.WALK
+				{
+					e.cl = ctx.wolf_walk;
+					a:=0;
+					
+					start_pos:_vec = ? ;
+					end_pos:_vec = ? ;
+		
+					start_pos = e.pos + e.forward * 1.5;
+					end_pos = e.pos + e.forward * 1.5;
+					end_pos.y -= 10.0;
+		
+					out_ent: *entity;
+					if !Raycast(ctx, &start_pos, &end_pos, &col, LAYER_TRIGGER, &out_ent)
+					{
+						e.state = entity_state.WOLF_BACK_TO_ORIGIN;
+						//PrintV3(1.0, 0.0, 0.0);
+						e.vel.x = 0.0;
+					}
+					else
+						e.vel.x = e.forward.x * 5.0;
+					
+				}
+			}
+		}
+	}
+}
+EnemyMovLogic::fn(ctx : *context, e_ent : *entity, p_ent : *entity, ekeys : *input_info, dt : f32)
+{
+	if e_ent.knockedout
+		return;
+	x_dir: = e_ent.pos.x - p_ent.pos.x;
+	y_dir: = e_ent.pos.y - p_ent.pos.y;
+	aux_state: = e_ent.mov_info.this_state;
+	key_towards_player:*bool;
+	key_away_player:*bool;
+	if x_dir > 0.0
+	{
+		key_towards_player = &ekeys.left_key_held;
+		key_away_player = &ekeys.right_key_held;
+	}
+	else
+	{
+		key_away_player  = &ekeys.left_key_held;
+		key_towards_player= &ekeys.right_key_held;
+	}
+
+	e_ent.mov_info.behaviour_timer += dt;
+	btimer := &e_ent.mov_info.behaviour_timer;
+
+	//e_ent.mov_info.this_state = behaviour_state.JUMP;
+
+	if aux_state == behaviour_state.IDLE
+	{
+		if absf(x_dir) < 3.0 && absf(y_dir) < 1.0
+		{
+			val: = Rand01();
+			//PrintV3(val, 0.0, 0.0);
+			//if val > 0.5
+				ChangeBehaviour(e_ent, behaviour_state.MAINTAIN_DISTANCE);
+			//else
+				//ChangeBehaviour(e_ent, behaviour_state.WAIT);
+		}
+		if absf(x_dir) < 10.0 && *btimer > 4.0
+		{
+			ChangeBehaviour(e_ent, behaviour_state.GET_CLOSER_THEN_ATTACK);
+		}
+	}
+	else if aux_state == behaviour_state.WAIT
+	{
+		if* btimer > 1.0
+			ChangeBehaviour(e_ent, behaviour_state.IDLE);
+	}
+	else if aux_state == behaviour_state.JUMP
+	{
+		if absf(x_dir) > 1.0
+		{
+			*key_towards_player = true;
+		}
+
+		if *btimer < 0.4
+			ekeys.jmp_key_held = true;
+		if *btimer > 0.8
+		{
+			ekeys.attack_key_down = true;
+			//ekeys.jmp_key_up = true;
+			ChangeIfBehaviourIfStateIsTerminal(e_ent, behaviour_state.IDLE);
+		}
+	}
+	else if aux_state == behaviour_state.GET_CLOSER_THEN_ATTACK
+	{
+		*key_towards_player = true;
+		if absf(x_dir) < 1.5
+		{
+			ekeys.attack_key_down = true;
+		}
+		ChangeIfBehaviourIfStateIsTerminal(e_ent, behaviour_state.IDLE);
+	}
+	else if aux_state == behaviour_state.MAINTAIN_DISTANCE
+	{
+		if absf(x_dir) < 4.0 && absf(y_dir) < 1.0
+		{
+			e_ent.mov_info.speed = p_ent.mov_info.speed;
+			if x_dir > 0.0
+				ekeys.right_key_held = true;
+			else
+				ekeys.left_key_held = true;
+
+			if* btimer > 1.0
+			{
+				val: = Rand01();
+				if  val > 0.5
+				{
+					ChangeBehaviour(e_ent, behaviour_state.GET_CLOSER_THEN_ATTACK);
+				}
+				else
+					ChangeBehaviour(e_ent, behaviour_state.JUMP);
+
+			}
+		}
+		else
+			e_ent.mov_info.this_state = behaviour_state.IDLE;
+	}
+	else
+		__dbg_break;
+}
+
+MovTriggerToCloserToEnt::fn(ctx : *context)
+{
+	if ctx.playable_ents.count == 0
+		return;
+	for e in ctx.playable_ents
+	{
+		if !e.mov_info
+			continue;
+		player_ent: = *e;
+		player_ent_trigger: = e.mov_info.trigger;
+		pinfo: = e.mov_info;
+
+		player_ent_trigger.pos = player_ent.pos;
+		player_ent_trigger.pos.x += player_ent.forward.x;
+		player_ent_trigger.col_size.x = pinfo.trig_info.size.x * player_ent.forward.x * 1.1;
+		player_ent_trigger.col_size.y = pinfo.trig_info.size.y;
+	}
+}
+MakeEntMasked::fn(ctx : *context, ent : *entity, masked :  *masked_info)
+{
+	ent.flags = ent.flags | ENTITY_IS_MASKED;
+	ent.stencil_val = masked.stencil_val;
+	ent.stencil_func = stencil_func_enum.EQUAL;
+	ent.masking_objs = &ctx.masking_objs;
+}
+FreeArrayOfEnts::fn(ar : *dyn_array(*entity))
+{
+	for e in *ar
+	{
+		if is_flag_on(e.flags, ENTITY_DONT_FREE | ENTITY_FREED)
+			continue;
+		e.flags = ENTITY_DONT_FREE;
+		heap_free(ar.alloc, *e);
+		
+	}
+}
+OpenSceneGame::fn(ctx:*context, name : str_lit, layers : *dyn_array(*layer_sprites), textures : *dyn_array(texture_info))
+{
+	InitMemAlloc(ctx.alloc, ctx.alloc.chunks_cap)
+	//globals.allocs_occured.cur = 0
+	for l in *layers
+	{
+		for sh in l.cells
+		{
+			//FreeSheet(alloc, sh.sheet);
+			FreeTexture(sh.SPRITE.sheet.tex_id);
+		}
+		*l = nil;
+		/*
+		if l.type == layer_enum.OBJ
+		{
+			for c in l.cells
+			{
+				if c.obj.type == layer_obj_enum.CHANGE_SCENE_TRIG
+					heap_free(ctx.alloc, c.obj.add_info);
+			}
+		}
+		*/
+	}
+	/*
+	FreeArrayOfEnts(&ctx.bodies);
+	FreeArrayOfEnts(&ctx.playable_ents);
+	FreeArrayOfEnts(&ctx.ents_with_clip);
+	*/
+	for e in ctx.bodies
+	{
+		for c in e.ents_in_collision
+		{
+			c.in_col = false;
+		}
+		if is_flag_on(e.flags, ENTITY_DONT_FREE | ENTITY_FREED)
+		{
+			continue;
+		}
+		//heap_free(e.ents_in_collision.alloc, e.ents_in_collision.data);
+	}
+	SetMem(ctx.already_allocated_mem_count);
+	globals.entities.cur = ctx.already_allocated_ents_count;
+	globals.str_alloc.cur = ctx.already_allocated_str_count;
+	//globals.allocs_occured : linear_alloc(*u8),
+	
+	dyn_clear(&ctx.playable_ents);
+	dyn_clear(&ctx.drawable_ents);
+	dyn_clear(&ctx.masking_objs);
+	dyn_clear(&ctx.ents_with_clip);
+	dyn_clear(&ctx.axe_ents);
+	dyn_clear(&ctx.floaty_platforms);
+	
+	aux__vec:= &ctx.player.pos;
+	dyn_add(&ctx.masking_objs, &aux__vec);
+	dyn_clear(&ctx.bodies);
+	
+	file := OpenScene(ctx.alloc, name, layers, &ctx.textures);
+
+	//__dbg_break;
+	for l in *layers
+	{
+		if l.type == layer_enum.COL
+		{
+			for c in l.cells
+			{
+				ent := NewEnt(ctx.alloc, "collider");
+				ent.is_active = true;
+				ent.pos = c.COL.pos;
+				ent.col_size = c.COL.sz;
+				ent.type = ent_type.STATIC_COL;
+				ent.is_static = true;
+				if c.masked.is_masked
+				{
+					MakeEntMasked(ctx, ent, &c.masked);
+					//ent. = ENTITY_IS_MASKED;
+				}
+				add_body(ctx, ent);
+				
+			}
+		}
+		else if l.type == layer_enum.SPRITE
+		{
+			for sh in l.cells
+			{
+				//__dbg_break
+				ent := NewEnt(ctx.alloc, "sprite");
+				test := heap_alloc(ctx.alloc, 1);
+				sheet := sh.SPRITE.sheet;
+				ent.pos = sheet.pos;
+				ent.size = sheet.sz;
+				ent.is_active = true;
+				ent.color.{x = 1.0; y = 1.0; z = 1.0; w = 1.0 };
+				ent.tex_id = cast(u32)sheet.tex_id;
+				ent.pos.z = 0.8;
+				ent.flags = ent.flags | DRAW_INFO_HAS_TEXTURE;
+				dyn_add(&ctx.drawable_ents, &ent);
+				
+				if sh.masked.is_masked
+				{
+					MakeEntMasked(ctx, ent, &sh.masked);
+					a := 0;
+					//ent. = ENTITY_IS_MASKED;
+				}
+				
+				if cast(layer_obj_enum)sheet.obj_type == layer_obj_enum.FLOATY_PLATFORM
+				{
+					ent.type = ent_type.FLOATY_PLATFORM;
+					ent.col_enter = floaty_platform_col_enter;
+					ent.col_size = ent.size;
+					ent.vel.x = -5.0;
+					add_body(ctx, ent);
+					dyn_add(&ctx.floaty_platforms, &ent)
+				}
+			}
+		}
+		else if l.type == layer_enum.OBJ
+		{
+			
+			for c in l.cells
+			{
+				if c.OBJ.type == layer_obj_enum2.PLAYER
+				{
+					
+					dyn_add(&ctx.playable_ents, &ctx.player); 
+					dyn_add(&ctx.playable_ents, &ctx.player.mov_info.axe_ent); 
+					
+					dyn_add(&ctx.drawable_ents, &ctx.player);
+					dyn_add(&ctx.drawable_ents, &ctx.player.mov_info.axe_ent);
+					
+					
+					dyn_add(&ctx.ents_with_clip, &ctx.player);
+					__dbg_break
+					dyn_add(&ctx.bodies, &ctx.player); 
+					dyn_add(&ctx.bodies, &ctx.player.mov_info.axe_ent); 
+					dyn_add(&ctx.bodies, &ctx.player.mov_info.trigger); 
+					
+					dyn_add(&ctx.axe_ents, &ctx.player.mov_info.axe_ent);
+					
+					ctx.player_start_level_pos = c.OBJ.pos;
+					
+					ctx.player.pos = c.OBJ.pos;
+					ctx.player.pos.z = 0.1;
+					ctx.player.dont_res_cols_with_layers = LAYER_ENEMY;
+					ctx.player.layer = ctx.player.layer | LAYER_PLAYER;
+					ctx.player.type = ent_type.PLAYER;
+					ctx.player.mov_info.axe_ent.is_active = false;
+					ctx.player.mov_info.axe_ent.pos.z = 0.5;
+					ctx.player.is_trigger = false;
+					
+					
+
+					ctx.player.mov_info.max_spears = 1;
+					max_spears := ctx.player.mov_info.max_spears;
+					ctx.player.mov_info.spears = cast(*entity)heap_alloc(ctx.alloc, sizeof(*entity) * max_spears);
+					ctx.player.mov_info.cur_spear = 0;
+					
+					// instatiatitg spears
+					for i in 0..max_spears
+					{
+						spear := ptr_offset(ctx.player.mov_info.spears, i, *entity);
+						*spear = NewEnt(ctx.alloc, "spear");
+						spear.col_enter = spear_collision_enter;
+						spear.pivot.x = 0.5;
+						spear.pivot.y = 0.35;
+						spear.layer = LAYER_MAYBE_ONLY_UP_COL;
+						spear.dont_res_cols_with_layers = LAYER_PLAYER;
+						spear.spear_idle_tex_idx = *ptr_offset(ctx.spear_texs.tex_idxs, 4, u32);
+						spear.type = ent_type.SPEAR;
+						
+						spear.size.x = 2.0;
+						spear.size.y = 2.0;
+						spear.col_size.x = 1.7;
+						spear.col_size.y = 0.5;
+						
+						spear.color.x = 1.0;
+						spear.color.y = 1.0;
+						spear.color.z = 1.0;
+						spear.color.w = 1.0;
+						spear.flags = ENTITY_HAS_TEXTURE;
+						//spear.flags = spear.flags | ENTITY_DONT_FREE;
+						spear.cl = ctx.spear_clip;
+						
+						add_body(ctx, *spear);
+						dyn_add(&ctx.drawable_ents, spear);
+						dyn_add(&ctx.ents_with_clip, spear);
+					}
+					
+					
+					//ctx.player.col_exit = player_collision_exit;
+				}
+				else if c.OBJ.type == layer_obj_enum2.ENEMY
+				{
+					ent :*entity;
+					NewPlayableEnt(ctx, &ent, true);
+					ent.is_active = true;
+					ent.type = ent_type.ENEMY;
+					ent.enemy_type = c.OBJ.ENEMY.enemy_type;
+
+					ent.pos = c.OBJ.pos;
+					ent.size.x = 2.0;
+					ent.size.y = 2.0;
+					ent.pivot.x = 0.5;
+					ent.pivot.y = 0.5;
+					ent.mov_info.origin_pos = ent.pos;
+					ent.forward.x = 1.0;
+					ent.col_size = ent.size;
+					ent.col_exit = nil;
+					ent.col_enter = nil;
+					ent.flags = ent.flags | DRAW_INFO_HAS_TEXTURE;
+					ent.mov_info.trigger.type = ent_type.DEFENSE;
+					ent.layer = LAYER_ENEMY;
+					
+					ctx.thraxer_trigger = ent.mov_info.trigger;
+					
+					dyn_add(&ctx.drawable_ents, &ent);
+					dyn_add(&ctx.ents_with_clip, &ent);
+
+					if c.OBJ.ENEMY.enemy_type == enemy_enum.THRAXER
+					{
+						ent.tex_id = *ctx.thraxer_texs.tex_idxs;
+						//ent.dont
+						ent.is_trigger = true;
+					}
+					else if c.OBJ.ENEMY.enemy_type == enemy_enum.WOLF
+					{
+						ent.tex_id = *ctx.wolf_texs.tex_idxs;
+						ent.col_size.y = 1.0;
+						ent.pivot.y = 0.0;
+						ent.mov_info.trig_info.size.y = 2.0;
+						ent.dont_res_cols_with_layers = LAYER_PLAYER;
+						ent.is_trigger = false;
+					}
+				}
+				else if c.OBJ.type == layer_obj_enum2.CAM_RESTRAINT
+				{
+					ctx.cur_cam_rest = cast(*cam_restraint)&c.OBJ.pos;
+				}
+				else if c.OBJ.type == layer_obj_enum2.INTERACT
+				{
+					ent := NewEnt(ctx.alloc, "interact");
+					//ent.change_to_scene_name = cast(str_lit)heap_alloc(ctx.alloc, SCENE_NAME_NAME_MAX);
+					//__dbg_break
+					ent.event.interact_idx = c.OBJ.INTERACT.interact_idx;
+					//ent.event.interact_idx = c.obj.interact_idx;
+					ent.type = ent_type.INTERACT;
+					//ent.event.interact_idxin = c.obj.interact_idx;
+					ent.is_active = true;
+					ent.is_trigger = true;
+					add_body(ctx, ent);
+					ent.col_size = c.OBJ.sz;
+					ent.size = c.OBJ.sz;
+					ent.pos = c.OBJ.pos;
+				}
+				else if c.OBJ.type == layer_obj_enum2.CHANGE_SCENE_TRIG
+				{
+					ent := NewEnt(ctx.alloc, "change scene");
+					//ent.change_to_scene_name = cast(str_lit)heap_alloc(ctx.alloc, SCENE_NAME_NAME_MAX);
+					//__dbg_break
+					ent.scene.change_to_scene_name = c.OBJ.CHANGE_SCENE_TRIG.add_info;
+					ent.scene. character_start_idx = c.OBJ.CHANGE_SCENE_TRIG.scene_character_start_idx;
+					ent.type = ent_type.CHANGE_SCENE_TRIGGER;
+					ent.col_enter = change_scene_collision_enter;
+					ent.col_exit = nil;
+					ent.is_active = true;
+					ent.is_trigger = true;
+					add_body(ctx, ent);
+					ent.col_size = c.OBJ.sz;
+					ent.size = c.OBJ.sz;
+					ent.pos = c.OBJ.pos;
+				}
+				else if c.OBJ.type == layer_obj_enum2.CHARACTER_START_POS
+				{
+					sinfo:start_pos_info
+					sinfo.pos = c.OBJ.pos;
+					sinfo.idx = c.OBJ.CHARACTER_START_POS.scene_character_start_idx
+					dyn_add(&ctx.start_pos, &sinfo)
+					//sinfo.
+					//ctx.start_pos
+				}
+				else if c.OBJ.type == layer_obj_enum2.RESET_LEVEL
+				{
+					ent := NewEnt(ctx.alloc, "reset level");
+					//ent.change_to_scene_name = cast(str_lit)heap_alloc(ctx.alloc, SCENE_NAME_NAME_MAX);
+					//__dbg_break
+					ent.type = ent_type.RESET_LEVEL;
+					ent.col_enter = nil;
+					ent.col_exit = nil;
+					ent.is_active = true;
+					ent.is_trigger = true;
+					add_body(ctx, ent);
+					ent.col_size = c.OBJ.sz;
+					ent.size = ent.col_size;
+					ent.pos = c.OBJ.pos;
+				}
+				else
+				{
+					// layer_obj not handled
+					printf("not handled: %\n", cast(u32)c.OBJ.type)
+					__dbg_break;
+				}
+			}
+		}
+	}
+	heap_free(ctx.alloc, file);
+	
+	if ctx.character_start_obj_idx > 0
+	{
+		//found := false
+		for s in ctx.start_pos
+		{
+			if s.idx == ctx.character_start_obj_idx
+			{
+				ctx.player.pos = s.pos;
+			}
+		}
+	}
+}
+
+min :: fn(a : s32, b : s32) ! s32
+{
+	if a < b return a;
+	return b;
+}
+min :: fn(a : u32, b : u32) ! u32
+{
+	if a < b return a;
+	return b;
+}
+min :: fn(a : f32, b : f32) ! f32
+{
+	if a < b return a;
+	return b;
+}
+
+axe_throw_callback::fn(data : *anim_callback_info) !bool
+{
+	if data.time_since_stopped > 3.0
+		return true;
+	return false;
+}
+
+NewAxeEnt::fn(ctx : *context) ! *entity
+{
+	axe_ent := NewEnt(ctx.alloc, "axe");
+	axe_ent.is_trigger = true;
+	axe_ent.type = ent_type.AXE;
+	axe_ent.col_enter = axe_trig_collision_enter;
+	add_body(ctx, axe_ent);
+	axe_ent.flags = ENTITY_HAS_TEXTURE | ENTITY_DONT_FREE;
+	axe_ent.tex_id = cast(u32)ctx.axe_tex;
+	axe_ent.is_active = true;
+	axe_ent.axe = cast(*axe_info)heap_alloc(ctx.alloc, sizeof(axe_info));
+	axe_ent.pivot.x = 0.5;
+	axe_ent.pivot.y = 0.5;
+	axe_ent.pos.y = 5.0;
+	return axe_ent;
+}
+NewInventory::fn(ctx : *context, slots : u32) ! *inventory
+{
+	inv:*inventory = cast(*inventory)heap_alloc(ctx.alloc, sizeof(inventory));
+	dyn_init2(&inv.items, slots, ctx.alloc);
+	inv.items.count = slots;
+	return inv;
+}
+NewPlayerEnt::fn(ctx : *context, name : str_lit) ! *entity
+{
+	player_ent:*entity;
+	NewPlayableEnt(ctx, &player_ent, false);
+	
+	player_ent.flags = player_ent.flags | ENTITY_DONT_FREE;
+	player_ent.mov_info.axe_ent = NewAxeEnt(ctx);
+	
+	
+	player_ent.layer = LAYER_ENTITY_PLAYABLE;
+	player_ent.dont_res_cols_with_layers = LAYER_ENTITY_PLAYABLE;
+
+	player_ent.name = name;
+	player_ent.pos.x = 4.0;
+	player_ent.pos.y = 4.0;
+	player_ent.size.x = 2.0;
+	player_ent.size.y = 2.0;
+	player_ent.col_size.x = 1.0;
+	player_ent.col_size.y = 2.0;
+	player_ent.pivot.x = 0.5;
+	player_ent.pivot.y = 0.5;
+	player_ent.color.x = 1.0;
+	player_ent.color.y = 1.0;
+	player_ent.color.z = 1.0;
+	player_ent.color.w = 1.0;
+	player_ent.col_enter = player_collision_enter;
+	player_ent.col_stay = player_collision_stay;
+	player_ent.col_exit = player_collision_exit;
+	player_ent.is_active = true;
+
+	player_ent_trigger: = player_ent.mov_info.trigger;
+	pinfo: = player_ent.mov_info;
+	pinfo.{
+		speed = 5.0;
+		can_move = true;
+		jmp.speed = 15.0;
+		forward.x = 1.0;
+		has_axe = true;
+		jmp.off_ground_can_jmp_time = 0.2;
+		trigger = player_ent_trigger;
+		trig_info.{
+			time = 0.2;
+			size.x = 1.0;
+			size.y = 1.0;
+		};
+	};
+	
+	mov_info := player_ent.mov_info;
+	mov_info.usable_items = NewInventory(ctx, 2);
+	mov_info.usable_items.items[0].item = inv_item.BRACELET_OF_SINCERITY;
+	mov_info.weapons_inv = NewInventory(ctx, 4);
+	
+	mov_info.cur_weapon = mov_info.weapons_inv.items[0];
+	mov_info.cur_weapon.item = inv_item.AXE;
+	
+	mov_info.cur_weapon = mov_info.weapons_inv.items[1];
+	mov_info.cur_weapon.item = inv_item.SPEAR;
+	
+	mov_info.cur_weapon = mov_info.weapons_inv.items[0];
+	
+	player_ent.flags = player_ent.flags | ENTITY_HAS_TEXTURE;
+	
+	
+	
+	return player_ent;
+}
+
+DrawUpperInv::fn(ctx : *context, islot : *inv_slot)
+{
+	draw:draw_info;
+	
+	draw.pos.x = -0.1;
+	draw.pos.y = 0.8;
+	draw.pos.z = 0.8;
+	draw.ent_size.y = 0.2;
+	draw.ent_size.x = 0.2;
+	draw.cam_size = 1.0;
+	//draw.cam_pos = ctx.cam_pos_global;
+	draw.color = []f32{0.0, 0.0, 0.0, 1.0};
+	draw.flags = 0;
+	Draw(ctx.window, &draw);
+	
+	draw.flags = DRAW_INFO_HAS_TEXTURE;
+	item := islot.item;
+	if item == inv_item.AXE
+	{
+		draw.texture_id = *ctx.inv_texs.tex_idxs;
+	}
+	else if item == inv_item.SPEAR
+	{
+		draw.texture_id = *ptr_offset(ctx.inv_texs.tex_idxs, 1, u32);
+	}
+	else if item == inv_item.BRACELET_OF_SINCERITY
+	{
+		draw.texture_id = *ptr_offset(ctx.inv_texs.tex_idxs, 2, u32);
+	}
+	else
+	{
+		__dbg_break;
+	}
+	draw.pos.z = 0.5;
+	draw.color = []f32{1.0, 1.0, 1.0, 1.0};
+	Draw(ctx.window, &draw);
+}
+
+main_loop::fn(ctx : *context)
+{
+	dyn_init2(&ctx.coroutines.funcs, 2, ctx.alloc);
+
+	/*
+	val: s64;
+	for i in 0..2
+	{
+		test_coroutine(&ctx.coroutines, ctx, &val);
+		aux: = 0;
+
+	}
+	*/
+	//__dbg_break
+	LinearInit(&globals.entities, ctx.alloc, 32)
+	LinearInit(&globals.str_alloc, ctx.alloc, 128)
+	LinearInit(&globals.allocs_occured, ctx.alloc, 32)
+	LinearInit(&globals.temp_alloc, ctx.alloc, 128)
+	LinearInit(&globals.nodes_alloc, ctx.alloc, 512)
+	LinearInit(&globals.ast_alloc, ctx.alloc, 512)
+
+	tkns : dyn_array(token)
+	pinfo : parse_info
+	mach : machine
+	lang_stat : lang_state
+	pinfo.lang_stat = &lang_stat
+
+	dyn_init2(&mach.data, 10000, ctx.alloc)
+	mach.data.count = 256
+	
+		/*
+		"
+		func : fn()
+		\{
+			a : u32= 4
+			r1 = a
+		\}
+		")
+		*/
+	Tokenize(&tkns,
+		"
+		call : fn()
+		\{
+		\}
+		func : fn()
+		\{
+			call()
+			if r1
+				r2 = 0
+			elif r2 == 5
+				r0 = 2
+		\}
+		")
+	pinfo.tkns = &tkns
+	__dbg_break
+	n := parse(&pinfo, 999, parser_op.GREATER_THAN)
+
+	root := new_scope(nil)
+
+	ast := parse_node_to_ast(&lang_stat, n, root)
+
+	for i in 0..5
+	{
+		if descend_name_finding(&lang_stat, ast, root)
+			break;
+	}
+
+	irs :dyn_array(ir_rep)
+
+	bc : byte_code
+	for f in lang_stat.funcs
+	{
+		for v in f.vars
+		{
+			f.stack_sz += lget_type_size(&v.tp)
+		}
+		f.stack_sz += 8 - (f.stack_sz % 8)
+		dyn_clear(&irs)
+		ast_to_ir(&lang_stat, f.ast.FUNC.scp_ast, root, &irs)
+
+		gen_imm_to_reg(RSP_REG, 8, bc_type.ADD_I_2_R, cast(s32)f.stack_sz, &f.bcs, cast(u16)token_type.PLUS)
+		ir_to_bc(&irs, &f.bcs)
+		gen_imm_to_reg(RSP_REG, 8, bc_type.SUB_I_2_R, cast(s32)f.stack_sz, &f.bcs, cast(u16)token_type.MINUS)
+
+		bc.tp = bc_type.RET
+		dyn_add(&f.bcs, &bc)
+	}
+
+
+
+	rsp := get_reg(&mach, RSP_REG)
+	*rsp = 256
+
+	__dbg_break
+	bcs := &lang_stat.funcs[0].bcs
+	bc_logic(&mach, bcs)
+
+
+
+	using ctx;
+	draw:draw_info;
+	//AssignCamStuff(scn, &draw);
+	pos :_vec;
+	speed :f32= 5.0;
+	cam_pos: _vec;
+	cam_rot: _vec;
+	cam_rot.z = 0.0;
+	other_block :_vec;
+	other_block.x = 5.0;
+	other_block.y = 0.0;
+
+	ctx.cam_pos_global = &cam_pos;
+
+    cinfo: col_info;
+    col: collision;
+
+	col.contacts.alloc = ctx.alloc;
+	dyn_init(&col.contacts, 2);
+	col.contacts.count = 1;
+
+
+	player_ent:*entity=NewPlayerEnt(ctx, "player");
+	ctx.player = player_ent;
+	
+	ctx.already_allocated_ents_count = globals.entities.cur;
+	ctx.already_allocated_str_count = globals.str_alloc.cur;
+	
+	dyn_init2(&ctx.masking_objs, 4, ctx.alloc);
+	dyn_init2(&ctx.start_pos, 4, ctx.alloc);
+
+
+	//add_body(ctx, enemy_ent);
+	//add_body(ctx, &ground2)
+
+	last_time : = GetTime();
+
+	keys: input_info;
+
+	cam_wiggle_time:f32;
+	cam_wiggle_timer:f32;
+	cam_wiggle_rot_time:f32;
+	cam_wiggle_rot_timer:f32;
+	
+	clip1: = CreateAnim(ctx, 1, 9, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	idle_clip: = CreateAnim(ctx, 0, 1, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	kick_clip: = CreateAnim(ctx, 9, 13, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	sweeped_clip: = CreateAnim(ctx, 15, 16, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	medium_kick_clip: = CreateAnim(ctx, 13, 14, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	high_kick_clip: = CreateAnim(ctx, 14, 15, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	on_ground_clip: = CreateAnim(ctx, 18, 19, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	falling_clip: = CreateAnim(ctx, 17, 18, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	impacted_clip: = CreateAnim(ctx, 16, 17, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	upward_punch_clip: = CreateAnim(ctx, 19, 22, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	rising_clip: = CreateAnim(ctx, 22, 23, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	descending_clip: = CreateAnim(ctx, 23, 24, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	air_kick_clip: = CreateAnim(ctx, 24, 25, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	axe_punch := CreateAnim(ctx, 25, 32, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	axe_throw := CreateAnim(ctx, THROW_ANIM_START_TEX_IDX, 39, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	water_clip_ := CreateAnim(ctx, 0, 2, ctx.water_texs.tex_idxs, ctx.water_texs.total_texs);
+	//__dbg_break;
+	axe_throw_air := CreateAnim(ctx, THROW_AIR_ANIM_START_TEX_IDX, 60, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	
+	thraxer_idle_clip := CreateAnim(ctx, 0, 2, ctx.thraxer_texs.tex_idxs, ctx.thraxer_texs.total_texs);
+	thraxer_attack_clip := CreateAnim(ctx, 2, 12, ctx.thraxer_texs.tex_idxs, ctx.thraxer_texs.total_texs);
+	thraxer_defend_clip := CreateAnim(ctx, 13, 19, ctx.thraxer_texs.tex_idxs, ctx.thraxer_texs.total_texs);
+
+	wolf_idle_clip := CreateAnim(ctx, 0, 4, ctx.wolf_texs.tex_idxs, ctx.wolf_texs.total_texs);
+	wolf_walk_clip := CreateAnim(ctx, 4, 12, ctx.wolf_texs.tex_idxs, ctx.wolf_texs.total_texs);
+	
+	spear_clip_ := CreateAnim(ctx, 0, 3, ctx.spear_texs.tex_idxs, ctx.spear_texs.total_texs);
+	
+	MakeClipStopCharacterAndMore(ctx, sweeped_clip, 0.0, -1.0, -1.0);
+	MakeClipStopCharacterAndMore(ctx, kick_clip, 0.0, 0.3, 0.4);
+	MakeClipStopCharacterAndMore(ctx, impacted_clip, 0.0, -1.0, -1.0);
+	MakeClipStopCharacterAndMore(ctx, on_ground_clip, 0.0, -1.0, -1.0);
+	MakeClipStopCharacterAndMore(ctx, falling_clip, 0.0, -1.0, -1.0);
+	MakeClipStopCharacterAndMore(ctx, medium_kick_clip, 0.0, 0.05, -1.0);
+	MakeClipStopCharacterAndMore(ctx, high_kick_clip, 0.0, 0.05, -1.0);
+	MakeClipStopCharacterAndMore(ctx, upward_punch_clip, 0.0, 0.2, -1.0);
+	MakeClipStopCharacterAndMore(ctx, rising_clip, -1.0, -1.0, -1.0);
+	MakeClipStopCharacterAndMore(ctx, descending_clip, -1.0, -1.0, -1.0);
+	MakeClipStopCharacterAndMore(ctx, air_kick_clip, 0.0, 0.05, -1.0);
+	MakeClipStopCharacterAndMore(ctx, axe_punch, 0.0, 0.5, -1.0);
+	MakeClipStopCharacterAndMore(ctx, axe_throw, 0.0, 0.5, -1.0);
+	MakeClipStopCharacterAndMore(ctx, axe_throw_air, 0.0, 0.5, -1.0);
+	MakeClipStopCharacterAndMore(ctx, thraxer_defend_clip, 0.0, 0.5, -1.0);
+	//MakeClipStopCharacterAndMore(ctx, wolf_walk_clip, 0.0, -1.0, -1.0);
+	
+	/*
+	{
+		call_back_tl :timeline;
+		dyn_init2(&call_back_tl.kfs, 1, ctx.alloc);
+		call_back_tl.type = timeline_type.CALLBACK;
+		kf_call :keyframe; 
+		kf_call.anim_callback = axe_throw_callback;
+		kf_call.time = 0.4;
+		dyn_add(&call_back_tl.kfs, &kf_call);
+		dyn_add(&axe_throw.tms, &call_back_tl);
+	}
+	*/
+	
+	wolf_idle_clip.vel = 0.1;
+	
+	thraxer_defend_clip.loop = false;
+	thraxer_defend_clip.len = 1.0;
+	thraxer_defend_clip.vel = 2.0;
+	
+	thraxer_idle_clip.loop = true;
+	thraxer_idle_clip.tms[0].kfs[0].time = 0.0;
+	thraxer_idle_clip.tms[0].kfs[1].time = 1.0;
+	thraxer_idle_clip.len  = 2.0;
+	
+
+	air_kick_clip.loop = false;
+	air_kick_clip.len = 0.5;
+
+	axe_throw.loop = false;
+	axe_throw.len = 0.9;
+	
+	axe_throw_air.loop = false;
+	axe_throw_air.len = 0.9;
+	axe_throw_air.vel = 2.0;
+	
+	axe_punch.loop = false;
+	axe_punch.len = 0.8;	
+	
+	impacted_clip.loop = true;
+
+	upward_punch_clip.loop = false;
+	upward_punch_clip.len = 0.4;
+
+	kick_clip.loop = false;
+	kick_clip.len = 0.8;
+
+	on_ground_clip.loop = false;
+	on_ground_clip.len = 1.8;
+
+	medium_kick_clip.loop = false;
+	medium_kick_clip.len = 0.3;
+	high_kick_clip.len = 0.5;
+
+	sweeped_clip.loop = false;
+	high_kick_clip.loop = false;
+	sweeped_clip.len = 0.5;
+
+	//idle_clip: = CreateNewClip(ctx);
+
+
+	player_ent.cl = idle_clip;
+
+
+	ctx.character_walk = clip1;
+	ctx.character_idle = idle_clip;
+	ctx.character_kick = kick_clip;
+	ctx.character_sweeped = sweeped_clip;
+	ctx.character_medium_kick = medium_kick_clip;
+	ctx.character_high_kick = high_kick_clip;
+	ctx.character_impacted = impacted_clip;
+	ctx.character_on_ground = on_ground_clip;
+	ctx.character_falling = falling_clip;
+	ctx.character_upward_punch = upward_punch_clip;
+	ctx.character_rising = rising_clip;
+	ctx.character_descending = descending_clip;
+	ctx.character_air_kick = air_kick_clip;
+	ctx.character_axe_punch = axe_punch;
+	ctx.character_axe_throw = axe_throw;
+	ctx.character_axe_throw_air = axe_throw_air;
+	ctx.spear_clip = spear_clip_;
+	ctx.water_clip = water_clip_;
+
+	ctx.thraxer_idle = thraxer_idle_clip;
+	ctx.thraxer_attack = thraxer_attack_clip;
+	ctx.thraxer_defend = thraxer_defend_clip;
+	
+	ctx.wolf_idle = wolf_idle_clip;
+	ctx.wolf_walk = wolf_walk_clip;
+
+	player_ent.mov_info.character_walk = clip1;
+	player_ent.mov_info.character_idle = idle_clip;
+	player_ent.mov_info.character_axe_punch = axe_punch;
+	player_ent.mov_info.character_axe_throw = axe_throw;
+	
+	//ctx.draw_col = true;
+	//ctx.draw_origin = true;
+
+	layers : dyn_array(*layer_sprites);
+	dyn_init2(&layers, 8, ctx.alloc);
+	ctx.layers_ptr = &layers;
+
+	ctx.alloc = &ctx.per_scene_alloc;
+	ctx.already_allocated_mem_count = cast(u32)cast(u64)GetMem(1);
+	OpenSceneGame(ctx, "../scenes/01", &layers, &ctx.textures);
+	ctx.cam_size = 5.0;
+	//ctx.cam_size_original = ctx.cam_size;
+
+/*
+	sheet_ptr: = &sheet;
+	dyn_add(&layers, &sheet_ptr);
+	sheet_ptr = &col_layer;
+	dyn_add(&layers, &sheet_ptr);
+	sheet_ptr = &obj_layer;
+	dyn_add(&layers, &sheet_ptr);
+	*/
+	lerp_to_player_forward :_vec;
+
+	globals.after_init = true
+	while !ShouldClose(window)
+	{
+
+		//printf("timer %\n", cast(s32)(globals.timer * 10000.0))
+		globals.timer = 0.0;
+		{
+			//start_pos:_vec = ? ;
+			//end_pos:_vec = ? ;
+
+			//out_ent: *entity;
+			/*
+			if !Raycast(ctx, &start_pos, &end_pos, &col, LAYER_TRIGGER, &out_ent)
+			{
+				ChangeBehaviour(enemy_ent, behaviour_state.GET_CLOSER_THEN_ATTACK);
+				//PrintV3(5.0, 0.0, 0.0);
+			}
+			*/
+		}
+		//PrintV3(einfo.forward.x, 0.0, 0.0);
+
+		//dt: = GetTime() - last_time;
+		dt: = 0.017;
+		last_time = GetTime();
+
+		mx := GetMouseScreenPosX();
+		my := GetMouseScreenPosY();
+
+		draw.cam_pos = &cam_pos;
+		draw.cam_rot = &cam_rot;
+		ClearBackground(0.7, 0.7, 0.7);
+
+
+		
+
+		DrawUpperInv(ctx, ctx.player.mov_info.cur_weapon);
+		
+		//__dbg_break;
+		/*
+		if IsMouseHeld(mouse_enum.LEFT)
+			CollisionTestItems(ctx, ctx.scn, mx, -my);
+			*/
+
+		mx = mx * ctx.cam_size;
+		my = my * ctx.cam_size;
+		nmx := GetMouseNormalizedPosX() * ctx.cam_size;
+		nmy := GetMouseNormalizedPosY() * ctx.cam_size;
+
+/*
+		//stencil tests
+		memset(&draw, 0, sizeof(draw_info));
+		draw.pos.x = nmx;
+		draw.pos.y = nmy;
+		draw.pos.z = 0.92;
+		draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+		draw.ent_size.x = 1.0;
+		draw.ent_size.y = 1.0;
+		draw.cam_size = 1.0;
+		draw.flags = DRAW_INFO_HAS_TEXTURE | DRAW_INFO_STENCIL_WRITE;
+		draw.texture_id = cast(u32)ctx.col_mask_tex;
+		draw.stencil_val = 7;
+		Draw(ctx.window, &draw);
+		draw.flags = 0;
+
+		draw.pos.x = 0.0;
+		draw.pos.y = 0.0;
+		draw.pos.z = 0.91;
+		draw.flags = DRAW_INFO_STENCIL_TEST | DRAW_INFO_HAS_TEXTURE;
+		//draw.flags = DRAW_INFO_HAS_TEXTURE;
+		draw.color = []f32{ 1.0, 0.0, 0.0, 1.0 };
+		draw.stencil_func = stencil_func_enum.EQUAL;
+		draw.stencil_val = 7;
+		Draw(ctx.window, &draw);
+		draw.flags = 0;
+		*/
+
+		smooth := false;
+		max := 0.1;
+		Cutscenes(&ctx.coroutines, ctx, &dt);
+		DoFreezeTime(ctx, max, smooth, &dt, &cam_rot);
+
+		MovPlayablesEntMov(ctx, &dt);
+		//ekeys.right_key_held = true;
+		//EnemyMovLogic(ctx, enemy_ent, player_ent, &ekeys, dt);
+		//__dbg_break;
+		/*
+		MovEntity(ctx, einfo, enemy_ent, &ekeys, &dt);
+		DoFreezeTime(ctx, max, smooth, &dt, &cam_rot);
+		*/
+		
+
+		MovTriggerToCloserToEnt(ctx);
+		PhysicsUpdate(ctx, dt);
+
+		MovTriggerToCloserToEnt(ctx);
+		lerp_to_player_forward.x += (player_ent.forward.x * 1.5 - lerp_to_player_forward.x)* dt * 2.0;
+		if ctx.cutscene_idx == 0
+		{
+			cam_pos.x = player_ent.pos.x + lerp_to_player_forward.x;
+			cam_pos.y += (player_ent.pos.y - cam_pos.y) * dt;
+		}
+
+		/*
+		if enemy_ent.was_hit
+		{
+			p: f32;
+			t:*timer_info;
+			//ret := StartAndUpdateTimer(&ctx.timers, __LINE__, dt, &p, 0.05, 0, &t);
+			fint: = cast(s32)(last_time);
+			fmod :=cast(f32)((fint % 3) - 1);
+			fmod = fmod / 12.0;
+			enemy_ent.pos.x += fmod;
+			//PrintV3(cast(f32)fint, fmod, 0.0);
+			if ret == 2
+			{
+				enemy_ent.was_hit = false;
+				ClearTimerInfo(t);
+			}
+
+		}
+		*/
+
+		a_col : ent_col;
+		b_col : ent_col;
+		
+		a_col.pos = pos;
+		a_col.size.x = 1.0;
+		a_col.size.y = 1.0;
+
+		b_col.pos = other_block;
+		b_col.size.x = 1.0;
+		b_col.size.y = 1.0;
+		res :_vec;
+		
+		ratio :=  ScreenRatio();
+		
+		ctx.cam_col_bottom = false;
+		ctx.cam_col_top = false;
+		ctx.cam_col_right = false;
+		ctx.cam_col_left = false;
+		if ctx.cur_cam_rest
+		{
+			real_cam_width := ctx.cam_size / ratio;
+			real_cam_height := (ctx.cam_size / 2.0);
+			
+			min_cam_axis := min(real_cam_width, real_cam_height);
+			//ctx.cam_size = min(min_cam_axis, ctx.cam_size);
+			
+			left_cam_pos := cam_pos.x - real_cam_width;
+			right_cam_pos := cam_pos.x + real_cam_width;
+			top_cam_pos := cam_pos.y + (ctx.cam_size);
+			bottom_cam_pos := cam_pos.y - (ctx.cam_size);
+			
+			restraint_sz := &ctx.cur_cam_rest.size;
+			restraint_pos := &ctx.cur_cam_rest.pos;
+			
+			left_bound:f32;
+			right_bound:f32;
+			top_bound : f32;
+			bottom_bound : f32;
+			
+			if restraint_sz.y < 0.0
+			{
+				bottom_bound = restraint_pos.y + restraint_sz.y;
+				top_bound = restraint_pos.y;
+			}
+			else 
+			{
+				bottom_bound = restraint_pos.y;
+				top_bound = restraint_pos.y + restraint_sz.y;
+			}
+			
+			if restraint_sz.x < 0.0
+			{
+				left_bound = restraint_pos.x + restraint_sz.x;
+				right_bound = restraint_pos.x;
+			}
+			else
+				left_bound = restraint_pos.x;
+				right_bound = restraint_pos.x + restraint_sz.x;
+			
+			
+			if bottom_bound > bottom_cam_pos
+			{
+				ctx.cam_col_bottom = true;
+				cam_pos.y = bottom_bound + ctx.cam_size;
+			}
+			if top_bound < top_cam_pos
+			{
+				ctx.cam_col_top = true;
+				cam_pos.y = top_bound - ctx.cam_size;
+			}
+			if left_bound > left_cam_pos
+			{
+				ctx.cam_col_left = true;
+				cam_pos.x = left_bound + real_cam_width;
+			}
+			if right_bound < right_cam_pos
+			{
+				ctx.cam_col_right = true;
+				cam_pos.x = right_bound - real_cam_width;
+			}
+			
+		}
+
+		OpenLocalsWindow(__LINE__);
+
+		DrawEnts(ctx, &cam_pos, &cam_rot);
+
+		DrawCols(ctx);
+		
+		UpdateEntsWithClips(ctx, dt);
+		//__dbg_break;
+		UpdatePrinter(ctx, &ctx.prntr, dt);
+		FloatyPlatformLogic(ctx, &dt);
+		//DrawText(ctx);
+		
+		draw.pos.x = -1.0 - (ratio / 2.0);
+		draw.pos.y = -1.0;
+		draw.cam_size = 1.0;
+		draw.ent_size.x = 2.0 / (ratio / 2.0);
+		draw.ent_size.y = 2.0;
+		draw.cam_pos = nil;
+		draw.color = ctx.curtain;
+		Draw(window, &draw);
+
+		//__dbg_break;
+		dyn_clear(&ctx.to_draw);
+		EndFrame(window);
+		ctx.frames_total++;
+	}
+}
+
+move_color_in_time::fn(src_original : *v4, src : *v4, dst_x : f32, dst_y : f32, dst_z : f32, dst_w : f32, dt : f32, time : f32) ! bool
+{
+	dst:v4;
+	dst.x = dst_x;
+	dst.y = dst_y;
+	dst.z = dst_z;
+	dst.w = dst_w;
+	dir:= dst - *src;
+	dir_og:= dst - *src_original;
+	dir_og_len:= len_v4(&dir_og);
+
+	norm := normalize_v4(&dir);
+
+	*src = *src + norm * (dt / time) * dir_og_len;
+
+	if len_v4(&dir) < 0.01
+		return true;
+
+	return false;
+
+}
+move_vec::fn(src : *_vec, dst_x : f32, dst_y : f32, dst_z : f32, dt : f32, vel : f32) ! bool
+{
+	dst:_vec;
+	dst.x = dst_x;
+	dst.y = dst_y;
+	dst.z = dst_z;
+	dir:= dst - *src;
+
+	norm := normalize_vec(&dir);
+
+	*src = *src + norm * dt * vel;
+
+	if len_vec(&dir) < 0.1
+		return true;
+
+	return false;
+
+}
+
+UpdateEntsWithClips::fn(ctx : *context, dt : f32)
+{
+	if ctx.ents_with_clip.count == 0
+		return;
+	for e in ctx.ents_with_clip
+	{
+		if e.cl == nil || !e.is_active
+			continue;
+		//__dbg_break;
+		UpdateClip2(*e, dt);
+		
+	}
+}
+
+ser_test_e: etruct
+{
+	VAL1(
+		num : u32,
+		#serializable(num)
+	),
+	VAL2(
+		ch : char,
+		#serializable(ch)
+	)
+
+}
+
+ser_test_st :struct
+{
+	val : ser_test_e
+
+	u : u32,
+	#serializable(val)
+}
+
+main :: fn(){
+
+	ctx: context
+	AssignCtxAddr(&ctx);
+	InitMemAlloc(&ctx.main_alloc, 14000);
+	InitMemAlloc(&ctx.per_scene_alloc, 9000);
+	ctx.alloc = &ctx.main_alloc;
+	ctx.coroutines.alloc = ctx.alloc;
+	window := OpenWindow(1024, 768);
+	ctx.window = window;
+
+	globals.alloc = &ctx.per_scene_alloc;
+
+	
+
+	SetIsEngine(false);
+	ctx.timers.timers_count = 128;
+	ctx.timers.timers = cast(*timer_info)heap_alloc(ctx.alloc, ctx.timers.timers_count * sizeof(timer_info));
+
+	ctx.to_draw.alloc = ctx.alloc;
+	dyn_init(&ctx.to_draw, 4);
+
+	ctx.bodies.alloc = ctx.alloc;
+	dyn_init(&ctx.bodies, 4);
+
+	ctx.broad_phase_ents.alloc = ctx.alloc;
+	dyn_init(&ctx.broad_phase_ents, 4);
+
+	ctx.narrow_phase_ents.alloc = ctx.alloc;
+	dyn_init(&ctx.narrow_phase_ents, 4);
+
+	ctx.hit_ents_in_col.alloc = ctx.alloc;
+	dyn_init(&ctx.hit_ents_in_col, 4);
+
+	dyn_init2(&ctx.playable_ents, 4, ctx.alloc);
+	dyn_init2(&ctx.floaty_platforms, 4, ctx.alloc);
+	dyn_init2(&ctx.drawable_ents, 4, ctx.alloc);
+	dyn_init2(&ctx.axe_ents, 4, ctx.alloc);
+	dyn_init2(&ctx.ents_with_clip, 4, ctx.alloc);
+
+	//scn.items.alloc = ctx.alloc;
+	/*
+	test_ar: dyn_array(s32);
+	test_ar.alloc = ctx.alloc;
+	dyn_init(&test_ar, 4);
+
+	val: = 5;
+	dyn_add(&test_ar, &val);
+	val = -5;
+	dyn_add(&test_ar, &val);
+
+	file_out: dyn_array(u8);
+	file_out.alloc = ctx.alloc;
+	dyn_init(&file_out, 4);
+	*/
+
+
+
+	ctx.prntr.chars_per_line = 24;
+
+
+	AssignTexFolder("../images");
+	textures:dyn_array(texture_info);
+	LoadTexFolder("../images", &ctx.textures);
+	AssignSoundFolder("../sound");
+	LoadClip("abcd.png", 0, 0, 32, 32, 30, 1.0, &ctx.alphabet);
+	LoadClip("character2.png", 0, 0, 64, 64, 60, 1.0, &ctx.character_texs);
+	LoadClip("thraxer.png", 0, 0, 64, 64, 19, 1.0, &ctx.thraxer_texs);
+	LoadClip("wolf.png", 0, 0, 64, 64, 12, 1.0, &ctx.wolf_texs);
+	LoadClip("inv_items.png", 0, 0, 32, 32, 3, 1.0, &ctx.inv_texs);
+	LoadClip("spear.png", 0, 0, 64, 64, 5, 1.0, &ctx.spear_texs);
+	LoadClip("water.png", 0, 0, 32, 32, 3, 1.0, &ctx.water_texs);
+	ctx.axe_throw_texs = 39;
+	ctx.spear_throw_texs = 46;
+	ctx.prntr.texs = ctx.alphabet.tex_idxs;
+	//ctx.prntr.str = "this is a dialogue that fills the box";
+	//ctx.prntr.str_ln = str_ln(cast(str_lit)ctx.prntr.str);
+	ctx.prntr.time_to_next_ch = 0.01;
+	ctx.prntr.pos.x = -0.5;
+	ctx.prntr.pos.y = -0.5;
+	
+	ctx.axe_tex = LoadTex("axe.png", 0, 0, 32, 32);
+	ctx.col_mask_tex = LoadTex("col_mask.png", 0, 0, 256, 256);
+
+	*ctx.curtain[0] = 0.0;
+	*ctx.curtain[1] = 0.0;
+	*ctx.curtain[2] = 0.0;
+	*ctx.curtain[3] = 0.0;
+	main_loop(&ctx);
+
+}

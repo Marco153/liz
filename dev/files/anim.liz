@@ -1,0 +1,111 @@
+import "../../core";
+import "../common";
+
+UpdateClip2::fn(e : *entity, dt : f32)
+{
+	if !e.cl
+		return;
+		
+	if e.cl.pause 
+		return
+
+	e.clip_time += dt * e.cl.vel;
+	e.clip_done = false
+	if e.clip_time >= e.cl.len
+	{
+		if e.cl.loop
+			e.clip_time = 0.0;
+		else
+		{
+			e.clip_done = true;
+			e.clip_time = e.cl.len;
+			return;
+		}
+	}
+
+	for tm in e.cl.tms
+	{
+		if tm.kfs.count == 0
+			continue;
+		kf_idx: u64= 0;
+		for kf in tm.kfs
+		{
+			next_kf:= tm.kfs[clampu64(kf_idx + 1, 0, tm.kfs.count - 1)];
+			if e.clip_time >= kf.time && e.clip_time <= next_kf.time || next_kf == kf
+			{
+				break;
+			}
+			kf_idx++;
+		}
+
+		cur_kf:= tm.kfs[clampu64(kf_idx, 0, tm.kfs.count - 1)];
+		next_kf:= tm.kfs[clampu64(kf_idx + 1, 0, tm.kfs.count - 1)];
+		
+		if e.clip_time < cur_kf.time
+			continue;
+
+		if tm.type == timeline_type.MOV
+		{
+			e.pos = cur_kf.mov.pos;
+			if next_kf != cur_kf
+			{
+				len_to_next: = next_kf.time - cur_kf.time;
+				p: = (e.clip_time - cur_kf.time) / len_to_next;
+
+				dir: = next_kf.mov.pos - cur_kf.mov.pos;
+				e.pos = e.pos + dir * p;
+				///OpenLocalsWindow(__LINE__);
+			}
+		}
+		else if tm.type == timeline_type.CHANGE
+		{
+			 if cur_kf.activate.type == activate_type.CAN_MOVE
+			 {
+				e.mov_info.can_move = cur_kf.activate.val;
+			 }
+			 else if cur_kf.activate.type == activate_type.CAN_START_COMBO
+			 {
+				e.can_start_combo = cur_kf.activate.val;
+			 }
+			 else if cur_kf.activate.type == activate_type.ACTIVATE_ATTACK_TRIGGER
+			 {
+				if(!e.mov_info.trigger.dmg.hit)
+				{
+					
+					e.mov_info.trigger.is_active = cur_kf.activate.val;
+				}
+			 }
+			 else
+				 __dbg_break;
+		}
+		else if tm.type == timeline_type.CALLBACK
+		{
+			
+			info : anim_callback_info;
+			
+			info.time_since_stopped = tm.time_since_stopped;
+			if cur_kf.anim_callback(&info)
+			{
+				if info.end_anim
+				{
+					e.clip_done = true;
+				}
+				tm.prev_callback_kf = cur_kf;
+				tm.time_since_stopped = 0.0;
+			}
+			else
+			{
+				tm.time_since_stopped += dt;
+				e.clip_time -= dt;
+				
+				OpenLocalsWindow(__LINE__);
+			}
+		}
+		else if tm.type == timeline_type.TEXTURE
+		{
+			e.tex_id = cur_kf.tex_id;
+		}
+		else
+			__dbg_break;
+	}
+}

@@ -1,0 +1,232 @@
+import "../../core";
+import "../common";
+change_scene_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	if ent_b.type == ent_type.PLAYER
+	{
+		ent_b.dmg.hit_ent = ent_a;
+	}
+}
+floaty_platform_col_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	if ent_b.is_static
+	{
+		ent_a.was_hit = true;
+		//ent_a.
+	}
+}
+
+IsPosInsideMaskingObjs::fn(pos : *_vec, masking_objs : *dyn_array(*_vec), radius_to_be_in : f32) !bool
+{
+	
+	mask_pos := *(*masking_objs)[0];
+	dist := *pos - *mask_pos;
+	//__dbg_break;
+	dist_f := dot_vec(&dist, &dist);
+	if dist_f <= (radius_to_be_in * radius_to_be_in) 
+		return true;
+	return false;
+}
+spear_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	if ent_a.vel.y != 0.0
+		return;
+	ent_a.spear_on_col_with = ent_b;
+	if ent_b.type == ent_type.STATIC_COL
+	{
+		if is_flag_on(ent_b.flags, ENTITY_IS_MASKED)
+		{
+			forward := ent_a.pos + ent_a.forward;
+			
+			if !IsPosInsideMaskingObjs(&forward, ent_b.masking_objs, MASKING_DIAMETER*0.5)
+			{
+				col.ignore_collision = true;
+				return;
+			}
+		}
+		ent_a.cl = nil;
+		ent_a.tex_id = ent_a.spear_idle_tex_idx;
+		ent_a.is_static = true;
+	}
+	if ent_b.type != ent_type.PLAYER && !ent_b.is_trigger
+	{
+		ent_a.vel.x = 0.0;
+		ent_a.vel.y = 0.0;
+	}
+}
+
+CanIgnoreTriggerAndDoCollision::fn(ent_a : *entity, spear : *entity, col : *collision) ! bool
+{
+	if spear.type == ent_type.SPEAR
+	{
+		ent_a_foot_y := ent_a.pos.y - ent_a.pivot.y * ent_a.col_size.y;
+		spear_top_y := spear.pos.y + spear.pivot.y * spear.col_size.y;
+		dabs := absf(col.depth);
+		if dabs < 0.3 && ent_a_foot_y >= (spear_top_y - dabs) && ent_a.vel.y < 0.0
+		{
+			return true;
+		}
+	}
+	return false;
+
+}
+player_collision_exit::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+}
+player_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	//PrintV3(2.0, 0.0, 0.0);
+	//col.ent_a.vel.
+	
+	col.ignore_trigger_do_collision = false;
+	if is_flag_on(ent_b.layer, LAYER_MAYBE_ONLY_UP_COL)
+	{
+		if CanIgnoreTriggerAndDoCollision(ent_a, ent_b, col)
+		{
+			col.ignore_trigger_do_collision = true;
+			ent_a.on_ground = true;
+		}
+	}
+	if  is_flag_off(ent_a.dont_res_cols_with_layers, ent_b.layer)
+	{
+		if ent_b.type != ent_type.DEFENSE
+		{
+			if col.normal.y < -0.1 && !ent_b.is_trigger 
+				ent_a.on_ground = true;
+		}
+	}
+	if ent_b.type == ent_type.FLOATY_PLATFORM
+	{
+		ent_a.mov_info.platform = ent_b;
+	}
+}
+player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	ent_a.collided_entered = true;
+	col.ignore_trigger_do_collision = false;
+	if is_flag_on(ent_b.layer, LAYER_MAYBE_ONLY_UP_COL)
+	{
+		if CanIgnoreTriggerAndDoCollision(ent_a, ent_b, col)
+		{
+			ent_a.on_ground = true;
+			col.ignore_trigger_do_collision = true;
+		}
+	}
+	if  is_flag_off(ent_a.dont_res_cols_with_layers, ent_b.layer) && ent_b.type != ent_type.DEFENSE
+	{
+		//__dbg_break;
+		if col.normal.y < -0.1 && !ent_b.is_trigger
+			ent_a.on_ground = true;
+		normal := col.normal;
+		normal = normal * -1.0;
+
+		d: = dot_vec(&normal, &ent_a.impact_vel);
+		//PrintV3(d, 0.0, 0.0);
+
+		if ent_a.state == entity_state.HIT
+		{
+			ent_a.impact_vel = normal * absf(d / 2.0);
+		}
+		else
+			ent_a.impact_vel = ent_a.impact_vel - normal * d;
+	}
+	if ent_b.type == ent_type.ENEMY
+	{
+		dir := ent_a.pos.x - ent_b.pos.x;
+		ent_a.dmg.hit = true;
+		ent_a.dmg.hit_ent = ent_b;
+		ent_a.impact_vel.x = sign(dir) * 10.0;
+		ent_a.impact_vel.y = 11.0;
+		ent_a.mov_info.mov_vel.x = 0.0;
+		ent_a.mov_info.mov_vel.y = 0.0;
+		ent_a.was_hit = true;
+	}
+	ent_a.dmg.hit_ent = ent_b;
+}
+
+axe_trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	if ent_a.type == ent_type.AXE
+	{
+		if ent_b.type == ent_type.ENEMY
+		{
+			DisableEnt(ent_b);
+		}
+	}
+
+}
+defense_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+}
+trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	from: = ent_a.dmg.from;
+	dir:_vec = ? ;
+	dir.x = ent_b.pos.x - ent_a.dmg.from.pos.x;
+	dir.x = signf(dir.x);
+
+	if from.state != entity_state.KICK && ent_a.type != ent_type.DEFENSE
+	{
+		dir.y = 0.0;
+		ent_b.hp -= ent_a.dmg.val;
+		if ent_a.dmg.impact_type == impact_enum.OPPOSITE_DIR
+		{
+			ent_b.impact_vel.x = dir.x * 3.0 * ent_a.dmg.impact_mul;
+			ent_b.impact_vel.y = 2.0;
+		}
+		else if ent_a.dmg.impact_type == impact_enum.UP_AND_OPPOSITE_DIR
+		{
+			ent_b.impact_vel.x = dir.x * 10.0;
+		//__dbg_break;
+			ent_b.impact_vel.y = 4.0;
+		}
+		else if ent_a.dmg.impact_type == impact_enum.UP
+		{
+			ent_b.impact_vel.x = 0.0;
+		//__dbg_break;
+			ent_b.impact_vel.y = 30.0;
+		}
+		ent_a.dmg.hit = true;
+		ent_a.dmg.hit_ent = ent_b;
+		ent_b.was_hit = true;
+		if !ent_b.on_ground
+		{
+			ent_b.mov_info.gravity_vel.y = 0.0;
+			//PrintV3(3.0, 0.0, 1.0);
+		}
+	
+		if ent_b.mov_info
+		{
+			ent_b.mov_info.forward.x = -dir.x;
+			ent_b.mov_info.enemy_state = from.state;
+		}
+
+
+	}
+	if ent_a.type == ent_type.DEFENSE && ent_a.dmg.from != ent_b
+	{
+		if ent_b.type != ent_type.PLAYER
+		{
+			ent_b.is_active = false;
+			DisableEnt(ent_a);
+
+		}
+		else
+		{
+		
+			//ent_b.impact_vel.x = dir.x * 10.0;
+		}
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+

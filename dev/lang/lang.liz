@@ -1,0 +1,2044 @@
+import "../../core";
+import "../common";
+
+token_type: etruct
+{
+	INT(
+		num : s64
+	),
+	OPEN_PARENTHESES,
+	CLOSE_PARENTHESES,
+	OPEN_BRACKETS,
+	CLOSE_BRACKETS,
+	OPEN_CURLY,
+	CLOSE_CURLY,
+	EQUAL,
+	COND_AND,
+	COND_OR,
+	COND_EQ,
+	COND_NE,
+	COND_GT,
+	COND_GE,
+	COND_LT,
+	COND_LE,
+	PLUS,
+	POINT,
+	RIGHT_ARROW,
+	AT,
+	MINUS,
+	DOLAR,
+	MUL,
+	DIV,
+	COMMA,
+	EXCLAMATION,
+	COLON,
+	NEW_LINE,
+	STR_LIT(
+		str: string
+	),
+	WORD(
+		str: string
+	),
+}
+op_prec_enum : enum
+{
+	COLON,
+	PLUS,
+	MINUS,
+	DIV,
+	MUL,
+	COND_EQ_LIKE,
+	EXCLAMATION,
+	POINT,
+	AT,
+	EQUAL,
+	NEW_LINE,
+	COMMA,
+	
+}
+
+token : struct
+{
+	using type : token_type,
+	line_str : str_lit
+	line : u32,
+}
+
+
+ast_type :etruct
+{
+	EMPTY,
+	STATS(
+	),
+	WORD_SCOPE(
+		scp : *ast_rep
+		lhs : *ast_rep
+	),
+	SCOPE(
+		stmnts : dyn_array(*ast_rep),
+		scp : *scope
+	),
+	WHILE(
+		cond:*ast_rep,
+		scp_ast:*ast_rep,
+	),
+	RET(
+		rets : dyn_array(*ast_rep),
+	),
+	CALL(
+		name:*ast_rep,
+		args:dyn_array(*ast_rep),
+		fdecl : *func_decl
+	),
+	INDEX(
+		lhs : *ast_rep
+		rhs : *ast_rep
+	),
+	UNOP(
+		un : *ast_rep,
+		op : u32,
+		right_assoc : bool,
+	),
+	BIN(
+		expr : dyn_array(*ast_rep)
+		op : u32,
+	),
+	STRUCT(
+		scp_nd : *ast_rep,
+		st : *struct_decl
+	),
+	FUNC(
+		args : dyn_array(*ast_rep),
+		rets : dyn_array(*ast_rep),
+		scp_ast : *ast_rep,
+		fdecl : *func_decl
+	),
+	IF(
+		cond : *ast_rep,
+		scp_ast : *ast_rep,
+		others : dyn_array(*ast_rep)
+	),
+	ELIF(
+		cond : *ast_rep,
+		scp_ast : *ast_rep,
+	),
+	ELSE(
+		scp_ast : *ast_rep,
+	),
+	TYPE(
+		tp : lang_type
+	),
+	INT(
+		num : s64
+	),
+	WORD(
+		d : *decl,
+		str : string
+	),
+	STR_LIT(
+		str : string
+	),
+	EMPTY_STMNT,
+}
+ast_rep : struct
+{
+	using type : ast_type,
+	t : *token,
+	line_number : u32,
+}
+node_type :etruct
+{
+	EMPTY,
+	WORD_SCOPE(
+		scp : *node
+		lhs : *node
+	),
+	SCOPE(
+		n : *node
+	),
+	RET(
+		n:*node,
+	),
+	UNOP(
+		un:*node,
+		op : u32,
+		right_assoc:bool,
+	),
+	BIN(
+		lhs:*node,
+		rhs:*node,
+		op : u32,
+	),
+	WHILE(
+		cond:*node,
+		scp_nd:*node,
+	),
+	CALL(
+		name:*node,
+		args:*node,
+	),
+	INDEX(
+		lhs:*node,
+		rhs:*node,
+	),
+	STRUCT(
+		scp_nd : *node,
+	),
+	INT(
+		num : s64
+	),
+	IF(
+		cond : *node,
+		scp_nd : *node,
+		others : dyn_array(*node)
+	),
+	ELIF(
+		cond : *node,
+		scp_nd : *node,
+	),
+	ELSE(
+		scp_nd : *node,
+	),
+	FUNC(
+		args : *node
+		scp_nd : *node
+		rets : *node
+		fdecl : *func_decl
+	),
+	WORD(
+		str : string
+	),
+	STR_LIT(
+		str : string
+	),
+	EMPTY_STMNT,
+}
+node :struct
+{
+	using type : node_type,
+	t : *token,
+}
+lang_type_type : etruct
+{
+	INT,
+	INT_TYPES_BEGIN,
+	S8,
+	S8_TYPE,
+	S16,
+	S16_TYPE,
+	S32,
+	S32_TYPE,
+	S64,
+	S64_TYPE,
+
+	U8,
+	U8_TYPE,
+	U16,
+	U16_TYPE,
+	U32,
+	U32_TYPE,
+	U64,
+	U64_TYPE,
+	INT_TYPES_END,
+
+	STRUCT(
+		st : *struct_decl
+	),
+	FUNC(
+		fdecl : *func_decl
+	),
+	FUNC_DEF(
+		fdecl : *func_decl
+	),
+	FUNC_DECL(
+		fdecl : *func_decl
+	),
+
+	STRUCT(
+		scp_ast : *ast_rep
+		st : *struct_decl
+	)
+}
+lang_type : struct
+{
+	using tp : lang_type_type,
+	ptr : u8,
+	reg_in_use : bool
+}
+decl : struct
+{
+	name : string,
+	tp : lang_type,
+	flags : u64,
+	offset : s32
+}
+struct_decl : struct
+{
+	name : string
+	vars : dyn_array(*decl)
+	sz : u32,
+}
+FUNC_DECL_FLAGS_OUTSIDER : const s32= 1
+func_decl : struct
+{
+	name : string,
+	args : dyn_array(*decl)
+
+	vars : dyn_array(*decl)
+
+	rets : dyn_array(*decl)
+
+	ast : *ast_rep
+	bcs : dyn_array(byte_code)
+	scp : *scope,
+
+	stack_sz : u32,
+	start: u32,
+
+	flags : u64,
+}
+scope : struct
+{
+	parent : *scope,
+	flags : u32
+	vars : dyn_array(*decl),
+	children : dyn_array(*scope)
+}
+
+TOTAL_REGS :const s32= 8
+LANG_STAT_FLAGS_PRS_BREAK_WHEN_HEAD_IS_WORD :const s32=1
+LANG_STAT_FLAGS_PRS_IN_IF_COND :const s32=2
+
+LANG_STAT_FLAGS_IR_IN_CALL :const s32=1
+LANG_STAT_FLAGS_IR_IN_EQUAL :const s32=2
+
+lang_state : struct
+{
+	reg_types : [TOTAL_REGS]lang_type,
+	funcs : dyn_array(*func_decl)
+	outsiders : dyn_array(*func_decl)
+
+	cur_func : *func_decl,
+	cur_struct : *struct_decl,
+	negate_cond_op : bool,
+	flags : u64,
+}
+
+parse_info : struct
+{
+	tkns : *dyn_array(token)
+	cur_tkn : u64,
+	lang_stat : *lang_state,
+}
+
+parse_all ::fn (pinfo : *parse_info)
+{
+
+}
+parser_op : enum
+{
+	EQUAL,
+	DIFF,
+	LESS_THAN,
+	LESS_EQ,
+	GREATER_THAN,
+	GREATER_EQ,
+}
+
+peek_tkn::fn(pinfo : *parse_info) ! *token
+{
+	ret := pinfo.tkns[pinfo.cur_tkn];
+	return ret
+}
+get_tkn::fn(pinfo : *parse_info) ! *token
+{
+	ret := pinfo.tkns[pinfo.cur_tkn];
+	pinfo.cur_tkn++
+	return ret
+}
+eat_new_line::fn(pinfo : *parse_info)
+{
+	while peek_tkn(pinfo).type == token_type.NEW_LINE
+	{
+		get_tkn(pinfo)
+	}
+}
+parse_cond::fn(pinfo : *parse_info) !*node
+{
+	ret :*node=?
+	lang_stat := pinfo.lang_stat
+
+	lang_stat.flags = lang_stat.flags | LANG_STAT_FLAGS_PRS_BREAK_WHEN_HEAD_IS_WORD | LANG_STAT_FLAGS_PRS_IN_IF_COND
+	ret = parse(pinfo, 999, parser_op.EQUAL)
+	lang_stat.flags = lang_stat.flags & ~(LANG_STAT_FLAGS_PRS_BREAK_WHEN_HEAD_IS_WORD | LANG_STAT_FLAGS_PRS_IN_IF_COND)
+
+	return ret
+}
+parse_scope::fn(pinfo : *parse_info) !*node
+{
+	ret :*node=?
+	peek := peek_tkn(pinfo)
+
+	if peek.type == token_type.OPEN_CURLY
+	{
+		ret = parse_item(pinfo)
+	}
+	else
+	{
+		ret = parse(pinfo, cast(u32)op_prec_enum.NEW_LINE, parser_op.GREATER_EQ)
+	}
+	return ret
+}
+parse_item::fn (pinfo : *parse_info) ! *node
+{
+	cur_tkn := get_tkn(pinfo)
+	ret: *node
+	peek := peek_tkn(pinfo)
+	lang_stat := pinfo.lang_stat
+
+	if cur_tkn.type == token_type.OPEN_CURLY
+	{
+		ret = parse(pinfo, 999, parser_op.GREATER_THAN)
+		if ret.type == node_type.BIN && ret.BIN.rhs == nil
+			ret = ret.BIN.lhs
+
+		//if cur_tkn.line == 1
+			//__dbg_break;
+		new_n := new_node(cur_tkn)
+		new_n.type = node_type.SCOPE
+		new_n.SCOPE.n = ret
+		ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_CURLY)
+
+		ret = new_n
+	}
+	else if cur_tkn.type == token_type.EXCLAMATION
+	{
+		ret = new_node(cur_tkn)
+		ret.type = node_type.UNOP
+		ret.UNOP.un = parse_item(pinfo)
+		ret.UNOP.op = cast(u32)cur_tkn.type
+		ret.UNOP.right_assoc = true
+	}
+	else if cur_tkn.type == token_type.DOLAR
+	{
+		ret = new_node(cur_tkn)
+		ret.type = node_type.UNOP
+		ret.UNOP.un = parse_item(pinfo)
+		ret.UNOP.op = cast(u32)cur_tkn.type
+	}
+	else if cur_tkn.type == token_type.OPEN_PARENTHESES
+	{
+		if peek.type == token_type.CLOSE_PARENTHESES
+		{
+			ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_PARENTHESES)
+			return nil
+		}
+			
+		ret = parse(pinfo, 999, parser_op.GREATER_THAN)
+		ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_PARENTHESES)
+	}
+	else if cur_tkn.type == token_type.INT
+	{
+		ret = new_node(cur_tkn)
+		ret.type = node_type.INT
+		ret.INT.num = cur_tkn.INT.num
+	}
+	else if cur_tkn.type == token_type.STR_LIT
+	{
+		ret = new_node(cur_tkn)
+		ret.type = node_type.STR_LIT
+		ret.STR_LIT.str = cur_tkn.STR_LIT.str
+	}
+	else if cur_tkn.type == token_type.WORD
+	{
+		ret = new_node(cur_tkn)
+		if cur_tkn.WORD.str == "struct"
+		{
+			eat_new_line(pinfo)
+
+			ret.type = node_type.STRUCT
+
+			peek = peek_tkn(pinfo)
+
+			if peek.type == token_type.OPEN_CURLY
+			{
+				ret.STRUCT.scp_nd = parse_item(pinfo)
+			}
+		}
+		else if cur_tkn.WORD.str == "fn"
+		{
+			ret.type = node_type.FUNC
+			ret.FUNC.fdecl = new_func()
+			peek = peek_tkn(pinfo)
+			//__dbg_break
+			if peek.type == token_type.WORD
+			{
+				if peek.WORD.str == "outsider"
+				{
+					ret.FUNC.fdecl.flags = FUNC_DECL_FLAGS_OUTSIDER
+				}
+				else
+				{
+					__dbg_break
+				}
+				get_tkn(pinfo)
+			}
+
+			peek = peek_tkn(pinfo)
+
+			if peek.type == token_type.OPEN_PARENTHESES
+			{
+				ret.FUNC.args = parse_item(pinfo)
+			}
+			else
+			{
+				__dbg_break
+			}
+
+			peek = peek_tkn(pinfo)
+
+			if peek.type == token_type.EXCLAMATION
+			{
+				get_tkn(pinfo)
+				ret.FUNC.rets = parse_item(pinfo)
+			}
+
+			eat_new_line(pinfo)
+
+			peek = peek_tkn(pinfo)
+			
+			if peek.type == token_type.OPEN_CURLY
+			{
+				//__dbg_break
+				ret.FUNC.scp_nd = parse_item(pinfo)
+			}
+			else
+			{
+				pinfo.cur_tkn--
+			}
+		}
+		else if cur_tkn.WORD.str == "return"
+		{
+			ret.type = node_type.RET
+			if peek.type != token_type.NEW_LINE
+				ret.RET.n = parse(pinfo, cast(u32)op_prec_enum.NEW_LINE, parser_op.GREATER_EQ)
+		}
+		else if cur_tkn.WORD.str == "while"
+		{
+			ret.type = node_type.WHILE
+			ret.WHILE.cond = parse_cond(pinfo)
+			ret.WHILE.scp_nd = parse_scope(pinfo)
+		}
+		else if cur_tkn.WORD.str == "if"
+		{
+			ret.type = node_type.IF
+
+			ret.IF.cond = parse_cond(pinfo)
+
+			eat_new_line(pinfo)
+
+			ret.IF.scp_nd = parse_scope(pinfo)
+
+			eat_new_line(pinfo)
+
+			while true
+			{
+				peek = peek_tkn(pinfo)
+				cur : *node= ?
+				if is_tkn_word(peek, "elif")
+				{
+					get_tkn(pinfo)
+
+					cur = new_node(peek)
+					cur.type = node_type.ELIF
+
+					cur.ELIF.cond = parse_cond(pinfo)
+
+					eat_new_line(pinfo)
+
+					cur.ELIF.scp_nd = parse_scope(pinfo)
+
+					dyn_add(&ret.IF.others, cur)
+				}
+				else if is_tkn_word(peek_tkn(pinfo), "else")
+				{
+					get_tkn(pinfo)
+
+					eat_new_line(pinfo)
+
+					cur = new_node(peek)
+					cur.type = node_type.ELSE
+
+					cur.ELSE.scp_nd = parse_scope(pinfo)
+
+					dyn_add(&ret.IF.others, cur)
+				}
+				else
+				{
+					break
+				}
+			}
+
+			peek = peek_tkn(pinfo)
+
+			if peek.type != token_type.NEW_LINE
+			{
+				pinfo.cur_tkn--
+			}
+			peek = peek_tkn(pinfo)
+			ASSERT(peek.type == token_type.NEW_LINE)
+		}
+		else
+		{
+			ret.type = node_type.WORD
+			ret.WORD.str = cur_tkn.WORD.str
+			if ret.WORD.str.data.count > 100
+				__dbg_break
+		}
+	}
+	else if cur_tkn.type == token_type.OPEN_BRACKETS
+	{
+		indx := new_node(cur_tkn)
+		indx.type = node_type.INDEX
+		indx.INDEX.lhs = ret
+		indx.INDEX.rhs = parse(pinfo, 999, parser_op.GREATER_EQ)
+		ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_BRACKETS)
+		ret = indx
+	}
+	else
+		__dbg_break
+	ASSERT(ret)
+
+
+	return ret;
+}
+new_ast::fn(n : *node) !*ast_rep
+{
+	ret: = LinearGet(&globals.ast_alloc, 1)
+	memset(ret, 0, sizeof(ast_rep))
+
+	ret.t = n.t
+	ret.line_number = n.t.line
+	return ret
+}
+new_node::fn(t : *token) !*node
+{
+	ret: = LinearGet(&globals.nodes_alloc, 1)
+	memset(ret, 0, sizeof(node))
+	ret.t = t
+	return ret
+}
+is_un::fn(tkn : *token, prec : *u32) !bool
+{
+	if tkn.type == token_type.EXCLAMATION
+	{
+		*prec = cast(u32)op_prec_enum.EXCLAMATION
+		return true
+	}
+	return false;
+}
+is_bin::fn(tkn : *token, prec : *u32) !bool
+{
+	if tkn.type == token_type.EQUAL
+	{
+		*prec = cast(u32)op_prec_enum.EQUAL
+		return true
+	}
+	else if tkn.type == token_type.MINUS
+	{
+		*prec = cast(u32)op_prec_enum.MINUS
+		return true
+	}
+	else if tkn.type == token_type.DIV
+	{
+		*prec = cast(u32)op_prec_enum.DIV
+		return true
+	}
+	else if tkn.type == token_type.MUL
+	{
+		*prec = cast(u32)op_prec_enum.MUL
+		return true
+	}
+	else if tkn.type == token_type.AT
+	{
+		*prec = cast(u32)op_prec_enum.AT
+		return true
+	}
+	else if tkn.type == token_type.POINT
+	{
+		*prec = cast(u32)op_prec_enum.POINT
+		return true
+	}
+	else if tkn.type == token_type.PLUS
+	{
+		*prec = cast(u32)op_prec_enum.PLUS
+		return true
+	}
+	else if tkn.type == token_type.COLON
+	{
+		*prec = cast(u32)op_prec_enum.COLON
+		return true
+	}
+	else if tkn.type == token_type.COMMA
+	{
+		*prec = cast(u32)op_prec_enum.COMMA
+		return true
+	}
+	else if tkn.type == token_type.COND_GE || tkn.type == token_type.COND_GT ||
+			tkn.type == token_type.COND_LE || tkn.type == token_type.COND_LT ||
+			tkn.type == token_type.COND_EQ || tkn.type == token_type.COND_NE
+
+
+	{
+		*prec = cast(u32)op_prec_enum.COND_EQ_LIKE
+		return true
+	}
+	else if tkn.type == token_type.NEW_LINE
+	{
+		*prec = cast(u32)op_prec_enum.NEW_LINE
+		return true
+	}
+	return false;
+}
+
+is_tkn_word::fn(t : *token, str : str_lit) !bool
+{
+	return t.type == token_type.WORD && t.WORD.str == str
+}
+
+is_node_word::fn(n : *node, str : str_lit) !bool
+{
+	return n.type == node_type.WORD && n.WORD.str == str
+}
+is_node_num::fn(n : *node, num : s32) !bool
+{
+	return n.type == node_type.INT && n.INT.num == num
+}
+is_node_bin::fn(n : *node, op : u32) !bool
+{
+	return n.type == node_type.BIN && n.BIN.op == op
+}
+is_ast_bin::fn(a : *ast_rep, op : u32) !bool
+{
+	return a.type == ast_type.BIN && a.BIN.op == op
+}
+
+get_op_cmp::fn(prec : u32, cur_prec : u32, operation : parser_op)!bool
+{
+	cond_true:= false
+	if operation == parser_op.GREATER_THAN && cur_prec > prec
+	{
+		cond_true = true
+	}
+	else if operation == parser_op.GREATER_EQ && cur_prec >= prec
+	{
+		cond_true = true
+	}
+	else if operation == parser_op.LESS_THAN && cur_prec < prec
+	{
+		cond_true = true
+	}
+	else if operation == parser_op.LESS_EQ && cur_prec <= prec
+	{
+		cond_true = true
+	}
+	else if operation == parser_op.EQUAL && cur_prec == prec
+	{
+		cond_true = true
+	}
+	else if operation == parser_op.DIFF && cur_prec != prec
+	{
+		cond_true = true
+	}
+	return cond_true
+}
+parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
+{
+	lang_stat := pinfo.lang_stat
+
+	while peek_tkn(pinfo).type == token_type.NEW_LINE
+	{
+		get_tkn(pinfo)
+	}
+	peek: = peek_tkn(pinfo)
+
+	if peek.type == token_type.CLOSE_CURLY
+		return nil;
+
+	ret: *node = parse_item(pinfo)
+	if prec == 999 && operation == parser_op.DIFF
+		return ret
+
+	while pinfo.cur_tkn < pinfo.tkns.count
+	{
+		
+		peek = peek_tkn(pinfo)
+
+		if peek.type == token_type.OPEN_PARENTHESES
+		{
+			n := new_node(peek)
+			n.type = node_type.CALL
+			n.CALL.name = ret
+			n.CALL.args = parse_item(pinfo)
+			ret = n
+		}
+		else if peek.type == token_type.OPEN_CURLY
+		{
+			n := new_node(peek)
+			n.type = node_type.WORD_SCOPE
+			n.WORD_SCOPE.lhs = ret
+			n.WORD_SCOPE.scp = parse_item(pinfo)
+			ret = n
+		}
+		else if peek.type == token_type.OPEN_BRACKETS
+		{
+			get_tkn(pinfo)
+			indx := new_node(peek)
+			indx.type = node_type.INDEX
+			indx.INDEX.lhs = ret
+			indx.INDEX.rhs = parse(pinfo, 999, parser_op.GREATER_EQ)
+			ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_BRACKETS)
+			ret = indx
+		}
+		peek = peek_tkn(pinfo)
+		if is_flag_on(lang_stat.flags, LANG_STAT_FLAGS_PRS_IN_IF_COND)
+		{
+			if peek.type == token_type.NEW_LINE
+			{
+				 break
+			}
+		}
+		cur_prec :u32
+		cond_true := false
+		if is_un(peek, &cur_prec)
+		{
+			cond_true = get_op_cmp(prec, cur_prec, operation)
+			if cond_true || prec == cast(u32)op_prec_enum.NEW_LINE || prec == cast(u32)op_prec_enum.EQUAL || prec == 999
+
+			{
+				n := new_node(peek)
+				n.type = node_type.UNOP
+				n.UNOP.un = ret
+				n.UNOP.op = cast(u32)peek.type
+				ret = n
+				get_tkn(pinfo)
+				continue
+			}
+			else
+			{
+				return ret
+			}
+		}
+		else if is_bin(peek, &cur_prec)
+		{
+			cond_true = get_op_cmp(prec, cur_prec, operation)
+			if cond_true
+			{
+				if ret.type == node_type.BIN && ret.BIN.rhs == nil
+					return ret.BIN.lhs
+				return ret;
+			}
+
+			get_tkn(pinfo)
+
+			if ret.type != node_type.BIN
+			{
+				new_top := new_node(peek)
+				new_top.type = node_type.BIN
+				new_top.BIN.lhs = ret;
+				new_top.BIN.op = cast(u32)peek.type
+				ret = new_top
+			}
+			else
+				ret.BIN.op = cast(u32)peek.type;
+
+			cond := parser_op.GREATER_EQ
+
+			if ret.BIN.op == cast(u32)token_type.EQUAL
+			{
+				cond = parser_op.EQUAL
+				cur_prec = cast(u32)op_prec_enum.NEW_LINE
+			}
+			else if ret.BIN.op == cast(u32)token_type.AT
+			{
+				cond = parser_op.DIFF
+				cur_prec = 999
+			}
+			else if ret.BIN.op == cast(u32)token_type.POINT
+			{
+				cond = parser_op.DIFF
+				cur_prec = 999
+			}
+
+
+			if pinfo.cur_tkn >= pinfo.tkns.count
+			{
+				return ret.BIN.lhs
+			}
+
+			ret.BIN.rhs = parse(pinfo, cur_prec, cond)
+
+
+			peek = peek_tkn(pinfo)
+
+			is_bin(peek, &cur_prec)
+
+			cond_true = get_op_cmp(prec, cur_prec, operation)
+
+			if cond_true
+			{
+				return ret
+			}
+			if peek.type == token_type.EXCLAMATION
+			{
+				n := new_node(peek)
+				n.type = node_type.UNOP
+				n.UNOP.un = ret
+				n.UNOP.op = cast(u32)token_type.EXCLAMATION
+				ret = n
+				get_tkn(pinfo)
+			}
+
+			if ret.BIN.rhs == nil
+			{
+				continue
+			}
+
+		}
+		else if peek.type == token_type.OPEN_BRACKETS
+		{
+			indx := new_node(peek)
+			indx.INDEX.lhs = ret
+			indx.INDEX.rhs = parse(pinfo, cast(u32)999, parser_op.GREATER_EQ)
+			ret = indx
+		}
+		else if peek.type == token_type.CLOSE_PARENTHESES
+		{
+			if ret.type == node_type.BIN && ret.BIN.rhs == nil
+				return ret.BIN.lhs
+			return ret;
+		}
+		else if peek.type == token_type.CLOSE_BRACKETS
+		{
+			if ret.type == node_type.BIN && ret.BIN.rhs == nil
+				return ret.BIN.lhs
+			return ret;
+		}
+		else if peek.type == token_type.CLOSE_CURLY
+		{
+			if ret.type == node_type.BIN && ret.BIN.rhs == nil
+				return ret.BIN.lhs
+			return ret;
+		}
+		else 
+			__dbg_break;
+
+		new_top := new_node(peek)
+		new_top.type = node_type.BIN
+		new_top.BIN.lhs = ret;
+
+		if peek_tkn(pinfo).type == token_type.NEW_LINE
+		{
+			new_top.BIN.op = cast(u32)token_type.NEW_LINE
+
+			peek = peek_tkn(pinfo)
+			peek_next := ptr_offset(peek, 1, token)
+
+			if (pinfo.cur_tkn + 1) < pinfo.tkns.count  && peek.type == token_type.NEW_LINE 
+				&& peek_next.type == token_type.NEW_LINE
+			{
+				new_top.BIN.rhs = new_node(peek)
+				new_top.BIN.rhs.type = node_type.EMPTY_STMNT
+
+				new_st := new_node(peek)
+				new_st.type = node_type.BIN
+				new_st.BIN.lhs = new_top
+
+				new_top = new_st
+
+				eat_new_line(pinfo)
+				pinfo.cur_tkn--
+			}
+		}
+		ret = new_top
+	}
+	if ret.type == node_type.BIN && ret.BIN.rhs == nil
+		ret = ret.BIN.lhs
+	return ret;
+}
+
+node_to_string::fn(n : *node, out : *string)
+{
+	if n.type == node_type.BIN
+	{
+		node_to_string(n.BIN.lhs, out)
+		if n.BIN.op == cast(u32)token_type.EQUAL
+		{
+			PushStrLit(out, " = ")
+			//*out
+		}
+		else if n.BIN.op == cast(u32)token_type.COMMA
+		{
+			PushStrLit(out, ", ")
+		}
+		else
+			__dbg_break;
+
+		node_to_string(n.BIN.rhs, out)
+	}
+	else if n.type == node_type.INDEX
+	{
+		if n.INDEX.lhs
+		{
+			node_to_string(n.INDEX.lhs, out)
+		}
+		PushStrLit(out, "[")
+		node_to_string(n.INDEX.rhs, out)
+		PushStrLit(out, "]")
+
+	}
+	else if n.type == node_type.SCOPE
+	{
+		PushStrLit(out, "\{")
+		node_to_string(n.SCOPE.n, out)
+		PushStrLit(out, "\}")
+	}
+	else if n.type == node_type.INT
+	{
+		PushStrLit(out, "{n.INT.num}")
+	}
+	else if n.type == node_type.STR_LIT
+	{
+		PushStrLit(out, "\"{n.STR_LIT.str}\"")
+	}
+	else if n.type == node_type.WORD
+	{
+		PushStr(out, &n.WORD.str)
+	}
+	else
+		__dbg_break;
+}
+ast_to_string::fn(ast : *ast_rep, out : *string)
+{
+	if ast.type == ast_type.BIN
+	{
+		ast_to_string(*ast.BIN.expr[0], out)
+		for i in 1..ast.BIN.expr.count
+		{
+			cur := *ast.BIN.expr[cast(u64)i]
+
+			if ast.BIN.op == cast(u32)token_type.EQUAL
+			{
+				PushStrLit(out, " = ")
+				//*out
+			}
+			else if ast.BIN.op == cast(u32)token_type.COMMA
+			{
+				PushStrLit(out, ", ")
+			}
+			else
+				__dbg_break;
+
+			ast_to_string(cur, out)
+		}
+	}
+	else if ast.type == ast_type.INDEX
+	{
+		if ast.INDEX.lhs
+		{
+			ast_to_string(ast.INDEX.lhs, out)
+		}
+		PushStrLit(out, "[")
+		ast_to_string(ast.INDEX.rhs, out)
+		PushStrLit(out, "]")
+
+	}
+	else if ast.type == ast_type.SCOPE
+	{
+		PushStrLit(out, "\{")
+		//ast_to_string(ast.SCOPE.ast, out)
+		PushStrLit(out, "\}")
+	}
+	else if ast.type == ast_type.INT
+	{
+		PushStrLit(out, "{ast.INT.num}")
+	}
+	else if ast.type == ast_type.STR_LIT
+	{
+		PushStrLit(out, "\"{ast.STR_LIT.str}\"")
+	}
+	else if ast.type == ast_type.WORD
+	{
+		PushStr(out, &ast.WORD.str)
+	}
+	else
+		__dbg_break;
+}
+
+IsNumber::fn(ch : char) ! bool
+{
+	return ch >= '0 && ch <= '9
+}
+IsLetter::fn(ch : char) ! bool
+{
+	return ch >= 'a && ch <= 'z || ch >= 'A && ch <= 'Z
+}
+EatSpace::fn(idx : *s64, str : str_lit, str_sz : u64)
+{
+	while *idx < cast(s64)str_sz && 
+			*str[*idx] == ' 
+	{
+		(*idx)++;
+	}
+}
+
+Tokenize::fn(tkns : *dyn_array(token), str : str_lit)
+{
+	tkns.count = 0
+	ln := str_ln(str)
+	cur_line :u32=1
+	for i in 0..ln
+	{
+		EatSpace(&i, str, ln)
+		tkn :token
+		tkn.line = cur_line
+		cur_offset := cast(str_lit)str[i]
+		tkn.line_str = cur_offset
+		if IsLetter(*str[i])
+		{
+			tkn.type = token_type.WORD
+			start := i;
+			i++;
+
+			while cast(u64)i < ln && !IsTerminalCharater(*str[i])
+				i++;
+
+			word_len :u32= cast(u32)(i - start)
+
+			AssignStr(&tkn.type.WORD.str, str[start], word_len)
+			dyn_add(tkns, &tkn);
+			i--
+			//(*tkns)@&tkn
+		}
+		else if IsNumber(*str[i]) || *str[i] == '- && IsNumber(*str[i + 1])
+
+		{
+			negative := false
+
+			if *str[i] == '- 
+			{
+				i++
+				negative = true
+			}
+
+			hex := false
+
+			if *str[i] == '0 &&  *str[i + 1] == 'x
+			{
+				i += 2
+				hex = true
+			}
+
+			tkn.type = token_type.INT
+
+			start := i;
+
+			if hex
+			{
+				while cast(u64)i < ln && (IsNumber(*str[i]) || 
+					*str[i] == 'a || 
+					*str[i] == 'b ||
+					*str[i] == 'c ||
+					*str[i] == 'd ||
+					*str[i] == 'e ||
+					*str[i] == 'f)
+					i++;
+
+				num_len: = i - start
+
+				final_num :u64
+				
+
+				for x in 0..num_len
+				{
+					ch := str[start + x]
+
+					cur_num :u8=?
+					if *ch >= '0 && *ch <= '9
+					{
+						cur_num = *ch - '0
+					}
+					else
+					{
+						cur_num = (*ch - 'a) + cast(char)10
+					}
+					
+					nibble := cast(u64)(num_len - (x + 1)) * 4
+						
+					final_num = final_num | (cast(u64)cur_num << cast(u64)nibble)
+				}
+
+				tkn.INT.num = cast(s64)final_num
+
+			}
+			else
+			{
+				while cast(u64)i < ln&& IsNumber(*str[i])
+					i++;
+
+				num_len: = i - start
+				tkn.type.INT.num = str_2_num(cast(str_lit)str[start], cast(u32)num_len)
+			}
+
+			if negative
+				tkn.INT.num = tkn.INT.num * -1;
+
+			dyn_add(tkns, &tkn);
+			i--
+
+		}
+		else
+		{
+			if *str[i] == '{
+			{
+				tkn.type = token_type.OPEN_CURLY
+			}
+			else if *str[i] == cast(char)0xd
+			{
+				continue
+			}
+			else if *str[i] == ':
+			{
+				tkn.type = token_type.COLON
+			}
+			else if *str[i] == '-
+			{
+				if* str[i + 1] == '>
+				{
+					i++
+					tkn.type = token_type.RIGHT_ARROW
+				}
+				else
+					tkn.type = token_type.MINUS;
+			}
+			else if *str[i] == '$
+			{
+				tkn.type = token_type.DOLAR
+			}
+			else if *str[i] == '@
+			{
+				tkn.type = token_type.AT
+			}
+			else if *str[i] == '+
+			{
+				tkn.type = token_type.PLUS
+			}
+			else if *str[i] == '.
+			{
+				tkn.type = token_type.POINT
+			}
+			else if *str[i] == ')
+			{
+				tkn.type = token_type.CLOSE_PARENTHESES
+			}
+			else if *str[i] == '(
+			{
+				tkn.type = token_type.OPEN_PARENTHESES
+			}
+			else if *str[i] == '}
+			{
+				tkn.type = token_type.CLOSE_CURLY
+			}
+			else if *str[i] == '\"
+			{
+				i++;
+				start := i
+				while *str[i] != '\" && 
+						(*str[i] == '\" && *str[i - 1] != '\\) == false
+					i++
+
+				str_len := i - start
+
+				tkn.type = token_type.STR_LIT
+
+				AssignStr(&tkn.type.STR_LIT.str, str[start], cast(u32)str_len)
+				dyn_add(tkns, &tkn);
+				continue
+
+			}
+			else if *str[i] == '[
+			{
+				tkn.type = token_type.OPEN_BRACKETS
+			}
+			else if *str[i] == ']
+			{
+				tkn.type = token_type.CLOSE_BRACKETS
+			}
+			else if *str[i] == '\n 
+			{
+				tkn.type = token_type.NEW_LINE
+				cur_line++
+			}
+			else if *str[i] == '\t
+			{
+				continue
+			}
+			else if *str[i] == ',
+			{
+				tkn.type = token_type.COMMA
+			}
+			else if *str[i] == '<
+			{
+				if* str[i + 1] == '=
+				{
+					i++
+					tkn.type = token_type.COND_LE
+				}
+				else
+					tkn.type = token_type.COND_LT;
+			}
+			else if *str[i] == '>
+			{
+				if* str[i + 1] == '=
+				{
+					i++
+					tkn.type = token_type.COND_GE
+				}
+				else
+					tkn.type = token_type.COND_GT;
+			}
+			else if *str[i] == '!
+			{
+				if* str[i + 1] == '=
+				{
+					i++
+					tkn.type = token_type.COND_NE
+				}
+				else
+					tkn.type = token_type.EXCLAMATION;
+			}
+			else if *str[i] == '=
+			{
+
+				if* str[i + 1] == '=
+				{
+					i++
+					tkn.type = token_type.COND_EQ
+				}
+				else
+					tkn.type = token_type.EQUAL;
+			}
+			else
+			{
+				a := *str[i]
+				__dbg_break
+			}
+
+			dyn_add(tkns, &tkn);
+		}
+	}
+	a := 0;
+}
+
+new_scope::fn(parent : *scope) !*scope
+{
+	ret: = cast(*scope)heap_alloc(globals.alloc, sizeof(scope))
+	memset(ret, 0, sizeof(scope))
+	ret.parent = parent
+	return ret
+}
+new_struct::fn() !*struct_decl
+{
+	ret: = cast(*struct_decl)heap_alloc(globals.alloc, sizeof(struct_decl))
+	memset(ret, 0, sizeof(struct_decl))
+	return ret
+}
+new_func::fn() !*func_decl
+{
+	ret: = cast(*func_decl)heap_alloc(globals.alloc, sizeof(func_decl))
+	memset(ret, 0, sizeof(func_decl))
+	ret.start = -1
+	return ret
+}
+
+lget_type_size::fn(tp : *lang_type) !u32
+{
+	if tp.ptr > 0
+		return 8
+	if cast(u32)tp.tp == cast(u32)lang_type_type.U8 || cast(u32)tp.tp == cast(u32)lang_type_type.S8
+		return 1;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.U16 || cast(u32)tp.tp == cast(u32)lang_type_type.S16
+		return 2;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.U32 || cast(u32)tp.tp == cast(u32)lang_type_type.S32
+		return 4;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.U64 || cast(u32)tp.tp == cast(u32)lang_type_type.S64
+		return 8;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.STRUCT
+	{
+		return tp.STRUCT.st.sz
+	}
+	else
+		__dbg_break;
+
+	return 0
+}
+
+parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_rep
+{
+	if n == nil
+		return nil
+	ret: = new_ast(n)
+	if n.type == node_type.BIN
+	{
+		ret.type = ast_type.BIN
+		ret.BIN.op = n.BIN.op
+
+		stack : dyn_array(*node)
+		stack@n
+		cur : = n
+		while cur.BIN.lhs.type == node_type.BIN && cur.BIN.lhs.BIN.op == n.BIN.op
+		{
+			stack@cur.BIN.lhs
+			cur = cur.BIN.lhs
+		}
+		cur = *dyn_last(&stack)
+
+		lhs : = parse_node_to_ast(lang_stat, cur.BIN.lhs, scp)
+		rhs : = parse_node_to_ast(lang_stat, cur.BIN.rhs, scp)
+
+		dyn_add(&ret.BIN.expr, lhs);
+		dyn_add(&ret.BIN.expr, rhs);
+
+		i:u64 = stack.count - 2
+		while i >= 0
+		{
+			aux: = stack[i]
+			lhs = parse_node_to_ast(lang_stat, aux.BIN.rhs, scp)
+			dyn_add(&ret.BIN.expr, lhs)
+			i--
+		}
+
+		if stack.count > 0
+			heap_free(stack.alloc, stack.data)
+	}
+	else if n.type == node_type.WORD_SCOPE
+	{
+		ret.type = ast_type.WORD_SCOPE
+		ret.WORD_SCOPE.lhs = parse_node_to_ast(lang_stat, n.WORD_SCOPE.lhs, scp)
+		ret.WORD_SCOPE.scp = parse_node_to_ast(lang_stat, n.WORD_SCOPE.scp, scp)
+
+	}
+	else if n.type == node_type.EMPTY_STMNT
+	{
+		ret.type = ast_type.EMPTY_STMNT
+	}
+	else if n.type == node_type.CALL
+	{
+		ret.type = ast_type.CALL
+		ret.CALL.name = parse_node_to_ast(lang_stat, n.CALL.name, scp)
+		args := parse_node_to_ast(lang_stat, n.CALL.args, scp)
+		if is_ast_bin(args, cast(u32)token_type.COMMA)
+		{
+			ret.CALL.args = args.BIN.expr
+		}
+		else
+		{
+			dyn_add(&ret.CALL.args, args)
+		}
+	}
+	else if n.type == node_type.RET
+	{
+		ret.type = ast_type.RET
+		lhs := parse_node_to_ast(lang_stat, n.RET.n, scp)
+		if lhs
+		{
+			if is_ast_bin(lhs, cast(u32)token_type.COMMA)
+			{
+				ret.RET.rets = lhs.BIN.expr
+			}
+			else
+			{
+				dyn_add(&ret.RET.rets, lhs)
+			}
+		}
+	}
+	else if n.type == node_type.WHILE
+	{
+		ret.type = ast_type.WHILE
+		ret.WHILE.cond = parse_node_to_ast(lang_stat, n.WHILE.cond, scp)
+		ret.WHILE.scp_ast = parse_node_to_ast(lang_stat, n.WHILE.scp_nd, scp)
+	}
+	else if n.type == node_type.IF
+	{
+		ret.type = ast_type.IF
+		ret.IF.cond = parse_node_to_ast(lang_stat, n.IF.cond, scp)
+		ret.IF.scp_ast = parse_node_to_ast(lang_stat, n.IF.scp_nd, scp)
+
+		cur :*ast_rep
+		for i in n.IF.others
+		{
+			if i.type == node_type.ELIF
+			{
+				cur = new_ast(n)
+
+				cur.type = ast_type.ELIF
+				cur.ELIF.cond = parse_node_to_ast(lang_stat, i.ELIF.cond, scp)
+				cur.ELIF.scp_ast = parse_node_to_ast(lang_stat, n.ELIF.scp_nd, scp)
+
+				dyn_add(&ret.IF.others, cur)
+			}
+			else if i.type == node_type.ELSE
+			{
+				cur = new_ast(n)
+
+				cur.type = ast_type.ELSE
+				cur.ELSE.scp_ast = parse_node_to_ast(lang_stat, n.ELSE.scp_nd, scp)
+
+				dyn_add(&ret.IF.others, cur)
+			}
+		}
+	}
+	else if n.type == node_type.INDEX
+	{
+		ret.type = ast_type.INDEX
+		if n.INDEX.lhs
+			ret.INDEX.lhs = parse_node_to_ast(lang_stat, n.INDEX.lhs, scp)
+		if n.INDEX.rhs
+			ret.INDEX.rhs = parse_node_to_ast(lang_stat, n.INDEX.rhs, scp)
+	}
+	else if n.type == node_type.STR_LIT
+	{
+		ret.type = ast_type.STR_LIT
+		ret.STR_LIT.str = n.STR_LIT.str
+	}
+	else if n.type == node_type.FUNC
+	{
+		ret.type = ast_type.FUNC
+		ret.FUNC.fdecl = n.FUNC.fdecl
+		ret.FUNC.fdecl.ast = ret
+
+		if n.FUNC.args
+		{
+			args := parse_node_to_ast(lang_stat, n.FUNC.args, scp)
+			if is_ast_bin(args, cast(u32)token_type.COMMA)
+			{
+				ret.FUNC.args = args.BIN.expr
+			}
+			else
+			{
+				dyn_add(&ret.FUNC.args, args)
+			}
+		}
+		if n.FUNC.rets
+		{
+			rets := parse_node_to_ast(lang_stat, n.FUNC.rets, scp)
+			if is_ast_bin(rets, cast(u32)token_type.COMMA)
+			{
+				ret.FUNC.rets = rets.BIN.expr
+			}
+			else
+			{
+				dyn_add(&ret.FUNC.rets, rets)
+			}
+		}
+		if n.FUNC.scp_nd
+		{
+			ret.FUNC.scp_ast = parse_node_to_ast(lang_stat, n.FUNC.scp_nd, scp)
+			ASSERT(ret.FUNC.scp_ast.type == ast_type.SCOPE)
+			ret.FUNC.fdecl.scp = ret.FUNC.scp_ast.SCOPE.scp
+			dyn_add(&lang_stat.funcs, ret.FUNC.fdecl)
+		}
+		else
+		{
+			if is_flag_on(ret.FUNC.fdecl.flags, FUNC_DECL_FLAGS_OUTSIDER)
+			{
+				dyn_add(&lang_stat.outsiders, ret.FUNC.fdecl)
+			}
+			else
+			{
+				__dbg_break
+			}
+		}
+	}
+	else if n.type == node_type.INT
+	{
+		ret.type = ast_type.INT
+		ret.INT.num = n.INT.num
+	}
+	else if n.type == node_type.WORD
+	{
+		if (n.WORD.str == "u64")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.U64
+		}
+		else if (n.WORD.str == "s64")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.S64
+		}
+		else if (n.WORD.str == "u32")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.U32
+		}
+		else if (n.WORD.str == "s32")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.S32
+		}
+		else if (n.WORD.str == "u16")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.U16
+		}
+		else if (n.WORD.str == "s16")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.S16
+		}
+		else if (n.WORD.str == "u8")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.U8
+		}
+		else if (n.WORD.str == "s8")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.S8
+		}
+		else
+		{
+			ret.type = ast_type.WORD
+			ret.WORD.str = n.WORD.str
+		}
+	}
+	else if n.type == node_type.UNOP
+	{
+		ret.type = ast_type.UNOP
+		ret.UNOP.un = parse_node_to_ast(lang_stat, n.UNOP.un, scp)
+		ret.UNOP.op = n.UNOP.op
+		ret.UNOP.right_assoc = n.UNOP.right_assoc
+	}
+	else if n.type == node_type.STRUCT
+	{
+		ret.type = ast_type.STRUCT
+		ret.STRUCT.scp_nd = parse_node_to_ast(lang_stat, n.STRUCT.scp_nd, scp)
+		ret.STRUCT.st = new_struct()
+
+	}
+	else if n.type == node_type.SCOPE
+	{
+		__dbg_break
+		ret.type = ast_type.SCOPE
+
+		new_scp := new_scope(scp)
+		a := parse_node_to_ast(lang_stat, n.SCOPE.n, new_scp)
+		if a
+		{
+			if a.type == ast_type.BIN && a.BIN.op == cast(u32)token_type.NEW_LINE
+			{
+				ret.SCOPE.stmnts = a.BIN.expr
+			}
+			else
+				dyn_add(&ret.SCOPE.stmnts, a);
+		}
+
+		ret.SCOPE.scp = new_scp
+	}
+	else
+		__dbg_break;
+
+	return ret
+}
+new_decl::fn(name : *string) !*decl
+{
+	ret: = cast(*decl)heap_alloc(globals.alloc, sizeof(decl))
+	memset(ret, 0, sizeof(decl))
+	if name
+		ret.name = *name
+	return ret
+}
+
+descend_find_type::fn(lang_stat : *lang_state, ast : *ast_rep, scp : *scope, tp : *lang_type) !bool
+{
+	if ast.type == ast_type.TYPE
+	{
+		*tp = ast.TYPE.tp
+	}
+	else if ast.type == ast_type.WORD
+	{
+		//__dbg_break
+		d := find_identifier(&ast.WORD.str, scp)
+		if !d
+			return false
+		if d.tp.tp == lang_type_type.STRUCT
+		{
+			tp.type = lang_type_type.STRUCT
+			tp.STRUCT = d.tp.STRUCT.st
+		}
+		else
+		{
+			__dbg_break
+		}
+	}
+	else if ast.type == ast_type.UNOP
+	{
+		if ast.UNOP.op == cast(u32)token_type.EXCLAMATION
+		{
+			ASSERT(ast.UNOP.right_assoc)
+
+			ptr := 1
+
+			next := ast.UNOP.un
+
+			while next.type == ast_type.UNOP && next.UNOP.op == cast(u32)token_type.EXCLAMATION
+			{
+				ptr++
+				next = next.UNOP.un
+			}
+			if !descend_find_type(lang_stat, next, scp, tp)
+				return false
+
+			tp.ptr = cast(u8)ptr
+
+		}
+		else
+		{
+			__dbg_break
+		}
+	}
+	else if ast.type == ast_type.STRUCT
+	{
+		prev_struct := lang_stat.cur_struct
+		lang_stat.cur_struct = ast.STRUCT.st
+
+		defer lang_stat.cur_struct = prev_struct
+		if ast.STRUCT.st.vars.count == 0
+		{
+
+			ASSERT(ast.STRUCT.scp_nd.type == ast_type.SCOPE)
+			for s in ast.STRUCT.scp_nd.SCOPE.stmnts
+			{
+				ASSERT(is_ast_bin(*s, cast(u32)token_type.COLON))
+				if !descend_find_type(lang_stat, *s.BIN.expr[1], scp, tp)
+				{
+					return false;
+				}
+
+			}
+			for s in ast.STRUCT.scp_nd.SCOPE.stmnts
+			{
+				if !descend_find_type(lang_stat, *s.BIN.expr[1], scp, tp)
+				{
+					return false;
+				}
+				name: = &s.BIN.expr[0].WORD.str
+				d : = declare_decl_to_scp(lang_stat, ast.STRUCT.scp_nd.SCOPE.scp, name, tp)
+
+				dyn_add(&ast.STRUCT.st.vars, d)
+			}
+			cur_addr :u32=0
+			for v in ast.STRUCT.st.vars
+			{
+				v.offset = cast(s32)cur_addr
+				cur_addr += lget_type_size(&v.tp)
+			}
+			ast.STRUCT.st.sz = cur_addr
+		}
+
+		tp.tp = lang_type_type.STRUCT
+		tp.STRUCT.st = ast.STRUCT.st
+	}
+	else if ast.type == ast_type.FUNC
+	{
+		if ast.FUNC.args
+		{
+			fdecl := ast.FUNC.fdecl
+
+			if fdecl.args.count == 0
+			{
+				for a in ast.FUNC.args
+				{
+					if a.type == ast_type.BIN
+					{
+						if !descend_find_type(lang_stat, *a.BIN.expr[1], scp, tp)
+						{
+							return false;
+						}
+					}
+					else if !descend_find_type(lang_stat, *a, scp, tp)
+					{
+						return false;
+					}
+				}
+				for a in ast.FUNC.args
+				{
+					name: *string = ?
+					if a.type == ast_type.BIN
+					{
+
+						if !descend_find_type(lang_stat, *a.BIN.expr[1], scp, tp)
+						{
+							return false;
+						}
+						
+						name = &a.BIN.expr[0].WORD.str
+					}
+					else
+					{
+						if !descend_find_type(lang_stat, *a, scp, tp)
+						{
+							return false;
+						}
+						name = &a.WORD.str
+					}
+
+					d :*decl
+					has_scp : *scope
+
+					if ast.FUNC.scp_ast
+					{
+						has_scp = fdecl.scp
+					}
+
+					d = declare_decl_to_scp(lang_stat, has_scp, name, tp)
+
+					dyn_add(&fdecl.args, d)
+					dyn_add(&fdecl.vars, d)
+
+				}
+			}
+		}
+
+
+		prev: = lang_stat.cur_func
+		defer lang_stat.cur_func = prev
+
+		lang_stat.cur_func = ast.FUNC.fdecl
+
+		if ast.FUNC.rets
+		{
+			for a in ast.FUNC.rets
+			{
+				name: *string
+				if is_ast_bin(*a, cast(u32)token_type.COLON)
+				{
+					if !descend_find_type(lang_stat, *a.BIN.expr[1], scp, tp)
+					{
+						return false;
+					}
+				}
+				else
+				{
+					if !descend_find_type(lang_stat, *a, scp, tp)
+					{
+						return false;
+					}
+				}
+				d := declare_decl_to_scp(lang_stat, lang_stat.cur_func.scp, name, tp)
+
+				dyn_add(&lang_stat.cur_func.rets, d)
+			}
+		}
+		if ast.FUNC.scp_ast
+		{
+			if !descend_name_finding(lang_stat, ast.FUNC.scp_ast, scp, nil)
+				return false
+			tp.tp = lang_type_type.FUNC_DECL
+			tp.FUNC_DECL.fdecl = ast.FUNC.fdecl
+		}
+		else
+		{
+			tp.tp = lang_type_type.FUNC_DEF
+			tp.FUNC_DEF.fdecl = ast.FUNC.fdecl
+		}
+
+	}
+	else
+	{
+		__dbg_break
+	}
+	return true
+}
+
+find_identifier::fn(name : *string, scp : *scope) ! *decl
+{
+	cur := scp
+
+	while cur
+	{
+		for v in cur.vars
+		{
+			if v.name == *name
+				return *v
+		}
+		cur = cur.parent
+	}
+	return nil
+}
+declare_decl_to_scp::fn(lang_stat : *lang_state, scp: *scope, name : *string, tp : *lang_type) ! *decl
+{
+	d := new_decl(name)
+	d.tp = *tp
+
+	if scp
+		dyn_add(&scp.vars, d)
+
+
+	if lang_stat.cur_func
+	{
+		dyn_add(&lang_stat.cur_func.vars, d)
+	}
+	if d.tp.tp == lang_type_type.STRUCT
+	{
+		d.tp.tp.STRUCT.st.name = *name
+	}
+	else if d.tp.tp == lang_type_type.FUNC_DECL
+	{
+		d.tp.tp.FUNC_DECL.fdecl.name = *name
+	}
+	else if d.tp.tp == lang_type_type.FUNC_DEF
+	{
+		d.tp.tp.FUNC_DEF.fdecl.name = *name
+	}
+	return d
+}
+descend_name_finding::fn(lang_stat : *lang_state, ast : *ast_rep, scp: *scope, out_decl : **decl) ! bool
+{
+	if ast.type == ast_type.BIN
+	{
+		if ast.BIN.op == cast(u32)token_type.COLON
+		{
+			tp : lang_type
+			lhs := *ast.BIN.expr[0]
+
+			//if ast.t.line == 13
+				//__dbg_break
+			ASSERT(lhs.type == ast_type.WORD)
+
+			d := find_identifier(&lhs.WORD.str, scp)
+			if d
+				return true
+
+			if !descend_find_type(lang_stat, *ast.BIN.expr[1], scp, &tp)
+				return false
+
+			declare_decl_to_scp(lang_stat, scp, &lhs.WORD.str, &tp)
+		}
+		else if ast.BIN.op == cast(u32)token_type.EQUAL
+		{
+			ASSERT(ast.BIN.expr.count == 2)
+			if !descend_name_finding(lang_stat, *ast.BIN.expr[0], scp, nil)
+				return false
+			if !descend_name_finding(lang_stat, *ast.BIN.expr[1], scp, nil)
+				return false
+		}
+		else
+		{
+			for e in ast.BIN.expr
+			{
+				if !descend_name_finding(lang_stat, *e, scp, nil)
+					return false
+			}
+		}
+	}
+	else if ast.type == ast_type.TYPE
+	{
+	}
+	else if ast.type == ast_type.EMPTY_STMNT
+	{
+	}
+	else if ast.type == ast_type.RET
+	{
+		for r in ast.RET.rets
+		{
+			if *r != nil && !descend_name_finding(lang_stat, *r, scp, nil)
+				return false
+		}
+	}
+	else if ast.type == ast_type.UNOP
+	{
+		if !descend_name_finding(lang_stat, ast.UNOP.un, scp, nil)
+			return false
+	}
+	else if ast.type == ast_type.SCOPE
+	{
+		new_scp := ast.SCOPE.scp
+
+		for s in ast.SCOPE.stmnts
+		{
+			if !descend_name_finding(lang_stat, *s, new_scp, nil)
+				return false
+		}
+	}
+	else if ast.type == ast_type.CALL
+	{
+		d : *decl
+
+		if !descend_name_finding(lang_stat, ast.CALL.name, scp, &d)
+			return false
+		if d.tp.tp == lang_type_type.FUNC_DECL
+			ast.CALL.fdecl = d.tp.FUNC_DECL.fdecl
+		else if d.tp.tp == lang_type_type.FUNC_DEF
+			ast.CALL.fdecl = d.tp.FUNC_DEF.fdecl
+	}
+	else if ast.type == ast_type.WORD
+	{
+		d := find_identifier(&ast.WORD.str, scp)
+		if out_decl
+		{
+			*out_decl = d
+		}
+	}
+	else if ast.type == ast_type.WHILE
+	{
+		if !descend_name_finding(lang_stat, ast.WHILE.cond, scp, nil)
+			return false
+		if !descend_name_finding(lang_stat, ast.WHILE.scp_ast, scp, nil)
+			return false
+
+	}
+	else if ast.type == ast_type.IF
+	{
+		if !descend_name_finding(lang_stat, ast.IF.cond, scp, nil)
+			return false
+		if !descend_name_finding(lang_stat, ast.IF.scp_ast, scp, nil)
+			return false
+		for i in ast.IF.others
+		{
+			if i.type == ast_type.ELIF
+			{
+				if !descend_name_finding(lang_stat, ast.ELIF.cond, scp, nil)
+					return false
+				if !descend_name_finding(lang_stat, ast.ELIF.scp_ast, scp, nil)
+					return false
+			}
+			else
+			{
+				if !descend_name_finding(lang_stat, ast.ELIF.scp_ast, scp, nil)
+					return false
+			}
+		}
+	}
+	else if ast.type == ast_type.INT
+	{
+
+	}
+	else if ast.type == ast_type.INDEX
+	{
+		if !descend_name_finding(lang_stat, ast.WHILE.cond, scp, nil)
+			return false
+		if !descend_name_finding(lang_stat, ast.WHILE.scp_ast, scp, nil)
+			return false
+	}
+	else if ast.type == ast_type.FUNC
+	{
+
+	}
+	else
+	{
+		__dbg_break
+	}
+	return true
+}

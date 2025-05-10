@@ -1,0 +1,66 @@
+import "../../core";
+
+timeline_type: enum
+{
+	MOV,
+	CHANGE,
+	TEXTURE,
+	CALLBACK,
+}
+activate_type:enum
+{
+	ENTITY,
+	CAN_MOVE,
+	ACTIVATE_ATTACK_TRIGGER,
+	CAN_START_COMBO,
+}
+
+
+anim_callback_info:struct
+{
+	time_since_stopped : f32,
+	ent : *entity,
+	end_anim : bool,
+	
+}
+keyframe: struct
+{
+	time : f32,
+	using u :: union
+	{
+		mov :: struct
+		{
+			pos: _vec
+		};
+		tex_id : u32,
+		anim_callback : fn(*anim_callback_info)!bool,
+		
+		activate::struct
+		{
+			type : activate_type,
+			val : bool,
+		};
+
+	}
+}
+timeline : struct
+{
+	type : timeline_type,
+	kfs : dyn_array(keyframe),
+	prev_callback_kf : *keyframe,
+	ent : *entity,
+	time_since_stopped : f32,
+}
+clip2: struct
+{
+	tms : dyn_array(timeline),
+	vel : f32,
+	len : f32,
+	pause : bool,
+	loop : bool,
+}
+
+
+
+
+

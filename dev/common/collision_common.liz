@@ -1,0 +1,45 @@
+import "../../core";
+
+in_col_ent:struct
+{
+	ent : *entity,
+	in_col : bool,
+	col : collision,
+}
+contact_col:struct
+{
+	ent_a : *entity,
+	ent_b : *entity,
+	col : collision,
+}
+collision:struct
+{
+	normal:_vec,
+	depth : f32,
+    contacts: dyn_array(_vec),
+	contact_point:_vec,
+	col_it : u64,
+	ent : *entity,
+	ignore_trigger_do_collision : bool,
+	ignore_collision : bool,
+}
+col_info:struct
+{
+    a_pos: _vec,
+    a_pivot: _vec,
+    a_size: _vec,
+    a_vel: _vec,
+    a_rot: _vec,
+	a_ent : *entity,
+
+    b_pos: _vec,
+    b_pivot: _vec,
+    b_size: _vec,
+    b_vel: _vec,
+    b_rot: _vec,
+	b_ent : *entity,
+}
+
+
+
+

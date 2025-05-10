@@ -1,0 +1,233 @@
+rel_array: struct(T)
+{
+	data : *T,
+	count : u64,
+	#make_ptr_len(data, count)
+}
+operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
+{
+	ASSERT(idx < dyn.count);
+	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
+	return cast(*T)ptr_offset(addr, idx, T);
+}
+
+dyn_array: struct(T)
+{
+	data : *T,
+	count : u64,
+	cap : u64,
+	alloc : *mem_alloc,
+
+	#make_ptr_len(data, count)
+}
+it_start::fn{ T }(dyn : *dyn_array(T)) !*T
+{
+	if dyn.count == 0
+		return dyn.data;
+	return (*dyn)[0];
+}
+it_end::fn{ T }(dyn : *dyn_array(T)) !*T
+{
+	if dyn.count == 0
+		return dyn.data;
+	return ptr_offset(dyn.data, dyn.count, T);
+}
+operator []{ T }(dyn : *dyn_array(T), idx : u64) !*T
+{
+	ASSERT(idx < dyn.count);
+	return ptr_offset(dyn.data, idx, T);
+}
+dyn_last::fn{ T }(dyn : *dyn_array(T)) !*T
+{
+	return ptr_offset(dyn.data, dyn.count - 1, T);
+}
+dyn_clear::fn{ T }(dyn : *dyn_array(T))
+{
+	dyn.count = 0;
+}
+dyn_init2::fn{ T }(dyn : *dyn_array(T), cap : u64, alloc : *mem_alloc)
+{
+	dyn.alloc = alloc;
+	dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)(cap * sizeof(T)));
+	memset(dyn.data, 0, cap * sizeof(T));
+	dyn.count = 0;
+	dyn.cap = cap;
+}
+dyn_init::fn{ T }(dyn : *dyn_array(T), cap : u64)
+{
+	dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)(cap * sizeof(T)));
+	dyn.count = 0;
+	dyn.cap = cap;
+}
+regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
+{
+	if (sz >= dyn.cap)
+	{
+		aux_data: = dyn.data;
+		if dyn.cap <= 0
+			dyn.cap = 1;
+		while dyn.cap < sz
+			dyn.cap = dyn.cap * 2;
+		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
+		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
+		diff: = (dyn.cap - dyn.count) *sizeof(T);
+		memset(cast(*u8)ptr_offset(dyn.data, dyn.count, T), 0, diff);
+		heap_free(dyn.alloc, aux_data);
+		dyn.count = sz;
+	}
+	else
+		dyn.count = sz;
+}
+dyn_rem::fn{ T }(dyn : *dyn_array(T), idx : u32)
+{
+	ASSERT(idx >= 0);
+	if dyn.count == 0
+		return;
+
+	start: = ptr_offset(dyn.data, idx, T);
+	next: = ptr_offset(dyn.data, idx + 1, T);
+	len: = dyn.count - (idx + 1);
+	aux := heap_alloc(dyn.alloc, cast(u32)len * sizeof(T));
+	memcpy(cast(*void)aux, cast(*void)next, len * sizeof(T));
+	memcpy(cast(*void)start, cast(*void)aux, len * sizeof(T));
+	dyn.count--;
+	heap_free(dyn.alloc, cast(*u8)aux);
+
+	//start: = ptr_offset(dyn.data, dyn.count, T);
+	//memcpy(dyn)
+
+}
+
+/*
+serialize_struct::fn(entity : *T, out : *dyn_array(u8))
+{
+
+}
+*/
+
+
+dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *void, sz : u32)
+{
+	if dyn.alloc == nil || dyn.alloc && dyn.alloc.id != 0x1234
+	{
+		ASSERT(globals.alloc)
+		//return
+		//__dbg_break
+		dyn_init2(dyn, 2, globals.alloc);
+	}
+	ASSERT(dyn.cap > 0 && dyn.alloc != nil);
+
+	if (dyn.count + sz) >= dyn.cap
+	{
+		aux_data: = dyn.data;
+		if dyn.cap <= 0
+			dyn.cap = 1;
+		while dyn.cap < (dyn.count + sz)
+			dyn.cap = dyn.cap * 2;
+		heap_free(dyn.alloc, cast(*u8)aux_data);
+		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
+		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
+	}
+
+	dst: = cast(*void)(cast(u64)dyn.data + dyn.count * sizeof(T));
+	memcpy(dst, data, sz);
+
+	dyn.count += sz;
+}
+dyn_add::fn{ T }(dyn : *dyn_array(T), data : T)
+{
+	if dyn.alloc == nil || dyn.alloc && dyn.alloc.id != 0x1234
+	{
+		ASSERT(globals.alloc)
+		//return
+		//__dbg_break
+		dyn_init2(dyn, 2, globals.alloc);
+	}
+	ASSERT(dyn.cap > 0 && dyn.alloc != nil);
+
+	if (dyn.count + 1) >= dyn.cap
+	{
+		aux_data: = dyn.data;
+		dyn.cap = dyn.cap * 2;
+		heap_free(dyn.alloc, cast(*u8)aux_data);
+		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
+		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
+	}
+
+	dst: = cast(*T)(cast(u64)dyn.data + dyn.count * sizeof(T));
+	*cast(*T)dst = data
+
+	dyn.count += 1;
+	a: = 0;
+}
+dyn_add::fn{ T }(dyn : *dyn_array(T), data : *T)
+{
+	if dyn.alloc == nil || dyn.alloc && dyn.alloc.id != 0x1234
+	{
+		ASSERT(globals.alloc)
+		//return
+		//__dbg_break
+		dyn_init2(dyn, 2, globals.alloc);
+	}
+	ASSERT(dyn.cap > 0 && dyn.alloc != nil);
+
+	if (dyn.count + 1) >= dyn.cap
+	{
+		aux_data: = dyn.data;
+		dyn.cap = dyn.cap * 2;
+		heap_free(dyn.alloc, cast(*u8)aux_data);
+		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
+		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
+	}
+
+	dst: = cast(*T)(cast(u64)dyn.data + dyn.count * sizeof(T));
+	memcpy(dst, cast(*void)data, sizeof(T));
+
+	dyn.count += 1;
+	a: = 0;
+}
+dyn_add_at::fn{ T }(dyn : *dyn_array(T), at : u32, data : *T)
+{
+	if dyn.alloc == nil || dyn.alloc && dyn.alloc.id != 0x1234
+	{
+		ASSERT(globals.alloc)
+		//return
+		//__dbg_break
+		dyn_init2(dyn, 2, globals.alloc);
+	}
+	ASSERT(dyn.cap > 0 && dyn.alloc != nil);
+
+	prev_data := dyn.data
+
+
+	if (dyn.count + 1) >= dyn.cap
+	{
+		aux_data: = dyn.data;
+		dyn.cap = dyn.cap * 2;
+		dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)dyn.cap * sizeof(T));
+		memcpy(cast(*void)dyn.data, cast(*void)aux_data, dyn.count * sizeof(T));
+		heap_free(dyn.alloc, cast(*u8)prev_data);
+	}
+	diff := dyn.count - at
+
+	dst: = cast(*T)(cast(u64)dyn.data + cast(u64)at * sizeof(T));
+	memcpy(dst, cast(*void)data, sizeof(T));
+
+	dst = cast(*T)(cast(u64)dyn.data + (cast(u64)at + 1) * sizeof(T));
+	src := cast(*T)(cast(u64)prev_data + cast(u64)at  * sizeof(T));
+	memcpy(dst, cast(*void)src, cast(u64)diff * sizeof(T));
+
+	dyn.count += 1;
+	a: = 0;
+}
+str_ln::fn(str :str_lit) !u64
+{
+	s: = cast(*u8)str;
+	
+	i:u64 = 0;
+	while *ptr_offset(s, i, u8) != 0
+	{
+		i++;
+	}
+	return i;
+}

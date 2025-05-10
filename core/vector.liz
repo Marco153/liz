@@ -1,0 +1,287 @@
+v4 : struct
+{
+	x : f32,
+	y : f32,
+	z : f32,
+	w : f32,
+}
+v3 : struct
+{
+	x : f32,
+	y : f32,
+	z : f32,
+}
+mat4x4 : struct
+{
+	vals : [4 * 4] f32,
+}
+__sqrt::fn intrinsic(a : f32) !f32;
+sqrt::fn x64(a : f32) !f32
+{
+	return __sqrt(a);
+}
+
+clampu64::fn x64(val :u64, min : u64, max : u64) !u64
+{
+	if val <= min return min;
+	if val >= max return max;
+	return val
+}
+clampu32::fn x64(val :u32, min : u32, max : u32) !u32
+{
+	if val <= min return min;
+	if val >= max return max;
+	return val
+}
+clampi::fn x64(val :s32, min : s32, max : s32) !s32
+{
+	if val <= min return min;
+	if val >= max return max;
+	return val
+}
+clampf::fn x64(val :f32, min : f32, max : f32) !f32
+{
+	if val <= min return min;
+	if val >= max return max;
+	return val
+}
+operator *(self : *mat4x4, vec : *v3) !v3
+{
+    ret: v3;
+	ret.x = vec.x * *self.vals[0] +
+			vec.y * *self.vals[1] +
+			vec.z * *self.vals[2];
+
+	ret.y = vec.x * *self.vals[4] +
+			vec.y * *self.vals[5] +
+			vec.z * *self.vals[6];
+
+	ret.z = vec.x * *self.vals[8] +
+			vec.y * *self.vals[9] +
+			vec.z * *self.vals[10];
+	return ret;
+}
+
+
+operator *(self : *v4, f : f32) !v4
+{
+	ret:v4;
+	ret.x = self.x * f;
+	ret.y = self.y * f;
+	ret.z = self.z * f;
+	ret.w = self.w * f;
+	return ret;
+}
+operator -(self : *v4, rhs : *v4) !v4
+{
+	ret:v4;
+	ret.x = self.x - rhs.x;
+	ret.y = self.y - rhs.y;
+	ret.z = self.z - rhs.z;
+	ret.w = self.w - rhs.w;
+	return ret;
+}
+operator +(self : *v4, rhs : *v4) !v4
+{
+	ret:v4;
+	ret.x = self.x + rhs.x;
+	ret.y = self.y + rhs.y;
+	ret.z = self.z + rhs.z;
+	ret.w = self.w + rhs.w;
+	return ret;
+}
+
+
+operator * x64(self : *v3, f : f32) !v3
+{
+	ret:v3;
+	ret.x = self.x * f;
+	ret.y = self.y * f;
+	ret.z = self.z * f;
+	return ret;
+}
+operator - x64(self : *v3, rhs : *v3) !v3
+{
+	ret:v3;
+	ret.x = self.x - rhs.x;
+	ret.y = self.y - rhs.y;
+	ret.z = self.z - rhs.z;
+	return ret;
+}
+operator + x64(self : *v3, rhs : *v3) !v3
+{
+	ret:v3;
+	ret.x = self.x + rhs.x;
+	ret.y = self.y + rhs.y;
+	ret.z = self.z + rhs.z;
+	return ret;
+}
+
+ASSIGN_V3::fn macro(dst : _expr, a : _expr)
+{
+	dst.x = a.x;
+	dst.y = a.y;
+	dst.z = a.z;
+
+}
+square_normalize::fn(a : *v3) !v3
+{
+	aux: = *a;
+	epsilon: = 0.01;
+	if aux.x > epsilon
+		aux.x = 1.0;
+	else if aux.x <= -epsilon
+		aux.x = -1.0;
+
+	if aux.y > epsilon
+		aux.y = 1.0;
+	else if aux.y <= -epsilon
+		aux.y = -1.0;
+	return aux;
+}
+mul_v3::fn(a : *v3, b : *v3) !v3
+{
+	aux:v3;
+	aux.x = a.x * b.x;
+	aux.y = a.y * b.y;
+	aux.z = a.z * b.z;
+
+	return aux;
+}
+sign_v3::fn(a : *v3) !v3
+{
+	aux: = *a;
+	aux.x = if a.x > 0.0 1.0 else - 1.0;
+	aux.y = if a.y > 0.0 1.0 else - 1.0;
+	aux.z = if a.z > 0.0 1.0 else - 1.0;
+
+	return aux;
+}
+len_v4::fn(a : *v4) !f32
+{
+	return sqrt(dot_v4(a, a));
+}
+len_vec::fn(a : *_vec) !f32
+{
+	return sqrt(dot_vec(a, a));
+}
+len_v3::fn x64(a : *v3) !f32
+{
+	return sqrt(dot_v3(a, a));
+}
+normalize_v4::fn(a : *v4) !v4
+{
+	len: = sqrt(dot_v4(a, a));
+	ret:v4;
+	ret.x = a.x / len;
+	ret.y = a.y / len;
+	ret.z = a.z / len;
+	ret.w = a.w / len;
+	return ret;
+}
+normalize_vec::fn(a : *_vec) ! _vec
+{
+	dot: = dot_vec(a, a);
+	len: = sqrt(dot);
+	//__dbg_break
+	ret:_vec = *a / len;
+	return ret;
+}
+normalize_v3::fn(a : *v3) !v3
+{
+	dot: = dot_v3(a, a);
+	len: = sqrt(dot);
+	ret:v3;
+	ret.x = a.x / len;
+	ret.y = a.y / len;
+	ret.z = a.z / len;
+	return ret;
+}
+dot_v4::fn(a : *v4, b : *v4) !f32
+{
+	ret: = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	return ret;
+}
+//dot_v3::fn outsider(a : *v3, b : *v3) !f32;
+dot_vec::fn x64(a : *_vec, b : *_vec) !f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	return ret;
+}
+dot_v3::fn x64(a : *v3, b : *v3) !f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z;
+	return ret;
+}
+DOT_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+
+{
+	
+	dst = a.x * b.x + a.y * b.y + a.z * b.z;
+}
+MUL_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	dst.x = a.x * b.x;
+	dst.y = a.y * b.y;
+	dst.z = a.z * b.z;
+}
+MUL_V3_F32::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	dst.x = a.x * b;
+	dst.y = a.y * b;
+	dst.z = a.z * b;
+}
+SUB_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	dst.x = a.x - b.x;
+	dst.y = a.y - b.y;
+	dst.z = a.z - b.z;
+}
+SUM_V3::fn macro(dst : _expr, a : _expr, b : _expr)
+{
+	dst.x = a.x + b.x;
+	dst.y = a.y + b.y;
+	dst.z = a.z + b.z;
+}
+DoTwoLinesIntersect::fn x64(startA : *_vec, endA : *_vec, startB : *_vec, endB : *_vec, p : *_vec) !bool
+{
+	x1:f32;
+	x2:f32; 
+	y1:f32; 
+	y2:f32; 
+	x3:f32;
+	x4:f32;
+	y3:f32; 
+	y4:f32;
+
+	x1 = startA.x;
+	x2 = endA.x;
+	y1 = startA.y;
+	y2 = endA.y;
+
+	x3 = startB.x;
+	x4 = endB.x;
+	y3 = startB.y;
+	y4 = endB.y;
+
+	den:= (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+	if (den == 0.0)
+	{
+		return false;
+	}
+
+	t := ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+
+	u := ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / den;
+
+	if (t > 0.0 && t < 1.0 && u > 0.0 && u < 1.0)
+	{
+		//*p = *startA + (*endA - *startA) * t;
+		p.x = startA.x + (endA.x - startA.x) * t;
+		p.y = startA.y + (endA.y - startA.y) * t;
+		return true;
+	}
+	return false;
+}
+
+

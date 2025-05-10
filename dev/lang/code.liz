@@ -1,0 +1,1070 @@
+import "../../core";
+import "../common";
+
+bc_op : struct
+{
+	r : u16,
+	sz : u8,
+	i : s64,
+}
+bc_type : enum
+{
+	MOV_I_2_R,
+	MOV_M_2_R,
+	MOV_R_2_M,
+	MOV_I_2_M,
+	MOV_R_2_R,
+
+	MOVZX_I_2_R,
+	MOVZX_M_2_R,
+	MOVZX_R_2_M,
+	MOVZX_I_2_M,
+	MOVZX_R_2_R,
+
+	CMP_I_2_R,
+	CMP_M_2_R,
+	CMP_R_2_M,
+	CMP_I_2_M,
+	CMP_R_2_R,
+
+	ADD_I_2_R,
+	ADD_M_2_R,
+	ADD_R_2_M,
+	ADD_I_2_M,
+	ADD_R_2_R,
+
+	SUB_I_2_R,
+	SUB_M_2_R,
+	SUB_R_2_M,
+	SUB_I_2_M,
+	SUB_R_2_R,
+
+	PUSH_R,
+	POP_R,
+
+	JMP,
+	JE,
+	JNE,
+	JG,
+	JGE,
+	JL,
+	JLE,
+
+	CALL,
+	CALL_OUTSIDER,
+
+	RET,
+}
+byte_code : struct
+{
+	tp : bc_type,
+	r : u16,
+	op : u16,
+	mem_offset : s32,
+	i : s32
+}
+call_rel : struct
+{
+	fdecl : *func_decl,
+	bc_idx : u32
+}
+machine : struct
+{
+	data : dyn_array(u8),
+	calls : dyn_array(call_rel),
+	outsiders : dyn_array(u32),
+	cur_func : *func_decl
+}
+
+bc_aux_val: struct
+{
+	using tp : ir_val_type,
+	sz : u8,
+	ptr : u8,
+	deref : u8,
+}
+
+gen_ir_reg_bc::fn(out_ar : *dyn_array(byte_code), val : *ir_val, out : *bc_aux_val, addr : bool)
+{
+	out.tp = ir_val_type.REG
+	out.REG.r = val.REG.r
+	out.sz = val.sz
+
+	bc : byte_code
+	deref := val.deref
+
+	out.deref = deref
+	if addr
+	{
+		deref--
+	}
+
+	while deref > 0
+	{
+		bc.tp = bc_type.MOV_M_2_R
+		//bc.bin.lhs.r = val.REG.r
+		//bc.bin.rhs.r = val.REG.r
+		dyn_add(out_ar, &bc)
+		deref--
+	}
+}
+size_hand_side::fn(hs : u8) !u16
+{
+	if hs == 1
+		return 0;
+	else if hs == 2
+		return 1;
+	else if hs == 4
+		return 2;
+	else if hs == 8
+		return 3;
+	else
+		__dbg_break;
+}
+
+print_ir::fn(ir : *ir_rep)
+{
+	if ir.type == ir_type.BIN
+	{
+		printf("BIN \n")
+	}
+	else if ir.type == ir_type.END_SUB_IF
+	{
+		printf("END_SUB_IF \n")
+	}
+	else if ir.type == ir_type.END_COND
+	{
+		printf("END_COND \n")
+	}
+	else if ir.type == ir_type.END_STMNT
+	{
+		printf("END_ST \n")
+	}
+	else if ir.type == ir_type.END_IF
+	{
+		printf("END_IF\n")
+	}
+	else if ir.type == ir_type.BEGIN_COND
+	{
+		printf("BEGIN_COND\n")
+	}
+	else if ir.type == ir_type.BEGIN_SUB_IF
+	{
+		printf("BEGIN_SUB_IF\n")
+	}
+	else if ir.type == ir_type.END_STACK
+	{
+		printf("END_STACK\n")
+	}
+	else if ir.type == ir_type.BEGIN_IF
+	{
+		printf("BEGIN_IF\n")
+	}
+	else if ir.type == ir_type.BEGIN_STMNT
+	{
+		printf("BEGIN_ST {ir.BEGIN_STMNT.line}\n")
+	}
+	else
+	{
+		__dbg_break
+	}
+}
+
+ir_to_bc::fn(mach : *machine, irs : *dyn_array(ir_rep), out : *dyn_array(byte_code))
+{
+	block : struct
+	{
+		parent : *block
+		tp : u32,
+		start_bc : s32,
+		jmps : dyn_array(s32)
+
+	}
+	blocks : [32]block
+	memset(blocks[0], 0, 32 * sizeof(block))
+	cur_block := blocks[0]
+	cur_block.parent = nil
+	cur_block_idx := 0
+	cur_line : u32=0
+	cur_block.jmps.count = 0
+	for ir in* irs
+	{
+		bc : byte_code
+		/*
+		if cur_line >= 41
+		{
+			print_ir(ir)
+			__dbg_break
+		}
+		*/
+		if ir.type == ir_type.BIN
+		{
+			lhs: = &ir.BIN.lhs
+			rhs: = &ir.BIN.rhs
+
+			base_inst: bc_type
+			bc.op = cast(u16)ir.BIN.op
+
+			is_cond : = false
+
+
+			if ir.BIN.op == cast(u32)token_type.EQUAL
+			{
+				base_inst = bc_type.MOV_I_2_R
+			}
+			else if ir.BIN.op == cast(u32)token_type.PLUS
+			{
+				base_inst = bc_type.ADD_I_2_R
+			}
+			else if ir.BIN.op == cast(u32)token_type.MINUS
+			{
+				base_inst = bc_type.ADD_I_2_R
+			}
+			else if ir.BIN.op == cast(u32)token_type.COND_GE || ir.BIN.op == cast(u32)token_type.COND_GT ||
+					ir.BIN.op == cast(u32)token_type.COND_LE || ir.BIN.op == cast(u32)token_type.COND_LT ||
+					ir.BIN.op == cast(u32)token_type.COND_EQ || ir.BIN.op == cast(u32)token_type.COND_NE
+			{
+				base_inst = bc_type.CMP_I_2_R
+				is_cond = true
+			}
+			else
+			{
+				tt : token_type
+				tt.type = cast(token_type)ir.BIN.op
+				__dbg_break
+			}
+
+			if lhs.type == ir_val_type.REG && rhs.type == ir_val_type.INT
+			{
+				lhs_aux :bc_aux_val
+				gen_ir_reg_bc(out, lhs, &lhs_aux, true)
+
+				if lhs_aux.deref > 0
+				{
+					base_inst = cast(bc_type)(cast(u32)base_inst + 3)
+				}
+
+				bc.tp = base_inst
+				bc.r = cast(u16)lhs_aux.REG.r | (size_hand_side(lhs_aux.sz) << 8)
+				bc.i = cast(s32)rhs.INT.num
+				dyn_add(out, &bc)
+			}
+			else if lhs.type == ir_val_type.REG && rhs.type == ir_val_type.MEM
+			{
+				lhs_aux :bc_aux_val
+				gen_ir_reg_bc(out, lhs, &lhs_aux, false)
+
+				base_inst = cast(bc_type)(cast(u32)base_inst + 1)
+				bc.tp = base_inst
+				bc.mem_offset = rhs.MEM.mem_offset
+				bc.r = cast(u16)(lhs_aux.REG.r | (rhs.MEM.r << 4))  | (size_hand_side(lhs_aux.sz) << 8)
+				dyn_add(out, &bc)
+
+			}
+			else if lhs.type == ir_val_type.MEM && rhs.type == ir_val_type.REG
+			{
+				base_inst = cast(bc_type)(cast(u32)base_inst + 2)
+
+				rhs_aux :bc_aux_val
+				gen_ir_reg_bc(out, rhs, &rhs_aux, false)
+
+				bc.tp = base_inst
+				bc.mem_offset = lhs.MEM.mem_offset
+				bc.r = cast(u16)(lhs.MEM.r | (rhs_aux.REG.r << 4))  | (size_hand_side(lhs.sz) << 8)
+				dyn_add(out, &bc)
+
+			}
+			else if lhs.type == ir_val_type.MEM && rhs.type == ir_val_type.INT
+			{
+				base_inst = cast(bc_type)(cast(u32)base_inst + 3)
+				bc.tp = base_inst
+				bc.mem_offset = lhs.MEM.mem_offset
+				bc.i = cast(s32)rhs.INT.num
+				bc.r = cast(u16)(lhs.MEM.r)  | (size_hand_side(lhs.sz) << 8)
+				dyn_add(out, &bc)
+
+			}
+			else if lhs.type == ir_val_type.REG && rhs.type == ir_val_type.REG
+			{
+				lhs_aux :bc_aux_val
+				gen_ir_reg_bc(out, lhs, &lhs_aux, true)
+
+				rhs_aux :bc_aux_val
+				gen_ir_reg_bc(out, rhs, &rhs_aux, false)
+
+				if lhs_aux.deref > 0
+				{
+					base_inst = cast(bc_type)(cast(u32)base_inst + 3)
+				}
+				else
+				{
+					base_inst = cast(bc_type)(cast(u32)base_inst + 4)
+				}
+
+				bc.tp = base_inst
+				bc.r = cast(u16)(lhs_aux.REG.r | (rhs_aux.REG.r << 4))  | (size_hand_side(lhs_aux.sz) << 8)
+				bc.mem_offset = 0
+				dyn_add(out, &bc)
+			}
+			else
+				__dbg_break;
+			/*
+			if tkn.type == token_type.COND_GE || tkn.type == token_type.COND_GT ||
+					tkn.type == token_type.COND_LE || tkn.type == token_type.COND_LT ||
+					tkn.type == token_type.COND_EQ || tkn.type == token_type.COND_NE
+					*/
+			if is_cond
+			{
+				if ir.BIN.op == cast(u32)token_type.COND_GE
+				{
+					bc.tp = bc_type.JGE
+				}
+				else if ir.BIN.op == cast(u32)token_type.COND_GT
+				{
+					bc.tp = bc_type.JG
+				}
+				else if ir.BIN.op == cast(u32)token_type.COND_LE
+				{
+					bc.tp = bc_type.JLE
+				}
+				else if ir.BIN.op == cast(u32)token_type.COND_LT
+				{
+					bc.tp = bc_type.JL
+				}
+				else if ir.BIN.op == cast(u32)token_type.COND_EQ
+				{
+					bc.tp = bc_type.JE
+				}
+				else if ir.BIN.op == cast(u32)token_type.COND_NE
+				{
+					bc.tp = bc_type.JNE
+				}
+				else
+				{
+					__dbg_break
+				}
+
+				jmp_idx := out.count
+				aux_cur := cur_block
+				if ir.is_and_like_cond
+				{
+					while aux_cur
+					{
+						pr := aux_cur.parent
+						if pr != nil
+						{
+							if pr.tp == cast(u32)ir_type.BEGIN_OR
+							{
+								break
+							}
+							else if pr.tp == cast(u32)ir_type.BEGIN_SUB_IF || pr.tp == cast(u32)ir_type.BEGIN_LOOP
+
+							{
+								aux_cur = pr
+								break
+							}
+						}
+
+						aux_cur = aux_cur.parent 
+					}
+				}
+				else
+				{
+					while aux_cur
+					{
+						pr := aux_cur.parent
+						if pr != nil
+						{
+							if pr.tp == cast(u32)ir_type.BEGIN_AND
+							{
+								break
+							}
+							else if pr.tp == cast(u32)ir_type.BEGIN_COND
+							{
+								aux_cur = pr
+								break
+							}
+						}
+
+						aux_cur = aux_cur.parent 
+					}
+				}
+
+				if aux_cur
+				{
+					dyn_add(&aux_cur.jmps, cast(s32)jmp_idx)
+				}
+				dyn_add(out, &bc)
+			}
+		}
+		else if ir.type == ir_type.CAST_INT_2_INT
+		{
+			bc.tp = bc_type.MOVZX_R_2_R
+			bc.r = cast(u16)(ir.CAST_INT_2_INT.lhs.REG.r | (ir.CAST_INT_2_INT.lhs.REG.r << 4))
+			bc.i = cast(s32)(size_hand_side(ir.CAST_INT_2_INT.lhs.sz) | (size_hand_side(ir.CAST_INT_2_INT.rhs.sz) << 4))
+
+			dyn_add(out, &bc)
+
+		}
+		else if ir.type == ir_type.END_STACK
+		{
+			gen_imm_to_reg(RSP_REG, 8, bc_type.SUB_I_2_R, cast(s32)mach.cur_func.stack_sz, out, cast(u16)token_type.MINUS)
+			bc.tp = bc_type.POP_R
+			bc.r = RBP_REG
+			dyn_add(out, &bc)
+
+			bc.tp = bc_type.RET
+			dyn_add(out, &bc)
+
+		}
+		else if ir.type == ir_type.BEGIN_STACK
+		{
+			bc.tp = bc_type.PUSH_R
+			bc.r = RBP_REG
+			dyn_add(out, &bc)
+
+			gen_reg_to_reg(RBP_REG, RSP_REG, 8, bc_type.MOV_R_2_R, out, cast(u16)token_type.EQUAL)
+			gen_imm_to_reg(RSP_REG, 8, bc_type.ADD_I_2_R, cast(s32)mach.cur_func.stack_sz, out, cast(u16)token_type.PLUS)
+		}
+		else if ir.type == ir_type.BEGIN_STMNT
+		{
+			cur_line = ir.BEGIN_STMNT.line
+		}
+		else if ir.type == ir_type.END_STMNT
+		{
+		}
+		else if ir.type == ir_type.CALL_OUTSIDER
+		{
+			bc.tp = bc_type.CALL_OUTSIDER
+
+			ASSERT(ir.CALL_OUTSIDER.fdecl.start != -1)
+			bc.i = cast(s32)ir.CALL_OUTSIDER.fdecl.start
+			dyn_add(out, &bc)
+		}
+		else if ir.type == ir_type.CALL
+		{
+			c : call_rel
+			c.fdecl = ir.CALL.fdecl
+			c.bc_idx = cast(u32)out.count
+			dyn_add(&mach.calls, &c)
+
+			bc.tp = bc_type.CALL
+			dyn_add(out, &bc)
+		}
+		else if ir.type == ir_type.END_LOOP
+		{
+			jmp_idx := out.count
+			aux_cur := cur_block
+			while aux_cur
+			{
+				if aux_cur.tp == cast(u32)ir_type.BEGIN_LOOP
+				{
+					break
+				}
+				aux_cur = aux_cur.parent 
+			}
+
+			for j in aux_cur.jmps
+			{
+				aux_bc := out[cast(u64)*j]
+				a := cast(s32)(out.count + 1) - *j
+				aux_bc.i = a
+			}
+
+			//tt := out[cast(u64)aux_cur.start_bc]
+			//__dbg_break
+
+			bc.tp = bc_type.JMP
+			bc.i = aux_cur.start_bc - cast(s32)out.count
+			dyn_add(out, &bc)
+		}
+		else if ir.type == ir_type.BEGIN_IF || 
+		   ir.type == ir_type.BEGIN_SUB_IF || 
+		   ir.type == ir_type.BEGIN_OR || 
+		   ir.type == ir_type.BEGIN_AND || 
+		   ir.type == ir_type.BEGIN_LOOP || 
+		   ir.type == ir_type.BEGIN_COND
+		{
+
+
+			prev := cur_block
+
+			cur_block_idx++
+
+			cur_block = blocks[cast(u64)cur_block_idx]
+			cur_block.tp = cast(u32)ir.type
+
+			cur_block.parent = prev
+			cur_block.start_bc = cast(s32)out.count
+			cur_block.jmps.count = 0
+			//__dbg_break
+
+		}
+		else if ir.type == ir_type.END_IF || 
+		   ir.type == ir_type.END_SUB_IF || 
+		   ir.type == ir_type.END_OR || 
+		   ir.type == ir_type.END_AND || 
+		   ir.type == ir_type.END_COND
+		{
+			cur_count := cast(s32)out.count
+			/*
+			if cur_block.jmps.count > 0
+			{
+				__dbg_break
+			}
+			*/
+			for j in cur_block.jmps
+			{
+				ASSERT(cast(u64)*j < out.count)
+				aux_bc := ptr_offset(out.data, cast(u64)*j, byte_code)
+				a := cur_count - *j
+				aux_bc.i = a
+			}
+
+			cur_block.jmps.count = 0
+
+			cur_block_idx--
+			cur_block = blocks[cast(u64)cur_block_idx]
+		}
+		else
+		{
+			__dbg_break
+		}
+	}
+}
+
+RIP_REG:const s32 = 8
+RSP_REG : const s32 = 9
+EFLAGS_REG : const s32 = 10
+RBP_REG : const s32 = 11
+
+get_mem_offset::fn(m : *machine, r : u16, offset : s32) !*u64
+{
+	r_val := get_reg(m, r)
+	offset = cast(s32)*r_val + offset
+	return cast(*u64)ptr_offset(m.data.data, cast(u64)offset, u8)
+}
+get_reg::fn(m : *machine, r : u16) !*u64
+{
+	return cast(*u64)ptr_offset(m.data.data, cast(u64)r * 8, u8)
+}
+
+get_expression_val::fn{ T }(dst : T, src : T, op : u32) !T
+{
+	if op == cast(u32)token_type.EQUAL
+	{
+		return src;
+	}
+	else if op == cast(u32)token_type.PLUS
+	{
+		return dst + src;
+	}
+	else if op == cast(u32)token_type.MINUS
+	{
+		return dst - src;
+	}
+	else
+		__dbg_break;
+	return 0
+}
+do_operation_on_ptr_s::fn(dst : *s64, src : s64, op : u32, sz : u8)
+{
+	if sz == 0
+	{
+		*cast(*s8)dst = get_expression_val(*cast(*s8)dst, cast(s8)src, op)
+	}
+	else if sz == 1
+	{
+		*cast(*s16)dst = get_expression_val(*cast(*s16)dst, cast(s16)src, op)
+		//*cast(*s16)dst = get_expression_s(dst, src, op)
+	}
+	else if sz == 2
+	{
+		*cast(*s32)dst = get_expression_val(*cast(*s32)dst, cast(s32)src, op)
+	}
+	else if sz == 3
+	{
+		*cast(*s64)dst = get_expression_val(*cast(*s64)dst, cast(s64)src, op)
+	}
+	else 
+		__dbg_break;
+
+}
+
+EFLAGS_ZERO:const s32= 1
+EFLAGS_ABOVE:const s32= 2
+EFLAGS_BELOW:const s32= 4
+
+gen_reg_to_reg::fn(lhs : u8, rhs : u8, sz : u8, inst : bc_type, bcs : *dyn_array(byte_code), op : u16)
+{
+	bc : byte_code
+	bc.tp = inst
+	bc.op = op
+	bc.r = cast(u16)(lhs | (rhs << 4))  | (size_hand_side(sz) << 8)
+	dyn_add(bcs, &bc)
+}
+gen_imm_to_reg::fn(r : u8, sz : u8, inst : bc_type, imm : s32, bcs : *dyn_array(byte_code), op : u16)
+{
+	bc : byte_code
+	bc.tp = inst
+	bc.op = op
+	bc.r = cast(u16)(r) | (size_hand_side(sz) << 8)
+	bc.i = imm
+	dyn_add(bcs, &bc)
+}
+check_val_assign_flags::fn(eflags : *u64 , val : u64, sign_flag : u64)
+{
+	if val == 0
+	{
+		*eflags = EFLAGS_ZERO;
+	}
+	else
+	{
+		below := ((val & sign_flag) != 0)
+		*eflags = cast(u64)below * EFLAGS_BELOW
+		*eflags = *eflags | (cast(u64)!below * EFLAGS_ABOVE)
+	}
+}
+/*
+do_cmp_inst_float(float lhs, float rhs, u64* eflags)
+{
+	float val = lhs - rhs;
+	int sign_flag = 1 << 31;
+	if (val == 0)
+	{
+		*eflags = EFLAGS_ZERO;
+	}
+	else
+	{
+		bool below = ((*(int *)&val & sign_flag) != 0);
+		*eflags = below * EFLAGS_BELOW;
+		*eflags |= !below * EFLAGS_ABOVE;
+	}
+}
+*/
+do_cmp_inst::fn(dst : *void , in_val : u64, eflags : *u64, sz : u8)
+{
+	if sz == 0
+	{
+		val := (*cast(*u8)dst) - cast(u8)in_val;
+		check_val_assign_flags(eflags, val, 1<<7);
+	}
+	else if sz == 1
+	{
+		val := (*cast(*u16)dst) - cast(u16)in_val;
+		check_val_assign_flags(eflags, val, 1<<15);
+	}
+	else if sz == 2
+	{
+		val := (*cast(*u32)dst) - cast(u32)in_val;
+		check_val_assign_flags(eflags, val, 1<<31);
+	}
+	else if sz == 3
+	{
+		val := (*cast(*u64)dst) - in_val;
+		check_val_assign_flags(eflags, val, 1<<63);
+	}
+}
+
+bc_logic_single :: fn(m : *machine, bcs : *dyn_array(byte_code), rip : **byte_code) ! bool
+{
+	reg_dst := rip.r & 0xf
+	reg_src := (rip.r >> 4) & 0xf
+	mem_offset := rip.mem_offset
+	reg_m_offset : u32
+	num := cast(s64)rip.i
+	sz := cast(u8)((rip.r >> 8) & 0x3)
+
+	dst : *u64=?
+	src : *u64=?
+	eflags :*u64=?
+
+	if rip.tp == bc_type.MOV_I_2_R || 
+	   rip.tp == bc_type.ADD_I_2_R || 
+	   rip.tp == bc_type.SUB_I_2_R
+
+	{
+		dst = get_reg(m, reg_dst)
+		do_operation_on_ptr_s(cast(*s64)dst, cast(s64)num, cast(u32)rip.op, sz)
+			
+		a := 0
+	}
+	else if rip.tp == bc_type.CALL_OUTSIDER
+	{
+		addr := m.outsiders[cast(u64)rip.i]
+		call := cast(fn(*machine))*addr
+
+		call(m)
+	}
+	else if rip.tp == bc_type.CALL
+	{
+		dst = get_reg(m, RSP_REG)
+		dst = cast(*u64)ptr_offset(m.data.data, *dst, u8)
+		*dst = cast(u64)ptr_offset(*rip, 1, byte_code)
+
+		dst = get_reg(m, RSP_REG)
+		*dst += 8
+
+		*rip = ptr_offset(*rip, num, byte_code)
+		return true
+	}
+	else if rip.tp == bc_type.POP_R
+	{
+		dst = get_reg(m, reg_dst)
+		src = get_reg(m, RSP_REG)
+		*dst = *cast(*u64)ptr_offset(m.data.data, *src, u8)
+
+		*src -= 8
+	}
+	else if rip.tp == bc_type.PUSH_R
+	{
+		dst = get_reg(m, RSP_REG)
+		src = get_reg(m, reg_dst)
+		*cast(*u64)ptr_offset(m.data.data, *dst, u8) = *src
+		*dst += 8
+	}
+	else if rip.tp == bc_type.JG
+	{
+		eflags = get_reg(m, EFLAGS_REG)
+			
+		if is_flag_on(*eflags, EFLAGS_ABOVE)
+		{
+			*rip = ptr_offset(*rip, num, byte_code)
+			return true
+		}
+	}
+	else if rip.tp == bc_type.JGE
+	{
+		eflags = get_reg(m, EFLAGS_REG)
+			
+		if is_flag_on(*eflags, EFLAGS_ZERO | EFLAGS_ABOVE)
+		{
+			//__dbg_break
+			*rip = ptr_offset(*rip, num, byte_code)
+			return true
+		}
+	}
+	else if rip.tp == bc_type.JL
+	{
+		eflags = get_reg(m, EFLAGS_REG)
+			
+		if is_flag_on(*eflags, EFLAGS_BELOW)
+		{
+			*rip = ptr_offset(*rip, num, byte_code)
+			return true
+		}
+	}
+	else if rip.tp == bc_type.JLE
+	{
+		eflags = get_reg(m, EFLAGS_REG)
+			
+		if is_flag_on(*eflags, EFLAGS_ZERO | EFLAGS_BELOW)
+		{
+			*rip = ptr_offset(*rip, num, byte_code)
+			return true
+		}
+	}
+	else if rip.tp == bc_type.JMP
+	{
+		*rip = ptr_offset(*rip, num, byte_code)
+		return true
+	}
+	else if rip.tp == bc_type.JNE
+	{
+		eflags = get_reg(m, EFLAGS_REG)
+			
+		if is_flag_off(*eflags, EFLAGS_ZERO)
+		{
+			*rip = ptr_offset(*rip, num, byte_code)
+			return true
+		}
+	}
+	else if rip.tp == bc_type.JE
+	{
+		eflags = get_reg(m, EFLAGS_REG)
+			
+		if is_flag_on(*eflags, EFLAGS_ZERO)
+		{
+			*rip = ptr_offset(*rip, num, byte_code)
+			return true
+		}
+		a := 0
+	}
+	else if rip.tp == bc_type.CMP_I_2_M
+	{
+		dst = get_mem_offset(m, reg_dst, mem_offset)
+		val := *dst
+		eflags = get_reg(m, EFLAGS_REG)
+		*eflags = 0
+
+		do_cmp_inst(dst, cast(u64)num, eflags, sz)
+			
+		a := 0
+	}
+	else if rip.tp == bc_type.CMP_I_2_R
+	{
+		dst = get_reg(m, reg_dst)
+		val := *dst
+		eflags = get_reg(m, EFLAGS_REG)
+		*eflags = 0
+
+		do_cmp_inst(dst, cast(u64)num, eflags, sz)
+			
+		a := 0
+	}
+	else if rip.tp == bc_type.MOVZX_R_2_R
+	{
+		dst = get_reg(m, reg_dst)
+		src = get_reg(m, reg_src)
+
+		// byte to qword
+		if num == 3
+		{
+			*cast(*s64)dst = *cast(*s8)src
+		}
+		// word to qword
+		else if num == 0x13
+		{
+			*cast(*s64)dst = *cast(*s16)src
+		}
+		// dword to qword
+		else if num == 0x23
+		{
+			*cast(*s64)dst = *cast(*s32)src
+		}
+
+	}
+	else if rip.tp == bc_type.MOV_R_2_M ||
+			rip.tp == bc_type.ADD_R_2_M || 
+			rip.tp == bc_type.SUB_R_2_M
+			
+	{
+		dst = get_mem_offset(m, reg_dst, mem_offset)
+		
+		src = get_reg(m, reg_src)
+		do_operation_on_ptr_s(cast(*s64)dst, cast(s64)*src, cast(u32)rip.op, sz)
+	}
+	else if rip.tp == bc_type.MOV_M_2_R ||
+			rip.tp == bc_type.ADD_M_2_R || 
+			rip.tp == bc_type.SUB_M_2_R
+			
+	{
+		dst = get_reg(m, reg_dst)
+		
+		src = get_mem_offset(m, reg_src, mem_offset)
+		do_operation_on_ptr_s(cast(*s64)dst, cast(s64)*src, cast(u32)rip.op, sz)
+	}
+	else if rip.tp == bc_type.MOV_I_2_M ||
+			rip.tp == bc_type.ADD_I_2_M || 
+			rip.tp == bc_type.SUB_I_2_M
+	{
+		dst = get_mem_offset(m, reg_dst, mem_offset)
+		do_operation_on_ptr_s(cast(*s64)dst, cast(s64)num, cast(u32)rip.op, sz)
+	}
+	else if rip.tp == bc_type.MOV_R_2_R ||
+			rip.tp == bc_type.ADD_R_2_R || 
+			rip.tp == bc_type.SUB_R_2_R
+	{
+		dst = get_reg(m, reg_dst)
+		src = get_reg(m, reg_src)
+		do_operation_on_ptr_s(cast(*s64)dst, cast(s64)*src, cast(u32)rip.op, sz)
+			
+		a := 0
+	}
+	else if rip.tp == bc_type.RET
+	{
+		rsp := get_reg(m, RSP_REG)
+		*rsp -= 8
+		tt := cast(*u64)ptr_offset(m.data.data, *rsp, u8)
+		*rip = cast(*byte_code)*tt
+		return true
+
+	}
+	else
+	{
+		__dbg_break
+	}
+	return false
+}
+
+print_inst::fn(op : u32)
+{
+	if op == cast(u32)token_type.EQUAL
+	{
+		printf("mov")
+	}
+	else if op == cast(u32)token_type.MINUS
+	{
+		printf("sub")
+	}
+	else if op == cast(u32)token_type.PLUS
+	{
+		printf("plus")
+	}
+	else
+	{
+		__dbg_break
+	}
+}
+print_val::fn(val : u64, sz : u64)
+{
+	if sz == 0
+	{
+		*cast(*u8)&val = cast(u8)val
+	}
+	else if sz == 1
+	{
+		*cast(*u16)&val = cast(u16)val
+	}
+	else if sz == 2
+	{
+		*cast(*u32)&val = cast(u32)val
+	}
+	printf("{val}")
+}
+print_mem::fn(m : *machine, r : u16, mem_offset : s32, sz : u8)
+{
+	reg := get_mem_offset(m, r, mem_offset)
+	printf("m: ")
+	print_val(*reg, sz)
+}
+print_reg::fn(m : *machine, r : u16, sz : u8)
+{
+	reg := get_reg(m, r)
+	printf("r{r}:")
+	print_val(*reg, sz)
+}
+print_bc::fn(bc : *byte_code, m : *machine)
+{
+	reg_dst := bc.r & 0xf
+	reg_src := (bc.r >> 4) & 0xf
+	mem_offset := bc.mem_offset
+	reg_m_offset : u32
+	num := cast(s64)bc.i
+	sz := cast(u8)((bc.r >> 8) & 0x3)
+
+	if bc.tp == bc_type.CMP_I_2_R
+	{
+		printf("cmp r%, %;", reg_dst, num)
+		print_reg(m, reg_dst, sz)
+	}
+	else if bc.tp == bc_type.JL
+	{
+		printf("jl %", num)
+	}
+	else if bc.tp == bc_type.JE
+	{
+		printf("je %", num)
+
+	}
+	else if bc.tp == bc_type.MOV_I_2_R || bc.tp == bc_type.ADD_I_2_R ||
+			bc.tp == bc_type.SUB_I_2_R
+	{
+		print_inst(bc.op)
+		printf(" r%, %;", reg_dst, num)
+		print_reg(m, reg_dst, sz)
+	}
+	else if bc.tp == bc_type.MOV_R_2_M || bc.tp == bc_type.ADD_R_2_M ||
+			bc.tp == bc_type.SUB_R_2_M
+	{
+		print_inst(bc.op)
+		printf(" [r% + %], r%; ", reg_dst, mem_offset, reg_src)
+		print_reg(m, reg_src, sz)
+		printf(", ")
+		print_mem(m, reg_dst, mem_offset, sz)
+	}
+	else if bc.tp == bc_type.MOV_M_2_R || bc.tp == bc_type.ADD_M_2_R ||
+			bc.tp == bc_type.SUB_M_2_R
+	{
+		print_inst(bc.op)
+		printf(" r%, [r% + %]; ", reg_dst, reg_src, mem_offset)
+		print_reg(m, reg_dst, sz)
+		printf(", ")
+		print_mem(m, reg_src, mem_offset, sz)
+	}
+	else if bc.tp == bc_type.CALL_OUTSIDER
+	{
+		printf("call_outsider %", num)
+	}
+	else if bc.tp == bc_type.CALL
+	{
+		printf("call %", num)
+	}
+	else if bc.tp == bc_type.CMP_I_2_M
+	{
+		printf("cmp [r% + %], %; ", reg_dst, mem_offset, num)
+		print_mem(m, reg_dst, mem_offset, sz)
+	}
+	else if bc.tp == bc_type.MOV_I_2_M || bc.tp == bc_type.ADD_I_2_M ||
+			bc.tp == bc_type.SUB_I_2_M
+	{
+		print_inst(bc.op)
+		printf(" [r% + %], %; ", reg_dst, mem_offset, num)
+		print_mem(m, reg_dst, mem_offset, sz)
+	}
+	else if bc.tp == bc_type.MOVZX_R_2_R
+	{
+		printf("movzx r%, r%; ", reg_dst, reg_src)
+		print_reg(m, reg_dst, sz)
+		printf(", ")
+		print_reg(m, reg_src, sz)
+	}
+	else if bc.tp == bc_type.MOV_R_2_R || bc.tp == bc_type.ADD_R_2_R ||
+			bc.tp == bc_type.SUB_R_2_R
+	{
+		print_inst(bc.op)
+		printf(" r%, r%; ", reg_dst, reg_src)
+		print_reg(m, reg_dst, sz)
+		printf(", ")
+		print_reg(m, reg_src, sz)
+	}
+	else if bc.tp == bc_type.RET
+	{
+		printf("ret")
+	}
+	else if bc.tp == bc_type.POP_R
+	{
+		printf("pop r%; ", reg_dst)
+		print_reg(m, reg_dst, sz)
+	}
+	else if bc.tp == bc_type.PUSH_R
+	{
+		printf("push r%; ", reg_dst)
+		print_reg(m, reg_dst, sz)
+	}
+	else
+	{
+		__dbg_break
+	}
+	printf(" rsp ")
+	print_reg(m, RSP_REG, sz)
+	printf("\n")
+	globals.temp_alloc.cur = 0
+}
+bc_logic :: fn(m : *machine, bcs : *dyn_array(byte_code), start : u32)
+{
+	*cast(**byte_code)ptr_offset(m.data.data, RIP_REG * 8, u8) = bcs[0]
+	rip := cast(**byte_code)ptr_offset(m.data.data, RIP_REG * 8, u8)
+	*rip = bcs[cast(u64)start]
+	while *rip != nil
+	{
+
+		/*
+		if rip.tp == bc_type.MOV_I_2_M
+		{
+			__dbg_break
+		}
+		*/
+		//rbp := get_mem_offset(m, RBP_REG, 0)
+		//print_bc(*rip, m)
+		//__dbg_break
+
+
+		if !bc_logic_single(m, bcs, rip)
+		{
+			*rip = ptr_offset(*rip, 1, byte_code)
+		}
+	}
+	//printf("\n")
+
+}

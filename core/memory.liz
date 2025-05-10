@@ -1,0 +1,1545 @@
+import "../dev/common"
+CHUNK_FREE : const s32 = 1;
+CHUNK_ALLOCATED : const s32= 4;
+
+heap_hash : struct
+{
+	inner :struct
+	{
+		key : *void,
+		value : *u8,
+	} 
+	data : *inner,
+}
+
+mem_chunk : struct
+{
+    next : *mem_chunk,
+    prev : *mem_chunk,
+    size : u32,
+    flags: u32,
+    addr : *u8,
+}
+mem_alloc : struct
+{
+    buffer : *u8,
+    head_free : *mem_chunk,
+    in_use : heap_hash,
+	id : u32,
+    all : *mem_chunk,
+    probable_unallocated : **mem_chunk,
+	chunks_cap :u32,
+	hash_table_size : u32,
+}
+
+//alloc.chunks_cap :const s32=  (9000);
+BYTES_PER_CHUNK : const s32= 8;
+//alloc.hash_table_size : const s32=  (9000);
+UNALLOCATED_BUFFER_ITEMS : const s32=  8;
+
+GetMem::fn outsider(sz:u64) ! *void;
+SubMem::fn outsider(sz:u64);
+SetMem::fn outsider(sz:u64);
+Print::fn outsider(sz:*mem_alloc) ! *void;
+
+debug_break::fn macro()
+{
+	#if RELEASE == 1
+	{
+		*ret = __LINE__;
+		return;
+	}
+	else
+		__dbg_break;
+}
+
+ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
+{
+	(cast(*type)(cast(s64)ptr + cast(s64)offset * sizeof(type)))
+}
+heap_insert_unallocated::fn(alloc : *mem_alloc, a : *mem_chunk)
+{
+	if a < alloc.all || a > (ptr_offset(alloc.all, alloc.chunks_cap, mem_chunk)) || is_flag_on(a.flags, CHUNK_ALLOCATED)
+		return;
+
+	i:u64 = 0;
+
+	while i < UNALLOCATED_BUFFER_ITEMS
+	{
+		cur: = cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
+		if* cur == nil
+		{
+			*cur = a;
+			break;
+		}
+		i++;
+	}
+}
+ASSERT::fn macro(exp : _expr)
+{
+	if !(exp)
+		__dbg_break;
+}
+is_flag_off::fn macro(val : _expr, flag : _expr)
+{
+	((val & flag) == 0)
+}
+is_flag_on::fn macro(val : _expr, flag : _expr)
+{
+	((val & flag) != 0)
+}
+_own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
+{
+	ASSERT(cast(u64)dst > 128);
+	i:u64 = 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u8) = val;
+		i++;
+	}
+}
+//memcpy::fn outsider(dst : *void, src : *void, sz : u64) !void;
+memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
+{
+	ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
+	i:u64 = 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
+		i++;
+	}
+}
+MEM_TYPE: const s32 = 0;
+
+#if MEM_TYPE == 0
+{
+	memset::fn outsider(dst : *void, val : u8, sz : u64) !void;
+}
+else if MEM_TYPE == 1
+{
+	memset::fn x64(dst : *void, val : u8, sz : u64) !void
+	{
+		ASSERT(cast(u64)dst > 128);
+		i:u64 = 0;
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = val;
+			i++;
+		}
+
+	}
+}
+else
+{
+	memset::fn(dst : *void, val : u8, sz : u64) !void
+	{
+		ASSERT(cast(u64)dst > 128);
+		i:u64 = 0;
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = val;
+			i++;
+		}
+
+	}
+
+}
+
+GetUnallocatedChunk::fn(alloc : *mem_alloc) !*mem_chunk
+{
+	ret:*mem_chunk = heap_get_unallocated_cache(alloc);
+
+	if ret
+	{
+
+		heap_insert_unallocated(alloc, ptr_offset(ret, 1, mem_chunk));
+		heap_insert_unallocated(alloc, ptr_offset(ret, -1, mem_chunk));
+		return ret;
+	}
+	if !ret
+	{
+		i:u64 = 0;
+		while i < alloc.chunks_cap
+		{
+			cur0:*mem_chunk = ptr_offset(alloc.all, i, mem_chunk);
+
+			if is_flag_off(cur0.flags, CHUNK_ALLOCATED)
+			{
+				ret = cur0;
+
+				heap_insert_unallocated(alloc, cast(*mem_chunk)(cast(u64)ptr_offset(alloc.all, (i + 1) % alloc.chunks_cap, mem_chunk)));
+				break;
+			}
+			i++;
+		}
+	}
+	ret.flags = ret.flags | CHUNK_ALLOCATED;
+
+	ret.next = nil;
+	ret.prev = nil;
+    return ret;
+}
+HHashStore :: fn (alloc: *mem_alloc, key : *u8, value : *u8)
+{
+	using alloc.in_use;
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == nil
+	{
+		cur.key = key;
+		cur.value = value;
+		return;
+	}
+	put:bool = false;
+	i:u64=0;
+	while i < alloc.hash_table_size
+	{
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
+		cur= ptr_offset(data, mod, inner);
+
+		if cur.key == nil
+		{
+			cur.key = key;
+			cur.value = value;
+			put = true;
+			break;
+		}
+		i++;
+	}
+}
+HHashClear :: fn(alloc : *mem_alloc) ! void
+{
+	using alloc.in_use;
+	memset(cast(*u8)data, 0, sizeof(inner) * alloc.hash_table_size);
+}
+HHashGet :: fn (alloc: *mem_alloc, key : *void) ! *u8 
+{
+	//using self;
+
+	using alloc.in_use
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == key
+	{
+		return cur.value;
+	}
+
+	put:bool = false;
+	i:u64=0;
+	while i < alloc.hash_table_size
+	{
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
+		cur= ptr_offset(data, mod, inner);
+
+		if cur.key == key
+			return cur.value;
+		i++;
+	}
+	ASSERT(0 == 1);
+	return nil;
+}
+HHashRemove :: fn (alloc: *mem_alloc, key : *void)
+{
+	using alloc.in_use;
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == key
+	{
+		cur.key = nil;
+		cur.value = nil;
+		return;
+	}
+	removed:bool = false;
+	i:u64=0;
+	while i < alloc.hash_table_size
+	{
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
+		cur= ptr_offset(data, mod, inner);
+
+		if (cur.key == key)
+		{
+			cur.key = nil;
+			removed = true;
+			break;
+		}
+		i++;
+	}
+	ASSERT(removed);
+}
+heap_get_unallocated_cache :: fn(alloc : *mem_alloc) ! *mem_chunk
+{
+	if alloc.id != 0x1234
+	{
+		__dbg_break
+	}
+	i:u64= 0;
+	while i < UNALLOCATED_BUFFER_ITEMS
+	{
+		cur := cast(**mem_chunk) (ptr_offset(alloc.probable_unallocated, i, *mem_chunk));
+		if* cur != nil
+		{
+			ret :*mem_chunk = *cur;
+			cur.flags = cur.flags | CHUNK_ALLOCATED;
+			*cur = nil;
+			ret.next = nil;
+			ret.prev = nil;
+			return ret;
+		}
+		i++;
+	}
+	return nil;
+}
+// joins two contiguos chunks
+maybe_join_to_right::fn(prev : *mem_chunk, cur : *mem_chunk, next : *mem_chunk)
+{
+	contiguous_with_cur_next := (cast(u64)cur.addr + cur.size * BYTES_PER_CHUNK) == cast(u64)next.addr;
+	if contiguous_with_cur_next
+	{
+		cur.size += next.size;
+		next_aux :*mem_chunk= next;
+
+		next.flags = next.flags & ~CHUNK_ALLOCATED;
+
+		cur.next = next.next;
+		cur.prev = prev;
+		if next.next
+			next.next.prev = cur;
+		if prev
+			prev.next = cur;
+	}
+}
+heap_clear::fn(alloc : *mem_alloc)
+{
+	HHashClear(alloc);
+	total_size :u32= alloc.chunks_cap * BYTES_PER_CHUNK;
+	memset(cast(*u8)alloc.all, 0, cast(u64)total_size);
+
+    free:*mem_chunk = GetUnallocatedChunk(alloc);
+
+	free.size = total_size / BYTES_PER_CHUNK;
+    free.addr = alloc.buffer;
+
+	alloc.head_free = free;
+}
+heap_free::fn(alloc : *mem_alloc, ptr : *void)
+{
+	ASSERT(alloc.id == 0x1234);
+    chunk_to_free:= cast(*mem_chunk)HHashGet(alloc, ptr);
+	ASSERT(chunk_to_free != nil);
+	HHashRemove(alloc, ptr);
+    cur :*mem_chunk= alloc.head_free;
+	
+	
+	// in case the chunk to free is in a higher address want
+	// we want to find in front of which chunk are we in
+	// and increment its size
+	if (chunk_to_free.addr > cur.addr)
+	{
+		while (cur.next != nil && cur.next.addr < chunk_to_free.addr)
+		{
+			cur = cur.next;
+		}
+
+		ASSERT(cur != nil && cur.next.addr >= chunk_to_free.addr);
+		
+		//TODO: create a var put these two vals in each bit, and create a swich statetement so that we 
+		// wont need if and elses
+		contiguous_with_cur:bool = (cast(u64)cur.addr + cur.size * BYTES_PER_CHUNK) == cast(u64)chunk_to_free.addr;
+		contiguous_with_cur_next:bool = (cast(u64)chunk_to_free.addr + chunk_to_free.size * BYTES_PER_CHUNK) == cast(u64)cur.next.addr;
+
+
+		// to join with cur, the chunk_free and cur needs to be contiguous
+		if (contiguous_with_cur && !contiguous_with_cur_next)
+		{
+			cur.size += chunk_to_free.size;
+			chunk_to_free.flags = chunk_to_free.flags & ~CHUNK_ALLOCATED;
+			heap_insert_unallocated(alloc, chunk_to_free);
+		}
+		// we migth also want also to join with the cur.next
+		else if (contiguous_with_cur_next && !contiguous_with_cur)
+		{
+			maybe_join_to_right(cur, chunk_to_free, cur.next);
+
+
+		}
+		// if we're contiguous with both
+		else if (contiguous_with_cur_next && contiguous_with_cur)
+		{
+			cur.size += chunk_to_free.size + cur.next.size;
+
+			cur.next.flags = cur.next.flags & ~CHUNK_ALLOCATED;
+			chunk_to_free.flags = chunk_to_free.flags & ~CHUNK_ALLOCATED;
+			heap_insert_unallocated(alloc, cur.next);
+			heap_insert_unallocated(alloc, chunk_to_free);
+
+
+
+			if (cur.next.next)
+			{
+				next_next:*mem_chunk = cur.next.next;
+				cur.next = cur.next.next;
+				next_next.prev = cur;
+			}
+			else
+				cur.next = nil;
+
+		}
+		// if we're not contiguos with anything
+		else if(!contiguous_with_cur_next && !contiguous_with_cur)
+		{
+			next_aux:*mem_chunk = cur.next;
+
+			cur.next = chunk_to_free;
+			chunk_to_free.prev = cur;
+			chunk_to_free.next = next_aux;
+			next_aux.prev = chunk_to_free;
+			//chunk_to_free.flags &= ~CHUNK_IN_USE;
+		}
+	}
+	else
+	{
+		chunk_to_free.prev = nil;
+		// making the chunk to be the head
+		chunk_to_free.next = cur;
+		cur.prev = chunk_to_free;
+		//__dbg_break;
+		alloc.head_free = chunk_to_free;
+
+		maybe_join_to_right(nil, chunk_to_free, cur);
+		//__dbg_break;
+	}
+	if globals.after_init
+	{
+		for i in 0..globals.allocs_occured.max
+		{
+			cur_ptr := cast(**u8)ptr_offset(globals.allocs_occured.start, i, u64)
+			if cast(*void)*cur_ptr == ptr
+			{
+				*cur_ptr = nil
+			}
+		}
+	}
+	//memset(chunk_to_free.addr, 'x', chunk_to_free.size * BYTES_PER_CHUNK);
+
+}
+heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
+{
+	//return (char *)malloc(size);
+    cur:*mem_chunk= alloc.head_free;
+	ASSERT(alloc.id == 0x1234);
+
+    while cur != nil && (cur.size * BYTES_PER_CHUNK) < size
+    {
+        cur = cur.next;
+    }
+    ASSERT(cur != nil && (cur.size * BYTES_PER_CHUNK) >= size);
+
+	got_all_bytes_from_chunk:bool= ((cur.size * BYTES_PER_CHUNK) - size) == 0;
+	
+	min_alloc_size:= size;
+
+	if(min_alloc_size  == 0)
+		min_alloc_size = 1 * BYTES_PER_CHUNK;
+
+	if (got_all_bytes_from_chunk)
+	{
+		if (cur.prev)
+			cur.prev.next = cur.next;
+		if (cur.next)
+			cur.next.prev = cur.prev;
+
+		if (alloc.head_free == cur)
+			alloc.head_free = cur.next;
+		//cur.flags &= ~CHUNK_ALLOCATED;
+		alloc.head_free = cur.next;
+	}
+	else
+	{
+		// fragmenting the original chunk
+		other_chunk:*mem_chunk= GetUnallocatedChunk(alloc);
+		ASSERT(other_chunk != cur);
+		
+
+		align_to_bytes_per_chunk:= (min_alloc_size % BYTES_PER_CHUNK);
+		// if we're not aligned yet
+		if (align_to_bytes_per_chunk != 0)
+			align_to_bytes_per_chunk = BYTES_PER_CHUNK - align_to_bytes_per_chunk;
+
+		min_alloc_size += align_to_bytes_per_chunk;
+
+		other_chunk.addr = ptr_offset(cur.addr, min_alloc_size, u8);
+		other_chunk.size = cur.size - min_alloc_size / BYTES_PER_CHUNK;
+		if (cur.prev)
+		{
+			prev:= cur.prev;
+			prev.next = other_chunk;
+			other_chunk.prev = prev;
+
+		}
+		if (cur.next)
+		{
+			next := cur.next;
+			next.prev = other_chunk;
+			other_chunk.next = next;
+		}
+
+		if(cur == alloc.head_free)
+			alloc.head_free = other_chunk;
+	}
+
+    //cur.flags |= CHUNK_IN_USE;
+	HHashStore(alloc, cur.addr, cast(*u8)cur);
+	cur.size = min_alloc_size / BYTES_PER_CHUNK;
+
+	ASSERT(cur.next != cur);
+    return cur.addr;
+}
+InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
+{
+	alloc.id = 0x1234;
+	alloc.chunks_cap = chunks_cap;
+	alloc.hash_table_size = chunks_cap;
+    all_chunks_sz:u64= alloc.chunks_cap * sizeof(mem_chunk);
+	if !alloc.all
+		alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
+    memset(cast(*u8)alloc.all, 0, all_chunks_sz);
+	//__dbg_break;
+
+	unallocated_sz:u64 = UNALLOCATED_BUFFER_ITEMS * 8;
+
+	if !alloc.probable_unallocated
+		alloc.probable_unallocated = cast(**mem_chunk)GetMem(cast(u64)unallocated_sz);
+    memset(cast(*u8)alloc.probable_unallocated, 0, unallocated_sz);
+
+    total_size:u64= alloc.chunks_cap * BYTES_PER_CHUNK;
+	if !alloc.buffer
+		alloc.buffer = cast(*u8)GetMem(total_size);
+	
+	in_use_hash_sz:u64 = alloc.hash_table_size * sizeof(heap_hash.inner);
+	if !alloc.in_use.data
+		alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
+	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
+
+    free:*mem_chunk= GetUnallocatedChunk(alloc);
+	//alloc.in_use.reserve(alloc.hash_table_size);
+
+	free.size = cast(u32)(total_size / BYTES_PER_CHUNK);
+    free.addr = alloc.buffer;
+
+
+	alloc.head_free = free;
+	a: = 0;
+}
+
+
+
+test_call2::fn(alloc : *mem_alloc)
+{
+	*ptr_offset(alloc.buffer, 3, u8) = 4;
+}
+test_call1::fn(alloc : *mem_alloc)
+{
+	*ptr_offset(alloc.buffer, 2, u8) = 3;
+	test_call2(alloc);
+}
+test_ref::fn(alloc : *mem_alloc)
+{
+	*ptr_offset(alloc.buffer, 2, u8) = 2;
+}
+test_init ::fn(alloc : *mem_alloc)
+{
+	alloc.buffer = cast(*u8)GetMem(8);
+}
+test_change_heap_hash::fn(h : *heap_hash)
+{
+	h.data = cast(*heap_hash.inner)100;
+}
+
+test_sum_float::fn(f1 : f32, f2 : f32) !f32
+{
+	return f1 + f2;
+}
+
+test_ptr::fn(alloc : *mem_alloc)
+{
+	test_change_heap_hash(&alloc.in_use);
+	if (cast(u64)alloc.in_use.data) != 100
+		debug_break();
+
+	alloc.chunks_cap = 9000;
+	alloc.hash_table_size = 9000;
+	in_use_hash_sz:u64 = alloc.hash_table_size * sizeof(heap_hash.inner);
+	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
+	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
+
+
+	if alloc.in_use.data == nil
+		debug_break();
+
+
+	chunk1:mem_chunk;
+
+	base_addr: = cast(**mem_chunk)GetMem(8 * 8);
+	alloc.probable_unallocated = base_addr;
+	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = nil;
+
+	if* ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) != nil
+		debug_break();
+
+	alloc.probable_unallocated = base_addr;
+	if alloc.probable_unallocated != base_addr
+		debug_break();
+
+	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = &chunk1;
+
+
+	if alloc.probable_unallocated != base_addr
+		debug_break();
+
+	if alloc.probable_unallocated == cast(**mem_chunk) &chunk1
+		debug_break();
+
+	if *ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) == nil
+		debug_break();
+
+	ptr_offset(alloc.probable_unallocated, 0, *mem_chunk).size = 2;
+
+	if chunk1.size != 2
+		debug_break();
+
+	cur: = ptr_offset(alloc.probable_unallocated, 0, *mem_chunk);
+
+	if *cur == nil
+		debug_break();
+
+	if cur.size != 2
+		debug_break();
+
+
+	cur.size = 4;
+	target:u32 = 24;
+	if (cur.size * 8) < target
+		debug_break();
+
+	*cur = nil;
+
+	if *cur
+		debug_break();
+
+
+	HHashStore(alloc, cast(*u8)1, cast(*u8)5);
+	HHashStore(alloc, cast(*u8)513, cast(*u8)6);
+
+    val := cast(u64)HHashGet(alloc, cast(*u8)1);
+    val2 := cast(u64)HHashGet(alloc, cast(*u8)513);
+	if val != 5 || val2 != 6
+		debug_break();
+
+	ptr1:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
+	ptr2:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
+
+	ptr1.addr = cast(*u8)10;
+	ptr2.addr = cast(*u8)20;
+
+	if ptr1.addr > ptr2.addr
+		debug_break();
+
+	ptr1.size = 5;
+	ptr2.size = 5;
+
+	ptr1.size += ptr2.size;
+
+	if ptr1.size  != 10
+		debug_break();
+
+	contiguous_with_ptr2 := (cast(u64)ptr1.addr + 10) == cast(u64)ptr2.addr;
+
+	if contiguous_with_ptr2 != cast(bool)1
+		debug_break();
+	
+	contiguous_with_ptr2 = false;
+
+	ptr1.size = 5;
+	contiguous_with_ptr2 = (cast(u64)ptr1.addr + ptr1.size * 2) == cast(u64)ptr2.addr;
+	if contiguous_with_ptr2 != cast(bool)1
+		debug_break();
+	
+	*cur = &chunk1;
+	cur.flags = CHUNK_ALLOCATED;
+
+	if is_flag_off(cur.flags, CHUNK_ALLOCATED)
+		debug_break();
+	
+}
+nil_ptr_ret::fn() !*void
+{
+	return nil;
+}
+simple_strct_f32: struct
+{
+	a: f32,
+	b: f32,
+	c: f32,
+}
+simple_strct: struct
+{
+	a : u32,
+	b: u32,
+}
+func_ptr_test::fn() !u8
+{
+	return 2;
+}
+test_bool_ret::fn(b : bool) !bool
+{
+	return b;
+}
+ret_v3::fn() !v3
+{
+	ret:v3;
+	ret.x = 1.0;
+	ret.y = 2.0;
+	return ret;
+}
+tuple_arg_fn::fn(arg : (s32, s32)) !s32
+{
+	return arg.0;
+}
+overload_func::fn(a : s32, b : s32) !s32
+{
+	return a + b;
+}
+overload_func::fn(a : s32) !s32
+{
+	return a;
+}
+func_with_global::fn() !s32
+{
+	val: global s32;
+
+	#do
+	{
+		val = 1;
+	}
+	val++;
+	return val;
+}
+ret_f32_summed_with_one::fn(a : f32)!f32
+{
+	return a + 1.0;
+}
+modify_f32::fn(a : *f32)
+{
+	*a = 1.0;
+}
+modify_f32_as_s32::fn(a : *f32)
+{
+	*cast(*s32)a = 0x40400000;
+}
+ret_sum_one_with_f32_ptr::fn(a : *f32) !f32
+{
+	return *a + 1.0;
+}
+
+modify_ar_strct::fn(strct : *simple_strct_f32)
+{
+	val:simple_strct_f32;
+	val.a = 3.5;
+	*ptr_offset(strct, 0, simple_strct_f32) = val;
+}
+modify_static_ar_through_void_ptr::fn(ar : *void)
+{
+	*ptr_offset(ar, 0, f32) = 1.5;
+}
+
+str_cmp::fn(a : str_lit, b : str_lit) !bool
+{
+	a_len: = str_ln(a);
+	b_len: = str_ln(b);
+	if a_len != b_len
+		return false;
+	
+	for i in 0..a_len
+	{
+		a_ch: = ptr_offset(a, cast(u64)i, u8);
+		b_ch: = ptr_offset(b, cast(u64)i, u8);
+
+		if* a_ch != *b_ch
+			return false;
+	}
+
+	return true;
+}
+
+simple_test_call ::fn(a : s32) ! s32
+{
+	return a + 4;
+}
+simple_test_main ::fn()
+{
+	i: = 0;
+	sum: = 0;
+	while i < 10000
+	{
+		sum += simple_test_call(sum);
+		sum += simple_test_call(sum);
+		sum += simple_test_call(sum);
+		i++;
+	}
+}
+
+enum_test : etruct
+{
+	VAL1(
+		num : u32,
+		#serializable(num)
+	),
+	VAL2(
+		ch : char,
+		#serializable(ch)
+	)
+}
+
+test_strct_ser:struct
+{
+	a : u32,
+}
+test_strct_ser_func::fn() !u32
+{
+	return 5;
+}
+
+#assign_ser_func(test_strct_ser, test_strct_ser_func)
+
+tests :: fn(ret : *u32)
+{
+	i:= 7;
+	if i != 7
+		debug_break();
+
+	i = -2;
+	if i < -3
+	{
+		debug_break();
+	}
+
+	u_val : u32 = 0x80000000;
+	if u_val > 0x80010000
+	{
+		debug_break();
+	}
+
+	*ret = 5;
+	if *ret != 5
+		debug_break();
+
+
+
+	i = 4;
+	i--;
+	if i != 3
+		debug_break();
+
+	while i < 5
+	{
+		i++;
+	}
+
+	if i != 5
+		debug_break();
+
+	while true
+	{
+		if i > 10
+			break;
+		i++;
+	}
+	if i != 11
+		debug_break();
+
+		//debug_break();
+
+	alloc :mem_alloc;
+	alloc.buffer = nil;
+
+	if alloc.buffer 
+		debug_break();
+
+	alloc.buffer = cast(*u8)GetMem(8);
+
+	*ptr_offset(alloc.buffer, 1, u8) = 1;
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 1
+		debug_break();
+
+	test_ref(&alloc);
+
+	if *ptr_offset(alloc.buffer, 2, u8) != 2
+		debug_break();
+
+	*ptr_offset(alloc.buffer, 1, u8) = 0;
+	*ptr_offset(alloc.buffer, 2, u8) = 0;
+	test_call1(&alloc);
+
+
+	alloc.buffer = nil;
+
+	if alloc.buffer != nil
+		debug_break();
+
+	test_init(&alloc);
+
+	if alloc.buffer == nil
+		debug_break();
+
+	*ptr_offset(alloc.buffer, 1, u8) = 7;
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 7
+		debug_break();
+
+	memset(alloc.buffer, 0, 8);
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 0
+		debug_break();
+
+	test_ptr(&alloc);
+
+
+	flags :u64= 0;
+	flags = flags | 1;
+
+	if flags != 1
+		debug_break();
+
+	flags = flags & ~1;
+	
+	if flags != 0
+		debug_break();
+
+	flags = 2;
+	flags = flags | 1;
+
+	if flags != 3
+		debug_break();
+
+	flags = flags & ~2;
+	if flags != 1
+		debug_break();
+
+	i = 6;
+	i = i % 7;
+
+	if i != 6
+		debug_break();
+
+	if (i + 1 % 7) != 0
+		debug_break();
+
+	bool_v: = false;
+
+	if bool_v
+		debug_break();
+
+
+	i = 5;
+	bool_v = i == 5;
+
+
+	if !bool_v
+		debug_break();
+
+	i = 4;
+	i2 := 5;
+	i3 := 5;
+	i += i2 + i3;
+
+	if i != 14
+		debug_break();
+
+	i = 4;
+	i += i2 + i3;
+
+	if i != 14
+		debug_break();
+
+	ptr: *mem_chunk = nil;
+
+	if ptr
+		debug_break();
+
+	ptr = cast(*mem_chunk)GetMem(32);
+
+	if ptr == nil
+		debug_break();
+
+	ptr = cast(*mem_chunk)nil_ptr_ret();
+
+	if ptr != nil
+		debug_break();
+
+	if sizeof(simple_strct) != 8
+		debug_break();
+
+	if cast(u64)ptr_offset(0, 0, simple_strct) != 0
+		debug_break();
+	if cast(u64)ptr_offset(0, 1, simple_strct) != 8
+		debug_break();
+	if cast(u64)ptr_offset(0, 2, simple_strct) != 16
+		debug_break();
+
+	main_type: fn() !u8;
+	main_type = fn() !u8{ return 1; };
+
+	if main_type() != 1
+		debug_break();
+
+	main_type = func_ptr_test;
+	if main_type() != 2
+		debug_break();
+
+	f := 1.0;
+
+	if f > 2.0
+		debug_break();
+
+	vec1:v3=?;
+	vec2:v3=?;
+	vec2.x = 1.0;
+	memcpy(&vec1, &vec2, sizeof(v3));
+
+	if vec1.x > 1.1 || vec1.x < 0.9
+		debug_break();
+
+	greater_than_0 : = f > 0.0;
+	less_than_3 : = f < 3.0;
+	greater_than_2 : = f > 2.0;
+
+	val:bool = false;
+	if greater_than_0 && !greater_than_2
+		val = true;
+
+	if val == false
+		debug_break();
+
+	val = false;
+
+	if !greater_than_0 || !greater_than_2
+		val = true;
+
+	if val == false
+		debug_break();
+
+	val = false;
+
+	if greater_than_0 && !greater_than_2 && less_than_3
+		val = true;
+
+	if val == false
+		debug_break();
+
+	val = false;
+	if greater_than_0 == false || greater_than_2 || less_than_3
+		val = true;
+
+	if val == false
+		debug_break();
+
+	val = false;
+
+	if !(greater_than_2 && less_than_3)
+		val = true;
+
+	if val == false
+		debug_break();
+	
+	fsum: = test_sum_float(1.0, 2.0);
+	if fsum < 2.0  || fsum > 4.0
+		debug_break();
+
+	fsum = 1.0;
+	testt: = [3]f32{ ret_f32_summed_with_one(fsum), ret_f32_summed_with_one(fsum), 3.0 };
+	fsum = *testt[0] + *testt[1] + *testt[2];
+	
+	if fsum < 6.9 || fsum > 7.1
+		debug_break();
+
+	modify_f32(&fsum);
+
+	if fsum < 0.9 || fsum > 1.1
+		debug_break();
+
+	*cast(*s32)&fsum = 0x40000000;
+
+	if fsum < 1.9 || fsum > 2.1
+		debug_break();
+	
+	modify_f32_as_s32(&fsum);
+	if fsum < 2.9 || fsum > 3.1
+		debug_break();
+
+	// struct construction
+	fsum = 3.0;
+	fsum = ret_sum_one_with_f32_ptr(&fsum);
+	if fsum < 3.9 || fsum > 4.1
+		debug_break();
+
+	chunk: = mem_chunk{ next: nil, prev : cast(*mem_chunk)7 };
+	if cast(u64)chunk.prev != 7
+		debug_break();
+
+	// static array stuff
+	ar_strct:[4]simple_strct_f32;
+	modify_ar_strct(ar_strct);
+	if ar_strct[0].a < 3.4 || ar_strct[0].a > 3.6
+		debug_break();
+
+	modify_static_ar_through_void_ptr(cast(*void)ar_strct);
+	if ar_strct[0].a < 1.4 || ar_strct[0].a > 1.6
+		debug_break();
+
+
+	ar_strct_ar::struct
+	{
+		ar: [4] f32;
+	}
+	modify_static_ar_through_void_ptr(cast(*void)ar_strct_ar.ar);
+	if *ar_strct_ar.ar[0] < 1.4 || *ar_strct_ar.ar[0] > 1.6
+		debug_break();
+
+	i = 5;
+
+	a: = if i == 5 69 else 420;
+
+	if a != 69
+		debug_break();
+
+	static_ar: [4] f32;
+	*static_ar[0] = 0.5;
+
+	if* static_ar[0] < 0.4 || *static_ar[0] > 0.6
+		debug_break();
+
+	test_strct : struct
+	{
+		ar : [4]f32
+	}
+
+	color:test_strct;
+	*color.ar[1] = 0.5;
+	if* color.ar[1] < 0.4 || *color.ar[1] > 0.6
+		debug_break();
+
+	bool_rt: = test_bool_ret(true);
+
+	if bool_rt != true
+		debug_break();
+
+	if test_bool_ret(false)
+		debug_break();
+
+
+	slen: = str_ln("ab");
+	if slen != 2
+		debug_break();
+
+	fval: = cast(f32)2;
+
+	if fval > 2.1 || fval < 1.9
+		debug_break();
+
+	i = 3;
+	fval = cast(f32)i;
+
+	if fval > 3.1 || fval < 2.9
+		debug_break();
+
+	f1: = 1.0;
+	f2: = 0.5;
+	i = 5;
+
+	i = cast(s32)((cast(f32)i * f2) / f1);
+	
+	if i != 2
+		debug_break();
+
+	i = 5;
+	f2 = 0.7;
+
+	i = cast(s32)((cast(f32)i * f2) / f1);
+	if i != 3
+		debug_break();
+
+	v1:v3;
+	v1= ret_v3();
+	if v1.y > 2.1 || v1.y < 1.9
+		debug_break();
+	v2:v3;
+
+	v1.x = 1.0;
+	v2.x = 3.0;
+	v1.y = 1.0;
+	v2.y = -1.0;
+	v: = v1 + v2;
+
+	if v.x > 4.1 || v.x < 3.9
+		debug_break();
+
+	v1.x = 1.0;
+	v = v1 * 2.0;
+
+	if v.x > 2.1 || v.x < 1.9
+		debug_break();
+
+	v1.x = 1.0;
+	v2.x = 1.0;
+	v = v1 - v2;
+	if v.x > 0.1 || v.x < -0.1
+		debug_break();
+
+	v1.x = 5.0;
+	v1.y = -6.0;
+
+	v1 = sign_v3(&v1);
+
+	if v1.x > 1.1 || v1.x < 0.9 || v1.y < -1.0 || v1.y > -0.9
+		debug_break();
+
+	v2.x = 2.0;
+	v1.x = 1.0;
+
+	v1.x = (v1 - v2).x;
+	if v1.x > -0.9 || v1.x < -1.1
+		debug_break();
+
+	v2.x = 2.0;
+	v1.x = 1.0;
+	v1 = v1 + v2 * 2.0;
+
+	if v1.x > 5.1 || v1.x < 4.9
+		debug_break();
+
+	ar_test := []f32{ 1.0, 2.0, 3.0, 4.0 };
+
+	if *ar_test[0] > 1.1 || *ar_test[0] < 0.9
+		debug_break();
+
+	i = 2;
+	v2.x = cast(f32)-i;
+
+	if v2.x > -1.9 || v2.x < -2.1
+		debug_break();
+
+	//__dbg_break
+	fval = sqrt(4.0);
+	if fval > 2.1 || fval < 1.9
+		debug_break();
+	//WasmDbg(nil);
+	norm: = normalize_v3(&v2);
+	fval = dot_v3(&norm, &norm);
+
+	if fval > 1.1 || fval < 0.9
+		debug_break();
+
+
+	ar: dyn_array(u32);
+
+	ar.count = 4;
+	//__dbg_break;
+	if ar[0] != cast(*u32)0
+		debug_break();
+
+	if ar[1] != cast(*u32)4
+		debug_break();
+
+	st_tuple : (u32, u32);
+	st_tuple.0 = 4;
+
+	if st_tuple.0 != 4
+		debug_break();
+
+	test_u32 := tuple_arg_fn((4, 0));
+
+	if test_u32 != 4
+		debug_break();
+	
+
+	val_test := 0;
+	for idx in 0..5
+	{
+		val_test++;
+	}
+
+	if val_test != 5
+		debug_break();
+
+
+	val_test = 0;
+	limit := 10;
+	for idx in 0..limit
+	{
+		val_test++;
+	}
+
+	if val_test != limit
+		debug_break();
+
+	limit = 0;
+	val_test = 5;
+	for rev val_test1 in 5..limit
+	{
+		val_test--;
+	}
+	if val_test != limit
+		debug_break();
+
+	s32_ar := []s32{0, 1, 2, 3, 4};
+
+	val_test = 0;
+	for cur in s32_ar
+	{
+		val_test += *cur;
+	}
+	if val_test != 10
+		debug_break();
+
+	val_test = 0;
+	for cur in s32_ar
+	{
+		for cur2 in s32_ar
+		{
+			if* cur2 == 2
+				break;
+			val_test += *cur2;
+		}
+	}
+	if val_test != 5
+		debug_break();
+
+	val_test = 0;
+	for cur in s32_ar
+	{
+		if* cur == 4
+			continue;
+		val_test += *cur;
+	}
+	if val_test != 6
+		debug_break();
+
+	dyn_test :dyn_array(s32);
+	dyn_test.data = s32_ar[0];
+	dyn_test.cap = 5;
+	dyn_test.count = 5;
+
+	if *dyn_test[1] != 1
+		debug_break();
+
+	val_test = 0;
+	for cur in dyn_test
+	{
+		aux := *cur;
+		val_test += *cur;
+	}
+	if val_test != 10
+		debug_break();
+
+	i = overload_func(1, 2);
+
+	if i != 3
+		debug_break();
+
+	i = overload_func(2);
+
+	if i != 2
+		debug_break();
+
+	val = false;
+
+	i = 90;
+	if i == 89 || val == true
+		i = 9;
+
+	if i != 90
+		debug_break();
+
+	bool_strct::struct
+	{
+		a_in:bool,
+	}
+
+	bool_strct.a_in = true;
+	if i == 89 || !bool_strct.a_in
+		i = 9;
+
+	if i != 90
+		debug_break();
+	
+	bool_strct.a_in = false;
+	if i == 89 || !bool_strct.a_in
+		i = 9;
+
+	if i != 9
+		debug_break();
+
+	test_enum :enum
+	{
+		VAL0,
+		VAL1,
+	}
+	
+	enum_strct :: struct
+	{
+		tt : test_enum,
+	}
+
+	val = false;
+	if enum_strct.tt == test_enum.VAL0 || enum_strct.tt == test_enum.VAL1
+	{
+		val = true;
+	}
+	if !val
+		debug_break();
+
+	e_ptr := &enum_strct;
+	val = false;
+	e_ptr.tt = test_enum.VAL1;
+	if e_ptr.tt == test_enum.VAL0
+	{
+		val = true;
+	}
+	else if  e_ptr.tt == test_enum.VAL0 || e_ptr.tt == test_enum.VAL1
+		val = true;
+	else if  e_ptr.tt == test_enum.VAL0 || e_ptr.tt == test_enum.VAL1
+		val = true;
+	if !val
+		debug_break();
+
+	vec_test: = _vec{ 1.0, 1.0, 1.0, 1.0 };
+	vec_test2: = _vec{ 1.0, 1.0, 1.0, 1.0 };
+	vec_test = vec_test + vec_test2
+
+	if vec_test.x < 1.9 || vec_test.x > 2.1
+		debug_break();
+
+
+	vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 };
+	vec_test = vec_test * 2.0;
+
+	if vec_test.x < 1.9 || vec_test.x > 2.1
+		debug_break();
+	
+	fsum = 2.0;
+	vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 };
+	vec_test = vec_test * fsum;
+	if vec_test.x < 1.9 || vec_test.x > 2.1
+		debug_break();
+
+	vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 } + _vec{ 1.0, 1.0, 1.0, 1.0 };
+	if vec_test.x < 1.9 || vec_test.x > 2.1
+		debug_break();
+
+	vec_test = _vec{ 2.0, 2.0, 2.0, 0.0 };
+
+	fsum = dot_vec(&vec_test, &vec_test);
+	if fsum < 11.9 || fsum > 12.1
+		debug_break();
+
+
+	etest: enum_test
+	if etest == enum_test.VAL1
+	{
+		etest.VAL1.num = cast(u32)'b
+	}
+	if etest.VAL1.num != cast(u32)'b
+		debug_break();
+
+	etest = enum_test.VAL2;
+
+	if etest == enum_test.VAL2
+	{
+		if etest.VAL2.ch != 'b
+			debug_break();
+		etest.VAL2.ch = 'a
+	}
+	if etest.VAL2.ch != 'a
+		debug_break();
+
+	//__dbg_break
+
+	//buffer: dyn_array(char);
+	//Serialize(&buffer, GetTypeData(enum_test), &etest)
+
+	str1 :string
+	str1.data.data = cast(*char)"joe"
+	str1.data.count = 3
+
+	str2 :string
+	str2.data.data = cast(*char)"jo2"
+	str2.data.count = 3
+
+	if str1 == str2
+		debug_break();
+
+	test_tp: = GetTypeData(test_strct_ser);
+
+
+	i = (cast(fn() !s32)test_tp.ser_func)();
+
+	if i != 5
+		debug_break();
+
+
+	i = 1;
+	i = i << 2
+	if i != 0x4
+		debug_break();
+
+	i = i >> 2
+	if i != 1
+		debug_break();
+
+	first_cond := false
+	sec_cond := false
+	third_cond := false
+	
+	i = 0
+
+	while i < 3
+	{
+		on i
+		{
+			0 first_cond = true
+			1 sec_cond = true
+			2 third_cond = true
+		}
+		i++
+	}
+	if !first_cond || !sec_cond || !third_cond
+	{
+		debug_break();
+	}
+
+	first_cond = false
+	sec_cond = false
+	third_cond = false
+	i = 0
+	on i
+	{
+		4 first_cond = true
+		5 sec_cond = true
+		4 third_cond = true
+		default 
+		{
+			first_cond = true
+			sec_cond = true
+			third_cond = true
+		}
+	}
+	if !first_cond || !sec_cond || !third_cond
+	{
+		debug_break();
+	}
+
+}

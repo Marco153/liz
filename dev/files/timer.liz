@@ -1,0 +1,90 @@
+import "../../core";
+timer_info: struct
+{
+	cur : f32,
+	time_limit : f32,
+	cur_loop : u32,
+	max_loops : u32,
+	state : u8,
+
+	id : u32,
+}
+
+timer_context : struct
+{
+	timers: *timer_info,
+	timers_count: u32,
+	#make_ptr_len(timers, timers_count)
+}
+
+ClearTimerInfo::fn(t : *timer_info)
+{
+	t.state = 0;
+	t.cur = 0.0;
+	t.cur_loop = 0;
+}
+
+StartAndUpdateTimerRef::fn(tcontext : *timer_context, id : u32, dt : f32, percent : *f32, time_limit : f32, loops : u32, cur : *timer_info) ! s8
+{
+	if cur.state == 0
+	{
+		cur.max_loops = loops;
+		cur.cur_loop = 0;
+		cur.time_limit = time_limit;
+		cur.max_loops = loops;
+		cur.cur = 0.0;
+		cur.id = id;
+		cur.state = 1;
+	}
+	else if cur.state == 2
+	{
+		*percent = 1.0;
+		return 2;
+	}
+	cur.cur += dt;
+	if cur.cur < time_limit
+	{
+		*percent = cur.cur / time_limit;
+		return 0;
+	}
+	else
+	{
+		*percent = 1.0;
+		if cur.cur_loop >= cur.max_loops
+		{
+			cur.state = 2;
+			return 1;
+			//cur.inited = false;
+		}
+		cur.cur = 0.0;
+		cur.cur_loop++;
+
+		return 1;
+	}
+	return -1;
+
+}
+StartAndUpdateTimer::fn(tcontext : *timer_context, id : u32, dt : f32, percent : *f32, time_limit : f32, loops : u32, out : **timer_info) ! s8
+{
+	idx : u64  = (cast(u64)id) % tcontext.timers_count;
+
+	
+	cur:= ptr_offset(tcontext.timers, idx, timer_info);
+	if cur.id != id && cur.state != 0
+	{
+		i:u64 = 0;
+		while i < tcontext.timers_count
+		{
+			mod:u64 = (i + idx + 1) % tcontext.timers_count;
+			cur = ptr_offset(tcontext.timers, mod, timer_info);
+
+			if cur.id == id	 || cur.state == 0
+				break;
+			i++;
+		}
+	}
+	ASSERT(cur != nil);
+	*out = cur;
+	return StartAndUpdateTimerRef(tcontext, id, dt, percent, time_limit, loops, cur);
+
+}

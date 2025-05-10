@@ -1,0 +1,899 @@
+import "../../core";
+import "../common";
+
+FLOAT_MAX: const u32= 0x7f800000;
+FLOAT_MIN: const u32= 0xff800000;
+
+signf::fn x64(a :f32) !f32
+{
+	if a < 0.0 return -1.0;
+    return 1.0;
+
+}
+absf::fn x64(a :f32) !f32
+{
+	if a < 0.0 return -a;
+    return a;
+
+}
+
+ApplyTranformationsToOneVert::fn x64(a_pos : *_vec, dir : *_vec, a_pivot : *_vec, a_size : *_vec, a_rot : *_vec, dst : *_vec)
+{
+
+	*dst = (*dir - *a_pivot) * *a_size + *a_pos
+	//dst.y = (dir.y - a_pivot.y) * a_size.y + a_pos.y
+	//dst.z = (dir.z - a_pivot.z) * a_size.z + a_pos.z
+	dst.w = 0.0
+	//*ptr_offset(arr, 1, _vec) = mul__vec(&(up - *a_pivot), a_size);
+}
+ApplyTranformationsToVerts::fn(a_pos : *_vec, a_vel : *_vec, a_pivot : *_vec, a_size : *_vec, a_rot : *_vec, arr : *_vec, ent : *entity)
+{
+
+    //mat_z: mat4x4;
+/*
+	mat_z.vals = [4 * 4]f32{cos(a_rot.z), -sin(a_rot.z), 0.0, 0.0,
+							sin(a_rot.z), cos(a_rot.z) , 0.0, 0.0,
+							0.0         , 0.0          , 1.0, 0.0,
+							0.0         , 0.0          , 0.0, 1.0};
+							*/
+	zero :_vec;
+
+	up :_vec;
+	up.y = 1.0;
+	down :_vec;
+	down.y = -1.0;
+
+	left :_vec;
+	left.x = -1.0;
+
+	right :_vec;
+	right.x = 1.0;
+
+	up_right :_vec;
+	up_right.x = 1.0
+	up_right.y = 1.0
+	
+    mul:= *a_pivot * -1.0 * *a_size; 
+    first := ptr_offset(arr, 0, _vec);
+	*first = mul + *a_pos;
+
+	ApplyTranformationsToOneVert(a_pos, &up, a_pivot, a_size, a_rot, ptr_offset(arr, 1, _vec))
+	ApplyTranformationsToOneVert(a_pos, &up_right, a_pivot, a_size, a_rot, ptr_offset(arr, 2, _vec))
+	ApplyTranformationsToOneVert(a_pos, &right, a_pivot, a_size, a_rot, ptr_offset(arr, 3, _vec))
+
+	//*ptr_offset(arr, 0, _vec) = *ptr_offset(arr, 0, _vec) + *a_pos;
+	a: = 0;
+}
+
+ProjectVertices::fn(vertices : *_vec, v_len : u32, axis:*_vec, _min : *f32, max : *f32)
+{
+	//__dbg_break
+	*cast(*s32)_min = FLOAT_MAX;
+	*cast(*s32)max = FLOAT_MIN;
+
+	for i in 0..v_len
+	{
+		v: _vec = ? ;
+        v = *ptr_offset(vertices, cast(u64)i, _vec);
+        proj:= dot_vec(axis, &v);
+
+		if proj < *_min
+        {
+			*_min = proj;
+		}
+		if proj > *max
+		{
+			*max = proj;
+		}
+	}
+}
+
+GetColNormalAxisAndDepth::fn(a_verts : *_vec, va_len : u32, b_verts : *_vec, vb_len : u32, col : *collision) !bool
+{
+	/*
+	aux_arA:dyn_array(_vec);
+	aux_arA.data = a_verts;
+	aux_arA.count = va_len;
+	aux_arB:dyn_array(_vec);
+	aux_arB.data = b_verts;
+	aux_arB.count = vb_len;
+
+	PrintV3(9000.0, 0.0, 0.0);
+	for v in aux_arA
+	{
+		PrintV3(v.x, v.y, v.z);
+	}
+	PrintV3(9000.0, 0.0, 0.0);
+	for v in aux_arB
+	{
+		PrintV3(v.x, v.y, v.z);
+	}
+	__dbg_break;
+	*/
+	for i in 0..va_len
+	{
+		va:_vec = *ptr_offset(a_verts, cast(u64)i, _vec);
+		vb:_vec = *ptr_offset(a_verts, cast(u64)(i + 1) % 4, _vec);
+
+
+		edge: = vb - va;
+
+		axis:_vec;
+		axis.x = -edge.y;
+		axis.y = edge.x;
+		//__dbg_break
+		axis = normalize_vec(&axis);
+
+		minA: f32;
+		maxA: f32;
+		minB: f32;
+		maxB:f32;
+
+		//__dbg_break
+		ProjectVertices(a_verts, va_len, &axis, &minA, &maxA);
+		ProjectVertices(b_verts, vb_len, &axis, &minB, &maxB);
+
+		if minA >= maxB || minB >= maxA
+		{
+			return false;
+		}
+
+		axis_depth:f32 = minf(maxB - minA, maxA - minB);
+
+
+		if axis_depth < col.depth
+		{
+			col.depth = axis_depth;
+			col.normal = axis;
+			a: = 0;
+		}
+	}
+	return true;
+}
+
+NearlyEqualV3::fn x64(a: *_vec, b : *_vec) !bool
+{
+	return NearlyEqualF32(a.x, b.x) && NearlyEqualF32(a.y, b.y) && NearlyEqualF32(a.z, b.z);
+}
+NearlyEqualF32::fn x64(a:f32, b : f32) !bool
+{
+	return absf(a - b) < 0.005;
+}
+//PointLineDistance::fn outsider(a:*_vec, b : *_vec, p : *_vec, closest_point : *_vec)!f32;
+
+
+PointLineDistance::fn(a:*_vec, b : *_vec, p : *_vec, closest_point : *_vec)!f32
+{
+	ab:_vec = *b - *a;
+	ap:_vec = *p - *a;
+
+	proj:f32 = dot_vec(&ab, &ap);
+	d:f32 = proj / (dot_vec(&ab, &ab));
+
+	if d <= 0.0
+	{
+		*closest_point = *a;
+	}
+	else if d >= 1.0
+	{
+		*closest_point = *b;
+	}
+	else
+	{
+		*closest_point = *a + ab * d;
+	}
+	__dbg_break
+	root: =len_vec(&(*closest_point - *p));
+	return root;
+}
+test_strct:struct
+{
+	f : f32,
+}
+ModifyPtrArbitraryByte::fn x64(s : *s32, idx : u32, val : u8)
+{
+	*ptr_offset(s, idx, u8) = val;
+}
+ModifyPtrSecondByteToFour::fn x64(s : *s32)
+{
+	*ptr_offset(s, 2, u8) = 4;
+}
+ModifyPtrToThree::fn x64(s : *s32)
+{
+
+	*s = 3;
+}
+ModifyStrctPtr::fn x64(s : *test_strct)
+{
+	s.f = 3.0;
+}
+SimpleAsm::fn x64(ret : *s32) ! s32 
+{
+	i: = 0;
+	if i != 0
+	{
+		*ret = i;
+		return -1;
+	}
+
+	*ret = 999;
+	if *ret != 999
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 1;
+	f: = 1.5;
+	if f < 1.4 || f > 1.6
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 2;
+	c: = &i;
+	if c != &i
+	{
+		*ret = i;
+		return -1;
+	}
+	i = 3;
+
+	c = cast(*s32)135;
+
+	if cast(u64)c != 135
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 4;
+	d: = 0x100;
+	c = &d;
+	e: = *ptr_offset(c, 1, u8);
+
+	if e != 1
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 5;
+	d = 0;
+	while d < 4
+	{
+		d++;
+	}
+	if d != 4
+	{
+		*ret = i;
+		return -1;
+
+	}
+
+	i = 5;
+	d = 0;
+	sz := 4;
+	while d < sz
+	{
+		d++;
+	}
+	if d != sz
+	{
+		*ret = i;
+		return -1;
+
+	}
+
+	if !(i == 5 && d == 4)
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 6;
+	d = 0;
+	ModifyPtrSecondByteToFour(&d);
+
+	if d != 0x40000
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 7;
+	d = 2;
+	d = d * 2;
+	if d != 0x4
+	{
+		*ret = i;
+		return -1;
+	}
+	d = d * d;
+	if d != 16
+	{
+		*ret = i;
+		return -1;
+	}
+
+	d = 4;
+	d = 3 + d * d;
+
+	if d != 19
+	{
+		*ret = i;
+		return -1;
+	}
+
+	c = &d;
+	c = cast(*s32)(cast(u64)c + 4);
+
+	if cast(u64)c != (cast(u64)(&d) + 4)
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 8;
+	d = 0;
+	ModifyPtrArbitraryByte(&d, 1, 2);
+
+	if d != 0x200
+	{
+		*ret = i;
+		return -1;
+	}
+	ModifyPtrArbitraryByte(&d, 2, 3);
+
+	if d != 0x30200
+	{
+		*ret = i;
+		return -1;
+	}
+
+	s:test_strct;
+	s.f = 2.0;
+	if s.f < 1.9 || s.f > 2.1
+	{
+		*ret = i;
+		return -1;
+	}
+	ModifyStrctPtr(&s);
+
+	if s.f < 2.9 || s.f > 3.1
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 9;
+	
+	d = 0x100;
+	g:= 0x100;
+
+	ptr: = &d;
+	c = &g;
+
+	if *ptr_offset(ptr, 1, u8) != *ptr_offset(c, 1, u8)
+	{
+		*ret = i;
+		return -1;
+	}
+
+	g = 4;
+
+	*ptr_offset(ptr, 2, u8) = *ptr_offset(c, 0, u8);
+
+	if *ptr_offset(ptr, 2, u8) != 4
+	{
+		*ret = i;
+		return -1;
+	}
+
+	i = 10;
+
+	f32_ar: = []f32{ 1.0, 2.0, 3.0 };
+
+	f = *f32_ar[0] + *f32_ar[1] + *f32_ar[2];
+
+	if f < 5.9 || f > 6.1
+	{
+		*ret = i;
+		return -1;
+	}
+
+	
+
+	*ret = i + 1;
+	return 1;
+
+}
+GetContactPointToArr::fn(vertsA : *_vec, vertsALen : u32, vertsB : *_vec, vertsBLen : u32, contacts : *_vec, contacts_count : *u64, minDist : *f32)
+{
+    for idx in 0..vertsALen
+    {
+        i:= ptr_offset(vertsA, cast(u64)idx, _vec);
+		for j in 0..vertsBLen
+		{
+            va:= ptr_offset(vertsB, cast(u64)j, _vec);
+			vb:= ptr_offset(vertsB, cast(u64)(j + 1) % vertsBLen, _vec);
+
+			closest_point:_vec;
+            dist:f32 = PointLineDistance(va, vb, i, &closest_point);
+            
+			ptr: = ptr_offset(contacts, 0, _vec);
+			ptr1: = ptr_offset(contacts, 1, _vec);
+            if(NearlyEqualF32(dist, *minDist) && !NearlyEqualV3(&closest_point, ptr))
+            {
+				*contacts_count = 2;
+				*ptr = closest_point;
+            }
+            else if(dist < *minDist)
+            {
+                *minDist = dist;
+                *ptr = closest_point;
+            }
+        }
+    }
+}
+FindContactPoints::fn(vertsA : *_vec, vertsALen : u32, vertsB : *_vec, vertsBLen : u32, contacts : *dyn_array(_vec))
+{
+	ASSERT(contacts.alloc.id == 0x1234);
+    minDist: f32 = 99999.0;
+
+	GetContactPointToArr(vertsA, vertsALen, vertsB, vertsBLen, contacts.data, &contacts.count, &minDist);
+	GetContactPointToArr(vertsB, vertsBLen, vertsA, vertsALen, contacts.data, &contacts.count, &minDist);
+}
+
+AreTwoEntColliding::fn(ctx : *context, ent_a : *entity, ent_b : *entity, col : *collision, dt : f32)!bool
+{
+	//ASSERT(col.contacts.alloc.id == 0x1234);
+    cinfo: col_info;
+	cinfo.a_pos = ent_a.pos;
+	cinfo.a_size = ent_a.col_size;
+	cinfo.a_pivot = ent_a.pivot;
+	cinfo.a_ent = ent_a;
+
+	cinfo.b_pos = ent_b.pos;
+	cinfo.b_size = ent_b.col_size;
+	cinfo.b_pivot = ent_b.pivot;
+	cinfo.b_ent = ent_b;
+
+	collision_has_occurred: = AreTwoObjectsColliding(ctx, &cinfo, col);
+	return collision_has_occurred;
+}
+DrawCols::fn(ctx : *context)
+{
+	a_verts : [4]_vec;
+	dummy :_vec;
+	for e in ctx.bodies
+	{
+		if !e.is_active
+			continue;
+		ApplyTranformationsToVerts(&e.pos, &e.vel, &e.pivot, &e.col_size, &dummy, a_verts, nil);
+		pos: = *a_verts[0];
+		size_x: = (*a_verts[3] - *a_verts[0]).x;
+		size_y: = (*a_verts[1] - *a_verts[0]).y;
+
+		if ctx.draw_col
+		{
+			draw: draw_info;
+			draw.pos = pos;
+			draw.pos.z = 0.9;
+			draw.cam_pos = ctx.cam_pos_global;
+			draw.cam_size = ctx.cam_size;
+			draw.ent_size.x = size_x;
+			draw.ent_size.y = size_y;
+			draw.flags = DRAW_INFO_WIREFRAME;
+			*draw.color[3] = 1.0;
+			Draw(ctx.window, &draw);
+		}
+	}
+}
+AreTwoObjectsColliding::fn(ctx : *context, cinfo : *col_info, col : *collision)! bool
+{
+	//ASSERT(col.contacts.alloc.id == 0x1234);
+	using cinfo;
+	/*
+	if ctx.col_it >= 253
+		__dbg_break;
+	mask: = 0xff800000;
+	x_p: = *cast(*s32)(&ctx.player.pos.x);
+	not_a_number: = (x_p & mask) == mask;
+	if not_a_number
+		__dbg_break;
+		*/
+
+	a_verts : [4]_vec;
+	b_verts : [4]_vec;
+
+	
+	up :_vec;
+	up.y = 1.0;
+	down :_vec;
+	down.y = -1.0;
+
+	left :_vec;
+	left.x = -1.0;
+
+	right :_vec;
+	right.x = 1.0;
+
+	ctx.col_it++;
+	col.col_it = ctx.col_it;
+
+	start_t := GetTime()
+	ApplyTranformationsToVerts(&a_pos, &a_vel, &a_pivot, &a_size, &a_rot, a_verts, a_ent);
+	ApplyTranformationsToVerts(&b_pos, &b_vel, &b_pivot, &b_size, &b_rot, b_verts, b_ent);
+	globals.timer += GetTime() - start_t
+
+	
+	/*
+	if ctx.draw_col
+	{
+		pos: = *a_verts[0];
+		size_x: = (*a_verts[3] - *a_verts[0]).x;
+		size_y: = (*a_verts[1] - *a_verts[0]).y;
+
+		draw: draw_info;
+		draw.pos = pos;
+		draw.cam_pos = ctx.cam_pos_global;
+		draw.cam_size = ctx.cam_size;
+		draw.ent_size.x = size_x;
+		draw.ent_size.y = size_y;
+		draw.flags = DRAW_INFO_LINE;
+		*draw.color[3] = 1.0;
+		Draw(ctx.window, &draw);
+
+	}
+	*/
+
+	*cast(*u32)(&col.depth) = FLOAT_MAX;
+	if !GetColNormalAxisAndDepth(a_verts[0], 4, b_verts[0], 4, col)
+		return false;
+	if !GetColNormalAxisAndDepth(b_verts[0], 4, a_verts[0], 4, col)
+		return false;
+	//__dbg_break
+
+	//if b_ent.is_trigger
+		//__dbg_break;
+
+
+	col.depth = col.depth / len_vec(&col.normal);
+	col.normal = normalize_vec(&col.normal);
+	col.ent = b_ent
+	
+
+	centerA: _vec;
+	centerB: _vec;
+
+	for v in a_verts
+	{
+		centerA = centerA + *v;
+	}
+	centerA = centerA / cast(f32)a_verts.len;
+	
+	for v in b_verts
+	{
+		centerB = centerB + *v;
+	}
+	centerB = centerB / cast(f32)b_verts.len;
+	//centerB.y = centerB.y / cast(f32)b_verts.len;
+	//centerB.z = centerB.z / cast(f32)b_verts.len;
+	
+	dir:= centerB - centerA;
+
+	dot:= dot_vec(&dir, &col.normal);
+	if dot < 0.0
+	{
+		col.normal = col.normal * -1.0;
+	}
+    
+	//if cinfo.b_ent.type == ent_type.SPEAR
+		//__dbg_break;
+    //FindContactPoints(a_verts, 4, b_verts, 4, &col.contacts);
+
+	return true;
+}
+
+add_body::fn(ctx : *context, ent : *entity)
+{
+	dyn_add(&ctx.bodies, &ent);
+	ent.ents_in_collision.alloc = ctx.alloc;
+	dyn_init(&ent.ents_in_collision, 4);
+	ent.ents_in_collision.count = 4
+}
+
+EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
+{
+	inserted: = false;
+	for e in into.ents_in_collision
+	{
+		if (e.ent == nil) && !inserted
+		{
+			//PrintV3(6.0, 0.0, 0.0);
+			e.in_col = true;
+			e.ent = in_col;
+			e.col = *cinfo;
+			inserted = true;
+			return false;
+		}
+		else if (e.ent == in_col)
+		{
+			//PrintV3(5.0, 0.0, 0.0);
+			e.in_col = true;
+			e.col = *cinfo;
+			inserted = true;
+			return true;
+		}
+	}
+	ASSERT(inserted);
+	return true;
+}
+PhysicsUpdate::fn(ctx : *context, dt : f32)
+{
+
+	for e in ctx.bodies
+	{
+		if e.is_static || !e.is_active
+			continue;
+		for in_col in e.ents_in_collision
+		{
+			if !in_col.in_col && in_col.ent != nil
+			{
+				//PrintV3(5.0, 0.0, 0.0);
+				//in_col.in_col = false;
+				if e.col_exit != nil
+				{
+					//ASSERT(cast(u64)e.col_exit < 500);
+					e.col_exit(*e, in_col.ent, &in_col.col);
+				}
+				in_col.ent = nil;
+			}
+		}
+		//PrintV3(cast(f32)ctx.narrow_phase_ents.count, 0.0, 0.0);
+		for in_col in e.ents_in_collision
+		{
+			in_col.in_col = false;
+			//PrintV3(cast(f32)cast(u32)in_col.in_col, 0.0, 0.0);
+		}
+		//if e.type == ent_type.AXE
+			//__dbg_break;
+		e.pos = e.pos + e.vel * dt;
+		e.rot = e.rot + e.angle_rot * dt;
+		dyn_clear(&ctx.broad_phase_ents);
+		dyn_clear(&ctx.narrow_phase_ents);
+		dyn_clear(&ctx.hit_ents_in_col);
+		
+		corrected_pos :_vec=?;
+		corrected_pos.x = e.pos.x - e.pivot.x * e.col_size.x;
+		corrected_pos.y = e.pos.x - e.pivot.y * e.col_size.y;
+
+
+		BroadPhase(ctx, &e.pos, &e.col_size, &ctx.broad_phase_ents);
+		NarrowPhase(ctx, *e, &ctx.broad_phase_ents, &ctx.narrow_phase_ents, dt);
+
+		if ctx.narrow_phase_ents.count == 0
+			continue;
+
+		//__dbg_break
+		
+		for info in ctx.narrow_phase_ents
+		{
+			using info;
+			if !EntIsInCollision(ent_a, ent_b, &col)
+			{
+				if ent_a.col_enter != nil
+				{
+					//ASSERT(cast(u64)ent_a.col_enter < 500);
+					ent_a.col_enter(ent_a, ent_b, &col);
+				}
+			}
+			if ent_a.col_stay != nil
+			{
+				//ASSERT(cast(u64)ent_a.col_stay < 500);
+				ent_a.col_stay(ent_a, ent_b, &col);
+			}
+			if col.ignore_collision
+				continue;
+				
+			if !ent_a.is_trigger && !ent_b.is_trigger && is_flag_off(ent_a.layer, ent_b.dont_res_cols_with_layers) && 
+				is_flag_off(ent_b.layer, ent_a.dont_res_cols_with_layers) || col.ignore_trigger_do_collision
+			{
+				is_floaty_plat := ent_b.type == ent_type.FLOATY_PLATFORM
+				//__dbg_break;
+				if !ent_b.is_static && !is_floaty_plat 
+				{
+					//PrintV3(col.depth, 0.0, 0.0);
+					ent_a.pos = ent_a.pos + col.normal * -(col.depth / 2.0);
+					ent_b.pos = ent_b.pos + col.normal * (col.depth / 2.0);
+				}
+				else if ent_b.is_static || is_floaty_plat
+				{
+					//__dbg_break
+					ent_a.pos = ent_a.pos + col.normal * -(col.depth);
+				}
+				else
+				{
+					__dbg_break;
+				}
+			}
+
+		}
+
+	}
+}
+
+
+NarrowPhase::fn(ctx : *context, ref : *entity, close : *dyn_array(*entity), out : *dyn_array(contact_col), dt : f32)
+{
+	if close.count == 0
+		return;
+	for e in *close
+	{
+		if ref == * e
+			continue;
+		regrow(out, out.count + 1);
+		last: = (*out)[out.count - 1];
+		if last.col.contacts.alloc == nil || last.col.contacts.alloc.id != 0x1234
+		{
+			last.col.contacts.alloc = ctx.alloc;
+			dyn_init(&last.col.contacts, 4);
+		}
+		dyn_clear(&last.col.contacts);
+		last.col.contacts.count = last.col.contacts.cap;
+		if AreTwoEntColliding(ctx, ref, *e, &last.col, dt)
+		{
+			last.col.ignore_trigger_do_collision = false;
+			last.col.ignore_collision = false;
+			last.ent_a = ref;
+			last.ent_b = *e;
+		}
+		else
+		{
+			out.count--;
+		}
+
+	}
+	
+}
+BroadPhase::fn(ctx : *context, ref_pos : *_vec, ref_size : *_vec, out : *dyn_array(*entity))
+{
+	for e in ctx.bodies
+	{
+		if !e.is_active
+			continue;
+		
+		dyn_add(out, e);
+		continue;
+		
+
+		dist: = len_vec(&(e.pos - *ref_pos));
+		col_a:ent_col;
+		col_b:ent_col=?;
+		col_a.pos = *ref_pos;
+		col_a.size = *ref_size;
+		
+		col_b.pos = e.pos;
+		col_b.size = e.col_size;
+		col_b.pivot = e.pivot;
+		
+		
+		
+
+		
+		max_side: = maxf(ref_size.x * 2.0, ref_size.y * 2.0) ;
+		max_side = maxf(max_side, e.size.x * 2.0);
+		max_side = maxf(max_side, e.size.y * 2.0);
+
+		max_side += 10.0;
+		res :_vec=?;
+		
+		if AABB(&col_a, &col_b, &res)
+		{
+			dyn_add(out, e);
+		}
+	}
+}
+ CheckRayAgainstVertices::fn(vertices : *_vec, verts_len : u32, ray_start : *_vec, ray_end : *_vec, ent : *entity, info : *collision)!bool
+{
+	for j in 0..verts_len
+	{
+		va: = ptr_offset(vertices, cast(u64)j, _vec);
+		vb: = ptr_offset(vertices, cast(u64)(j + 1) % verts_len, _vec);
+
+		p:_vec=?;
+
+		if (DoTwoLinesIntersect(ray_start, ray_end, va, vb, &p))
+		{
+			dir: = *vb - *va;
+			n:_vec=?;
+			n.x = dir.y;
+			n.y = -dir.x;
+
+			dot: = dot_vec(&(*ray_start - *ray_end), &n);
+			if (dot < 0.0)
+			{
+				n = n * -1.0;
+			}
+			info.contact_point = p;
+			info.normal = n;
+			return true;
+		}
+	}
+	return false;
+}
+Raycast::fn(ctx : *context, start : *_vec, end : *_vec, info:*collision, layers_to_ignore:u32, collided : **entity) !bool
+{
+	dyn_clear(&ctx.broad_phase_ents);
+
+	len: = len_vec(&(*start - *end));
+	mean:_vec = ? ;
+	mean.x = (start.x + end.x) / 2.0;
+	mean.y = (start.y + end.y) / 2.0;
+	mean.z = (start.z + end.z) / 2.0;
+
+	sz:_vec = ? ;
+	sz.x = len * 2.0;
+	sz.y = len * 2.0;
+	zero:_vec;
+	BroadPhase(ctx, &mean, &sz, &ctx.broad_phase_ents);
+	for it in ctx.broad_phase_ents
+	{
+		if is_flag_on(it.layer, layers_to_ignore)
+			continue;
+		//if ((it->flags & ENTITY_FLAGS_NO_COLLISION) == 0 && (it->collision_layer & layers_to_ignore) == 0)
+		{
+			a_verts : [4]_vec;
+			ApplyTranformationsToVerts(&it.pos, &it.vel, &it.pivot, &it.col_size, &it.rot, a_verts, *it);
+			aux_arA:dyn_array(_vec);
+			aux_arA.data = a_verts[0];
+			aux_arA.count = 4;
+				
+			if CheckRayAgainstVertices(a_verts, 4, start, end, *it, info)
+			{
+				info.ent = *it
+				/*
+				if (it->up.x != 0 && it->col_line != nullptr)
+				{
+					CheckRayAgainstVertices(&it->col_line->positions, start, end, nullptr, info);
+				}
+				*/
+				if *collided
+				{
+					*collided = *it;
+				}
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

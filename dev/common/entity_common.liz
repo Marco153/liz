@@ -1,0 +1,312 @@
+import "../../core";
+
+ent_type:enum
+{
+	DAMAGE,
+	PLAYER,
+	STATIC_COL,
+	AXE,
+	DEFENSE,
+	ENEMY,
+	CHANGE_SCENE_TRIGGER,
+	RESET_LEVEL,
+	SPEAR,
+	WATER,
+	FLOATY_PLATFORM,
+	INTERACT,
+}
+enemy_enum : enum
+{
+	THRAXER,
+	QUIMMER,
+	WOLF,
+}
+interact_type : enum
+{
+
+}
+
+impact_enum:enum
+{
+	OPPOSITE_DIR,
+	UP_AND_OPPOSITE_DIR,
+	UP,
+}
+
+entity_state:enum
+{
+	IDLE,
+	THRAXER_IDLE = IDLE,
+	WALK,
+	THRAXER_DEFEND = WALK,
+	HIT,
+	WOLF_BACK_TO_ORIGIN = HIT,
+	KICK,
+	IMPACTED,
+	FALLING,
+	ON_GROUND,
+	MEDIUM_KICK,
+	HIGH_KICK,
+	UPWARD_PUNCH,
+	RISING,
+	DESCENDING,
+	AIR_KICK,
+	AXE_PUNCH,
+	AXE_THROW,
+	AXE_AIR_THROW,
+	SWEEPED,
+}
+behaviour_state: enum
+{
+	IDLE,	
+	WAIT,	
+	MAINTAIN_DISTANCE,
+	GET_CLOSER_THEN_ATTACK,
+	JUMP,
+}
+intention_state: enum
+{
+	CALM,
+	ATTACK,
+}
+
+ENTITY_HAS_TEXTURE: const s32 = 1;
+ENTITY_IS_MASKED: const s32 = 2;
+ENTITY_DONT_FREE: const s32 = 4;
+ENTITY_FREED: const s32 = 8;
+
+LAYER_ENTITY_PLAYABLE:const s32 = 1;
+LAYER_PLAYER:const s32 = 2;
+LAYER_TRIGGER :const s32 = 4;
+LAYER_ENEMY :const s32 = 8;
+LAYER_MAYBE_ONLY_UP_COL :const s32 = 0x10;
+
+event_type : enum
+{
+	START_CUTSCENE,
+}
+
+long_term_action:etruct
+{
+	MEETING_AT(
+		hour : f32,
+		pos : _vec
+	),
+}
+mid_term_action:etruct
+{
+	MEETING_AT(
+		long_term : u32,
+		short_terms : dyn_array(short_term_action)
+	),
+	TEST(
+		frames : u64,
+		secs : f32,
+		cur : f32,
+	),
+}
+rated_stuff:struct(T)
+{
+	type : T,
+	val : f32
+	in_curse : bool
+};
+short_term_action:etruct
+{
+	SAY(
+		str : str_lit
+	),
+	GO_TO(
+		pos : _vec
+		frames : u8,
+		flags : u8
+
+		x_vel_when_ray_col : s8
+		y_vel_when_ray_col : s8
+	),
+	GO_PATH(
+		cur_path : u32,
+		path : dyn_array(_vec)
+	)
+}
+thinking : struct
+{
+	long_term_acts : dyn_array(long_term_action)
+	mid_term_acts : dyn_array(rated_stuff(mid_term_action))
+	short_term_acts : dyn_array(short_term_action)
+
+	check_mid_term : bool
+}
+
+entity:struct
+{
+	type : ent_type,
+	state : entity_state,
+	name : str_lit,
+	pos : _vec,
+	pivot : _vec,
+	size : _vec,
+	col_size : _vec,
+	rot : _vec,
+	angle_rot : _vec,
+	color : v4,
+	vel : _vec,
+	impact_vel : _vec,
+	forward : _vec,
+	hp : f32,
+	collided_entered : bool,
+	col_enter : fn(*entity, *entity, *collision),
+	col_stay : fn(*entity, *entity, *collision),
+	col_exit : fn(*entity, *entity, *collision),
+
+	on_ground : bool,
+	was_hit : bool,
+	is_static : bool,
+	is_trigger : bool,
+	is_active : bool,
+	knockedout : bool,
+	can_start_combo : bool,
+
+	layer : u32,
+	dont_res_cols_with_layers : u32,
+
+	mov_info : *player_info,
+	axe : *axe_info,
+	ents_in_collision : dyn_array(in_col_ent),
+	cl : *clip2,
+	clip_time : f32,
+	clip_done : bool,
+	tex_id : u32,
+	flags : u32,
+	thoughts : *thinking
+	
+	using u :: union
+	{
+		dmg ::struct
+		{
+			from: *entity,
+			val : f32,
+			impact_type : impact_enum,
+			impact_mul : f32,
+			hit : bool,
+			hit_ent : *entity 
+		};
+		spear_idle_tex_idx : u32,
+		scene::struct
+		{
+			change_to_scene_name : str_lit,
+			character_start_idx : u32,
+		}
+		enemy_type : enemy_enum,
+	}
+	using u2 :: union
+	{
+		event :: struct
+		{
+			ev_type : event_type,
+			interact_idx : u32;
+		};
+		platform_idle_time : f32,
+		spear_on_col_with : *entity,
+	}
+	masking_objs : *dyn_array(*_vec),
+	stencil_val : u8,
+	stencil_func : stencil_func_enum,
+	tex_size_x : f32,
+	tex_size_y : f32,
+	tex_offset_x : f32,
+	tex_offset_y : f32,
+}
+
+combo_enum:enum
+{
+	ATTACK_0,
+	ATTACK_1,
+	ATTACK_2,
+	AIR_ATTACK_0,
+	ATTACK_THROW_UPWARDS,
+}
+trigger_info: struct
+{
+	time :f32,
+	timer :f32,
+	size : _vec,
+	state : u32,
+}
+jmp_info: struct
+{
+	time_off_ground :f32,
+	speed :f32,
+	off_ground_can_jmp_time :f32,
+}
+axe_info: struct
+{
+	hit : bool,
+}
+inv_item:enum
+{
+	EMPTY,
+	AXE,
+	SPEAR,
+	BRACELET_OF_SINCERITY,
+}
+inv_slot:struct
+{
+	item : inv_item,
+}
+TOTA_INV_ITEMS:const s32= 4;
+inventory : struct
+{
+	items : dyn_array(inv_slot),
+}
+player_info: struct
+{
+	can_move : bool,
+	using u1 :: union
+	{
+		mov_vel : _vec,
+		origin_pos : _vec,
+	}
+	gravity_vel : _vec,
+	platform_vel : _vec,
+	platform : *entity,
+	trigger : *entity,
+	enemy_state : entity_state,
+	this_state : behaviour_state,
+	trig_info : trigger_info,
+	usable_items : *inventory,
+	has_bracelet : bool,
+	
+	weapons_inv : *inventory,
+	cur_weapon : *inv_slot,
+	
+	spears : *entity,
+	cur_spear : u32,
+	max_spears : u32,
+	
+	jmp : jmp_info,
+	has_axe : bool,
+	using u2 :: union
+	{
+		forward : _vec,
+		prev_player_pos : _vec,
+	}
+	speed : f32,
+	combo : combo_enum,
+	axe_ent : *entity,
+	in_combo : bool,
+	can_jmp : bool,
+	wait_time : f32,
+	wait_timer : f32,
+	wait_timer_u32 : u32,
+	behaviour_timer : f32,
+	character_walk : *clip2,
+	character_idle : *clip2,
+	character_kick : *clip2,
+	character_axe_punch : *clip2,
+	character_axe_throw : *clip2,
+	
+	charge_attack_time : f32,
+	//enemy_cool_down_attack : f32,
+	aux : u32,
+}

@@ -1,0 +1,163 @@
+import "../../core";
+import "../common";
+
+
+DisableEnt::fn(ent : *entity)
+{
+	if !ent.is_active
+		return;
+	for col in ent.ents_in_collision
+	{
+		col.in_col = false;
+		col.ent = nil;
+	}
+	ent.is_active = false;
+
+	if ent.type == ent_type.ENEMY
+	{
+		if ent.enemy_type == enemy_enum.THRAXER || ent.enemy_type == enemy_enum.WOLF
+		{
+			DisableEnt(ent.mov_info.trigger);
+		}
+	}
+}
+
+NewEnt::fn(alloc : *mem_alloc, name : str_lit) ! *entity
+{
+	ent := LinearGet(&globals.entities, 1)
+	//ASSERT((globals.entity_cur + 1) <= globals.entity_max)
+	//ent := ptr_offset(globals.entity_start,globals.entity_cur, entity);
+	memset(ent, 0, sizeof(entity));
+	//globals.entity_cur++;
+	ent.color = []f32{1.0, 1.0, 1.0, 1.0};
+	ent.name = name;
+	ent.size.x = 1.0;
+	ent.size.y = 1.0;
+	ent.size.z = 1.0;
+	ent.col_size.x = 1.0;
+	ent.col_size.y = 1.0;
+	ent.col_size.z = 1.0;
+	ent.tex_size_x = 1.0;
+	ent.tex_size_y = 1.0;
+	
+	return ent;
+}
+NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
+{
+	*out_ent = NewEnt(ctx.alloc, "playable_ent");
+	//memset(*out_ent, 0, sizeof(entity));
+	trigger := NewEnt(ctx.alloc, "trigger of playable_ent");
+	
+	if !should_be_freed
+	{
+		out_ent.flags = out_ent.flags | ENTITY_DONT_FREE;
+		trigger.flags = trigger.flags | ENTITY_DONT_FREE;
+	}
+
+	trigger.is_trigger = true;
+	trigger.is_active = false;
+	trigger.color.w = 1.0;
+	trigger.dmg.from = *out_ent;
+	trigger.dmg.val = 20.0;
+	trigger.dmg.impact_mul = 1.0;
+	trigger.size.x = 1.0;
+	trigger.size.y = 1.0;
+	trigger.col_size.x = 1.0;
+	trigger.col_size.y = 1.0;
+	trigger.col_enter = trig_collision_enter;
+	trigger.layer = LAYER_TRIGGER;
+	out_ent.color.x = 1.0;
+	out_ent.color.y = 1.0;
+	out_ent.color.z = 1.0;
+	out_ent.color.w = 1.0;
+
+	mov_info: = cast(*player_info)heap_alloc(ctx.alloc, sizeof(player_info));
+	mov_info.trigger = trigger;
+	mov_info.trig_info.{
+		time = 0.2;
+		size.x = 1.0;
+		size.y = 1.0;
+	};
+
+	out_ent.mov_info = mov_info;
+	add_body(ctx, *out_ent);
+	add_body(ctx, trigger);
+	dyn_add(&ctx.playable_ents, out_ent);
+}
+
+DrawEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
+{
+	if ctx.drawable_ents.count == 0
+		return;
+	for e in ctx.drawable_ents
+	{
+		DrawEntity(ctx, *e, cam_pos, cam_rot);
+	}
+}
+DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
+{
+	//PrintV3(cast(f32)cast(u32)ent.is_active, 0.0, 0.0);
+	if !ent.is_active
+		return;
+		
+
+	//__dbg_break
+	draw:draw_info;
+	draw.pos = ent.pos;
+	draw.pivot = ent.pivot;
+	draw.cam_pos = cam_pos;
+	draw.cam_rot = cam_rot;
+	draw.rot = ent.rot;
+	draw.ent_size = ent.size;
+	if ent.forward.x != 0.0
+		draw.ent_size.x = draw.ent_size.x * ent.forward.x;
+	draw.cam_size = 5.0;
+	if is_flag_on(ent.flags, ENTITY_HAS_TEXTURE)
+	{
+		//__dbg_break;
+		draw.flags = DRAW_INFO_HAS_TEXTURE;
+		draw.texture_id = ent.tex_id;
+		draw.tex_size_x = ent.tex_size_x;
+		draw.tex_size_y = ent.tex_size_y;
+		draw.tex_offset_x = ent.tex_offset_x;
+		draw.tex_offset_y = ent.tex_offset_y;
+	}
+	if is_flag_on(ent.flags, ENTITY_IS_MASKED)
+	{
+		//__dbg_break;
+		draw.flags = draw.flags | DRAW_INFO_STENCIL_TEST;
+		draw.stencil_func = ent.stencil_func;
+		draw.stencil_val = ent.stencil_val;
+	}
+	memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
+	Draw(ctx.window, &draw);
+	
+	if ctx.draw_origin
+	{
+		draw.flags = 0;
+		*draw.color[0] = 1.0;
+		*draw.color[1] = 0.0;
+		*draw.color[2] = 0.0;
+		*draw.color[3] = 1.0;
+		draw.ent_size.x = 0.1;
+		draw.ent_size.y = 0.1;
+		draw.pos.z = 0.04;
+		Draw(ctx.window, &draw);
+		
+		*draw.color[0] = 0.0;
+		*draw.color[1] = 1.0;
+		*draw.color[2] = 0.0;
+		*draw.color[3] = 1.0;
+		draw.pos.y = ent.pos.y + ent.pivot.y * ent.col_size.y;
+		Draw(ctx.window, &draw);
+		
+		*draw.color[0] = 0.0;
+		*draw.color[1] = 0.0;
+		*draw.color[2] = 1.0;
+		*draw.color[3] = 1.0;
+		draw.pos.y = ent.pos.y - ent.pivot.y * ent.col_size.y;
+		//draw.
+		Draw(ctx.window, &draw);
+		//draw.ent_size.x
+	}
+}

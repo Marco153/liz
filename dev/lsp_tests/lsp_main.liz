@@ -1,0 +1,1160 @@
+import "../../core";
+import "../common";
+//import "../files"
+
+
+context:struct
+{
+	window : *u8,
+	alloc : mem_alloc,
+	alphabet : clip,
+
+	character_img:u32,
+
+}
+
+
+CopyRegionFromTex::fn(ctx : *context, tex : *texture_info, x_offset : u32, y_offset : u32, width : u32, height : u32, data : *u8)
+{
+	src_offset :u64= x_offset * 4 + y_offset * tex.width * 4;
+	dst_offset :u64= 0;
+	sz: = cast(u64)width * 4;
+	for h in 0..height
+	{
+		memcpy(ptr_offset(data, dst_offset, u8), ptr_offset(tex.data, src_offset, u8), sz);
+		src_offset += tex.width * 4;
+		dst_offset += width * 4;
+	}
+}
+
+AssignToCell::fn(ctx : *context, out : *layer_sprites, cell_x : u32, cell_y : u32, src_x : u32, src_y : u32, tex : *texture_info, aux_buffer : *u8)
+{
+	pixels_per_width:u32 = out.pixels_per_width;
+
+	//src_x = src_x * 4;
+	//src_y = src_y * tex.width * 4;
+	CopyRegionFromTex(ctx, tex, src_x, src_y, pixels_per_width, pixels_per_width, aux_buffer);
+	x := cast(u32)cell_x * pixels_per_width;
+	y := cast(u32)cell_y * pixels_per_width;
+//	__dbg_break;
+	UpdateTexture(out.tex_id, x, y, pixels_per_width, pixels_per_width, aux_buffer);
+	
+}
+maxu32::fn(a : u32, b : u32) !u32
+{
+	if a > b return a;
+	return b;
+}
+minu32::fn(a : u32, b : u32) !u32
+{
+	if a < b return a;
+	return b;
+}
+
+
+
+ExportLayers::fn(alloc : *mem_alloc, name : str_lit, out : *dyn_array(*layer_sprites))
+{
+	buffer: dyn_array(u8);
+	dyn_init2(&buffer, 1, alloc);
+
+	str_tbl: dyn_array(u8);
+	dyn_init2(&str_tbl, 1, alloc);
+
+	aux_strs:struct
+	{
+		addr : u64, 
+		in_str_tbl: u64
+	};
+	// dummy str_tbl value
+	dyn_add_data(&buffer, &str_tbl, sizeof(sheet_file_header));
+
+	inserted_strs: dyn_array(aux_strs);
+	dyn_init2(&inserted_strs, 1, alloc);
+
+	//dyn_add_data(&buffer, &out.count, 4);
+
+	for l_ptr in* out
+	{
+
+		aux_layer_info:aux_layer_info_struct;
+		aux_layer_info.type = l_ptr.type;
+		aux_layer_info.pixels_per_width = l_ptr.pixels_per_width;
+		aux_layer_info.grid_x = l_ptr.grid_x;
+		aux_layer_info.grid_y = l_ptr.grid_y;
+		layer_idx: = buffer.count;
+		dyn_add_data(&buffer, &aux_layer_info, sizeof(aux_layer_info));
+
+		modify_layer: = cast(*aux_layer_info_struct)buffer[layer_idx];
+
+
+		//aux_layer_info.tex_name = l_ptr.grid_y;
+		//l:*layer_sprites = *l_ptr;
+		total_of_used_cells:u32 = 0;
+		if  l_ptr.type == layer_enum.COL
+		{
+			idx: u32= 0;
+
+			modify_layer.cell_sz = sizeof(col_cell);
+			if l_ptr.cells.count > 0
+			{
+				for c in l_ptr.cells
+				{
+					if !c.used
+						continue;
+					col_aux :col_cell;
+					col_aux.pos = c.col.pos;
+					col_aux.sz = c.col.sz;
+					dyn_add_data(&buffer, cast(*void)&col_aux, sizeof(col_cell));
+					total_of_used_cells++;
+					idx++;
+					
+				}
+			}
+		}
+		else if  l_ptr.type == layer_enum.OBJ
+		{
+			idx: u32= 0;
+
+			modify_layer.cell_sz = sizeof(obj_cell);
+			if l_ptr.cells.count > 0
+			{
+				for c in l_ptr.cells
+				{
+					if !c.used
+						continue;
+
+					obj_aux :obj_cell;
+					obj_aux.type = c.obj.type;
+					obj_aux.pos = c.obj.pos;
+					obj_aux.sz = c.obj.sz;
+					dyn_add_data(&buffer, cast(*void)&obj_aux, sizeof(obj_cell));
+					total_of_used_cells++;
+					idx++;
+					
+				}
+			}
+			
+		}
+		else if  l_ptr.type == layer_enum.SPRITE
+		{
+			idx: u32= 0;
+
+			modify_layer.cell_sz = sizeof(sp_cell);
+			for c in l_ptr.cells
+			{
+				if c.used
+				{
+					
+					total_of_used_cells++;
+					sp_aux :sp_cell;
+					sp_aux.grid_x = idx % l_ptr.grid_x;
+					sp_aux.grid_y = idx / l_ptr.grid_x;
+					sp_aux.src_tex_offset_x = c.x_offset;
+					sp_aux.src_tex_offset_y = c.y_offset;
+
+					inserted: = false;
+					in_str_tbl_addr:u64 = 0;
+
+					if (inserted_strs.count > 0)
+					{
+						for val in inserted_strs
+						{
+							if cast(str_lit)val.addr == c.tex.name
+							{
+								inserted = true;
+								in_str_tbl_addr = val.in_str_tbl;
+								break;
+							}
+						}
+					}
+
+					if !inserted
+					{
+						to_insert:aux_strs;
+						to_insert.addr = cast(u64)c.tex.name;
+						to_insert.in_str_tbl = str_tbl.count;
+						in_str_tbl_addr = str_tbl.count;
+						dyn_add(&inserted_strs, &to_insert);
+
+						//zero: = 0;
+						ln:= cast(u32)str_ln(c.tex.name);
+						dyn_add_data(&str_tbl, cast(*void)c.tex.name, ln + 1);
+						//dyn_add_data(&str_tbl, &zero, 0);
+
+
+					}
+
+					sp_aux.tex_name = in_str_tbl_addr;
+					dyn_add_data(&buffer, &sp_aux, sizeof(sp_cell));
+				}
+				idx++;
+			}
+		}
+		else
+			__dbg_break;
+		modify_layer = cast(*aux_layer_info_struct)buffer[layer_idx];
+		modify_layer.total_of_used_cells = total_of_used_cells;
+
+	}
+
+
+	end_of_layers: = 0x1234;
+	dyn_add_data(&buffer, &end_of_layers, 4);
+
+	header: = cast(*sheet_file_header)buffer[0];
+	header.total_layers = cast(u32)out.count;
+	header.str_tbl_offset = cast(u32)buffer.count;
+	header.str_tbl_sz = cast(u32)str_tbl.count;
+	header.cell_sz = sizeof(aux_cell_info);
+	dyn_add_data(&buffer, str_tbl.data, cast(u32)str_tbl.count);
+
+	WriteFile(name, buffer.data, buffer.count);
+
+	heap_free(alloc, buffer.data);
+	heap_free(alloc, str_tbl.data);
+
+}
+
+NewLayerTreeNode::fn(name : str_lit, layer_visible : *u32, alpha : *f32)
+{
+	select_char:char;
+	if *layer_visible == 0
+	{
+		select_char = '-;
+		*alpha = 0.0;
+	}
+	else if *layer_visible == 1
+	{
+		select_char = '~;
+		*alpha = 0.3;
+	}
+	else
+	{
+		select_char = 'o;
+		*alpha = 1.0;
+	}
+	aux_buffer: [16] char;
+	*aux_buffer[0] = select_char;
+	*aux_buffer[1] = '#;
+	*aux_buffer[2] = '#;
+	ln:= str_ln(name);
+	memcpy(aux_buffer[3], name, ln);
+	*aux_buffer[ln + 3] = cast(char)0;
+
+	if ImGuiSelectable(cast(str_lit)aux_buffer[0], true, 20.0, 20.0)
+	{
+		*layer_visible = (*layer_visible + 1) % 3;
+	}
+	ImGuiSameLine();
+	if ImGuiTreeNodeEx(name)
+	{
+		ImGuiTreePop();
+	}
+
+}
+aabb_info: struct
+{
+	minX1 : f32, minY1 : f32, maxX1 : f32, maxY1 : f32,
+	minX2 : f32, minY2 : f32, maxX2 : f32, maxY2 : f32
+}
+AABB::fn(info : *aabb_info) !bool
+{
+	using info;
+	result: bool;
+	if maxX1 < minX2 && maxX2 < minX1
+		result = false;
+	else if maxY1 < minY2 && maxY2 < minY1
+		result = false;
+
+	return result;
+}
+ChangeSelectedTexture::fn macro()
+{
+	aux = ptr_offset(textures.data, cast(u64)selected_tex, texture_info);
+	selected_sprites_start_x = 0;
+	selected_sprites_start_y = 0;
+	selected_sprites_end_x = 0;
+	selected_sprites_end_y = 0;
+
+}
+
+// left mouse click-q inserts a collider or a sprite
+// tab deletes a collider
+// shift+a changes to sprite insert
+// shift+s changes to col insert
+// ctrl+w goes to the texture above
+// ctrl+s goes to the texture below
+// ctrl+q goes one window to the left(sprite, view)
+// ctrl+e goes one window to the right(sprite, view)
+// tab+wasd moves the square on the view
+
+col_behaviour:struct
+{
+	mwx : f32,
+	mwy : f32,
+	on_preview_col:*bool,
+	selected_cols_start_x: *s32,
+	selected_cols_start_y: *s32,
+	selected_cols_end_x: *s32,
+	selected_cols_end_y: *s32,
+	selected_col_cell: **cell,
+
+	cells : *dyn_array(cell),
+	dragging : *bool,
+	original_col_pos : *v3,
+	col_alpha : f32,
+	cam_size : f32,
+	cam_pos : *v3,
+	window : *u8,
+
+	visible : u32,
+
+	type : layer_enum,
+
+	event : *u32,
+	selected_obj : *obj_cell,
+}
+
+GetCorrectPosSzFromCell::fn(c : *cell, type : layer_enum, out_pos : **v3, out_sz : **v3)
+{
+	if type == layer_enum.OBJ
+	{
+		*out_pos = &c.obj.pos;
+		*out_sz = &c.obj.sz;
+
+	}
+	else if type == layer_enum.COL
+	{
+		*out_pos = &c.col.pos;
+		*out_sz = &c.col.sz;
+	}
+	else
+		__dbg_break;
+}
+
+DrawColLayer::fn(cells: *dyn_array(cell), type : layer_enum, col_alpha : f32, cam_size : f32, cam_pos : *v3, selected_col_cell : *cell, window : *u8)
+{
+	if cells.count > 0
+	{
+		draw : draw_info;
+		for c in *cells
+		{
+			if !c.used
+				continue;
+			//__dbg_break;
+			col:*v3;
+			sz:*v3;
+			GetCorrectPosSzFromCell(c, type, &col, &sz);
+			draw.flags = 0;
+			draw.ent_size.x = sz.x;
+			draw.ent_size.y = sz.y;
+			draw.pos.x = col.x;
+			draw.pos.y = col.y;
+			draw.color = []f32{ 0.0, 0.0, 0.0, col_alpha };
+			draw.cam_size = cam_size;
+			draw.cam_pos = cam_pos;
+			if c == selected_col_cell
+			{
+				*draw.color[0] = 1.0;
+			}
+			draw.flags = DRAW_INFO_LINE;
+			//__dbg_break;
+			Draw(window, &draw);
+		}
+	}
+}
+ColliderLikeBehaviour::fn(bh : *col_behaviour)
+{
+	using bh;
+	if IsMouseHeld(mouse_enum.LEFT) && IsKeyHeld(key_enum.KEY_Q)
+	{
+		x: = cast(f32)cast(s32)mwx;
+		if mwx < 0.0
+			x = x - 1.0;
+		y: = cast(f32)cast(s32)mwy;
+		if mwy < 0.0
+			y = y - 1.0;
+		if !*on_preview_col
+		{
+			*selected_cols_start_x = cast(s32)x;
+			*selected_cols_start_y = cast(s32)y;
+		}
+		*selected_cols_end_x = cast(s32)x;
+		*selected_cols_end_y = cast(s32)y;
+
+		*selected_col_cell = nil;
+
+		*on_preview_col = true;
+	}
+	// selecting col, col selecting
+	if IsMouseDown(mouse_enum.LEFT) && !ImGuiHasFocus() 
+	{
+		probable_selected: *cell=*selected_col_cell;
+		if cells.count > 0
+		{
+			hit: = false;
+			for c in *cells
+			{
+				pos :*v3;
+				sz :*v3;
+				GetCorrectPosSzFromCell(c, type, &pos, &sz);
+
+				left_x: = pos.x;
+				right_x: = pos.x + sz.x;
+
+				up_y: = pos.y;
+				down_y: = pos.y + sz.y;
+
+				min_x: = minf(left_x, right_x);
+				max_x: = maxf(left_x, right_x);
+				min_y: = minf(up_y, down_y);
+				max_y: = maxf(up_y, down_y);
+				if mwx >= min_x && mwx <= max_x && mwy >= min_y && mwy <= max_y
+				{
+					PrintV3(1.0, 0.0, 0.0);
+					// we want to give preference to cols that arent
+					// selected, theres a chance that the this might
+					// override the col that we want without the condition
+					if c != *selected_col_cell
+						probable_selected = c;
+					hit = true;
+				}
+			}
+			if !hit
+				probable_selected = nil;
+		}
+		*selected_col_cell = probable_selected;
+	}
+
+	col:*v3;
+	sz:*v3;
+
+	if *selected_col_cell != nil
+		GetCorrectPosSzFromCell(*selected_col_cell, type, &col, &sz);
+			
+	// dragging col, col dragging
+	if IsMouseHeld(mouse_enum.LEFT) && *selected_col_cell != nil
+	{
+
+		if !*dragging
+		{
+			//__dbg_break;
+			GetCorrectPosSzFromCell(*selected_col_cell, type, &col, &sz);
+			original_col_pos.x = col.x;
+			original_col_pos.y = col.y;
+			*selected_cols_start_x = cast(s32)mwx;
+			*selected_cols_start_y = cast(s32)mwy;
+		}
+		*selected_cols_end_x = cast(s32)mwx;
+		*selected_cols_end_y = cast(s32)mwy;
+
+		*dragging = true;
+	}
+	else
+		*dragging = false;
+
+	if visible <= 1
+	{
+		*dragging = false;
+		*on_preview_col = false;
+	}
+
+	
+	diff_x: = *selected_cols_end_x - *selected_cols_start_x;
+	diff_y: = *selected_cols_end_y - *selected_cols_start_y;
+
+	if *dragging && *selected_col_cell != nil
+	{
+		//col: = &selected_col_cell.col.pos;
+		col.x = cast(f32)(original_col_pos.x + cast(f32)diff_x);
+		col.y = cast(f32)(original_col_pos.y + cast(f32)diff_y);
+	}
+
+	if (mwx - cast(f32)*selected_cols_start_x) < 0.0
+		diff_x -= 1;
+	else
+		diff_x += 1;
+
+	if (mwy - cast(f32)*selected_cols_start_y) < 0.0
+		diff_y -= 1;
+	else
+		diff_y += 1;
+
+	draw : draw_info;
+	// drawing preview col
+	if *on_preview_col
+	{
+		//__dbg_break;
+		draw.flags = 0;
+		draw.pos.x = cast(f32)*selected_cols_start_x;
+		draw.pos.y = cast(f32)*selected_cols_start_y;
+		draw.ent_size.x = cast(f32)diff_x;
+		draw.ent_size.y = cast(f32)diff_y;
+		draw.color = []f32{ 1.0, 0.0, 0.0, col_alpha };
+		draw.cam_size = cam_size;
+		draw.cam_pos = cam_pos;
+		draw.flags = DRAW_INFO_LINE;
+		//__dbg_break;
+		Draw(window, &draw);
+
+	}
+
+	// maybe inserting the preview col
+	if IsMouseUp(mouse_enum.LEFT) && *on_preview_col
+	{
+		has_col: = false;
+
+		x: = cast(f32)*selected_cols_start_x;
+		y: = cast(f32)*selected_cols_start_y;
+
+		unused:*cell = nil;
+		if cells.count > 0
+		{
+			for c in *cells
+			{
+				GetCorrectPosSzFromCell(c, type, &col, &sz);
+				if !c.used
+				{
+					unused = c;
+				}
+				if col.x == x && col.y == y
+				{
+					has_col = true;
+					break;
+				}
+			}
+		}
+
+		if !has_col
+		{
+			aux_cell:*cell;
+			if unused
+				aux_cell = unused;
+			else
+			{
+				dyn_add(cells, cast(*cell)&has_col);
+				aux_cell = dyn_last(cells);
+			}
+			aux_cell.used = true;
+			
+			//__dbg_break;
+			GetCorrectPosSzFromCell(aux_cell, type, &col, &sz);
+			col.x = x;
+			col.y = y;
+			sz.x = cast(f32)diff_x;
+			sz.y = cast(f32)diff_y;
+
+			if type == layer_enum.OBJ
+			{
+				aux_cell.obj.type = selected_obj.type;
+			}
+		}
+		*on_preview_col = false;
+		*selected_cols_start_x = 0;
+		*selected_cols_start_y = 0;
+		*selected_cols_end_x = 0;
+		*selected_cols_end_y = 0;
+	}
+	if IsKeyDown(key_enum.KEY_TAB)
+	{
+		if *selected_col_cell != nil
+		{
+			PrintV3(2.0, 0.0, 0.0);
+			selected_col_cell.used = false;
+			*selected_col_cell = nil;
+		}
+	}
+}
+
+main::fn()
+{
+	SetIsEngine();
+	ctx: context;
+	//AssignCtxAddr(&ctx);
+	InitMemAlloc(&ctx.alloc);
+	window := OpenWindow();
+	ctx.window = window;
+	// **** for some reason we need this first allocation for the remaining to work
+	// maybe this has to do with the loading of textures
+	heap_alloc(&ctx.alloc, 1);
+
+	textures:dyn_array(texture_info);
+	LoadTexFolder("../images", &textures);
+
+	ctx.character_img = LoadTex("character.png", 0, 0, 64, 64);
+
+	LoadClip("abcd.png", 0, 0, 32, 32, 30, 1.0, &ctx.alphabet);
+
+	ImGuiInitTextEditor("lsp_tests/lsp_main.liz");
+
+	//tex_id: = GenRawTexture(256, 256);
+	aux: = ptr_offset(textures.data, 0, texture_info);
+
+	pixels_per_width:u32 = 32;
+	data := cast(*u8)heap_alloc(&ctx.alloc, pixels_per_width * pixels_per_width * 4);
+	cam_pos:v3;
+
+	mx := GetMouseScreenPosX();
+	my := GetMouseScreenPosY();
+	cam_size: = 4.0;
+	cam_pos.x = -4.0;
+
+	sheet:layer_sprites;
+	NewEntSpriteSheet(&ctx.alloc, 8, 8, pixels_per_width, &sheet);
+
+	col_layer:layer_sprites;
+	col_layer.type = layer_enum.COL;
+	dyn_init2(&col_layer.cells, 1, &ctx.alloc);
+
+	obj_layer:layer_sprites;
+	obj_layer.type = layer_enum.OBJ;
+	dyn_init2(&obj_layer.cells, 1, &ctx.alloc);
+
+	test_b: = false;
+	selected_tex:u32 = 0;
+	selected_screen:u32 = 0;
+
+	selected_sprites_start_x: u32;
+	selected_sprites_start_y: u32;
+	selected_sprites_end_x: u32;
+	selected_sprites_end_y: u32;
+
+	selected_cols_start_x: s32;
+	selected_cols_start_y: s32;
+	selected_cols_end_x: s32;
+	selected_cols_end_y: s32;
+
+	selecting_sprites:bool = false;
+	on_preview_col:bool = false;
+	dragging:bool = false;
+
+	layers:dyn_array(*layer_sprites);
+	dyn_init2(&layers, 1, &ctx.alloc);
+
+	sheet_ptr: = &sheet;
+	dyn_add(&layers, &sheet_ptr);
+	sheet_ptr = &col_layer;
+	dyn_add(&layers, &sheet_ptr);
+	sheet_ptr = &obj_layer;
+	dyn_add(&layers, &sheet_ptr);
+
+
+	selected_col_cell: *cell=nil;
+
+	original_col_pos:v3;
+
+	layer_type_info: struct
+	{
+		name : str_lit,
+		visible : u32,
+		alpha : f32,
+		key : key_enum,
+	};
+
+	layers_type: [3] layer_type_info;
+
+	layers_type[0].
+	{
+		name = "sp";
+		visible = 2;
+		key = key_enum.KEY_A;
+	};
+
+	layers_type[1].
+	{
+		name = "col";
+		visible = 1;
+		key = key_enum.KEY_S;
+	};
+	layers_type[2].
+	{
+		name = "obj";
+		visible = 1;
+		key = key_enum.KEY_D;
+	};
+
+	obj_alpha: = &layers_type[2].alpha;
+	col_alpha: = &layers_type[1].alpha;
+	sps_alpha: = &layers_type[0].alpha;
+	layer_col_visible:= &layers_type[1].visible;
+	layer_sprites_visible:= &layers_type[0].visible;
+	layer_obj_visible:= &layers_type[2].visible;
+
+	selected_obj : *cell;
+	selected_obj_to_insert : obj_cell;
+
+	while !ShouldClose(window)
+	{
+
+		curmx := GetMouseNormalizedPosX();
+		curmy := GetMouseNormalizedPosY();
+		scroll: = GetMouseScroll();
+		// scene dragging
+		if IsMouseHeld(mouse_enum.LEFT) && IsKeyHeld(key_enum.KEY_JMP) && !ImGuiHasFocus() 
+
+		{
+			cam_pos.x -= mx * cam_size;
+			cam_pos.y -= my * cam_size;
+		}
+
+		// scene zooming
+		if !ImGuiHasFocus() 
+			cam_size -= (cast(f32)scroll) * 0.5;
+		if cam_size <= 1.0
+			cam_size = 1.0;
+
+		if cam_size >= 20.0
+			cam_size = 20.0;
+
+
+		mwx: = (curmx * cam_size) + cam_pos.x;
+		mwy: = (-curmy * cam_size) + cam_pos.y;
+		//Prnt
+
+		on_sheet_mouse_x: = cast(s32)((curmx * cam_size) + cam_pos.x);
+		on_sheet_mouse_y: = cast(s32)((-curmy * cam_size) + cam_pos.y);
+
+		// these castings are insane, but if we use clampi(s32) it will somehow overflow or get a negative val
+		on_sheet_mouse_x = cast(s32)clampu32(cast(u32)on_sheet_mouse_x, 0, sheet.grid_x - 1);
+		on_sheet_mouse_y = cast(s32)clampu32(cast(u32)on_sheet_mouse_y, 0, sheet.grid_y - 1);
+
+		pixels_grid_y := (cast(f32)aux.height / cast(f32)sheet.pixels_per_width);
+		y_src_idx: = ((cast(u32)pixels_grid_y - 1) - selected_sprites_start_y) * sheet.pixels_per_width;
+
+		if *layer_sprites_visible == 2
+		{
+			// preview sprite with mouse hovering
+			if sheet.cur_preview_x != cast(u32)on_sheet_mouse_x || sheet.cur_preview_y != cast(u32)on_sheet_mouse_y
+			{
+				px: = sheet.cur_preview_x;
+				py: = sheet.cur_preview_y;
+				clear_cell:*cell = sheet.cells[cast(u64)(px + py * sheet.grid_x)];
+				if clear_cell.used
+				{
+					AssignToCell(&ctx, &sheet, cast(u32)px, cast(u32)py, clear_cell.x_offset, clear_cell.y_offset, clear_cell.tex, data);
+				}
+				else
+				{
+					memset(data, 0, pixels_per_width * pixels_per_width * 4);
+					x:u32 = sheet.cur_preview_x * pixels_per_width;
+					y:u32 = sheet.cur_preview_y * pixels_per_width;
+					UpdateTexture(sheet.tex_id, x, y, pixels_per_width, pixels_per_width, data);
+				}
+
+				//__dbg_break;
+
+				CopyRegionFromTex(&ctx, aux, selected_sprites_start_x* sheet.pixels_per_width, y_src_idx, 32, 32, data);
+				x: = cast(u32)on_sheet_mouse_x * pixels_per_width;
+				y: = cast(u32)on_sheet_mouse_y * pixels_per_width;
+				UpdateTexture(sheet.tex_id, x, y, pixels_per_width, pixels_per_width, data);
+
+
+				sheet.cur_preview_x = cast(u32)on_sheet_mouse_x;
+				sheet.cur_preview_y = cast(u32)on_sheet_mouse_y;
+			}
+
+			if IsMouseHeld(mouse_enum.LEFT) && IsKeyHeld(key_enum.KEY_Q)
+			{
+				//y_src_idx = selected_sprites_start_y;
+				x_src_idx: = selected_sprites_start_x * sheet.pixels_per_width;
+
+				AssignToCell(&ctx, &sheet, cast(u32)on_sheet_mouse_x, cast(u32)on_sheet_mouse_y, x_src_idx, y_src_idx, aux, data);
+				dst_cell:*cell = sheet.cells[cast(u64)(on_sheet_mouse_x) + cast(u64)(cast(u32)on_sheet_mouse_y * sheet.grid_x)];
+				dst_cell.used = true;
+				dst_cell.tex = aux;
+				dst_cell.x_offset = x_src_idx;
+				dst_cell.y_offset = y_src_idx;
+
+			}
+			if IsMouseHeld(mouse_enum.RIGHT)
+			{
+				memset(data, 0, pixels_per_width * pixels_per_width * 4);
+				dst_cell:*cell = sheet.cells[cast(u64)(on_sheet_mouse_x) + cast(u64)(cast(u32)on_sheet_mouse_y * sheet.grid_x)];
+				dst_cell.used = false;
+				x:u32 = cast(u32)on_sheet_mouse_x * pixels_per_width;
+				y:u32 = cast(u32)on_sheet_mouse_y * pixels_per_width;
+				UpdateTexture(sheet.tex_id, x, y, pixels_per_width, pixels_per_width, data);
+
+			}
+		}
+		ClearBackground(0.3, 0.7, 0.7);
+
+		//__dbg_break;
+		//ImGuiBeginChild("engine", 500.0, 500.0);
+
+		open_w:bool;
+
+		ImGuiBegin("wind", &open_w, 0);
+
+		for t in layers_type
+		{
+			NewLayerTreeNode(t.name, &t.visible, &t.alpha);
+		}
+		
+		    
+			
+		//NewLayerTreeNode("obj", &layer_obj_visible, &obj_alpha);
+
+		ImGuiEnd();
+
+
+		if IsKeyHeld(key_enum.KEY_LCTRL)
+		{
+			if IsKeyDown(key_enum.KEY_Q)
+			{
+				selected_screen = (selected_screen - 1) % 3;
+			}
+			else if IsKeyDown(key_enum.KEY_E)
+			{
+				selected_screen = (selected_screen + 1) % 3;
+			}
+			else if IsKeyDown(key_enum.KEY_W)
+			{
+				selected_tex = (selected_tex - 1) % cast(u32)textures.count;
+				ChangeSelectedTexture();
+			}
+			else if IsKeyDown(key_enum.KEY_S)
+			{
+				selected_tex = (selected_tex + 1) % cast(u32)textures.count;
+				ChangeSelectedTexture();
+			}
+
+		}
+		if IsKeyHeld(key_enum.KEY_SHIFT)
+		{
+			for t in layers_type
+			{
+				if IsKeyDown(t.key)
+				{
+					t.visible = 2;
+					t.alpha = 1.0;
+					for o in layers_type
+					{
+						if o == t
+							continue;
+						o.visible = 1;
+						o.alpha = 0.3;
+					}
+				}
+			}
+		}
+
+		draw: draw_info;
+		// col drawing, collision drawing, drawing col
+		if *layer_col_visible == 2
+		{
+
+			bh :col_behaviour=?;
+
+			bh.mwx = mwx;
+			bh.mwy = mwy;
+			bh.visible = *layer_col_visible;
+			bh.on_preview_col= &on_preview_col;
+			bh.selected_cols_start_x= &selected_cols_start_x;
+			bh.selected_cols_start_y= &selected_cols_start_y;
+			bh.selected_cols_end_x= &selected_cols_end_x;
+			bh.selected_cols_end_y= &selected_cols_end_y;
+			bh.selected_col_cell= &selected_col_cell;
+
+			bh.cells = &col_layer.cells;
+			bh.dragging = &dragging;
+			bh.original_col_pos = &original_col_pos;
+			bh.col_alpha = *col_alpha;
+			bh.cam_size = cam_size;
+			bh.cam_pos = &cam_pos;
+			bh.window = window;
+			bh.type = layer_enum.COL;
+			ColliderLikeBehaviour(&bh);
+
+
+		}
+		// deleting col
+
+		if IsKeyHeld(key_enum.KEY_TAB)
+		{
+			// changing sprite with keyboard
+			if *layer_sprites_visible == 2
+			{
+				view_tex: = ptr_offset(textures.data, cast(u64)selected_tex, texture_info);
+				pixels_grid_x := (cast(f32)view_tex.width / cast(f32)sheet.pixels_per_width);
+				pixels_grid_y = (cast(f32)view_tex.height / cast(f32)sheet.pixels_per_width);
+
+				to_add_x: = 0;
+				to_add_y: = 0;
+				pressed: = false;
+				if IsKeyDown(key_enum.KEY_W)
+				{
+					pressed = true;
+					to_add_x = 0;
+					to_add_y = -1;
+				}
+				else if IsKeyDown(key_enum.KEY_S)
+				{
+					pressed = true;
+					to_add_x = 0;
+					to_add_y = 1;
+				}
+				else if IsKeyDown(key_enum.KEY_A)
+				{
+					pressed = true;
+					to_add_x = -1;
+					to_add_y = 0;
+				}
+				else if IsKeyDown(key_enum.KEY_D)
+				{
+					pressed = true;
+					to_add_x = 1;
+					to_add_y = 0;
+				}
+				if pressed
+				{
+					*cast(*s32)&selected_sprites_start_x += to_add_x;
+					*cast(*s32)&selected_sprites_start_y += to_add_y;
+					//selected_sprites_start_y += to_add_y;
+
+					selected_sprites_start_x = cast(u32)clampi(cast(s32)selected_sprites_start_x, 0, cast(s32)pixels_grid_x - 1);
+					selected_sprites_start_y = cast(u32)clampi(cast(s32)selected_sprites_start_y, 0, cast(s32)pixels_grid_y - 1);
+
+					selected_sprites_end_x = selected_sprites_start_x;
+					selected_sprites_end_y = selected_sprites_start_y;
+
+				}
+			}
+		}
+
+
+		// sheet drawing
+		draw.{
+			ent_size.{
+				x = cast(f32)sheet.grid_x;
+				y = cast(f32)sheet.grid_y;
+			};
+			texture_id = cast(u32)sheet.tex_id;
+			flags = DRAW_INFO_HAS_TEXTURE;
+		};
+		draw.pos.x = 0.0;
+		draw.pos.y = 0.0;
+		draw.cam_pos = &cam_pos;
+		draw.color = []f32{ 1.0, 1.0, 1.0, *sps_alpha };
+		draw.cam_size = cam_size;
+		Draw(window, &draw);
+
+
+		if *layer_col_visible >= 1
+			DrawColLayer(&col_layer.cells, layer_enum.COL, *col_alpha, cam_size, &cam_pos, selected_col_cell, window);
+
+		selected: = selected_screen == 0;
+
+		selectable_w: = 100.0;
+		selectable_h: = 20.0;
+		ImGuiSetNextItemAllowOverlap();
+		if ImGuiSelectable("sprites", selected, selectable_w, selectable_h)
+			selected_screen = 0;
+		ImGuiSameLine();
+
+		ImGuiSetNextItemAllowOverlap();
+		selected = selected_screen == 1;
+		if ImGuiSelectable("view", selected, selectable_w, selectable_h)
+			selected_screen = 1;
+
+		ImGuiSameLine();
+		selected = selected_screen == 2;
+		ImGuiSetNextItemAllowOverlap();
+		if ImGuiSelectable("obj", selected, selectable_w, selectable_h)
+			selected_screen = 2;
+
+		ImGuiSetNextItemAllowOverlap();
+		if ImGuiSelectable("save", selected, selectable_w, selectable_h)
+		{
+			ExportLayers(&ctx.alloc, "../images/test.sp", &layers);
+		}
+
+
+		if ImGuiSelectable("open", selected, selectable_w, selectable_h)
+		{
+
+			//tex_aux:= ptr_offset(textures.data, cast(u64)selected_tex, texture_info);
+			OpenScene(&ctx.alloc, "../images/test.sp", &layers, &textures);
+		}
+
+		i:u32= 0;
+		if selected_screen == 0
+		{
+			for tex in textures
+			{
+				if tex.id == -1
+					continue;
+				selected = i == selected_tex;
+				if ImGuiSelectable(tex.name, selected, 200.0, 20.0)
+				{
+					selected_tex = i;
+					ChangeSelectedTexture();
+				}
+				//ImGuiText(tex.name);
+				ImGuiImage(tex.id, 100.0, 100.0);
+				i++;
+			}
+		}
+		else if selected_screen == 1
+		{
+			start_x: = ImGuiGetCursorScreenPosX();
+			start_y: = ImGuiGetCursorScreenPosY();
+			
+
+			view_tex: = textures[cast(u64)selected_tex];
+			ratio: = cast(f32)view_tex.width / cast(f32)view_tex.height;
+
+			w: = 800.0 * ratio;
+			h: = 800.0;
+			pixels_grid_x := (cast(f32)view_tex.width / cast(f32)sheet.pixels_per_width);
+			pixels_grid_y = (cast(f32)view_tex.height / cast(f32)sheet.pixels_per_width);
+
+			proportional_pixels_x: = cast(f32)w / pixels_grid_x;
+			proportional_pixels_y: = cast(f32)h / pixels_grid_y;
+
+			cx := GetMouseScreenPosX() - start_x;
+			cy := GetMouseScreenPosY() - start_y;
+			cx = (cx / w) * pixels_grid_x;
+			cy = (cy / h) * pixels_grid_y;
+
+
+
+			aux_my: = GetMouseScreenPosY();
+			aux_imy: = ImGuiGetCursorScreenPosY();
+			
+
+			if IsMouseHeld(mouse_enum.LEFT) && ImGuiHasFocus() 
+				&& aux_my > aux_imy
+
+			{
+				if !selecting_sprites
+				{
+					selected_sprites_start_x = cast(u32)cx;
+					selected_sprites_start_y = cast(u32)cy;
+				}
+				selected_sprites_end_x = cast(u32)cx;
+				selected_sprites_end_y = cast(u32)cy;
+
+
+				selecting_sprites = true;
+			}
+			else
+				selecting_sprites = false;
+
+
+			ImGuiImage(view_tex.id, w, h);
+
+			min_sel_x := minu32(selected_sprites_start_x, selected_sprites_end_x);
+			min_sel_y := minu32(selected_sprites_start_y, selected_sprites_end_y);
+			max_sel_x := maxu32(selected_sprites_start_x, selected_sprites_end_x);
+			max_sel_y := maxu32(selected_sprites_start_y, selected_sprites_end_y);
+
+			start_x += cast(f32)min_sel_x * proportional_pixels_x;
+			start_y += cast(f32)min_sel_y * proportional_pixels_y;
+
+			diff_selected_x: = cast(f32)(max_sel_x - min_sel_x) + 1.0;
+			diff_selected_y: = cast(f32)(max_sel_y - min_sel_y) + 1.0;
+			ImGuiAddRect(nil, start_x, start_y, start_x + proportional_pixels_x * diff_selected_x, start_y + proportional_pixels_y * diff_selected_y, cast(u32)0xffffffffff);
+
+		}
+		else if selected_screen == 2
+		{
+			ImGuiEnumCombo("layer_obj_enum", __LINE__, cast(*u32)&selected_obj_to_insert.type);
+
+			if IsMouseHeld(mouse_enum.LEFT) && IsKeyHeld(key_enum.KEY_Q)
+			{
+
+			}
+		}
+		if *layer_obj_visible == 2
+		{
+			event :u32= 0;
+
+			bh :col_behaviour=?;
+
+			bh.mwx = mwx;
+			bh.mwy = mwy;
+			bh.on_preview_col= &on_preview_col;
+			bh.visible = *layer_obj_visible;
+			bh.selected_cols_start_x= &selected_cols_start_x;
+			bh.selected_cols_start_y= &selected_cols_start_y;
+			bh.selected_cols_end_x= &selected_cols_end_x;
+			bh.selected_cols_end_y= &selected_cols_end_y;
+			bh.selected_col_cell= &selected_col_cell;
+
+			bh.cells = &obj_layer.cells;
+			bh.dragging = &dragging;
+			bh.original_col_pos = &original_col_pos;
+			bh.col_alpha = *obj_alpha;
+			bh.cam_size = cam_size;
+			bh.cam_pos = &cam_pos;
+			bh.window = window;
+			bh.type = layer_enum.OBJ;
+			bh.selected_obj = &selected_obj_to_insert;
+
+
+			ColliderLikeBehaviour(&bh);
+
+			if selected_col_cell != nil
+			{
+				selected_screen = 2;
+			}
+		}
+		if *layer_obj_visible >= 1
+		{
+			DrawColLayer(&obj_layer.cells, layer_enum.OBJ, *obj_alpha, cam_size, &cam_pos, selected_col_cell, window);
+			if obj_layer.cells.count > 0
+			{
+				for c in obj_layer.cells
+				{
+					if !c.used 
+						continue;
+					if c.obj.type == layer_obj_enum.PLAYER
+					{
+						draw.pos = c.obj.pos;
+						draw.ent_size.x = 2.0;
+						draw.ent_size.y = 2.0;
+						draw.pivot.x = 0.0;
+						draw.pivot.y = 0.25;
+						draw.texture_id = ctx.character_img;
+
+						draw.flags = DRAW_INFO_HAS_TEXTURE;
+						draw.cam_pos = &cam_pos;
+						draw.color = []f32{ 1.0, 1.0, 1.0, 1.0 };
+						draw.cam_size = cam_size;
+						Draw(window, &draw);
+					}
+				}
+			}
+		}
+
+
+
+		ImGuiBegin("editor", &open_w, 0);
+		ImGuiSetWindowFontScale(1.5);
+		ImGuiRenderTextEditor();
+		ImGuiEnd();
+
+		OpenLocalsWindow(__LINE__);
+		//ImGuiEndChild();
+		EndFrame(window);
+
+		mx = GetMouseNormalizedPosX() - curmx;
+		my = GetMouseNormalizedPosY() - curmy;
+		my = my * -1.0;
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+

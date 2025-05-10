@@ -285,6 +285,27 @@ IsTerminalCharater::fn(c : char) ! bool
 	return c == ' || c == '$ || c == '@ || c == '* || c == '- || c == '/ || c == '. || c == ', || c == '+ || c == '? || c == '! || c == '= || c == ': || c == '[ || c == '] || c == '( || c == ')  || c == '} || c == '{ || c == '* || c == '\n || c == cast(char)0xd;
 }
 
+draw_info3d: struct
+{
+	pos :_vec,
+	pivot :_vec,
+	ent_size :_vec,
+	color: [4]f32,
+	rot :_vec,
+	texture_id : u32,
+	cam_size : f32,
+	cam_pos : *_vec,
+	cam_rot : *_vec,
+	flags:u32,
+	stencil_func : stencil_func_enum,
+	stencil_val : u32,
+
+	tex_size_x:f32,
+	tex_size_y:f32,
+
+	tex_offset_x:f32,
+	tex_offset_y:f32,
+}
 draw_info: struct
 {
 	pos :_vec,
@@ -416,6 +437,7 @@ OpenWindow::fn outsider(width : u32, height : u32) ! *u8;
 ClearBackground::fn outsider(f32, f32, f32);
 ShouldClose::fn outsider(*u8) ! bool;
 Draw::fn outsider(*u8, *draw_info);
+Draw3D::fn outsider(*u8, *draw_info);
 EndFrame::fn outsider(wnd : *u8);
 
 type_enum : enum

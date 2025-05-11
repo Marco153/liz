@@ -1279,6 +1279,11 @@ GetTopStackPtr::fn outsider() !*u64;
 GetInstRealAddr::fn outsider(u64) !u64;
 GetTypeData::fn internal(void *) !*type_data;
 
+rotate_quaternion_axis_angle::fn(q_out : *_vec, xa : f32, ya : f32, za : f32, rad : f32)
+{
+
+}
+
 FreeSheet::fn(alloc : *mem_alloc,l : *layer_sprites)
 {
 	heap_free(l.cells.alloc, l.cells.data);

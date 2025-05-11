@@ -2619,32 +2619,63 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 			int cur_offset = offset;
 			//ir.assign.to_assign.i = offset;
-			for (int i = e->strct_constr.commas.size() - 1; i >= 0; i--)
+			if(e->strct_constr.is_vector)
 			{
-				ast_struct_construct_info* cinfo = &e->strct_constr.commas[i];
-				top = &stack.back();
-				stack.pop_back();
+				//for (int i = 0; i < e->strct_constr.commas.size(); i++)
+				for (int i = e->strct_constr.commas.size() - 1; i >= 0; i--)
+				{
+					ast_struct_construct_info* cinfo = &e->strct_constr.commas[i];
+					top = &stack.back() - i;
 
-				ir.type = IR_ASSIGNMENT;
-				ir.assign.only_lhs = true;
-				ir.assign.to_assign.is_unsigned = top->is_unsigned;
-				ir.assign.to_assign.type = IR_TYPE_ON_STACK;
-				ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
-				ir.assign.to_assign.reg_sz = 8;
-				ir.assign.to_assign.i = cur_offset + cinfo->var->offset;
-				ir.assign.to_assign.deref = -1;
-				ir.assign.to_assign.reg_sz = GetTypeSize(&cinfo->var->type);
-				ir.assign.lhs = *top;
-				out->emplace_back(ir);
-				ASSERT(ir.assign.to_assign.reg_sz > 0);
-				if (e->strct_constr.is_vector)
+					ir.type = IR_ASSIGNMENT;
+					ir.assign.only_lhs = true;
+					ir.assign.to_assign.is_unsigned = top->is_unsigned;
+					ir.assign.to_assign.type = IR_TYPE_ON_STACK;
+					ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
+					ir.assign.to_assign.reg_sz = 8;
+					ir.assign.to_assign.i = cur_offset + cinfo->var->offset;
+					ir.assign.to_assign.deref = -1;
+					ir.assign.to_assign.reg_sz = GetTypeSize(&cinfo->var->type);
+					ir.assign.lhs = *top;
+					out->emplace_back(ir);
+					ASSERT(ir.assign.to_assign.reg_sz > 0);
 					cur_offset += 4;
+				}
+				/*
+				if(e->line_number == 1445)
+				{
+					raise(SIGTRAP);
+				}
+					*/
+				stack.make_count(stack.size() - e->strct_constr.commas.size());
+			}
+			else
+			{
+				for (int i = e->strct_constr.commas.size() - 1; i >= 0; i--)
+				{
+					ast_struct_construct_info* cinfo = &e->strct_constr.commas[i];
+					top = &stack.back();
+					stack.pop_back();
+
+					ir.type = IR_ASSIGNMENT;
+					ir.assign.only_lhs = true;
+					ir.assign.to_assign.is_unsigned = top->is_unsigned;
+					ir.assign.to_assign.type = IR_TYPE_ON_STACK;
+					ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
+					ir.assign.to_assign.reg_sz = 8;
+					ir.assign.to_assign.i = cur_offset + cinfo->var->offset;
+					ir.assign.to_assign.deref = -1;
+					ir.assign.to_assign.reg_sz = GetTypeSize(&cinfo->var->type);
+					ir.assign.lhs = *top;
+					out->emplace_back(ir);
+					ASSERT(ir.assign.to_assign.reg_sz > 0);
+				}
 			}
 			val.type = IR_TYPE_ON_STACK;
 			val.i = offset;
 			val.reg_sz = ir.assign.to_assign.reg_sz;
-			val.is_float = e->lhs_tp.type == TYPE_VECTOR_TYPE;
-			val.is_packed_float = e->lhs_tp.type == TYPE_VECTOR_TYPE;
+			val.is_float = e->strct_constr.is_vector;
+			val.is_packed_float = e->strct_constr.is_vector;
 			stack.emplace_back(val);
 		}break;
 		case AST_DEREF:
@@ -3907,6 +3938,12 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			out->emplace_back(ir);
 			return;
 		}
+		/*
+		if(ast->line_number == 819)
+		{
+			raise(SIGTRAP);
+		}
+			*/
 		ir.ret.assign.to_assign.type = IR_TYPE_RET_REG;
 		ir.ret.assign.to_assign.reg = 0;
 		ir.ret.assign.to_assign.deref = -1;

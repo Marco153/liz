@@ -814,6 +814,12 @@ test_strct_ser_func::fn() !u32
 
 #assign_ser_func(test_strct_ser, test_strct_ser_func)
 
+ret_vec::fn(val : f32) ! _vec
+{
+	a:= 0
+	
+	return _vec{0.0, val + 0.5, 2.0, 3.0}
+}
 tests :: fn(ret : *u32)
 {
 	i:= 7;
@@ -1446,6 +1452,16 @@ tests :: fn(ret : *u32)
 	if fsum < 11.9 || fsum > 12.1
 		debug_break();
 
+	vec_test = ret_vec(1.0)
+
+	if vec_test.y < 1.4 || vec_test.y > 1.6
+		debug_break();
+
+	vec_test.x = 1.0
+	vec_test += _vec{1.0, 0.0, 0.0, 0.0};
+
+	if vec_test.x < 1.9 || vec_test.y > 2.1
+		debug_break();
 
 	etest: enum_test
 	if etest == enum_test.VAL1

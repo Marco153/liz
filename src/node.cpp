@@ -8310,7 +8310,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						node* bool_expr = CreateBoolExpression(lang_stat, equal_stmnt->l, equal_stmnt->r, scp);
 						memcpy(equal_stmnt, bool_expr, sizeof(node));
 					}
-					else if (is_struct_val && !zero_initialization)
+					else if (is_struct_val && !zero_initialization && n->t->type == T_EQUAL)
 					{
 						own_std::string str("memcpy");
 						decl2* memcpy_func = FindIdentifier(str, scp, &ret_type);
@@ -11173,7 +11173,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			else
 			{
 				ret_type = ltp;
-				if(ltp.type == TYPE_VECTOR && ltp.ptr == 0 && n->r->type == N_STRUCT_CONSTRUCTION)
+				if(ltp.type == TYPE_VECTOR && ltp.ptr == 0 && n->r->type == N_STRUCT_CONSTRUCTION && n->t->type == T_EQUAL)
 				{
 					node* call = MakeMemCpyCall(lang_stat, n->l, n->r, n, FLOAT_REG_SIZE_BYTES);
 					memcpy(n, call, sizeof(node));
@@ -11203,7 +11203,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					{
 						if (!op_func)
 						{
-							if(n->r->type != N_QUESTION_MARK)
+							if(n->r->type != N_QUESTION_MARK && n->t->type == T_EQUAL)
 							{
 								if(CompareTypes(&ltp, &rtp))
 								{

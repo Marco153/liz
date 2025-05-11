@@ -2169,7 +2169,92 @@ new_thinking::fn(ctx : *context, e : *entity)
 	dyn_add(&ctx.ents_think, e)
 
 }
+normalize_quaternion::fn(out : *_vec, q : *_vec) {
 
+    mag := sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z)
+	if mag == 0.0
+	{
+		out.x = 1.0
+		out.y = 0.0
+		out.z = 0.0
+		out.w = 0.0
+	}
+	else
+	{
+		out.x = q.x/mag
+		out.y = q.y/mag
+		out.z = q.z/mag
+		out.w = q.w/mag
+	}
+}
+
+quaternion_conjugate::fn(out : *_vec, q : *_vec) { 
+    out.x = -q.x
+	out.y = -q.y
+	out.z = -q.z
+	out.w = q.w
+}
+
+multiply_quaternions::fn(out : *_vec, q1 : *_vec, q2 : *_vec) {
+	out.x = q1.w*q2.x + q1.x*q2.w + q1.y*q2.z - q1.z*q2.y
+	out.y = q1.w*q2.y - q1.x*q2.z + q1.y*q2.w + q1.z*q2.x
+	out.z = q1.w*q2.z + q1.x*q2.y - q1.y*q2.x + q1.z*q2.w
+	out.w = q1.w*q2.w - q1.x*q2.x - q1.y*q2.y - q1.z*q2.z 
+}
+
+rotate_vector::fn(out : *_vec, v : *_vec, q : *_vec) {
+	aux : _vec
+    normalize_quaternion(&aux, q)
+    p :_vec
+	p.x = v.x
+	p.y = v.y
+	p.z = v.z
+	p.w = 0.0
+    q_conj:_vec
+    rotated:_vec
+    mul:_vec
+	quaternion_conjugate(&q_conj, q);
+
+	multiply_quaternions(&mul, q, &p)
+
+    multiply_quaternions(&rotated, &mul, &q_conj);
+    out.x = rotated.x
+	out.y = rotated.y
+	out.z = rotated.z
+
+}
+
+print_vec::fn(v : *_vec)
+{
+	printf("rx %, ", cast(s32)(v.x * 100.0))
+	printf("ry %, ", cast(s32)(v.y * 100.0))
+	printf("rz %, ", cast(s32)(v.z * 100.0))
+	printf("rw %\n", cast(s32)(v.w * 100.0))
+	//printf("ang %, dt %\n", cast(s32)(ang * 100.0), cast(s32)(dt * 100.0))
+}
+
+test_ang ::fn(a : s32)
+{
+	axis : _vec
+	axis.z = 0.0
+	axis.x = 0.0
+	axis.y = 1.0
+	forward : _vec
+	forward.z = 1.0
+	
+	rot :_vec
+	ang := 3.1415 / 4.0
+	s := sin(ang)
+	rot.x = axis.x * s
+	rot.y = axis.y * s
+	rot.z = axis.z * s
+	rot.w = cos(ang)
+
+	rotate_vector(&forward, &forward, &rot)
+
+	print_vec(&forward)
+	
+}
 main_loop::fn(ctx : *context)
 {
 	dyn_init2(&ctx.coroutines.funcs, 2, ctx.alloc);
@@ -2430,9 +2515,30 @@ p-----..
 	info_3d : draw_info3d
 	globals.after_init = true
 
+	aux_forward:= _vec{0.0, 0.0, -1.0, 0.0};
+
+	axis : _vec
+	axis.z = 0.0
+	axis.x = 0.0
+	axis.y = 1.0
+	forward : _vec
+	forward.z = 1.0
+
+	rot :_vec
+	ang := 3.1415 / 4.0
+	s := sin(ang)
+	rot.x = cos(ang)
+	rot.y = axis.x * s
+	rot.z = axis.y * s
+	rot.w = axis.z * s
+
+
+
+
 	while !ShouldClose(window)
 	{
 
+		//test_ang(1)
 		//printf("timer %\n", cast(s32)(globals.timer * 10000.0))
 		globals.timer = 0.0;
 		{
@@ -2462,6 +2568,45 @@ p-----..
 		draw.cam_rot = &cam_rot;
 		ClearBackground(0.7, 0.7, 0.7);
 
+		
+		if IsKeyHeld(key_enum.KEY_A)
+		{
+			ang += dt * speed / 2.0
+
+		}
+		if IsKeyHeld(key_enum.KEY_D)
+		{
+			ang -= dt * speed / 2.0
+		}
+		if IsKeyHeld(key_enum.KEY_W)
+		{
+			pos += forward * dt * speed
+		}
+		if IsKeyHeld(key_enum.KEY_S)
+		{
+			pos -= forward * dt * speed
+		}
+
+		rotate_vector(&forward, &aux_forward, &rot)
+		s = sin(ang)
+		rot.x = cos(ang)
+		rot.y = axis.x * s
+		rot.z = axis.y * s
+		rot.w = axis.z * s
+		
+		info_3d.pos = pos
+		info_3d.rot = rot
+
+		
+
+
+/*
+		printf("rx %, ", cast(s32)(forward.x * 100.0))
+		printf("ry %, ", cast(s32)(forward.y * 100.0))
+		printf("rz %, ", cast(s32)(forward.z * 100.0))
+		printf("rw %, ", cast(s32)(forward.w * 100.0))
+		printf("ang %, dt %\n", cast(s32)(ang * 100.0), cast(s32)(dt * 100.0))
+		*/
 		Draw3D(window, &info_3d);
 
 		EndFrame(window);

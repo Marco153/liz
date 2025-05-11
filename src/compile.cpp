@@ -9915,14 +9915,12 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 								int offset_bc = aux_bc - start_bc;
 
 
-								/*
 								while (cur_ir->start == offset_bc)
 								{
 									WasmIrToString(dbg, cur_ir, aux_string);
 									ImGui::TextColored(ImVec4(0.6, 0.4, 0.6, 1.0), "%d|%s", cur_ir->idx, aux_string.c_str());
 									cur_ir++;
 								}
-									*/
 
 								sprintf(buffer, "%d", offset_bc);
 								if (ImGui::Button(buffer, ImVec2(50, 20)))
@@ -9972,7 +9970,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					else
 						ImGui::Text("%d: %s", i, GetFileLn(dbg->lang_stat, i - 1, dbg->cur_func->from_file));
 					lalloc.cur = prev_alloc_sz;
-					printf("line %d\n", i);
+					//printf("line %d\n", i);
 					fflush(stdout);
 
 				}
@@ -12624,7 +12622,7 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 		if (address)
 			aux->deref--;
 		if(ir->type == IR_TYPE_ON_STACK)
-			GenX64AutomaticDeclDeref(lang_stat, ret, aux->deref, &aux->reg, &aux->voffset, aux->reg_sz, aux->is_float, address, aux->is_packed_float, false, reg_dst);
+			GenX64AutomaticDeclDeref(lang_stat, ret, aux->deref, &aux->reg, &aux->voffset, aux->reg_sz, aux->is_float, address, aux->is_packed_float, ir->is_packed_float, reg_dst);
 		else
 			GenX64AutomaticDeclDeref(lang_stat, ret, aux->deref, &aux->reg, &aux->voffset, aux->reg_sz, aux->is_float, address, aux->is_packed_float, ir->decl->type.type == TYPE_VECTOR, reg_dst);
 	}
@@ -13464,15 +13462,21 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 
 			}
+			// D D R
 			else if (assign.lhs.type == IR_TYPE_DECL && (assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
 			{
-				
+				/*
+				if(line == 2535)
+				{
+					raise(SIGTRAP);
+				}
+				*/
 				//assign.lhs.deref++;
 				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false);
 				//assign.lhs.deref--;
 
 				
-				GenX64ToIrValReg(lang_stat, ret, &rhs, &assign.rhs, false);
+				GenX64ToIrValReg2(lang_stat, ret, &rhs, &assign.rhs, false, assign.rhs.is_packed_float);
 
 				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
 
@@ -13481,11 +13485,19 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64ToIrValDecl2(lang_stat, ret, &decl, &assign.to_assign, true, false);
 				byte_code_enum inst = STORE_R_2_M;
 				if (lhs.is_float)
-					inst = MOV_SSE_2_MEM;
+				{
+					if(lhs.is_packed_float)
+					{
+						inst = MOV_PCKD_SSE_2_M;
+					}
+					else
+						inst = MOV_SSE_2_MEM;
+				}
+				decl.is_packed_float = false;
 				GenX64BinInst(lang_stat, ret, &decl, &lhs, inst);
 			}
 			// D D D
-			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_DECL)
+			else if (assign.lhs.type == IR_TYPE_DECL && (assign.rhs.type == IR_TYPE_DECL || assign.rhs.type == IR_TYPE_ON_STACK))
 			{
 				
 				//assign.lhs.deref++;
@@ -13513,7 +13525,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				
 				//assign.rhs.deref--;
-				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, false, lhs.is_packed_float, 0);
+				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &assign.rhs, false, lhs.is_packed_float);
 				//assign.rhs.deref++;
 
 				correct_inst = GenX64GetCorrectBinInst(&lhs, &rhs, correct_inst, base_inst_sse);
@@ -13527,7 +13539,10 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				bc = {};
 				//byte_code_enum inst = GenX64GetCorrectBinInst(&dst, &lhs, correct_inst, base_inst_sse);
 				//if(lhs.reg == PRE_X64_RSP_REG)
-				GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, dst.voffset, dst.reg, STORE_R_2_M);
+				if(assign.lhs.is_float)
+					GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, dst.voffset, dst.reg, MOV_SSE_2_MEM);
+				else
+					GenX64RegToMem(ret, lhs.reg, lhs.reg_sz, dst.voffset, dst.reg, STORE_R_2_M);
 				//GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 
 				if (rhs.reg != PRE_X64_RSP_REG)
@@ -14458,6 +14473,24 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 				switch (ir->ret.assign.lhs.type)
 				{
+				case IR_TYPE_ON_STACK:
+				{
+					if(ir->ret.assign.lhs.is_packed_float)
+					{
+						bc.type = MOV_M_2_PCKD_SSE;
+						bc.bin.lhs.reg = 0;
+						bc.bin.lhs.reg_sz = 8;
+						bc.bin.rhs.reg = PRE_X64_RSP_REG;
+						bc.bin.rhs.voffset = GetOnStackOffsetWithIrVal(lang_stat, &ir->ret.assign.lhs);
+						bc.bin.rhs.reg_sz = 8;
+
+						ret.emplace_back(bc);
+					}
+					else
+					{
+						ASSERT(0)
+					}
+				}break;
 				case IR_TYPE_F32:
 				{
 					MovFloatToSSEReg2(lang_stat, ir->ret.assign.to_assign.reg, ir->ret.assign.lhs.f32, &ret, false);

@@ -691,6 +691,49 @@ enum class stencil_func
 	EQUAL,
 	NEQUAL,
 };
+struct draw_info3d
+{
+	float pos_x;
+	float pos_y;
+	float pos_z;
+	float pos_w;
+
+	float pivot_x;
+	float pivot_y;
+	float pivot_z;
+	float pivot_w;
+
+	float ent_size_x;
+	float ent_size_y;
+	float ent_size_z;
+	float ent_size_w;
+
+	float color_r;
+	float color_g;
+	float color_b;
+	float color_a;
+
+	float ent_rot_x;
+	float ent_rot_y;
+	float ent_rot_z;
+	float ent_rot_w;
+
+	int texture_id;
+
+	float cam_size;
+
+	unsigned long long cam_pos_addr;
+	unsigned long long cam_rot_addr;
+
+	int flags;
+	int stencil_func;
+	u32 stencil_val;
+
+	float tex_size_x;
+	float tex_size_y;
+	float tex_offset_x;
+	float tex_offset_y;
+};
 struct draw_info
 {
 	float pos_x;
@@ -757,7 +800,7 @@ void Draw3D(dbg_state* dbg)
 
 
 	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
-	auto draw = (draw_info*)(long long*)&dbg->mem_buffer[draw_addr];
+	auto draw = (draw_info3d*)(long long*)&dbg->mem_buffer[draw_addr];
 
 	auto gl_state = (open_gl_state*)dbg->data;
 	// Uniform locations
@@ -767,15 +810,19 @@ void Draw3D(dbg_state* dbg)
     GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
     GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
     GLint time_3d = glGetUniformLocation(shaderProgram, "time");
+    GLint rot_u = glGetUniformLocation(shaderProgram, "rot");
+
+    memcpy(&gl_state->model[12], &draw->pos_x, 16);
+    gl_state->model[15] = 1.0f;
 
 	glUseProgram(shaderProgram);
 	float time [16 ];
 	time[0] = glfwGetTime();;
-	printf("time %.3f\n", gl_state->last_time);
+	//printf("time %.3f\n", gl_state->last_time);
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, gl_state->model);
 	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gl_state->view);
 	glUniformMatrix4fv(projLoc, 1, GL_FALSE, gl_state->projection);
-	glUniformMatrix4fv(time_3d, 1, GL_FALSE, time);
+	glUniform4f(rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z, draw->ent_rot_w);
 
 	glBindVertexArray(gl_state->vao3d);
 	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
@@ -4098,6 +4145,7 @@ void Init3D(dbg_state* dbg)
 	layout (location = 0) in vec3 aPos;\n\
 	out vec4 interpCol;\n\
 	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
 	uniform mat4 view;\n\
 	uniform mat4 projection;\n\
 	uniform mat4 time;\n\
@@ -4110,10 +4158,8 @@ void Init3D(dbg_state* dbg)
 	}\n\
 	void main() {\n\
 		float t = time[0][0];\n\
-		vec4 q = vec4(cos(t), 0.0, t, 0.0);\n\
-		q = normalize(q);\n\
-		vec3 rot = rotate_by_quaternion(aPos, q);\n\
-		gl_Position = projection * view * model * vec4(rot, 1.0);\n\
+		vec3 r = rotate_by_quaternion(aPos, rot);\n\
+		gl_Position = projection * view * model * vec4(r, 1.0);\n\
 		gl_Position.y += sin(time[0][0]) * 2.0;\n\
 		interpCol = vec4(aPos.xyz, 1.0);\
 	}\

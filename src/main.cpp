@@ -204,6 +204,76 @@ struct v3
 #include <fstream>
 #include "sort.cpp"
 
+// gpt generated code
+typedef struct {
+    float x, y, z;
+} Vec3;
+
+typedef struct {
+    float m[16]; // Column-major 4x4 matrix
+} Mat4;
+Vec3 vec3_add(Vec3 a, Vec3 b) {
+    return (Vec3){ a.x + b.x, a.y + b.y, a.z + b.z };
+}
+
+Vec3 vec3_sub(Vec3 a, Vec3 b) {
+    return (Vec3){ a.x - b.x, a.y - b.y, a.z - b.z };
+}
+
+Vec3 vec3_cross(Vec3 a, Vec3 b) {
+    return (Vec3){
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+    };
+}
+
+float vec3_dot(Vec3 a, Vec3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+Vec3 vec3_normalize(Vec3 v) {
+    float length = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    return (Vec3){ v.x / length, v.y / length, v.z / length };
+}
+Mat4 mat4_lookAt(Vec3 eye, Vec3 center, Vec3 up) {
+    Vec3 f = vec3_normalize(vec3_sub(center, eye));
+    Vec3 s = vec3_normalize(vec3_cross(f, up));
+    Vec3 u = vec3_cross(s, f);
+
+    Mat4 result = {0};
+    result.m[0] = s.x;
+    result.m[1] = u.x;
+    result.m[2] = -f.x;
+    result.m[3] = 0.0f;
+
+    result.m[4] = s.y;
+    result.m[5] = u.y;
+    result.m[6] = -f.y;
+    result.m[7] = 0.0f;
+
+    result.m[8] = s.z;
+    result.m[9] = u.z;
+    result.m[10] = -f.z;
+    result.m[11] = 0.0f;
+
+    result.m[12] = -vec3_dot(s, eye);
+    result.m[13] = -vec3_dot(u, eye);
+    result.m[14] = vec3_dot(f, eye);
+    result.m[15] = 1.0f;
+
+    return result;
+}
+void update_camera_direction(float yaw, float pitch, Vec3* front) {
+    float radYaw = yaw * (3.14159265f / 180.0f);
+    float radPitch = pitch * (3.14159265f / 180.0f);
+
+    front->x = cosf(radYaw) * cosf(radPitch);
+    front->y = sinf(radPitch);
+    front->z = sinf(radYaw) * cosf(radPitch);
+    *front = vec3_normalize(*front);
+}
+///
 
 #define KEY_HELD 1
 #define KEY_DOWN 2
@@ -267,6 +337,49 @@ struct WindowEditor
 #define LANG_FILE HANDLE
 #endif
 
+struct draw_info3d
+{
+	float pos_x;
+	float pos_y;
+	float pos_z;
+	float pos_w;
+
+	float pivot_x;
+	float pivot_y;
+	float pivot_z;
+	float pivot_w;
+
+	float ent_size_x;
+	float ent_size_y;
+	float ent_size_z;
+	float ent_size_w;
+
+	float color_r;
+	float color_g;
+	float color_b;
+	float color_a;
+
+	float ent_rot_x;
+	float ent_rot_y;
+	float ent_rot_z;
+	float ent_rot_w;
+
+	int texture_id;
+
+	float cam_size;
+
+	unsigned long long cam_pos_addr;
+	unsigned long long cam_rot_addr;
+
+	int flags;
+	int stencil_func;
+	u32 stencil_val;
+
+	float tex_size_x;
+	float tex_size_y;
+	float tex_offset_x;
+	float tex_offset_y;
+};
 struct open_gl_state
 {
 	int vao3d;
@@ -286,6 +399,7 @@ struct open_gl_state
 	float time_pressed[TOTAL_KEYS];
 	texture_info textures[TOTAL_TEXTURES];
 	own_std::vector<texture_raw> textures_raw;
+	own_std::vector<RatedStuff<draw_info3d>> transparent_objs;
 	double last_time;
 
 	float model[16], view[16], projection[16];
@@ -686,53 +800,12 @@ void Print(dbg_state* dbg)
 #define DRAW_INFO_STENCIL_TEST 16
 #define DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER 32
 #define DRAW_INFO_LINE 64
+#define DRAW_INFO_TRANSPARENT 128
+#define DRAW_INFO_TRANSPARENT2 256
 enum class stencil_func
 {
 	EQUAL,
 	NEQUAL,
-};
-struct draw_info3d
-{
-	float pos_x;
-	float pos_y;
-	float pos_z;
-	float pos_w;
-
-	float pivot_x;
-	float pivot_y;
-	float pivot_z;
-	float pivot_w;
-
-	float ent_size_x;
-	float ent_size_y;
-	float ent_size_z;
-	float ent_size_w;
-
-	float color_r;
-	float color_g;
-	float color_b;
-	float color_a;
-
-	float ent_rot_x;
-	float ent_rot_y;
-	float ent_rot_z;
-	float ent_rot_w;
-
-	int texture_id;
-
-	float cam_size;
-
-	unsigned long long cam_pos_addr;
-	unsigned long long cam_rot_addr;
-
-	int flags;
-	int stencil_func;
-	u32 stencil_val;
-
-	float tex_size_x;
-	float tex_size_y;
-	float tex_offset_x;
-	float tex_offset_y;
 };
 struct draw_info
 {
@@ -792,6 +865,123 @@ int GetTextureSlotId(open_gl_state* gl_state)
 	ASSERT(0);
 	return -1;
 }
+void Draw3DBase(dbg_state* dbg, draw_info3d *draw);
+void Draw3DTransparency(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+
+	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
+
+	//raise(SIGTRAP);
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	FOR_VEC(c, gl_state->transparent_objs)
+	{
+		draw_info3d *draw = &c->type;
+		__m128 vec1 = _mm_loadu_ps((float*)&dbg->mem_buffer[draw->cam_pos_addr]);
+		__m128 vec2 = _mm_loadu_ps(&c->type.pos_x);
+		vec1 = _mm_sub_ps(vec1, vec2);
+		vec1 = _mm_mul_ps(vec1, vec1);
+
+		Vec3 v1;
+		_mm_storeu_ps(&v1.x, vec1);
+		c->val = vec3_dot(v1, v1);
+
+	}
+	SortRatedStuff(&gl_state->transparent_objs);
+
+	glDepthMask(GL_FALSE);
+	glEnable(GL_BLEND);
+
+	FOR_VEC(c, gl_state->transparent_objs)
+	{
+		c->type.flags |= DRAW_INFO_TRANSPARENT2;
+		Draw3DBase(dbg, &c->type);
+	}
+
+
+}
+void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+
+	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	if(IS_FLAG_OFF(draw->flags, DRAW_INFO_TRANSPARENT2))
+	{
+		glDepthMask(GL_TRUE);
+		glDisable(GL_BLEND);
+	}
+	// Uniform locations
+	int shaderProgram = gl_state->shader_program3d;
+    glUseProgram(shaderProgram);
+    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
+    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
+    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
+    GLint time_3d = glGetUniformLocation(shaderProgram, "time");
+    GLint rot_u = glGetUniformLocation(shaderProgram, "rot");
+    GLint col = glGetUniformLocation(shaderProgram, "col");
+
+    memcpy(&gl_state->model[12], &draw->pos_x, 16);
+	float cam_pos_x = 0;
+	float cam_pos_y = 0;
+	float cam_pos_z = 0;
+	if (draw->cam_pos_addr != 0)
+	{
+		cam_pos_x = *(float*)&dbg->mem_buffer[draw->cam_pos_addr];
+		cam_pos_y = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 4];
+		cam_pos_z = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 8];
+	}
+	float cam_rot_x = 0;
+	float cam_rot_y = 0;
+	float cam_rot_z = 0;
+	if (draw->cam_pos_addr != 0)
+	{
+		cam_rot_x = *(float*)&dbg->mem_buffer[draw->cam_rot_addr];
+		cam_rot_y = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 4];
+		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
+	}
+	Vec3 cameraPos = {0.0f, 0.0f, 3.0f};
+	Vec3 cameraFront = {0.0f, 0.0f, -1.0f};
+	Vec3 cameraUp = {0.0f, 1.0f, 0.0f};
+
+	float yaw = -cam_rot_y * 30; // facing -Z initially
+	float pitch = cam_rot_x * 30.0;
+
+	update_camera_direction(yaw, pitch, &cameraFront);
+	Mat4 view = mat4_lookAt(cameraPos, vec3_add(cameraPos, cameraFront), cameraUp);
+	memcpy(gl_state->view, view.m, sizeof(gl_state->view));
+
+	//printf("cx %.3f, cy %.3f, cz %.3f, rx %.3f, ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x, cam_rot_y, cam_rot_z);
+    gl_state->view[12] = -0.0;
+    gl_state->view[13] = 0.0;
+    gl_state->view[14] = -5.0;
+
+    gl_state->model[12] += -cam_pos_x;
+    gl_state->model[13] += -cam_pos_y;
+    gl_state->model[14] += -cam_pos_z;
+    gl_state->model[15] = 1.0f;
+
+	glUseProgram(shaderProgram);
+	float time [16 ];
+	time[0] = glfwGetTime();;
+	//printf("time %.3f\n", gl_state->last_time);
+	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, gl_state->model);
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gl_state->view);
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, gl_state->projection);
+	//glUniform4f(rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z, draw->ent_rot_w);
+	glUniform4f(rot_u, cam_rot_x, cam_rot_y, cam_rot_z, draw->ent_rot_w);
+	glUniform4f(col, draw->color_r, draw->color_g, draw->color_b, draw->color_a);
+
+	glBindVertexArray(gl_state->vao3d);
+	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+
+}
 #define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("gl error %d", glGetError()); ASSERT(0)}
 void Draw3D(dbg_state* dbg)
 {
@@ -803,30 +993,15 @@ void Draw3D(dbg_state* dbg)
 	auto draw = (draw_info3d*)(long long*)&dbg->mem_buffer[draw_addr];
 
 	auto gl_state = (open_gl_state*)dbg->data;
-	// Uniform locations
-	int shaderProgram = gl_state->shader_program3d;
-    glUseProgram(shaderProgram);
-    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
-    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
-    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
-    GLint time_3d = glGetUniformLocation(shaderProgram, "time");
-    GLint rot_u = glGetUniformLocation(shaderProgram, "rot");
-
-    memcpy(&gl_state->model[12], &draw->pos_x, 16);
-    gl_state->model[15] = 1.0f;
-
-	glUseProgram(shaderProgram);
-	float time [16 ];
-	time[0] = glfwGetTime();;
-	//printf("time %.3f\n", gl_state->last_time);
-	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, gl_state->model);
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gl_state->view);
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, gl_state->projection);
-	glUniform4f(rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z, draw->ent_rot_w);
-
-	glBindVertexArray(gl_state->vao3d);
-	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
-
+	//raise(SIGTRAP);
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_TRANSPARENT))
+	{
+		RatedStuff<draw_info3d> v;
+		v.type = *draw;
+		gl_state->transparent_objs.emplace_back(v);
+		return;
+	}
+	Draw3DBase(dbg, draw);
 }
 void Draw(dbg_state* dbg)
 {
@@ -1015,12 +1190,13 @@ void ClearBackground(dbg_state* dbg)
 	float b = *(float*)&dbg->mem_buffer[base_ptr + 8 * 3];
 
 	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->transparent_objs.clear();
 	if (gl_state->is_engine)
 	{
 		//glViewport(0, 0, 1000, 1000);
 		glClearColor(0, 0, 0, 1.0f); // Set the new color
 		glClearDepth(1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 		// Step 2: Enable scissor testing
 		glEnable(GL_SCISSOR_TEST);
 
@@ -1037,6 +1213,7 @@ void ClearBackground(dbg_state* dbg)
 	else
 	{
 		//glViewport(0, 0, 1000, 1000);
+		glDepthMask(GL_TRUE);
 		glClearColor(r, g, b, 1.0f); // Set the new color
 		glClearDepth(1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -4158,9 +4335,8 @@ void Init3D(dbg_state* dbg)
 	}\n\
 	void main() {\n\
 		float t = time[0][0];\n\
-		vec3 r = rotate_by_quaternion(aPos, rot);\n\
-		gl_Position = projection * view * model * vec4(r, 1.0);\n\
-		gl_Position.y += sin(time[0][0]) * 2.0;\n\
+		vec4 aux = view * model * vec4(aPos, 1.0);\n\
+		gl_Position = projection * aux;\n\
 		interpCol = vec4(aPos.xyz, 1.0);\
 	}\
 	";
@@ -4170,8 +4346,10 @@ void Init3D(dbg_state* dbg)
 	#version 330 core\n\
 	out vec4 FragColor;\n\
 	in vec4 interpCol;\n\
+	uniform vec4 col;\n\
 	void main() {\n\
 		FragColor = vec4(interpCol.xyz, 1.0);\n\
+		FragColor *= col;\n\
 	}\
 	";
 
@@ -4192,7 +4370,7 @@ void Init3D(dbg_state* dbg)
 		// Back face
 		0, 1, 2, 2, 3, 0,
 		// Front face
-		4, 5, 6, 6, 7, 4,
+		4, 6, 5, 4, 7, 6,
 		// Left face
 		4, 0, 3, 3, 7, 4,
 		// Right face
@@ -4237,8 +4415,9 @@ void Init3D(dbg_state* dbg)
     loadIdentity(gl_state->view);
     loadIdentity(gl_state->projection);
 
-    perspective(gl_state->projection, 45.0f * (3.14159f / 180.0f), 800.0f/600.0f, 0.1f, 100.0f);
+    perspective(gl_state->projection, 45.0f * (3.14159f / 180.0f), 1.0, 0.1f, 100.0f);
     gl_state->view[14] = -5.0f;  // translate view back
+    gl_state->view[13] = -1.0f;  // translate view back
     //gl_state->model[13] = -1.0f;  // translate view back
 	/*
 	unsigned int texture;
@@ -4539,6 +4718,9 @@ void OpenWindow(dbg_state* dbg)
 	glEnable(GL_DEPTH_TEST);
 	glDepthMask(GL_TRUE);
 	glDepthFunc(GL_LESS);
+
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_FRONT);
 
 
 
@@ -5171,6 +5353,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ClearBackground", (OutsiderFuncType)ClearBackground);
 	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
 	AssignOutsiderFunc(&lang_stat, "Draw3D", (OutsiderFuncType)Draw3D);
+	AssignOutsiderFunc(&lang_stat, "Draw3DTransparency", (OutsiderFuncType)Draw3DTransparency);
 	AssignOutsiderFunc(&lang_stat, "GetTime", (OutsiderFuncType)GetTime);
 
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
@@ -5274,6 +5457,7 @@ int main(int argc, char* argv[])
 
 		open_gl_state gl_state = {};
 		memset(&gl_state, 0, sizeof(open_gl_state));
+		gl_state.transparent_objs.reserve(32);
 		gl_state.sound = &sound;
 		gl_state.lang_stat = &lang_stat;
 

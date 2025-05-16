@@ -7,6 +7,7 @@ DRAW_INFO_STENCIL_WRITE:const s32 = 8;
 DRAW_INFO_STENCIL_TEST:const s32 = 16;
 DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER:const s32 = 32;
 DRAW_INFO_LINE:const s32 = 64;
+DRAW_INFO_TRANSPARENT:const s32 = 128;
 
 END_OF_LAYERS :const s32= 0xbebad0;
 SCENE_NAME_NAME_MAX : const s32= 32;
@@ -48,6 +49,13 @@ global_struct : struct
 	timer : f32,
 	alloc : *mem_alloc,
 	args : rel_array(var_arg)
+
+	cube_verts : [8]_vec
+	gjk : *void
+	ctx : *void
+
+	mx : f32
+	my : f32
 }
 globals : global global_struct
 
@@ -438,6 +446,7 @@ ClearBackground::fn outsider(f32, f32, f32);
 ShouldClose::fn outsider(*u8) ! bool;
 Draw::fn outsider(*u8, *draw_info);
 Draw3D::fn outsider(*u8, *draw_info3d);
+Draw3DTransparency::fn outsider(*u8);
 EndFrame::fn outsider(wnd : *u8);
 
 type_enum : enum

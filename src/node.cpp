@@ -901,7 +901,9 @@ void node_iter::ExpectTkn(tkn_type2 t)
 	{
 		if (t == T_SEMI_COLON && tkn->type != T_NEW_LINE)
 		{
+			
 			REPORT_ERROR(tkn->line, tkn->line_offset, VAR_ARGS("unexpected token\'%s\'\n", tkn->ToString().c_str()))
+			raise(SIGTRAP);
 				ExitProcess(1);
 		}
 	}
@@ -1516,22 +1518,16 @@ node* node_iter::parse_expr()
 				if (cur_tkn->type == T_OPEN_CURLY)
 				{
 					cur_cond.scp = parse_expr();
+					lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
 				}
 				else
 				{
 					cur_cond.scp = parse_(PREC_SEMI_COLON, parser_cond::EQUAL);
 				}
 
-				if(cur_cond.cond->type == N_IDENTIFIER)
+				if(cur_cond.cond->type == N_IDENTIFIER && cur_cond.cond->t->str == "default")
 				{
-					if(cur_cond.cond->t->str == "default")
-					{
-						on->def = cur_cond.scp;
-					}
-					else
-					{
-						ASSERT(false)
-					}
+					on->def = cur_cond.scp;
 				}
 				else
 				{
@@ -1965,7 +1961,15 @@ node* node_iter::parse_expr()
 			n->r = parse_expr();
 			n->scp = nullptr;
 
-			lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
+			peek = peek_tkn();
+			if((peek - 1)->type == T_NEW_LINE)
+			{
+				cur_tkn--;
+			}
+			else
+			{
+				lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
+			}
 
 		}
 	};
@@ -4338,6 +4342,8 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			return false;
 		if (ret_type.type == TYPE_STRUCT_TYPE)
 			ret_type.type = TYPE_STRUCT;
+		else if (ret_type.type == TYPE_VECTOR_TYPE)
+			ret_type.type = TYPE_VECTOR;
 	}break;
 	case node_type::N_CAST:
 	{
@@ -7203,6 +7209,35 @@ bool IsKeyword(node* n, keyword kw)
 	return n->type == N_KEYWORD && n->kw == kw;
 }
 
+bool NameFindingOnExprEtruct(lang_state *lang_stat, type_struct2 *strct, node *n, scope *scp, bool create_point_binop)
+{
+	if(n->type == N_BINOP)
+	{
+
+		if(!NameFindingOnExprEtruct(lang_stat, strct, n->l, scp, create_point_binop))
+			return false;
+		if(!NameFindingOnExprEtruct(lang_stat, strct, n->r, scp, create_point_binop))
+			return false;
+	}
+	else if(n->type == N_IDENTIFIER)
+	{
+
+		decl2 *d = strct->FindDecl(n->t->str);
+		if(!d)
+		{
+			return false;
+		}
+		if(create_point_binop)
+		{
+			node *d = NewBinOpNode(lang_stat,
+				NewIdentNode(lang_stat, strct->name, n->t),
+				tkn_type2::T_POINT,
+				new_node(lang_stat, n));
+			memcpy(n, d, sizeof(node));
+		}
+	}
+	return true;
+}
 
 // $DescendNameFinding
 decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
@@ -7239,16 +7274,41 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case N_ON:
 	{
+
 		on_expr *on = n->on;
 
-		if (!DescendNameFinding(lang_stat, on->main, scp))
+		decl2 *d = DescendNameFinding(lang_stat, on->main, scp);
+		if(!d)
 			return nullptr;
-		FOR_VEC(cur_cond, on->exprs)
+		
+		if(d->type.type == TYPE_STRUCT && IS_FLAG_OFF(n->flags, NODE_FLAGS_IS_PROCESSED))
 		{
-			if (!DescendNameFinding(lang_stat, cur_cond->cond, scp))
-				return nullptr;
-			if (!DescendNameFinding(lang_stat, cur_cond->scp, scp))
-				return nullptr;
+			ASSERT(IS_FLAG_ON(d->type.strct->flags, TP_STRCT_ETRUCT))
+			
+			FOR_VEC(cur_cond, on->exprs)
+			{
+				if(!NameFindingOnExprEtruct(lang_stat, d->type.strct, cur_cond->cond, scp, false))
+					return nullptr;
+				if (!DescendNameFinding(lang_stat, cur_cond->scp, scp))
+					return nullptr;
+			}
+
+			n->flags |= NODE_FLAGS_IS_PROCESSED;
+
+			FOR_VEC(cur_cond, on->exprs)
+			{
+				NameFindingOnExprEtruct(lang_stat, d->type.strct, cur_cond->cond, scp, true);
+			}
+		}
+		else
+		{
+			FOR_VEC(cur_cond, on->exprs)
+			{
+				if (!DescendNameFinding(lang_stat, cur_cond->cond, scp))
+					return nullptr;
+				if (!DescendNameFinding(lang_stat, cur_cond->scp, scp))
+					return nullptr;
+			}
 		}
 
 		if (on->def && !DescendNameFinding(lang_stat, on->def, scp))
@@ -9151,7 +9211,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		scp = n->scp;
 
-		if (!n->r->l && !n->r->r)
+		if (!n->r->l && !n->r->r && n->r->type != N_ON)
 			return (decl2*)1;
 
 		if (n->r != nullptr && !DescendNameFinding(lang_stat, n->r, scp) && scp->parent != nullptr)
@@ -9660,19 +9720,27 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 		FOR_VEC(cur_cond, n->on->exprs)
 		{
-			if(cur_cond->cond->type == N_BINOP)
+			if(CMP_NTYPE_BIN(cur_cond->cond, T_COMMA))
 			{
-				ASSERT(cur_cond->cond->op_type == T_COMMA);
-				DescendNodeExprOn(lang_stat, scp, n->r, &ret_type);
+				ASSERT(cur_cond->cond->t->type == T_COMMA);
+				DescendNodeExprOn(lang_stat, scp, cur_cond->cond, &ret_type);
 			}
 			else
 			{
 				type2 rhs = DescendNode(lang_stat, cur_cond->cond, scp);
-				if(!CompareTypes(&ret_type, &rhs))
+				if(ret_type.type == TYPE_STRUCT)
 				{
-					ASSERT(false);
+
+				}
+				else
+				{
+					if(!CompareTypes(&ret_type, &rhs))
+					{
+						ASSERT(false);
+					}
 				}
 			}
+			DescendNode(lang_stat, cur_cond->scp, scp);
 		}
 		if(n->on->def)
 			DescendNode(lang_stat, n->on->def, scp);
@@ -10083,6 +10151,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			ret_type = DescendNode(lang_stat, n->r, scp);
 			ModifyNodeIntOrFloat(ret_type, n);
+			if(ret_type.ptr > 0)
+			{
+				REPORT_ERROR(n->t->line, n->t->line_offset,
+					VAR_ARGS("cant have minus ptr")
+				);
+				ExitProcess(1);
+			}
 			if (ret_type.type == TYPE_F32 || ret_type.type == TYPE_F32_RAW)
 			{
 				ret_type.f *= -1;
@@ -11004,6 +11079,8 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case tkn_type2::T_PERCENT:
 		case tkn_type2::T_PLUS:
 		{
+			if(n->t->line == 2707)
+				raise(SIGTRAP);
 			type2 ltp = DescendNode(lang_stat, n->l, scp);
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
 

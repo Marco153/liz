@@ -74,6 +74,8 @@ ENTITY_HAS_TEXTURE: const s32 = 1;
 ENTITY_IS_MASKED: const s32 = 2;
 ENTITY_DONT_FREE: const s32 = 4;
 ENTITY_FREED: const s32 = 8;
+ENTITY_3D: const s32 = 16;
+ENTITY_TRANSPARENT: const s32 = 32;
 
 LAYER_ENTITY_PLAYABLE:const s32 = 1;
 LAYER_PLAYER:const s32 = 2;
@@ -158,6 +160,7 @@ entity:struct
 	col_enter : fn(*entity, *entity, *collision),
 	col_stay : fn(*entity, *entity, *collision),
 	col_exit : fn(*entity, *entity, *collision),
+	col : *void,
 
 	on_ground : bool,
 	was_hit : bool,

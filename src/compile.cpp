@@ -3,6 +3,7 @@ typedef unsigned int u32;
 typedef unsigned char u8;
 typedef long long s64;
 
+
 //#define WASM_DBG
 #ifdef __clang__
 #define OPT_OFF  __attribute__ ((optnone))
@@ -18,6 +19,7 @@ typedef long long s64;
 #include "compile.h"
 #include "timer.cpp"
 #ifdef LINUX
+#define BREAK(cond) if(cond){raise(SIGTRAP);}
 #else
 #include <windows.h>
 #include <conio.h>
@@ -75,6 +77,8 @@ typedef long long s64;
 // we have a few float registers up to 33
 #define FLOAT_REG_SIZE_BYTES 16
 #define FLOAT_REG_0 35
+// 10 is for the amount of float regs, altough we actually have less than 10
+#define END_OF_REGS (FLOAT_REG_0 * 8 + 10 * 16)
 #define RIP_REG 34
 #define GLOBALS_OFFSET 11000
 
@@ -2389,7 +2393,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		*/
 
 		int r_sz = cur_ir->assign.to_assign.reg_sz;
-		ASSERT(r_sz > 0 && r_sz <= 8);
+		ASSERT(r_sz > 0 && r_sz <= 16);
 
 		switch (cur_ir->assign.to_assign.type)
 		{
@@ -2868,6 +2872,7 @@ struct dbg_state
 	wasm_interp* wasm_state;
 	mem_alloc* dbg_alloc;
 
+	func_decl *hack_func;
 
 	bool some_bc_modified;
 	bool break_in_outsider;
@@ -5709,9 +5714,7 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 			int offset = **bc - dbg.lang_stat->bcs2_start;
 			st.st = GetStmntBasedOnOffset(&f->wasm_stmnts, offset);
 			//ASSERT(st.st);
-			printf("1)ret %p\n", dbg.return_stack_bc2_func.ar.start);
 			dbg.return_stack_bc2_func.emplace_back(st);
-			printf("2)ret %p\n", dbg.return_stack_bc2_func.ar.start);
 		}
 	}
 	FOR_VEC(f, dbg.return_stack_bc2_func)
@@ -8946,12 +8949,14 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		return;
 	}
 	
+	/*
 	stmnt_dbg* cur_st;
 	func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
 	if (cur_func)
 	{
 		cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
 	}
+		*/
 
 	short reg_src = (bc->regs >> RHS_REG_BIT) & 0x3f;
 	bool is_unsigned = IS_FLAG_ON(bc->regs, 1<<FLAG_UNSIGNED);
@@ -9645,6 +9650,42 @@ bool StatHasInst(stmnt_dbg *cur_st, byte_code2 *start_bc, byte_code2 **out, byte
 	return false;
 }
 
+void HackFunc(dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
+{
+	byte_code2** rip_ptr = (byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
+
+	char aux_buffer[END_OF_REGS];
+	mempcpy(aux_buffer, dbg->mem_buffer, END_OF_REGS);
+
+	auto prev_type = cur_bc->bc_type;
+	auto prev_i = cur_bc->i;
+
+	cur_bc->bc_type = INST_CALL;
+	auto dst_bc = (byte_code2 *)(dbg->lang_stat->bcs2_start + dbg->hack_func->bcs2_start);
+
+	cur_bc->i = (int)(s64)(dst_bc - cur_bc);
+
+	int ret_sz = dbg->return_stack_bc2.size();
+	while(true)
+	{
+
+		bool inc_ptr = true;
+		bool valid = false;
+		Bc2Logic(dbg, (byte_code2**)&dbg->mem_buffer[RIP_REG * 8], &inc_ptr, &valid, 0);
+		if (inc_ptr)
+		{
+			(*rip_ptr)++;
+		}
+		if(ret_sz >= dbg->return_stack_bc2.size())
+		{
+			break;
+		}
+	}
+	cur_bc->bc_type = prev_type;
+	cur_bc->i = prev_i;
+
+	mempcpy(dbg->mem_buffer, aux_buffer, END_OF_REGS);
+}
 
 void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 {
@@ -9861,9 +9902,16 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			if(ImGui::WithinFrame())
 				ImGui::Render();
 
+			int display_w, display_h;
+			glfwGetFramebufferSize(window, &display_w, &display_h);
+			glViewport(0, 0, display_w, display_h);
+			glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+			glClear(GL_COLOR_BUFFER_BIT);
+
 			ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
+
 
 			__lang_globals.data = (void *)&lalloc;
 			__lang_globals.alloc = (AllocTypeFunc)linear_alloc_func; 
@@ -10032,6 +10080,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			}
 			if (IsKeyRepeat(dbg->data, GLFW_KEY_F10) || f11_pressed_but_dint_find_call_so_normal_step)
 			{
+				//raise(SIGTRAP);
 				dbg->prev_bc = cur_bc;
 				if (show_bc)
 				{
@@ -10079,14 +10128,10 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 
 			auto  a = 0;
+			HackFunc(dbg, window, cur_bc);
 
 			// Rendering
 			ImGui::Render();
-			int display_w, display_h;
-			glfwGetFramebufferSize(window, &display_w, &display_h);
-			glViewport(0, 0, display_w, display_h);
-			glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
-			glClear(GL_COLOR_BUFFER_BIT);
 			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 			glfwSwapBuffers(window);
 			ClearKeys(dbg->data);
@@ -10118,6 +10163,10 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		if (f->name == func_start)
 		{
 			func_stack.emplace_back(f);
+		}
+		if (f->name == "view_collision")
+		{
+			dbg.hack_func = f;
 		}
 		f->func_idx = i;
 		i++;
@@ -12849,7 +12898,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		{
 		case IR_TYPE_ARG_REG:
 		{
-			FreeSpecificFloatReg(lang_stat, assign.to_assign.reg);
+			//FreeSpecificFloatReg(lang_stat, assign.to_assign.reg);
 			switch (assign.lhs.type)
 			{
 			case IR_TYPE_STR_LIT:
@@ -12881,14 +12930,16 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				}
 				else
 				{
-					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false);
+					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, assign.lhs.is_packed_float);
 				}
 				if (lhs.reg == PRE_X64_RSP_REG)
 					bc.type = MOV_M_2_REG_PARAM;
 				else
 				{
 					if (lhs.is_float)
+					{
 						bc.type = MOV_SSE_2_REG_PARAM;
+					}
 					else
 						bc.type = MOV_R_2_REG_PARAM;
 				}
@@ -13048,13 +13099,31 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			}break;
 			case IR_TYPE_INT:
 			{
-				bc.type = STORE_I_2_M;
-				bc.bin.lhs.reg = reg;
-				bc.bin.lhs.reg_sz = reg_sz;
-				bc.bin.lhs.voffset = voffset;
-				bc.bin.rhs.i = assign.lhs.i;
-				bc._line = line;
+				if((assign.to_assign.is_packed_float) && assign.lhs.i == 0)
+				{
+					MovFloatToSSEReg2(lang_stat, 0, 0.0, &ret, false);
 
+					bc.type = FILL_SSE_2_PCKED_SSE;
+					bc.bin.rhs.reg = 0;
+					bc.bin.lhs.reg = 0;
+					ret.emplace_back(bc);
+
+					bc.type = MOV_PCKD_SSE_2_M;
+					bc.bin.lhs.reg = reg;
+					bc.bin.lhs.voffset = voffset;
+					bc.bin.lhs.reg_sz = reg_sz;
+
+				}
+				else
+				{
+					bc.type = STORE_I_2_M;
+					bc.bin.lhs.reg = reg;
+					bc.bin.lhs.reg_sz = reg_sz;
+					bc.bin.lhs.voffset = voffset;
+					bc.bin.rhs.i = assign.lhs.i;
+					bc._line = line;
+
+				}
 
 				ret.emplace_back(bc);
 			}break;
@@ -13098,9 +13167,15 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		{
 			if (assign.to_assign.reg == 5)
 				assign.to_assign.reg++;
+			/*
+			if(line == 40 && assign.lhs.type == IR_TYPE_REG)
+			{
+				raise(SIGTRAP);
+			}
+				*/
 
 			AllocSpecificReg(lang_stat, assign.to_assign.reg);
-			if (assign.to_assign.is_float)
+			if (assign.to_assign.is_float || assign.to_assign.is_packed_float)
 				AllocSpecificFloatReg(lang_stat, assign.to_assign.reg);
 			switch (assign.lhs.type)
 			{
@@ -13191,7 +13266,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 					GenX64AddGetFuncAddrReloc(lang_stat, ret, &lhs, decl->type.fdecl);
 				}
 				else
-					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false);
+					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, assign.lhs.is_packed_float);
 				//ASSERT(lhs.type == IR_TYPE_REG)
 
 				if (reg_dst_deref < 0)
@@ -13237,7 +13312,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				//assign.to_assign.deref++;
 
 				
-				GenX64ToIrValReg2(lang_stat, ret, &rhs, &assign.lhs, false, false);
+				GenX64ToIrValReg2(lang_stat, ret, &rhs, &assign.lhs, false, assign.lhs.is_packed_float);
 
 				byte_code_enum inst;
 				if (assign.to_assign.is_float)
@@ -13595,7 +13670,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		// 64 R
 		case IR_TYPE_REG:
 		{
-			if (assign.to_assign.is_float)
+			if (assign.to_assign.is_float || assign.to_assign.is_packed_float)
 				AllocSpecificFloatReg(lang_stat, assign.to_assign.reg);
 			
 			auto prev_lhs_reg = assign.lhs.reg;
@@ -13696,6 +13771,13 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			else if ((assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_REG) ||
 					 (assign.lhs.type == IR_TYPE_ARG_REG && assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
 			{
+				//BREAK(line == 713)
+				/*
+				if(line == 888)
+				{
+					raise(SIGTRAP);
+				}
+					*/
 				
 				//assign.lhs.deref += assign.lhs.ptr;
 				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false, false);
@@ -13715,7 +13797,14 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				if (dst.deref >= 0)
 				{
 					if(dst.is_float)
-						GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, MOV_SSE_2_MEM);
+					{
+						if(dst.is_packed_float)
+						{
+							GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, MOV_PCKD_SSE_2_M);
+						}
+						else
+							GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, MOV_SSE_2_MEM);
+					}
 					else
 						GenX64RegToMem(ret, lhs.reg, dst.reg_sz, 0, dst.reg, STORE_R_2_M);
 				}
@@ -13914,7 +14003,15 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				
 				byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst.is_float, lhs.is_packed_float);
 				if (lhs.is_float && dst.deref >= 0)
-					inst = MOV_SSE_2_MEM;
+				{
+					if(lhs.is_packed_float)
+					{
+						inst = MOV_PCKD_SSE_2_M;
+					}
+					else
+						inst = MOV_SSE_2_MEM;
+					dst.is_packed_float = false;
+				}
 				dst.is_packed_float = false;
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 				//FreeSpecificReg(lang_stat, lhs.reg);
@@ -13947,13 +14044,17 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			// R D F
 			else if (assign.lhs.type == IR_TYPE_DECL && assign.rhs.type == IR_TYPE_F32)
 			{
+				/*
+				if(line == 40)
+				{
+					raise(SIGTRAP);
+				}
+					*/
 				
 				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false);
 				AllocSpecificReg(lang_stat, lhs.reg);
 
-				char sse_reg = 0;
-				if (lhs.reg == 0)
-					sse_reg++;
+				char sse_reg = AllocFloatReg(lang_stat);
 				
 				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.rhs, assign.lhs.is_packed_float, sse_reg);
 
@@ -14535,17 +14636,32 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				case IR_TYPE_REG:
 				{
 					ir_val_aux lhs = {};
-					GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->ret.assign.lhs, true);
+					BREAK(cur_line == 68)
+					GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->ret.assign.lhs, false, ir->ret.assign.lhs.is_packed_float);
 
 					ir_val_aux dst = {};
 					dst.type = IR_TYPE_RET_REG;;
 					dst.reg = ir->ret.assign.to_assign.reg;
 					dst.reg_sz = ir->ret.assign.to_assign.reg_sz;
+					dst.is_float = ir->ret.assign.to_assign.is_float;
+					dst.is_packed_float = ir->ret.assign.to_assign.is_packed_float;
 
 
 					bool dst_float = ir->ret.assign.to_assign.is_float;
 					bc = {};
 					byte_code_enum inst = DetermineMovBcBasedOnDeref(dst.deref, dst_float, lhs.is_packed_float);
+					if(dst.is_float)
+					{
+						if(dst.is_packed_float)
+						{
+							inst = MOV_PCKD_SSE_2_PCKD_SSE;
+						}
+						else
+						{
+							inst = MOV_SSE_2_SSE;
+						}
+					}
+					dst.is_packed_float = false;
 					GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
 
 					/*
@@ -15208,15 +15324,30 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			raise(SIGTRAP);
 		}
 			*/
+		//idx = 0;
+		/*
+		auto cur_idx = 0;
+		FOR_VEC(bcc, ret)
+		{
+			if (bcc->type == 112)
+			{
+				raise(SIGTRAP);
+				lang_stat->cur_nd = 0;
+			}
+			//idx++;
+			cur_idx++;
+			lang_stat->cur_nd = idx;
+		}
+			*/
 		idx++;
 		cur_ir->end = ret.size();
 		int aux_bc = 0;
 	}
-	idx = 0;
 	/*
+	idx = 0;
 	FOR_VEC(bcc, ret)
 	{
-		if (bcc->type == 253)
+		if (bcc->type == 112)
 		{
 			raise(SIGTRAP);
 			lang_stat->cur_nd = 0;

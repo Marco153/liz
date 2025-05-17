@@ -1,3 +1,4 @@
+import "../dev/common";
 v4 : struct
 {
 	x : f32,
@@ -208,13 +209,30 @@ dot_vec::fn(a : *_vec, b : *_vec) !f32
 	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 	return ret;
 }
-cross_vec::fn x64(a : *_vec, b : *_vec) !_vec
+print_vec::fn(v : *_vec)
 {
+	printf("rx %, ", cast(s32)(v.x * 100.0))
+	printf("ry %, ", cast(s32)(v.y * 100.0))
+	printf("rz %, ", cast(s32)(v.z * 100.0))
+	printf("rw %\n", cast(s32)(v.w * 100.0))
+	//printf("ang %, dt %\n", cast(s32)(ang * 100.0), cast(s32)(dt * 100.0))
+}
+cross_vec::fn(a : *_vec, b : *_vec) !_vec
+{
+
 	ret :_vec= ?
 	ret.x = a.y * b.z - a.z * b.y
-	ret.y = a.x * b.z - a.z * b.x
+	ret.y = a.z * b.x - a.x * b.z
 	ret.z = a.x * b.y - a.y * b.x
 	ret.w = 0.0
+	/*
+	printf("\ton cross\n\t")
+	print_vec(a)
+	printf("\t")
+	print_vec(b)
+	print_vec(&ret)
+	printf("\ton cross\n")
+	*/
 	return ret;
 }
 dot_v3::fn x64(a : *v3, b : *v3) !f32

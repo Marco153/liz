@@ -3,6 +3,7 @@ import "../common";
 
 FLOAT_MAX: const u32= 0x7f800000;
 FLOAT_MIN: const u32= 0xff800000;
+DBG_COL: const u32= 1
 
 signf::fn x64(a :f32) !f32
 {
@@ -31,13 +32,22 @@ collider : struct
 	using type : col_type
 	ent : * entity
 }
-prepare_collider ::fn(col : *collider)
-{
 
-}
-find_support::fn(col1 : *collider, col2 : *collider, dir : *_vec) ! _vec
+find_support::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider, dir : *_vec) ! _vec
 {
-	return find_furthest_point(col1, dir) - find_furthest_point(col2, &(-*dir))
+	#if DBG_COL == 0
+	{
+		 return find_furthest_point(col1, dir) - find_furthest_point(col2, &(-*dir))
+	}
+	else
+	{
+		sup1 := find_furthest_point(col1, dir)
+		sup2 := find_furthest_point(col2, &(-*dir))
+		gjk.sup1 = sup1
+		gjk.sup2 = sup2
+		return sup1 - sup2
+	}
+
 }
 find_furthest_point::fn(col : *collider, dir : *_vec) ! _vec
 {
@@ -76,13 +86,17 @@ gjk_state : struct
 
 	col1 : *collider,
 	col2 : *collider,
+
+	sup1 : _vec
+	sup2 : _vec
+	dir : _vec
 }
 simplex_push_front::fn(gjk : *gjk_state, pos : *_vec)
 {
 	aux : [3]_vec= ?
-	memcpy(aux[0], gjk.simplex[0], 12)
+	memcpy(aux[0], gjk.simplex[0], 3 * 16)
 	*gjk.simplex[0] = *pos
-	memcpy(gjk.simplex[1], aux[0], 12)
+	memcpy(gjk.simplex[1], aux[0], 3 * 16)
 	gjk.simplex_verts = min(gjk.simplex_verts + 1, 4)
 }
 GJK ::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
@@ -90,14 +104,17 @@ GJK ::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 	unitx :_vec
 	unitx.x = 1.0
 	gjk.simplex_verts = 0
-	sup := find_support(col1, col2, &unitx)
+	sup := find_support(gjk, col1, col2, &unitx)
 
 	simplex_push_front(gjk, &sup)
 
 	dir := -sup
+	gjk.dir = dir
 	for it in 0..32
 	{
-		sup = find_support(col1, col2, &dir)
+		sup = find_support(gjk, col1, col2, &dir)
+
+		gjk.dir = dir
 
 		if(dot_vec(&sup, &dir) <= 0.0)
 		{
@@ -134,46 +151,51 @@ gjk_next_simplex ::fn(gjk : *gjk_state, dir : *_vec) ! bool
 }
 same_direction ::fn(a : *_vec, b : *_vec) ! bool
 {
-	return dot_vec(a, b) > 0.0
+	//printf("on same \n")
+	d :=dot_vec(a, b)
+	//print_vec(a)
+	//print_vec(b)
+	//printf("d % \n end of same\n", cast(s32)(d * 100.0))
+	return d > 0.0
 }
 gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *_vec) ! bool
 {
-	a := gjk.simplex[0]
-	b := gjk.simplex[1]
-	c := gjk.simplex[2]
-	d := gjk.simplex[4]
+	a := *gjk.simplex[0]
+	b := *gjk.simplex[1]
+	c := *gjk.simplex[2]
+	d := *gjk.simplex[3]
 
-	ab := *b - *a
-	ac := *c - *a
-	ad := *d - *a
-	ao := -*a
+	ab := b - a
+	ac := c - a
+	ad := d - a
+	ao := -a
 
 	abc := cross_vec(&ab, &ac)
 	acd := cross_vec(&ac, &ad)
 	adb := cross_vec(&ad, &ab)
 	if same_direction(&abc, &ao)
 	{
-		*gjk.simplex[0] = *a
-		*gjk.simplex[1] = *b
-		*gjk.simplex[2] = *c
+		*gjk.simplex[0] = a
+		*gjk.simplex[1] = b
+		*gjk.simplex[2] = c
 		gjk.simplex_verts = 3
 
 		return gjk_triangle(gjk, dir)
 	}
 	if same_direction(&acd, &ao)
 	{
-		*gjk.simplex[0] = *a
-		*gjk.simplex[1] = *c
-		*gjk.simplex[2] = *d
+		*gjk.simplex[0] = a
+		*gjk.simplex[1] = c
+		*gjk.simplex[2] = d
 		gjk.simplex_verts = 3
 
 		return gjk_triangle(gjk, dir)
 	}
 	if same_direction(&adb, &ao)
 	{
-		*gjk.simplex[0] = *a
-		*gjk.simplex[1] = *d
-		*gjk.simplex[2] = *b
+		*gjk.simplex[0] = a
+		*gjk.simplex[1] = d
+		*gjk.simplex[2] = b
 		gjk.simplex_verts = 3
 
 		return gjk_triangle(gjk, dir)
@@ -183,38 +205,39 @@ gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *_vec) ! bool
 }
 gjk_triangle ::fn(gjk : *gjk_state, dir : *_vec) ! bool
 {
-	a := gjk.simplex[0]
-	b := gjk.simplex[1]
-	c := gjk.simplex[2]
+	a := *gjk.simplex[0]
+	b := *gjk.simplex[1]
+	c := *gjk.simplex[2]
 
-	ab := *b - *a
-	ac := *c - *a
-	ao := -*a
+	ab := b - a
+	ac := c - a
+	ao := -a
 
 	abc := cross_vec(&ab, &ac)
 	if same_direction(&cross_vec(&abc, &ac), &ao)
 	{
 		if same_direction(&ac, &ao)
 		{
-			*gjk.simplex[0] = *a
-			*gjk.simplex[1] = *c
+			*gjk.simplex[0] = a
+			*gjk.simplex[1] = c
 			gjk.simplex_verts = 2
 			*dir = cross_vec(&cross_vec(&ac, &ao), &ac)
 		}
 		else
 		{
-			*gjk.simplex[0] = *a
-			*gjk.simplex[1] = *b
+			*gjk.simplex[0] = a
+			*gjk.simplex[1] = b
 			gjk.simplex_verts = 2
 			return gjk_line(gjk, dir)
 		}
 	}
 	else
 	{
-		if same_direction(&cross_vec(&ac, &abc), &ao)
+		//__dbg_break
+		if same_direction(&cross_vec(&ab, &abc), &ao)
 		{
-			*gjk.simplex[0] = *a
-			*gjk.simplex[1] = *b
+			*gjk.simplex[0] = a
+			*gjk.simplex[1] = b
 			gjk.simplex_verts = 2
 			return gjk_line(gjk, dir)
 		}
@@ -226,9 +249,9 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *_vec) ! bool
 			}
 			else
 			{
-				*gjk.simplex[0] = *a
-				*gjk.simplex[1] = *c
-				*gjk.simplex[2] = *b
+				*gjk.simplex[0] = a
+				*gjk.simplex[1] = c
+				*gjk.simplex[2] = b
 				gjk.simplex_verts = 3
 
 				*dir = -abc
@@ -907,10 +930,10 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 
 			gjk.col1 = c1
 			gjk.col2 = c2
-			__dbg_break
 			//view_collision(1)
 			if GJK(&gjk, c1, c2)
 			{
+				__dbg_break
 				e.color.x += 0.5
 				e.color.y += 0.5
 				e.color.z += 0.5

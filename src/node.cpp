@@ -2473,10 +2473,16 @@ bool CheckFuncExtra(lang_state *lang_stat, func_decl* fdecl, scope* scp)
 	}
 	return true;
 }
+int CheckForHashtags(lang_state *lang_stat, node *n, func_decl* fdecl, scope* scp);
 bool CheckFuncRetType(lang_state *lang_stat, func_decl* fdecl, scope* scp)
 {
 	char msg_hdr[256];
 	auto fnode = fdecl->func_node;
+	auto has_hash_tags = CheckForHashtags(lang_stat, fdecl->func_node, fdecl, scp);
+	if(has_hash_tags == 1)
+	{
+		return false;
+	}
 	//return type
 	if (fnode->l->r != nullptr)
 	{
@@ -6051,6 +6057,16 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	}
 
 
+
+	/*
+		fdecl->strct_val_ret_offset = fdecl->strct_vals_offset;
+		CheckStructValToFunc(fdecl, &fdecl->ret_type);
+		*/
+
+	int args_end_idx = fdecl->args.size();
+
+	fdecl->call_strcts_val_offset = fdecl->strct_vals_sz;
+	fnode->r->scp = child_scp;
 	//return type
 	if (!CheckFuncRetType(lang_stat, fdecl, child_scp))
 		return false;
@@ -6063,16 +6079,6 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 		lang_stat->outsider_funcs.emplace_back(fdecl);
 	}
 
-	/*
-		fdecl->strct_val_ret_offset = fdecl->strct_vals_offset;
-		CheckStructValToFunc(fdecl, &fdecl->ret_type);
-		*/
-
-	int args_end_idx = fdecl->args.size();
-
-	fdecl->call_strcts_val_offset = fdecl->strct_vals_sz;
-	fnode->r->scp = child_scp;
-
 	if (IS_FLAG_OFF(flags, DONT_DESCEND_SCOPE) && IS_FLAG_OFF(fdecl->flags, FUNC_DECL_MACRO))
 	{
 		// scope
@@ -6081,6 +6087,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 
 		//fdecl->vars.insert(fdecl->vars.end(), child_scp->vars.begin() + args_end_idx, child_scp->vars.end());
 	}
+
 	if (n->type == N_OP_OVERLOAD && fdecl->templates.size() == 0)
 	{
 		CheckOverloadFunction(lang_stat, fdecl);
@@ -7239,6 +7246,103 @@ bool NameFindingOnExprEtruct(lang_state *lang_stat, type_struct2 *strct, node *n
 	return true;
 }
 
+int CheckForHashtags(lang_state *lang_stat, node *n, func_decl* fdecl, scope* scp)
+{
+	if(!n)
+		return 0;
+	switch(n->type)
+	{
+	case node_type::N_HASHTAG:
+	{
+		//BREAK(n->t->line == 38)
+
+		switch (n->r->type)
+		{
+		case node_type::N_IF:
+		{
+			node* cur = n->r;
+			do 
+			{
+				if (cur->type == N_IF || cur->type == N_ELSE_IF)
+				{
+					if (!DescendNameFinding(lang_stat, cur->l->l, scp))
+						return 1;
+				}
+				else if (cur->type == N_ELSE)
+				{
+					if (!DescendNameFinding(lang_stat, cur->r, scp))
+						return 1;
+				}
+				else
+					ASSERT(false);
+
+				if (cur->type == N_ELSE)
+				{
+					node* from = cur->r;
+					if (from->type == N_SCOPE)
+						from = from->r;
+					if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
+						from = from->l;
+					memcpy(n, from, sizeof(node));
+				}
+				else if (GetExpressionVal(cur->l->l, scp) == 1)
+				{
+					node* from = cur->l->r;
+					if (from->type == N_SCOPE)
+						from = from->r;
+					if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
+						from = from->l;
+					memcpy(n, from, sizeof(node));
+					break;
+				}
+				cur = cur->r;
+			} while (cur->type == N_ELSE || cur->type == N_ELSE_IF);
+			return 2;
+
+		}break;
+		case N_IDENTIFIER:
+		{
+			if (n->r->t->str == "do")
+			{
+				if(IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2))
+					return 2;
+
+				if (!DescendNameFinding(lang_stat, n->r->r, scp))
+					return 0;
+
+				DescendNode(lang_stat, n->r->r, scp);
+
+				auto prev_fdecl = lang_stat->cur_func;
+				lang_stat->cur_func = scp->fdecl;
+				CompileDo(lang_stat, n->r->r, scp);
+				lang_stat->cur_func = prev_fdecl;
+				//n->type = N_EMPTY;
+				n->flags |= NODE_FLAGS_IS_PROCESSED2;
+			}
+			else if (n->r->t->str == "when_used")
+			{
+			}
+			else
+				ASSERT(0);
+		}break;
+		default:
+			ASSERT(0);
+		}
+	}break;
+	default:
+	{
+		auto a = CheckForHashtags(lang_stat, n->l, fdecl, scp);
+		auto b = CheckForHashtags(lang_stat, n->r, fdecl, scp);
+		if(a == 1 || b == 1)
+			return 1;
+		else if(a == 2 || b == 2)
+			return 1;
+		else if(a == 2 && b == 2)
+			return 2;
+	}break;
+	}
+	return 0;
+}
 // $DescendNameFinding
 decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 {
@@ -7435,6 +7539,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_HASHTAG:
 	{
+		//BREAK(n->t->line == 38)
+
 		switch (n->r->type)
 		{
 		case node_type::N_IF:
@@ -7460,7 +7566,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					node* from = cur->r;
 					if (from->type == N_SCOPE)
 						from = from->r;
-					if (from->type == N_STMNT)
+					if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
 						from = from->l;
 					memcpy(n, from, sizeof(node));
 				}
@@ -7469,7 +7575,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					node* from = cur->l->r;
 					if (from->type == N_SCOPE)
 						from = from->r;
-					if (from->type == N_STMNT)
+					if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
 						from = from->l;
 					memcpy(n, from, sizeof(node));
 					break;

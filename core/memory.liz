@@ -820,6 +820,19 @@ ret_vec::fn(val : f32) ! _vec
 	
 	return _vec{0.0, val + 0.5, 2.0, 3.0}
 }
+modify_vec::fn(v : *_vec) ! u32 
+{
+	vec_sts :struct
+	{
+		a : _vec 
+	}
+	vec_st : vec_sts
+	
+	vec_st.a = *v 
+	if vec_st.a.z <= 1.9 || vec_st.a.z >= 2.1
+		return 0;
+	return 1;
+}
 tests :: fn(ret : *u32)
 {
 	i:= 7;
@@ -1477,6 +1490,13 @@ tests :: fn(ret : *u32)
 	vec_ptr.y += fsum
 	if vec_ptr.y < 3.1 || vec_test.y > 3.3
 		debug_break();
+
+	vec_test.z = 2.0
+	if modify_vec(&vec_test) != 1
+		debug_break();
+
+
+	vec_2 : _vec
 	etest: enum_test
 	if etest == enum_test.VAL1
 	{

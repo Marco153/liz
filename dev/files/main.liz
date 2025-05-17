@@ -1516,8 +1516,8 @@ NewPlayerEnt::fn(ctx : *context, name : str_lit) ! *entity
 	player_ent.name = name;
 	player_ent.pos.x = 4.0;
 	player_ent.pos.y = 4.0;
-	player_ent.size.x = 0.7;
-	player_ent.size.y = 0.7;
+	player_ent.size.x = 1.0;
+	player_ent.size.y = 1.0;
 	player_ent.col_size.x = 0.7;
 	player_ent.col_size.y = 0.7;
 	player_ent.pivot.x = 0.5;
@@ -2227,14 +2227,6 @@ rotate_vector::fn(out : *_vec, v : *_vec, q : *_vec) {
 
 }
 
-print_vec::fn(v : *_vec)
-{
-	printf("rx %, ", cast(s32)(v.x * 100.0))
-	printf("ry %, ", cast(s32)(v.y * 100.0))
-	printf("rz %, ", cast(s32)(v.z * 100.0))
-	printf("rw %\n", cast(s32)(v.w * 100.0))
-	//printf("ang %, dt %\n", cast(s32)(ang * 100.0), cast(s32)(dt * 100.0))
-}
 
 test_ang ::fn(a : s32)
 {
@@ -2258,7 +2250,44 @@ test_ang ::fn(a : s32)
 	print_vec(&forward)
 	
 }
-view_collision ::fn(a : u32)
+draw_vertex ::fn(ctx : *context, pos : *_vec, sz : *_vec, cam_pos : *_vec, cam_rot : *_vec)
+{
+	draw : draw_info3d
+	draw.pos = *pos
+	draw.ent_size = *sz
+	//print_vec(&draw.ent_size)
+	*draw.color[0] = 1.0
+	*draw.color[1] = 1.0
+	*draw.color[2] = 1.0
+	*draw.color[3] = 1.0
+	draw.cam_pos = cam_pos;
+	draw.cam_rot = cam_rot;
+	Draw3D(ctx.window, &draw)
+}
+draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, tip : bool)
+{
+	draw : draw_info3d
+	draw.flags =  DRAW_INFO_LINE;
+	draw.pos = *start
+	draw.ent_size = *end
+	//print_vec(&draw.ent_size)
+	memcpy(draw.color, col, 4 * 4);
+	draw.cam_pos = ctx.cam_pos_global;
+	draw.cam_rot = ctx.cam_rot_global;
+	Draw3D(ctx.window, &draw)
+	if tip
+	{
+		v_sz: _vec=?
+		v_sz.x = 0.05
+		v_sz.y = 0.05
+		v_sz.z = 0.05
+		v_sz.w = 1.0
+		draw_vertex(ctx, end, &v_sz, ctx.cam_pos_global, ctx.cam_rot_global)
+	}
+
+}
+
+view_collision ::fn(ccc : u32)
 {
 	curmx := GetMouseNormalizedPosX();
 	curmy := GetMouseNormalizedPosY();
@@ -2294,53 +2323,216 @@ view_collision ::fn(a : u32)
 	{
 		cam_pos.y -= dt * speed
 	}
-	cross := cross_vec(cam_forward, &axis)
-	if IsKeyHeld(key_enum.KEY_A)
+	if IsKeyDown(key_enum.KEY_F2)
 	{
-		*cam_pos -= cross * dt * speed
-
+		globals.tog = !globals.tog
 	}
-	if IsKeyHeld(key_enum.KEY_D)
+	if true
 	{
-		*cam_pos += cross * dt * speed
-	}
-	if IsKeyHeld(key_enum.KEY_W)
-	{
-		*cam_pos += *cam_forward * dt * speed
-	}
-	if IsKeyHeld(key_enum.KEY_S)
-	{
-		*cam_pos -= *cam_forward * dt * speed
-	}
-	
-	if IsMouseHeld(mouse_enum.LEFT) && IsKeyHeld(key_enum.KEY_SHIFT)
-	//if true
-	{
-		s := sin(cam_rot.y / 4.0)
-		rot : _vec
-		rot.w = cos(cam_rot.y / 4.0)
-		rot.x = axis.x * s
-		rot.y = axis.y * s
-		rot.z = axis.z * s
-		rotate_vector(cam_forward, aux_forward, &rot)
+		cross := cross_vec(cam_forward, &axis)
+		if IsKeyHeld(key_enum.KEY_A)
+		{
+			*cam_pos -= cross * dt * speed
 
-		cam_rot.y += *mx * speed * 5.0
-		cam_rot.x += *my * speed * 5.0
+		}
+		if IsKeyHeld(key_enum.KEY_D)
+		{
+			*cam_pos += cross * dt * speed
+		}
+		if IsKeyHeld(key_enum.KEY_W)
+		{
+			*cam_pos += *cam_forward * dt * speed
+		}
+		if IsKeyHeld(key_enum.KEY_S)
+		{
+			*cam_pos -= *cam_forward * dt * speed
+		}
+		
+		dt = dt * 2.0
+		if IsKeyHeld(key_enum.KEY_SHIFT)
+		{
+			if IsMouseHeld(mouse_enum.LEFT)
+			{
+				s := sin(cam_rot.y / 4.0)
+				rot : _vec
+				rot.w = cos(cam_rot.y / 4.0)
+				rot.x = axis.x * s
+				rot.y = axis.y * s
+				rot.z = axis.z * s
+				rotate_vector(cam_forward, aux_forward, &rot)
+
+				cam_rot.y += dt
+				//cam_rot.x += dt
+			}
+			if IsMouseHeld(mouse_enum.RIGHT)
+			{
+				s := sin(cam_rot.y / 4.0)
+				rot : _vec
+				rot.w = cos(cam_rot.y / 4.0)
+				rot.x = axis.x * s
+				rot.y = axis.y * s
+				rot.z = axis.z * s
+				rotate_vector(cam_forward, aux_forward, &rot)
+
+				cam_rot.y -= dt
+				//cam_rot.x += dt
+			}
+		}
+		else if IsKeyHeld(key_enum.KEY_JMP)
+		{
+
+			if IsMouseHeld(mouse_enum.LEFT)
+			{
+				cam_rot.x += dt
+			}
+			if IsMouseHeld(mouse_enum.RIGHT)
+			{
+				cam_rot.x -= dt
+			}
+		}
+		//printf("curx %, mx %\n", cast(s32)(curmx * 100.0), cast(s32)(*mx * 100.0))
+
+		e1.color.w = 0.3;
+		e2.color.w = 0.6;
+
+		e1.flags = e1.flags | ENTITY_TRANSPARENT;
+		e2.flags = e2.flags | ENTITY_TRANSPARENT;
+
+		*mx = GetMouseNormalizedPosX() - curmx;
+		*my = GetMouseNormalizedPosY() - curmy;
+
+		DrawEntity(ctx, e1, cam_pos, cam_rot)
+		DrawEntity(ctx, e2, cam_pos, cam_rot)
+
+		orig : _vec
+
+		v_sz: _vec=?
+		v_sz.x = 0.1
+		v_sz.y = 0.1
+		v_sz.z = 0.1
+		v_sz.w = 1.0
+		draw_vertex(ctx, &gjk.sup1, &v_sz, cam_pos, cam_rot)
+		draw_vertex(ctx, &gjk.sup2, &v_sz, cam_pos, cam_rot)
+
+		draw_line(ctx, &gjk.sup1, &gjk.sup2, &v_sz, true);
+
+		simplex_col : _vec
+		simplex_col.x = 1.0
+		simplex_col.y = 1.0
+		simplex_col.z = 1.0
+		draw_line(ctx, &orig, &gjk.dir, &simplex_col, true);
+		simplex_col.y = 0.0
+		simplex_col.z = 0.0
+
+		start : _vec= ?
+		end : _vec= ?
+		if IsKeyHeld(key_enum.KEY_1)
+		{
+			draw_vertex(ctx, &gjk.simplex[0], &v_sz, cam_pos, cam_rot)
+		}
+		if IsKeyHeld(key_enum.KEY_2)
+		{
+			draw_vertex(ctx, &gjk.simplex[1], &v_sz, cam_pos, cam_rot)
+		}
+		if IsKeyHeld(key_enum.KEY_3)
+		{
+			draw_vertex(ctx, &gjk.simplex[2], &v_sz, cam_pos, cam_rot)
+		}
+		if IsKeyHeld(key_enum.KEY_4)
+		{
+			draw_vertex(ctx, &gjk.simplex[3], &v_sz, cam_pos, cam_rot)
+		}
+		on gjk.simplex_verts
+		{
+		2
+		{
+			draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, true);
+
+			if IsKeyHeld(key_enum.KEY_F1)
+			{
+				a := gjk.simplex[0]
+				b := gjk.simplex[1]
+
+				ab := *b - *a
+				ao := -*a
+
+				cross = cross_vec(&cross_vec(&ab, &ao), &ab)
+				start = *a + ab / 2.0
+				end = start + cross
+
+				draw_line(ctx, &start, &end, &simplex_col, false);
+
+				if(same_direction(&ab, &ao))
+				{
+					printf("the same dir\n")
+				}
+				else
+				{
+					printf("not in the same dir\n")
+				}
+			}
+		}
+		3
+		{
+
+			draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, false);
+			draw_line(ctx, gjk.simplex[0], gjk.simplex[2], &simplex_col, false);
+			draw_line(ctx, gjk.simplex[1], gjk.simplex[2], &simplex_col, false);
+
+			a := gjk.simplex[0]
+			b := gjk.simplex[1]
+			c := gjk.simplex[2]
+
+			ab := *b - *a
+			ac := *c - *a
+			ao := -*a
+
+			abc := cross_vec(&ab, &ac)
+			cross = cross_vec(&abc, &ac)
+			start = *a + ac / 2.0
+			end = start + cross
+
+			simplex_col.y = 1.0
+			draw_line(ctx, &start, &end, &simplex_col, false);
+
+			if IsKeyHeld(key_enum.KEY_F1)
+			{
+				cross = cross_vec(&cross_vec(&ac, &ao), &ac)
+				end = start + cross
+				simplex_col.z = 1.0
+				draw_line(ctx, a, &end, &simplex_col, false);
+
+				simplex_col.y = 0.5
+				simplex_col.z = 0.5
+				draw_line(ctx, a, &(-*a), &simplex_col, false);
+
+				if same_direction(&ac, &ao)
+				{
+					printf("the same dir\n")
+				}
+				else
+				{
+					printf("not in the same dir\n")
+				}
+			}
+		}
+		4
+		{
+			draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, false);
+			draw_line(ctx, gjk.simplex[0], gjk.simplex[2], &simplex_col, false);
+			draw_line(ctx, gjk.simplex[0], gjk.simplex[3], &simplex_col, false);
+			draw_line(ctx, gjk.simplex[1], gjk.simplex[2], &simplex_col, false);
+			draw_line(ctx, gjk.simplex[1], gjk.simplex[3], &simplex_col, false);
+			draw_line(ctx, gjk.simplex[3], gjk.simplex[2], &simplex_col, false);
+
+		}
+		}
+		a := 0
 	}
-	printf("curx %, mx %\n", cast(s32)(curmx * 100.0), cast(s32)(*mx * 100.0))
 
-	e1.color.w = 0.3;
-
-	e1.flags = e1.flags | ENTITY_TRANSPARENT;
-	//e2.flags = e2.flags | ENTITY_TRANSPARENT;
-
-	DrawEntity(ctx, e1, cam_pos, cam_rot)
-	DrawEntity(ctx, e2, cam_pos, cam_rot)
 
 	Draw3DTransparency(ctx.window);
 
-	*mx = GetMouseNormalizedPosX() - curmx;
-	*my = GetMouseNormalizedPosY() - curmy;
 }
 main_loop::fn(ctx : *context)
 {
@@ -2374,6 +2566,7 @@ main_loop::fn(ctx : *context)
 	cam_pos: _vec;
 	cam_rot: _vec;
 	cam_rot.z = 0.0;
+	cam_rot.y = 0.0;
 	other_block :_vec;
 	other_block.x = 5.0;
 	other_block.y = 0.0;

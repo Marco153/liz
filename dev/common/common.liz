@@ -56,6 +56,7 @@ global_struct : struct
 
 	mx : f32
 	my : f32
+	tog : bool
 }
 globals : global global_struct
 
@@ -436,6 +437,19 @@ key_enum : enum
 	KEY_E,
 	KEY_W,
 	KEY_ESCAPE,
+	KEY_SPACE,
+	KEY_F1,
+	KEY_F2,
+	KEY_F5,
+	KEY_F9,
+	KEY_F10,
+	KEY_F11,
+	KEY_ENTER,
+	KEY_K,
+	KEY_1,
+	KEY_2,
+	KEY_3,
+	KEY_4,
 }
 
 PrintV3::fn outsider(f32, f32, f32);

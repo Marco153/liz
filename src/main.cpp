@@ -67,12 +67,17 @@ enum key_enum
 	_KEY_ESCAPE,
 	_KEY_SPACE,
 	_KEY_F1,
+	_KEY_F2,
 	_KEY_F5,
 	_KEY_F9,
 	_KEY_F10,
 	_KEY_F11,
 	_KEY_ENTER,
 	_KEY_K,
+	_KEY_1,
+	_KEY_2,
+	_KEY_3,
+	_KEY_4,
 };
 
 //#include <editor/TextEditor.cpp>
@@ -383,11 +388,14 @@ struct draw_info3d
 struct open_gl_state
 {
 	int vao3d;
+	int vao3d_line;
+	int vbo3d_line;
 
 	int vao;
 	int line_vao;
 	int line_vbo;
 	int shader_program3d;
+	int shader_program3d_line;
 	int shader_program;
 	int line_shader_program;
 	int shader_program_no_texture;
@@ -895,6 +903,7 @@ void Draw3DTransparency(dbg_state* dbg)
 	glDepthMask(GL_FALSE);
 	glEnable(GL_BLEND);
 
+    glUseProgram(gl_state->shader_program3d);
 	FOR_VEC(c, gl_state->transparent_objs)
 	{
 		c->type.flags |= DRAW_INFO_TRANSPARENT2;
@@ -911,23 +920,6 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 
 	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
-
-	if(IS_FLAG_OFF(draw->flags, DRAW_INFO_TRANSPARENT2))
-	{
-		glDepthMask(GL_TRUE);
-		glDisable(GL_BLEND);
-	}
-	// Uniform locations
-	int shaderProgram = gl_state->shader_program3d;
-    glUseProgram(shaderProgram);
-    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
-    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
-    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
-    GLint time_3d = glGetUniformLocation(shaderProgram, "time");
-    GLint rot_u = glGetUniformLocation(shaderProgram, "rot");
-    GLint col = glGetUniformLocation(shaderProgram, "col");
-
-    memcpy(&gl_state->model[12], &draw->pos_x, 16);
 	float cam_pos_x = 0;
 	float cam_pos_y = 0;
 	float cam_pos_z = 0;
@@ -937,6 +929,49 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 		cam_pos_y = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 4];
 		cam_pos_z = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 8];
 	}
+
+	int shaderProgram = gl_state->shader_program3d;
+	if(IS_FLAG_OFF(draw->flags, DRAW_INFO_TRANSPARENT2))
+	{
+		glDepthMask(GL_TRUE);
+		glDisable(GL_BLEND);
+	}
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+	{
+		float line[6];
+		draw->pos_x -= cam_pos_x;
+		draw->pos_y -= cam_pos_y;
+		draw->pos_z -= cam_pos_z;
+		draw->ent_size_x -= cam_pos_x;
+		draw->ent_size_y -= cam_pos_y;
+		draw->ent_size_z -= cam_pos_z;
+		memcpy(&line[0], &draw->pos_x, 12);
+		memcpy(&line[3], &draw->ent_size_x, 12);
+		shaderProgram = gl_state->shader_program3d_line;
+		glBindVertexArray(gl_state->vao3d_line);
+		glBindBuffer(GL_ARRAY_BUFFER, gl_state->vbo3d_line);
+
+		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(line), line);
+
+	}
+	else
+	{
+		glBindVertexArray(gl_state->vao3d);
+	}
+	// Uniform locations
+    glUseProgram(shaderProgram);
+    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
+    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
+    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
+    GLint time_3d = glGetUniformLocation(shaderProgram, "time");
+    GLint rot_u = glGetUniformLocation(shaderProgram, "rot");
+    GLint col = glGetUniformLocation(shaderProgram, "col");
+
+    gl_state->model[0] = draw->ent_size_x;
+    gl_state->model[5] = draw->ent_size_y;
+    gl_state->model[10] = draw->ent_size_z;
+
+    memcpy(&gl_state->model[12], &draw->pos_x, 16);
 	float cam_rot_x = 0;
 	float cam_rot_y = 0;
 	float cam_rot_z = 0;
@@ -950,13 +985,14 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	Vec3 cameraFront = {0.0f, 0.0f, -1.0f};
 	Vec3 cameraUp = {0.0f, 1.0f, 0.0f};
 
-	float yaw = -cam_rot_y * 30; // facing -Z initially
+	float yaw = -cam_rot_y * 30;
 	float pitch = cam_rot_x * 30.0;
 
 	update_camera_direction(yaw, pitch, &cameraFront);
 	Mat4 view = mat4_lookAt(cameraPos, vec3_add(cameraPos, cameraFront), cameraUp);
 	memcpy(gl_state->view, view.m, sizeof(gl_state->view));
 
+	//printf("sx %.3f, sy %.3f, sz %.3f\n", draw->ent_size_x, draw->ent_rot_y, draw->ent_rot_z);
 	//printf("cx %.3f, cy %.3f, cz %.3f, rx %.3f, ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x, cam_rot_y, cam_rot_z);
     gl_state->view[12] = -0.0;
     gl_state->view[13] = 0.0;
@@ -967,7 +1003,6 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
     gl_state->model[14] += -cam_pos_z;
     gl_state->model[15] = 1.0f;
 
-	glUseProgram(shaderProgram);
 	float time [16 ];
 	time[0] = glfwGetTime();;
 	//printf("time %.3f\n", gl_state->last_time);
@@ -978,11 +1013,19 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	glUniform4f(rot_u, cam_rot_x, cam_rot_y, cam_rot_z, draw->ent_rot_w);
 	glUniform4f(col, draw->color_r, draw->color_g, draw->color_b, draw->color_a);
 
-	glBindVertexArray(gl_state->vao3d);
-	glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+	{
+		glDrawArrays(GL_LINES, 0, 2);
+	}
+	else
+	{
+		glBindVertexArray(gl_state->vao3d);
+		glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+	}
 
 }
-#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("gl error %d", glGetError()); ASSERT(0)}
+#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("\ngl error %d\n", glGetError()); fflush(stdout); ExitProcess(1);}
 void Draw3D(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1280,6 +1323,10 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_F1;
 	}break;
+	case _KEY_F2:
+	{
+		key = GLFW_KEY_F2;
+	}break;
 	case _KEY_F11:
 	{
 		key = GLFW_KEY_F11;
@@ -1335,6 +1382,22 @@ int FromGameToGLFWKey(int in)
 	case _KEY_LEFT:
 	{
 		key = GLFW_KEY_A;
+	}break;
+	case _KEY_1:
+	{
+		key = GLFW_KEY_1;
+	}break;
+	case _KEY_2:
+	{
+		key = GLFW_KEY_2;
+	}break;
+	case _KEY_3:
+	{
+		key = GLFW_KEY_3;
+	}break;
+	case _KEY_4:
+	{
+		key = GLFW_KEY_4;
 	}break;
 	default:
 		ASSERT(0);
@@ -3344,10 +3407,10 @@ int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* sr
 	}
 	if (sp_data)
 	{
-		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
+		//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
 		//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
 
-		GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+		//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
 	}
 	else
 	{
@@ -4317,7 +4380,7 @@ void Init3D(dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 
-	const char* vertexShaderSrc = "\n\
+	char* vertexShaderSrc = "\n\
 	#version 330 core\n\
 	layout (location = 0) in vec3 aPos;\n\
 	out vec4 interpCol;\n\
@@ -4342,7 +4405,7 @@ void Init3D(dbg_state* dbg)
 	";
 
 	// Fragment Shader
-	const char* fragmentShaderSrc = "\n\
+	char* fragmentShaderSrc = "\n\
 	#version 330 core\n\
 	out vec4 FragColor;\n\
 	in vec4 interpCol;\n\
@@ -4352,6 +4415,7 @@ void Init3D(dbg_state* dbg)
 		FragColor *= col;\n\
 	}\
 	";
+	
 
 	// Cube vertices
 	GLfloat vertices[] = {
@@ -4385,11 +4449,37 @@ void Init3D(dbg_state* dbg)
     GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
     GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
     GLuint shaderProgram = glCreateProgram();
+
+
+
     glAttachShader(shaderProgram, vs);
     glAttachShader(shaderProgram, fs);
     glLinkProgram(shaderProgram);
 	gl_state->shader_program3d = shaderProgram;
 
+	char *otherVertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
+	out vec4 interpCol;\n\
+	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 aux = view * vec4(aPos, 1.0);\n\
+		gl_Position = projection * aux;\n\
+		interpCol = vec4(1.0, 1.0, 1.0, 1.0);\
+	}\
+	";
+
+    vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_line = shaderProgram;
 
   // Vertex Array & Buffers
     GLuint VAO, VBO, EBO;
@@ -4398,6 +4488,9 @@ void Init3D(dbg_state* dbg)
     glGenBuffers(1, &EBO);
 
 	gl_state->vao3d = VAO;
+
+
+
     glBindVertexArray(VAO);
     
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -4408,6 +4501,20 @@ void Init3D(dbg_state* dbg)
     
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+	
+	glBindVertexArray(VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6, vertices, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	glBindVertexArray(0);
+	gl_state->vao3d_line = VAO;
+	gl_state->vbo3d_line = VBO;
+
+
 
     glEnable(GL_DEPTH_TEST);
 

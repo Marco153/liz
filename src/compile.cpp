@@ -78,7 +78,7 @@ typedef long long s64;
 #define FLOAT_REG_SIZE_BYTES 16
 #define FLOAT_REG_0 35
 // 10 is for the amount of float regs, altough we actually have less than 10
-#define END_OF_REGS (FLOAT_REG_0 * 8 + 10 * 16)
+#define END_OF_REGS (FLOAT_REG_0 * 16 + 10 * 16)
 #define RIP_REG 34
 #define GLOBALS_OFFSET 11000
 
@@ -2843,6 +2843,8 @@ struct dbg_state
 	int mem_size;
 	func_decl* cur_func;
 	bool frame_is_from_dbg;
+	bool aux_break;
+	bool aux_break2;
 	func_decl* prev_func;
 	union
 	{
@@ -9170,6 +9172,13 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		auto reg_src_ptr = (float*)GetMemValPtr(dbg, reg_src, mem_offset);
 		auto reg_dst_ptr = (float*)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
 		memcpy(reg_dst_ptr, reg_src_ptr, FLOAT_REG_SIZE_BYTES);
+		/*
+		if(dbg->aux_break)
+		{
+			raise(SIGTRAP);
+			dbg->aux_break2 = true;
+		}
+			*/
 
 	}break;
 	case CMP_MEM_2_SSE:
@@ -9656,6 +9665,10 @@ void HackFunc(dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
 
 	char aux_buffer[END_OF_REGS];
 	mempcpy(aux_buffer, dbg->mem_buffer, END_OF_REGS);
+	if(dbg->aux_break2)
+	{
+		raise(SIGTRAP);
+	}
 
 	auto prev_type = cur_bc->bc_type;
 	auto prev_i = cur_bc->i;
@@ -9680,6 +9693,10 @@ void HackFunc(dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
 		{
 			break;
 		}
+	}
+	if(dbg->aux_break2)
+	{
+		raise(SIGTRAP);
 	}
 	cur_bc->bc_type = prev_type;
 	cur_bc->i = prev_i;
@@ -9927,6 +9944,13 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				if(show_bc)
 					center_inst = true;
 			}
+			/*
+			if (ImGui::Selectable("break aux", &dbg->aux_break))
+			{
+				if(show_bc)
+					center_inst = true;
+			}
+					*/
 			int height = 300;
 			ImGui::BeginChild("code", ImVec2(500, height));
 			bool release_inst = false;

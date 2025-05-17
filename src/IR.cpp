@@ -4133,14 +4133,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
             ast_rep *lhs_ast = ast->e_holder.expr[0];
 
 			ir.type = IR_ASSIGNMENT;
-			/*
-			if(ast->line_number == 888)
-			{
-				raise(SIGTRAP);
-			}
-			*/
 
-			//BREAK(ast->line_number == 81)
+			//BREAK(ast->line_number == 834)
 			ir_val rhs_top = {};
 			switch (rhs_ast->type)
 			{
@@ -4226,6 +4220,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			//ir.assign.to_assign.deref += ir.assign.to_assign.ptr;
 			//GenLhsEqual(lang_stat, lhs_ast, &ast->lhs_tp, out, &ir.assign.to_assign);
 			bool to_assign_was_from_deref = IS_FLAG_ON(ir.assign.to_assign.reg_ex, IR_VAL_FROM_DEREF);
+			bool lhs_was_from_deref = IS_FLAG_ON(ir.assign.lhs.reg_ex, IR_VAL_FROM_DEREF);
 
 			//GetIRVal(lang_stat, ast->e_holder.expr[0], &ir.assign.to_assign);
 			if (ast->op == T_PLUS_EQUAL || ast->op == T_MINUS_EQUAL)
@@ -4280,7 +4275,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			ASSERT(ir.assign.to_assign.type != IR_TYPE_NONE);
 
 			if (ir.assign.only_lhs &&(ir.assign.to_assign.ptr >= 1 && ir.assign.lhs.ptr >= 1 || ir.assign.lhs.ptr >= 1) 
-				&& !to_assign_was_from_deref)
+				&& !to_assign_was_from_deref && !lhs_was_from_deref)
 			{
 				ir.assign.to_assign.is_float = false;
 				ir.assign.to_assign.is_packed_float = false;

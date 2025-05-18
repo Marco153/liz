@@ -2465,6 +2465,11 @@ view_collision ::fn(ccc : u32)
 	Draw3DTransparency(ctx.window);
 
 }
+print_f32::fn(a : f32)
+{
+	printf("f %\n", cast(s32)(a * 100.0))
+}
+
 main_loop::fn(ctx : *context)
 {
 	ctx.up.y = 1.0
@@ -2611,6 +2616,13 @@ main_loop::fn(ctx : *context)
 
 	h : f32
 	v : f32
+
+	timer_for_cam_go_back_of_player : f32
+	ang_diff_for_cam_go_back_of_player : f32
+
+	player_back_pos := player_ent.pos - cam_forward * cam_to_player_dist + ctx.up * 2.0
+	cam_start_pos_before_rotate_to_back_pos :_vec
+	on_rotating_cam := false
 	while !ShouldClose(ctx.window)
 	{
 		globals.timer = 0.0;
@@ -2684,9 +2696,9 @@ main_loop::fn(ctx : *context)
 		actual_forward = actual_forward / weight
 		player_ent.pos += actual_forward * dt * speed
 
-		if dot_vec(&actual_forward, &actual_forward) > 0.01
+		if dot_vec(&actual_forward, &actual_forward) > 0.01 && !on_rotating_cam
 		{
-			forward = actual_forward
+			forward = normalize_vec(&actual_forward)
 		}
 		//print_vec(&actual_forward)
 
@@ -2697,16 +2709,74 @@ main_loop::fn(ctx : *context)
 		//__dbg_break
 		//cam_mov(ctx)
 
+		
+		add_cam_forward := cam_forward
+		if ab > 1.5
+		{
+
+			add_cam_forward += (forward - add_cam_forward)
+		}
+
+		target_pos := player_ent.pos - add_cam_forward * cam_to_player_dist + ctx.up * 2.0
+
+		if IsKeyDown(key_enum.KEY_ACT0)
+		{
+			timer_for_cam_go_back_of_player = 0.0
+			cam_start_pos_before_rotate_to_back_pos = player_back_pos
+			ang_diff_for_cam_go_back_of_player = angle_on_axis(&cam_forward, &forward, &ctx.up)
+			print_f32(ang_diff_for_cam_go_back_of_player)
+			if(ang_diff_for_cam_go_back_of_player < -PI)
+			{
+				__dbg_break
+				ang_diff_for_cam_go_back_of_player = angle_on_axis(&cam_forward, &forward, &ctx.up)
+			}
+		}
+		add_mul := 1.0
+		if IsKeyHeld(key_enum.KEY_ACT0)
+		{
+			timer_for_cam_go_back_of_player += dt
+			time_for_complete_rot := 0.5
+			on_rotating_cam = true
+			if timer_for_cam_go_back_of_player < (time_for_complete_rot + 0.1)
+			{
+				local_pos_back_rot := cam_start_pos_before_rotate_to_back_pos - player_ent.pos
+
+				p := timer_for_cam_go_back_of_player / time_for_complete_rot
+				p = clamp(p, 0.0, 1.0)
+
+				ang = p * ang_diff_for_cam_go_back_of_player
+				local_pos_back_rot = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * local_pos_back_rot
+				target_pos = local_pos_back_rot + player_ent.pos
+				player_back_pos = target_pos
+				add_mul = 4.0
+			}
+			else
+			{
+				target_pos = player_ent.pos - forward * cam_to_player_dist + ctx.up * 2.0
+				player_back_pos = target_pos
+			}
+		}
+		else
+			on_rotating_cam = false;
+		
+		player_back_pos += (target_pos - player_back_pos) * dt * 4.0
+		dir_to_player := (cam_pos-player_ent.pos)
+		dist := len_vec(&dir_to_player)
+
+		if dist <= cam_to_player_dist && !on_rotating_cam
+		{
+			target_pos_limit := player_ent.pos - cam_forward * cam_to_player_dist + ctx.up * 2.0
+			target_pos_to_other := target_pos - target_pos_limit
+			player_back_pos = target_pos_limit
+		}
+		dir_to_cam := (player_back_pos - cam_pos)
+
+		cam_pos += dir_to_cam * dt * 4.0 * add_mul
+		
 		dir := ctx.player.pos - cam_pos
-		dist := len_vec(&dir)
+		dist = len_vec(&dir)
 		dir = normalize_vec(&dir)
 
-		target_pos := player_ent.pos - cam_forward * cam_to_player_dist + ctx.up * 2.0
-		target_pos += cross * -h * 3.0
-		dir_to_cam := (target_pos - cam_pos)
-		cam_pos += dir_to_cam * dt * 2.0
-
-		
 		ang = angle_on_axis(&aux_forward, &dir, &ctx.up)
 		cam_rot.y = ang
 		cam_forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * aux_forward

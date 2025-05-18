@@ -127,9 +127,19 @@ angle_on_axis::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! f32
 	up := cross_vec(&from, &to)
 	lenght := dot_vec(&up, &up)
 
+	dot := dot_vec(&to, &from)
+	if lenght <= 0.00001
+	{
+		if dot <= -0.99999
+		{
+			return -PI;
+		}
+		else
+			return 0.0;
+	}
+
 	right := cross_vec(&from, ref_up)
 	dir := dot_vec(&to, &right)
-	dot := dot_vec(&to, &from)
 
 	return acos(dot) * -sign(dir)
 }

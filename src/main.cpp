@@ -375,6 +375,7 @@ struct draw_info3d
 
 	unsigned long long cam_pos_addr;
 	unsigned long long cam_rot_addr;
+	unsigned long long cam_forward_addr;
 
 	int flags;
 	int stencil_func;
@@ -912,6 +913,108 @@ void Draw3DTransparency(dbg_state* dbg)
 
 
 }
+void quaternion_to_matrix4x4(float qx, float qy, float qz, float qw, float* matrix) {
+    // Normalize the quaternion (in case it's not already normalized)
+    float length = sqrtf(qx*qx + qy*qy + qz*qz + qw*qw);
+    qx /= length;
+    qy /= length;
+    qz /= length;
+    qw /= length;
+
+    // Calculate quaternion components squared
+    float xx = qx * qx;
+    float xy = qx * qy;
+    float xz = qx * qz;
+    float xw = qx * qw;
+    
+    float yy = qy * qy;
+    float yz = qy * qz;
+    float yw = qy * qw;
+    
+    float zz = qz * qz;
+    float zw = qz * qw;
+
+    // Set the matrix elements (column-major order)
+    matrix[0]  = 1.0f - 2.0f * (yy + zz);  // m00
+    matrix[1]  = 2.0f * (xy + zw);         // m10
+    matrix[2]  = 2.0f * (xz - yw);         // m20
+    matrix[3]  = 0.0f;                      // m30
+    
+    matrix[4]  = 2.0f * (xy - zw);         // m01
+    matrix[5]  = 1.0f - 2.0f * (xx + zz);  // m11
+    matrix[6]  = 2.0f * (yz + xw);         // m21
+    matrix[7]  = 0.0f;                      // m31
+    
+    matrix[8]  = 2.0f * (xz + yw);         // m02
+    matrix[9]  = 2.0f * (yz - xw);         // m12
+    matrix[10] = 1.0f - 2.0f * (xx + yy);  // m22
+    matrix[11] = 0.0f;                      // m32
+    
+    matrix[12] = 0.0f;                      // m03
+    matrix[13] = 0.0f;                      // m13
+    matrix[14] = 0.0f;                      // m23
+    matrix[15] = 1.0f;                      // m33
+}
+void build_model_matrix(float* out_matrix, 
+                       const Vec3* position,
+                       const float* quaternion, // [x,y,z,w]
+                       const Vec3* scale) {
+    
+    // First create identity matrix
+    float temp[16] = {
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    };
+    
+    // Apply scale
+    temp[0]  = scale->x;
+    temp[5]  = scale->y;
+    temp[10] = scale->z;
+    
+    // Convert quaternion to rotation matrix
+    float qx = quaternion[0], qy = quaternion[1], qz = quaternion[2], qw = quaternion[3];
+    
+    // Normalize quaternion
+    float length = sqrtf(qx*qx + qy*qy + qz*qz + qw*qw);
+    qx /= length;
+    qy /= length;
+    qz /= length;
+    qw /= length;
+    
+    // Calculate quaternion components squared
+    float xx = qx * qx, yy = qy * qy, zz = qz * qz;
+    float xy = qx * qy, xz = qx * qz, yz = qy * qz;
+    float xw = qx * qw, yw = qy * qw, zw = qz * qw;
+    
+    // Create rotation matrix (will multiply with scale)
+    float rot[16] = {
+        1-2*(yy+zz),  2*(xy-zw),    2*(xz+yw),    0,
+        2*(xy+zw),    1-2*(xx+zz),  2*(yz-xw),    0,
+        2*(xz-yw),    2*(yz+xw),    1-2*(xx+yy),  0,
+        0,            0,            0,            1
+    };
+    
+    // Multiply scale and rotation (scale first, then rotate)
+    float scaled_rot[16];
+    for(int i = 0; i < 4; i++) {
+        for(int j = 0; j < 4; j++) {
+            scaled_rot[i*4+j] = 0;
+            for(int k = 0; k < 4; k++) {
+                scaled_rot[i*4+j] += rot[i*4+k] * temp[k*4+j];
+            }
+        }
+    }
+    
+    // Apply translation
+    memcpy(out_matrix, scaled_rot, sizeof(float)*16);
+    out_matrix[12] = position->x;
+    out_matrix[13] = position->y;
+    out_matrix[14] = position->z;
+}
+
+#define RAD_TO_DEG 57.29577
 void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -920,6 +1023,16 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 
 	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
+	float cam_forward_x = 0;
+	float cam_forward_y = 0;
+	float cam_forward_z = 0;
+	if (draw->cam_forward_addr != 0)
+	{
+		cam_forward_x = *(float*)&dbg->mem_buffer[draw->cam_forward_addr];
+		cam_forward_y = *(float*)&dbg->mem_buffer[draw->cam_forward_addr + 4];
+		cam_forward_z = *(float*)&dbg->mem_buffer[draw->cam_forward_addr + 8];
+	}
+
 	float cam_pos_x = 0;
 	float cam_pos_y = 0;
 	float cam_pos_z = 0;
@@ -928,6 +1041,16 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 		cam_pos_x = *(float*)&dbg->mem_buffer[draw->cam_pos_addr];
 		cam_pos_y = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 4];
 		cam_pos_z = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 8];
+	}
+
+	float cam_rot_x = 0;
+	float cam_rot_y = 0;
+	float cam_rot_z = 0;
+	if (draw->cam_rot_addr != 0)
+	{
+		cam_rot_x = *(float*)&dbg->mem_buffer[draw->cam_rot_addr];
+		cam_rot_y = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 4];
+		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
 	}
 
 	int shaderProgram = gl_state->shader_program3d;
@@ -967,41 +1090,35 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
     GLint rot_u = glGetUniformLocation(shaderProgram, "rot");
     GLint col = glGetUniformLocation(shaderProgram, "col");
 
-    gl_state->model[0] = draw->ent_size_x;
-    gl_state->model[5] = draw->ent_size_y;
-    gl_state->model[10] = draw->ent_size_z;
 
-    memcpy(&gl_state->model[12], &draw->pos_x, 16);
-	float cam_rot_x = 0;
-	float cam_rot_y = 0;
-	float cam_rot_z = 0;
-	if (draw->cam_pos_addr != 0)
-	{
-		cam_rot_x = *(float*)&dbg->mem_buffer[draw->cam_rot_addr];
-		cam_rot_y = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 4];
-		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
-	}
-	Vec3 cameraPos = {0.0f, 0.0f, 3.0f};
-	Vec3 cameraFront = {0.0f, 0.0f, -1.0f};
-	Vec3 cameraUp = {0.0f, 1.0f, 0.0f};
-
-	float yaw = -cam_rot_y * 30;
-	float pitch = cam_rot_x * 30.0;
-
-	update_camera_direction(yaw, pitch, &cameraFront);
-	Mat4 view = mat4_lookAt(cameraPos, vec3_add(cameraPos, cameraFront), cameraUp);
-	memcpy(gl_state->view, view.m, sizeof(gl_state->view));
-
-	//printf("sx %.3f, sy %.3f, sz %.3f\n", draw->ent_size_x, draw->ent_rot_y, draw->ent_rot_z);
-	//printf("cx %.3f, cy %.3f, cz %.3f, rx %.3f, ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x, cam_rot_y, cam_rot_z);
-    gl_state->view[12] = -0.0;
-    gl_state->view[13] = 0.0;
-    gl_state->view[14] = -5.0;
+	build_model_matrix(gl_state->model, 
+						(const Vec3 *)&draw->pos_x,
+						(const float*)&draw->ent_rot_x,
+						(const Vec3*)&draw->ent_size_x);
 
     gl_state->model[12] += -cam_pos_x;
     gl_state->model[13] += -cam_pos_y;
     gl_state->model[14] += -cam_pos_z;
     gl_state->model[15] = 1.0f;
+
+	Vec3 cameraPos = {cam_pos_x, cam_pos_y, cam_pos_z};
+	Vec3 cameraFront = {cam_forward_x, cam_forward_y, cam_forward_z};
+	Vec3 cameraUp = {0.0f, 1.0f, 0.0f};
+
+
+	float yaw = -cam_rot_y * RAD_TO_DEG + -90.0;
+	float pitch = cam_rot_x * RAD_TO_DEG;
+
+	update_camera_direction(yaw, pitch, &cameraFront);
+	Mat4 view = mat4_lookAt(cameraPos, vec3_add(cameraPos, cameraFront), cameraUp);
+	memcpy(gl_state->view, view.m, sizeof(gl_state->view));
+
+	//printf("sx %.3f, sy %.3f, sz %.3f\n", cam_forward_x, cam_forward_y, cam_forward_z);
+	//printf("cx %.3f, cy %.3f, cz %.3f, rx %.3f, ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x, cam_rot_y, cam_rot_z);
+    gl_state->view[12] = -0.0;
+    gl_state->view[13] = 0.0;
+    gl_state->view[14] = 0.0;
+
 
 	float time [16 ];
 	time[0] = glfwGetTime();;
@@ -5074,6 +5191,20 @@ void GetTopStackPtr(dbg_state* dbg)
 	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = base_ptr + 8;
 
 }
+void Asin(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = asin(val);
+}
+void Acos(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = acosf(val);
+}
 void Cos(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -5503,6 +5634,8 @@ int main(int argc, char* argv[])
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
 	AssignOutsiderFunc(&lang_stat, "cos", (OutsiderFuncType)Cos);
+	AssignOutsiderFunc(&lang_stat, "acos", (OutsiderFuncType)Acos);
+	AssignOutsiderFunc(&lang_stat, "asin", (OutsiderFuncType)Asin);
 	AssignOutsiderFunc(&lang_stat, "dot_v3", (OutsiderFuncType)DotV3);
 	AssignOutsiderFunc(&lang_stat, "memcpy", (OutsiderFuncType)MemCpy);
 	AssignOutsiderFunc(&lang_stat, "memset", (OutsiderFuncType)MemSet);
@@ -5554,6 +5687,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow", (OutsiderFuncType)IsMouseOnGameWindow);
 	AssignOutsiderFunc(&lang_stat, "GetTopStackPtr", (OutsiderFuncType)GetTopStackPtr);
 	AssignOutsiderFunc(&lang_stat, "GetInstRealAddr", (OutsiderFuncType)GetInstRealAddr);
+	lang_stat.cur_decl = 0;
 
 	opts.wasm_dir = wasm_dir;
 	opts.folder_name = folder_name;

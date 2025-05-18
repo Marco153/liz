@@ -2859,7 +2859,10 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir.type = IR_ASSIGNMENT;
 			ir.assign.op = T_MUL;
 			ir.assign.to_assign.type = IR_TYPE_REG;
-			ir.assign.to_assign.reg = AllocReg(lang_stat);
+			if(top->is_float)
+				ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
+			else
+				ir.assign.to_assign.reg = AllocReg(lang_stat);
 			ir.assign.to_assign.reg_sz = 8;
 			ir.assign.to_assign.deref = -1;
 			ir.assign.to_assign.is_float = top->is_float;
@@ -3403,7 +3406,13 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.to_assign.reg = one_minus_top->reg;
 				}
 				else
-					ir.assign.to_assign.reg = AllocReg(lang_stat);
+				{
+					if(ir.assign.to_assign.is_float)
+						ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
+					else
+						ir.assign.to_assign.reg = AllocReg(lang_stat);
+				}
+				AllocSpecificReg(lang_stat, ir.assign.to_assign.reg);
 
 
 				int min_sz = min(top->reg_sz, one_minus_top->reg_sz);
@@ -4231,7 +4240,10 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 					ir_rep new_ir = {};
 					new_ir.type = IR_ASSIGNMENT;
 					new_ir.assign.to_assign.type = IR_TYPE_REG;
-					new_ir.assign.to_assign.reg = AllocReg(lang_stat);
+					if(ir.assign.to_assign.is_float)
+						new_ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
+					else
+						new_ir.assign.to_assign.reg = AllocReg(lang_stat);
 					new_ir.assign.to_assign.reg_sz = 8;
 					new_ir.assign.to_assign.deref = -1;
 					new_ir.assign.lhs = ir.assign.to_assign;
@@ -4275,7 +4287,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 			ASSERT(ir.assign.to_assign.type != IR_TYPE_NONE);
 
 			if (ir.assign.only_lhs &&(ir.assign.to_assign.ptr >= 1 && ir.assign.lhs.ptr >= 1 || ir.assign.lhs.ptr >= 1) 
-				&& !to_assign_was_from_deref && !lhs_was_from_deref)
+				&& !to_assign_was_from_deref && !lhs_was_from_deref
+				&& !(ir.assign.lhs.type == IR_TYPE_INT && ir.assign.lhs.i == 0))
 			{
 				ir.assign.to_assign.is_float = false;
 				ir.assign.to_assign.is_packed_float = false;

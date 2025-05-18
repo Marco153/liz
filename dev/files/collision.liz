@@ -933,7 +933,6 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 			//view_collision(1)
 			if GJK(&gjk, c1, c2)
 			{
-				__dbg_break
 				e.color.x += 0.5
 				e.color.y += 0.5
 				e.color.z += 0.5

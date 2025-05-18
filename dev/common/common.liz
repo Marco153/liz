@@ -305,6 +305,7 @@ draw_info3d: struct
 	cam_size : f32,
 	cam_pos : *_vec,
 	cam_rot : *_vec,
+	cam_forward : *_vec,
 	flags:u32,
 	stencil_func : stencil_func_enum,
 	stencil_val : u32,
@@ -1233,6 +1234,10 @@ Serialize::fn(buffer : *dyn_array(char), type : *type_data, data : *void, tab : 
 	}
 	a := 0
 }
+sin::fn outsider(f32) !f32;
+cos::fn outsider(f32) !f32;
+asin::fn outsider(f32) !f32;
+acos::fn outsider(f32) !f32;
 
 ImGuiBegin::fn outsider(str_lit, open : *bool, flags : u32);
 ImGuiEnd::fn outsider();

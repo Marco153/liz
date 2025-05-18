@@ -14012,9 +14012,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false, false);
 				//AllocSpecificReg(lang_stat, lhs.reg);
 
-				char sse_reg = 0;
-				if (lhs.reg == 0)
-					sse_reg++;
+				char sse_reg = AllocFloatReg(lang_stat);
 				
 				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.rhs, assign.lhs.is_packed_float, sse_reg);
 
@@ -14038,7 +14036,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				}
 				dst.is_packed_float = false;
 				GenX64BinInst(lang_stat, ret, &dst, &lhs, inst);
-				//FreeSpecificReg(lang_stat, lhs.reg);
+				FreeSpecificFloatReg(lang_stat, sse_reg);
 
 			}
 			else if (assign.lhs.type == IR_TYPE_F32 && assign.rhs.type == IR_TYPE_DECL)

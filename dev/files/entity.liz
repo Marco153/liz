@@ -39,6 +39,7 @@ NewEnt::fn(alloc : *mem_alloc, name : str_lit) ! *entity
 	ent.col_size.z = 1.0;
 	ent.tex_size_x = 1.0;
 	ent.tex_size_y = 1.0;
+	ent.rot = euler_to_quaternion(0.0, 00.0, 0.0).v
 	
 	return ent;
 }
@@ -110,6 +111,7 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 		draw.rot = ent.rot
 		draw.cam_pos = cam_pos
 		draw.cam_rot = cam_rot
+		draw.cam_forward = ctx.cam_forward_global
 		draw.ent_size = ent.size
 		memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
 		if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))

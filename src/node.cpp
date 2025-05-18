@@ -11185,8 +11185,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case tkn_type2::T_PERCENT:
 		case tkn_type2::T_PLUS:
 		{
-			if(n->t->line == 2707)
-				raise(SIGTRAP);
 			type2 ltp = DescendNode(lang_stat, n->l, scp);
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
 

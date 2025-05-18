@@ -1,6 +1,5 @@
 import "../../core";
 import "../common";
-import "../lang";
 
 THROW_ANIM_START_TEX_IDX: const s32= 32;
 THROW_AIR_ANIM_START_TEX_IDX: const s32= 53;
@@ -49,6 +48,7 @@ context: struct
 	axe_throw_texs : u32,
 	spear_throw_texs : u32,
 	
+	up : _vec
 	character_start_obj_idx : u32,
 	
 	cam_col_left : bool,
@@ -263,10 +263,6 @@ AssignCtxAddr::fn outsider(*context);
 AssignTexFolder::fn outsider(str_lit);
 AssignSoundFolder::fn outsider(str_lit);
 PlayAudio::fn outsider(str_lit);
-
-sin::fn outsider(f32) !f32;
-cos::fn outsider(f32) !f32;
-
 
 Max::fn(a : s32, b : s32) !s32
 {
@@ -520,11 +516,6 @@ clamp ::fn(v : f32, _min :f32, _max : f32) ! f32
 	if v <= _min return _min;
 	if v >= _max return _max;
 	return v;
-}
-sign ::fn(f : f32) ! f32
-{
-	if f < 0.0 return -1.0;
-	return 1.0;
 }
 
 NextInvItem::fn(inv : *inventory, cur : **inv_slot)
@@ -2172,61 +2163,6 @@ new_thinking::fn(ctx : *context, e : *entity)
 	dyn_add(&ctx.ents_think, e)
 
 }
-normalize_quaternion::fn(out : *_vec, q : *_vec) {
-
-    mag := sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z)
-	if mag == 0.0
-	{
-		out.x = 1.0
-		out.y = 0.0
-		out.z = 0.0
-		out.w = 0.0
-	}
-	else
-	{
-		out.x = q.x/mag
-		out.y = q.y/mag
-		out.z = q.z/mag
-		out.w = q.w/mag
-	}
-}
-
-quaternion_conjugate::fn(out : *_vec, q : *_vec) { 
-    out.x = -q.x
-	out.y = -q.y
-	out.z = -q.z
-	out.w = q.w
-}
-
-multiply_quaternions::fn(out : *_vec, q1 : *_vec, q2 : *_vec) {
-	out.x = q1.w*q2.x + q1.x*q2.w + q1.y*q2.z - q1.z*q2.y
-	out.y = q1.w*q2.y - q1.x*q2.z + q1.y*q2.w + q1.z*q2.x
-	out.z = q1.w*q2.z + q1.x*q2.y - q1.y*q2.x + q1.z*q2.w
-	out.w = q1.w*q2.w - q1.x*q2.x - q1.y*q2.y - q1.z*q2.z 
-}
-
-rotate_vector::fn(out : *_vec, v : *_vec, q : *_vec) {
-	aux : _vec
-    normalize_quaternion(&aux, q)
-    p :_vec
-	p.x = v.x
-	p.y = v.y
-	p.z = v.z
-	p.w = 0.0
-    q_conj:_vec
-    rotated:_vec
-    mul:_vec
-	quaternion_conjugate(&q_conj, q);
-
-	multiply_quaternions(&mul, q, &p)
-
-    multiply_quaternions(&rotated, &mul, &q_conj);
-    out.x = rotated.x
-	out.y = rotated.y
-	out.z = rotated.z
-
-}
-
 
 test_ang ::fn(a : s32)
 {
@@ -2247,7 +2183,7 @@ test_ang ::fn(a : s32)
 
 	rotate_vector(&forward, &forward, &rot)
 
-	print_vec(&forward)
+	//print_vec(&forward)
 	
 }
 draw_vertex ::fn(ctx : *context, pos : *_vec, sz : *_vec, cam_pos : *_vec, cam_rot : *_vec)
@@ -2287,20 +2223,8 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, tip : boo
 
 }
 
-view_collision ::fn(ccc : u32)
+cam_mov::fn(ctx : *context)
 {
-	curmx := GetMouseNormalizedPosX();
-	curmy := GetMouseNormalizedPosY();
-
-	ctx := cast(*context)globals.ctx
-	gjk := cast(*gjk_state)globals.gjk
-	if !gjk
-		return;
-	ClearBackground(0.7, 0.7, 0.7);
-
-	mx := &globals.mx
-	my := &globals.my
-
 	axis : _vec
 	axis.z = 0.0
 	axis.x = 0.0
@@ -2312,8 +2236,6 @@ view_collision ::fn(ccc : u32)
 
 	speed := 5.0
 	dt := 0.017
-	e1 :*entity= gjk.col1.ent
-	e2 :*entity= gjk.col2.ent
 
 	if IsKeyHeld(key_enum.KEY_Q)
 	{
@@ -2327,208 +2249,217 @@ view_collision ::fn(ccc : u32)
 	{
 		globals.tog = !globals.tog
 	}
-	if true
+	cross := cross_vec(cam_forward, &axis)
+	if IsKeyHeld(key_enum.KEY_A)
 	{
-		cross := cross_vec(cam_forward, &axis)
-		if IsKeyHeld(key_enum.KEY_A)
-		{
-			*cam_pos -= cross * dt * speed
+		*cam_pos -= cross * dt * speed
 
+	}
+	if IsKeyHeld(key_enum.KEY_D)
+	{
+		*cam_pos += cross * dt * speed
+	}
+	if IsKeyHeld(key_enum.KEY_W)
+	{
+		*cam_pos += *cam_forward * dt * speed
+	}
+	if IsKeyHeld(key_enum.KEY_S)
+	{
+		*cam_pos -= *cam_forward * dt * speed
+	}
+	
+	dt = dt * 2.0
+	if IsKeyHeld(key_enum.KEY_SHIFT)
+	{
+		if IsMouseHeld(mouse_enum.LEFT)
+		{
+			*cam_forward = euler_to_quaternion(0.0, radians_to_degree(dt), 0.0) * *cam_forward
+
+			cam_rot.y += dt
+			//cam_rot.x += dt
 		}
-		if IsKeyHeld(key_enum.KEY_D)
+		if IsMouseHeld(mouse_enum.RIGHT)
 		{
-			*cam_pos += cross * dt * speed
+			*cam_forward = euler_to_quaternion(0.0, -radians_to_degree(dt), 0.0) * *cam_forward
+
+			cam_rot.y -= dt
+			//cam_rot.x += dt
 		}
-		if IsKeyHeld(key_enum.KEY_W)
+	}
+	else if IsKeyHeld(key_enum.KEY_JMP)
+	{
+
+		if IsMouseHeld(mouse_enum.LEFT)
 		{
-			*cam_pos += *cam_forward * dt * speed
+			cam_rot.x += dt
 		}
-		if IsKeyHeld(key_enum.KEY_S)
+		if IsMouseHeld(mouse_enum.RIGHT)
 		{
-			*cam_pos -= *cam_forward * dt * speed
+			cam_rot.x -= dt
 		}
-		
-		dt = dt * 2.0
-		if IsKeyHeld(key_enum.KEY_SHIFT)
+	}
+	//print_vec(cam_forward);
+}
+view_collision ::fn(ccc : u32)
+{
+	return;
+	curmx := GetMouseNormalizedPosX();
+	curmy := GetMouseNormalizedPosY();
+
+	ctx := cast(*context)globals.ctx
+	gjk := cast(*gjk_state)globals.gjk
+	if !gjk
+		return;
+	ClearBackground(0.7, 0.7, 0.7);
+
+	cam_pos := ctx.cam_pos_global
+	cam_rot := ctx.cam_rot_global
+
+	e1 := gjk.col1.ent
+	e2 := gjk.col2.ent
+	mx := &globals.mx
+	my := &globals.my
+	cam_mov(ctx)
+
+	//printf("curx %, mx %\n", cast(s32)(curmx * 100.0), cast(s32)(*mx * 100.0))
+
+	e1.color.w = 0.3;
+	e2.color.w = 0.6;
+
+	e1.flags = e1.flags | ENTITY_TRANSPARENT;
+	e2.flags = e2.flags | ENTITY_TRANSPARENT;
+
+	*mx = GetMouseNormalizedPosX() - curmx;
+	*my = GetMouseNormalizedPosY() - curmy;
+
+	DrawEntity(ctx, e1, cam_pos, cam_rot)
+	DrawEntity(ctx, e2, cam_pos, cam_rot)
+
+	orig : _vec
+
+	v_sz: _vec=?
+	v_sz.x = 0.1
+	v_sz.y = 0.1
+	v_sz.z = 0.1
+	v_sz.w = 1.0
+	draw_vertex(ctx, &gjk.sup1, &v_sz, cam_pos, cam_rot)
+	draw_vertex(ctx, &gjk.sup2, &v_sz, cam_pos, cam_rot)
+
+	draw_line(ctx, &gjk.sup1, &gjk.sup2, &v_sz, true);
+
+	simplex_col : _vec
+	simplex_col.x = 1.0
+	simplex_col.y = 1.0
+	simplex_col.z = 1.0
+	draw_line(ctx, &orig, &gjk.dir, &simplex_col, true);
+	simplex_col.y = 0.0
+	simplex_col.z = 0.0
+
+	start : _vec= ?
+	end : _vec= ?
+	cross : _vec= ?
+	if IsKeyHeld(key_enum.KEY_1)
+	{
+		draw_vertex(ctx, &gjk.simplex[0], &v_sz, cam_pos, cam_rot)
+	}
+	if IsKeyHeld(key_enum.KEY_2)
+	{
+		draw_vertex(ctx, &gjk.simplex[1], &v_sz, cam_pos, cam_rot)
+	}
+	if IsKeyHeld(key_enum.KEY_3)
+	{
+		draw_vertex(ctx, &gjk.simplex[2], &v_sz, cam_pos, cam_rot)
+	}
+	if IsKeyHeld(key_enum.KEY_4)
+	{
+		draw_vertex(ctx, &gjk.simplex[3], &v_sz, cam_pos, cam_rot)
+	}
+	on gjk.simplex_verts
+	{
+	2
+	{
+		draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, true);
+
+		if IsKeyHeld(key_enum.KEY_F1)
 		{
-			if IsMouseHeld(mouse_enum.LEFT)
-			{
-				s := sin(cam_rot.y / 4.0)
-				rot : _vec
-				rot.w = cos(cam_rot.y / 4.0)
-				rot.x = axis.x * s
-				rot.y = axis.y * s
-				rot.z = axis.z * s
-				rotate_vector(cam_forward, aux_forward, &rot)
-
-				cam_rot.y += dt
-				//cam_rot.x += dt
-			}
-			if IsMouseHeld(mouse_enum.RIGHT)
-			{
-				s := sin(cam_rot.y / 4.0)
-				rot : _vec
-				rot.w = cos(cam_rot.y / 4.0)
-				rot.x = axis.x * s
-				rot.y = axis.y * s
-				rot.z = axis.z * s
-				rotate_vector(cam_forward, aux_forward, &rot)
-
-				cam_rot.y -= dt
-				//cam_rot.x += dt
-			}
-		}
-		else if IsKeyHeld(key_enum.KEY_JMP)
-		{
-
-			if IsMouseHeld(mouse_enum.LEFT)
-			{
-				cam_rot.x += dt
-			}
-			if IsMouseHeld(mouse_enum.RIGHT)
-			{
-				cam_rot.x -= dt
-			}
-		}
-		//printf("curx %, mx %\n", cast(s32)(curmx * 100.0), cast(s32)(*mx * 100.0))
-
-		e1.color.w = 0.3;
-		e2.color.w = 0.6;
-
-		e1.flags = e1.flags | ENTITY_TRANSPARENT;
-		e2.flags = e2.flags | ENTITY_TRANSPARENT;
-
-		*mx = GetMouseNormalizedPosX() - curmx;
-		*my = GetMouseNormalizedPosY() - curmy;
-
-		DrawEntity(ctx, e1, cam_pos, cam_rot)
-		DrawEntity(ctx, e2, cam_pos, cam_rot)
-
-		orig : _vec
-
-		v_sz: _vec=?
-		v_sz.x = 0.1
-		v_sz.y = 0.1
-		v_sz.z = 0.1
-		v_sz.w = 1.0
-		draw_vertex(ctx, &gjk.sup1, &v_sz, cam_pos, cam_rot)
-		draw_vertex(ctx, &gjk.sup2, &v_sz, cam_pos, cam_rot)
-
-		draw_line(ctx, &gjk.sup1, &gjk.sup2, &v_sz, true);
-
-		simplex_col : _vec
-		simplex_col.x = 1.0
-		simplex_col.y = 1.0
-		simplex_col.z = 1.0
-		draw_line(ctx, &orig, &gjk.dir, &simplex_col, true);
-		simplex_col.y = 0.0
-		simplex_col.z = 0.0
-
-		start : _vec= ?
-		end : _vec= ?
-		if IsKeyHeld(key_enum.KEY_1)
-		{
-			draw_vertex(ctx, &gjk.simplex[0], &v_sz, cam_pos, cam_rot)
-		}
-		if IsKeyHeld(key_enum.KEY_2)
-		{
-			draw_vertex(ctx, &gjk.simplex[1], &v_sz, cam_pos, cam_rot)
-		}
-		if IsKeyHeld(key_enum.KEY_3)
-		{
-			draw_vertex(ctx, &gjk.simplex[2], &v_sz, cam_pos, cam_rot)
-		}
-		if IsKeyHeld(key_enum.KEY_4)
-		{
-			draw_vertex(ctx, &gjk.simplex[3], &v_sz, cam_pos, cam_rot)
-		}
-		on gjk.simplex_verts
-		{
-		2
-		{
-			draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, true);
-
-			if IsKeyHeld(key_enum.KEY_F1)
-			{
-				a := gjk.simplex[0]
-				b := gjk.simplex[1]
-
-				ab := *b - *a
-				ao := -*a
-
-				cross = cross_vec(&cross_vec(&ab, &ao), &ab)
-				start = *a + ab / 2.0
-				end = start + cross
-
-				draw_line(ctx, &start, &end, &simplex_col, false);
-
-				if(same_direction(&ab, &ao))
-				{
-					printf("the same dir\n")
-				}
-				else
-				{
-					printf("not in the same dir\n")
-				}
-			}
-		}
-		3
-		{
-
-			draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, false);
-			draw_line(ctx, gjk.simplex[0], gjk.simplex[2], &simplex_col, false);
-			draw_line(ctx, gjk.simplex[1], gjk.simplex[2], &simplex_col, false);
-
 			a := gjk.simplex[0]
 			b := gjk.simplex[1]
-			c := gjk.simplex[2]
 
 			ab := *b - *a
-			ac := *c - *a
 			ao := -*a
 
-			abc := cross_vec(&ab, &ac)
-			cross = cross_vec(&abc, &ac)
-			start = *a + ac / 2.0
+			cross = cross_vec(&cross_vec(&ab, &ao), &ab)
+			start = *a + ab / 2.0
 			end = start + cross
 
-			simplex_col.y = 1.0
 			draw_line(ctx, &start, &end, &simplex_col, false);
 
-			if IsKeyHeld(key_enum.KEY_F1)
+			if(same_direction(&ab, &ao))
 			{
-				cross = cross_vec(&cross_vec(&ac, &ao), &ac)
-				end = start + cross
-				simplex_col.z = 1.0
-				draw_line(ctx, a, &end, &simplex_col, false);
-
-				simplex_col.y = 0.5
-				simplex_col.z = 0.5
-				draw_line(ctx, a, &(-*a), &simplex_col, false);
-
-				if same_direction(&ac, &ao)
-				{
-					printf("the same dir\n")
-				}
-				else
-				{
-					printf("not in the same dir\n")
-				}
+				printf("the same dir\n")
+			}
+			else
+			{
+				printf("not in the same dir\n")
 			}
 		}
-		4
-		{
-			draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, false);
-			draw_line(ctx, gjk.simplex[0], gjk.simplex[2], &simplex_col, false);
-			draw_line(ctx, gjk.simplex[0], gjk.simplex[3], &simplex_col, false);
-			draw_line(ctx, gjk.simplex[1], gjk.simplex[2], &simplex_col, false);
-			draw_line(ctx, gjk.simplex[1], gjk.simplex[3], &simplex_col, false);
-			draw_line(ctx, gjk.simplex[3], gjk.simplex[2], &simplex_col, false);
-
-		}
-		}
-		a := 0
 	}
+	3
+	{
+
+		draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, false);
+		draw_line(ctx, gjk.simplex[0], gjk.simplex[2], &simplex_col, false);
+		draw_line(ctx, gjk.simplex[1], gjk.simplex[2], &simplex_col, false);
+
+		a := gjk.simplex[0]
+		b := gjk.simplex[1]
+		c := gjk.simplex[2]
+
+		ab := *b - *a
+		ac := *c - *a
+		ao := -*a
+
+		abc := cross_vec(&ab, &ac)
+		cross = cross_vec(&abc, &ac)
+		start = *a + ac / 2.0
+		end = start + cross
+
+		simplex_col.y = 1.0
+		draw_line(ctx, &start, &end, &simplex_col, false);
+
+		if IsKeyHeld(key_enum.KEY_F1)
+		{
+			cross = cross_vec(&cross_vec(&ac, &ao), &ac)
+			end = start + cross
+			simplex_col.z = 1.0
+			draw_line(ctx, a, &end, &simplex_col, false);
+
+			simplex_col.y = 0.5
+			simplex_col.z = 0.5
+			draw_line(ctx, a, &(-*a), &simplex_col, false);
+
+			if same_direction(&ac, &ao)
+			{
+				printf("the same dir\n")
+			}
+			else
+			{
+				printf("not in the same dir\n")
+			}
+		}
+	}
+	4
+	{
+		draw_line(ctx, gjk.simplex[0], gjk.simplex[1], &simplex_col, false);
+		draw_line(ctx, gjk.simplex[0], gjk.simplex[2], &simplex_col, false);
+		draw_line(ctx, gjk.simplex[0], gjk.simplex[3], &simplex_col, false);
+		draw_line(ctx, gjk.simplex[1], gjk.simplex[2], &simplex_col, false);
+		draw_line(ctx, gjk.simplex[1], gjk.simplex[3], &simplex_col, false);
+		draw_line(ctx, gjk.simplex[3], gjk.simplex[2], &simplex_col, false);
+
+	}
+	}
+	a := 0
 
 
 	Draw3DTransparency(ctx.window);
@@ -2536,6 +2467,8 @@ view_collision ::fn(ccc : u32)
 }
 main_loop::fn(ctx : *context)
 {
+	ctx.up.y = 1.0
+
 	dyn_init2(&ctx.coroutines.funcs, 2, ctx.alloc);
 
 	LinearInit(&globals.entities, ctx.alloc, 32)
@@ -2545,24 +2478,12 @@ main_loop::fn(ctx : *context)
 	LinearInit(&globals.nodes_alloc, ctx.alloc, 512)
 	LinearInit(&globals.ast_alloc, ctx.alloc, 512)
 
-	tst_ : tst_st
-	cl : cell
 
-	cl.tp = layer_enum_cell.TEST
-	cl.used = true
-	cl.TEST.val = 3
-
-	tst_.val = 2
-	dyn_add(&tst_.ar, &cl)
-
-	buf : dyn_array(char)
-	tp := GetTypeData(tst_st)
-
-	using ctx;
+	//using ctx;
 	draw:draw_info;
 	//AssignCamStuff(scn, &draw);
 	pos :_vec;
-	speed :f32= 5.0;
+	speed :f32= 10.0;
 	cam_pos: _vec;
 	cam_rot: _vec;
 	cam_rot.z = 0.0;
@@ -2585,8 +2506,6 @@ main_loop::fn(ctx : *context)
 	player_ent:*entity=NewPlayerEnt(ctx, "player");
 
 	ctx.player = player_ent;
-
-
 	
 	ctx.already_allocated_ents_count = globals.entities.cur;
 	ctx.already_allocated_str_count = globals.str_alloc.cur;
@@ -2622,7 +2541,6 @@ main_loop::fn(ctx : *context)
 	ctx.cam_size = 5.0;
 	//ctx.cam_size_original = ctx.cam_size;
 
-	lerp_to_player_forward :_vec;
 
 	info_3d : draw_info3d
 	globals.after_init = true
@@ -2632,20 +2550,52 @@ main_loop::fn(ctx : *context)
 	player_ent.pos.x = 0.0
 	player_ent.pos.y = -1.0
 
-	other := NewEnt(ctx.alloc, "enemy")
+	other := NewEnt(ctx.alloc, "block 1")
+	other.flags = other.flags | ENTITY_3D
+	dyn_add(&ctx.drawable_ents, other)
+	other.is_active = true
+	other.pos.x = 0.0
+	other.pos.y = -2.0
+	other.size.z = 20.0
+	other.size.x = 20.0
+
+	other = NewEnt(ctx.alloc, "block 1")
+	other.flags = other.flags | ENTITY_3D
+	dyn_add(&ctx.drawable_ents, other)
+	other.is_active = true
+	other.pos.x = 20.0
+	other.size.z = -20.0
+
+	other = NewEnt(ctx.alloc, "block 2")
+	other.flags = other.flags | ENTITY_3D
+	dyn_add(&ctx.drawable_ents, other)
+	other.is_active = true
+	other.pos.x = 30.0
+	other.size.x = 30.0
+
+	other = NewEnt(ctx.alloc, "enemy")
 	add_body(ctx, other)
 	dyn_add(&ctx.drawable_ents, other)
 	other.flags = other.flags | ENTITY_3D
+
 	other.pos.y = -1.0
 	other.pos.x = -0.1
-	other.pos.z = -0.6
+	other.pos.z = -20.6
+	other.size.z = 10.6
 	other.is_active = true
 
 	mx := GetMouseScreenPosX();
 	my := GetMouseScreenPosY();
 
+	forward : _vec
+	forward.z = -1.0
+
 	cam_forward : _vec
-	cam_forward.x = 1.0
+	cam_forward.z = -1.0
+
+
+
+	//cam_rot.y = 1.5708
 
 	ctx.cam_rot_global = &cam_rot;
 	ctx.cam_forward_global = &cam_forward;
@@ -2656,9 +2606,13 @@ main_loop::fn(ctx : *context)
 	axis.y = 1.0
 	aux_forward := cam_forward
 	ctx.cam_aux_forward_global = &aux_forward;
-	while !ShouldClose(window)
+
+	cam_to_player_dist := 10.0
+
+	h : f32
+	v : f32
+	while !ShouldClose(ctx.window)
 	{
-		//test_ang(10);
 		globals.timer = 0.0;
 		{
 			//start_pos:_vec = ? ;
@@ -2693,40 +2647,77 @@ main_loop::fn(ctx : *context)
 		other.color.x = f
 		other.color.y = f
 		other.color.z = f
-		print_vec(&cam_forward);
-		PhysicsUpdate(ctx, dt)
-		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
-/*
-		if IsKeyHeld(key_enum.KEY_A)
-		{
-			ang += dt * speed / 2.0
 
-		}
-		if IsKeyHeld(key_enum.KEY_D)
-		{
-			ang -= dt * speed / 2.0
-		}
+		ang: f32=?
+		cross := cross_vec(&ctx.up, &cam_forward)
 		if IsKeyHeld(key_enum.KEY_W)
 		{
-			pos -= forward * dt * speed
+			v += dt * speed
 		}
-		if IsKeyHeld(key_enum.KEY_S)
+		else if IsKeyHeld(key_enum.KEY_S)
 		{
-			pos += forward * dt * speed
+			v -= dt * speed
+		}
+		else
+		{
+			v += -v * dt * speed
 		}
 
-		rotate_vector(&forward, &aux_forward, &rot)
-		s = sin(ang)
-		rot.x = cos(ang)
-		rot.y = axis.x * s
-		rot.z = axis.y * s
-		rot.w = axis.z * s
-		*/
+		if IsKeyHeld(key_enum.KEY_A)
+		{
+			h += dt * speed
+		}
+		else if IsKeyHeld(key_enum.KEY_D)
+		{
+			h -= dt * speed
+		}
+		else
+		{
+			h += -h * dt * speed
+		}
+		v = clamp(v, -1.0, 1.0)
+		h = clamp(h, -1.0, 1.0)
+
+		ab := (absf(v) + absf(h))
+		weight := clamp(ab - 1.0, 0.0, 1.0) + 1.0
+		actual_forward := cam_forward * v + cross * h
+		actual_forward = actual_forward / weight
+		player_ent.pos += actual_forward * dt * speed
+
+		if dot_vec(&actual_forward, &actual_forward) > 0.01
+		{
+			forward = actual_forward
+		}
+		//print_vec(&actual_forward)
+
+
+		ang = angle_on_axis(&aux_forward, &forward, &ctx.up)
+		player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
+
+		//__dbg_break
+		//cam_mov(ctx)
+
+		dir := ctx.player.pos - cam_pos
+		dist := len_vec(&dir)
+		dir = normalize_vec(&dir)
+
+		target_pos := player_ent.pos - cam_forward * cam_to_player_dist + ctx.up * 2.0
+		target_pos += cross * -h * 3.0
+		dir_to_cam := (target_pos - cam_pos)
+		cam_pos += dir_to_cam * dt * 2.0
+
+		
+		ang = angle_on_axis(&aux_forward, &dir, &ctx.up)
+		cam_rot.y = ang
+		cam_forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * aux_forward
+
+		PhysicsUpdate(ctx, dt)
+		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
 		
 
 		mx = GetMouseNormalizedPosX() - curmx;
 		my = GetMouseNormalizedPosY() - curmy;
-		EndFrame(window);
+		EndFrame(ctx.window);
 		ctx.frames_total++;
 	}
 }

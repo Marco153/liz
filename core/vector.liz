@@ -16,6 +16,143 @@ mat4x4 : struct
 {
 	vals : [4 * 4] f32,
 }
+quaternion : struct
+{
+	v : _vec
+}
+normalize_quaternion::fn(out : *_vec, q : *_vec) {
+
+    mag := sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z)
+	if mag == 0.0
+	{
+		out.x = 1.0
+		out.y = 0.0
+		out.z = 0.0
+		out.w = 0.0
+	}
+	else
+	{
+		out.x = q.x/mag
+		out.y = q.y/mag
+		out.z = q.z/mag
+		out.w = q.w/mag
+	}
+}
+
+quaternion_conjugate::fn(out : *_vec, q : *_vec) { 
+    out.x = -q.x
+	out.y = -q.y
+	out.z = -q.z
+	out.w = q.w
+}
+
+multiply_quaternions::fn(out : *_vec, q1 : *_vec, q2 : *_vec) {
+	out.x = q1.w*q2.x + q1.x*q2.w + q1.y*q2.z - q1.z*q2.y
+	out.y = q1.w*q2.y - q1.x*q2.z + q1.y*q2.w + q1.z*q2.x
+	out.z = q1.w*q2.z + q1.x*q2.y - q1.y*q2.x + q1.z*q2.w
+	out.w = q1.w*q2.w - q1.x*q2.x - q1.y*q2.y - q1.z*q2.z 
+}
+
+rotate_vector::fn(out : *_vec, v : *_vec, q : *_vec) {
+	aux : _vec
+    normalize_quaternion(&aux, q)
+    p :_vec
+	p.x = v.x
+	p.y = v.y
+	p.z = v.z
+	p.w = 0.0
+    q_conj:_vec
+    rotated:_vec
+    mul:_vec
+	quaternion_conjugate(&q_conj, q);
+
+	multiply_quaternions(&mul, q, &p)
+
+    multiply_quaternions(&rotated, &mul, &q_conj);
+    out.x = rotated.x
+	out.y = rotated.y
+	out.z = rotated.z
+
+}
+PI :const f32= 3.141592
+// Helper function to convert degrees to radians
+radians_to_degree::fn macro(x : _expr)
+{
+    (x * 57.295779)
+}
+degrees_to_radians::fn macro(x : _expr)
+{
+    (x * PI / 180.0)
+}
+
+
+euler_to_quaternion::fn(x:f32, y:f32, z:f32) !quaternion
+{
+	x = degrees_to_radians(x)
+	y = degrees_to_radians(y)
+	z = degrees_to_radians(z)
+	ret : quaternion = ?
+    cr := cos(x * 0.5);
+    sr := sin(x * 0.5);
+    cp := cos(y * 0.5);
+    sp := sin(y * 0.5);
+    cy := cos(z * 0.5);
+    sy := sin(z * 0.5);
+
+    q:= &ret.v;
+    q.x = sr * cp * cy - cr * sp * sy;
+    q.y = cr * sp * cy + sr * cp * sy;
+    q.z = cr * cp * sy - sr * sp * cy;
+    q.w = cr * cp * cy + sr * sp * sy;
+    
+    return ret;
+}
+sign ::fn(f : f32) ! f32
+{
+	if f < 0.0 return -1.0;
+	return 1.0;
+}
+angle_on_axis::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! f32
+{
+	from := *a
+	to := *b
+
+	from -= *ref_up * dot_vec(ref_up, &from)
+	to -= *ref_up * dot_vec(ref_up, &to)
+
+	from = normalize_vec(&from)
+	to = normalize_vec(&to)
+	 
+
+	up := cross_vec(&from, &to)
+	lenght := dot_vec(&up, &up)
+
+	right := cross_vec(&from, ref_up)
+	dir := dot_vec(&to, &right)
+	dot := dot_vec(&to, &from)
+
+	return acos(dot) * -sign(dir)
+}
+look_at_quaternion::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! quaternion
+{
+	ret : quaternion
+	ret.v.w = 1.0
+	d := angle_on_axis(a, b, ref_up)
+	if d == 0.0
+		return ret;
+	s := sin(d *0.5)
+	ret.v.x = ref_up.x * s
+	ret.v.y = ref_up.y * s
+	ret.v.z = ref_up.z * s
+	ret.v.w = cos(d *0.5)
+	return ret
+}
+operator *(self : *quaternion, vec : *_vec) !_vec
+{
+	ret :_vec
+	rotate_vector(&ret, vec, &self.v)
+	return ret
+}
 __sqrt::fn intrinsic(a : f32) !f32;
 sqrt::fn x64(a : f32) !f32
 {

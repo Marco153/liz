@@ -4237,6 +4237,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			case enum_type2::TYPE_U32:
 			case enum_type2::TYPE_U16:
 			case enum_type2::TYPE_U8:
+			case enum_type2::TYPE_STATIC_ARRAY:
 			case enum_type2::TYPE_BOOL:
 			case enum_type2::TYPE_STRUCT:
 			case enum_type2::TYPE_F32:
@@ -8072,6 +8073,24 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 						//deref_bottom
 					}
+					else if (lhs_type.type == TYPE_STATIC_ARRAY)
+					{
+						//raise(SIGTRAP);
+						node* deref_bottom = new_node(lang_stat, n->l);
+						node* deref_top = deref_bottom;
+						char ptr = lhs_type.ptr;
+						do
+						{
+							deref_top = NewUnOpNode(lang_stat, T_MUL, deref_top, n->t);
+							ptr--;
+						} while (ptr > 0);
+						memcpy(n->l, deref_top, sizeof(node));
+						auto a = 0;
+						has_index_op = true;
+						DescendNameFinding(lang_stat, n, scp);
+						return (decl2*)1;
+
+					}
 					if(!has_index_op)
 					{
 						REPORT_ERROR(n->t->line, n->t->line,
@@ -10385,6 +10404,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				case enum_type2::TYPE_U8:
 				case enum_type2::TYPE_BOOL:
 				case enum_type2::TYPE_STRUCT:
+				case enum_type2::TYPE_STATIC_ARRAY:
 				case enum_type2::TYPE_VOID:
 				case enum_type2::TYPE_CHAR:
 				case enum_type2::TYPE_VECTOR:
@@ -11454,6 +11474,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				{
 					if (ltp.type == TYPE_INT)
 						ReportMessage(lang_stat, n->t, "lhs must be a memory value");
+					
+					if(rtp.type == ltp.type &&ltp.ptr == 1 && rtp.ptr == 0)
+					{
+						node *new_un = NewUnOpNode(lang_stat, T_MUL, new_node(lang_stat, n->l), n->l->t);
+						memcpy(n->l, new_un, sizeof(node));
+						ltp.ptr--;
+					}
 
 					if (n->r->type != N_QUESTION_MARK)
 					{

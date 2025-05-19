@@ -258,6 +258,7 @@ struct type2
 			int *decl_offset;
 			
 			type2 *tp;
+			own_std::vector<int> dims;
 		};
 		struct
 		{

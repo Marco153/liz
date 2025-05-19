@@ -2756,7 +2756,10 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				//top->is_packed_float = false;
 			}
 			*/
-			top->reg_sz = GetTypeSize(&e->deref.type);
+			if(e->deref.type.type == TYPE_STATIC_ARRAY)
+				top->reg_sz = 8;
+			else
+				top->reg_sz = GetTypeSize(&e->deref.type);
 			top->reg_sz = min(top->reg_sz, 8);
 			top->reg_ex |= IR_VAL_FROM_DEREF;
 			top->reg_ex &= ~IR_VAL_FROM_AST_INDEX;
@@ -3107,6 +3110,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir_val* top = &stack[stack.size() - 1];
 			ir_val* one_minus_top = &stack[stack.size() - 2];
 
+			BREAK(e->line_number == 687)
 			stack.pop_back();
 
 			char offset_reg = AllocReg(lang_stat);

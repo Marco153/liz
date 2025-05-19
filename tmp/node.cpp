@@ -3988,6 +3988,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			else
 			{
 				node *top = n;
+				/*
 				if(n->r->type == N_INDEX)
 				{
 					node *prev = n;
@@ -4000,19 +4001,14 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 					}
 					n = prev;
 				}
-
+				*/
 				type2 ar_type;
 				type2* ar_type_ptr = nullptr;
 				if (!NameFindingGetType(lang_stat, n->r, scp, ar_type))
 					return false;
 
-				if (ar_type.type == enum_type2::TYPE_TEMPLATE)
-				{
-					ret_type.type = enum_type2::TYPE_TEMPLATE;
-					return true;
-				}
-
 				int ar_size = 1;
+					/*
 				n = top;
 				if(n->r->type == N_INDEX)
 				{
@@ -4021,15 +4017,23 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 					{
 						if(n->r->type != N_INDEX)
 							ar_size *= GetExpressionVal(n->l, scp);
-						ret_type.dims.emplace_back(ar_size);
+						//ret_type.dims.emplace_back(ar_size);
 						prev = n;
 						n = n->r;
 					}
-					//raise(SIGTRAP);
 					n = prev;
 				}
+					*/
+
+				if (ar_type.type == enum_type2::TYPE_TEMPLATE)
+				{
+					ret_type.type = enum_type2::TYPE_TEMPLATE;
+					return true;
+				}
+
+
 				// array is static if it has a number
-				if (top->l && !top->ar_lit_tp)
+				if (n->l && !n->ar_lit_tp)
 				{
 					ar_type.type = FromTypeToVarType(ar_type.type);
 
@@ -4042,7 +4046,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 					ar_type_ptr->type = enum_type2::TYPE_STATIC_ARRAY_TYPE;
 					ar_type_ptr->ar_size = ar_size;
 					ar_type_ptr->tp = (type2*)AllocMiscData(lang_stat, sizeof(type2));
-					ar_type_ptr->dims = ret_type.dims;
+					//ar_type_ptr->dims = ret_type.dims;
 					memset(ar_type_ptr->tp, 0, sizeof(type2));
 					*ar_type_ptr->tp = ar_type;
 
@@ -4062,7 +4066,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				}
 				ASSERT(ar_type_ptr)
 
-					top->ar_lit_tp = ar_type_ptr;
+					n->ar_lit_tp = ar_type_ptr;
 				ret_type = *ar_type_ptr;
 			}
 		}
@@ -4070,10 +4074,6 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 		else
 		{
 			type2 lhs_type;
-			while(n->l->type == N_INDEX)
-			{
-				n = n->l;
-			}
 			if (!NameFindingGetType(lang_stat, n->l, scp, lhs_type))
 				return false;
 
@@ -8070,10 +8070,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			else
 			{
 				type2 lhs_type;
-				while(n->l->type == N_INDEX)
-				{
-					n = n->l;
-				}
 				NameFindingGetType(lang_stat, n->l, scp, lhs_type);
 
 				if (lhs_type.ptr > 0)
@@ -8112,12 +8108,9 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 						//deref_bottom
 					}
-					else if (lhs_type.type == TYPE_STATIC_ARRAY && n->l->type != N_INDEX)
+					else if (lhs_type.type == TYPE_STATIC_ARRAY)
 					{
-						if(!DescendNameFinding(lang_stat, n->l, scp))
-							return nullptr;
-						if(!DescendNameFinding(lang_stat, n->r, scp))
-							return nullptr;
+						//raise(SIGTRAP);
 						node* deref_bottom = new_node(lang_stat, n->l);
 						node* deref_top = deref_bottom;
 						char ptr = lhs_type.ptr;
@@ -8129,6 +8122,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						memcpy(n->l, deref_top, sizeof(node));
 						auto a = 0;
 						has_index_op = true;
+						DescendNameFinding(lang_stat, n, scp);
 						return (decl2*)1;
 
 					}
@@ -10919,44 +10913,24 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		// indexing
 		else
 		{
-			type2 lhs;
-			if(n->l->type == N_INDEX)
+			type2 lhs = DescendNode(lang_stat, n->l, scp);
+			type2 rhs = DescendNode(lang_stat, n->r, scp);
+
+			if(n->r->type == N_INDEX)
 			{
+				raise(SIGTRAP);
+				node * new_index = NewBinOpNode(lang_stat, nullptr, T_PLUS, nullptr);
 				node *cur = n;
-				while(cur->type == N_INDEX)
-				{
-					cur = cur->l;
-				}
-				lhs = DescendNode(lang_stat, cur, scp);
-				cur = n;
-
-				node * new_index = new_node(lang_stat, n->t);
-				new_index->type = N_BINOP;
-				new_index->t->type = T_PLUS;
-
 				int i = 0;
 				do
 				{
-					if(!new_index->l)
-						new_index->l = NewBinOpNode(lang_stat, cur->r, T_MUL, NewIntNode(lang_stat, lhs.dims[i], n->t));
-					else
-					{
-						new_index->r = NewBinOpNode(lang_stat, cur->r, T_MUL, NewIntNode(lang_stat, lhs.dims[i], n->t));
-						new_index = NewBinOpNode(lang_stat, new_node(lang_stat, new_index), T_PLUS, nullptr);
-					}
+					new_index->l = NewBinOpNode(lang_stat, cur->l, T_MUL, NewIntNode(lang_stat, rhs.dims[i], n->t));
+					new_index = NewBinOpNode(lang_stat, new_node(lang_stat, new_index), T_PLUS, nullptr);
 					i++;
-					cur = cur->l;
+					cur = cur->r;
 				}while(cur->type == N_INDEX);
-				DescendNode(lang_stat, new_index->l, scp);
 				new_index = new_index->l;
-				n->l = cur;
-				n->r = new_index;
 			}
-			else
-			{
-				lhs = DescendNode(lang_stat, n->l, scp);
-			}
-			type2 rhs = DescendNode(lang_stat, n->r, scp);
 
 			bool rhs_can_be_index = rhs.type == TYPE_U64 && rhs.ptr == 0 || rhs.type == TYPE_INT;
 
@@ -10975,7 +10949,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			case enum_type2::TYPE_S16:
 			case enum_type2::TYPE_S32:
 			case enum_type2::TYPE_S64:
-			case enum_type2::TYPE_VECTOR:
 				ASSERT(lhs.ptr > 0)
 					ret_type = lhs;
 
@@ -11553,7 +11526,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					if (ltp.type == TYPE_INT)
 						ReportMessage(lang_stat, n->t, "lhs must be a memory value");
 					
-					if(rtp.type == ltp.type &&ltp.ptr == 1 && rtp.ptr == 0)
+					if(rtp.type == ltp.type && ltp.ptr == 1 && rtp.ptr == 0)
 					{
 						node *new_un = NewUnOpNode(lang_stat, T_MUL, new_node(lang_stat, n->l), n->l->t);
 						memcpy(n->l, new_un, sizeof(node));

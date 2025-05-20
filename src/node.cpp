@@ -11427,6 +11427,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			if (IS_PRS_FLAG_ON(PSR_FLAGS_ON_ENUM_DECL))
 				break;
 			//return ret_type;
+			//BREAK(n->t->line == 793)
 
 			type2 ltp;
 			if (n->l != nullptr)
@@ -11553,11 +11554,21 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					if (ltp.type == TYPE_INT)
 						ReportMessage(lang_stat, n->t, "lhs must be a memory value");
 					
-					if(rtp.type == ltp.type &&ltp.ptr == 1 && rtp.ptr == 0)
+					if(rtp.type == ltp.type && n->l->type == N_INDEX && ltp.ptr == 1 && rtp.ptr == 0)
 					{
 						node *new_un = NewUnOpNode(lang_stat, T_MUL, new_node(lang_stat, n->l), n->l->t);
 						memcpy(n->l, new_un, sizeof(node));
 						ltp.ptr--;
+					}
+					else if(rtp.type == ltp.type && n->r->type == N_INDEX && n->l->type == N_INDEX && ltp.ptr == 1 && rtp.ptr == 1)
+					{
+						node *new_un = NewUnOpNode(lang_stat, T_MUL, new_node(lang_stat, n->l), n->l->t);
+						memcpy(n->l, new_un, sizeof(node));
+						ltp.ptr--;
+
+						new_un = NewUnOpNode(lang_stat, T_MUL, new_node(lang_stat, n->r), n->r->t);
+						memcpy(n->r, new_un, sizeof(node));
+						rtp.ptr--;
 					}
 
 					if (n->r->type != N_QUESTION_MARK)

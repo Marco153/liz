@@ -10959,6 +10959,13 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 	}
 	else if (d->type.type == TYPE_STATIC_ARRAY)
 	{
+		char ptr = ptr_decl;
+		auto original_addr = base_ptr;
+		while (ptr > 0)
+		{
+			base_ptr = *(int*)&dbg.mem_buffer[base_ptr];
+			ptr--;
+		}
 		snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), base_ptr, base_ptr);
 		ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 		
@@ -14097,7 +14104,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			// R D R
 			else if (assign.lhs.type == IR_TYPE_DECL && (assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
 			{
-		
+				//BREAK(line == 691)
 				
 				//assign.lhs.deref++;
 				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false);

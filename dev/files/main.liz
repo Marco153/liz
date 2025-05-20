@@ -2485,7 +2485,7 @@ main_loop::fn(ctx : *context)
 
 
 	//using ctx;
-	draw:draw_info;
+	draw:draw_info3d;
 	//AssignCamStuff(scn, &draw);
 	pos :_vec;
 	speed :f32= 10.0;
@@ -2586,8 +2586,9 @@ main_loop::fn(ctx : *context)
 	other.pos.y = -1.0
 	other.pos.x = -0.1
 	other.pos.z = -20.6
-	other.size.z = 10.6
+	other.size.z = 1.0
 	other.is_active = true
+	other.is_static = true
 
 	mx := GetMouseScreenPosX();
 	my := GetMouseScreenPosY();
@@ -2706,7 +2707,6 @@ main_loop::fn(ctx : *context)
 		ang = angle_on_axis(&aux_forward, &forward, &ctx.up)
 		player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
 
-		//__dbg_break
 		//cam_mov(ctx)
 
 		
@@ -2737,6 +2737,7 @@ main_loop::fn(ctx : *context)
 			timer_for_cam_go_back_of_player += dt
 			time_for_complete_rot := 0.5
 			on_rotating_cam = true
+			add_mul = 4.0
 			if timer_for_cam_go_back_of_player < (time_for_complete_rot + 0.1)
 			{
 				local_pos_back_rot := cam_start_pos_before_rotate_to_back_pos - player_ent.pos
@@ -2748,7 +2749,6 @@ main_loop::fn(ctx : *context)
 				local_pos_back_rot = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * local_pos_back_rot
 				target_pos = local_pos_back_rot + player_ent.pos
 				player_back_pos = target_pos
-				add_mul = 4.0
 			}
 			else
 			{
@@ -2780,6 +2780,22 @@ main_loop::fn(ctx : *context)
 		ang = angle_on_axis(&aux_forward, &dir, &ctx.up)
 		cam_rot.y = ang
 		cam_forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * aux_forward
+
+		//print_vec(&forward)
+		draw.flags = DRAW_INFO_TRIANGLE
+		draw.pos.x = 1.0
+		draw.pos.y = 0.0
+		draw.pos.z = -6.0
+		draw.pivot.x = 0.0
+		draw.pivot.y = 6.0
+		draw.pivot.z = -6.0
+		draw.cam_pos = &cam_pos
+		draw.cam_rot = &cam_rot
+		draw.cam_forward = &cam_forward
+		draw.ent_size.x = 6.0
+		draw.ent_size.y = 0.0
+		draw.ent_size.z = -6.0
+		Draw3D(ctx.window, &draw)
 
 		PhysicsUpdate(ctx, dt)
 		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)

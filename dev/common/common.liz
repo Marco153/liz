@@ -8,6 +8,8 @@ DRAW_INFO_STENCIL_TEST:const s32 = 16;
 DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER:const s32 = 32;
 DRAW_INFO_LINE:const s32 = 64;
 DRAW_INFO_TRANSPARENT:const s32 = 128;
+// 256 is used for an internal transparency stuff
+DRAW_INFO_TRIANGLE:const s32 = 512;
 
 END_OF_LAYERS :const s32= 0xbebad0;
 SCENE_NAME_NAME_MAX : const s32= 32;

@@ -2258,6 +2258,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			int cur_biggest = e->call.in_func->biggest_call_args;
 			lang_stat->cur_func->biggest_call_args = max(cur_biggest, e->call.args.size());
 
+			//BREAK(e->line_number == 739)
 			
 			int more_stack_vals = stack.size() - e->call.args.size();
 			if (more_stack_vals > 0)
@@ -2284,7 +2285,11 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						ir.assign.to_assign.i = cur_spill_offset;
 						ir.assign.only_lhs = true;
 						ir.assign.lhs = *to_spill;
-						ir.assign.lhs.deref = -1;
+						//ir.assign.lhs.deref = -1;
+						if(to_spill->deref >= 0)
+						{
+							to_spill->deref = -1;
+						}
 						ir.assign.lhs.reg_sz = 8;
 						ir.assign.to_assign.is_float = ir.assign.lhs.is_float;
 						//ir.assign.lhs.deref = 1;
@@ -3110,7 +3115,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir_val* top = &stack[stack.size() - 1];
 			ir_val* one_minus_top = &stack[stack.size() - 2];
 
-			BREAK(e->line_number == 687)
+			//BREAK(e->line_number == 695)
 			stack.pop_back();
 
 			char offset_reg = AllocReg(lang_stat);
@@ -3153,6 +3158,8 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir.assign.lhs = *one_minus_top;
 			ir.assign.lhs.ptr = -1;
 			ir.assign.lhs.deref--;
+			if(ir.assign.lhs.deref>= 0)
+				ir.assign.lhs.ptr = 0;
 			ir.assign.lhs.is_unsigned = ir.assign.rhs.is_unsigned;
 			ir.assign.lhs.is_float = false;
 			ir.assign.lhs.is_packed_float = false;
@@ -4147,7 +4154,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 
 			ir.type = IR_ASSIGNMENT;
 
-			//BREAK(ast->line_number == 834)
+			//BREAK(ast->line_number == 793)
 			ir_val rhs_top = {};
 			switch (rhs_ast->type)
 			{
@@ -4278,7 +4285,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 					ir.assign.to_assign.is_float = true;
 				//ir.assign.rhs.ptr++////;
 			}
-			if (ir.assign.lhs.ptr == -1)
+			if (ir.assign.lhs.ptr == -1 && ir.assign.lhs.deref < 0)
 				ir.assign.to_assign.is_float = false;
 			/*
 			if (ir.assign.to_assign.type == IR_TYPE_DECL && ir.assign.to_assign.decl->type.type == TYPE_FUNC_PTR)

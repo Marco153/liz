@@ -103,7 +103,6 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 	if !ent.is_active
 		return;
 		
-
 	if(is_flag_on(ent.flags, ENTITY_3D))
 	{
 		draw : draw_info3d

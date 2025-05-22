@@ -20,6 +20,7 @@ typedef long long s64;
 #include "timer.cpp"
 #ifdef LINUX
 #define BREAK(cond) if(cond){raise(SIGTRAP);}
+#define HERE() raise(SIGTRAP);
 #else
 #include <windows.h>
 #include <conio.h>
@@ -8628,6 +8629,10 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		snprintf(buffer, 128, "sqrt xmm%d,  xmm%d", reg_dst, reg_src);
 		
 	}break;
+	case CMP_PCKD_SSE_2_PCKD_SSE:
+	{
+		snprintf(buffer, 128, "cmp pxmm%d,  xmm%d, %d", reg_dst, reg_src, imm);
+	}break;
 	case FILL_SSE_2_PCKED_SSE:
 	{
 		snprintf(buffer, 128, "fill pxmm%d,  xmm%d", reg_dst, reg_src);
@@ -8743,6 +8748,21 @@ inline void CheckValAssignFlags(u64* eflags, u64 val, u64 sign_flag)
 	else
 	{
 		bool below = ((val & sign_flag) != 0);
+		*eflags = below * EFLAGS_BELOW;
+		*eflags |= !below * EFLAGS_ABOVE;
+	}
+}
+inline void DoCmpInstPackedFloat(float lhs, float rhs, u64* eflags)
+{
+	float val = lhs - rhs;
+	int sign_flag = 1 << 31;
+	if (val == 0)
+	{
+		*eflags = EFLAGS_ZERO;
+	}
+	else
+	{
+		bool below = ((*(int *)&val & sign_flag) != 0);
 		*eflags = below * EFLAGS_BELOW;
 		*eflags |= !below * EFLAGS_ABOVE;
 	}
@@ -9200,6 +9220,35 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 		*eflags = 0;
 		DoCmpInstFloat(*reg_dst_ptr, *reg_src_ptr, eflags);
 		//bool sgnd =
+	}break;
+	case CMP_PCKD_SSE_2_PCKD_SSE:
+	{
+		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
+		auto reg_dst_ptr = (float *)GetFloatRegValPtr(dbg, reg_dst + FLOAT_REG_0);
+
+		u64* eflags = GetRegValPtr(dbg, EFLAGS_REG);
+		*eflags = 0;
+
+		int aux;
+		__m128 a = _mm_loadu_ps(reg_dst_ptr);
+		__m128 b = _mm_loadu_ps(reg_src_ptr);
+		switch(bc->i)
+		{
+		case 0:
+		{
+			a = _mm_cmpeq_ps(a, b);
+
+		}break;
+		case 4:
+		{
+			a = _mm_cmpneq_ps(a, b);
+
+		}break;
+		default:
+			ASSERT(false)
+		}
+		_mm_store_ss((float *)&aux, a);
+		DoCmpInst((void *)&aux, 0xffff, eflags, 1);
 	}break;
 	case CMP_SSE_2_SSE:
 	{
@@ -11050,7 +11099,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		{
 			ptype = PRINT_CHAR;
 		}
-		ImGui::Text("%s, %s, type: %s", name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str(), TypeToString(d->type).c_str());
+		ImGui::Text("%s(&%d), %s, type: %s", name.c_str(), offset, WasmNumToString(&dbg, val, -1, ptype).c_str(), TypeToString(d->type).c_str());
 		//ImGui::Text("%s, %s", name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
 	}
 
@@ -13273,6 +13322,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				else
 					inst = MOV_I;
 
+				lhs.is_packed_float = false;
 				GenX64BinInst(lang_stat, ret, &lhs, &rhs, inst);
 
 				//GenX64ImmToReg(ret, assign.to_assign.reg, assign.to_assign.reg_sz, assign.lhs.i, MOV_I);
@@ -14407,6 +14457,22 @@ void GenX64ByteCodeFromStr(lang_state* lang_stat,
 			ASSERT(0);
 	}
 }
+int TokenCmpToPackedFloatIndex(tkn_type2 t)
+{
+	switch(t)
+	{
+	case T_COND_NE:
+	{
+		return 4;
+	}
+	case T_COND_EQ:
+	{
+		return 0;
+	}
+	default:
+		ASSERT(false)
+	}
+}
 // $IrX64
 void GenX64BytecodeFromIR(lang_state *lang_stat, 
 						  own_std::vector<byte_code>& ret,
@@ -14897,15 +14963,29 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
 			{
 				
-				GenX64ToIrValReg(lang_stat, ret, &lhs, &ir->bin.lhs, false);
+				GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->bin.lhs, false, ir->bin.lhs.is_packed_float);
 
 				
-				GenX64ToIrValReg(lang_stat, ret, &rhs, &ir->bin.rhs, false);
+				GenX64ToIrValReg2(lang_stat, ret, &rhs, &ir->bin.rhs, false, ir->bin.rhs.is_packed_float);
 				byte_code_enum inst = CMP_R_2_R;
-				if (lhs.is_float)
-					inst = CMP_SSE_2_SSE;
+				if(lhs.is_packed_float)
+				{
+					bc.type = CMP_PCKD_SSE_2_PCKD_SSE;
+					bc.bin.lhs.reg = lhs.reg;
+					bc.bin.rhs.reg = rhs.reg;
+					bc.bin.cmp_type = TokenCmpToPackedFloatIndex(ir->bin.op);
+					
+					ret.emplace_back(bc);
+					lhs.is_packed_float = false;
+					ir->bin.op = T_COND_NE;
+				}
+				else
+				{ 
+					if (lhs.is_float)
+						inst = CMP_SSE_2_SSE;
+					GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, inst);
+				}
 
-				GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, inst);
 			}
 			// CMP D D
 			else if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_DECL)
@@ -14994,6 +15074,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				raise(SIGTRAP);
 			}
 			*/
+			//BREAK(cur_line == 2814)
 			GenX64BytecodeFromAssignIR(lang_stat,
 				ret,
 				irs,
@@ -15401,6 +15482,13 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			auto a = 0;
 		switch (from_bc->type)
 		{
+		case CMP_PCKD_SSE_2_PCKD_SSE:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.i = from_bc->bin.cmp_type;
+		}break;
 		case NOP:
 		case INT3:
 		{
@@ -17590,7 +17678,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
-	lang_stat->max_decl = 6500;
+	lang_stat->max_decl = 7500;
 	lang_stat->cur_decl = 0;
 	lang_stat->decl_arena = (decl2*)AllocMiscData(lang_stat, lang_stat->max_decl * sizeof(decl2));
 	//lang_stat->max_misc = 16 * 1024 * 1024;

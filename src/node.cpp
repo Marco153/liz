@@ -4014,14 +4014,20 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 
 				int ar_size = 1;
 				n = top;
+				//BREAK(n->t->line == 92)
 				if(n->r->type == N_INDEX)
 				{
 					node *prev = n;
 					while(n->type == N_INDEX)
 					{
-						if(n->r->type != N_INDEX)
-							ar_size *= GetExpressionVal(n->l, scp);
-						ret_type.dims.emplace_back(ar_size);
+						int val = 1;
+
+						if(n->r->type == N_INDEX)
+						{
+							val = GetExpressionVal(n->l, scp);
+							ret_type.dims.emplace_back(val);
+						}
+						ar_size *= val;
 						prev = n;
 						n = n->r;
 					}
@@ -4033,7 +4039,9 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				{
 					ar_type.type = FromTypeToVarType(ar_type.type);
 
-					ar_size *= GetExpressionVal(n->l, scp);
+					auto val = GetExpressionVal(n->l, scp);
+					ret_type.dims.emplace_back(val);
+					ar_size *= val;
 
 					ar_type_ptr = (type2*)AllocMiscData(lang_stat, sizeof(type2));
 					memset(ar_type_ptr, 0, sizeof(type2));
@@ -7282,12 +7290,81 @@ bool NameFindingOnExprEtruct(lang_state *lang_stat, type_struct2 *strct, node *n
 	return true;
 }
 
+/*
+bool CheckForConstDecls(lang_state *lang_stat, node *n, func_decl* fdecl, scope* scp)
+{
+	if(!n)
+		return true;
+	switch(n->type)
+	{
+		/*
+	case node_type::N_SCOPE:
+	{
+		if (!n->scp)
+			n->scp = GetScopeFromParent(lang_stat, n, scp);
+
+		scp = n->scp;
+
+		if (!n->r->l && !n->r->r && n->r->type != N_ON)
+			return true;
+
+		return CheckForConstDecls(lang_stat, n->r, fdecl, scp)
+	}break;
+	default:
+	{
+		if(!CheckForConstDecls(lang_stat, n->l, fdecl, scp))
+			return false;
+		if(!CheckForConstDecls(lang_stat, n->r, fdecl, scp))
+			return false;
+	}break;
+	}
+	return true;
+}
+*/
 int CheckForHashtags(lang_state *lang_stat, node *n, func_decl* fdecl, scope* scp)
 {
 	if(!n)
 		return 0;
 	switch(n->type)
 	{
+		/*
+	case node_type::N_SCOPE:
+	{
+		if (!n->scp)
+			n->scp = GetScopeFromParent(lang_stat, n, scp);
+
+		scp = n->scp;
+
+		if (!n->r->l && !n->r->r && n->r->type != N_ON)
+			return 0;
+
+		return CheckForHashtags(lang_stat, n->r, fdecl, scp);
+	}break;
+	*/
+	case node_type::N_BINOP:
+	{
+
+		if(n->l && CMP_NTYPE_BIN(n->l, T_COLON) && n->l->r && n->l->r->type == N_CONST)
+		{
+			if(!DescendNameFinding(lang_stat, n, scp))
+				return 1;
+			
+			return 2;
+		}
+		else
+		{
+			auto a = CheckForHashtags(lang_stat, n->l, fdecl, scp);
+			auto b = CheckForHashtags(lang_stat, n->r, fdecl, scp);
+			if(a == 1 || b == 1)
+				return 1;
+			else if(a == 2 || b == 2)
+				return 1;
+			else if(a == 2 && b == 2)
+				return 2;
+
+		}
+		return 0;
+	}break;
 	case node_type::N_HASHTAG:
 	{
 		//BREAK(n->t->line == 38)
@@ -7385,6 +7462,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	char msg_hdr[256];
 	scope* scp = given_scp;
 	type2 ret_type;
+	//BREAK(n->t->line >= 2311)
 
 	//memset(&msg, 0, sizeof(msg));
 	/*
@@ -10934,17 +11012,22 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				new_index->type = N_BINOP;
 				new_index->t->type = T_PLUS;
 
-				int i = 0;
+				int i = lhs.dims.size();
+				//BREAK(n->t->line == 731)
 				do
 				{
+
+					int val = 1;
+					if(i < lhs.dims.size())
+						val = lhs.dims[i];
 					if(!new_index->l)
-						new_index->l = NewBinOpNode(lang_stat, cur->r, T_MUL, NewIntNode(lang_stat, lhs.dims[i], n->t));
+						new_index->l = NewBinOpNode(lang_stat, cur->r, T_MUL, NewIntNode(lang_stat, val, n->t));
 					else
 					{
-						new_index->r = NewBinOpNode(lang_stat, cur->r, T_MUL, NewIntNode(lang_stat, lhs.dims[i], n->t));
+						new_index->r = NewBinOpNode(lang_stat, cur->r, T_MUL, NewIntNode(lang_stat, val, n->t));
 						new_index = NewBinOpNode(lang_stat, new_node(lang_stat, new_index), T_PLUS, nullptr);
 					}
-					i++;
+					i--;
 					cur = cur->l;
 				}while(cur->type == N_INDEX);
 				DescendNode(lang_stat, new_index->l, scp);

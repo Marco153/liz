@@ -398,6 +398,7 @@ struct byte_code
 			operand rhs;
 			bool is_unsigned : 1;
 			bool is_float_param : 1;
+			u8 cmp_type;
 		}bin;
 		struct 
 		{

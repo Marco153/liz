@@ -405,6 +405,7 @@ struct open_gl_state
 	int line_vbo;
 	int shader_program3d;
 	int shader_program3d_line;
+	int shader_program3d_line_no_proj;
 	int shader_program3d_tri;
 	int shader_program;
 	int line_shader_program;
@@ -815,12 +816,14 @@ void Print(dbg_state* dbg)
 #define DRAW_INFO_NO_SCREEN_RATIO 2
 #define DRAW_INFO_WIREFRAME 4
 #define DRAW_INFO_STENCIL_WRITE 8
-#define DRAW_INFO_STENCIL_TEST 16
-#define DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER 32
-#define DRAW_INFO_LINE 64
-#define DRAW_INFO_TRANSPARENT 128
-#define DRAW_INFO_TRANSPARENT2 256
-#define DRAW_INFO_TRIANGLE 512
+#define DRAW_INFO_STENCIL_TEST 0x10
+#define DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER 0x20
+#define DRAW_INFO_LINE 0x40
+#define DRAW_INFO_TRANSPARENT 0x80
+#define DRAW_INFO_TRANSPARENT2 0x100
+#define DRAW_INFO_TRIANGLE 0x200
+#define DRAW_INFO_NO_PROJ 0x400
+#define DRAW_INFO_DBG_BREAK 0x800
 enum class stencil_func
 {
 	EQUAL,
@@ -1069,8 +1072,13 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 		glDepthMask(GL_TRUE);
 		glDisable(GL_BLEND);
 	}
-	if(IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_DBG_BREAK))
 	{
+		raise(SIGTRAP);
+	}
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_LINE | DRAW_INFO_NO_PROJ))
+	{
+		
 		float line[6];
 		draw->pos_x -= cam_pos_x;
 		draw->pos_y -= cam_pos_y;
@@ -1081,6 +1089,13 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 		memcpy(&line[0], &draw->pos_x, 12);
 		memcpy(&line[3], &draw->ent_size_x, 12);
 		shaderProgram = gl_state->shader_program3d_line;
+		if(IS_FLAG_ON(draw->flags, DRAW_INFO_NO_PROJ))
+		{
+
+			shaderProgram = gl_state->shader_program3d_line_no_proj;
+		}
+		//HERE()
+		glUseProgram(shaderProgram);
 		glBindVertexArray(gl_state->vao3d_line);
 		glBindBuffer(GL_ARRAY_BUFFER, gl_state->vbo3d_line);
 
@@ -1107,6 +1122,7 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 		//*c = vec3_sub(*c, vec3_(&cam_pos_x));
 
 		Vec3 normal  = vec3_cross(vec3_sub(*a, *b), vec3_sub(*a, *c));
+		normal  = vec3_normalize(normal);
 
 		tri[0] = *a;
 		tri[1] = normal;
@@ -1158,6 +1174,7 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	Mat4 view = mat4_lookAt(cameraPos, vec3_add(cameraPos, cameraFront), cameraUp);
 	memcpy(gl_state->view, view.m, sizeof(gl_state->view));
 
+	//printf("sx %.3f, sy %.3f, sz %.3f\n", draw->ent_size_x, draw->ent_size_y, draw->ent_size_z);
 	//printf("sx %.3f, sy %.3f, sz %.3f\n", cam_forward_x, cam_forward_y, cam_forward_z);
 	//printf("cx %.3f, cy %.3f, cz %.3f, rx %.3f, ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x, cam_rot_y, cam_rot_z);
     gl_state->view[12] = -0.0;
@@ -4651,6 +4668,30 @@ void Init3D(dbg_state* dbg)
 	otherVertexShaderSrc = "\n\
 	#version 330 core\n\
 	layout (location = 0) in vec3 aPos;\n\
+	out vec4 interpCol;\n\
+	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 aux = view * vec4(aPos, 1.0);\n\
+		gl_Position = aux;\n\
+		interpCol = vec4(1.0, 1.0, 1.0, 1.0);\
+	}\
+	";
+
+    vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_line_no_proj = shaderProgram;
+
+	otherVertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
 	layout (location = 1) in vec3 normal;\n\
 	out vec4 interpCol;\n\
 	uniform mat4 model;\n\
@@ -4678,9 +4719,6 @@ void Init3D(dbg_state* dbg)
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
 
-	gl_state->vao3d = VAO;
-
-
     glBindVertexArray(VAO);
     
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -4692,12 +4730,16 @@ void Init3D(dbg_state* dbg)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
+	gl_state->vao3d = VAO;
+
+
+
 	glGenVertexArrays(1, &VAO);
 	glGenBuffers(1, &VBO);
 	
 	glBindVertexArray(VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 3, vertices, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) *6, vertices, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 	glBindVertexArray(0);

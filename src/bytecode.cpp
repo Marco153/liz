@@ -1288,6 +1288,13 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 
 
+		case CMP_PCKD_SSE_2_PCKD_SSE:
+		{
+			ret.code.emplace_back(0xf0);
+			ret.code.emplace_back(0xc2);
+			ret.code.emplace_back(0xc0 | (bc->bin.lhs.reg << 3) | bc->bin.rhs.reg);
+			ret.code.emplace_back(bc->bin.cmp_type);
+		}break;
 		case CMP_R_2_M:
 		{
 			CreateRegToMem(&*bc, 0x38, 0x39, ret);

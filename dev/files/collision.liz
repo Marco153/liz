@@ -90,6 +90,10 @@ gjk_state : struct
 
 	epa_faces : [EPA_MAX_NUM_FACES][4]_vec
 	epa_loose_edges : [EPA_MAX_NUM_LOOSE_EDGES][2]_vec
+	num_faces : u64
+	num_loose_edges : u64
+	closest_face : u64
+	cur_face_facing_point : u64
 
 	col1 : *collider,
 	col2 : *collider,
@@ -97,6 +101,10 @@ gjk_state : struct
 	sup1 : _vec
 	sup2 : _vec
 	dir : _vec
+
+	epa_new_sup : _vec
+	mink_diff : [64]_vec
+	mink_diff_vert : u64
 }
 simplex_push_front::fn(gjk : *gjk_state, pos : *_vec)
 {
@@ -673,15 +681,41 @@ SimpleAsm::fn x64(ret : *s32) ! s32
 		return -1;
 	}
 
-	
-
 	*ret = i + 1;
 	return 1;
 
 }
+add_vert::fn(gjk : *gjk_state, v : *_vec)
+{
+	for i in 0..gjk.mink_diff_vert
+	{
+		diff := *v - *gjk.mink_diff[cast(u64)i]
+		if dot_vec(&diff, &diff) < 0.0001
+		{
+			return
+		}
+	}
+	gjk.mink_diff[gjk.mink_diff_vert] = *v
+	gjk.mink_diff_vert++
+}
 //code from GJK.h https://github.com/kevinmoran/GJK/tree/master
 EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *collider, col2 : *collider) ! _vec
 {
+
+	cur_i : u64
+	/*
+	for v1 in col1.CUBE.verts
+	{
+		for v2 in col2.CUBE.verts
+		{
+			aux:= *v1 - *v2
+			add_vert(gjk, &aux)
+			cur_i++
+			//printf("i {cur_i}\n")
+			//globals.temp_alloc.cur = 0
+		}
+	}
+	*/
     faces := &gjk.epa_faces
     loose_edges := &gjk.epa_loose_edges
     
@@ -709,6 +743,8 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
     faces[3][3] = normalize_vec(&cross_vec(&db, &cb)); //BDC
 
     num_faces:u64=4;
+	gjk.num_faces = num_faces
+	//__dbg_break
     closest_face:u64;
 	cur_k := 0
 
@@ -727,13 +763,17 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
                 closest_face = cast(u32)i;
             }
         }
+		gjk.closest_face = closest_face
 
         //search normal to face that's closest to origin
         search_dir := *faces[cast(u64)closest_face][3]; 
         p := find_support(gjk, col1, col2, &search_dir)
 
-        if((dot_vec(&p, &search_dir)-min_dist)<EPA_TOLERANCE){
+		dot := dot_vec(&p, &search_dir)
+		dist := dot-min_dist
+        if((dist)<EPA_TOLERANCE){
             //Convergence (new point is not significantly further from origin)
+			//__dbg_break
             return *faces[cast(u64)closest_face][3] * dot_vec(&p, &search_dir); //dot vertex with normal to resolve collision along normal!
         }
 
@@ -748,6 +788,12 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
 			to_point := p-*faces[i][0] 
             if(dot_vec(faces[i][3], &to_point)>0.0) //triangle i faces p, remove it
             {
+				n := faces[i][3]
+				gjk.cur_face_facing_point = i
+				gjk.epa_new_sup = p
+				//__dbg_break
+				//view_collision(1)
+
                 //Add removed triangle's edges to loose edge list.
                 //If it's already there, remove it (both triangles it belonged to are gone)
 				for j2 in 0..3
@@ -772,18 +818,21 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
                             loose_edges[k][1] = loose_edges[num_loose_edges-1][1]; //with last edge in list
                             num_loose_edges--;
                             found_edge = true;
-                            k=num_loose_edges; //exit loop because edge can only be shared once
+                            k2=cast(s64)num_loose_edges; //exit loop because edge can only be shared once
                         }
                     }//endfor loose_edges
 
                     if(!found_edge){ //add current edge to list
                         // assert(num_loose_edges<EPA_MAX_NUM_LOOSE_EDGES);
                         if(num_loose_edges>=EPA_MAX_NUM_LOOSE_EDGES) break;
+						//__dbg_break
                         loose_edges[num_loose_edges][0] = current_edge[0];
                         loose_edges[num_loose_edges][1] = current_edge[1];
                         num_loose_edges++;
                     }
+					gjk.num_loose_edges = num_loose_edges
                 }
+				gjk.num_loose_edges = num_loose_edges
 				//printf("k loop end")
 
                 //Remove triangle i from list
@@ -792,10 +841,11 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
                 faces[i][2] = faces[num_faces-1][2];
                 faces[i][3] = faces[num_faces-1][3];
                 num_faces--;
-                i--;
+                i2--;
             }//endif p can see triangle i
         }//endfor num_faces
         
+		//__dbg_break
         //Reconstruct polytope with p added
 		for i2 in 0..num_loose_edges
         {
@@ -823,7 +873,7 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
     } //End for iterations
     //printf("EPA did not converge\n");
     //Return most recent closest point
-	__dbg_break
+	//__dbg_break
     return *faces[closest_face][3] * dot_vec(faces[closest_face][0], faces[closest_face][3]);
 }
 GetContactPointToArr::fn(vertsA : *_vec, vertsALen : u32, vertsB : *_vec, vertsBLen : u32, contacts : *_vec, contacts_count : *u64, minDist : *f32)
@@ -1055,9 +1105,9 @@ EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
 }
 PhysicsUpdate::fn(ctx : *context, dt : f32)
 {
-	gjk : gjk_state= ?
+	gjk := ctx.gjk
 	globals.ctx = cast(*void)ctx
-	globals.gjk = &gjk
+	globals.gjk = gjk
 	for e in ctx.bodies
 	{
 		if e.is_static || !e.is_active
@@ -1082,12 +1132,12 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 				*v += e2.pos
 			}
 
+
 			gjk.col1 = c1
 			gjk.col2 = c2
-			//view_collision(1)
-			if GJK(&gjk, c1, c2)
+			if GJK(gjk, c1, c2)
 			{
-				mtv := EPA(&gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2)
+				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2)
 				c1.ent.pos -= mtv
 				print_vec(&mtv)
 				e.color.x += 0.5

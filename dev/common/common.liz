@@ -10,6 +10,8 @@ DRAW_INFO_LINE:const s32 = 64;
 DRAW_INFO_TRANSPARENT:const s32 = 128;
 // 256 is used for an internal transparency stuff
 DRAW_INFO_TRIANGLE:const s32 = 512;
+DRAW_INFO_NO_PROJ:const s32 = 1024;
+DRAW_INFO_DBG_BREAK:const s32 = 0x800
 
 END_OF_LAYERS :const s32= 0xbebad0;
 SCENE_NAME_NAME_MAX : const s32= 32;

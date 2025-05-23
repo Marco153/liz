@@ -4568,6 +4568,7 @@ void Init3D(dbg_state* dbg)
 	#version 330 core\n\
 	layout (location = 0) in vec3 aPos;\n\
 	out vec4 interpCol;\n\
+	out vec3 fragPos;\n\
 	uniform mat4 model;\n\
 	uniform vec4 rot;\n\
 	uniform mat4 view;\n\
@@ -4582,8 +4583,9 @@ void Init3D(dbg_state* dbg)
 	}\n\
 	void main() {\n\
 		float t = time[0][0];\n\
-		vec4 aux = view * model * vec4(aPos, 1.0);\n\
-		gl_Position = projection * aux;\n\
+		vec4 aux = model * vec4(aPos, 1.0);\n\
+		fragPos = aux.xyz;\n\
+		gl_Position = projection * view * aux;\n\
 		interpCol = vec4(aPos.xyz, 1.0);\
 	}\
 	";
@@ -4593,9 +4595,15 @@ void Init3D(dbg_state* dbg)
 	#version 330 core\n\
 	out vec4 FragColor;\n\
 	in vec4 interpCol;\n\
+	in vec3 fragPos;\n\
 	uniform vec4 col;\n\
 	void main() {\n\
-		FragColor = vec4(interpCol.xyz, 1.0);\n\
+		vec3 dx = dFdx(fragPos);\n\
+		vec3 dy = dFdy(fragPos);\n\
+		vec3 norm = normalize(cross(dx, dy));\n\
+		vec3 lightDir = normalize(vec3(-1.0, 0.5, 0.0));\n\
+		float d = max(dot(lightDir, norm), 0.2);\n\
+		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
 		FragColor *= col;\n\
 	}\
 	";

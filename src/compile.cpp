@@ -12631,6 +12631,10 @@ void GenX64ToIrValReg2(lang_state *lang_stat, own_std::vector<byte_code>& ret, i
 		GenX64AutomaticRegDeref(lang_stat, ret, aux->deref, &aux->reg, aux->reg_sz, aux->is_float, address, aux->is_packed_float, reg_dst);
 		//out_deref--;
 	}
+	if(!address)
+	{
+		aux->deref = -1;
+	}
 	if (!address && if_its_packed_reg_mov_extended && 
 		aux->type == IR_TYPE_REG && aux->is_float && 
 		!aux->is_packed_float && aux->deref == -1)

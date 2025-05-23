@@ -11,12 +11,6 @@ signf::fn x64(a :f32) !f32
     return 1.0;
 
 }
-absf::fn x64(a :f32) !f32
-{
-	if a < 0.0 return -a;
-    return a;
-
-}
 
 col_type : etruct
 {
@@ -114,7 +108,7 @@ simplex_push_front::fn(gjk : *gjk_state, pos : *_vec)
 	memcpy(gjk.simplex[1], aux[0], 3 * 16)
 	gjk.simplex_verts = min(gjk.simplex_verts + 1, 4)
 }
-GJK ::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
+GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 {
 	unitx :_vec
 	unitx.x = 1.0
@@ -699,7 +693,7 @@ add_vert::fn(gjk : *gjk_state, v : *_vec)
 	gjk.mink_diff_vert++
 }
 //code from GJK.h https://github.com/kevinmoran/GJK/tree/master
-EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *collider, col2 : *collider) ! _vec
+EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *collider, col2 : *collider, out : * collision) ! _vec
 {
 
 	cur_i : u64
@@ -774,6 +768,7 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
         if((dist)<EPA_TOLERANCE){
             //Convergence (new point is not significantly further from origin)
 			//__dbg_break
+			out.normal = *faces[cast(u64)closest_face][3]
             return *faces[cast(u64)closest_face][3] * dot_vec(&p, &search_dir); //dot vertex with normal to resolve collision along normal!
         }
 
@@ -809,7 +804,9 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
                     {
 						k := cast(u64)k2
 						//printf("k {k}\n")
-                        if(*loose_edges[k][1] == *current_edge[0] && *loose_edges[k][0]==*current_edge[1]){
+                        if(equal_vec(loose_edges[k][1], current_edge[0]) && 
+							equal_vec(loose_edges[k][0], current_edge[1]))
+						{
                             //Edge is already in the list, remove it
                             //THIS ASSUMES EDGE CAN ONLY BE SHARED BY 2 TRIANGLES (which should be true)
                             //THIS ALSO ASSUMES SHARED EDGE WILL BE REVERSED IN THE TRIANGLES (which 
@@ -874,6 +871,7 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
     //printf("EPA did not converge\n");
     //Return most recent closest point
 	//__dbg_break
+	out.normal = *faces[cast(u64)closest_face][3]
     return *faces[closest_face][3] * dot_vec(faces[closest_face][0], faces[closest_face][3]);
 }
 GetContactPointToArr::fn(vertsA : *_vec, vertsALen : u32, vertsB : *_vec, vertsBLen : u32, contacts : *_vec, contacts_count : *u64, minDist : *f32)
@@ -1103,6 +1101,16 @@ EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
 	ASSERT(inserted);
 	return true;
 }
+CopyVerts::fn(col : *collider)
+{
+	memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
+	e := col.ent
+	for v in col.CUBE.verts
+	{
+		*v = *v * e.size
+		*v += e.pos
+	}
+}
 PhysicsUpdate::fn(ctx : *context, dt : f32)
 {
 	gjk := ctx.gjk
@@ -1113,12 +1121,9 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 		if e.is_static || !e.is_active
 			continue;
 		c1 := cast(*collider)e.col
+		e.pos += e.vel * dt
+		CopyVerts(c1)
 
-		memcpy(c1.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
-		for v in c1.CUBE.verts
-		{
-			*v += e.pos
-		}
 		for e2 in ctx.bodies
 		{
 			if *e == *e2
@@ -1126,23 +1131,20 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 			
 			c2 := cast(*collider)e2.col
 
-			memcpy(c2.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
-			for v in c2.CUBE.verts
-			{
-				*v += e2.pos
-			}
-
+			CopyVerts(c2)
 
 			gjk.col1 = c1
 			gjk.col2 = c2
 			if GJK(gjk, c1, c2)
 			{
-				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2)
+				col : collision
+				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
+				col.normal = col.normal * -1.0
+				if e.col_enter
+				{
+					e.col_enter(*e, *e2, &col)
+				}
 				c1.ent.pos -= mtv
-				print_vec(&mtv)
-				e.color.x += 0.5
-				e.color.y += 0.5
-				e.color.z += 0.5
 			}
 		}
 	}

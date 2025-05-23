@@ -46,7 +46,11 @@ NewEnt::fn(alloc : *mem_alloc, name : str_lit) ! *entity
 NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
 {
 	*out_ent = NewEnt(ctx.alloc, "playable_ent");
+	mov_info: = cast(*player_info)heap_alloc(ctx.alloc, sizeof(player_info));
+	out_ent.mov_info = mov_info;
+
 	//memset(*out_ent, 0, sizeof(entity));
+
 	/*
 	trigger := NewEnt(ctx.alloc, "trigger of playable_ent");
 	
@@ -81,6 +85,7 @@ NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
 		size.y = 1.0;
 	};
 
+	__dbg_break
 	out_ent.mov_info = mov_info;
 	add_body(ctx, trigger);
 	*/

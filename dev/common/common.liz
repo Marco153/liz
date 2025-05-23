@@ -1715,6 +1715,12 @@ maxf::fn(a :f32, b :f32)!f32
     return b;
 
 }
+absf::fn x64(a :f32) !f32
+{
+	if a < 0.0 return -a;
+    return a;
+
+}
 abss32::fn(a :s32)!s32
 {
 	if a < 0 return -a;
@@ -1727,7 +1733,14 @@ minf::fn(a :f32, b :f32)!f32
     return a;
 }
 
-
+cmpf::fn macro(a : _expr, b : _expr)
+{
+	absf(a - b) < 0.0001
+}
+equal_vec::fn(a : *_vec, b : *_vec) ! bool
+{
+	return cmpf(a.x, b.x) && cmpf(a.y, b.y) && cmpf(a.z, b.z) && cmpf(a.w, b.w)
+}
 
 
 

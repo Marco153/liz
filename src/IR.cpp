@@ -2525,7 +2525,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			{
 				AllocSpecificReg(lang_stat, 0);
 				val.ptr = call->ret_type.ptr - 1;
-				if(call->ret_type.type == TYPE_VECTOR)
+				if(call->ret_type.type == TYPE_VECTOR || call->ret_type.type == TYPE_F32)
 				{
 					val.ptr++;
 				}
@@ -3356,7 +3356,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			}break;
 			default:
 			{
-				//BREAK(e->line == 713)
+				BREAK(e->line_number == 2113)
 				ir_val* top = &stack[stack.size() - 1];
 				ir_val* one_minus_top = &stack[stack.size() - 2];
 
@@ -3400,7 +3400,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					ir.assign.to_assign.is_float = true;
 
 				if (top->type == IR_TYPE_REG)
+				{
 					FreeReg(lang_stat, top->reg);
+				}
 
 
 				/*
@@ -3414,7 +3416,14 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				if (one_minus_top->type == IR_TYPE_REG)
 				{
 					ir.assign.to_assign.type = IR_TYPE_REG;
-					ir.assign.to_assign.reg = one_minus_top->reg;
+					bool float_reg_is_free = IS_FLAG_OFF(lang_stat->float_regs[ir.assign.to_assign.reg], REG_USED_FLAG);
+					if(ir.assign.to_assign.is_float && !float_reg_is_free)
+					{
+						ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
+					}
+					else
+						ir.assign.to_assign.reg = one_minus_top->reg;
+
 				}
 				else
 				{
@@ -3423,7 +3432,10 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					else
 						ir.assign.to_assign.reg = AllocReg(lang_stat);
 				}
-				AllocSpecificReg(lang_stat, ir.assign.to_assign.reg);
+				if(ir.assign.to_assign.is_float)
+					AllocSpecificFloatReg(lang_stat, ir.assign.to_assign.reg);
+				else
+					AllocSpecificReg(lang_stat, ir.assign.to_assign.reg);
 
 
 				int min_sz = min(top->reg_sz, one_minus_top->reg_sz);

@@ -539,52 +539,6 @@ PrevInvItem::fn(inv : *inventory, cur : **inv_slot)
 		*cur = prev;
 	}
 }
-MovEntity::fn(ctx : *context, mov_info : *player_info, player_ent : *entity, keys : *input_info, dt : *f32)
-{
-	using mov_info;
-	//if player_ent.collided_entered 
-		//__dbg_break;
-
-	key_pressed := false;
-	// drawing the mask of bracelet of sincerity
-	draw : draw_info;
-
-	//cheking if spears that are on masked objs
-	// are still on the range of the mask
-
-
-	
-	on_air_attack := player_ent.state == entity_state.AIR_KICK || player_ent.state == entity_state.AXE_AIR_THROW;
-
-
-	if (keys.left_key_held) && can_move
-	{
-		mov_vel.x = -speed;
-		forward.x = -1.0;
-	}
-	else if (keys.right_key_held) && can_move
-	{
-		mov_vel.x = speed;
-		forward.x = 1.0;
-	}
-	if (keys.up_key_held) && can_move
-	{
-		mov_vel.x = -speed;
-		forward.x = -1.0;
-	}
-	else if (keys.right_key_held) && can_move
-	{
-		mov_vel.x = speed;
-		forward.x = 1.0;
-	}
-	player_ent.vel = mov_vel + player_ent.impact_vel;
-	player_ent.vel = player_ent.vel + player_ent.mov_info.platform_vel
-	
-	player_ent.vel.y = clamp(player_ent.vel.y, -20.0, 20.0);
-	player_ent.vel.x = clamp(player_ent.vel.x, -10.0, 10.0);
-	player_ent.collided_entered = false;
-
-}
 
 
 DoFreezeTime::fn(ctx : *context, max : f32, smooth : bool, dt : *f32, cam_rot : *_vec)
@@ -693,37 +647,8 @@ CreateAnim::fn(ctx : *context, start_idx : u32, end_idx : u32, texs_idxs : *u32,
 	return clip1;
 }
 
-MakeClipStopCharacterAndMore::fn(ctx : *context, cl : *clip2, stop_move_at : f32, activate_trigger_at : f32, can_start_combo_at : f32)
-{
 
-	if cl.tms.count == 1
-	{
-		regrow(&cl.tms, cl.tms.count + 1);
-		cl.tms[1].type = timeline_type.CHANGE;
-		dyn_init2(&cl.tms[1].kfs, 4, ctx.alloc);
-	}
-	if stop_move_at >= 0.0
-		anim_add_activate_kf(cl.tms[1], stop_move_at, false, activate_type.CAN_MOVE);
-	if activate_trigger_at >= 0.0
-		anim_add_activate_kf(cl.tms[1], activate_trigger_at, true, activate_type.ACTIVATE_ATTACK_TRIGGER);
-	if can_start_combo_at >= 0.0
-		anim_add_activate_kf(cl.tms[1], can_start_combo_at, true, activate_type.CAN_START_COMBO);
-}
 
-ChangeBehaviour::fn(e_ent : *entity, to : behaviour_state)
-{
-	e_ent.mov_info.this_state = to;
-	e_ent.mov_info.behaviour_timer = 0.0;
-}
-
-ChangeIfBehaviourIfStateIsTerminal::fn(ent : *entity, to : behaviour_state)
-{
-	if ent.state == entity_state.MEDIUM_KICK || ent.state == entity_state.AIR_KICK
-	{
-		ent.mov_info.this_state = to;
-	}
-
-}
 dialogue_enum:enum
 {
 	LEVEL_1_SIGN,
@@ -770,347 +695,8 @@ Cutscenes::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, dt : *f32)
 	}
 }
 
-FloatyPlatformLogic::fn(ctx : *context, dt : *f32)
-{
-	for e in ctx.floaty_platforms
-	{
-		prev_vel := &e.impact_vel;
-		if prev_vel.x == 0.0
-		{
-			*prev_vel = e.vel
-		}
-		if cast(u32)e.state  == 0
-		{
-			e.vel.x += (prev_vel.x - e.vel.x) * *dt * 2.0;
-			e.vel.y += (prev_vel.y - e.vel.y) * *dt * 2.0;
-			if e.was_hit
-			{
-				*cast(*u32)&e.state = 1;
-				e.platform_idle_time = 0.0;
-				e.was_hit = false
-				*prev_vel = e.vel;
-			}
-		}
-		if cast(u32)e.state  == 1
-		{
-			e.platform_idle_time += *dt
-			e.vel.x = 0.0;
-			e.vel.y = 0.0;
-			if e.platform_idle_time > 2.0
-			{
-				*cast(*u32)&e.state = 0;
-				prev_vel.x = -prev_vel.x;
-				prev_vel.y = -prev_vel.y;
-				e.platform_idle_time = 0.0;
-			}
-		}
-	}
-}
 
-MovPlayablesEntMov::fn(ctx : *context, dt : *f32)
-{
-    col: collision=?;
-	for e in ctx.playable_ents
-	{
-		if !e.is_active
-			continue;
-		keys: input_info;
-		if e.type == ent_type.PLAYER
-		{
-				//player_ent.vel.x = 0.0;
-			keys.up_key_held = IsKeyHeld(key_enum.KEY_UP);
-			keys.down_key_held = IsKeyHeld(key_enum.KEY_DOWN);
-			keys.left_key_held = IsKeyHeld(key_enum.KEY_LEFT);
-			keys.right_key_held = IsKeyHeld(key_enum.KEY_RIGHT);
-			keys.left_key_held = IsKeyHeld(key_enum.KEY_LEFT);
-			keys.horizontal_key_held = keys.left_key_held || keys.right_key_held;
-			keys.down_key_held = IsKeyHeld(key_enum.KEY_DOWN);
-			keys.jmp_key_held = IsKeyHeld(key_enum.KEY_JMP);
-			keys.jmp_key_up = IsKeyUp(key_enum.KEY_JMP);
-			keys.attack_key_down = IsKeyDown(key_enum.KEY_ACT0);
-			keys.attack2_key_down = IsKeyDown(key_enum.KEY_ACT1);
-			keys.attack2_key_up = IsKeyUp(key_enum.KEY_ACT1);
-			keys.attack2_key_held = IsKeyHeld(key_enum.KEY_ACT1);
-	
-			if e.mov_info 
-				MovEntity(ctx, e.mov_info, *e, &keys, dt);
-			hit_ent := e.dmg.hit_ent;
-			//changing scenes
-			if hit_ent != nil
-			{
-				if hit_ent.type == ent_type.CHANGE_SCENE_TRIGGER
-				{
-					aux_buffer :[64]char;
-					//__dbg_break;
-					sprintf(aux_buffer[0], 64, "%%", "../scenes/", hit_ent.scene.change_to_scene_name);
-					ctx.character_start_obj_idx = hit_ent.scene.character_start_idx;
-					OpenSceneGame(ctx, cast(str_lit)aux_buffer[0], ctx.layers_ptr, &ctx.textures);
-					return;
-				}
-				else if hit_ent.type == ent_type.RESET_LEVEL
-				{
-					e.pos = ctx.player_start_level_pos;
-				}
-				e.dmg.hit_ent = nil;
-				
-			}
-			//e.tex_size_x += *dt;
-			//e.tex_size_y += *dt;
 
-			if IsKeyDown(key_enum.KEY_UP) && ctx.cutscene_idx == 0
-			{
-				for c in e.ents_in_collision
-				{
-					if c.in_col && c.ent.type ==  ent_type.INTERACT
-					{
-						//idx := c.ent.event.interact_idx;
-						ctx.cutscene_idx = c.ent.event.interact_idx;
-						//__dbg_break;
-					}
-					
-				}
-			}
-		}
-		else if e.type == ent_type.ENEMY
-		{
-			if e.enemy_type == enemy_enum.THRAXER
-			{
-				//e.mov_info.
-				dist_to_axe := 400.0;
-				if !e.mov_info.axe_ent
-				{
-					max_dist := 40.0;
-					for a in ctx.axe_ents
-					{
-						cur_dist := absf(e.pos.x - a.pos.x);
-						if cur_dist < max_dist
-						{
-							max_dist = cur_dist;
-							e.mov_info.axe_ent = *a;
-						}
-					}
-				}
-				else
-				{
-					dir_to_axe := e.pos - e.mov_info.axe_ent.pos;
-					dist_to_axe = dot_vec(&dir_to_axe, &dir_to_axe);
-					if !e.mov_info.axe_ent.is_active
-					{
-						dist_to_axe = 400.0;
-					}
-				}
-				
-				dist_x := ctx.player.pos.x - e.pos.x;
-				e.forward.x = sign(dist_x);
-				if e.state == entity_state.THRAXER_IDLE
-				{
-					e.cl = ctx.thraxer_idle;
-					if dist_to_axe < 16.0
-					{
-						ChangeState(*e, entity_state.THRAXER_DEFEND);
-					}
-
-				}
-				else if e.state == entity_state.THRAXER_DEFEND
-				{
-					e.cl = ctx.thraxer_defend;
-					if e.mov_info.trigger.dmg.hit || dist_to_axe > 64.0
-					{
-						if e.cl.vel > 0.0
-							e.cl.vel = e.cl.vel * -1.0;
-						if e.clip_time <= 0.0
-						{
-							e.cl.vel = e.cl.vel * -1.0;
-							e.mov_info.trigger.dmg.hit = false;
-							e.mov_info.trigger.is_active = false;
-							ChangeState(*e, entity_state.THRAXER_IDLE);
-						}
-					}
-				}
-			}
-			else if e.enemy_type == enemy_enum.WOLF
-			{
-				dist_x := ctx.player.pos.x - e.pos.x;
-				e.mov_info.trigger.is_active = true;
-				//PrintV3(cast(f32)cast(u32)e.state, 0.0, 0.0);
-				if !e.on_ground
-				{
-					e.vel.y += -4.0 * *dt; 
-				}
-				else
-					e.vel.y = -0.0;
-				e.vel.y = clamp(e.vel.y, -20.0, 20.0);
-					
-				if e.state == entity_state.IDLE
-				{
-					e.cl = ctx.wolf_idle;
-					if dist_x < 5.0
-					{
-						e.state = entity_state.WALK;
-						e.mov_info.prev_player_pos = ctx.player.pos;
-						dir_to_player := e.mov_info.prev_player_pos.x - e.pos.x;
-						e.forward.x = sign(dir_to_player);
-
-					}
-				}
-				else if e.state == entity_state.WOLF_BACK_TO_ORIGIN
-				{
-					dist_to_origin_x := e.mov_info.origin_pos.x - e.pos.x;
-					sign_x := sign(dist_to_origin_x);
-					e.vel.x = sign_x * 3.0;
-					e.forward.x = sign_x;
-					
-					if absf(dist_to_origin_x)  < 1.0
-					{
-						e.state = entity_state.IDLE;
-						e.vel.x = 0.0;
-					}
-				}
-				else if e.state == entity_state.WALK
-				{
-					e.cl = ctx.wolf_walk;
-					a:=0;
-					
-					start_pos:_vec = ? ;
-					end_pos:_vec = ? ;
-		
-					start_pos = e.pos + e.forward * 1.5;
-					end_pos = e.pos + e.forward * 1.5;
-					end_pos.y -= 10.0;
-		
-					out_ent: *entity;
-					if !Raycast(ctx, &start_pos, &end_pos, &col, LAYER_TRIGGER, &out_ent)
-					{
-						e.state = entity_state.WOLF_BACK_TO_ORIGIN;
-						//PrintV3(1.0, 0.0, 0.0);
-						e.vel.x = 0.0;
-					}
-					else
-						e.vel.x = e.forward.x * 5.0;
-					
-				}
-			}
-		}
-	}
-}
-EnemyMovLogic::fn(ctx : *context, e_ent : *entity, p_ent : *entity, ekeys : *input_info, dt : f32)
-{
-	if e_ent.knockedout
-		return;
-	x_dir: = e_ent.pos.x - p_ent.pos.x;
-	y_dir: = e_ent.pos.y - p_ent.pos.y;
-	aux_state: = e_ent.mov_info.this_state;
-	key_towards_player:*bool;
-	key_away_player:*bool;
-	if x_dir > 0.0
-	{
-		key_towards_player = &ekeys.left_key_held;
-		key_away_player = &ekeys.right_key_held;
-	}
-	else
-	{
-		key_away_player  = &ekeys.left_key_held;
-		key_towards_player= &ekeys.right_key_held;
-	}
-
-	e_ent.mov_info.behaviour_timer += dt;
-	btimer := &e_ent.mov_info.behaviour_timer;
-
-	//e_ent.mov_info.this_state = behaviour_state.JUMP;
-
-	if aux_state == behaviour_state.IDLE
-	{
-		if absf(x_dir) < 3.0 && absf(y_dir) < 1.0
-		{
-			val: = Rand01();
-			//PrintV3(val, 0.0, 0.0);
-			//if val > 0.5
-				ChangeBehaviour(e_ent, behaviour_state.MAINTAIN_DISTANCE);
-			//else
-				//ChangeBehaviour(e_ent, behaviour_state.WAIT);
-		}
-		if absf(x_dir) < 10.0 && *btimer > 4.0
-		{
-			ChangeBehaviour(e_ent, behaviour_state.GET_CLOSER_THEN_ATTACK);
-		}
-	}
-	else if aux_state == behaviour_state.WAIT
-	{
-		if* btimer > 1.0
-			ChangeBehaviour(e_ent, behaviour_state.IDLE);
-	}
-	else if aux_state == behaviour_state.JUMP
-	{
-		if absf(x_dir) > 1.0
-		{
-			*key_towards_player = true;
-		}
-
-		if *btimer < 0.4
-			ekeys.jmp_key_held = true;
-		if *btimer > 0.8
-		{
-			ekeys.attack_key_down = true;
-			//ekeys.jmp_key_up = true;
-			ChangeIfBehaviourIfStateIsTerminal(e_ent, behaviour_state.IDLE);
-		}
-	}
-	else if aux_state == behaviour_state.GET_CLOSER_THEN_ATTACK
-	{
-		*key_towards_player = true;
-		if absf(x_dir) < 1.5
-		{
-			ekeys.attack_key_down = true;
-		}
-		ChangeIfBehaviourIfStateIsTerminal(e_ent, behaviour_state.IDLE);
-	}
-	else if aux_state == behaviour_state.MAINTAIN_DISTANCE
-	{
-		if absf(x_dir) < 4.0 && absf(y_dir) < 1.0
-		{
-			e_ent.mov_info.speed = p_ent.mov_info.speed;
-			if x_dir > 0.0
-				ekeys.right_key_held = true;
-			else
-				ekeys.left_key_held = true;
-
-			if* btimer > 1.0
-			{
-				val: = Rand01();
-				if  val > 0.5
-				{
-					ChangeBehaviour(e_ent, behaviour_state.GET_CLOSER_THEN_ATTACK);
-				}
-				else
-					ChangeBehaviour(e_ent, behaviour_state.JUMP);
-
-			}
-		}
-		else
-			e_ent.mov_info.this_state = behaviour_state.IDLE;
-	}
-	else
-		__dbg_break;
-}
-
-MovTriggerToCloserToEnt::fn(ctx : *context)
-{
-	if ctx.playable_ents.count == 0
-		return;
-	for e in ctx.playable_ents
-	{
-		if !e.mov_info
-			continue;
-		player_ent: = *e;
-		player_ent_trigger: = e.mov_info.trigger;
-		pinfo: = e.mov_info;
-
-		player_ent_trigger.pos = player_ent.pos;
-		player_ent_trigger.pos.x += player_ent.forward.x;
-		player_ent_trigger.col_size.x = pinfo.trig_info.size.x * player_ent.forward.x * 1.1;
-		player_ent_trigger.col_size.y = pinfo.trig_info.size.y;
-	}
-}
 MakeEntMasked::fn(ctx : *context, ent : *entity, masked :  *masked_info)
 {
 	ent.flags = ent.flags | ENTITY_IS_MASKED;
@@ -1127,323 +713,6 @@ FreeArrayOfEnts::fn(ar : *dyn_array(*entity))
 		e.flags = ENTITY_DONT_FREE;
 		heap_free(ar.alloc, *e);
 		
-	}
-}
-OpenSceneGame::fn(ctx:*context, name : str_lit, layers : *dyn_array(*layer_sprites), textures : *dyn_array(texture_info))
-{
-	InitMemAlloc(ctx.alloc, ctx.alloc.chunks_cap)
-	//globals.allocs_occured.cur = 0
-	for l in *layers
-	{
-		for sh in l.cells
-		{
-			//FreeSheet(alloc, sh.sheet);
-			FreeTexture(sh.SPRITE.sheet.tex_id);
-		}
-		*l = nil;
-		/*
-		if l.type == layer_enum.OBJ
-		{
-			for c in l.cells
-			{
-				if c.obj.type == layer_obj_enum.CHANGE_SCENE_TRIG
-					heap_free(ctx.alloc, c.obj.add_info);
-			}
-		}
-		*/
-	}
-	/*
-	FreeArrayOfEnts(&ctx.bodies);
-	FreeArrayOfEnts(&ctx.playable_ents);
-	FreeArrayOfEnts(&ctx.ents_with_clip);
-	*/
-	for e in ctx.bodies
-	{
-		for c in e.ents_in_collision
-		{
-			c.in_col = false;
-		}
-		if is_flag_on(e.flags, ENTITY_DONT_FREE | ENTITY_FREED)
-		{
-			continue;
-		}
-		//heap_free(e.ents_in_collision.alloc, e.ents_in_collision.data);
-	}
-	SetMem(ctx.already_allocated_mem_count);
-	globals.entities.cur = ctx.already_allocated_ents_count;
-	globals.str_alloc.cur = ctx.already_allocated_str_count;
-	//globals.allocs_occured : linear_alloc(*u8),
-	
-	dyn_clear(&ctx.playable_ents);
-	dyn_clear(&ctx.drawable_ents);
-	dyn_clear(&ctx.masking_objs);
-	dyn_clear(&ctx.ents_with_clip);
-	dyn_clear(&ctx.axe_ents);
-	dyn_clear(&ctx.floaty_platforms);
-	
-	aux__vec:= &ctx.player.pos;
-	dyn_add(&ctx.masking_objs, &aux__vec);
-	dyn_clear(&ctx.bodies);
-	
-	file := OpenScene(ctx.alloc, name, layers, &ctx.textures);
-
-	//__dbg_break;
-	for l in *layers
-	{
-		if l.type == layer_enum.COL
-		{
-			for c in l.cells
-			{
-				ent := NewEnt(ctx.alloc, "collider");
-				ent.is_active = true;
-				ent.pos = c.COL.pos;
-				ent.col_size = c.COL.sz;
-				ent.type = ent_type.STATIC_COL;
-				ent.is_static = true;
-				if c.masked.is_masked
-				{
-					MakeEntMasked(ctx, ent, &c.masked);
-					//ent. = ENTITY_IS_MASKED;
-				}
-				add_body(ctx, ent);
-				
-			}
-		}
-		else if l.type == layer_enum.SPRITE
-		{
-			for sh in l.cells
-			{
-				//__dbg_break
-				ent := NewEnt(ctx.alloc, "sprite");
-				test := heap_alloc(ctx.alloc, 1);
-				sheet := sh.SPRITE.sheet;
-				ent.pos = sheet.pos;
-				ent.size = sheet.sz;
-				ent.is_active = true;
-				ent.color.{x = 1.0; y = 1.0; z = 1.0; w = 1.0 };
-				ent.tex_id = cast(u32)sheet.tex_id;
-				ent.pos.z = 0.8;
-				ent.flags = ent.flags | DRAW_INFO_HAS_TEXTURE;
-				dyn_add(&ctx.drawable_ents, &ent);
-				
-				if sh.masked.is_masked
-				{
-					MakeEntMasked(ctx, ent, &sh.masked);
-					a := 0;
-					//ent. = ENTITY_IS_MASKED;
-				}
-				
-				if cast(layer_obj_enum)sheet.obj_type == layer_obj_enum.FLOATY_PLATFORM
-				{
-					ent.type = ent_type.FLOATY_PLATFORM;
-					ent.col_enter = floaty_platform_col_enter;
-					ent.col_size = ent.size;
-					ent.vel.x = -5.0;
-					add_body(ctx, ent);
-					dyn_add(&ctx.floaty_platforms, &ent)
-				}
-			}
-		}
-		else if l.type == layer_enum.OBJ
-		{
-			
-			for c in l.cells
-			{
-				if c.OBJ.type == layer_obj_enum2.PLAYER
-				{
-					
-					dyn_add(&ctx.playable_ents, &ctx.player); 
-					dyn_add(&ctx.playable_ents, &ctx.player.mov_info.axe_ent); 
-					
-					dyn_add(&ctx.drawable_ents, &ctx.player);
-					dyn_add(&ctx.drawable_ents, &ctx.player.mov_info.axe_ent);
-					
-					
-					dyn_add(&ctx.ents_with_clip, &ctx.player);
-					__dbg_break
-					dyn_add(&ctx.bodies, &ctx.player); 
-					dyn_add(&ctx.bodies, &ctx.player.mov_info.axe_ent); 
-					dyn_add(&ctx.bodies, &ctx.player.mov_info.trigger); 
-					
-					dyn_add(&ctx.axe_ents, &ctx.player.mov_info.axe_ent);
-					
-					ctx.player_start_level_pos = c.OBJ.pos;
-					
-					ctx.player.pos = c.OBJ.pos;
-					ctx.player.pos.z = 0.1;
-					ctx.player.dont_res_cols_with_layers = LAYER_ENEMY;
-					ctx.player.layer = ctx.player.layer | LAYER_PLAYER;
-					ctx.player.type = ent_type.PLAYER;
-					ctx.player.mov_info.axe_ent.is_active = false;
-					ctx.player.mov_info.axe_ent.pos.z = 0.5;
-					ctx.player.is_trigger = false;
-					
-					
-
-					ctx.player.mov_info.max_spears = 1;
-					max_spears := ctx.player.mov_info.max_spears;
-					ctx.player.mov_info.spears = cast(*entity)heap_alloc(ctx.alloc, sizeof(*entity) * max_spears);
-					ctx.player.mov_info.cur_spear = 0;
-					
-					// instatiatitg spears
-					for i in 0..max_spears
-					{
-						spear := ptr_offset(ctx.player.mov_info.spears, i, *entity);
-						*spear = NewEnt(ctx.alloc, "spear");
-						spear.col_enter = spear_collision_enter;
-						spear.pivot.x = 0.5;
-						spear.pivot.y = 0.35;
-						spear.layer = LAYER_MAYBE_ONLY_UP_COL;
-						spear.dont_res_cols_with_layers = LAYER_PLAYER;
-						spear.spear_idle_tex_idx = *ptr_offset(ctx.spear_texs.tex_idxs, 4, u32);
-						spear.type = ent_type.SPEAR;
-						
-						spear.size.x = 2.0;
-						spear.size.y = 2.0;
-						spear.col_size.x = 1.7;
-						spear.col_size.y = 0.5;
-						
-						spear.color.x = 1.0;
-						spear.color.y = 1.0;
-						spear.color.z = 1.0;
-						spear.color.w = 1.0;
-						spear.flags = ENTITY_HAS_TEXTURE;
-						//spear.flags = spear.flags | ENTITY_DONT_FREE;
-						spear.cl = ctx.spear_clip;
-						
-						add_body(ctx, *spear);
-						dyn_add(&ctx.drawable_ents, spear);
-						dyn_add(&ctx.ents_with_clip, spear);
-					}
-					
-					
-					//ctx.player.col_exit = player_collision_exit;
-				}
-				else if c.OBJ.type == layer_obj_enum2.ENEMY
-				{
-					ent :*entity;
-					NewPlayableEnt(ctx, &ent, true);
-					ent.is_active = true;
-					ent.type = ent_type.ENEMY;
-					ent.enemy_type = c.OBJ.ENEMY.enemy_type;
-
-					ent.pos = c.OBJ.pos;
-					ent.size.x = 2.0;
-					ent.size.y = 2.0;
-					ent.pivot.x = 0.5;
-					ent.pivot.y = 0.5;
-					ent.mov_info.origin_pos = ent.pos;
-					ent.forward.x = 1.0;
-					ent.col_size = ent.size;
-					ent.col_exit = nil;
-					ent.col_enter = nil;
-					ent.flags = ent.flags | DRAW_INFO_HAS_TEXTURE;
-					ent.mov_info.trigger.type = ent_type.DEFENSE;
-					ent.layer = LAYER_ENEMY;
-					
-					ctx.thraxer_trigger = ent.mov_info.trigger;
-					
-					dyn_add(&ctx.drawable_ents, &ent);
-					dyn_add(&ctx.ents_with_clip, &ent);
-
-					if c.OBJ.ENEMY.enemy_type == enemy_enum.THRAXER
-					{
-						ent.tex_id = *ctx.thraxer_texs.tex_idxs;
-						//ent.dont
-						ent.is_trigger = true;
-					}
-					else if c.OBJ.ENEMY.enemy_type == enemy_enum.WOLF
-					{
-						ent.tex_id = *ctx.wolf_texs.tex_idxs;
-						ent.col_size.y = 1.0;
-						ent.pivot.y = 0.0;
-						ent.mov_info.trig_info.size.y = 2.0;
-						ent.dont_res_cols_with_layers = LAYER_PLAYER;
-						ent.is_trigger = false;
-					}
-				}
-				else if c.OBJ.type == layer_obj_enum2.CAM_RESTRAINT
-				{
-					ctx.cur_cam_rest = cast(*cam_restraint)&c.OBJ.pos;
-				}
-				else if c.OBJ.type == layer_obj_enum2.INTERACT
-				{
-					ent := NewEnt(ctx.alloc, "interact");
-					//ent.change_to_scene_name = cast(str_lit)heap_alloc(ctx.alloc, SCENE_NAME_NAME_MAX);
-					//__dbg_break
-					ent.event.interact_idx = c.OBJ.INTERACT.interact_idx;
-					//ent.event.interact_idx = c.obj.interact_idx;
-					ent.type = ent_type.INTERACT;
-					//ent.event.interact_idxin = c.obj.interact_idx;
-					ent.is_active = true;
-					ent.is_trigger = true;
-					add_body(ctx, ent);
-					ent.col_size = c.OBJ.sz;
-					ent.size = c.OBJ.sz;
-					ent.pos = c.OBJ.pos;
-				}
-				else if c.OBJ.type == layer_obj_enum2.CHANGE_SCENE_TRIG
-				{
-					ent := NewEnt(ctx.alloc, "change scene");
-					//ent.change_to_scene_name = cast(str_lit)heap_alloc(ctx.alloc, SCENE_NAME_NAME_MAX);
-					//__dbg_break
-					ent.scene.change_to_scene_name = c.OBJ.CHANGE_SCENE_TRIG.add_info;
-					ent.scene. character_start_idx = c.OBJ.CHANGE_SCENE_TRIG.scene_character_start_idx;
-					ent.type = ent_type.CHANGE_SCENE_TRIGGER;
-					ent.col_enter = change_scene_collision_enter;
-					ent.col_exit = nil;
-					ent.is_active = true;
-					ent.is_trigger = true;
-					add_body(ctx, ent);
-					ent.col_size = c.OBJ.sz;
-					ent.size = c.OBJ.sz;
-					ent.pos = c.OBJ.pos;
-				}
-				else if c.OBJ.type == layer_obj_enum2.CHARACTER_START_POS
-				{
-					sinfo:start_pos_info
-					sinfo.pos = c.OBJ.pos;
-					sinfo.idx = c.OBJ.CHARACTER_START_POS.scene_character_start_idx
-					dyn_add(&ctx.start_pos, &sinfo)
-					//sinfo.
-					//ctx.start_pos
-				}
-				else if c.OBJ.type == layer_obj_enum2.RESET_LEVEL
-				{
-					ent := NewEnt(ctx.alloc, "reset level");
-					//ent.change_to_scene_name = cast(str_lit)heap_alloc(ctx.alloc, SCENE_NAME_NAME_MAX);
-					//__dbg_break
-					ent.type = ent_type.RESET_LEVEL;
-					ent.col_enter = nil;
-					ent.col_exit = nil;
-					ent.is_active = true;
-					ent.is_trigger = true;
-					add_body(ctx, ent);
-					ent.col_size = c.OBJ.sz;
-					ent.size = ent.col_size;
-					ent.pos = c.OBJ.pos;
-				}
-				else
-				{
-					// layer_obj not handled
-					printf("not handled: %\n", cast(u32)c.OBJ.type)
-					__dbg_break;
-				}
-			}
-		}
-	}
-	heap_free(ctx.alloc, file);
-	
-	if ctx.character_start_obj_idx > 0
-	{
-		//found := false
-		for s in ctx.start_pos
-		{
-			if s.idx == ctx.character_start_obj_idx
-			{
-				ctx.player.pos = s.pos;
-			}
-		}
 	}
 }
 
@@ -1528,31 +797,9 @@ NewPlayerEnt::fn(ctx : *context, name : str_lit) ! *entity
 	pinfo: = player_ent.mov_info;
 	pinfo.{
 		speed = 5.0;
-		can_move = true;
-		jmp.speed = 15.0;
-		forward.x = 1.0;
-		has_axe = true;
-		jmp.off_ground_can_jmp_time = 0.2;
-		trigger = player_ent_trigger;
-		trig_info.{
-			time = 0.2;
-			size.x = 1.0;
-			size.y = 1.0;
-		};
 	};
 	
 	mov_info := player_ent.mov_info;
-	mov_info.usable_items = NewInventory(ctx, 2);
-	mov_info.usable_items.items[0].item = inv_item.BRACELET_OF_SINCERITY;
-	mov_info.weapons_inv = NewInventory(ctx, 4);
-	
-	mov_info.cur_weapon = mov_info.weapons_inv.items[0];
-	mov_info.cur_weapon.item = inv_item.AXE;
-	
-	mov_info.cur_weapon = mov_info.weapons_inv.items[1];
-	mov_info.cur_weapon.item = inv_item.SPEAR;
-	
-	mov_info.cur_weapon = mov_info.weapons_inv.items[0];
 	
 	player_ent.flags = player_ent.flags | ENTITY_HAS_TEXTURE;
 	
@@ -2596,6 +1843,86 @@ print_f32::fn(a : f32)
 {
 	printf("f %\n", cast(s32)(a * 100.0))
 }
+player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
+{
+	player_ent := ctx.player
+	forward := &player_ent.forward
+	cross := cross_vec(&ctx.up, ctx.cam_forward_global)
+	mov := player_ent.mov_info
+	on_ground := player_ent.on_ground
+	grav := &mov.gravity_vel
+
+	if on_ground
+	{
+		grav.y = -0.5
+		mov.jmp.vel.y = 0.0
+		if IsKeyDown(key_enum.KEY_JMP)
+		{
+			player_ent.vel.y = 0.0
+			mov.jmp.vel.y = 1.0 * mov.jmp.speed
+		}
+	}
+	else
+	{
+		grav.y += -25.0 * *dt
+	}
+
+	
+	if IsKeyHeld(key_enum.KEY_W)
+	{
+		mov.v += *dt * mov.speed
+	}
+	else if IsKeyHeld(key_enum.KEY_S)
+	{
+		mov.v -= *dt * mov.speed
+	}
+	else
+	{
+		mov.v += -mov.v * *dt * mov.speed
+	}
+
+
+	if IsKeyHeld(key_enum.KEY_A)
+	{
+		mov.h += *dt * mov.speed
+	}
+	else if IsKeyHeld(key_enum.KEY_D)
+	{
+		mov.h -= *dt * mov.speed
+	}
+	else
+	{
+		mov.h += -mov.h * *dt * mov.speed
+	}
+	mov.v = clamp(mov.v, -1.0, 1.0)
+	mov.h = clamp(mov.h, -1.0, 1.0)
+
+	mov.ab = (absf(mov.v) + absf(mov.h))
+	weight := clamp(mov.ab - 1.0, 0.0, 1.0) + 1.0
+	actual_forward := *ctx.cam_forward_global * mov.v + cross * mov.h
+	actual_forward = actual_forward / weight
+	if mov.on_getting_to_back_pos
+	{
+		actual_forward.x = 0.0
+		actual_forward.y = 0.0
+		actual_forward.z = 0.0
+	}
+	player_ent.vel = actual_forward * mov.speed + *grav
+	player_ent.vel += mov.jmp.vel
+
+
+	if dot_vec(&actual_forward, &actual_forward) > 0.01 && !mov.on_rotating_cam
+	{
+		*forward = normalize_vec(&actual_forward)
+	}
+	//print_vec(&actual_forward)
+
+
+	ang := angle_on_axis(aux_forward, forward, &ctx.up)
+	player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
+	player_ent.on_ground = false
+	//OpenLocalsWindow(__LINE__);
+}
 
 main_loop::fn(ctx : *context)
 {
@@ -2636,6 +1963,9 @@ main_loop::fn(ctx : *context)
 
 
 	player_ent:*entity=NewPlayerEnt(ctx, "player");
+
+	player_ent.mov_info.speed = 10.0
+	player_ent.mov_info.jmp.speed = 4.0
 
 	ctx.player = player_ent;
 	
@@ -2684,10 +2014,12 @@ main_loop::fn(ctx : *context)
 
 	other := NewEnt(ctx.alloc, "block 1")
 	other.flags = other.flags | ENTITY_3D
+	add_body(ctx, other)
 	dyn_add(&ctx.drawable_ents, other)
 	other.is_active = true
+	other.is_static = true
 	other.pos.x = 0.0
-	other.pos.y = -2.0
+	other.pos.y = -3.0
 	other.size.z = 20.0
 	other.size.x = 20.0
 
@@ -2713,15 +2045,14 @@ main_loop::fn(ctx : *context)
 	other.pos.y = -1.0
 	other.pos.x = -0.1
 	other.pos.z = -20.6
-	other.size.z = 1.0
+	other.size.z = 8.0
 	other.is_active = true
 	other.is_static = true
 
 	mx := GetMouseScreenPosX();
 	my := GetMouseScreenPosY();
 
-	forward : _vec
-	forward.z = -1.0
+	player_ent.forward.z = -1.0
 
 	cam_forward : _vec
 	cam_forward.z = -1.0
@@ -2750,7 +2081,10 @@ main_loop::fn(ctx : *context)
 
 	player_back_pos := player_ent.pos - cam_forward * cam_to_player_dist + ctx.up * 2.0
 	cam_start_pos_before_rotate_to_back_pos :_vec
-	on_rotating_cam := false
+	on_getting_to_back_pos := false
+	forward := &player_ent.forward
+	pmov := player_ent.mov_info
+	cam_up_dist := 2.0
 	while !ShouldClose(ctx.window)
 	{
 		globals.timer = 0.0;
@@ -2778,127 +2112,89 @@ main_loop::fn(ctx : *context)
 		ctx.time_since_start += dt
 
 
-		ClearBackground(0.7, 0.7, 0.7);
+		ClearBackground(0.2, 0.5, 0.8);
 
 		f := 0.5
-		player_ent.color.x = f
-		player_ent.color.y = f
-		player_ent.color.z = f
+		player_ent.color.x = 1.0
+		player_ent.color.y = 0.0
+		player_ent.color.z = 0.0
 		other.color.x = f
 		other.color.y = f
 		other.color.z = f
 
 		ang: f32=?
 		cross := cross_vec(&ctx.up, &cam_forward)
-		if IsKeyHeld(key_enum.KEY_W)
-		{
-			v += dt * speed
-		}
-		else if IsKeyHeld(key_enum.KEY_S)
-		{
-			v -= dt * speed
-		}
-		else
-		{
-			v += -v * dt * speed
-		}
-
-		if IsKeyHeld(key_enum.KEY_A)
-		{
-			h += dt * speed
-		}
-		else if IsKeyHeld(key_enum.KEY_D)
-		{
-			h -= dt * speed
-		}
-		else
-		{
-			h += -h * dt * speed
-		}
-		v = clamp(v, -1.0, 1.0)
-		h = clamp(h, -1.0, 1.0)
-
-		ab := (absf(v) + absf(h))
-		weight := clamp(ab - 1.0, 0.0, 1.0) + 1.0
-		actual_forward := cam_forward * v + cross * h
-		actual_forward = actual_forward / weight
-		player_ent.pos += actual_forward * dt * speed
-
-		if dot_vec(&actual_forward, &actual_forward) > 0.01 && !on_rotating_cam
-		{
-			forward = normalize_vec(&actual_forward)
-		}
-		//print_vec(&actual_forward)
-
-
-		ang = angle_on_axis(&aux_forward, &forward, &ctx.up)
-		player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
+		player_mov(ctx, &aux_forward, &dt)
 
 		//cam_mov(ctx)
 
 		
 		add_cam_forward := cam_forward
-		if ab > 1.5
+		if pmov.ab > 1.5
 		{
 
-			add_cam_forward += (forward - add_cam_forward)
+			add_cam_forward += (*forward - add_cam_forward)
 		}
 
-		target_pos := player_ent.pos - add_cam_forward * cam_to_player_dist + ctx.up * 2.0
+		//__dbg_break
+		player_pos := player_ent.pos
+		dot_up := dot_vec(&ctx.up, &(cam_pos - player_pos))
+		
+		target_pos := player_pos - add_cam_forward * cam_to_player_dist + ctx.up * cam_up_dist
 
 		if IsKeyDown(key_enum.KEY_ACT0)
 		{
 			timer_for_cam_go_back_of_player = 0.0
 			cam_start_pos_before_rotate_to_back_pos = player_back_pos
-			ang_diff_for_cam_go_back_of_player = angle_on_axis(&cam_forward, &forward, &ctx.up)
-			print_f32(ang_diff_for_cam_go_back_of_player)
-			if(ang_diff_for_cam_go_back_of_player < -PI)
-			{
-				__dbg_break
-				ang_diff_for_cam_go_back_of_player = angle_on_axis(&cam_forward, &forward, &ctx.up)
-			}
+			ang_diff_for_cam_go_back_of_player = angle_on_axis(&cam_forward, forward, &ctx.up)
 		}
 		add_mul := 1.0
+
+		pmov.on_getting_to_back_pos = false
 		if IsKeyHeld(key_enum.KEY_ACT0)
 		{
 			timer_for_cam_go_back_of_player += dt
 			time_for_complete_rot := 0.5
-			on_rotating_cam = true
+			pmov.on_rotating_cam = true
 			add_mul = 4.0
 			if timer_for_cam_go_back_of_player < (time_for_complete_rot + 0.1)
 			{
-				local_pos_back_rot := cam_start_pos_before_rotate_to_back_pos - player_ent.pos
+				local_pos_back_rot := cam_start_pos_before_rotate_to_back_pos - player_pos
+
+				pmov.on_getting_to_back_pos = true
 
 				p := timer_for_cam_go_back_of_player / time_for_complete_rot
 				p = clamp(p, 0.0, 1.0)
 
 				ang = p * ang_diff_for_cam_go_back_of_player
 				local_pos_back_rot = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * local_pos_back_rot
-				target_pos = local_pos_back_rot + player_ent.pos
+				target_pos = local_pos_back_rot + player_pos
 				player_back_pos = target_pos
 			}
 			else
 			{
-				target_pos = player_ent.pos - forward * cam_to_player_dist + ctx.up * 2.0
+				target_pos = player_pos - *forward * cam_to_player_dist + ctx.up * cam_up_dist
 				player_back_pos = target_pos
 			}
 		}
 		else
-			on_rotating_cam = false;
+			pmov.on_rotating_cam = false;
 		
 		player_back_pos += (target_pos - player_back_pos) * dt * 4.0
-		dir_to_player := (cam_pos-player_ent.pos)
+		dir_to_player := (cam_pos-player_pos)
 		dist := len_vec(&dir_to_player)
 
-		if dist <= cam_to_player_dist && !on_rotating_cam
+		if dist <= cam_to_player_dist && !pmov.on_rotating_cam
 		{
-			target_pos_limit := player_ent.pos - cam_forward * cam_to_player_dist + ctx.up * 2.0
+			target_pos_limit := player_pos - cam_forward * cam_to_player_dist + ctx.up * cam_up_dist
 			target_pos_to_other := target_pos - target_pos_limit
 			player_back_pos = target_pos_limit
 		}
 		dir_to_cam := (player_back_pos - cam_pos)
 
-		cam_pos += dir_to_cam * dt * 4.0 * add_mul
+		print_f32(dot_up)
+
+		cam_pos += dir_to_cam * dt * 2.0 * add_mul
 		
 		dir := ctx.player.pos - cam_pos
 		dist = len_vec(&dir)
@@ -2913,6 +2209,7 @@ main_loop::fn(ctx : *context)
 		PhysicsUpdate(ctx, dt)
 		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
 
+/*
 		color : _vec=?
 		color.x = 0.0
 		color.y = 0.0
@@ -2932,6 +2229,7 @@ main_loop::fn(ctx : *context)
 		color.z = 0.0
 		draw_line(ctx, &line_start, &line_end, &color, DRAW_LINE_NO_PROJ)
 		ctx.cam_pos_global = &cam_pos
+		*/
 
 		mx = GetMouseNormalizedPosX() - curmx;
 		my = GetMouseNormalizedPosY() - curmy;

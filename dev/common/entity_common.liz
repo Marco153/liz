@@ -241,6 +241,7 @@ jmp_info: struct
 	time_off_ground :f32,
 	speed :f32,
 	off_ground_can_jmp_time :f32,
+	vel : _vec
 }
 axe_info: struct
 {
@@ -270,46 +271,21 @@ player_info: struct
 		mov_vel : _vec,
 		origin_pos : _vec,
 	}
+	h : f32
+	v : f32
+	ab : f32
+
+	max_y_cam_pos : f32
+	min_y_cam_pos : f32
+
+	on_getting_to_back_pos : bool
+	on_rotating_cam:bool
 	gravity_vel : _vec,
 	platform_vel : _vec,
 	platform : *entity,
 	trigger : *entity,
-	enemy_state : entity_state,
-	this_state : behaviour_state,
-	trig_info : trigger_info,
-	usable_items : *inventory,
-	has_bracelet : bool,
 	
-	weapons_inv : *inventory,
-	cur_weapon : *inv_slot,
-	
-	spears : *entity,
-	cur_spear : u32,
-	max_spears : u32,
 	
 	jmp : jmp_info,
-	has_axe : bool,
-	using u2 :: union
-	{
-		forward : _vec,
-		prev_player_pos : _vec,
-	}
 	speed : f32,
-	combo : combo_enum,
-	axe_ent : *entity,
-	in_combo : bool,
-	can_jmp : bool,
-	wait_time : f32,
-	wait_timer : f32,
-	wait_timer_u32 : u32,
-	behaviour_timer : f32,
-	character_walk : *clip2,
-	character_idle : *clip2,
-	character_kick : *clip2,
-	character_axe_punch : *clip2,
-	character_axe_throw : *clip2,
-	
-	charge_attack_time : f32,
-	//enemy_cool_down_attack : f32,
-	aux : u32,
 }

@@ -102,46 +102,12 @@ player_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 }
 player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
-	ent_a.collided_entered = true;
-	col.ignore_trigger_do_collision = false;
-	if is_flag_on(ent_b.layer, LAYER_MAYBE_ONLY_UP_COL)
+	up : _vec
+	up.y = 1.0
+	if dot_vec(&col.normal, &up) > 0.5
 	{
-		if CanIgnoreTriggerAndDoCollision(ent_a, ent_b, col)
-		{
-			ent_a.on_ground = true;
-			col.ignore_trigger_do_collision = true;
-		}
+		ent_a.on_ground = true
 	}
-	if  is_flag_off(ent_a.dont_res_cols_with_layers, ent_b.layer) && ent_b.type != ent_type.DEFENSE
-	{
-		//__dbg_break;
-		if col.normal.y < -0.1 && !ent_b.is_trigger
-			ent_a.on_ground = true;
-		normal := col.normal;
-		normal = normal * -1.0;
-
-		d: = dot_vec(&normal, &ent_a.impact_vel);
-		//PrintV3(d, 0.0, 0.0);
-
-		if ent_a.state == entity_state.HIT
-		{
-			ent_a.impact_vel = normal * absf(d / 2.0);
-		}
-		else
-			ent_a.impact_vel = ent_a.impact_vel - normal * d;
-	}
-	if ent_b.type == ent_type.ENEMY
-	{
-		dir := ent_a.pos.x - ent_b.pos.x;
-		ent_a.dmg.hit = true;
-		ent_a.dmg.hit_ent = ent_b;
-		ent_a.impact_vel.x = sign(dir) * 10.0;
-		ent_a.impact_vel.y = 11.0;
-		ent_a.mov_info.mov_vel.x = 0.0;
-		ent_a.mov_info.mov_vel.y = 0.0;
-		ent_a.was_hit = true;
-	}
-	ent_a.dmg.hit_ent = ent_b;
 }
 
 axe_trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
@@ -195,11 +161,6 @@ trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 			//PrintV3(3.0, 0.0, 1.0);
 		}
 	
-		if ent_b.mov_info
-		{
-			ent_b.mov_info.forward.x = -dir.x;
-			ent_b.mov_info.enemy_state = from.state;
-		}
 
 
 	}

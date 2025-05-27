@@ -838,6 +838,10 @@ test_fptr:struct
 	ptr : *f32
 }
 
+ret_fptr::fn(f : *f32) ! *f32
+{
+	return f
+}
 tests :: fn(ret : *u32)
 {
 	i:= 7;
@@ -1533,8 +1537,12 @@ tests :: fn(ret : *u32)
 	if aux_val != 5
 		debug_break();
 
-
+	fsum = 1.0
+	fptr = ret_fptr(&fsum)
+	*fptr = 0.0
 	
+	if fsum != 0.0
+		debug_break();
 
 	vec_2 : _vec
 

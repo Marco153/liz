@@ -2475,7 +2475,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				val.reg_sz = GetTypeSize(&call->ret_type);
 				val.is_float = call->ret_type.type == TYPE_F32;
 			}
-			//BREAK(e->line_number == 40)
 			//unspilling
 			if (stack.size() > 0)
 			{
@@ -3356,7 +3355,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			}break;
 			default:
 			{
-				BREAK(e->line_number == 2113)
 				ir_val* top = &stack[stack.size() - 1];
 				ir_val* one_minus_top = &stack[stack.size() - 2];
 
@@ -4074,7 +4072,13 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		//ir.ret.assign.lhs.deref--;
 
 
+		
 		ir.ret.assign.lhs.is_float = ir.ret.assign.to_assign.is_float;
+		if(lang_stat->cur_func->ret_type.ptr > 0)
+		{
+			ir.ret.assign.lhs.is_float = false;
+			ir.ret.assign.to_assign.is_float = false;
+		}
 		out->emplace_back(ir);
 	}break;
     case AST_STATS:
@@ -4307,9 +4311,10 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 				*/
 			//if(ir.assign.to_assign.deref >= 0 && IS_FLAG_OFF(ir.assign.to_assign.reg_ex, IR_VAL_FROM_POINT))
 				//ir.assign.to_assign.is_float = false;
+			//BREAK(ast->line_number == 55 && lang_stat->cur_func->func_node->t->line == 52 && ir.assign.to_assign.is_float)
 			ASSERT(ir.assign.to_assign.type != IR_TYPE_NONE);
 
-			if (ir.assign.only_lhs &&(ir.assign.to_assign.ptr >= 1 && ir.assign.lhs.ptr >= 1 || ir.assign.lhs.ptr >= 1) 
+			if (ir.assign.only_lhs &&(ir.assign.to_assign.ptr >= 1 || ir.assign.lhs.ptr >= 1) 
 				&& !to_assign_was_from_deref && !lhs_was_from_deref
 				&& !(ir.assign.lhs.type == IR_TYPE_INT && ir.assign.lhs.i == 0))
 			{

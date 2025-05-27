@@ -6586,7 +6586,7 @@ decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, own_std::string n
 	new_decl->from_file = lang_stat->cur_file;
 	new_decl->type.type = FromTypeToVarType(tp->type);
 
-	bool is_func_extern = new_decl->type.type == TYPE_FUNC_EXTERN;
+	bool is_func_extern = n:w_decl->type.type == TYPE_FUNC_EXTERN;
 	bool is_func = (new_decl->type.type == TYPE_FUNC);
 
 	// setting struct "this_decl" to the new declared decl and name

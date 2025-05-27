@@ -2196,10 +2196,6 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_END_STMNT:
 	{
-		if (gen_state->cur_func->name == "it_start_1ast_rep")
-		{
-			auto a = 1;
-		}
 
 		stmnt_dbg st;
 		ir_rep* begin = irs->begin() + cur_ir->block.other_idx;
@@ -2214,6 +2210,13 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
 		//if(st.start != st.end)
 		gen_state->cur_func->wasm_stmnts.emplace_back(st);
+		/*
+		if (gen_state->cur_func->name == "dyn_array_f32[]")
+		{
+			auto sz = gen_state->cur_func->wasm_stmnts.size();
+			HERE()
+		}
+			*/
 #ifdef WASM_DBG
 		code_sect.emplace_back(0x10);
 		code_sect.emplace_back(0x32);
@@ -7014,7 +7017,7 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	}
 	*/
 	//final_buffer.make_count(sizeof(dbg_file));
-	dbg_file_seriealize file;
+	dbg_file_seriealize file = {};
 	file.code_type = DBG_CODE_WASM;
 
 	file.func_sect = final_buffer.size();
@@ -7128,8 +7131,6 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	fdecl->line = fdbg->line;
 
 	own_std::string fname = WasmInterpNameFromOffsetAndLen(data, file, &fdbg->name);
-	if (fname == "dyn_array_item[]")
-		int a = 0;
 	fdecl->name = own_std::string(fname);
 	type2 tp;
 	tp.type = TYPE_FUNC;
@@ -10124,8 +10125,6 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 			if (IsKeyRepeat(dbg->data, GLFW_KEY_F11))
 			{
-
-				HERE()
 				byte_code2* out;
 				if (StatHasInst(cur_st, start_bc, &out, INST_CALL))
 				{
@@ -10792,7 +10791,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			{
 				int cur_addr = addr + i * tp_sz;
 				snprintf(buffer, 64, "[%d]##%d", i, cur_addr);
-				ImGui::Text("(%d)", cur_addr);
+				ImGui::Text("[%d]", i);
 				ImGui::SameLine();
 				/*
 				if (d->type.type == TYPE_STRUCT && ptr_decl > 1)
@@ -14578,6 +14577,13 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	//GenX64ImmToReg( ret, PRE_X64_RSP_REG, 8, 8, ADD_I_2_R);
 	ret.emplace_back(byte_code(byte_code_enum::BEGIN_FUNC, gen_state->cur_func));
 	gen_state->cur_func->bcs2_start += ret.size() - start;
+	/*
+	if (gen_state->cur_func->name == "dyn_array_f32[]")
+	{
+		auto sz = gen_state->cur_func->wasm_stmnts.size();
+		HERE()
+	}
+		*/
 
 
 	int idx = 0;
@@ -14738,7 +14744,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				case IR_TYPE_REG:
 				{
 					ir_val_aux lhs = {};
-					BREAK(cur_line == 68)
 					GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->ret.assign.lhs, false, ir->ret.assign.lhs.is_packed_float);
 
 					ir_val_aux dst = {};

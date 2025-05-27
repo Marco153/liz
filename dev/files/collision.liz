@@ -17,8 +17,9 @@ col_type : etruct
 	SPHERE(
 		
 	),
-	TETRAHEDRON(
-		verts : [4]_vec
+	TRIANGLE(
+		normal :_vec
+		verts : [3]_vec
 	),
 	CUBE(
 		verts : [8]_vec
@@ -54,24 +55,28 @@ find_furthest_point::fn(col : *collider, dir : *_vec) ! _vec
 	{
 
 	}
-	TETRAHEDRON
+	TRIANGLE
 	{
-		_max : f32
-		*cast(*s32)&_max = FLOAT_MIN;
-		max_idx :u64= 0
-		cur_idx :u64= 0
-		for v in col.TETRAHEDRON.verts
-		{
-			aux := *v - col.ent.pos
-			proj:= dot_vec(dir, &aux);
-			if proj > _max
-			{
-				max_idx = cur_idx
-				_max = proj
-			}
-			cur_idx++
-		}
-		return *col.TETRAHEDRON.verts[max_idx]
+		//Find which triangle vertex is furthest along dir
+        dot0 := dot_vec(col.TRIANGLE.verts[0], dir);
+        dot1 := dot_vec(col.TRIANGLE.verts[1], dir);
+        dot2 := dot_vec(col.TRIANGLE.verts[2], dir);
+        furthest_point := *col.TRIANGLE.verts[0]
+        if(dot1>dot0){
+            furthest_point = *col.TRIANGLE.verts[1]
+            if(dot2>dot1) 
+                furthest_point = *col.TRIANGLE.verts[2]
+        }
+        else if(dot2>dot0) {
+            furthest_point = *col.TRIANGLE.verts[2]
+        }
+
+        //fake some depth behind triangle so we have volume
+		n := col.TRIANGLE.normal * 0.1
+        if(dot_vec(dir, &n)<0.0)
+			furthest_point-= n;
+
+        return furthest_point;
 	}
 	CUBE
 	{
@@ -1133,6 +1138,8 @@ CopyVerts::fn(col : *collider)
 		*v += e.pos
 	}
 }
+//solve_col::fn(e : *entity, )
+
 PhysicsUpdate::fn(ctx : *context, dt : f32)
 {
 	gjk := ctx.gjk
@@ -1145,6 +1152,7 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 		c1 := cast(*collider)e.col
 		e.pos += e.vel * dt
 		CopyVerts(c1)
+		col : collision=?
 
 		for e2 in ctx.bodies
 		{
@@ -1157,51 +1165,83 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 			gjk.col1 = c1
 			gjk.col2 = c2
 			in_col :bool= false
+			tri_col := false
+			tri_normal :_vec= ?
 
 			if e2.type == ent_type.TERRAIN
 			{
-				/*
-				__dbg_break
 				trn :*terrain_info= e2.terrain
 				count := trn.mesh.tris.count
-				for tri in 0..count
+				t :u64
+				while t < count
 				{
-					t:=cast(u64)tri
 					verts := &trn.mesh.verts
 					_v1 :_vec=?
+					_v1.w = 0.0
+
 					_v2 :_vec=?
+					_v2.w = 0.0
+
 					_v3 :_vec=?
-					_v1.x = *verts[t * 3]
-					_v1.y = *verts[t * 3 + 1]
-					_v1.z = *verts[t * 3 + 2]
+					_v3.w = 0.0
+					idx :=  cast(u64)*trn.mesh.tris[t]
+					_v1.x = *verts[idx * 3]
+					_v1.y = *verts[idx * 3 + 1]
+					_v1.z = *verts[idx * 3 + 2]
 
 					dist := dot_vec(&e.pos, &_v1)
-					if dist < 10.0
+					//if dist < 40.0
 					{
-						_v2.x = *verts[(t + 1) * 3]
-						_v2.y = *verts[(t + 1) * 3 + 1]
-						_v2.z = *verts[(t + 1) * 3 + 2]
-						_v3.x = *verts[(t + 2) * 3]
-						_v3.y = *verts[(t + 2) * 3 + 1]
-						_v3.z = *verts[(t + 2) * 3 + 2]
+						idx = *trn.mesh.tris[t + 1]
+						_v2.x = *verts[idx * 3]
+						_v2.y = *verts[idx * 3 + 1]
+						_v2.z = *verts[idx * 3 + 2]
+
+						idx = *trn.mesh.tris[t + 2]
+
+						_v3.x = *verts[idx * 3]
+						_v3.y = *verts[idx * 3 + 1]
+						_v3.z = *verts[idx * 3 + 2]
 
 						tri_edge1 := _v2 - _v1
 						tri_edge2 := _v3 - _v1
+						
 						cross := cross_vec(&tri_edge1, &tri_edge2)
+						prev_cross := cross
+						//cross = -cross
+						cross = normalize_vec(&cross)
 
-						c2.TETRAHEDRON.verts[0] = _v1
-						c2.TETRAHEDRON.verts[1] = _v2
-						c2.TETRAHEDRON.verts[2] = _v3
-						c2.TETRAHEDRON.verts[3] = _v1 - cross
+						c2.type = col_type.TRIANGLE
+						c2.TRIANGLE.verts[0] = _v1 + e2.pos
+						c2.TRIANGLE.verts[1] = _v2 + e2.pos
+						c2.TRIANGLE.verts[2] = _v3 + e2.pos
+						c2.TRIANGLE.normal = cross
+
 						if GJK(gjk, c1, c2)
 						{
-							in_col = true
-							break;
+							//__dbg_break
+							tri_normal = cross
+
+							//__dbg_break
+							/*
+							find_support(gjk, c1, c2, &(tri_normal)); 
+							dir := gjk.sup1 - *c2.TRIANGLE.verts[0]
+							penetration_depth := dot_vec(&tri_normal, &dir)
+							mtv := tri_normal * penetration_depth
+							*/
+							mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
+							c1.ent.pos -= mtv
+							CopyVerts(c1)
+							
+							col.normal = col.normal * -1.0
+							if e.col_enter
+							{
+								e.col_enter(*e, *e2, &col)
+							}
 						}
 					}
-					t += 2
+					t += 3
 				}
-				*/
 			}
 			else
 			{
@@ -1213,8 +1253,19 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 			}
 			if in_col
 			{
-				col : collision
-				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
+				mtv :_vec=?
+				if(false)
+				{
+					//__dbg_break
+					other_min_point := find_support(gjk, c1, c2, &(tri_normal)); 
+					dir := other_min_point - *c2.TRIANGLE.verts[0]
+					penetration_depth := dot_vec(&tri_normal, &other_min_point)
+					mtv = tri_normal * penetration_depth
+				}
+				else
+				{
+					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
+				}
 				col.normal = col.normal * -1.0
 				if e.col_enter
 				{

@@ -1579,11 +1579,67 @@ cam_mov::fn(ctx : *context)
 	}
 	//print_vec(cam_forward);
 }
-VIEW_COL_METHOD:const s32= 0
+_draw_col ::fn(ctx : *context, c : *collider)
+{
+	on c.type
+	{
+	TRIANGLE
+	{
+		col : _vec
+		col.x = 1.0
+		_v1 :=*c.TRIANGLE.verts[0] 
+		_v2 :=*c.TRIANGLE.verts[1] 
+		_v3 :=*c.TRIANGLE.verts[2] 
+
+		draw_line(ctx, &_v1, &_v2, &col, 0)
+		draw_line(ctx, &_v2, &_v3, &col, 0)
+		draw_line(ctx, &_v3, &_v1, &col, 0)
+
+		nv1 := _v1 - c.TRIANGLE.normal
+		nv2 := _v2 - c.TRIANGLE.normal
+		nv3 := _v3 - c.TRIANGLE.normal
+
+		draw_line(ctx, &nv1, &nv2, &col, 0)
+		draw_line(ctx, &nv2, &nv3, &col, 0)
+		draw_line(ctx, &nv3, &nv1, &col, 0)
+
+		draw_line(ctx, &_v1, &nv1, &col, 0)
+		draw_line(ctx, &_v2, &nv2, &col, 0)
+		draw_line(ctx, &_v3, &nv3, &col, 0)
+		
+	}
+	CUBE
+	{
+		col : _vec
+		col.z = 1.0
+		_v1 :=*c.CUBE.verts[0] 
+		_v2 :=*c.CUBE.verts[1] 
+		_v3 :=*c.CUBE.verts[2] 
+		_v4 :=*c.CUBE.verts[3] 
+		_v5 :=*c.CUBE.verts[4] 
+		_v6 :=*c.CUBE.verts[5] 
+		_v7 :=*c.CUBE.verts[6] 
+		_v8 :=*c.CUBE.verts[7] 
+
+		draw_line(ctx, &_v1, &_v2, &col, 0)
+		draw_line(ctx, &_v2, &_v3, &col, 0)
+		draw_line(ctx, &_v3, &_v4, &col, 0)
+		draw_line(ctx, &_v4, &_v1, &col, 0)
+
+		draw_line(ctx, &_v5, &_v6, &col, 0)
+		draw_line(ctx, &_v6, &_v7, &col, 0)
+		draw_line(ctx, &_v7, &_v8, &col, 0)
+		draw_line(ctx, &_v8, &_v5, &col, 0)
+	}
+	}
+}
+VIEW_COL_METHOD:const s32= 1
 view_collision ::fn(ccc : u32)
 {
 	curmx := GetMouseNormalizedPosX();
 	curmy := GetMouseNormalizedPosY();
+
+
 
 	ctx := cast(*context)globals.ctx
 	gjk := cast(*gjk_state)globals.gjk
@@ -1642,34 +1698,33 @@ view_collision ::fn(ccc : u32)
 
 	globals.temp_alloc.cur = 0
 
-	target_face :u64= gjk.closest_face
-	if IsKeyHeld(key_enum.KEY_2)
-	{
-		target_face = gjk.cur_face_facing_point;
-
-
-		//__dbg_break
-		draw_vertex(ctx, &gjk.epa_new_sup, &v_sz, cam_pos, cam_rot)
-	}
-	if IsKeyHeld(key_enum.KEY_3)
-	{
-		for i in 0..16
-		{
-			draw_vertex(ctx, gjk.mink_diff[cast(u64)i], &v_sz, cam_pos, cam_rot)
-		}
-		
-	}
-	if IsKeyHeld(key_enum.KEY_4)
-	{
-		for i in 0..gjk.num_loose_edges
-		{
-			draw_vertex(ctx, gjk.epa_loose_edges[cast(u64)i][0], &v_sz, cam_pos, cam_rot)
-			draw_vertex(ctx, gjk.epa_loose_edges[cast(u64)i][1], &v_sz, cam_pos, cam_rot)
-		}
-		
-	}
 	#if VIEW_COL_METHOD == 0
 	{
+		target_face :u64= gjk.closest_face
+		if IsKeyHeld(key_enum.KEY_2)
+		{
+			target_face = gjk.cur_face_facing_point;
+
+			//__dbg_break
+			draw_vertex(ctx, &gjk.epa_new_sup, &v_sz, cam_pos, cam_rot)
+		}
+		if IsKeyHeld(key_enum.KEY_3)
+		{
+			for i in 0..16
+			{
+				draw_vertex(ctx, gjk.mink_diff[cast(u64)i], &v_sz, cam_pos, cam_rot)
+			}
+			
+		}
+		if IsKeyHeld(key_enum.KEY_4)
+		{
+			for i in 0..gjk.num_loose_edges
+			{
+				draw_vertex(ctx, gjk.epa_loose_edges[cast(u64)i][0], &v_sz, cam_pos, cam_rot)
+				draw_vertex(ctx, gjk.epa_loose_edges[cast(u64)i][1], &v_sz, cam_pos, cam_rot)
+			}
+			
+		}
 		for i2 in 0..gjk.num_faces
 		{
 			i := cast(u64)i2
@@ -1715,7 +1770,15 @@ view_collision ::fn(ccc : u32)
 	}
 	else
 	{
-		draw_vertex(ctx, &gjk.sup1, &v_sz, cam_pos, cam_rot)
+		if IsKeyHeld(key_enum.KEY_JMP)
+		{
+			_draw_col(ctx, gjk.col2)
+			_draw_col(ctx, gjk.col1)
+		}
+
+		draw_vertex(
+			ctx, 
+			&gjk.sup1, &v_sz, cam_pos, cam_rot)
 		draw_vertex(ctx, &gjk.sup2, &v_sz, cam_pos, cam_rot)
 
 		draw_line(ctx, &gjk.sup1, &gjk.sup2, &v_sz, DRAW_LINE_TIP);
@@ -1854,7 +1917,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	if on_ground
 	{
-		grav.y = -0.5
+		grav.y = -0.001
 		mov.jmp.vel.y = 0.0
 		mov.jmp.time_off_ground = 0.0
 		mov.jmp.jmpd = false
@@ -1866,7 +1929,8 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		{
 			mov.jmp.vel.y = 0.0
 		}
-		//grav.y += -25.0 * *dt
+		grav.y += -25.0 * *dt
+		//grav.y = -1.0
 	}
 	if IsKeyDown(key_enum.KEY_JMP) && (on_ground && mov.jmp.time_off_ground == 0.0 || mov.jmp.time_off_ground <= 0.5)
 		&& !mov.jmp.jmpd
@@ -1874,6 +1938,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		player_ent.vel.y = 0.0
 		mov.jmp.vel.y = 1.0 * mov.jmp.speed
 		mov.jmp.jmpd = true
+		player_ent.on_ground = false
 	}
 
 	
@@ -1950,20 +2015,21 @@ generate_mesh::fn(out : *mesh_info) ! u32
 	verts:[MESH_WIDTH * MESH_WIDTH * 3]f32
 	tris: dyn_array(u32)
 
+	size := 3.0
 	for y in 0..5
 	{
 		for x in 0..5
 		{
 			idx := cast(u64)y * MESH_WIDTH * 3 + cast(u64)x * 3
-			*verts[idx] = cast(f32)x
+			*verts[idx] = cast(f32)x * size
 			*verts[idx + 1] = 0.0
-			*verts[idx + 2] = cast(f32)y
+			*verts[idx + 2] = cast(f32)y * size
 
 			if x==2 && y ==2
 			{
-				*verts[idx] = cast(f32)x
+				//*verts[idx] = cast(f32)x * size
 				*verts[idx + 1] = 1.0
-				*verts[idx + 2] = cast(f32)y
+				//*verts[idx + 2] = cast(f32)y * size
 			}
 			
 			if y >= 1 && x < (MESH_WIDTH - 1)
@@ -1982,9 +2048,10 @@ generate_mesh::fn(out : *mesh_info) ! u32
 			}
 		}
 	}
-	__dbg_break
 	dyn_add_data(&out.verts, cast(*f32)verts, MESH_WIDTH * MESH_WIDTH * 3 * 4)
+	out.verts.count = MESH_WIDTH * MESH_WIDTH * 3
 	dyn_add_data(&out.tris, cast(*f32)tris[0], cast(u32)tris.count * 4)
+	out.tris.count = tris.count
 
 	info :create_mesh_info
 	info.verts = cast(*f32)&verts
@@ -1992,7 +2059,6 @@ generate_mesh::fn(out : *mesh_info) ! u32
 	info.tris = tris[0]
 	info.total_tris = cast(u32)tris.count
 	return CreateMesh(&info)
-	return 0
 
 }
 main_loop::fn(ctx : *context)
@@ -2002,7 +2068,6 @@ main_loop::fn(ctx : *context)
 
 	dyn_init2(&ctx.coroutines.funcs, 2, ctx.alloc);
 
-	__dbg_break
 	LinearInit(&globals.entities, ctx.alloc, 32)
 	LinearInit(&globals.str_alloc, ctx.alloc, 128)
 	LinearInit(&globals.allocs_occured, ctx.alloc, 32)
@@ -2039,7 +2104,7 @@ main_loop::fn(ctx : *context)
 
 	player_ent.mov_info.speed = 10.0
 	player_ent.mov_info.jmp.speed = 4.0
-	player_ent.model = test_model
+	//player_ent.model = test_model
 
 	ctx.player = player_ent;
 	
@@ -2083,8 +2148,8 @@ main_loop::fn(ctx : *context)
 
 	dyn_add(&ctx.drawable_ents, &player_ent);
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = 0.0
-	player_ent.pos.y = -1.0
+	player_ent.pos.x = -1.0
+	player_ent.pos.y = 0.0
 
 
 	terrain : terrain_info
@@ -2097,13 +2162,14 @@ main_loop::fn(ctx : *context)
 	other.terrain = &terrain
 	other.is_static = true
 	other.pos.x = -3.0
-	other.pos.y = -3.0
+	other.pos.y = -2.0
 	other.pos.z = -3.0
-	other.size.z = 20.0
-	other.size.x = 20.0
+	other.size.z = 1.0
+	other.size.x = 1.0
 	terrain.width = MESH_WIDTH
 	terrain.height = MESH_WIDTH
 	other.model = generate_mesh(&terrain.mesh)
+	other.terrain = &terrain
 
 	other = NewEnt(ctx.alloc, "block 1")
 	other.flags = other.flags | ENTITY_3D
@@ -2188,8 +2254,8 @@ main_loop::fn(ctx : *context)
 		curmx := GetMouseNormalizedPosX();
 		curmy := GetMouseNormalizedPosY();
 
-		dt: = GetTime() - last_time;
-		//dt: = 0.017;
+		//dt: = GetTime() - last_time;
+		dt: = 0.017;
 		last_time = GetTime();
 		ctx.time_since_start += dt
 

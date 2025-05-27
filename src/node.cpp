@@ -4014,7 +4014,6 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 
 				int ar_size = 1;
 				n = top;
-				//BREAK(n->t->line == 92)
 				if(n->r->type == N_INDEX)
 				{
 					node *prev = n;
@@ -6006,6 +6005,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	child_scp = GetScopeFromParent(lang_stat, fnode->r, scp);
 	child_scp->type = SCP_TYPE_FUNC;
 
+
 	child_scp->line_start = n->t->line;
 	child_scp->line_end = n->r->t->line;
 
@@ -7367,23 +7367,27 @@ int CheckForHashtags(lang_state *lang_stat, node *n, func_decl* fdecl, scope* sc
 	}break;
 	case node_type::N_HASHTAG:
 	{
-		//BREAK(n->t->line == 38)
 
 		switch (n->r->type)
 		{
 		case node_type::N_IF:
 		{
 			node* cur = n->r;
+			//BREAK(n->t->line == 1647)
 			do 
 			{
 				if (cur->type == N_IF || cur->type == N_ELSE_IF)
 				{
-					if (!DescendNameFinding(lang_stat, cur->l->l, scp))
+					auto a = CheckForHashtags(lang_stat, cur->l->l, fdecl, scp);
+
+					if(a == 1)
 						return 1;
 				}
 				else if (cur->type == N_ELSE)
 				{
-					if (!DescendNameFinding(lang_stat, cur->r, scp))
+					auto a = CheckForHashtags(lang_stat, cur->l->l, fdecl, scp);
+
+					if(a == 1)
 						return 1;
 				}
 				else
@@ -7462,7 +7466,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	char msg_hdr[256];
 	scope* scp = given_scp;
 	type2 ret_type;
-	//BREAK(n->t->line >= 2311)
 
 	//memset(&msg, 0, sizeof(msg));
 	/*
@@ -7653,7 +7656,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_HASHTAG:
 	{
-		//BREAK(n->t->line == 38)
 
 		switch (n->r->type)
 		{
@@ -8350,6 +8352,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 		else
 		*/
+		//BREAK(n->t->line == 1719)
 			auto ident = FindIdentifier(n->t->str, scp, &ret_type);
 		if (ident && IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_DECLARE_ONLY_TYPE_PARAMTS))
 		{
@@ -11013,7 +11016,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				new_index->t->type = T_PLUS;
 
 				int i = lhs.dims.size();
-				//BREAK(n->t->line == 731)
 				do
 				{
 
@@ -11510,7 +11512,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			if (IS_PRS_FLAG_ON(PSR_FLAGS_ON_ENUM_DECL))
 				break;
 			//return ret_type;
-			//BREAK(n->t->line == 793)
 
 			type2 ltp;
 			if (n->l != nullptr)
@@ -12491,6 +12492,8 @@ func_decl* type_struct2::CreateNewOpOverload(lang_state *lang_stat, func_decl* o
 	new_func->scp = NewScope(lang_stat, original->scp->parent);
 	new_func->scp->flags = SCOPE_INSIDE_FUNCTION;
 	new_func->scp->fdecl = new_func;
+	new_func->scp->line_start = original->scp->line_start;
+	new_func->scp->line_end = original->scp->line_end;
 	//this->op_overloads.emplace_back(new_func);
 	//this->AddOpOverload(lang_stat, new_func, tp);
 

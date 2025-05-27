@@ -1730,6 +1730,24 @@ GetCharTextureIdx::fn(ch : char ) ! u32
 
 	return ch_idx;
 }
+min3::fn(a :f32, b :f32, c : f32)!f32
+{
+	ret :=a
+	if ret > b
+		ret = b;
+	if ret > c
+		ret = c;
+    return ret;
+}
+max3::fn(a :f32, b :f32, c : f32)!f32
+{
+	ret :=a
+	if ret < b
+		ret = b;
+	if ret < c
+		ret = c;
+    return ret;
+}
 maxf::fn(a :f32, b :f32)!f32
 {
 	if a > b return a;

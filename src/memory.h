@@ -27,7 +27,7 @@ struct heap_hash
 		void* value;
 	};
 	inner *data;
-	unsigned int hash_table_size = (4 * 1024 * 1024);
+	unsigned int hash_table_size = (32 * 1024 * 1024);
 	unsigned int used;
 
 	void Clear()

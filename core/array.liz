@@ -1,3 +1,4 @@
+import "../dev/common";
 rel_array: struct(T)
 {
 	data : *T,
@@ -6,6 +7,9 @@ rel_array: struct(T)
 }
 operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
 {
+	//PrintStr("rel_arr be\n")
+	//PrintV3Int(cast(s32)idx, cast(s32)dyn.count, 0)
+	//PrintStr("rel_arr end\n")
 	ASSERT(idx < dyn.count);
 	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
 	return cast(*T)ptr_offset(addr, idx, T);
@@ -49,7 +53,8 @@ dyn_init2::fn{ T }(dyn : *dyn_array(T), cap : u64, alloc : *mem_alloc)
 {
 	dyn.alloc = alloc;
 	dyn.data = cast(*T)heap_alloc(dyn.alloc, cast(u32)(cap * sizeof(T)));
-	memset(dyn.data, 0, cap * sizeof(T));
+	ptr := cast(*void)dyn.data
+	memset(ptr, 0, cap * sizeof(T));
 	dyn.count = 0;
 	dyn.cap = cap;
 }

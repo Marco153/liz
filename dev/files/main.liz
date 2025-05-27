@@ -1856,15 +1856,24 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	{
 		grav.y = -0.5
 		mov.jmp.vel.y = 0.0
-		if IsKeyDown(key_enum.KEY_JMP)
-		{
-			player_ent.vel.y = 0.0
-			mov.jmp.vel.y = 1.0 * mov.jmp.speed
-		}
+		mov.jmp.time_off_ground = 0.0
+		mov.jmp.jmpd = false
 	}
 	else
 	{
-		grav.y += -25.0 * *dt
+		mov.jmp.time_off_ground += *dt
+		if IsKeyUp(key_enum.KEY_JMP) && mov.jmp.time_off_ground < 0.15
+		{
+			mov.jmp.vel.y = 0.0
+		}
+		//grav.y += -25.0 * *dt
+	}
+	if IsKeyDown(key_enum.KEY_JMP) && (on_ground && mov.jmp.time_off_ground == 0.0 || mov.jmp.time_off_ground <= 0.5)
+		&& !mov.jmp.jmpd
+	{
+		player_ent.vel.y = 0.0
+		mov.jmp.vel.y = 1.0 * mov.jmp.speed
+		mov.jmp.jmpd = true
 	}
 
 	
@@ -1921,15 +1930,79 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	ang := angle_on_axis(aux_forward, forward, &ctx.up)
 	player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
 	player_ent.on_ground = false
+	width := 4.0
+	if player_ent.pos.y < mov.min_y_cam_pos
+	{
+		mov.min_y_cam_pos = player_ent.pos.y
+		mov.max_y_cam_pos = mov.min_y_cam_pos + width
+	}
+	if player_ent.pos.y > mov.max_y_cam_pos
+	{
+		mov.max_y_cam_pos = player_ent.pos.y
+		mov.min_y_cam_pos = mov.max_y_cam_pos - width
+	}	
 	//OpenLocalsWindow(__LINE__);
 }
 
+MESH_WIDTH :const s32= 5
+generate_mesh::fn(out : *mesh_info) ! u32
+{
+	verts:[MESH_WIDTH * MESH_WIDTH * 3]f32
+	tris: dyn_array(u32)
+
+	for y in 0..5
+	{
+		for x in 0..5
+		{
+			idx := cast(u64)y * MESH_WIDTH * 3 + cast(u64)x * 3
+			*verts[idx] = cast(f32)x
+			*verts[idx + 1] = 0.0
+			*verts[idx + 2] = cast(f32)y
+
+			if x==2 && y ==2
+			{
+				*verts[idx] = cast(f32)x
+				*verts[idx + 1] = 1.0
+				*verts[idx + 2] = cast(f32)y
+			}
+			
+			if y >= 1 && x < (MESH_WIDTH - 1)
+			{
+				cur := y  * MESH_WIDTH + x
+				next_cur := y  * MESH_WIDTH + x + 1
+				below_vert := (y - 1) * MESH_WIDTH + x
+				below_right_vert := (y - 1) * MESH_WIDTH + x + 1
+				dyn_add(&tris, cast(u32)cur)
+				dyn_add(&tris, cast(u32)below_vert)
+				dyn_add(&tris, cast(u32)below_right_vert)
+
+				dyn_add(&tris, cast(u32)next_cur)
+				dyn_add(&tris, cast(u32)cur)
+				dyn_add(&tris, cast(u32)below_right_vert)
+			}
+		}
+	}
+	__dbg_break
+	dyn_add_data(&out.verts, cast(*f32)verts, MESH_WIDTH * MESH_WIDTH * 3 * 4)
+	dyn_add_data(&out.tris, cast(*f32)tris[0], cast(u32)tris.count * 4)
+
+	info :create_mesh_info
+	info.verts = cast(*f32)&verts
+	info.total_verts = MESH_WIDTH * MESH_WIDTH
+	info.tris = tris[0]
+	info.total_tris = cast(u32)tris.count
+	return CreateMesh(&info)
+	return 0
+
+}
 main_loop::fn(ctx : *context)
 {
+	test_model := LoadModel("../models/test.fbx")
 	ctx.up.y = 1.0
 
 	dyn_init2(&ctx.coroutines.funcs, 2, ctx.alloc);
 
+	__dbg_break
 	LinearInit(&globals.entities, ctx.alloc, 32)
 	LinearInit(&globals.str_alloc, ctx.alloc, 128)
 	LinearInit(&globals.allocs_occured, ctx.alloc, 32)
@@ -1966,6 +2039,7 @@ main_loop::fn(ctx : *context)
 
 	player_ent.mov_info.speed = 10.0
 	player_ent.mov_info.jmp.speed = 4.0
+	player_ent.model = test_model
 
 	ctx.player = player_ent;
 	
@@ -2012,16 +2086,24 @@ main_loop::fn(ctx : *context)
 	player_ent.pos.x = 0.0
 	player_ent.pos.y = -1.0
 
+
+	terrain : terrain_info
 	other := NewEnt(ctx.alloc, "block 1")
 	other.flags = other.flags | ENTITY_3D
 	add_body(ctx, other)
 	dyn_add(&ctx.drawable_ents, other)
 	other.is_active = true
+	other.type= ent_type.TERRAIN
+	other.terrain = &terrain
 	other.is_static = true
-	other.pos.x = 0.0
+	other.pos.x = -3.0
 	other.pos.y = -3.0
+	other.pos.z = -3.0
 	other.size.z = 20.0
 	other.size.x = 20.0
+	terrain.width = MESH_WIDTH
+	terrain.height = MESH_WIDTH
+	other.model = generate_mesh(&terrain.mesh)
 
 	other = NewEnt(ctx.alloc, "block 1")
 	other.flags = other.flags | ENTITY_3D
@@ -2138,9 +2220,9 @@ main_loop::fn(ctx : *context)
 
 		//__dbg_break
 		player_pos := player_ent.pos
-		dot_up := dot_vec(&ctx.up, &(cam_pos - player_pos))
+		player_pos.y = pmov.min_y_cam_pos + cam_up_dist;
 		
-		target_pos := player_pos - add_cam_forward * cam_to_player_dist + ctx.up * cam_up_dist
+		target_pos := player_pos - add_cam_forward * cam_to_player_dist
 
 		if IsKeyDown(key_enum.KEY_ACT0)
 		{
@@ -2173,7 +2255,7 @@ main_loop::fn(ctx : *context)
 			}
 			else
 			{
-				target_pos = player_pos - *forward * cam_to_player_dist + ctx.up * cam_up_dist
+				target_pos = player_pos - *forward * cam_to_player_dist;
 				player_back_pos = target_pos
 			}
 		}
@@ -2186,13 +2268,13 @@ main_loop::fn(ctx : *context)
 
 		if dist <= cam_to_player_dist && !pmov.on_rotating_cam
 		{
-			target_pos_limit := player_pos - cam_forward * cam_to_player_dist + ctx.up * cam_up_dist
+			target_pos_limit := player_pos - cam_forward * cam_to_player_dist
 			target_pos_to_other := target_pos - target_pos_limit
 			player_back_pos = target_pos_limit
 		}
 		dir_to_cam := (player_back_pos - cam_pos)
 
-		print_f32(dot_up)
+		//print_f32(dot_up)
 
 		cam_pos += dir_to_cam * dt * 2.0 * add_mul
 		

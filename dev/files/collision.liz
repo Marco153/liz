@@ -17,6 +17,9 @@ col_type : etruct
 	SPHERE(
 		
 	),
+	TETRAHEDRON(
+		verts : [4]_vec
+	),
 	CUBE(
 		verts : [8]_vec
 	)
@@ -50,6 +53,25 @@ find_furthest_point::fn(col : *collider, dir : *_vec) ! _vec
 	SPHERE
 	{
 
+	}
+	TETRAHEDRON
+	{
+		_max : f32
+		*cast(*s32)&_max = FLOAT_MIN;
+		max_idx :u64= 0
+		cur_idx :u64= 0
+		for v in col.TETRAHEDRON.verts
+		{
+			aux := *v - col.ent.pos
+			proj:= dot_vec(dir, &aux);
+			if proj > _max
+			{
+				max_idx = cur_idx
+				_max = proj
+			}
+			cur_idx++
+		}
+		return *col.TETRAHEDRON.verts[max_idx]
 	}
 	CUBE
 	{
@@ -1131,11 +1153,65 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 			
 			c2 := cast(*collider)e2.col
 
-			CopyVerts(c2)
 
 			gjk.col1 = c1
 			gjk.col2 = c2
-			if GJK(gjk, c1, c2)
+			in_col :bool= false
+
+			if e2.type == ent_type.TERRAIN
+			{
+				/*
+				__dbg_break
+				trn :*terrain_info= e2.terrain
+				count := trn.mesh.tris.count
+				for tri in 0..count
+				{
+					t:=cast(u64)tri
+					verts := &trn.mesh.verts
+					_v1 :_vec=?
+					_v2 :_vec=?
+					_v3 :_vec=?
+					_v1.x = *verts[t * 3]
+					_v1.y = *verts[t * 3 + 1]
+					_v1.z = *verts[t * 3 + 2]
+
+					dist := dot_vec(&e.pos, &_v1)
+					if dist < 10.0
+					{
+						_v2.x = *verts[(t + 1) * 3]
+						_v2.y = *verts[(t + 1) * 3 + 1]
+						_v2.z = *verts[(t + 1) * 3 + 2]
+						_v3.x = *verts[(t + 2) * 3]
+						_v3.y = *verts[(t + 2) * 3 + 1]
+						_v3.z = *verts[(t + 2) * 3 + 2]
+
+						tri_edge1 := _v2 - _v1
+						tri_edge2 := _v3 - _v1
+						cross := cross_vec(&tri_edge1, &tri_edge2)
+
+						c2.TETRAHEDRON.verts[0] = _v1
+						c2.TETRAHEDRON.verts[1] = _v2
+						c2.TETRAHEDRON.verts[2] = _v3
+						c2.TETRAHEDRON.verts[3] = _v1 - cross
+						if GJK(gjk, c1, c2)
+						{
+							in_col = true
+							break;
+						}
+					}
+					t += 2
+				}
+				*/
+			}
+			else
+			{
+				CopyVerts(c2)
+				if GJK(gjk, c1, c2)
+				{
+					in_col = true
+				}
+			}
+			if in_col
 			{
 				col : collision
 				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
@@ -1145,6 +1221,7 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 					e.col_enter(*e, *e2, &col)
 				}
 				c1.ent.pos -= mtv
+
 			}
 		}
 	}

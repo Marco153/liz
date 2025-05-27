@@ -11,6 +11,10 @@
 #include <sys/stat.h>
 #include <limits.h>       //For PATH_MAX
 #include <signal.h>       //For PATH_MAX
+#include <assimp/cimport.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+
 int min(int a, int b)
 {
 	return a < b ?a : b;
@@ -208,6 +212,7 @@ struct v3
 #include "dr_flac.h"
 #include <fstream>
 #include "sort.cpp"
+#include <OpenFBX/ofbx.cpp>
 
 // gpt generated code
 typedef struct {
@@ -296,6 +301,7 @@ void update_camera_direction(float yaw, float pitch, Vec3* front) {
 
 #define TOTAL_KEYS   (GLFW_KEY_LAST + 3)
 #define TOTAL_TEXTURES   256
+#define TOTAL_MODELS   16
 
 #define DOUBLE_CLICK_MAX_TIME 0.2
 
@@ -305,6 +311,14 @@ void GetMem(dbg_state* dbg);
 
 AudioClip* CreateNewAudioClip(char* name);
 
+struct model_info
+{
+	own_std::string name;
+	u32 vbo;
+	u32 vao;
+	u32 ebo;
+	int indicies;
+};
 struct texture_info
 {
 	bool used;
@@ -350,6 +364,7 @@ struct WindowEditor
 
 struct draw_info3d
 {
+	int model;
 	float pos_x;
 	float pos_y;
 	float pos_z;
@@ -414,9 +429,13 @@ struct open_gl_state
 	int tex_size;
 	int tex_offset;
 	int pos_u;
+
+	int generated_meshes;
+
 	int buttons[TOTAL_KEYS];
 	float time_pressed[TOTAL_KEYS];
 	texture_info textures[TOTAL_TEXTURES];
+	model_info models[TOTAL_MODELS];
 	own_std::vector<texture_raw> textures_raw;
 	own_std::vector<RatedStuff<draw_info3d>> transparent_objs;
 	double last_time;
@@ -1067,6 +1086,7 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	}
 
 	int shaderProgram = gl_state->shader_program3d;
+	int indicies_to_draw = 36;
 	if(IS_FLAG_OFF(draw->flags, DRAW_INFO_TRANSPARENT2))
 	{
 		glDepthMask(GL_TRUE);
@@ -1140,7 +1160,10 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	}
 	else
 	{
-		glBindVertexArray(gl_state->vao3d);
+		model_info *m = &gl_state->models[draw->model];
+		//BREAK(draw->model == 1)
+		glBindVertexArray(m->vao);
+		indicies_to_draw = m->indicies;
 	}
 	// Uniform locations
     glUseProgram(shaderProgram);
@@ -1203,8 +1226,8 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	}
 	else
 	{
-		glBindVertexArray(gl_state->vao3d);
-		glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+		//glBindVertexArray(gl_state->vao3d);
+		glDrawElements(GL_TRIANGLES, indicies_to_draw, GL_UNSIGNED_INT, 0);
 	}
 
 }
@@ -4078,6 +4101,170 @@ void LoadSceneFolder(dbg_state* dbg)
 
 
 }
+int HasModel(dbg_state *dbg, own_std::string &name, int *free_idx)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	for(int i = 0; i < TOTAL_MODELS; i++)
+	{
+		model_info *m = &gl_state->models[i];
+		if(*free_idx == -1 && m->ebo == 0)
+		{
+			*free_idx = i;
+		}
+		if(m->name == name)
+		{
+			return i;
+		}
+	}
+	return -1;
+}
+struct create_mesh_info
+{
+	long long verts_offset;
+	int verts_count;
+	long long tris_offset;
+	int tris_count;
+};
+
+void CreateMesh(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int create_mesh_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto minfo = (create_mesh_info *)&dbg->mem_buffer[create_mesh_offset];
+	auto verts = (float *)&dbg->mem_buffer[minfo->verts_offset];
+	auto inds = (int *)&dbg->mem_buffer[minfo->tris_offset];
+
+    GLuint VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, minfo->verts_count * sizeof(float) * 3, verts, GL_STATIC_DRAW);
+    
+    
+    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0));
+    glEnableVertexAttribArray(0);
+    //GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
+    //glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, minfo->tris_count * sizeof(int), inds, GL_STATIC_DRAW);
+	
+
+	int free_idx = -1;
+	//HERE()
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	char buffer[64];
+	sprintf(buffer, "mesh_%d", gl_state->generated_meshes);
+	own_std::string str(buffer);
+	int idx = HasModel(dbg, str, &free_idx);
+	ASSERT(idx == -1);
+	model_info*m = &gl_state->models[free_idx];
+	m->vbo = VBO;
+	m->vao = VAO;
+	m->ebo = EBO;
+	m->indicies = minfo->tris_count;
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
+}
+void LoadModel(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int model_path_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *model_path = (char *)&dbg->mem_buffer[model_path_offset];
+
+	unsigned int size = 0;
+	auto gl_state = (open_gl_state*)dbg->data;
+	own_std::string full_path = dbg->cur_func->from_file->path + model_path;
+
+	int free_idx = -1;
+	//HERE()
+	int idx = HasModel(dbg, full_path, &free_idx);
+	if(idx != -1)
+	{
+		*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
+		return;
+	}
+
+
+
+	const struct aiScene *scene = aiImportFile(
+        full_path.c_str(),
+        aiProcess_Triangulate | 
+        aiProcess_JoinIdenticalVertices | 
+        aiProcess_GenNormals | 
+        aiProcess_ImproveCacheLocality
+    );
+
+    if (!scene) {
+        printf("Failed to load FBX: %s\n", aiGetErrorString());
+        return;
+    }
+
+    const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
+
+    // Create vertex array (positions only for simplicity)
+    auto vertices = (float *)malloc(mesh->mNumVertices * 3 * sizeof(float));
+    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+        vertices[i * 3 + 0] = mesh->mVertices[i].x;
+        vertices[i * 3 + 1] = mesh->mVertices[i].y;
+        vertices[i * 3 + 2] = mesh->mVertices[i].z;
+    }
+
+    // Create index array
+    unsigned int index_count = mesh->mNumFaces * 3;
+    auto indices = (unsigned int *)malloc(index_count * sizeof(unsigned int));
+    for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+        const struct aiFace *face = &mesh->mFaces[i];
+        if (face->mNumIndices != 3) continue; // skip non-triangles
+        indices[i * 3 + 0] = face->mIndices[2];
+        indices[i * 3 + 1] = face->mIndices[1];
+        indices[i * 3 + 2] = face->mIndices[0];
+    }
+
+
+    printf("Loaded mesh: %d vertices, %d indices\n", mesh->mNumVertices, index_count);
+
+
+    GLuint VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * 3 * sizeof(float), vertices, GL_STATIC_DRAW);
+    
+    
+    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0));
+    glEnableVertexAttribArray(0);
+    //GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
+    //glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(int), indices, GL_STATIC_DRAW);
+	
+	model_info*m = &gl_state->models[free_idx];
+	m->vbo = VBO;
+	m->vao = VAO;
+	m->ebo = EBO;
+	m->indicies = index_count;
+
+    free(vertices);
+    free(indices);
+    aiReleaseImport(scene);
+
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
+	auto a = 0;
+
+}
 void LoadTexFolder(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -4739,6 +4926,12 @@ void Init3D(dbg_state* dbg)
     glEnableVertexAttribArray(0);
 
 	gl_state->vao3d = VAO;
+	model_info *cube_m = &gl_state->models[0];
+	cube_m->name = "cube";
+	cube_m->vao = VAO;
+	cube_m->ebo = EBO;
+	cube_m->vbo = VBO;
+	cube_m->indicies = 36;
 
 
 
@@ -5816,6 +6009,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetFileSize", (OutsiderFuncType)GetFileSize);
 
 	AssignOutsiderFunc(&lang_stat, "LoadTexFolder", (OutsiderFuncType)LoadTexFolder);
+	AssignOutsiderFunc(&lang_stat, "LoadModel", (OutsiderFuncType)LoadModel);
+	AssignOutsiderFunc(&lang_stat, "CreateMesh", (OutsiderFuncType)CreateMesh);
 	AssignOutsiderFunc(&lang_stat, "GenRawTexture", (OutsiderFuncType)GenRawTexture);
 	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScroll", (OutsiderFuncType)GetMouseScroll);

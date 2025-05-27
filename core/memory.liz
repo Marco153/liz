@@ -833,6 +833,11 @@ modify_vec::fn(v : *_vec) ! u32
 		return 0;
 	return 1;
 }
+test_fptr:struct
+{
+	ptr : *f32
+}
+
 tests :: fn(ret : *u32)
 {
 	i:= 7;
@@ -1495,8 +1500,44 @@ tests :: fn(ret : *u32)
 	if modify_vec(&vec_test) != 1
 		debug_break();
 
+	fsum = 1.0
+	memset(&fsum, 0, 4)
+	if fsum != 0.0
+		debug_break();
+
+	fptr := &fsum
+	fsum = 1.0
+	memset(fptr, 0, 4)
+	if fsum != 0.0
+		debug_break();
+
+	fsum = 1.0
+	fptr_st : test_fptr
+	fptr_st.ptr = &fsum
+	memset(fptr_st.ptr, 0, 4)
+	if fsum != 0.0
+		debug_break();
+
+	fsum = 1.0
+	ptr_aux := cast(*u32)fptr_st.ptr
+	*ptr_aux = 0
+	if fsum != 0.0
+		debug_break();
+	
+	rel_st1 : rel_array(u32)
+	ref_i :u32= 5
+	*cast(*u32)&rel_st1.data = 16
+	
+	dst_addr := cast(u64)&rel_st1.data + *cast(*u32)rel_st1.data
+	aux_val := *cast(*u32)dst_addr
+	if aux_val != 5
+		debug_break();
+
+
+	
 
 	vec_2 : _vec
+
 	etest: enum_test
 	if etest == enum_test.VAL1
 	{

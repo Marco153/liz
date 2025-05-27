@@ -14,6 +14,7 @@ ent_type:enum
 	WATER,
 	FLOATY_PLATFORM,
 	INTERACT,
+	TERRAIN,
 }
 enemy_enum : enum
 {
@@ -170,6 +171,8 @@ entity:struct
 	knockedout : bool,
 	can_start_combo : bool,
 
+	model : u32
+
 	layer : u32,
 	dont_res_cols_with_layers : u32,
 
@@ -201,6 +204,7 @@ entity:struct
 			character_start_idx : u32,
 		}
 		enemy_type : enemy_enum,
+		terrain : *terrain_info
 	}
 	using u2 :: union
 	{
@@ -241,6 +245,7 @@ jmp_info: struct
 	time_off_ground :f32,
 	speed :f32,
 	off_ground_can_jmp_time :f32,
+	jmpd : bool
 	vel : _vec
 }
 axe_info: struct

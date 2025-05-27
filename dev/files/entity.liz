@@ -111,6 +111,7 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 	if(is_flag_on(ent.flags, ENTITY_3D))
 	{
 		draw : draw_info3d
+		draw.model = ent.model
 		draw.pos = ent.pos
 		draw.rot = ent.rot
 		draw.cam_pos = cam_pos

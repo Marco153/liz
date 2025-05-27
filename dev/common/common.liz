@@ -300,6 +300,7 @@ IsTerminalCharater::fn(c : char) ! bool
 
 draw_info3d: struct
 {
+	model : u32
 	pos :_vec,
 	pivot :_vec,
 	ent_size :_vec,
@@ -456,6 +457,27 @@ key_enum : enum
 	KEY_3,
 	KEY_4,
 }
+mesh_info:struct
+{
+	verts : dyn_array(f32)
+	tris : dyn_array(u32)
+}
+terrain_info : struct
+{
+	mesh : mesh_info
+	width:u32
+	height:u32
+}
+create_mesh_info:struct
+{
+	verts : *f32
+	total_verts : u32
+	tris : *u32
+	total_tris : u32
+}
+
+CreateMesh::fn outsider(*create_mesh_info) ! u32;
+LoadModel::fn outsider(name : str_lit) ! u32;
 
 PrintV3::fn outsider(f32, f32, f32);
 PrintV3Int::fn outsider(s32, s32, s32);
@@ -683,7 +705,6 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 			{
 				if* ptr_offset(format, format_idx + 2, char) == 's
 				{
-
 					len: = cast(u32)cast(u64)cur_arg.val;
 
 					arg_idx++;

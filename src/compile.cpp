@@ -6827,6 +6827,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_VOID:
 		case TYPE_U64:
 		case TYPE_FUNC_TYPE:
+		case TYPE_F32_TYPE:
 		case TYPE_STR_LIT:
 		case TYPE_ENUM_IDX_32:
 		case TYPE_OVERLOADED_FUNCS:
@@ -7326,6 +7327,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_S32_TYPE:
 		case TYPE_U64_TYPE:
 		case TYPE_S64_TYPE:
+		case TYPE_F32_TYPE:
 
 		case TYPE_CHAR_TYPE:
 		case TYPE_VECTOR_TYPE:
@@ -10123,6 +10125,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			if (IsKeyRepeat(dbg->data, GLFW_KEY_F11))
 			{
 
+				HERE()
 				byte_code2* out;
 				if (StatHasInst(cur_st, start_bc, &out, INST_CALL))
 				{

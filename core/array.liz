@@ -49,6 +49,10 @@ dyn_clear::fn{ T }(dyn : *dyn_array(T))
 {
 	dyn.count = 0;
 }
+dyn_free::fn{ T }(dyn : *dyn_array(T))
+{
+	heap_free(dyn.alloc, dyn.data)
+}
 dyn_init2::fn{ T }(dyn : *dyn_array(T), cap : u64, alloc : *mem_alloc)
 {
 	dyn.alloc = alloc;

@@ -462,9 +462,16 @@ mesh_info:struct
 	verts : dyn_array(f32)
 	tris : dyn_array(u32)
 }
+chunk_col_info :struct
+{
+	tris : dyn_array(u32)
+	verts : *dyn_array(f32)
+
+}
 terrain_info : struct
 {
 	mesh : mesh_info
+	chunks : dyn_array(chunk_col_info)
 	width:u32
 	height:u32
 }
@@ -476,6 +483,7 @@ create_mesh_info:struct
 	total_tris : u32
 }
 
+Perlin2D::fn outsider(x:f32, y:f32, freq:f32, depth : u32) ! f32;
 CreateMesh::fn outsider(*create_mesh_info) ! u32;
 LoadModel::fn outsider(name : str_lit) ! u32;
 

@@ -15,7 +15,13 @@ signf::fn x64(a :f32) !f32
 col_type : etruct
 {
 	SPHERE(
+		radius : f32
 		
+	),
+	CAPSULE(
+		radius : f32,
+		ycap : f32,
+		ybase : f32,
 	),
 	TRIANGLE(
 		normal :_vec
@@ -51,8 +57,22 @@ find_furthest_point::fn(col : *collider, dir : *_vec) ! _vec
 {
 	on col.type
 	{
+	CAPSULE
+	{
+		result := normalize_vec(dir)*col.CAPSULE.radius;
+		if dir.y > 0.0
+		{
+			result.y += col.CAPSULE.ycap 
+		}
+		else
+			result.y += col.CAPSULE.ybase;
+
+        return result + col.ent.pos; //convert support to world spac
+	}
 	SPHERE
 	{
+		result := normalize_vec(dir)*col.SPHERE.radius;
+		return col.ent.pos + result
 
 	}
 	TRIANGLE
@@ -1130,17 +1150,98 @@ EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
 }
 CopyVerts::fn(col : *collider)
 {
-	memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
-	e := col.ent
-	for v in col.CUBE.verts
+	if col.type == col_type.CUBE
 	{
-		*v = *v * e.size
-		*v += e.pos
+		memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
+		e := col.ent
+		for v in col.CUBE.verts
+		{
+			*v = *v * e.size
+			*v += e.pos
+		}
 	}
 }
 //solve_col::fn(e : *entity, )
 
-PhysicsUpdate::fn(ctx : *context, dt : f32)
+ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_col_info)
+{
+	e := c1.ent
+	e2 := c2.ent
+	t :u64
+	tris := &chunk.tris
+	verts := chunk.verts
+
+	count := tris.count
+	col : collision=?
+	while t < count
+	{
+		_v1 :_vec=?
+		_v1.w = 0.0
+
+		_v2 :_vec=?
+		_v2.w = 0.0
+
+		_v3 :_vec=?
+		_v3.w = 0.0
+		idx :=  cast(u64)*tris[t]
+		_v1.x = *verts[idx * 3]
+		_v1.y = *verts[idx * 3 + 1]
+		_v1.z = *verts[idx * 3 + 2]
+
+		dir := e.pos - _v1
+		dist := dot_vec(&dir, &dir)
+		if dist < 70.0
+		{
+			idx = *tris[t + 1]
+			_v2.x = *verts[idx * 3]
+			_v2.y = *verts[idx * 3 + 1]
+			_v2.z = *verts[idx * 3 + 2]
+
+			idx = *tris[t + 2]
+
+			_v3.x = *verts[idx * 3]
+			_v3.y = *verts[idx * 3 + 1]
+			_v3.z = *verts[idx * 3 + 2]
+
+			tri_edge1 := _v2 - _v1
+			tri_edge2 := _v3 - _v1
+			
+			cross := cross_vec(&tri_edge1, &tri_edge2)
+			prev_cross := cross
+			//cross = -cross
+			cross = normalize_vec(&cross)
+
+			c2.type = col_type.TRIANGLE
+			c2.TRIANGLE.verts[0] = _v1 + e2.pos
+			c2.TRIANGLE.verts[1] = _v2 + e2.pos
+			c2.TRIANGLE.verts[2] = _v3 + e2.pos
+			c2.TRIANGLE.normal = cross
+
+			//if t == 375
+				//__dbg_break;
+			if GJK(gjk, c1, c2)
+			{
+				//__dbg_break
+				//if can_break
+					//__dbg_break
+				//tri_normal = cross
+
+				//__dbg_break
+				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
+				c1.ent.pos -= mtv
+				CopyVerts(c1)
+
+				col.normal = col.normal * -1.0
+				if e.col_enter
+				{
+					e.col_enter(e, e2, &col)
+				}
+			}
+		}
+		t += 3
+	}
+}
+StepCol::fn(ctx : *context, dt : f32)
 {
 	gjk := ctx.gjk
 	globals.ctx = cast(*void)ctx
@@ -1170,78 +1271,15 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 
 			if e2.type == ent_type.TERRAIN
 			{
+				can_break := false
+				if IsKeyDown(key_enum.KEY_F1)
+					can_break = true;
 				trn :*terrain_info= e2.terrain
 				count := trn.mesh.tris.count
 				t :u64
-				while t < count
-				{
-					verts := &trn.mesh.verts
-					_v1 :_vec=?
-					_v1.w = 0.0
-
-					_v2 :_vec=?
-					_v2.w = 0.0
-
-					_v3 :_vec=?
-					_v3.w = 0.0
-					idx :=  cast(u64)*trn.mesh.tris[t]
-					_v1.x = *verts[idx * 3]
-					_v1.y = *verts[idx * 3 + 1]
-					_v1.z = *verts[idx * 3 + 2]
-
-					dist := dot_vec(&e.pos, &_v1)
-					//if dist < 40.0
-					{
-						idx = *trn.mesh.tris[t + 1]
-						_v2.x = *verts[idx * 3]
-						_v2.y = *verts[idx * 3 + 1]
-						_v2.z = *verts[idx * 3 + 2]
-
-						idx = *trn.mesh.tris[t + 2]
-
-						_v3.x = *verts[idx * 3]
-						_v3.y = *verts[idx * 3 + 1]
-						_v3.z = *verts[idx * 3 + 2]
-
-						tri_edge1 := _v2 - _v1
-						tri_edge2 := _v3 - _v1
-						
-						cross := cross_vec(&tri_edge1, &tri_edge2)
-						prev_cross := cross
-						//cross = -cross
-						cross = normalize_vec(&cross)
-
-						c2.type = col_type.TRIANGLE
-						c2.TRIANGLE.verts[0] = _v1 + e2.pos
-						c2.TRIANGLE.verts[1] = _v2 + e2.pos
-						c2.TRIANGLE.verts[2] = _v3 + e2.pos
-						c2.TRIANGLE.normal = cross
-
-						if GJK(gjk, c1, c2)
-						{
-							//__dbg_break
-							tri_normal = cross
-
-							//__dbg_break
-							/*
-							find_support(gjk, c1, c2, &(tri_normal)); 
-							dir := gjk.sup1 - *c2.TRIANGLE.verts[0]
-							penetration_depth := dot_vec(&tri_normal, &dir)
-							mtv := tri_normal * penetration_depth
-							*/
-							mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
-							c1.ent.pos -= mtv
-							CopyVerts(c1)
-							
-							col.normal = col.normal * -1.0
-							if e.col_enter
-							{
-								e.col_enter(*e, *e2, &col)
-							}
-						}
-					}
-					t += 3
-				}
+				verts := &trn.mesh.verts
+				tris := &trn.mesh.tris
+				ChunkCol(gjk, c1, c2, trn.chunks[0])
 			}
 			else
 			{
@@ -1275,6 +1313,16 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 
 			}
 		}
+	}
+
+}
+PhysicsUpdate::fn(ctx : *context, dt : f32)
+{
+	steps := 1
+	for i in 0..steps
+	{
+		dt = dt / cast(f32)steps
+		StepCol(ctx, dt)
 	}
 }
 

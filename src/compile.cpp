@@ -2838,6 +2838,7 @@ struct dbg_state
 	byte_code2 **cur_bc2;
 	ir_rep *cur_ir;
 	byte_code2* prev_valid_bc;
+	osn_context *simplex_ctx;
 	union
 	{
 		ir_rep* prev_break_ir;
@@ -10776,17 +10777,14 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 			int len_offset = base_ptr + d->len_for_ptr_offset;
 			int len = *(int*)&dbg.mem_buffer[len_offset];
-			if (len > 1000)
-			{
-				ImGui::Text("more than 1000 items");
-				return;
-			}
+			
 			int addr = *(int*)&dbg.mem_buffer[base_ptr];
 			char prev_ptr = d->type.ptr;
 			d->type.ptr = ptr_decl;
 			d->type.ptr--;
 			int tp_sz = GetTypeSize(&d->type);
 			d->flags &= ~DECL_PTR_HAS_LEN;
+			len = clamp(len, 0, 32);
 			for (int i = 0; i < len; i++)
 			{
 				int cur_addr = addr + i * tp_sz;

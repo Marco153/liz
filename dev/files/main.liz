@@ -1583,6 +1583,14 @@ _draw_col ::fn(ctx : *context, c : *collider)
 {
 	on c.type
 	{
+	SPHERE
+	{
+		vsz :_vec
+		vsz.x = c.SPHERE.radius
+		vsz.y = c.SPHERE.radius
+		vsz.z = c.SPHERE.radius
+		draw_vertex(ctx, &c.ent.pos, &vsz, ctx.cam_pos_global, ctx.cam_rot_global)
+	}
 	TRIANGLE
 	{
 		col : _vec
@@ -1658,11 +1666,11 @@ view_collision ::fn(ccc : u32)
 
 	//printf("curx %, mx %\n", cast(s32)(curmx * 100.0), cast(s32)(*mx * 100.0))
 
-	e1.color.w = 0.3;
-	e2.color.w = 0.6;
+	e1.color.w = 0.8;
+	e2.color.w = 0.8;
 
 	e1.flags = e1.flags | ENTITY_TRANSPARENT;
-	e2.flags = e2.flags | ENTITY_TRANSPARENT;
+	//e2.flags = e2.flags | ENTITY_TRANSPARENT;
 
 	*mx = GetMouseNormalizedPosX() - curmx;
 	*my = GetMouseNormalizedPosY() - curmy;
@@ -1917,7 +1925,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	if on_ground
 	{
-		grav.y = -0.001
+		grav.y = -0.05
 		mov.jmp.vel.y = 0.0
 		mov.jmp.time_off_ground = 0.0
 		mov.jmp.jmpd = false
@@ -1941,14 +1949,17 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		player_ent.on_ground = false
 	}
 
+	mov_pressed := false
 	
 	if IsKeyHeld(key_enum.KEY_W)
 	{
 		mov.v += *dt * mov.speed
+		mov_pressed = true
 	}
 	else if IsKeyHeld(key_enum.KEY_S)
 	{
 		mov.v -= *dt * mov.speed
+		mov_pressed = true
 	}
 	else
 	{
@@ -1959,14 +1970,33 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	if IsKeyHeld(key_enum.KEY_A)
 	{
 		mov.h += *dt * mov.speed
+		mov_pressed = true
 	}
 	else if IsKeyHeld(key_enum.KEY_D)
 	{
 		mov.h -= *dt * mov.speed
+		mov_pressed = true
 	}
 	else
 	{
 		mov.h += -mov.h * *dt * mov.speed
+	}
+
+	ground_steep := dot_vec(&mov.platform_vel, &player_ent.normal_col)
+	print_vec(&player_ent.normal_col)
+	if on_ground
+	{
+		cross_right := cross_vec(&ctx.up, &player_ent.normal_col)
+		ground_dir := cross_vec(&cross_right, &player_ent.normal_col)
+		ground_dir = normalize_vec(&ground_dir)
+		mov.platform_vel += ground_dir * *dt * 4.0
+		steep_dir := mov.platform_vel * clamp(ground_steep, -2.0, 0.0) * *dt
+		steep_dir = steep_dir * 2.0
+
+		mov.platform_vel += steep_dir
+
+
+		//grav.y = -5.0
 	}
 	mov.v = clamp(mov.v, -1.0, 1.0)
 	mov.h = clamp(mov.h, -1.0, 1.0)
@@ -1982,7 +2012,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		actual_forward.z = 0.0
 	}
 	player_ent.vel = actual_forward * mov.speed + *grav
-	player_ent.vel += mov.jmp.vel
+	player_ent.vel += mov.jmp.vel + mov.platform_vel
 
 
 	if dot_vec(&actual_forward, &actual_forward) > 0.01 && !mov.on_rotating_cam
@@ -1996,7 +2026,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
 	player_ent.on_ground = false
 	width := 4.0
-	if player_ent.pos.y < mov.min_y_cam_pos
+	if player_ent.pos.y < mov.min_y_cam_pos || mov_pressed
 	{
 		mov.min_y_cam_pos = player_ent.pos.y
 		mov.max_y_cam_pos = mov.min_y_cam_pos + width
@@ -2006,31 +2036,37 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		mov.max_y_cam_pos = player_ent.pos.y
 		mov.min_y_cam_pos = mov.max_y_cam_pos - width
 	}	
-	//OpenLocalsWindow(__LINE__);
+	OpenLocalsWindow(__LINE__);
 }
 
-MESH_WIDTH :const s32= 5
+MESH_WIDTH :const s32= 20
 generate_mesh::fn(out : *mesh_info) ! u32
 {
 	verts:[MESH_WIDTH * MESH_WIDTH * 3]f32
 	tris: dyn_array(u32)
 
 	size := 3.0
-	for y in 0..5
+	for y in 0..MESH_WIDTH
 	{
-		for x in 0..5
+		for x in 0..MESH_WIDTH
 		{
+			px := cast(f32)x / cast(f32)MESH_WIDTH
+			py := cast(f32)y / cast(f32)MESH_WIDTH
+
+			//px2 := px * 0.00001 + 1.0
+			//py2 := py * 0.00001 + 1.0
+			perlin := Perlin2D(px, py, 0.1, 4)
+
 			idx := cast(u64)y * MESH_WIDTH * 3 + cast(u64)x * 3
 			*verts[idx] = cast(f32)x * size
-			*verts[idx + 1] = 0.0
+			//*verts[idx + 1] = perlin * 3.0 
+			*verts[idx + 1] = -cast(f32)y
+			mul := 1.0
+			s := sin(py * PI * 4.0) * mul
+			c := cos(px * PI * 4.0) * mul
+			*verts[idx + 1] += s + c
 			*verts[idx + 2] = cast(f32)y * size
 
-			if x==2 && y ==2
-			{
-				//*verts[idx] = cast(f32)x * size
-				*verts[idx + 1] = 1.0
-				//*verts[idx + 2] = cast(f32)y * size
-			}
 			
 			if y >= 1 && x < (MESH_WIDTH - 1)
 			{
@@ -2058,8 +2094,29 @@ generate_mesh::fn(out : *mesh_info) ! u32
 	info.total_verts = MESH_WIDTH * MESH_WIDTH
 	info.tris = tris[0]
 	info.total_tris = cast(u32)tris.count
+
+	dyn_free(&tris)
+
+	
 	return CreateMesh(&info)
 
+}
+create_chunk_col_for_terrain::fn(trn : *terrain_info)
+{
+
+	chunk : chunk_col_info
+	chunk.verts = &trn.mesh.verts
+	t :u64
+	count := trn.mesh.tris.count
+	tris := &trn.mesh.tris
+	while t < count
+	{
+		dyn_add(&chunk.tris, *tris[t])
+		dyn_add(&chunk.tris, *tris[t + 1])
+		dyn_add(&chunk.tris, *tris[t + 2])
+		t += 3
+	}
+	dyn_add(&trn.chunks, &chunk)
 }
 main_loop::fn(ctx : *context)
 {
@@ -2101,6 +2158,11 @@ main_loop::fn(ctx : *context)
 
 
 	player_ent:*entity=NewPlayerEnt(ctx, "player");
+	{
+		c1 := cast(*collider)player_ent.col
+		c1.type = col_type.SPHERE
+		c1.SPHERE.radius = 0.5
+	}
 
 	player_ent.mov_info.speed = 10.0
 	player_ent.mov_info.jmp.speed = 4.0
@@ -2148,18 +2210,19 @@ main_loop::fn(ctx : *context)
 
 	dyn_add(&ctx.drawable_ents, &player_ent);
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = -1.0
-	player_ent.pos.y = 0.0
+	player_ent.pos.x = 0.0
+	player_ent.pos.y = 5.0
+	player_ent.pos.z = 2.0
 
 
-	terrain : terrain_info
+	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
 	other := NewEnt(ctx.alloc, "block 1")
 	other.flags = other.flags | ENTITY_3D
 	add_body(ctx, other)
 	dyn_add(&ctx.drawable_ents, other)
 	other.is_active = true
 	other.type= ent_type.TERRAIN
-	other.terrain = &terrain
+	other.terrain = terrain
 	other.is_static = true
 	other.pos.x = -3.0
 	other.pos.y = -2.0
@@ -2169,33 +2232,10 @@ main_loop::fn(ctx : *context)
 	terrain.width = MESH_WIDTH
 	terrain.height = MESH_WIDTH
 	other.model = generate_mesh(&terrain.mesh)
-	other.terrain = &terrain
+	other.terrain = terrain
 
-	other = NewEnt(ctx.alloc, "block 1")
-	other.flags = other.flags | ENTITY_3D
-	dyn_add(&ctx.drawable_ents, other)
-	other.is_active = true
-	other.pos.x = 20.0
-	other.size.z = -20.0
+	create_chunk_col_for_terrain(terrain)
 
-	other = NewEnt(ctx.alloc, "block 2")
-	other.flags = other.flags | ENTITY_3D
-	dyn_add(&ctx.drawable_ents, other)
-	other.is_active = true
-	other.pos.x = 30.0
-	other.size.x = 30.0
-
-	other = NewEnt(ctx.alloc, "enemy")
-	add_body(ctx, other)
-	dyn_add(&ctx.drawable_ents, other)
-	other.flags = other.flags | ENTITY_3D
-
-	other.pos.y = -1.0
-	other.pos.x = -0.1
-	other.pos.z = -20.6
-	other.size.z = 8.0
-	other.is_active = true
-	other.is_static = true
 
 	mx := GetMouseScreenPosX();
 	my := GetMouseScreenPosY();
@@ -2232,7 +2272,7 @@ main_loop::fn(ctx : *context)
 	on_getting_to_back_pos := false
 	forward := &player_ent.forward
 	pmov := player_ent.mov_info
-	cam_up_dist := 2.0
+	cam_up_dist := 7.0
 	while !ShouldClose(ctx.window)
 	{
 		globals.timer = 0.0;
@@ -2349,8 +2389,10 @@ main_loop::fn(ctx : *context)
 		dir = normalize_vec(&dir)
 
 		ang = angle_on_axis(&aux_forward, &dir, &ctx.up)
+		ang2 := angle_on_axis(&cam_forward, &dir, &cross)
 		cam_rot.y = ang
 		cam_forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * aux_forward
+		cam_rot.x = -ang2
 
 		//print_vec(&forward)
 

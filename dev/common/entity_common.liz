@@ -170,6 +170,7 @@ entity:struct
 	is_active : bool,
 	knockedout : bool,
 	can_start_combo : bool,
+	normal_col : _vec
 
 	model : u32
 

@@ -104,6 +104,7 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 	up : _vec
 	up.y = 1.0
+	ent_a.normal_col = col.normal
 	if dot_vec(&col.normal, &up) > 0.5
 	{
 		ent_a.on_ground = true

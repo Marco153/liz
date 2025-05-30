@@ -459,21 +459,29 @@ key_enum : enum
 }
 mesh_info:struct
 {
+	pos : _vec
 	verts : dyn_array(f32)
-	tris : dyn_array(u32)
+	chunks : dyn_array(chunk_col_info)
+	model : u32
 }
 chunk_col_info :struct
 {
 	tris : dyn_array(u32)
-	verts : *dyn_array(f32)
+	verts_mesh_idx : u32
+	pos_x : f32
+	pos_y : f32
 
 }
 terrain_info : struct
 {
-	mesh : mesh_info
-	chunks : dyn_array(chunk_col_info)
+	meshes : dyn_array(mesh_info)
+	tris : dyn_array(u32)
+	vertices_per_row : u32
 	width:u32
 	height:u32
+	chunks_col_per_row:u32
+	chunks_col_window_size:u32
+	tris_per_unit:f32
 }
 create_mesh_info:struct
 {

@@ -62,12 +62,12 @@ typedef long long s64;
 #define HEAP_START 19000
 //#define MEM_ALLOC_ADDR 17000
 #define MEM_PTR_CUR_ADDR 10000
-#define MEM_PTR_START_ADDR 21000
-#define STACK_PTR_START 20000
+#define STACK_PTR_START 30000
+#define MEM_PTR_START_ADDR (STACK_PTR_START + 1000)
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 5048
-#define DATA_SECT_OFFSET 1024 * 1024 * 16
+#define DATA_SECT_OFFSET 1024 * 1024 * 32
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 #define STACK_PTR_REG 10
@@ -10313,12 +10313,11 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 	StartTimer(&tm);
 
-	int stack_offset = STACK_PTR_START;
-	*(int*)&mem_buffer[STACK_PTR_REG * 8] = stack_offset;
-	*(int*)&mem_buffer[BASE_STACK_PTR_REG * 8] = stack_offset;
-	*(int*)&mem_buffer[stack_offset + 8] = STACK_PTR_START;
+	*(int*)&mem_buffer[STACK_PTR_REG * 8] = STACK_PTR_START;
+	*(int*)&mem_buffer[BASE_STACK_PTR_REG * 8] = STACK_PTR_START;
+	*(int*)&mem_buffer[STACK_PTR_START + 8] = STACK_PTR_START;
 
-	auto stack_ptr_val = (long long *)&mem_buffer[stack_offset];
+	auto stack_ptr_val = (long long *)&mem_buffer[STACK_PTR_START];
 
 	for (int i = 0; i < total_args; i++)
 	{
@@ -10784,7 +10783,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			d->type.ptr--;
 			int tp_sz = GetTypeSize(&d->type);
 			d->flags &= ~DECL_PTR_HAS_LEN;
-			len = clamp(len, 0, 32);
+			len = clamp(len, 0, 64);
 			for (int i = 0; i < len; i++)
 			{
 				int cur_addr = addr + i * tp_sz;
@@ -11020,14 +11019,18 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		
 		if (ImGui::TreeNodeEx(buffer, flag))
 		{
-			for (int i = 0; i < d->type.ar_size; i++)
+			auto lalloc = (linear_alloc *)__lang_globals.data;
+			auto len = clamp(d->type.ar_size, 0, 64);
+			for (int i = 0; i < len; i++)
 			{
+				int prev_size = lalloc->cur;
 				type2 prev_type = d->type;
 				d->type = *d->type.tp;
 				int final_ptr = base_ptr + i * GetTypeSize(&d->type);
 				snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), final_ptr, final_ptr);
 				ImGuiPrintVar(buffer, dbg, d, final_ptr, d->type.ptr);
 				d->type = prev_type;
+				lalloc->cur = prev_size;
 			}
 			ImGui::TreePop();  // This is required at the end of the if block
 		}
@@ -13916,7 +13919,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 			}
 			// R R D
-			else if (assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_DECL)
+			else if (assign.lhs.type == IR_TYPE_REG && (assign.rhs.type == IR_TYPE_DECL || assign.rhs.type == IR_TYPE_ON_STACK))
 			{
 				
 				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false, false);
@@ -15097,6 +15100,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_CAST_INT_TO_F32:
 		{
 			int a = 0;
+			//BREAK(cur_line == 1425)
 			switch (ir->bin.rhs.type)
 			{
 			case IR_TYPE_INT:
@@ -15117,10 +15121,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					GenX64ToIrValReg2(lang_stat, ret, &rhs, &ir->bin.rhs, true, false);
 					if (rhs.deref >= 0)
 						inst = CVTSD_MEM_2_SS;
+					AllocSpecificFloatReg(lang_stat, rhs.reg);
 				}
-				
-
-
 				bc.type = inst;
 				FromIrValToBytecodeReg(&ir->bin.lhs, &bc.bin.lhs);
 				bc.bin.lhs.reg_sz = 4;

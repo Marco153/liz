@@ -32,9 +32,7 @@ mem_alloc : struct
 	hash_table_size : u32,
 }
 
-//alloc.chunks_cap :const s32=  (9000);
 BYTES_PER_CHUNK : const s32= 8;
-//alloc.hash_table_size : const s32=  (9000);
 UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 
 GetMem::fn outsider(sz:u64) ! *void;
@@ -501,8 +499,8 @@ InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 {
 	alloc.id = 0x1234;
 	alloc.chunks_cap = chunks_cap;
-	alloc.hash_table_size = chunks_cap;
-    all_chunks_sz:u64= alloc.chunks_cap * sizeof(mem_chunk);
+	alloc.hash_table_size = 25000;
+    all_chunks_sz:u64= sizeof(mem_chunk) * 25000;
 	if !alloc.all
 		alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
     memset(cast(*u8)alloc.all, 0, all_chunks_sz);

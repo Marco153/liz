@@ -1485,6 +1485,7 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 			ir.assign.only_lhs = true;
 			ir.assign.lhs = ir.bin.rhs;
 			ir.assign.to_assign.type = IR_TYPE_REG;
+			ir.assign.to_assign.deref = -1;
 			ir.assign.to_assign.reg_sz = saved.reg_sz;
 			ir.assign.to_assign.is_float = saved.is_float;
 			ir.assign.to_assign.is_float = saved.is_float;
@@ -2284,6 +2285,13 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						ir.assign.to_assign.on_stack_type = ON_STACK_SPILL;
 						ir.assign.to_assign.i = cur_spill_offset;
 						ir.assign.only_lhs = true;
+						/*
+						if(to_spill->ptr == -1)
+						{
+							to_spill->is_float = false;
+							to_spill->is_packed_float = false;
+						}
+							*/
 						ir.assign.lhs = *to_spill;
 						//ir.assign.lhs.deref = -1;
 						if(to_spill->deref >= 0)
@@ -2361,6 +2369,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				*/
 
 
+			//BREAK(e->line_number == 1327)
 			bool there_is_exps_in_stack = (j + 1) < exps.size();
 			// if is not last, we will move to some reg
 			if (there_is_exps_in_stack)

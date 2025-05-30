@@ -146,6 +146,7 @@ gjk_state : struct
 	epa_new_sup : _vec
 	mink_diff : [64]_vec
 	mink_diff_vert : u64
+	terrain_chunks_to_col : dyn_array(*chunk_col_info)
 }
 simplex_push_front::fn(gjk : *gjk_state, pos : *_vec)
 {
@@ -1163,13 +1164,15 @@ CopyVerts::fn(col : *collider)
 }
 //solve_col::fn(e : *entity, )
 
-ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_col_info)
+ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_col_info, trn : *terrain_info, chunk_pos : *_vec)
 {
 	e := c1.ent
 	e2 := c2.ent
 	t :u64
 	tris := &chunk.tris
-	verts := chunk.verts
+	verts := &trn.meshes[cast(u64)chunk.verts_mesh_idx].verts
+
+	cpos:=*chunk_pos
 
 	count := tris.count
 	col : collision=?
@@ -1188,6 +1191,8 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 		_v1.y = *verts[idx * 3 + 1]
 		_v1.z = *verts[idx * 3 + 2]
 
+		_v1 += e2.pos + cpos
+
 		dir := e.pos - _v1
 		dist := dot_vec(&dir, &dir)
 		if dist < 70.0
@@ -1197,11 +1202,14 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 			_v2.y = *verts[idx * 3 + 1]
 			_v2.z = *verts[idx * 3 + 2]
 
+			_v2 += e2.pos + cpos
+
 			idx = *tris[t + 2]
 
 			_v3.x = *verts[idx * 3]
 			_v3.y = *verts[idx * 3 + 1]
 			_v3.z = *verts[idx * 3 + 2]
+			_v3 += e2.pos + cpos
 
 			tri_edge1 := _v2 - _v1
 			tri_edge2 := _v3 - _v1
@@ -1212,13 +1220,21 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 			cross = normalize_vec(&cross)
 
 			c2.type = col_type.TRIANGLE
-			c2.TRIANGLE.verts[0] = _v1 + e2.pos
-			c2.TRIANGLE.verts[1] = _v2 + e2.pos
-			c2.TRIANGLE.verts[2] = _v3 + e2.pos
+			c2.TRIANGLE.verts[0] = _v1
+			c2.TRIANGLE.verts[1] = _v2
+			c2.TRIANGLE.verts[2] = _v3
+
 			c2.TRIANGLE.normal = cross
 
 			//if t == 375
 				//__dbg_break;
+			
+			/*
+			if chunk.verts_mesh_idx == 2 && c1.ent.pos.z >= 34.0
+			{
+				__dbg_break
+			}
+			*/
 			if GJK(gjk, c1, c2)
 			{
 				//__dbg_break
@@ -1240,6 +1256,144 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 		}
 		t += 3
 	}
+}
+add_pos_to_verts::fn(trn : *terrain_info, ch : *chunk_col_info, pos : *_vec)
+{
+	t :u64=0
+
+	count := cast(s64)trn.chunks_col_window_size
+	//__dbg_break
+	
+	verts := &trn.meshes[cast(u64)ch.verts_mesh_idx].verts
+	prev_w := pos.w
+	for y in 0..count
+	{
+		for x in 0..count
+		{
+			if y == (count - 1)
+			{
+				v_idx :u64= cast(u64)*ch.tris[t]
+				vec := cast(*_vec)verts[v_idx * 3]
+				*vec += *pos
+
+				v_idx = cast(u64)*ch.tris[t + 1]
+				vec = cast(*_vec)verts[v_idx * 3]
+				*vec += *pos
+
+			}
+			else
+			{
+				v_idx := cast(u64)*ch.tris[t + 1]
+				vec := cast(*_vec)verts[v_idx * 3]
+				*vec += *pos
+			}
+			t += 6
+		}
+	}
+	pos.w = prev_w
+}
+get_close_chunk_cols::fn(ctx : *context, gjk : *gjk_state, e_trn : *entity, mesh : *mesh_info, ref_pos : *_vec)
+{
+	trn :*terrain_info= e_trn.terrain
+
+	count := trn.tris.count
+	t :u64
+	verts := &mesh.verts
+	tris := &trn.tris
+
+	rel_pos := *ref_pos - e_trn.pos
+	rel_pos -= mesh.pos
+
+	min_x := rel_pos.x - 2.0
+	max_x := rel_pos.x + 2.0
+	min_y := rel_pos.z - 2.0
+	max_y := rel_pos.z + 2.0
+
+
+	min_x = min_x / cast(f32)trn.tris_per_unit
+	max_x = max_x / cast(f32)trn.tris_per_unit
+	min_y = min_y / cast(f32)trn.tris_per_unit
+	max_y = max_y / cast(f32)trn.tris_per_unit
+
+	min_x = cast(f32)cast(s32)min_x
+	max_x = cast(f32)cast(s32)max_x
+	min_y = cast(f32)cast(s32)min_y
+	max_y = cast(f32)cast(s32)max_y
+
+	min_x = clamp(min_x, 0.0, cast(f32)trn.chunks_col_per_row)
+	max_x = clamp(max_x, 0.0, cast(f32)trn.chunks_col_per_row)
+	min_y = clamp(min_y, 0.0, cast(f32)trn.chunks_col_per_row)
+	max_y = clamp(max_y, 0.0, cast(f32)trn.chunks_col_per_row)
+
+	vec_aux : _vec
+	vec_aux.x = min_x
+	vec_aux.y = max_x
+	vec_aux.z = min_y
+	vec_aux.w = max_y
+	//print_vec(&vec_aux)
+
+	imin_x := cast(u32)min_x
+	imax_x := cast(u32)max_x
+	imin_y := cast(u32)min_y
+	imax_y := cast(u32)max_y
+
+	w := cast(u32)(max_x - min_x) + 1
+	h := cast(u32)(max_y - min_y) + 1
+	//__dbg_break
+
+	if imax_x >= trn.chunks_col_per_row
+	{
+		w--
+	}
+	if imax_y >= trn.chunks_col_per_row
+	{
+		h--
+	}
+	//__dbg_break
+	for y in 0..h
+	{
+		for x in 0..w
+		{
+			cur_x := cast(u64)(imin_x + cast(u32)x)
+			cur_y := cast(u64)(imin_y + cast(u32)y)
+
+			ch := mesh.chunks[cur_y * trn.chunks_col_per_row + cur_x]
+			//printf("curx {cur_x}, cury {cur_y}, ")
+			//printf("ptr %\n", cast(u32)cast(u64)ch)
+			//globals.temp_alloc.cur = 0
+			dyn_add(&gjk.terrain_chunks_to_col, ch)
+		}
+	}
+/*
+	if mesh == trn.meshes[1]
+	{
+		//OpenLocalsWindow(__LINE__)
+		//__dbg_break
+	}
+	*/
+}
+aabb : struct 
+{
+    _min : _vec  
+    _max : _vec
+}
+
+// Collision check function taking pointer to AABBs
+aabbCheck::fn(a: *aabb, b: *aabb) ! bool
+{
+    // Check for overlap on each axis
+	a_minx := (a._min.x <= b._max.x)
+	b_minx := (a._max.x >= b._min.x)
+
+	a_miny := (a._min.y <= b._max.y)
+	b_miny := (a._max.y >= b._min.y)
+
+    x_overlap := a_minx && b_minx
+    y_overlap := a_miny && b_miny
+	
+    //z_overlap := (a.min.z <= b.max.z) && (a.max.z >= b.min.z)
+
+    return x_overlap && y_overlap
 }
 StepCol::fn(ctx : *context, dt : f32)
 {
@@ -1274,12 +1428,48 @@ StepCol::fn(ctx : *context, dt : f32)
 				can_break := false
 				if IsKeyDown(key_enum.KEY_F1)
 					can_break = true;
-				trn :*terrain_info= e2.terrain
-				count := trn.mesh.tris.count
-				t :u64
-				verts := &trn.mesh.verts
-				tris := &trn.mesh.tris
-				ChunkCol(gjk, c1, c2, trn.chunks[0])
+				//add := trn.chunks[6]
+				//dyn_add(&gjk.terrain_chunks_to_col, add)
+				trn := e2.terrain
+				dyn_clear(&gjk.terrain_chunks_to_col)
+				i := 0
+				for m in trn.meshes
+				{
+					m_aabb :aabb = ?
+					p_aabb :aabb = ?
+
+					m_aabb._min = m.pos
+					m_aabb._min.y = m_aabb._min.z
+					
+					m_aabb._max = m_aabb._min
+					m_aabb._max.x += cast(f32)trn.width
+					m_aabb._max.y += cast(f32)trn.width
+					p_aabb._min.x = e.pos.x
+					p_aabb._min.y = e.pos.z
+					p_aabb._min = p_aabb._min + _vec{-2.0, -2.0, 0.0, 0.0}
+
+					p_aabb._max.x = e.pos.x
+					p_aabb._max.y = e.pos.z
+					p_aabb._max = p_aabb._max + _vec{2.0, 2.0, 0.0, 0.0}
+					//if(can_break && m == trn.meshes[2])
+						//__dbg_break
+					if aabbCheck(&m_aabb, &p_aabb)
+					{
+						get_close_chunk_cols(ctx, gjk, *e2, m, &e.pos)
+						ctx.mesh_idx = cast(u32)i
+					}
+					i++
+				}
+
+				//__dbg_break
+				for ch in gjk.terrain_chunks_to_col
+				{
+					m := trn.meshes[cast(u64)ch.verts_mesh_idx]
+					m_pos :_vec= m.pos
+					m_pos.w = 0.0
+
+					ChunkCol(gjk, c1, c2, *ch, trn, &m_pos)
+				}
 			}
 			else
 			{
@@ -1391,10 +1581,6 @@ BroadPhase::fn(ctx : *context, ref_pos : *_vec, ref_size : *_vec, out : *dyn_arr
 		max_side += 10.0;
 		res :_vec=?;
 		
-		if AABB(&col_a, &col_b, &res)
-		{
-			dyn_add(out, e);
-		}
 	}
 }
  CheckRayAgainstVertices::fn(vertices : *_vec, verts_len : u32, ray_start : *_vec, ray_end : *_vec, ent : *entity, info : *collision)!bool

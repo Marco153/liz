@@ -302,7 +302,7 @@ void update_camera_direction(float yaw, float pitch, Vec3* front) {
 
 #define TOTAL_KEYS   (GLFW_KEY_LAST + 3)
 #define TOTAL_TEXTURES   256
-#define TOTAL_MODELS   16
+#define TOTAL_MODELS   64
 
 #define DOUBLE_CLICK_MAX_TIME 0.2
 
@@ -4164,7 +4164,8 @@ void CreateMesh(dbg_state* dbg)
 	sprintf(buffer, "mesh_%d", gl_state->generated_meshes);
 	own_std::string str(buffer);
 	int idx = HasModel(dbg, str, &free_idx);
-	ASSERT(idx == -1);
+	
+	ASSERT(idx == -1 && free_idx != -1);
 	model_info*m = &gl_state->models[free_idx];
 	m->vbo = VBO;
 	m->vao = VAO;
@@ -4640,10 +4641,10 @@ float perlin2d(float x, float y, float freq, int depth)
 void Perlin2D(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
-	float x = *(int*)&dbg->mem_buffer[base_ptr + 8];
-	float y = *(int*)&dbg->mem_buffer[base_ptr + 16];
-	float freq = *(int*)&dbg->mem_buffer[base_ptr + 24];
-	float depth = *(int*)&dbg->mem_buffer[base_ptr + 32];
+	float x = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float y = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	float freq = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	int depth = *(int*)&dbg->mem_buffer[base_ptr + 32];
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = perlin2d(x, y, freq, depth);
 }
 void LoadClip(dbg_state* dbg)
@@ -5047,7 +5048,7 @@ void Init3D(dbg_state* dbg)
     loadIdentity(gl_state->view);
     loadIdentity(gl_state->projection);
 
-    perspective(gl_state->projection, 45.0f * (3.14159f / 180.0f), 1.0, 0.1f, 100.0f);
+    perspective(gl_state->projection, 45.0f * (3.14159f / 180.0f), 1.0, 0.1f, 400.0f);
     gl_state->view[14] = -5.0f;  // translate view back
     gl_state->view[13] = -1.0f;  // translate view back
     //gl_state->model[13] = -1.0f;  // translate view back

@@ -28,6 +28,7 @@ context: struct
 	alloc : *mem_alloc,
 	main_alloc : mem_alloc,
 	per_scene_alloc : mem_alloc,
+	terrain_alloc : mem_alloc,
 	frames : *frame_info,
 	frames_count : u32,
 	frames_max : u32,
@@ -53,6 +54,8 @@ context: struct
 	up : _vec
 	character_start_obj_idx : u32,
 	
+	mesh_idx :u32
+
 	cam_col_left : bool,
 	cam_col_right : bool,
 	cam_col_top : bool,
@@ -443,45 +446,6 @@ ent_col : struct
 	size : _vec,
 	pivot : _vec,
 }
-AABB::fn(a : *ent_col, b : *ent_col, res : *_vec) ! bool
-{
-	a_center_x := a.pos.x - a.pivot.x * a.size.x;
-	a_center_y := a.pos.y - a.pivot.y * a.size.y;
-	b_center_x := b.pos.x - b.pivot.x * a.size.x;
-	b_center_y := b.pos.y - b.pivot.y * a.size.y;
-
-	a_right := (a_center_x + a.size.x);
-	a_left := (a_center_x);
-	b_right := (b_center_x + b.size.x);
-	b_left := (b_center_x);
-
-	a_top := (a_center_y + a.size.y);
-	a_bottom := (a_center_y);
-	b_top := (b_center_y + b.size.y);
-	b_bottom := (b_center_y);
-
-
-
-	right_check := a_right >= b_left && b_right > a_right;
-	left_check  := a_left <= b_right && b_left < a_left;
-
-	top_check := a_top >= b_bottom && b_top > a_top;
-	bottom_check  := a_bottom <= b_top && b_bottom < a_bottom;
-
-	right_diff := a_right - b_left;
-	left_diff := a_left - b_right;
-	top_diff := a_top - b_bottom;
-	bottom_diff := a_bottom - b_top;
-	
-	res.x = cast(f32)right_check * right_diff + cast(f32)left_check * left_diff;
-	res.y = cast(f32)top_check * top_diff + cast(f32)bottom_check * bottom_diff;
-
-	//cond2 := (y1 + szy1) >= y2 || y1 <= (y2 + szy2);
-	if (right_check || left_check) && (top_check || bottom_check)
-		return true;
-	return false;
-}
-
 
 
 input_info:struct
@@ -1666,11 +1630,11 @@ view_collision ::fn(ccc : u32)
 
 	//printf("curx %, mx %\n", cast(s32)(curmx * 100.0), cast(s32)(*mx * 100.0))
 
-	e1.color.w = 0.8;
-	e2.color.w = 0.8;
+	e1.color.w = 0.5;
+	e2.color.w = 0.5;
 
 	e1.flags = e1.flags | ENTITY_TRANSPARENT;
-	//e2.flags = e2.flags | ENTITY_TRANSPARENT;
+	e2.flags = e2.flags | ENTITY_TRANSPARENT;
 
 	*mx = GetMouseNormalizedPosX() - curmx;
 	*my = GetMouseNormalizedPosY() - curmy;
@@ -1782,6 +1746,47 @@ view_collision ::fn(ccc : u32)
 		{
 			_draw_col(ctx, gjk.col2)
 			_draw_col(ctx, gjk.col1)
+
+			if e2.type == ent_type.TERRAIN
+			{
+
+				trn :*terrain_info=e2.terrain
+				t :u64=0
+				mesh := trn.meshes[0]
+				tris := &trn.tris
+				
+				while t < tris.count
+				{
+					t1 := cast(u64)*tris[t]
+					t2 := cast(u64)*tris[t + 1]
+					t3 := cast(u64)*tris[t + 2]
+
+					_v1_start := mesh.verts[t1 * 3]
+					_v2_start := mesh.verts[t2 * 3]
+					_v3_start := mesh.verts[t3 * 3]
+
+					_v1 :_vec=?
+					_v1.w = 0.0
+
+					_v2 :_vec=?
+					_v2.w = 0.0
+
+					_v3 :_vec=?
+					_v3.w = 0.0
+					
+					memcpy(&_v1, _v1_start, 3 * 4)
+					memcpy(&_v2, _v2_start, 3 * 4)
+					memcpy(&_v3, _v3_start, 3 * 4)
+
+					_v1 += e2.pos
+					_v2 += e2.pos
+					_v3 += e2.pos
+
+					draw_tri(ctx, &_v3, &_v2, &_v1, &col, 0)
+
+					t += 3
+				}
+			}
 		}
 
 		draw_vertex(
@@ -1983,9 +1988,10 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	}
 
 	ground_steep := dot_vec(&mov.platform_vel, &player_ent.normal_col)
-	print_vec(&player_ent.normal_col)
+	//print_vec(&player_ent.normal_col)
 	if on_ground
 	{
+		/*
 		cross_right := cross_vec(&ctx.up, &player_ent.normal_col)
 		ground_dir := cross_vec(&cross_right, &player_ent.normal_col)
 		ground_dir = normalize_vec(&ground_dir)
@@ -1994,6 +2000,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		steep_dir = steep_dir * 2.0
 
 		mov.platform_vel += steep_dir
+		*/
 
 
 		//grav.y = -5.0
@@ -2036,87 +2043,191 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		mov.max_y_cam_pos = player_ent.pos.y
 		mov.min_y_cam_pos = mov.max_y_cam_pos - width
 	}	
-	OpenLocalsWindow(__LINE__);
 }
 
-MESH_WIDTH :const s32= 20
-generate_mesh::fn(out : *mesh_info) ! u32
+MESH_WIDTH :const s32= 33
+init_tri_terrain::fn(trn : *terrain_info)
 {
-	verts:[MESH_WIDTH * MESH_WIDTH * 3]f32
-	tris: dyn_array(u32)
-
-	size := 3.0
 	for y in 0..MESH_WIDTH
 	{
 		for x in 0..MESH_WIDTH
 		{
-			px := cast(f32)x / cast(f32)MESH_WIDTH
-			py := cast(f32)y / cast(f32)MESH_WIDTH
-
-			//px2 := px * 0.00001 + 1.0
-			//py2 := py * 0.00001 + 1.0
-			perlin := Perlin2D(px, py, 0.1, 4)
-
-			idx := cast(u64)y * MESH_WIDTH * 3 + cast(u64)x * 3
-			*verts[idx] = cast(f32)x * size
-			//*verts[idx + 1] = perlin * 3.0 
-			*verts[idx + 1] = -cast(f32)y
-			mul := 1.0
-			s := sin(py * PI * 4.0) * mul
-			c := cos(px * PI * 4.0) * mul
-			*verts[idx + 1] += s + c
-			*verts[idx + 2] = cast(f32)y * size
-
-			
 			if y >= 1 && x < (MESH_WIDTH - 1)
 			{
 				cur := y  * MESH_WIDTH + x
 				next_cur := y  * MESH_WIDTH + x + 1
 				below_vert := (y - 1) * MESH_WIDTH + x
 				below_right_vert := (y - 1) * MESH_WIDTH + x + 1
-				dyn_add(&tris, cast(u32)cur)
-				dyn_add(&tris, cast(u32)below_vert)
-				dyn_add(&tris, cast(u32)below_right_vert)
+				dyn_add(&trn.tris, cast(u32)cur)
+				dyn_add(&trn.tris, cast(u32)below_vert)
+				dyn_add(&trn.tris, cast(u32)below_right_vert)
 
-				dyn_add(&tris, cast(u32)next_cur)
-				dyn_add(&tris, cast(u32)cur)
-				dyn_add(&tris, cast(u32)below_right_vert)
+				dyn_add(&trn.tris, cast(u32)next_cur)
+				dyn_add(&trn.tris, cast(u32)cur)
+				dyn_add(&trn.tris, cast(u32)below_right_vert)
 			}
 		}
 	}
-	dyn_add_data(&out.verts, cast(*f32)verts, MESH_WIDTH * MESH_WIDTH * 3 * 4)
-	out.verts.count = MESH_WIDTH * MESH_WIDTH * 3
-	dyn_add_data(&out.tris, cast(*f32)tris[0], cast(u32)tris.count * 4)
-	out.tris.count = tris.count
+
+}
+generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
+{
+	ASSERT((MESH_WIDTH % 2) == 1)
+	verts:[MESH_WIDTH * MESH_WIDTH * 3]f32
+	memset(verts, 0, sizeof(verts))
+
+	size := cast(f32)trn.width
+	add_x := cast(f32)pos_x / size
+	add_y := cast(f32)pos_y / size
+	for y in 0..MESH_WIDTH
+	{
+		for x in 0..MESH_WIDTH
+		{
+			px := cast(f32)x / cast(f32)MESH_WIDTH
+			py := cast(f32)y / cast(f32)MESH_WIDTH
+			//px += add_x
+			//py += add_y
+
+
+			perlin := Perlin2D(px+ add_x, py + add_y, 1.0, 2)
+
+			mul := 16.0
+
+			idx := cast(u64)y * MESH_WIDTH * 3 + cast(u64)x * 3
+			*verts[idx] = cast(f32)px * size
+			//__dbg_break
+			*verts[idx + 1] = perlin * mul
+			//*verts[idx + 1] = 0.0
+
+			*verts[idx + 2] = py * size
+		}
+	}
+
+
+	m :mesh_info
+	m.pos.x = cast(f32)pos_x
+	m.pos.z = cast(f32)pos_y
+
+	dyn_add_data(&m.verts, cast(*f32)verts, MESH_WIDTH * MESH_WIDTH * 3 * 4)
+	m.verts.count = MESH_WIDTH * MESH_WIDTH * 3
+
+	//dyn_add_data(&trn.tris, cast(*f32)tris[0], cast(u32)tris.count * 4)
+	//trn.tris.count = tris.count
 
 	info :create_mesh_info
 	info.verts = cast(*f32)&verts
 	info.total_verts = MESH_WIDTH * MESH_WIDTH
-	info.tris = tris[0]
-	info.total_tris = cast(u32)tris.count
+	info.tris = trn.tris[0]
+	info.total_tris = cast(u32)trn.tris.count
 
-	dyn_free(&tris)
+	trn.vertices_per_row = MESH_WIDTH
 
+	actual_size := MESH_WIDTH - 1
+	tris_per_unit := (actual_size) / cast(s32)size
+
+	chunk_window_size := 4
+	trn.chunks_col_window_size = cast(u32)chunk_window_size
 	
-	return CreateMesh(&info)
+	ASSERT(tris_per_unit >= 1)
 
+	tris_per_unit = tris_per_unit * chunk_window_size
+	trn.tris_per_unit = cast(f32)tris_per_unit
+
+	ASSERT((actual_size % cast(s32)tris_per_unit) == 0)
+
+	total_chunks_cols := actual_size / cast(s32)tris_per_unit
+
+	//__dbg_break
+	ret := CreateMesh(&info)
+	ASSERT(ret != -1)
+	m.model = ret
+	//total_chunks_cols = total_chunks_cols - 1
+
+	trn.chunks_col_per_row = cast(u32)total_chunks_cols
+
+
+	tris_per_unit_u64 := cast(u64)tris_per_unit
+	dyn_add(&trn.meshes, &m)
+	last_mesh_idx := cast(u32)trn.meshes.count - 1
+
+	//__dbg_break
+	for y in 0..total_chunks_cols
+	{
+		for x in 0..total_chunks_cols
+		{
+		
+			start_x := cast(u64)x * tris_per_unit_u64
+			start_y := cast(u64)y * tris_per_unit_u64
+			end_x := cast(u64)x * tris_per_unit_u64 + tris_per_unit_u64
+			end_y := cast(u64)y * tris_per_unit_u64 + tris_per_unit_u64
+			create_chunk_col_for_terrain(trn, last_mesh_idx, start_x, start_y, end_x, end_y)
+		}
+	}
+	
+	//__dbg_break
+	return ret
 }
-create_chunk_col_for_terrain::fn(trn : *terrain_info)
+create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_quad : u64, start_y_quad : u64, end_x_quad : u64, end_y_quad : u64 )
 {
 
+	mesh :*mesh_info= trn.meshes[cast(u64)mesh_idx]
 	chunk : chunk_col_info
-	chunk.verts = &trn.mesh.verts
+	chunk.verts_mesh_idx = mesh_idx
 	t :u64
-	count := trn.mesh.tris.count
-	tris := &trn.mesh.tris
-	while t < count
+	chunk.pos_x = cast(f32)cast(s32)start_x_quad
+	chunk.pos_y = cast(f32)cast(s32)start_y_quad
+	count := trn.tris.count
+	tris := &trn.tris
+	tst := 0
+	if tst == 0
 	{
-		dyn_add(&chunk.tris, *tris[t])
-		dyn_add(&chunk.tris, *tris[t + 1])
-		dyn_add(&chunk.tris, *tris[t + 2])
-		t += 3
+		for y in start_y_quad..end_y_quad
+		{
+			for x in start_x_quad..end_x_quad
+			{
+				start_x := x * 6
+				start_y := (cast(u64)trn.vertices_per_row - 1)* 6 * cast(u64)y
+
+				dyn_add(&chunk.tris, *tris[start_x + start_y])
+				dyn_add(&chunk.tris, *tris[start_x + start_y + 1])
+				dyn_add(&chunk.tris, *tris[start_x + start_y + 2])
+				dyn_add(&chunk.tris, *tris[start_x + start_y + 3])
+				dyn_add(&chunk.tris, *tris[start_x + start_y + 4])
+				dyn_add(&chunk.tris, *tris[start_x + start_y + 5])
+			}
+		}
 	}
-	dyn_add(&trn.chunks, &chunk)
+	else
+	{
+		while t < count
+		{
+			dyn_add(&chunk.tris, *tris[t])
+			dyn_add(&chunk.tris, *tris[t + 1])
+			dyn_add(&chunk.tris, *tris[t + 2])
+			t += 3
+		}
+	}
+	dyn_add(&mesh.chunks, &chunk)
+}
+generate_terrain::fn(ctx : *context, e : *entity)
+{
+	terrain := e.terrain
+	globals.alloc = &ctx.terrain_alloc
+	ctx.alloc = &ctx.terrain_alloc
+	init_tri_terrain(terrain)
+	i := 0
+
+	mesh :*mesh_info
+	for y in 0..6
+	{
+		for x in 0..6
+		{
+			generate_mesh(terrain, cast(u32)x * (terrain.width - 1), cast(u32)y * (terrain.width - 1))
+		}
+	}
+	globals.alloc = &ctx.main_alloc
+	ctx.alloc = &ctx.main_alloc
+
 }
 main_loop::fn(ctx : *context)
 {
@@ -2198,7 +2309,7 @@ main_loop::fn(ctx : *context)
 	dyn_init2(&layers, 8, ctx.alloc);
 	ctx.layers_ptr = &layers;
 
-	ctx.alloc = &ctx.per_scene_alloc;
+	//ctx.alloc = &ctx.per_scene_alloc;
 	ctx.already_allocated_mem_count = cast(u32)cast(u64)GetMem(1);
 	//OpenSceneGame(ctx, "../scenes/01", &layers, &ctx.textures);
 	ctx.cam_size = 5.0;
@@ -2210,9 +2321,9 @@ main_loop::fn(ctx : *context)
 
 	dyn_add(&ctx.drawable_ents, &player_ent);
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = 0.0
-	player_ent.pos.y = 5.0
-	player_ent.pos.z = 2.0
+	player_ent.pos.x = 32.0 * 2.0
+	player_ent.pos.y = 20.0
+	player_ent.pos.z = 32.0 * 2.0
 
 
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
@@ -2224,17 +2335,15 @@ main_loop::fn(ctx : *context)
 	other.type= ent_type.TERRAIN
 	other.terrain = terrain
 	other.is_static = true
-	other.pos.x = -3.0
+	other.pos.x = 0.0
 	other.pos.y = -2.0
-	other.pos.z = -3.0
+	other.pos.z = 0.0
 	other.size.z = 1.0
 	other.size.x = 1.0
-	terrain.width = MESH_WIDTH
-	terrain.height = MESH_WIDTH
-	other.model = generate_mesh(&terrain.mesh)
-	other.terrain = terrain
+	terrain.width = MESH_WIDTH - 1
+	terrain.height = MESH_WIDTH - 1
 
-	create_chunk_col_for_terrain(terrain)
+	generate_terrain(ctx, other)
 
 
 	mx := GetMouseScreenPosX();
@@ -2272,9 +2381,10 @@ main_loop::fn(ctx : *context)
 	on_getting_to_back_pos := false
 	forward := &player_ent.forward
 	pmov := player_ent.mov_info
-	cam_up_dist := 7.0
+	cam_up_dist := 5.0
 	while !ShouldClose(ctx.window)
 	{
+		//OpenLocalsWindow(__LINE__)
 		globals.timer = 0.0;
 		{
 			//start_pos:_vec = ? ;
@@ -2398,6 +2508,8 @@ main_loop::fn(ctx : *context)
 
 		PhysicsUpdate(ctx, dt)
 		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
+		printf("midx {ctx.mesh_idx}\n")
+		globals.temp_alloc.cur = 0
 
 /*
 		color : _vec=?
@@ -2507,14 +2619,24 @@ main:: fn(){
 
 	ctx: context
 	AssignCtxAddr(&ctx);
-	InitMemAlloc(&ctx.main_alloc, 16000);
-	InitMemAlloc(&ctx.per_scene_alloc, 16000);
+	InitMemAlloc(&ctx.main_alloc, 46000);
+	//InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
 	ctx.coroutines.alloc = ctx.alloc;
 	window := OpenWindow(1024, 768);
+
+	bytes_per_mesh := MESH_WIDTH * MESH_WIDTH * 3
+	total_chunks := 8
+	terrain_bytes_total := cast(u32)(bytes_per_mesh * total_chunks * total_chunks)
+	tris_per_chunk := (MESH_WIDTH - 1) * (MESH_WIDTH - 1) * 6 * 4
+	terrain_tris := cast(u32)(tris_per_chunk * total_chunks * total_chunks)
+
+	InitMemAlloc(&ctx.terrain_alloc, terrain_bytes_total + terrain_tris);
+
 	ctx.window = window;
 
-	globals.alloc = &ctx.per_scene_alloc;
+	//globals.alloc = &ctx.per_scene_alloc;
+	globals.alloc = ctx.alloc;
 
 	// Cube vertices
 	*globals.cube_verts[0] = _vec{-0.5, -0.5, -0.5, 0.0}

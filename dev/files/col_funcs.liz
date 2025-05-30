@@ -75,29 +75,12 @@ player_collision_exit::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 }
 player_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
-	//PrintV3(2.0, 0.0, 0.0);
-	//col.ent_a.vel.
-	
-	col.ignore_trigger_do_collision = false;
-	if is_flag_on(ent_b.layer, LAYER_MAYBE_ONLY_UP_COL)
+	up : _vec
+	up.y = 1.0
+	ent_a.normal_col = col.normal
+	if dot_vec(&col.normal, &up) > 0.5
 	{
-		if CanIgnoreTriggerAndDoCollision(ent_a, ent_b, col)
-		{
-			col.ignore_trigger_do_collision = true;
-			ent_a.on_ground = true;
-		}
-	}
-	if  is_flag_off(ent_a.dont_res_cols_with_layers, ent_b.layer)
-	{
-		if ent_b.type != ent_type.DEFENSE
-		{
-			if col.normal.y < -0.1 && !ent_b.is_trigger 
-				ent_a.on_ground = true;
-		}
-	}
-	if ent_b.type == ent_type.FLOATY_PLATFORM
-	{
-		ent_a.mov_info.platform = ent_b;
+		ent_a.on_ground = true
 	}
 }
 player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
@@ -108,6 +91,24 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	if dot_vec(&col.normal, &up) > 0.5
 	{
 		ent_a.on_ground = true
+	}
+	if ent_a.state == entity_state.SURF
+	{
+		mov := ent_a.mov_info
+
+		cross_right := cross_vec(&globals.up, &col.normal)
+		ground_dir := cross_vec(&cross_right, &col.normal)
+		ground_dir = normalize_vec(&ground_dir)
+		ground_d := dot_vec(&ent_a.vel, &ground_dir)
+
+		// making vel horizontal
+		up_dot := dot_vec(&ground_dir, &globals.up)
+		final_vel := ground_dir - globals.up * up_dot
+		final_vel = normalize_vec(&final_vel)
+
+		mov.platform_vel =  final_vel * ground_d
+		printf("enter\n")
+		print_vec(&ent_a.forward)
 	}
 }
 

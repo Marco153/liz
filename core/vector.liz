@@ -373,7 +373,7 @@ print_vec::fn(v : *_vec)
 	printf("rw %\n", cast(s32)(v.w * 100.0))
 	//printf("ang %, dt %\n", cast(s32)(ang * 100.0), cast(s32)(dt * 100.0))
 }
-cross_vec::fn(a : *_vec, b : *_vec) !_vec
+cross_vec::fn x64(a : *_vec, b : *_vec) !_vec
 {
 
 	ret :_vec= ?

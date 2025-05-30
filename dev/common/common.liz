@@ -61,6 +61,8 @@ global_struct : struct
 	mx : f32
 	my : f32
 	tog : bool
+
+	up : _vec
 }
 globals : global global_struct
 

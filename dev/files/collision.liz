@@ -1248,9 +1248,16 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 				CopyVerts(c1)
 
 				col.normal = col.normal * -1.0
-				if e.col_enter
+				if !EntIsInCollision(e, e2, &col)
 				{
-					e.col_enter(e, e2, &col)
+					if e.col_enter != nil
+					{
+						e.col_enter(e, e2, &col);
+					}
+				}
+				if e.col_stay != nil
+				{
+					e.col_stay(e, e2, &col);
 				}
 			}
 		}
@@ -1404,6 +1411,23 @@ StepCol::fn(ctx : *context, dt : f32)
 	{
 		if e.is_static || !e.is_active
 			continue;
+
+		for in_col in e.ents_in_collision
+		{
+			if !in_col.in_col && in_col.ent != nil
+			{
+				//PrintV3(5.0, 0.0, 0.0);
+				//in_col.in_col = false;
+				if e.col_exit != nil
+				{
+					e.col_exit(*e, in_col.ent, &in_col.col);
+				}
+				in_col.ent = nil;
+			}
+			in_col.in_col = false;
+
+		}	
+
 		c1 := cast(*collider)e.col
 		e.pos += e.vel * dt
 		CopyVerts(c1)

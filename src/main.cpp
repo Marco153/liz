@@ -302,7 +302,7 @@ void update_camera_direction(float yaw, float pitch, Vec3* front) {
 
 #define TOTAL_KEYS   (GLFW_KEY_LAST + 3)
 #define TOTAL_TEXTURES   256
-#define TOTAL_MODELS   64
+#define TOTAL_MODELS   128
 
 #define DOUBLE_CLICK_MAX_TIME 0.2
 
@@ -5177,6 +5177,8 @@ void OpenWindow(dbg_state* dbg)
 		0, 1, 3,   // first triangle
 		1, 2, 3    // second triangle
 	};
+
+
 	unsigned int LINEVAO;
 	unsigned int VBO;
 	glGenVertexArrays(1, &LINEVAO);

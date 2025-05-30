@@ -157,6 +157,15 @@ look_at_quaternion::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! quaternion
 	ret.v.w = cos(d *0.5)
 	return ret
 }
+/*
+operator *(self : *quaternion, rhs : *quaternion) !quaternion
+{
+	ret : quaternion = ?
+
+	multiply_quaternions(&ret.v, &self.v, &rhs.v)
+	return ret
+}
+*/
 operator *(self : *quaternion, vec : *_vec) !_vec
 {
 	ret :_vec

@@ -37,25 +37,7 @@ impact_enum:enum
 entity_state:enum
 {
 	IDLE,
-	THRAXER_IDLE = IDLE,
-	WALK,
-	THRAXER_DEFEND = WALK,
-	HIT,
-	WOLF_BACK_TO_ORIGIN = HIT,
-	KICK,
-	IMPACTED,
-	FALLING,
-	ON_GROUND,
-	MEDIUM_KICK,
-	HIGH_KICK,
-	UPWARD_PUNCH,
-	RISING,
-	DESCENDING,
-	AIR_KICK,
-	AXE_PUNCH,
-	AXE_THROW,
-	AXE_AIR_THROW,
-	SWEEPED,
+	SURF,
 }
 behaviour_state: enum
 {

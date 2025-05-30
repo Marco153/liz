@@ -132,53 +132,6 @@ trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	dir.x = ent_b.pos.x - ent_a.dmg.from.pos.x;
 	dir.x = signf(dir.x);
 
-	if from.state != entity_state.KICK && ent_a.type != ent_type.DEFENSE
-	{
-		dir.y = 0.0;
-		ent_b.hp -= ent_a.dmg.val;
-		if ent_a.dmg.impact_type == impact_enum.OPPOSITE_DIR
-		{
-			ent_b.impact_vel.x = dir.x * 3.0 * ent_a.dmg.impact_mul;
-			ent_b.impact_vel.y = 2.0;
-		}
-		else if ent_a.dmg.impact_type == impact_enum.UP_AND_OPPOSITE_DIR
-		{
-			ent_b.impact_vel.x = dir.x * 10.0;
-		//__dbg_break;
-			ent_b.impact_vel.y = 4.0;
-		}
-		else if ent_a.dmg.impact_type == impact_enum.UP
-		{
-			ent_b.impact_vel.x = 0.0;
-		//__dbg_break;
-			ent_b.impact_vel.y = 30.0;
-		}
-		ent_a.dmg.hit = true;
-		ent_a.dmg.hit_ent = ent_b;
-		ent_b.was_hit = true;
-		if !ent_b.on_ground
-		{
-			ent_b.mov_info.gravity_vel.y = 0.0;
-			//PrintV3(3.0, 0.0, 1.0);
-		}
-	
-
-
-	}
-	if ent_a.type == ent_type.DEFENSE && ent_a.dmg.from != ent_b
-	{
-		if ent_b.type != ent_type.PLAYER
-		{
-			ent_b.is_active = false;
-			DisableEnt(ent_a);
-
-		}
-		else
-		{
-		
-			//ent_b.impact_vel.x = dir.x * 10.0;
-		}
-	}
 }
 
 

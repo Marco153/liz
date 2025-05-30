@@ -1956,6 +1956,8 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	mov_pressed := false
 	
+	dont_change_forward_based_on_cam := false
+
 	if IsKeyHeld(key_enum.KEY_W)
 	{
 		mov.v += *dt * mov.speed
@@ -1987,23 +1989,46 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		mov.h += -mov.h * *dt * mov.speed
 	}
 
+	if IsKeyHeld(key_enum.KEY_ACT1)
+	{
+		dont_change_forward_based_on_cam = true
+	}
+
 	ground_steep := dot_vec(&mov.platform_vel, &player_ent.normal_col)
 	//print_vec(&player_ent.normal_col)
 	if on_ground
 	{
-		/*
 		cross_right := cross_vec(&ctx.up, &player_ent.normal_col)
 		ground_dir := cross_vec(&cross_right, &player_ent.normal_col)
 		ground_dir = normalize_vec(&ground_dir)
-		mov.platform_vel += ground_dir * *dt * 4.0
-		steep_dir := mov.platform_vel * clamp(ground_steep, -2.0, 0.0) * *dt
-		steep_dir = steep_dir * 2.0
+		d := dot_vec(&player_ent.forward, &ground_dir)
+		if d < 0.0
+		{
+			mov.platform_vel += -mov.platform_vel * *dt * 0.3
+		}
+		else if mov_pressed
+		{
+			mov.platform_vel += player_ent.forward * *dt * 32.0
+			rot_vel := mov.h * *dt * 2.0
 
-		mov.platform_vel += steep_dir
-		*/
+			d = dot_vec(&player_ent.forward, &player_ent.normal_col)
+			print_f32(d)
+
+			grav.y = -d * 20.0
+
+			mov.platform_vel.x = clamp(mov.platform_vel.x, -20.0, 20.0)
+			mov.platform_vel.y = clamp(mov.platform_vel.y, -20.0, 20.0)
+			mov.platform_vel.z = clamp(mov.platform_vel.z, -20.0, 20.0)
 
 
-		//grav.y = -5.0
+		}
+		
+		ang := angle_on_axis(&player_ent.forward, &mov.platform_vel, &ctx.up)
+		mov.platform_vel = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0) * mov.platform_vel
+
+		//mov.platform_vel += steep_dir
+
+
 	}
 	mov.v = clamp(mov.v, -1.0, 1.0)
 	mov.h = clamp(mov.h, -1.0, 1.0)
@@ -2018,19 +2043,61 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		actual_forward.y = 0.0
 		actual_forward.z = 0.0
 	}
-	player_ent.vel = actual_forward * mov.speed + *grav
-	player_ent.vel += mov.jmp.vel + mov.platform_vel
+	player_ent.state = entity_state.SURF
 
-
-	if dot_vec(&actual_forward, &actual_forward) > 0.01 && !mov.on_rotating_cam
+	on player_ent.state
 	{
-		*forward = normalize_vec(&actual_forward)
+	entity_state.IDLE
+	{
+		player_ent.vel = actual_forward * mov.speed + *grav
+		if dot_vec(&actual_forward, &actual_forward) > 0.01 && !mov.on_rotating_cam
+		{
+			*forward = normalize_vec(&actual_forward)
+		}
+		//player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
+
 	}
+	entity_state.SURF
+	{
+		d := dot_vec(&player_ent.vel, &player_ent.forward)*0.1
+		rot_vel := mov.h * *dt * d
+		player_ent.forward = euler_to_quaternion(0.0, radians_to_degree(rot_vel), 0.0) * player_ent.forward
+		player_ent.vel = mov.jmp.vel + mov.platform_vel
+		player_ent.vel += *grav
+
+		player_ent.rot.x = 0.0
+		player_ent.rot.y = 0.0
+		player_ent.rot.z = 0.0
+		player_ent.rot.w = 1.0
+
+		ang := angle_on_axis(aux_forward, forward, &ctx.up)
+		axis_rot := euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
+		aux :_vec= player_ent.rot
+
+		multiply_quaternions(&player_ent.rot, &aux, &axis_rot)
+		
+		cross = cross_vec(&player_ent.forward, &player_ent.normal_col)
+
+		ang = angle_on_axis(&ctx.up, &player_ent.normal_col, &cross) * 57.0
+		cross = cross * -ang
+		axis_rot = euler_to_quaternion(cross.x, cross.y , cross.z ).v
+		aux = player_ent.rot
+		multiply_quaternions(&player_ent.rot, &aux, &axis_rot)
+
+		print_f32(ang)
+		
+	}
+	}
+	player_ent.vel.x = clamp(player_ent.vel.x, -20.0, 20.0)
+	player_ent.vel.y = clamp(player_ent.vel.y, -20.0, 20.0)
+	player_ent.vel.z = clamp(player_ent.vel.z, -20.0, 20.0)
+
+
 	//print_vec(&actual_forward)
 
 
 	ang := angle_on_axis(aux_forward, forward, &ctx.up)
-	player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
+	//player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
 	player_ent.on_ground = false
 	width := 4.0
 	if player_ent.pos.y < mov.min_y_cam_pos || mov_pressed
@@ -2079,24 +2146,26 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 	size := cast(f32)trn.width
 	add_x := cast(f32)pos_x / size
 	add_y := cast(f32)pos_y / size
+
+	max_y := cast(f32)(MESH_WIDTH - 1) * 6.0
 	for y in 0..MESH_WIDTH
 	{
 		for x in 0..MESH_WIDTH
 		{
 			px := cast(f32)x / cast(f32)MESH_WIDTH
 			py := cast(f32)y / cast(f32)MESH_WIDTH
-			//px += add_x
-			//py += add_y
 
+			mul := 5.0
 
 			perlin := Perlin2D(px+ add_x, py + add_y, 1.0, 2)
+			perlin2 := Perlin2D(px+ add_x + 5.5, py + add_y + 5.5, 0.1, 2)
+			perlin2 =  perlin2 * mul * 10.0
 
-			mul := 16.0
 
 			idx := cast(u64)y * MESH_WIDTH * 3 + cast(u64)x * 3
 			*verts[idx] = cast(f32)px * size
 			//__dbg_break
-			*verts[idx + 1] = perlin * mul
+			*verts[idx + 1] = perlin * mul + perlin2
 			//*verts[idx + 1] = 0.0
 
 			*verts[idx + 2] = py * size
@@ -2321,9 +2390,9 @@ main_loop::fn(ctx : *context)
 
 	dyn_add(&ctx.drawable_ents, &player_ent);
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = 32.0 * 2.0
-	player_ent.pos.y = 20.0
-	player_ent.pos.z = 32.0 * 2.0
+	player_ent.pos.x = 20.0
+	player_ent.pos.y = 40.0
+	player_ent.pos.z = 50.0
 
 
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
@@ -2504,11 +2573,9 @@ main_loop::fn(ctx : *context)
 		cam_forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * aux_forward
 		cam_rot.x = -ang2
 
-		//print_vec(&forward)
 
 		PhysicsUpdate(ctx, dt)
 		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
-		printf("midx {ctx.mesh_idx}\n")
 		globals.temp_alloc.cur = 0
 
 /*

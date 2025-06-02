@@ -12,6 +12,7 @@ DRAW_INFO_TRANSPARENT:const s32 = 128;
 DRAW_INFO_TRIANGLE:const s32 = 512;
 DRAW_INFO_NO_PROJ:const s32 = 1024;
 DRAW_INFO_DBG_BREAK:const s32 = 0x800
+DRAW_INFO_TERRAIN:const s32 = 0x1000
 
 END_OF_LAYERS :const s32= 0xbebad0;
 SCENE_NAME_NAME_MAX : const s32= 32;
@@ -62,6 +63,11 @@ global_struct : struct
 	my : f32
 	tog : bool
 
+	tri_v1 : _vec
+	tri_v2 : _vec
+	tri_v3 : _vec
+	ray_origin : _vec
+	ray_end : _vec
 	up : _vec
 }
 globals : global global_struct
@@ -322,6 +328,8 @@ draw_info3d: struct
 
 	tex_offset_x:f32,
 	tex_offset_y:f32,
+
+	perspective_mat  : *f32
 }
 draw_info: struct
 {
@@ -493,6 +501,8 @@ create_mesh_info:struct
 	total_tris : u32
 }
 
+UpdateModel::fn outsider(model : u32, verts : *f32, ) ! _vec;
+ScreenMouseToWorld::fn outsider(mx : f32, my : f32) ! _vec;
 Perlin2D::fn outsider(x:f32, y:f32, freq:f32, depth : u32) ! f32;
 CreateMesh::fn outsider(*create_mesh_info) ! u32;
 LoadModel::fn outsider(name : str_lit) ! u32;
@@ -1277,8 +1287,11 @@ Serialize::fn(buffer : *dyn_array(char), type : *type_data, data : *void, tab : 
 	}
 	a := 0
 }
+TERRAIN_VERTEX_SIZE:const s32= 6
+
 sin::fn outsider(f32) !f32;
 cos::fn outsider(f32) !f32;
+tanf::fn outsider(f32) !f32;
 asin::fn outsider(f32) !f32;
 acos::fn outsider(f32) !f32;
 

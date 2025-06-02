@@ -24,7 +24,7 @@ dyn_array: struct(T)
 
 	#make_ptr_len(data, count)
 }
-it_start::fn{ T }(dyn : *dyn_array(T)) !*T
+it_start::fn x64{ T }(dyn : *dyn_array(T)) !*T
 {
 	if dyn.count == 0
 		return dyn.data;
@@ -45,7 +45,7 @@ dyn_last::fn{ T }(dyn : *dyn_array(T)) !*T
 {
 	return ptr_offset(dyn.data, dyn.count - 1, T);
 }
-dyn_clear::fn{ T }(dyn : *dyn_array(T))
+dyn_clear::fn x64{ T }(dyn : *dyn_array(T))
 {
 	dyn.count = 0;
 }

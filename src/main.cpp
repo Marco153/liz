@@ -216,18 +216,195 @@ struct v3
 #include <OpenFBX/ofbx.cpp>
 
 // gpt generated code
-typedef struct {
+struct Vec3 {
     float x, y, z;
-} Vec3;
+    Vec3 operator*(float s) const { return {x*s, y*s, z*s}; }
+    Vec3 operator+(Vec3 v) const { return {x+v.x, y+v.y, z+v.z}; }
+    Vec3 operator-(Vec3 v) const { return {x-v.x, y-v.y, z-v.z}; }
+    float length() const { return std::sqrt(x*x + y*y + z*z); }
+    Vec3 normalized() const { float l = length(); return {x/l, y/l, z/l}; }
+};
 
-typedef struct {
+struct Mat4{
     float m[16]; // Column-major 4x4 matrix
-} Mat4;
+
+    Vec3 operator*(Vec3 v) const {
+        return {
+            m[0]*v.x + m[4]*v.y + m[8]*v.z + m[12],
+            m[1]*v.x + m[5]*v.y + m[9]*v.z + m[13],
+            m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14]
+        };
+    }
+	Vec3 multiplyPoint(float x, float y, float z, float w) const {
+        float rx =
+            m[0] * x + m[4] * y + m[8] * z + m[12] * w;
+        float ry =
+            m[1] * x + m[5] * y + m[9] * z + m[13] * w;
+        float rz =
+            m[2] * x + m[6] * y + m[10] * z + m[14] * w;
+        float rw =
+            m[3] * x + m[7] * y + m[11] * z + m[15] * w;
+        if (rw != 0.0f) {
+            rx /= rw;
+            ry /= rw;
+            rz /= rw;
+        }
+        return {rx, ry, rz};
+    }
+    
+};
+Mat4 Inverse(const Mat4& m) {
+    Mat4 inv;
+    const float* a = m.m;
+
+    inv.m[0] =   a[5] * a[10] * a[15] - 
+                 a[5] * a[11] * a[14] - 
+                 a[9] * a[6] * a[15] + 
+                 a[9] * a[7] * a[14] +
+                 a[13] * a[6] * a[11] - 
+                 a[13] * a[7] * a[10];
+
+    inv.m[4] =  -a[4] * a[10] * a[15] + 
+                 a[4] * a[11] * a[14] + 
+                 a[8] * a[6] * a[15] - 
+                 a[8] * a[7] * a[14] - 
+                 a[12] * a[6] * a[11] + 
+                 a[12] * a[7] * a[10];
+
+    inv.m[8] =   a[4] * a[9] * a[15] - 
+                 a[4] * a[11] * a[13] - 
+                 a[8] * a[5] * a[15] + 
+                 a[8] * a[7] * a[13] + 
+                 a[12] * a[5] * a[11] - 
+                 a[12] * a[7] * a[9];
+
+    inv.m[12] = -a[4] * a[9] * a[14] + 
+                 a[4] * a[10] * a[13] +
+                 a[8] * a[5] * a[14] - 
+                 a[8] * a[6] * a[13] - 
+                 a[12] * a[5] * a[10] + 
+                 a[12] * a[6] * a[9];
+
+    inv.m[1] =  -a[1] * a[10] * a[15] + 
+                 a[1] * a[11] * a[14] + 
+                 a[9] * a[2] * a[15] - 
+                 a[9] * a[3] * a[14] - 
+                 a[13] * a[2] * a[11] + 
+                 a[13] * a[3] * a[10];
+
+    inv.m[5] =   a[0] * a[10] * a[15] - 
+                 a[0] * a[11] * a[14] - 
+                 a[8] * a[2] * a[15] + 
+                 a[8] * a[3] * a[14] + 
+                 a[12] * a[2] * a[11] - 
+                 a[12] * a[3] * a[10];
+
+    inv.m[9] =  -a[0] * a[9] * a[15] + 
+                 a[0] * a[11] * a[13] + 
+                 a[8] * a[1] * a[15] - 
+                 a[8] * a[3] * a[13] - 
+                 a[12] * a[1] * a[11] + 
+                 a[12] * a[3] * a[9];
+
+    inv.m[13] =  a[0] * a[9] * a[14] - 
+                 a[0] * a[10] * a[13] - 
+                 a[8] * a[1] * a[14] + 
+                 a[8] * a[2] * a[13] + 
+                 a[12] * a[1] * a[10] - 
+                 a[12] * a[2] * a[9];
+
+    inv.m[2] =   a[1] * a[6] * a[15] - 
+                 a[1] * a[7] * a[14] - 
+                 a[5] * a[2] * a[15] + 
+                 a[5] * a[3] * a[14] + 
+                 a[13] * a[2] * a[7] - 
+                 a[13] * a[3] * a[6];
+
+    inv.m[6] =  -a[0] * a[6] * a[15] + 
+                 a[0] * a[7] * a[14] + 
+                 a[4] * a[2] * a[15] - 
+                 a[4] * a[3] * a[14] - 
+                 a[12] * a[2] * a[7] + 
+                 a[12] * a[3] * a[6];
+
+    inv.m[10] =  a[0] * a[5] * a[15] - 
+                 a[0] * a[7] * a[13] - 
+                 a[4] * a[1] * a[15] + 
+                 a[4] * a[3] * a[13] + 
+                 a[12] * a[1] * a[7] - 
+                 a[12] * a[3] * a[5];
+
+    inv.m[14] = -a[0] * a[5] * a[14] + 
+                 a[0] * a[6] * a[13] + 
+                 a[4] * a[1] * a[14] - 
+                 a[4] * a[2] * a[13] - 
+                 a[12] * a[1] * a[6] + 
+                 a[12] * a[2] * a[5];
+
+    inv.m[3] =  -a[1] * a[6] * a[11] + 
+                 a[1] * a[7] * a[10] + 
+                 a[5] * a[2] * a[11] - 
+                 a[5] * a[3] * a[10] - 
+                 a[9] * a[2] * a[7] + 
+                 a[9] * a[3] * a[6];
+
+    inv.m[7] =   a[0] * a[6] * a[11] - 
+                 a[0] * a[7] * a[10] - 
+                 a[4] * a[2] * a[11] + 
+                 a[4] * a[3] * a[10] + 
+                 a[8] * a[2] * a[7] - 
+                 a[8] * a[3] * a[6];
+
+    inv.m[11] = -a[0] * a[5] * a[11] + 
+                 a[0] * a[7] * a[9] + 
+                 a[4] * a[1] * a[11] - 
+                 a[4] * a[3] * a[9] - 
+                 a[8] * a[1] * a[7] + 
+                 a[8] * a[3] * a[5];
+
+    inv.m[15] =  a[0] * a[5] * a[10] - 
+                 a[0] * a[6] * a[9] - 
+                 a[4] * a[1] * a[10] + 
+                 a[4] * a[2] * a[9] + 
+                 a[8] * a[1] * a[6] - 
+                 a[8] * a[2] * a[5];
+
+    float det = a[0] * inv.m[0] + a[1] * inv.m[4] + a[2] * inv.m[8] + a[3] * inv.m[12];
+
+    if (det == 0) {
+        std::cerr << "Matrix inversion failed, determinant is zero.\n";
+        return m; // Return original as fallback
+    }
+
+    det = 1.0f / det;
+
+    for (int i = 0; i < 16; i++) {
+        inv.m[i] *= det;
+    }
+
+    return inv;
+}
+Mat4 Multiply(const Mat4& a, const Mat4& b) {
+    Mat4 result = {};
+    for (int row = 0; row < 4; row++) {
+        for (int col = 0; col < 4; col++) {
+            result.m[row * 4 + col] =
+                a.m[row * 4 + 0] * b.m[0 * 4 + col] +
+                a.m[row * 4 + 1] * b.m[1 * 4 + col] +
+                a.m[row * 4 + 2] * b.m[2 * 4 + col] +
+                a.m[row * 4 + 3] * b.m[3 * 4 + col];
+        }
+    }
+    return result;
+}
 Vec3 vec3_(float *f)
 {
 	Vec3 ret;
 	memcpy(&ret, f, sizeof(float) * 3);
 	return ret;
+}
+Vec3 vec3_mul(Vec3 a, Vec3 b) {
+    return (Vec3){ a.x + b.x, a.y + b.y, a.z + b.z };
 }
 Vec3 vec3_add(Vec3 a, Vec3 b) {
     return (Vec3){ a.x + b.x, a.y + b.y, a.z + b.z };
@@ -319,6 +496,7 @@ struct model_info
 	u32 vao;
 	u32 ebo;
 	int indicies;
+	int verts_size;
 };
 struct texture_info
 {
@@ -407,6 +585,8 @@ struct draw_info3d
 	float tex_size_y;
 	float tex_offset_x;
 	float tex_offset_y;
+
+	unsigned long long perspective_mat;
 };
 struct open_gl_state
 {
@@ -420,6 +600,7 @@ struct open_gl_state
 	int line_vao;
 	int line_vbo;
 	int shader_program3d;
+	int terrain_shader_program3d;
 	int shader_program3d_line;
 	int shader_program3d_line_no_proj;
 	int shader_program3d_tri;
@@ -844,6 +1025,7 @@ void Print(dbg_state* dbg)
 #define DRAW_INFO_TRIANGLE 0x200
 #define DRAW_INFO_NO_PROJ 0x400
 #define DRAW_INFO_DBG_BREAK 0x800
+#define DRAW_INFO_TERRAIN 0x1000
 enum class stencil_func
 {
 	EQUAL,
@@ -1047,6 +1229,62 @@ void build_model_matrix(float* out_matrix,
     out_matrix[14] = position->z;
 }
 
+void GetViewMatrix(dbg_state* dbg, draw_info3d *draw)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int out_addr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	auto mat = (float*)&dbg->mem_buffer[out_addr];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	memcpy(mat, gl_state->view, 16);
+
+}
+Vec3 ScreenMouseToWorldActual(
+    float mouseX, float mouseY,
+    float screenWidth, float screenHeight,
+    const Mat4& invViewProj)
+{
+    // Convert screen position to normalized device coordinates (-1 to +1)
+    float ndcX = (2.0f * mouseX) / screenWidth - 1.0f;
+    float ndcY = 1.0f - (2.0f * mouseY) / screenHeight; // Invert Y for screen coords
+
+	//printf("mx %.3f my %.3f, sw %.3f, sh %.3f\n", mouseX, mouseY, screenWidth, screenHeight);
+    // Clip space positions at near and far plane
+    Vec3 nearPoint = invViewProj.multiplyPoint(ndcX, ndcY, -1.0f, 1.0f);
+    Vec3 farPoint = invViewProj.multiplyPoint(ndcX, ndcY, 1.0f, 1.0f);
+
+    // Ray direction
+    Vec3 dir = (farPoint - nearPoint).normalized();
+
+    return dir;
+}
+void ScreenMouseToWorld(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float mx = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float my = *(float*)&dbg->mem_buffer[base_ptr + 16];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	float screen_ratio = (float)gl_state->height / (float)gl_state->width;
+	//my *= screen_ratio;
+
+
+	Mat4 view;
+	Mat4 proj;
+	memcpy(&view, &gl_state->view,  4 * 4 * 4);
+	memcpy(&proj, &gl_state->projection, 4 * 4 * 4);
+	Mat4 viewProj = Multiply(view, proj);
+	Mat4 invViewProj = Inverse(viewProj);
+	Vec3 p = ScreenMouseToWorldActual(mx, my, gl_state->width, gl_state->height, invViewProj);
+
+	auto ret = GetFloatRegValPtr(dbg, FLOAT_REG_0);
+	auto aux = GetRegValPtr(dbg, RET_1_REG);
+	
+	memcpy(ret, &p, 16);
+	memcpy(aux, &p, 8);
+	*(((float *)ret) + 3) = 0.0f;
+}
 #define RAD_TO_DEG 57.29577
 void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 {
@@ -1085,6 +1323,8 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 		cam_rot_y = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 4];
 		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
 	}
+	//ASSERT(draw->perspective_mat != 0)
+	//float * perspective_mat= (float *)dbg->mem_buffer[draw->perspective_mat];
 
 	int shaderProgram = gl_state->shader_program3d;
 	int indicies_to_draw = 36;
@@ -1092,6 +1332,10 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	{
 		glDepthMask(GL_TRUE);
 		glDisable(GL_BLEND);
+	}
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_TERRAIN))
+	{
+		shaderProgram = gl_state->terrain_shader_program3d;
 	}
 	if(IS_FLAG_ON(draw->flags, DRAW_INFO_DBG_BREAK))
 	{
@@ -4143,17 +4387,19 @@ void CreateMesh(dbg_state* dbg)
 
     glBindVertexArray(VAO);
     
+	int vertex_size = sizeof(float) * 6;
+
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, minfo->verts_count * sizeof(float) * 3, verts, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, minfo->verts_count * vertex_size, verts, GL_DYNAMIC_DRAW);
     
     
-    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0));
+    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertex_size, (void*)0));
     glEnableVertexAttribArray(0);
-    //GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
-    //glEnableVertexAttribArray(1);
+    GL_CALL(glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertex_size, (void*)(3 * sizeof(float))));
+    glEnableVertexAttribArray(1);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, minfo->tris_count * sizeof(int), inds, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, minfo->tris_count * sizeof(int), inds, GL_DYNAMIC_DRAW);
 	
 
 	int free_idx = -1;
@@ -4171,8 +4417,26 @@ void CreateMesh(dbg_state* dbg)
 	m->vao = VAO;
 	m->ebo = EBO;
 	m->indicies = minfo->tris_count;
+	m->verts_size = minfo->verts_count * vertex_size;
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
+}
+void UpdateModel(dbg_state* dbg)
+{
+	//HERE()
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int model = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int verts_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	float *verts = (float *)&dbg->mem_buffer[verts_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	model_info*m = &gl_state->models[model];
+
+	glBindVertexArray(m->vao);
+	glBindBuffer(GL_ARRAY_BUFFER, m->vbo);
+
+	glBufferSubData(GL_ARRAY_BUFFER, 0, m->verts_size, verts);
 }
 void LoadModel(dbg_state* dbg)
 {
@@ -4833,7 +5097,7 @@ void Init3D(dbg_state* dbg)
 	char* vertexShaderSrc = "\n\
 	#version 330 core\n\
 	layout (location = 0) in vec3 aPos;\n\
-	out vec4 interpCol;\n\
+	out vec4 vColor;\n\
 	out vec3 fragPos;\n\
 	uniform mat4 model;\n\
 	uniform vec4 rot;\n\
@@ -4852,15 +5116,42 @@ void Init3D(dbg_state* dbg)
 		vec4 aux = model * vec4(aPos, 1.0);\n\
 		fragPos = aux.xyz;\n\
 		gl_Position = projection * view * aux;\n\
-		interpCol = vec4(aPos.xyz, 1.0);\
+		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
 	}\
+	";
+
+	char* terrainVertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
+	layout (location = 1) in vec3 vertexCol;\n\
+	out vec4 vColor;\n\
+	out vec3 fragPos;\n\
+	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
+		// Extract quaternion components\n\
+		float w = q.w;\n\
+		vec3 u = q.xyz;\n\
+		// Apply rotation: v' = v + 2.0 * cross(u, cross(u, v) + w * v)\n\
+		return v + 2.0 * cross(u, cross(u, v) + w * v);\n\
+	}\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 aux = model * vec4(aPos, 1.0);\n\
+		fragPos = aux.xyz;\n\
+		gl_Position = projection * view * aux;\n\
+		vColor = vec4(vertexCol.xyz, 1.0);\n\
+	}\n\
 	";
 
 	// Fragment Shader
 	char* fragmentShaderSrc = "\n\
 	#version 330 core\n\
 	out vec4 FragColor;\n\
-	in vec4 interpCol;\n\
+	in vec4 vColor;\n\
 	in vec3 fragPos;\n\
 	uniform vec4 col;\n\
 	void main() {\n\
@@ -4870,7 +5161,7 @@ void Init3D(dbg_state* dbg)
 		vec3 lightDir = normalize(vec3(-1.0, 0.5, 0.0));\n\
 		float d = max(dot(lightDir, norm), 0.2);\n\
 		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
-		FragColor *= col;\n\
+		FragColor *= col * vColor;\n\
 	}\
 	";
 	
@@ -4904,10 +5195,10 @@ void Init3D(dbg_state* dbg)
 	};
 
 	// Compile shaders
+    GLuint terrain_vs = compileShader(GL_VERTEX_SHADER, terrainVertexShaderSrc);
     GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
     GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
     GLuint shaderProgram = glCreateProgram();
-
 
 
     glAttachShader(shaderProgram, vs);
@@ -4915,10 +5206,17 @@ void Init3D(dbg_state* dbg)
     glLinkProgram(shaderProgram);
 	gl_state->shader_program3d = shaderProgram;
 
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, terrain_vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->terrain_shader_program3d = shaderProgram;
+
+
 	char *otherVertexShaderSrc = "\n\
 	#version 330 core\n\
 	layout (location = 0) in vec3 aPos;\n\
-	out vec4 interpCol;\n\
+	out vec4 vColor;\n\
 	uniform mat4 model;\n\
 	uniform vec4 rot;\n\
 	uniform mat4 view;\n\
@@ -4928,7 +5226,7 @@ void Init3D(dbg_state* dbg)
 		float t = time[0][0];\n\
 		vec4 aux = view * vec4(aPos, 1.0);\n\
 		gl_Position = projection * aux;\n\
-		interpCol = vec4(1.0, 1.0, 1.0, 1.0);\
+		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
 	}\
 	";
 
@@ -4942,7 +5240,7 @@ void Init3D(dbg_state* dbg)
 	otherVertexShaderSrc = "\n\
 	#version 330 core\n\
 	layout (location = 0) in vec3 aPos;\n\
-	out vec4 interpCol;\n\
+	out vec4 vColor;\n\
 	uniform mat4 model;\n\
 	uniform vec4 rot;\n\
 	uniform mat4 view;\n\
@@ -4952,7 +5250,7 @@ void Init3D(dbg_state* dbg)
 		float t = time[0][0];\n\
 		vec4 aux = view * vec4(aPos, 1.0);\n\
 		gl_Position = aux;\n\
-		interpCol = vec4(1.0, 1.0, 1.0, 1.0);\
+		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
 	}\
 	";
 
@@ -4967,7 +5265,7 @@ void Init3D(dbg_state* dbg)
 	#version 330 core\n\
 	layout (location = 0) in vec3 aPos;\n\
 	layout (location = 1) in vec3 normal;\n\
-	out vec4 interpCol;\n\
+	out vec4 vColor;\n\
 	uniform mat4 model;\n\
 	uniform vec4 rot;\n\
 	uniform mat4 view;\n\
@@ -4977,7 +5275,7 @@ void Init3D(dbg_state* dbg)
 		float t = time[0][0];\n\
 		vec4 aux = view * vec4(aPos, 1.0);\n\
 		gl_Position = projection * aux;\n\
-		interpCol = vec4(1.0, 1.0, 1.0, 1.0);\
+		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
 	}\
 	";
     vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
@@ -5048,7 +5346,7 @@ void Init3D(dbg_state* dbg)
     loadIdentity(gl_state->view);
     loadIdentity(gl_state->projection);
 
-    perspective(gl_state->projection, 45.0f * (3.14159f / 180.0f), 1.0, 0.1f, 400.0f);
+    perspective(gl_state->projection, 45.0f * (3.14159f / 180.0f), (float)gl_state->width / (float)gl_state->height, 0.1f, 500.0f);
     gl_state->view[14] = -5.0f;  // translate view back
     gl_state->view[13] = -1.0f;  // translate view back
     //gl_state->model[13] = -1.0f;  // translate view back
@@ -5080,6 +5378,8 @@ void OpenWindow(dbg_state* dbg)
 	{
 		gl_state->scene_srceen_width = wnd_width;
 		gl_state->scene_srceen_height = wnd_height;
+		//gl_state->width = wnd_width;
+		//gl_state->height = wnd_height;
 	}
 	if (gl_state->glfw_window)
 	{
@@ -5107,7 +5407,7 @@ void OpenWindow(dbg_state* dbg)
 		return;
 
 	wnd_width = 1000;
-	wnd_height = 900;
+	wnd_height = 1000;
 	gl_state->width = wnd_width;
 	gl_state->height = wnd_height;
 	/* Create a windowed mode window and its OpenGL context */
@@ -5630,6 +5930,13 @@ void GetMouseScroll(dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->scroll;
 }
+void Tan(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = tanf(val);
+}
 void Sin(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -6046,7 +6353,9 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "AssignSoundFolder", (OutsiderFuncType)AssignSoundFolder);
 	AssignOutsiderFunc(&lang_stat, "PlayAudio", (OutsiderFuncType)FromGamePlayAudio);
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
+	AssignOutsiderFunc(&lang_stat, "ScreenMouseToWorld", (OutsiderFuncType)ScreenMouseToWorld);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
+	AssignOutsiderFunc(&lang_stat, "tanf", (OutsiderFuncType)Tan);
 	AssignOutsiderFunc(&lang_stat, "cos", (OutsiderFuncType)Cos);
 	AssignOutsiderFunc(&lang_stat, "acos", (OutsiderFuncType)Acos);
 	AssignOutsiderFunc(&lang_stat, "asin", (OutsiderFuncType)Asin);
@@ -6094,6 +6403,7 @@ int main(int argc, char* argv[])
 
 	AssignOutsiderFunc(&lang_stat, "LoadTexFolder", (OutsiderFuncType)LoadTexFolder);
 	AssignOutsiderFunc(&lang_stat, "LoadModel", (OutsiderFuncType)LoadModel);
+	AssignOutsiderFunc(&lang_stat, "UpdateModel", (OutsiderFuncType)UpdateModel);
 	AssignOutsiderFunc(&lang_stat, "CreateMesh", (OutsiderFuncType)CreateMesh);
 	AssignOutsiderFunc(&lang_stat, "GenRawTexture", (OutsiderFuncType)GenRawTexture);
 	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);

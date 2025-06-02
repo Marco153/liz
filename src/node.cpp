@@ -4433,8 +4433,10 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 		}break;
 		default:
 		{
-			if (!NameFindingGetType(lang_stat, n->l, scp, ret_type))
-				return false;
+			ret_type = DescendNode(lang_stat, n, scp);
+			//if (!NameFindingGetType(lang_stat, n->l, scp, ret_type))
+				//return false;
+			
 		}break;
 		}
 	}break;
@@ -7373,7 +7375,6 @@ int CheckForHashtags(lang_state *lang_stat, node *n, func_decl* fdecl, scope* sc
 		case node_type::N_IF:
 		{
 			node* cur = n->r;
-			//BREAK(n->t->line == 1647)
 			do 
 			{
 				if (cur->type == N_IF || cur->type == N_ELSE_IF)
@@ -8352,7 +8353,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 		else
 		*/
-		//BREAK(n->t->line == 1719)
 			auto ident = FindIdentifier(n->t->str, scp, &ret_type);
 		if (ident && IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_DECLARE_ONLY_TYPE_PARAMTS))
 		{
@@ -8439,6 +8439,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		// a strct ptr to struct, in case of templated strct, a ptr to the original one
 		// so that structs that were devired from that one can query its "mother" struct
 		// for ovoerloaded funcs
+		//BREAK(n->t->line == 167)
 		self->type.strct->AddOpOverload(lang_stat, n->fdecl, n->ovrld_op, n->t->line, n->t->line_offset);
 
 		//self->type.strct->op_overloads.emplace_back(n->fdecl);
@@ -11426,7 +11427,14 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				default:
 					ASSERT(0)
 				}
-				auto op_func = ret_type.strct->FindOpOverload(lang_stat, op, n);
+				own_std::vector<type2> tp_ar;
+				ltp.ptr++;
+				rtp.ptr++;
+				tp_ar.emplace_back(ltp);
+				tp_ar.emplace_back(rtp);
+				
+				//func_decl *
+				auto op_func = ret_type.strct->FindExistingOverload(lang_stat, nullptr, (void*)op, &tp_ar, false, n);
 				ASSERT(op_func)
 					/*
 				bool is_correct_ovrld = CompareTypes(&op_func->args[0]->type, &ret_type);
@@ -12208,6 +12216,11 @@ func_decl* type_struct2::FindExistingOverload(lang_state *lang_stat, own_std::ve
 				fname += OvrldOpToStr(op) + "_1"+this->name+"_";
 				switch (op)
 				{
+				case MUL_OP:
+				{
+
+					fname += TypeToString((*tps)[1]);
+				}break;
 				case COND_EQ_OP:
 				{
 					fname += TypeToString((*tps)[0]);

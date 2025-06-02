@@ -60,6 +60,10 @@ context: struct
 	cam_col_right : bool,
 	cam_col_top : bool,
 	cam_col_bottom : bool,
+
+	editor_cam : bool,
+
+	perspective_mat : [4 * 4]f32
 	
 	already_allocated_ents_count : u32,
 	already_allocated_str_count : u32,
@@ -149,6 +153,27 @@ context: struct
 
 	draw_col :bool,
 	draw_origin :bool,
+	terrain_chunks_to_col : dyn_array(*chunk_col_info)
+	mesh_added_aux : dyn_array(u32)
+}
+perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
+    tanHalfFov:= tanf(fov / 2.0);
+	memset(mat, 0, 16)
+    *ptr_offset(mat, 0, f32) = 1.0 / (aspect * tanHalfFov);
+    *ptr_offset(mat, 5, f32) = 1.0 / tanHalfFov;
+    *ptr_offset(mat, 10, f32) = -(far + near) / (far - near);
+    *ptr_offset(mat, 11, f32) = -1.0;
+    *ptr_offset(mat, 14, f32) = -(2.0 * far * near) / (far - near);
+}
+inverse_perspective::fn(inv_mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
+    tanHalfFov := tanf(fov / 2.0);
+    memset(inv_mat, 0, 16);
+    
+    *ptr_offset(inv_mat, 0, f32) = aspect * tanHalfFov;
+    *ptr_offset(inv_mat, 5, f32) = tanHalfFov;
+    *ptr_offset(inv_mat, 11, f32) = (near - far) / (2.0 * far * near);
+    *ptr_offset(inv_mat, 14, f32) = -1.0;
+    *ptr_offset(inv_mat, 15, f32) = (far + near) / (2.0 * far * near);
 }
 
 
@@ -1396,7 +1421,6 @@ test_ang ::fn(a : s32)
 
 	rotate_vector(&forward, &forward, &rot)
 
-	//print_vec(&forward)
 	
 }
 draw_vertex ::fn(ctx : *context, pos : *_vec, sz : *_vec, cam_pos : *_vec, cam_rot : *_vec)
@@ -1406,7 +1430,6 @@ draw_vertex ::fn(ctx : *context, pos : *_vec, sz : *_vec, cam_pos : *_vec, cam_r
 	draw.pos = *pos
 	draw.rot.w = 1.0
 	draw.ent_size = *sz
-	//print_vec(&draw.ent_size)
 	*draw.color[0] = 1.0
 	*draw.color[1] = 1.0
 	*draw.color[2] = 1.0
@@ -1422,6 +1445,7 @@ draw_tri::fn(ctx : *context, v1 : *_vec, v2 : *_vec, _v3 : *_vec, col : *_vec, f
 {
 	draw : draw_info3d
 	draw.flags = DRAW_INFO_TRIANGLE
+
 	if is_flag_on(flags, DRAW_TRI_TRANSPARENY)
 		draw.flags = draw.flags | DRAW_INFO_TRANSPARENT
 	draw.pos = *_v3
@@ -1443,7 +1467,6 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, flags : u
 	draw.flags =  DRAW_INFO_LINE;
 	draw.pos = *start
 	draw.ent_size = *end
-	//print_vec(&draw.ent_size)
 	memcpy(draw.color, col, 4 * 4);
 	draw.cam_pos = ctx.cam_pos_global;
 	draw.cam_rot = ctx.cam_rot_global;
@@ -1466,6 +1489,114 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, flags : u
 
 }
 
+cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
+{
+	axis : _vec
+	axis.z = 0.0
+	axis.x = 0.0
+	axis.y = 1.0
+	aux_forward := ctx.cam_aux_forward_global
+	cam_forward := ctx.cam_forward_global
+	cam_pos := ctx.cam_pos_global
+	cam_rot := ctx.cam_rot_global
+
+	speed := 10.0
+	dt := 0.017
+
+	if IsKeyHeld(key_enum.KEY_SHIFT)
+	{
+
+		speed = speed * 4.0
+	}
+
+
+	if IsKeyHeld(key_enum.KEY_E)
+	{
+		cam_pos.y += dt * speed
+	}
+	if IsKeyHeld(key_enum.KEY_Q)
+	{
+		cam_pos.y -= dt * speed
+	}
+	if IsKeyDown(key_enum.KEY_F2)
+	{
+		globals.tog = !globals.tog
+	}
+	cross := cross_vec(cam_forward, &axis)
+
+	axis = cross * radians_to_degree(cam_rot.x)
+	aux_rot := euler_to_quaternion(axis.x , axis.y, axis.z)
+	
+	axis.x = 0.0
+	axis.y = 1.0
+	axis.z = 0.0
+	axis = cross * radians_to_degree(cam_rot.y)
+	//aux_rot = aux_rot * euler_to_quaternion(axis.x , axis.y, axis.z)
+
+	actual_forward := aux_rot * *cam_forward
+	if IsKeyHeld(key_enum.KEY_A)
+	{
+		*cam_pos -= cross * dt * speed
+
+	}
+	if IsKeyHeld(key_enum.KEY_D)
+	{
+		*cam_pos += cross * dt * speed
+	}
+	if IsKeyHeld(key_enum.KEY_W)
+	{
+		*cam_pos += actual_forward * dt * speed
+	}
+	if IsKeyHeld(key_enum.KEY_S)
+	{
+		*cam_pos -= actual_forward * dt * speed
+	}
+	
+	//print_vec(&actual_forward)
+
+
+	if IsMouseHeld(mouse_enum.LEFT)
+	{
+		mx = mx * 4.0
+		my = my * 4.0
+		*cam_forward = euler_to_quaternion(0.0, radians_to_degree(mx), 0.0) * *cam_forward
+
+		cam_rot.y += mx
+		cam_rot.x += my
+	}
+/*
+	dt = dt * 2.0
+	if IsKeyHeld(key_enum.KEY_SHIFT)
+	{
+		if IsMouseHeld(mouse_enum.LEFT)
+		{
+			*cam_forward = euler_to_quaternion(0.0, radians_to_degree(dt), 0.0) * *cam_forward
+
+			cam_rot.y += dt
+			//cam_rot.x += dt
+		}
+		if IsMouseHeld(mouse_enum.RIGHT)
+		{
+			*cam_forward = euler_to_quaternion(0.0, -radians_to_degree(dt), 0.0) * *cam_forward
+
+			cam_rot.y -= dt
+			//cam_rot.x += dt
+		}
+	}
+	else if IsKeyHeld(key_enum.KEY_JMP)
+	{
+
+		if IsMouseHeld(mouse_enum.LEFT)
+		{
+			cam_rot.x += dt
+		}
+		if IsMouseHeld(mouse_enum.RIGHT)
+		{
+			cam_rot.x -= dt
+		}
+	}
+	*/
+}
 cam_mov::fn(ctx : *context)
 {
 	axis : _vec
@@ -1541,7 +1672,6 @@ cam_mov::fn(ctx : *context)
 			cam_rot.x -= dt
 		}
 	}
-	//print_vec(cam_forward);
 }
 _draw_col ::fn(ctx : *context, c : *collider)
 {
@@ -1605,7 +1735,7 @@ _draw_col ::fn(ctx : *context, c : *collider)
 	}
 	}
 }
-VIEW_COL_METHOD:const s32= 1
+VIEW_COL_METHOD:const s32= 2
 view_collision ::fn(ccc : u32)
 {
 	curmx := GetMouseNormalizedPosX();
@@ -1615,7 +1745,7 @@ view_collision ::fn(ccc : u32)
 
 	ctx := cast(*context)globals.ctx
 	gjk := cast(*gjk_state)globals.gjk
-	if !gjk
+	if gjk == nil && VIEW_COL_METHOD != 2
 		return;
 	ClearBackground(0.7, 0.7, 0.7);
 
@@ -1630,18 +1760,31 @@ view_collision ::fn(ccc : u32)
 
 	//printf("curx %, mx %\n", cast(s32)(curmx * 100.0), cast(s32)(*mx * 100.0))
 
-	e1.color.w = 0.5;
-	e2.color.w = 0.5;
-
-	e1.flags = e1.flags | ENTITY_TRANSPARENT;
-	e2.flags = e2.flags | ENTITY_TRANSPARENT;
 
 	*mx = GetMouseNormalizedPosX() - curmx;
 	*my = GetMouseNormalizedPosY() - curmy;
 
-	printf("addr %, act2 %\n", cast(u32)cast(s64)e1, cast(s32)(e1.is_active))
-	DrawEntity(ctx, e1, cam_pos, cam_rot)
-	DrawEntity(ctx, e2, cam_pos, cam_rot)
+	//printf("addr %, act2 %\n", cast(u32)cast(s64)e1, cast(s32)(e1.is_active))
+	if e1 
+	{
+		e1.color.w = 0.5;
+		e1.flags = e1.flags | ENTITY_TRANSPARENT;
+		DrawEntity(ctx, e1, cam_pos, cam_rot)
+	}
+	else
+	{
+		e1 = ctx.player
+		e1.color.w = 0.5;
+		e1.flags = e1.flags | ENTITY_TRANSPARENT;
+		DrawEntity(ctx, e1, cam_pos, cam_rot)
+	}
+	if e2
+	{
+		e2.color.w = 0.5;
+		e2.flags = e2.flags | ENTITY_TRANSPARENT;
+		DrawEntity(ctx, e2, cam_pos, cam_rot)
+
+	}
 
 	orig : _vec
 	col : _vec
@@ -1705,7 +1848,6 @@ view_collision ::fn(ccc : u32)
 			_v3 := *gjk.epa_faces[i][2]
 			n := gjk.epa_faces[i][3]
 			//printf("\ni % ", i)
-			//print_vec(n)
 			//printf("\n")
 
 			
@@ -1740,7 +1882,7 @@ view_collision ::fn(ccc : u32)
 		}
 
 	}
-	else
+	else if VIEW_COL_METHOD == 1
 	{
 		if IsKeyHeld(key_enum.KEY_JMP)
 		{
@@ -1909,6 +2051,18 @@ view_collision ::fn(ccc : u32)
 		}
 		}
 		a := 0
+	}
+	else if VIEW_COL_METHOD == 2
+	{
+		draw_line(ctx, &globals.ray_origin, &globals.ray_end, &col, 0);
+		draw_tri(ctx, &globals.tri_v3, &globals.tri_v2, &globals.tri_v1, &col, 0)
+		/*
+		pos1 := _vec{1.0, 0.0, 0.0, 0.0}
+		pos2 := _vec{1.0, 0.0, 1.0, 0.0}
+		pos3 := _vec{0.0, 0.0, 1.0, 0.0}
+		//draw_tri(ctx, &pos1, &pos2, &pos3, &col, 0)
+		*/
+		a :=0
 	}
 
 
@@ -2173,7 +2327,7 @@ init_tri_terrain::fn(trn : *terrain_info)
 generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 {
 	ASSERT((MESH_WIDTH % 2) == 1)
-	verts:[MESH_WIDTH * MESH_WIDTH * 3]f32
+	verts:[MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE]f32
 	memset(verts, 0, sizeof(verts))
 
 	size := cast(f32)trn.width
@@ -2197,13 +2351,16 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 			perlin2 =  perlin2 * mul *20.0
 
 
-			idx := cast(u64)y * MESH_WIDTH * 3 + cast(u64)x * 3
+			idx := cast(u64)y * MESH_WIDTH * TERRAIN_VERTEX_SIZE + cast(u64)x * TERRAIN_VERTEX_SIZE
 			*verts[idx] = cast(f32)px * size
 			//__dbg_break
 			*verts[idx + 1] = perlin + perlin2
 			//*verts[idx + 1] = 0.0
 
 			*verts[idx + 2] = py * size
+			*verts[idx + 3] = 1.0
+			*verts[idx + 4] = 1.0
+			*verts[idx + 5] = 1.0
 		}
 	}
 
@@ -2212,8 +2369,8 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 	m.pos.x = cast(f32)pos_x
 	m.pos.z = cast(f32)pos_y
 
-	dyn_add_data(&m.verts, cast(*f32)verts, MESH_WIDTH * MESH_WIDTH * 3 * 4)
-	m.verts.count = MESH_WIDTH * MESH_WIDTH * 3
+	dyn_add_data(&m.verts, cast(*f32)verts, MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE * 4)
+	m.verts.count = MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE
 
 	//dyn_add_data(&trn.tris, cast(*f32)tris[0], cast(u32)tris.count * 4)
 	//trn.tris.count = tris.count
@@ -2241,7 +2398,6 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 
 	total_chunks_cols := actual_size / cast(s32)tris_per_unit
 
-	//__dbg_break
 	ret := CreateMesh(&info)
 	ASSERT(ret != -1)
 	m.model = ret
@@ -2322,9 +2478,9 @@ generate_terrain::fn(ctx : *context, e : *entity)
 	i := 0
 
 	mesh :*mesh_info
-	for y in 0..8
+	for y in 0..4
 	{
-		for x in 0..8
+		for x in 0..4
 		{
 			generate_mesh(terrain, cast(u32)x * (terrain.width - 1), cast(u32)y * (terrain.width - 1))
 		}
@@ -2335,9 +2491,12 @@ generate_terrain::fn(ctx : *context, e : *entity)
 }
 main_loop::fn(ctx : *context)
 {
+	//perspective(ctx.perspective_mat[0], fov : f32, aspect : f32, near : f32, far : f32)
+    perspective(&ctx.perspective_mat, 45.0 * (3.14159 / 180.0), 1.0, 0.1, 500.0);
 	test_model := LoadModel("../models/test.fbx")
 	ctx.up.y = 1.0
 	globals.up = ctx.up
+	globals.ctx = ctx
 
 	dyn_init2(&ctx.coroutines.funcs, 2, ctx.alloc);
 
@@ -2426,9 +2585,9 @@ main_loop::fn(ctx : *context)
 
 	dyn_add(&ctx.drawable_ents, &player_ent);
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = 20.0
+	player_ent.pos.x = 00.0
 	player_ent.pos.y = 80.0
-	player_ent.pos.z = 50.0
+	player_ent.pos.z = 0.0
 
 
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
@@ -2447,6 +2606,7 @@ main_loop::fn(ctx : *context)
 	other.size.x = 1.0
 	terrain.width = MESH_WIDTH - 1
 	terrain.height = MESH_WIDTH - 1
+	trn_ent := other
 
 	generate_terrain(ctx, other)
 
@@ -2506,6 +2666,9 @@ main_loop::fn(ctx : *context)
 		}
 		//PrintV3(einfo.forward.x, 0.0, 0.0);
 
+		screenmx := GetMouseScreenPosX();
+		screenmy := GetMouseScreenPosY();
+		
 		curmx := GetMouseNormalizedPosX();
 		curmy := GetMouseNormalizedPosY();
 
@@ -2597,20 +2760,84 @@ main_loop::fn(ctx : *context)
 
 		//print_f32(dot_up)
 
-		cam_pos += dir_to_cam * dt * 2.0 * add_mul
-		
-		dir := ctx.player.pos - cam_pos
-		dist = len_vec(&dir)
-		dir = normalize_vec(&dir)
 
-		ang = angle_on_axis(&aux_forward, &dir, &ctx.up)
-		ang2 := angle_on_axis(&cam_forward, &dir, &cross)
-		cam_rot.y = ang
-		cam_forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * aux_forward
-		cam_rot.x = -ang2
+		if IsKeyDown(key_enum.KEY_F1)
+		{
+			ctx.editor_cam = !ctx.editor_cam 
 
+		}
 
-		PhysicsUpdate(ctx, dt)
+		if ctx.editor_cam
+		{
+			/*
+			pos1 := _vec{1.0, 0.0, 0.0, 0.0}
+			pos2 := _vec{1.0, 0.0, 1.0, 0.0}
+			pos3 := _vec{0.0, 0.0, 1.0, 0.0}
+			//draw_tri(ctx, &globals.tri_v1, &globals.tri_v2, &globals.tri_v3, &col, 0)
+			draw_tri(ctx, &pos1, &pos2, &pos3, &pos1, 0)
+			*/
+
+			if IsMouseHeld(mouse_enum.RIGHT){
+				sz : _vec
+				sz.x = 1.0
+				sz.y = 1.0
+				sz.z = 1.0
+				dir := ScreenMouseToWorld(screenmx, screenmy)
+				
+				//dir.y = -dir.y
+				cam_dir := cam_pos + dir * 50.0
+				cam_dir2 := cam_pos + dir * 5.0
+				p_dir := player_ent.pos + dir * 50.0
+
+				//draw_line(ctx, &player_ent.pos, &p_dir, &sz, 0)
+				draw_vertex(ctx, &cam_dir, &sz, &cam_pos, &cam_rot)
+				/*
+				aux:_vec
+				aux.x = screenmx / 1000.0
+				aux.y = screenmy / 1000.0
+				print_vec(&aux)
+				*/
+				RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
+			}
+			if IsMouseUp(mouse_enum.RIGHT)
+			{
+				for mi in ctx.mesh_added_aux
+				{
+					m := terrain.meshes[cast(u64)*mi]
+					vi :u64
+					verts := &m.verts
+					count := m.verts.count
+					//__dbg_break
+					while vi < count
+					{
+						vec_col := cast(*_vec)verts[vi + 3]
+						vec_col.x = 1.0
+						vec_col.y = 1.0
+						vec_col.z = 1.0
+
+						vi += 6
+					}
+					UpdateModel(m.model, m.verts.data)
+				}
+			}
+			
+			cam_mov_editor(ctx, mx, my)
+		}
+		else
+		{
+			cam_pos += dir_to_cam * dt * 2.0 * add_mul
+			
+			dir := ctx.player.pos - cam_pos
+			dist = len_vec(&dir)
+			dir = normalize_vec(&dir)
+
+			ang = angle_on_axis(&aux_forward, &dir, &ctx.up)
+			ang2 := angle_on_axis(&cam_forward, &dir, &cross)
+			cam_rot.y = ang
+			cam_forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * aux_forward
+			cam_rot.x = -ang2
+			PhysicsUpdate(ctx, dt)
+		}
 		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
 		globals.temp_alloc.cur = 0
 
@@ -2726,7 +2953,7 @@ main:: fn(){
 	//InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
 	ctx.coroutines.alloc = ctx.alloc;
-	window := OpenWindow(1024, 768);
+	window := OpenWindow(1000, 1000);
 
 	bytes_per_mesh := MESH_WIDTH * MESH_WIDTH * 3
 	total_chunks := 9

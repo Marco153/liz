@@ -95,17 +95,18 @@ NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
 draw_terrain::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec, e : *entity)
 {
 	trn : *terrain_info= e.terrain
-	//OpenLocalsWindow(__LINE__)
 	//__dbg_break
 	for m in trn.meshes
 	{
 		draw : draw_info3d
 		draw.model = m.model
+		draw.flags = DRAW_INFO_TERRAIN
 		//__dbg_break
 		draw.pos = e.pos + m.pos
 		draw.rot = e.rot
 		draw.cam_pos = cam_pos
 		draw.cam_rot = cam_rot
+		draw.perspective_mat = ctx.perspective_mat
 		draw.cam_forward = ctx.cam_forward_global
 		draw.ent_size.x = 1.0
 		draw.ent_size.y = 1.0
@@ -145,6 +146,7 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 		draw.rot = ent.rot
 		draw.cam_pos = cam_pos
 		draw.cam_rot = cam_rot
+		draw.perspective_mat = ctx.perspective_mat
 		draw.cam_forward = ctx.cam_forward_global
 		draw.ent_size = ent.size
 		memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));

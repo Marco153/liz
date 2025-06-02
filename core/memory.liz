@@ -1664,4 +1664,26 @@ tests :: fn(ret : *u32)
 		debug_break();
 	}
 
+	//ray_triangle_intersect_x64_test :: fn x64(rinfo : *raycast_info) ! u8
+	t_out : f32
+	u_out : f32
+	v_out : f32
+	rinfo : raycast_info=?
+	rinfo.ray_origin = _vec{0.0, 1.0, 0.0, 0.0}
+	rinfo.ray_dir = _vec{0.0, -1.0, 0.0, 0.0}
+	rinfo.v0 = _vec{-0.5, 0.0, 0.5, 0.0}
+	rinfo.v1 = _vec{0.5, 0.0, 0.5, 0.0}
+	rinfo.v2 = _vec{0.5, 0.0, -0.5, 0.0}
+	//rinfo.t_out = &t_out
+	//rinfo.u_out = &u_out
+	//rinfo.v_out = &v_out
+	
+	if ray_triangle_intersect(&rinfo) == false
+		debug_break();
+	
+	ret_val := ray_triangle_intersect_x64_test(&rinfo)
+	if ret_val != 12
+		debug_break();
+	i = 0
+
 }

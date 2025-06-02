@@ -62,7 +62,7 @@ typedef long long s64;
 #define HEAP_START 19000
 //#define MEM_ALLOC_ADDR 17000
 #define MEM_PTR_CUR_ADDR 10000
-#define STACK_PTR_START 30000
+#define STACK_PTR_START 60000
 #define MEM_PTR_START_ADDR (STACK_PTR_START + 1000)
 #define MEM_PTR_MAX_ADDR 18008
 
@@ -13768,7 +13768,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				
 				//assign.lhs.deref++;
-				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false);
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false, assign.to_assign.reg);
 				//assign.lhs.deref--;
 				ASSERT(lhs.reg != PRE_X64_RSP_REG)
 				//if()
@@ -13781,7 +13781,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				GenX64BinInst(lang_stat, ret, &lhs, &rhs, (byte_code_enum)(correct_inst + 3));
 				
 				//GenX64ToIrValReg(lang_stat, ret, &dst, &assign.to_assign, true);
-				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true, false);
+				GenX64ToIrValReg2(lang_stat, ret, &dst, &assign.to_assign, true, false, assign.to_assign.reg);
 
 				bool dst_float = assign.to_assign.is_float;
 				bc = {};
@@ -13859,7 +13859,6 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			else if ((assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_REG) ||
 					 (assign.lhs.type == IR_TYPE_ARG_REG && assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
 			{
-				//BREAK(line == 713)
 				/*
 				if(line == 888)
 				{
@@ -14161,7 +14160,6 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			// R D R
 			else if (assign.lhs.type == IR_TYPE_DECL && (assign.rhs.type == IR_TYPE_REG || assign.rhs.type == IR_TYPE_RET_REG))
 			{
-				//BREAK(line == 691)
 				
 				//assign.lhs.deref++;
 				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false);
@@ -14480,6 +14478,33 @@ int TokenCmpToPackedFloatIndex(tkn_type2 t)
 		ASSERT(false)
 	}
 }
+bool FloatIsMovSomething2Reg(byte_code *bc)
+{
+	switch(bc->type)
+	{
+	case MOV_R:
+	case MOV_M:
+	case SUB_R_2_R:
+	case ADD_R_2_R:
+	case MUL_R_2_R:
+	case SUB_I_2_R:
+	case ADD_I_2_R:
+	case MUL_I_2_R:
+
+	case MOV_PCKD_SSE_2_PCKD_SSE:
+	case MOV_SSE_2_SSE:
+	case MOV_M_2_SSE:
+	case MOV_M_2_PCKD_SSE:
+	case SUB_SSE_2_SSE: 
+	case ADD_SSE_2_SSE: 
+	case MUL_SSE_2_SSE:
+	case SUB_PCKD_SSE_2_PCKD_SSE: 
+	case ADD_PCKD_SSE_2_PCKD_SSE: 
+	case MUL_PCKD_SSE_2_PCKD_SSE:
+		return true;
+	}
+	return false;
+}
 // $IrX64
 void GenX64BytecodeFromIR(lang_state *lang_stat, 
 						  own_std::vector<byte_code>& ret,
@@ -14592,6 +14617,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	int start_bc = ret.size();
 	FOR_VEC(ir, irs)
 	{
+		int start_size = ret.size();
 		ir_rep* cur_ir = ir;
 		cur_ir->start = ret.size();
 		byte_code bc;
@@ -15461,6 +15487,106 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			lang_stat->cur_nd = idx;
 		}
 			*/
+		//BREAK(cur_line == 1700 && ir->idx == 156)
+		auto diff = ret.size() - start_size;
+		byte_code *last = &ret.back();
+		if(last->type == MOV_R)
+		{
+			byte_code *before_last = &ret.back() - 1;
+
+			// mov r3, mem
+			// mov r0, r3
+			// will be
+			// mov r0, mem
+			bool is_lea = before_last->type == INST_LEA;
+			if((is_lea) && before_last->bin.lhs.reg == last->bin.rhs.reg)
+			{
+				if(is_lea)
+				{
+					before_last->bin.rhs.lea.reg_dst = last->bin.lhs.reg;
+				}
+				else
+				{
+					before_last->bin.lhs.reg = last->bin.lhs.reg;
+				}
+				ret.make_count(ret.size() - 1);
+			}
+			else if(diff == 4)
+			{
+				byte_code *i1 = &ret.back() - 3;
+				byte_code *i2 = &ret.back() - 2;
+				byte_code *i3 = &ret.back() - 1;
+				byte_code *i4 = &ret.back();
+				if(i1->type == MOV_M &&
+					i2->type == MOV_M && i2->bin.rhs.reg == i2->bin.lhs.reg 
+					&& i3->type == ADD_I_2_R)
+				{
+					i1->bin.lhs.reg = i4->bin.lhs.reg;
+					i2->bin.lhs.reg = i4->bin.lhs.reg;
+					i2->bin.rhs.reg = i2->bin.lhs.reg;
+					i3->bin.lhs.reg = i4->bin.lhs.reg;
+					ret.make_count(ret.size() - 1);
+				}
+			}
+			else if(diff == 3)
+			{
+				// mov r3, mem
+				// sub,add... r3, 0
+				// mov r0, r3
+				// will be
+				// mov r0, mem
+				// sub,add... r0, 0
+				byte_code *i1 = &ret.back() - 2;
+				byte_code *i2 = &ret.back() - 1;
+				byte_code *i3 = &ret.back();
+				bool is_lea = i1->type == INST_LEA;
+				if((i1->type == MOV_M || is_lea) &&
+					(i2->type == SUB_I_2_R || i2->type == ADD_I_2_R)&&
+					i3->bin.rhs.reg == i1->bin.lhs.reg
+				)
+				{
+					if(is_lea)
+					{
+						i1->bin.rhs.reg = i3->bin.lhs.reg;
+					}
+					else
+					{
+						i1->bin.lhs.reg = i3->bin.lhs.reg;
+					}
+					i2->bin.lhs.reg = i3->bin.lhs.reg;
+					ret.make_count(ret.size() - 1);
+				}
+
+			}
+		}
+		// mov pxmm1, mem
+		// mov pxmm2, mem
+		// sub,add... pxmm1, xmm2
+		// mov pxmm0, xmm1
+		// will be
+		// mov pxmm0, mem
+		// mov pxmm2, mem
+		// sub,add... pxmm0, xmm2
+		else if(FloatIsMovSomething2Reg(last))
+		{
+			if(diff == 4)
+			{
+				byte_code *i1 = &ret.back() - 3;
+				byte_code *i2 = &ret.back() - 2;
+				byte_code *i3 = &ret.back() - 1;
+				byte_code *i4 = &ret.back();
+
+
+				if(FloatIsMovSomething2Reg(i1) && i1->bin.lhs.reg == i4->bin.rhs.reg &&
+					FloatIsMovSomething2Reg(i3) && !FloatIsMovSomething2Reg(i2)
+				)
+				{
+					i1->bin.lhs.reg = i4->bin.lhs.reg;
+					i3->bin.lhs.reg = i4->bin.lhs.reg;
+					ret.make_count(ret.size() - 1);
+				}
+			}
+		}
 		idx++;
 		cur_ir->end = ret.size();
 		int aux_bc = 0;

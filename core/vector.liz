@@ -157,7 +157,6 @@ look_at_quaternion::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! quaternion
 	ret.v.w = cos(d *0.5)
 	return ret
 }
-/*
 operator *(self : *quaternion, rhs : *quaternion) !quaternion
 {
 	ret : quaternion = ?
@@ -165,7 +164,6 @@ operator *(self : *quaternion, rhs : *quaternion) !quaternion
 	multiply_quaternions(&ret.v, &self.v, &rhs.v)
 	return ret
 }
-*/
 operator *(self : *quaternion, vec : *_vec) !_vec
 {
 	ret :_vec
@@ -201,6 +199,30 @@ clampf::fn x64(val :f32, min : f32, max : f32) !f32
 	if val <= min return min;
 	if val >= max return max;
 	return val
+}
+// Row-major 4x4 matrix multiplication (A * B = C)
+operator * (a : *mat4x4, b : *mat4x4) !mat4x4 
+{
+    result : mat4x4=?;
+    
+    for row_S in 0..4
+	{
+		row := cast(u64)row_S
+        for col_S in 0..4
+		{
+			col := cast(u64)col_S
+            sum := 0.0;
+            for k_S in 0..4
+			{
+				k := cast(u64)k_S
+                // Row-major access: [row][col] = row*4 + col
+                sum += *a.vals[row*4 + k] * *b.vals[k*4 + col];
+            }
+            result.vals[row*4 + col] = sum;
+        }
+    }
+    
+    return result;
 }
 operator *(self : *mat4x4, vec : *v3) !v3
 {
@@ -336,7 +358,7 @@ normalize_v4::fn(a : *v4) !v4
 	ret.w = a.w / len;
 	return ret;
 }
-normalize_vec::fn(a : *_vec) ! _vec
+normalize_vec::fn x64(a : *_vec) ! _vec
 {
 	dot: = dot_vec(a, a);
 	len: = sqrt(dot);
@@ -390,6 +412,208 @@ cross_vec::fn x64(a : *_vec, b : *_vec) !_vec
 	printf("\ton cross\n")
 	*/
 	return ret;
+}
+raycast_info :struct
+{
+	ray_origin : _vec,
+    ray_dir : _vec,
+    v0 : _vec,
+    v1 : _vec,
+    v2 : _vec,
+    t_out : f32,
+    u_out : f32,
+    v_out : f32
+}
+
+f32_approximate ::fn macro(f : _expr, val : _expr)
+{
+	(f >= (val - 0.1) && f <= (val + 0.1))
+}
+ray_triangle_intersect_x64_test :: fn x64(rinfo : *raycast_info) ! u8
+{
+	ray_origin := rinfo.ray_origin
+    ray_dir := rinfo.ray_dir
+    v0 := rinfo.v0
+    v1 := rinfo.v1
+    v2 := rinfo.v2
+    t_out := rinfo.t_out
+    u_out := rinfo.u_out
+    v_out := rinfo.v_out
+
+    epsilon : f32 = 0.000001;
+    
+    edge1 := v1 - v0
+    edge1.w = 0.0;
+
+    edge2 := v2 - v0
+    edge2.w = 0.0;
+	if f32_approximate(edge1.x, 1.0) == false || 
+		f32_approximate(edge2.x, 1.0) == false || 
+		f32_approximate(edge2.z, -1.0) == false
+
+	{
+		return 0
+	}
+
+    h : _vec = ?;
+    s : _vec = ?;
+    q : _vec = ?;
+
+    
+    // Calculate triangle edges
+    
+
+    // Cross product: h = ray_dir × edge2
+    h = cross_vec(&ray_dir, &edge2);
+	if f32_approximate(h.x, 1.0) == false || 
+		f32_approximate(h.z, 1.0) == false
+
+	{
+		return 1
+	}
+    
+    // Determinant: a = edge1 • h
+    a : f32 = dot_vec(&edge1, &h);
+	if f32_approximate(a, 1.0) == false
+	{
+		return 2
+	}
+    
+    // Check if ray is parallel to triangle
+    if (a > -epsilon && a < epsilon) {
+        return 3;
+    }
+    
+	//__dbg_break
+    f : f32 = 1.0 / a;
+    s = ray_origin - v0;
+    s.w = 0.0;
+    
+	if f32_approximate(f, 1.0) == false
+	{
+		return 4
+	}
+	if f32_approximate(s.x, 0.5) == false || 
+		f32_approximate(s.y, 1.0) == false || 
+		f32_approximate(s.z, -0.5) == false
+	{
+		return 5
+	}
+    
+    // Barycentric u coordinate
+    u : f32 = f * dot_vec(&s, &h);
+	if f32_approximate(u, 0.0) == false
+	{
+		return 6
+	}
+    if (u < 0.0 || u > 1.0) {
+        return 7;
+    }
+	//__dbg_break
+    
+    // Cross product: q = s × edge1
+    q = cross_vec(&s, &edge1);
+	if f32_approximate(q.x, 0.0) == false || 
+		f32_approximate(q.y, -0.5) == false || 
+		f32_approximate(q.z, -1.0) == false
+	{
+		return 8
+	}
+    
+    // Barycentric v coordinate
+    v : f32 = f * dot_vec(&ray_dir, &q);
+	if f32_approximate(v, 0.5) == false
+	{
+		return 9
+	}
+    if (v < 0.0 || u + v > 1.0) {
+        return 10;
+    }
+    
+    // Calculate t parameter (distance along ray)
+    t : f32 = f * dot_vec(&edge2, &q);
+    
+	if f32_approximate(t, 1.0) == false
+	{
+		return 11
+	}
+    // Only accept intersections in front of ray
+    if (t > epsilon) {
+        //if (t_out != nil) { *t_out = t; }
+        //if (u_out != nil) { *u_out = u; }
+        //if (v_out != nil) { *v_out = v; }
+        return 12;
+    }
+    
+    return 13;
+}
+ray_triangle_intersect :: fn x64(rinfo : *raycast_info) ! bool
+{
+	ray_origin := rinfo.ray_origin
+    ray_dir := rinfo.ray_dir
+    v0 := rinfo.v0
+    v1 := rinfo.v1
+    v2 := rinfo.v2
+
+    epsilon : f32 = 0.000001;
+    
+    edge1 := v1 - v0
+    edge1.w = 0.0;
+
+    edge2 := v2 - v0
+    edge2.w = 0.0;
+    h : _vec = ?;
+    s : _vec = ?;
+    q : _vec = ?;
+
+    
+    // Calculate triangle edges
+    
+
+    // Cross product: h = ray_dir × edge2
+    h = cross_vec(&ray_dir, &edge2);
+    
+    // Determinant: a = edge1 • h
+    a : f32 = dot_vec(&edge1, &h);
+    
+    // Check if ray is parallel to triangle
+    if (a > -epsilon && a < epsilon) {
+        return false;
+    }
+    
+	//__dbg_break
+    f : f32 = 1.0 / a;
+    s = ray_origin - v0;
+    s.w = 0.0;
+    
+    // Barycentric u coordinate
+    u : f32 = f * dot_vec(&s, &h);
+    if (u < 0.0 || u > 1.0) {
+        return false;
+    }
+	//__dbg_break
+    
+    // Cross product: q = s × edge1
+    q = cross_vec(&s, &edge1);
+    
+    // Barycentric v coordinate
+    v : f32 = f * dot_vec(&ray_dir, &q);
+    if (v < 0.0 || u + v > 1.0) {
+        return false;
+    }
+    
+    // Calculate t parameter (distance along ray)
+    t : f32 = f * dot_vec(&edge2, &q);
+    
+    // Only accept intersections in front of ray
+    if (t > epsilon) {
+        rinfo.t_out = t;
+        rinfo.u_out = u;
+        rinfo.v_out = v;
+        return true;
+    }
+    
+    return false;
 }
 dot_v3::fn x64(a : *v3, b : *v3) !f32
 {

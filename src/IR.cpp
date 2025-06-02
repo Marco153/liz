@@ -2128,6 +2128,11 @@ void GenIrToArgReg(lang_state* lang_stat, own_std::vector<ir_val> &stack, int ar
 	ir_val* top = &stack[stack.size() - 1];
 	//stack.pop_back();
 	ir_rep ir = {};
+	if(top->ptr > 0 || top->ptr == -1)
+	{
+		top->is_float = false;
+		top->is_packed_float = false;
+	}
 	ir.type = IR_ASSIGNMENT;
 	ir.assign.to_assign.type = IR_TYPE_ARG_REG;
 	ir.assign.to_assign.reg = arg_idx;
@@ -2135,6 +2140,7 @@ void GenIrToArgReg(lang_state* lang_stat, own_std::vector<ir_val> &stack, int ar
 	ir.assign.to_assign.deref = -1;
 	ir.assign.to_assign.is_float = top->is_float;
 	ir.assign.only_lhs = true;
+
 
 
 	if(IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT) && IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_DEREF))

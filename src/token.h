@@ -595,6 +595,8 @@ struct type_struct2
 	void AddOpOverload(lang_state *lang_stat, func_decl *fdecl, overload_op op, int line, int line_offset)
 	{
 		op_overloads.push_back(fdecl);
+		auto aux = &op_overloads;
+		auto aux_funcs = &op_overloads_funcs;
 
 
 		decl2 *found_op = nullptr;
@@ -626,6 +628,9 @@ struct type_struct2
 				fdecl->name = MangleFuncNameWithArgs(lang_stat, fdecl, fdecl->name, 0);
 			}
 
+			std::vector<decl2 *> funcs_overload(aux_funcs->begin(), aux_funcs->end());
+			std::vector<func_decl *> ops_over(aux->begin(), aux->end());
+			std::vector<decl2 *> aoeu2(fdecl->args.begin(), fdecl->args.end());
 			type2 tp = {};
 			tp.type = TYPE_FUNC;
 			tp.fdecl = fdecl;

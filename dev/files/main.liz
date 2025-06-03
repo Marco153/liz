@@ -1755,7 +1755,7 @@ draw_aabb::fn(ctx : *context, _min : *_vec, _max : *_vec)
 
 	_v3.z = _v3.y
 	_v3.y = 0.0
-	
+
 	_v4.z = _v4.y
 	_v4.y = 0.0
 
@@ -2512,9 +2512,9 @@ generate_terrain::fn(ctx : *context, e : *entity)
 	i := 0
 
 	mesh :*mesh_info
-	for y in 0..4
+	for y in 0..6
 	{
-		for x in 0..4
+		for x in 0..6
 		{
 			generate_mesh(terrain, cast(u32)x * (terrain.width - 1), cast(u32)y * (terrain.width - 1))
 		}

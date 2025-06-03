@@ -14,7 +14,6 @@
 #include <assimp/cimport.h>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
-#include <open_simplex/open-simplex-noise.c>
 
 int min(int a, int b)
 {
@@ -213,7 +212,6 @@ struct v3
 #include "dr_flac.h"
 #include <fstream>
 #include "sort.cpp"
-#include <OpenFBX/ofbx.cpp>
 
 // gpt generated code
 struct Vec3 {

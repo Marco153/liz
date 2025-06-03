@@ -2838,7 +2838,6 @@ struct dbg_state
 	byte_code2 **cur_bc2;
 	ir_rep *cur_ir;
 	byte_code2* prev_valid_bc;
-	osn_context *simplex_ctx;
 	union
 	{
 		ir_rep* prev_break_ir;
@@ -4946,6 +4945,7 @@ void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer
 	void *a_ptr = (void*)&dbg.mem_buffer[base_ptr + 8];
 
 	void* addr = nullptr;
+	volatile void* addr1 = nullptr;
 	__m128 vec_ret;
 	char type = 0;
 	if(call_f->ret_type.IsFloat() && call_f->ret_type.ptr == 0)

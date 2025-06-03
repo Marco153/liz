@@ -1163,39 +1163,41 @@ CopyVerts::fn(col : *collider)
 }
 //solve_col::fn(e : *entity, )
 
-get_verts_pos_from_tris::fn x64(v1_out : *_vec, v2_out : *_vec, v3_out : *_vec, cross : *_vec, tris : *u32, verts : *f32, t : u64)
+verts_from_tri_info:struct
 {
-
+	v1_out : _vec, 
+	v2_out : _vec, 
+	v3_out : _vec, 
+	cross : _vec, 
+	t : u64
+}
+get_verts_pos_from_tris::fn x64(info : *verts_from_tri_info, tris : *u32, verts : *f32)
+{
+		t := info.t
 		idx :=  cast(u64)*ptr_offset(tris, t, u32)
-		v1_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
-		v1_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
-		v1_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
+		info.v1_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		info.v1_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
+		info.v1_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
 
-		//v1_out += e2.pos + cpos
-
-		//dir := e.pos - v1_out
 
 		idx = *ptr_offset(tris, t + 1, u32)
-		v2_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
-		v2_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
-		v2_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
+		info.v2_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		info.v2_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
+		info.v2_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
 
 		//v2_out += e2.pos + cpos
 
 		idx = *ptr_offset(tris, t + 2, u32)
 
-		v3_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
-		v3_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
-		v3_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
-		//v3_out += e2.pos + cpos
+		info.v3_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		info.v3_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
+		info.v3_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
 
-		tri_edge1 := *v2_out - *v1_out
-		tri_edge2 := *v3_out - *v1_out
+		tri_edge1 := info.v2_out - info.v1_out
+		tri_edge2 := info.v3_out - info.v1_out
 		
-		*cross = cross_vec(&tri_edge1, &tri_edge2)
-		//prev_cross := cross
-		//cross = -cross
-		*cross = normalize_vec(cross)
+		info.cross = cross_vec(&tri_edge1, &tri_edge2)
+		info.cross = normalize_vec(&info.cross)
 }
 ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_col_info, trn : *terrain_info, chunk_pos : *_vec)
 {
@@ -1223,7 +1225,14 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 		cross :_vec=?
 		cross.w = 0.0
 
-		get_verts_pos_from_tris(&_v1, &_v2, &_v3, &cross, tris.data, verts.data, t)
+		info :verts_from_tri_info=?
+		info.t = t
+		get_verts_pos_from_tris(&info, tris.data, verts.data)
+		_v1 = info.v1_out
+		_v2 = info.v2_out
+		_v3 = info.v3_out
+		cross = info.cross
+		
 		_v1 += e2.pos + cpos
 
 		dir := e.pos - _v1
@@ -1682,13 +1691,16 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	aux_start := *start
 
 	line_normal := cross_vec(&dir, &ctx.up)
-	aux_start += line_normal * 20.0
-	aux_end -= line_normal * 20.0
+	aux_start += line_normal * 5.0
+	aux_end -= line_normal * 5.0
 
 
 	norm :_vec
 	norm.x = dir.y
 	norm.y = dir.x
+
+	tri_pos :_vec
+	found_tri := false;
 
 	for m in trn.meshes
 	{
@@ -1720,6 +1732,7 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 			*/
 		if aabbCheck(&m_aabb, &p_aabb)
 		{
+			added := false
 			for ch in m.chunks
 			{
 				ch_pos :_vec
@@ -1731,7 +1744,68 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 				d := dot_vec(&dir_to_start, &line_normal)
 				if absf(d) < 10.0
 				{
-					dyn_add(&ctx.terrain_chunks_to_col, ch)
+					//dyn_add(&ctx.terrain_chunks_to_col, ch)
+					tris := &ch.tris
+					verts := &m.verts
+					t:u64
+					_v1 :_vec=?
+					_v2 :_vec=?
+					_v3 :_vec=?
+					cross :_vec=?
+					count :=  tris.count
+					tris_data := tris.data
+					verts_data := verts.data
+					while t < count
+					{
+						info :verts_from_tri_info=?
+						info.t = t
+						get_verts_pos_from_tris(&info, tris_data, verts_data)
+						_v1 = info.v1_out
+						_v2 = info.v2_out
+						_v3 = info.v3_out
+						cross = info.cross
+
+						dot_face := dot_vec(&cross, &dir)
+						dir_to_vert := _v1 - *start
+						dot_to_pos := dot_vec(&cross, &dir)
+						if dot_face > 0.0 && dot_to_pos > 0.0
+						{
+							_v1 += terrain.pos + m.pos
+							_v2 += terrain.pos + m.pos
+							_v3 += terrain.pos + m.pos
+
+							_v1.w = 0.0
+							_v2.w = 0.0
+							_v3.w = 0.0
+							
+							rinfo : raycast_info=?
+							rinfo.ray_origin = *start
+							rinfo.ray_dir = dir
+							rinfo.v0 = _v1
+							rinfo.v1 = _v2
+							rinfo.v2 = _v3
+							if ray_triangle_intersect(&rinfo)
+							{
+								//printf("tri found {t}\n")
+								
+								tri_pos = *start + dir * rinfo.t_out
+
+								tri_pos.w = 0.0
+								found_tri = true
+								break;
+							}
+						}
+						t+=3
+					}
+					if !mesh_added(&ctx.mesh_added_aux, ch.verts_mesh_idx)
+					{
+						dyn_add(&ctx.mesh_added_aux, ch.verts_mesh_idx)
+						//UpdateModel(m.model, m.verts.data)
+					}
+					if found_tri
+					{
+						break
+					}
 				}
 			}
 			//get_close_chunk_cols(ctx, ctx.terrain_chunks_to_col, terrain, m, pos, window)
@@ -1740,59 +1814,6 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 		//i++
 	}
 
-	tri_pos :_vec
-	found_tri := false;
-	for ch in ctx.terrain_chunks_to_col
-	{
-		//if found_tri == false
-		{
-			m := trn.meshes[cast(u64)ch.verts_mesh_idx]
-
-			tris := &ch.tris
-			verts := &m.verts
-			t:u64
-			_v1 :_vec=?
-			_v2 :_vec=?
-			_v3 :_vec=?
-			cross :_vec=?
-			count :=  tris.count
-			while t < count
-			{
-				get_verts_pos_from_tris(&_v1, &_v2, &_v3, &cross, tris.data, verts.data, t)
-				_v1 += terrain.pos + m.pos
-				_v2 += terrain.pos + m.pos
-				_v3 += terrain.pos + m.pos
-
-				_v1.w = 0.0
-				_v2.w = 0.0
-				_v3.w = 0.0
-				
-				rinfo : raycast_info=?
-				rinfo.ray_origin = *start
-				rinfo.ray_dir = dir
-				rinfo.v0 = _v1
-				rinfo.v1 = _v2
-				rinfo.v2 = _v3
-				if ray_triangle_intersect(&rinfo)
-				{
-					//printf("tri found {t}\n")
-					
-					tri_pos = *start + dir * rinfo.t_out
-
-					tri_pos.w = 0.0
-					found_tri = true
-					break;
-				}
-				t+=3
-			}
-		}
-
-		if !mesh_added(&ctx.mesh_added_aux, ch.verts_mesh_idx)
-		{
-			dyn_add(&ctx.mesh_added_aux, ch.verts_mesh_idx)
-			//UpdateModel(m.model, m.verts.data)
-		}
-	}
 	if !found_tri
 	{
 		dyn_clear(&ctx.mesh_added_aux)
@@ -1804,10 +1825,12 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	{
 		//__dbg_break
 		m := trn.meshes[cast(u64)*mi]
+		/*
 		if cast(u64)*mi == 4
 		{
 			printf("is 4 %\n", cast(s32)*mi)
 		}
+		*/
 		vi :u64
 		verts := &m.verts
 		count := m.verts.count
@@ -1825,9 +1848,10 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 			vec_col.z = 1.0
 
 			dir = tri_pos - vec_pos
-			dist := len_vec(&dir)
-			if dist < radius
+			dist := absf(dot_vec(&dir, &dir))
+			if dist < (radius * radius)
 			{
+				dist =len_vec(&dir)
 				vec_col.x = 0.0
 				vec_col.y = 1.0
 				vec_col.z = 0.0
@@ -1840,6 +1864,7 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 
 			vi += 6
 		}
+
 		UpdateModel(m.model, m.verts.data)
 	}
 

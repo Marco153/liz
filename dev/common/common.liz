@@ -488,6 +488,11 @@ chunk_col_info :struct
 	pos_x : f32
 	pos_y : f32
 
+	up_neighbor : s32
+	down_neighbor: s32
+	left_neighbor: s32
+	right_neighbor: s32
+
 }
 terrain_info : struct
 {
@@ -499,6 +504,7 @@ terrain_info : struct
 	chunks_col_per_row:u32
 	chunks_col_window_size:u32
 	tris_per_unit:f32
+	size : u32
 }
 create_mesh_info:struct
 {

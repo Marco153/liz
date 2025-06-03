@@ -155,6 +155,7 @@ context: struct
 	draw_origin :bool,
 	terrain_chunks_to_col : dyn_array(*chunk_col_info)
 	mesh_added_aux : dyn_array(u32)
+	vertex_terrain : dyn_array(vertex_terrrain_modify)
 }
 perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
     tanHalfFov:= tanf(fov / 2.0);
@@ -1736,6 +1737,37 @@ _draw_col ::fn(ctx : *context, c : *collider)
 	}
 }
 VIEW_COL_METHOD:const s32= 2
+draw_aabb::fn(ctx : *context, _min : *_vec, _max : *_vec)
+{
+	_v1 := *_min
+	_v2 := *_max
+	_v3 := *_min
+	_v4 := *_max
+
+	_v3.y = _max.y
+	_v4.y = _min.y
+
+	_v1.z = _v1.y
+	_v1.y = 0.0
+
+	_v2.z = _v2.y
+	_v2.y = 0.0
+
+	_v3.z = _v3.y
+	_v3.y = 0.0
+	
+	_v4.z = _v4.y
+	_v4.y = 0.0
+
+	col : _vec
+	col.x = 1.0
+	col.y = 1.0
+	col.z = 1.0
+	draw_line(ctx, &_v1, &_v2, &col, 0);
+	draw_line(ctx, &_v2, &_v3, &col, 0);
+	draw_line(ctx, &_v3, &_v4, &col, 0);
+	draw_line(ctx, &_v4, &_v1, &col, 0);
+}
 view_collision ::fn(ccc : u32)
 {
 	curmx := GetMouseNormalizedPosX();
@@ -2054,14 +2086,16 @@ view_collision ::fn(ccc : u32)
 	}
 	else if VIEW_COL_METHOD == 2
 	{
-		draw_line(ctx, &globals.ray_origin, &globals.ray_end, &col, 0);
-		draw_tri(ctx, &globals.tri_v3, &globals.tri_v2, &globals.tri_v1, &col, 0)
-		/*
-		pos1 := _vec{1.0, 0.0, 0.0, 0.0}
-		pos2 := _vec{1.0, 0.0, 1.0, 0.0}
-		pos3 := _vec{0.0, 0.0, 1.0, 0.0}
-		//draw_tri(ctx, &pos1, &pos2, &pos3, &col, 0)
-		*/
+		DrawEntity(ctx, globals.trn, cam_pos, cam_rot)
+		if IsKeyHeld(key_enum.KEY_1)
+		{
+			draw_aabb(ctx, &globals.aabb1_min, &globals.aabb1_max)
+		}
+		if IsKeyHeld(key_enum.KEY_2)
+		{
+			draw_aabb(ctx, &globals.aabb2_min, &globals.aabb2_max)
+			
+		}
 		a :=0
 	}
 
@@ -2489,6 +2523,7 @@ generate_terrain::fn(ctx : *context, e : *entity)
 	ctx.alloc = &ctx.main_alloc
 
 }
+
 main_loop::fn(ctx : *context)
 {
 	//perspective(ctx.perspective_mat[0], fov : f32, aspect : f32, near : f32, far : f32)
@@ -2785,19 +2820,20 @@ main_loop::fn(ctx : *context)
 				dir := ScreenMouseToWorld(screenmx, screenmy)
 				
 				//dir.y = -dir.y
-				cam_dir := cam_pos + dir * 50.0
+				cam_dir := cam_pos + dir * 20.0
 				cam_dir2 := cam_pos + dir * 5.0
-				p_dir := player_ent.pos + dir * 50.0
 
-				//draw_line(ctx, &player_ent.pos, &p_dir, &sz, 0)
-				draw_vertex(ctx, &cam_dir, &sz, &cam_pos, &cam_rot)
-				/*
-				aux:_vec
-				aux.x = screenmx / 1000.0
-				aux.y = screenmy / 1000.0
-				print_vec(&aux)
-				*/
+				//draw_vertex(ctx, &cam_dir, &sz, &cam_pos, &cam_rot)
+				cam_dir = cam_pos + dir * 2000.0
+
+				dyn_clear(&ctx.vertex_terrain)
 				RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
+				for vtx in ctx.vertex_terrain
+				{
+					verts := &vtx.mesh.verts
+					vec_pos := cast(*_vec)verts[vtx.vidx]
+					vec_pos.y += vtx.dir
+				}
 			}
 			if IsMouseUp(mouse_enum.RIGHT)
 			{

@@ -1672,31 +1672,82 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	//b.y = a.y
 
 	dir := b - a
+	dir = normalize_vec(&dir)
 	trn := terrain.terrain
 
-
-	// find where the line y is 0
-	tf := -start.y/dir.y
-
-	y_zero := *start + dir * tf
-	y_zero.y = 0.0
-
 	dyn_clear(&ctx.terrain_chunks_to_col)
-	dyn_clear(&ctx.mesh_added_aux)
-	i := 0
-	y_zero.x = clamp(y_zero.x, 0.0, 2000.0)
-	y_zero.z = clamp(y_zero.z, 0.0, 2000.0)
-	//y_zero.x = 0.0;
-	//y_zero.z = 0.0
-	get_closest_terrain_meshes_chunk_cols(ctx, &y_zero, terrain, &ctx.terrain_chunks_to_col, 50.0)
+
+	//__dbg_break
+	aux_end := *end
+	aux_start := *start
+
+	line_normal := cross_vec(&dir, &ctx.up)
+	aux_start += line_normal * 20.0
+	aux_end -= line_normal * 20.0
+
+
+	norm :_vec
+	norm.x = dir.y
+	norm.y = dir.x
+
+	for m in trn.meshes
+	{
+		m_aabb :aabb = ?
+		p_aabb :aabb = ?
+
+		m_aabb._min = m.pos + terrain.pos
+		m_aabb._min.y = m_aabb._min.z
+		
+		m_aabb._max = m_aabb._min
+		m_aabb._max.x += cast(f32)trn.width
+		m_aabb._max.y += cast(f32)trn.width
+
+		p_aabb._min.x = minf(aux_start.x, aux_end.x)
+		p_aabb._min.y = minf(aux_start.z, aux_end.z)
+
+		p_aabb._max.x = maxf(aux_start.x, aux_end.x)
+		p_aabb._max.y = maxf(aux_start.z, aux_end.z)
+
+/*
+		globals.aabb1_min = m_aabb._min
+		globals.aabb1_max = m_aabb._max
+		globals.aabb2_min = p_aabb._min
+		globals.aabb2_max = p_aabb._max
+		globals.trn = terrain
+		//__dbg_break
+		//if(can_break && m == trn.meshes[2])
+			//__dbg_break
+			*/
+		if aabbCheck(&m_aabb, &p_aabb)
+		{
+			for ch in m.chunks
+			{
+				ch_pos :_vec
+				ch_pos.x = ch.pos_x + m.pos.x
+				ch_pos.z = ch.pos_y + m.pos.z
+
+
+				dir_to_start := *start - ch_pos
+				d := dot_vec(&dir_to_start, &line_normal)
+				if absf(d) < 10.0
+				{
+					dyn_add(&ctx.terrain_chunks_to_col, ch)
+				}
+			}
+			//get_close_chunk_cols(ctx, ctx.terrain_chunks_to_col, terrain, m, pos, window)
+			//ctx.mesh_idx = cast(u32)i
+		}
+		//i++
+	}
 
 	tri_pos :_vec
 	found_tri := false;
 	for ch in ctx.terrain_chunks_to_col
 	{
-		if found_tri == false
+		//if found_tri == false
 		{
 			m := trn.meshes[cast(u64)ch.verts_mesh_idx]
+
 			tris := &ch.tris
 			verts := &m.verts
 			t:u64
@@ -1708,11 +1759,14 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 			while t < count
 			{
 				get_verts_pos_from_tris(&_v1, &_v2, &_v3, &cross, tris.data, verts.data, t)
-				_v1 += terrain.pos
-				_v2 += terrain.pos
-				_v3 += terrain.pos
+				_v1 += terrain.pos + m.pos
+				_v2 += terrain.pos + m.pos
+				_v3 += terrain.pos + m.pos
+
+				_v1.w = 0.0
+				_v2.w = 0.0
+				_v3.w = 0.0
 				
-				dir = normalize_vec(&dir)
 				rinfo : raycast_info=?
 				rinfo.ray_origin = *start
 				rinfo.ray_dir = dir
@@ -1731,10 +1785,6 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 				}
 				t+=3
 			}
-			if found_tri
-			{
-				break;
-			}
 		}
 
 		if !mesh_added(&ctx.mesh_added_aux, ch.verts_mesh_idx)
@@ -1749,10 +1799,15 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 		return false
 	}
 	
+	radius := 10.0
 	for mi in ctx.mesh_added_aux
 	{
 		//__dbg_break
 		m := trn.meshes[cast(u64)*mi]
+		if cast(u64)*mi == 4
+		{
+			printf("is 4 %\n", cast(s32)*mi)
+		}
 		vi :u64
 		verts := &m.verts
 		count := m.verts.count
@@ -1771,11 +1826,16 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 
 			dir = tri_pos - vec_pos
 			dist := len_vec(&dir)
-			if dist < 10.0
+			if dist < radius
 			{
 				vec_col.x = 0.0
 				vec_col.y = 1.0
 				vec_col.z = 0.0
+				vinfo : vertex_terrrain_modify=?
+				vinfo.vidx = vi
+				vinfo.dir = (radius - dist)/radius
+				vinfo.mesh = m
+				dyn_add(&ctx.vertex_terrain, &vinfo)
 			}
 
 			vi += 6

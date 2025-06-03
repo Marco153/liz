@@ -69,6 +69,13 @@ global_struct : struct
 	ray_origin : _vec
 	ray_end : _vec
 	up : _vec
+
+	aabb1_min : _vec
+	aabb1_max : _vec
+	aabb2_min : _vec
+	aabb2_max : _vec
+
+	trn : *entity
 }
 globals : global global_struct
 
@@ -499,6 +506,12 @@ create_mesh_info:struct
 	total_verts : u32
 	tris : *u32
 	total_tris : u32
+}
+vertex_terrrain_modify:struct
+{
+	vidx : u64
+	dir : f32
+	mesh : *mesh_info
 }
 
 UpdateModel::fn outsider(model : u32, verts : *f32, ) ! _vec;

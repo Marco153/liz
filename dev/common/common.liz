@@ -76,6 +76,11 @@ global_struct : struct
 	aabb2_max : _vec
 
 	trn : *entity
+
+	chunk : *chunk_col_info
+	chunks_ar : *dyn_array(*chunk_col_info)
+	h : u32
+	w : u32
 }
 globals : global global_struct
 
@@ -488,10 +493,40 @@ chunk_col_info :struct
 	pos_x : f32
 	pos_y : f32
 
-	up_neighbor : s32
+	using uup :: union
+	{
+		up_neighbor : s32
+		st ::struct
+		{
+			mx : u8
+			my : u8
+			cx : u8
+			cy : u8
+		}
+	}
 	down_neighbor: s32
-	left_neighbor: s32
-	right_neighbor: s32
+	using uleft :: union
+	{
+		left_neighbor : s32
+		st_2 ::struct
+		{
+			mx : u8
+			my : u8
+			cx : u8
+			cy : u8
+		}
+	}
+	using uright :: union
+	{
+		right_neighbor : s32
+		st_3 ::struct
+		{
+			mx : u8
+			my : u8
+			cx : u8
+			cy : u8
+		}
+	}
 
 }
 terrain_info : struct

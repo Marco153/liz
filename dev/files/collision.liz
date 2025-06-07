@@ -1171,27 +1171,24 @@ verts_from_tri_info:struct
 	cross : _vec, 
 	t : u64
 }
-get_verts_pos_from_tris::fn x64(info : *verts_from_tri_info, tris : *u32, verts : *f32)
+get_verts_pos_from_tris::fn(info : *verts_from_tri_info, tris : *u32, verts : *f32)
 {
 		t := info.t
 		idx :=  cast(u64)*ptr_offset(tris, t, u32)
-		info.v1_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
-		info.v1_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
-		info.v1_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
+		*cast(*_vec)&info.v1_out = *cast(*_vec)ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		info.v1_out.w = 0.0
 
 
 		idx = *ptr_offset(tris, t + 1, u32)
-		info.v2_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
-		info.v2_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
-		info.v2_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
+		*cast(*_vec)&info.v2_out = *cast(*_vec)ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		info.v2_out.w = 0.0
 
 		//v2_out += e2.pos + cpos
 
 		idx = *ptr_offset(tris, t + 2, u32)
 
-		info.v3_out.x = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
-		info.v3_out.y = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 1, f32)
-		info.v3_out.z = *ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE + 2, f32)
+		*cast(*_vec)&info.v3_out = *cast(*_vec)ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		info.v3_out.w = 0.0
 
 		tri_edge1 := info.v2_out - info.v1_out
 		tri_edge2 := info.v3_out - info.v1_out
@@ -1237,6 +1234,7 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 
 		dir := e.pos - _v1
 		dist := dot_vec(&dir, &dir)
+		//__dbg_break
 		if dist < 70.0
 		{
 			_v2 += e2.pos + cpos
@@ -1663,6 +1661,17 @@ BroadPhase::fn(ctx : *context, ref_pos : *_vec, ref_size : *_vec, out : *dyn_arr
 	}
 	return false;
 }
+vertex_added::fn(ar : *dyn_array(vertex_terrrain_modify), idx : u64) ! bool
+{
+	for i in *ar
+	{
+		if i.vidx == idx
+		{
+			return true;
+		}
+	}
+	return false;
+}
 mesh_added::fn(ar : *dyn_array(u32), idx : u32) ! bool
 {
 	for i in *ar
@@ -1674,6 +1683,24 @@ mesh_added::fn(ar : *dyn_array(u32), idx : u32) ! bool
 	}
 	return false;
 }
+get_chunk_on_pos ::fn(trn : *terrain_info, pos_s : s32) ! *chunk_col_info
+{
+	if pos_s == -1
+		return nil;
+	pos := cast(u32)pos_s
+	mesh_x :u32= pos & 0xff
+	mesh_y :u32= (pos >> 8) & 0xff
+	ch_x :u32= (pos >> 16) & 0xff
+	ch_y :u32= (pos >> 24) & 0xff
+
+	midx := cast(u64)(mesh_y * trn.size + mesh_x)
+
+	mesh := trn.meshes[cast(u64)midx]
+
+	chidx := cast(u64)ch_y * trn.chunks_col_per_row + ch_x
+
+	return mesh.chunks[chidx]
+}
 RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *entity) !bool
 {
 	a := *start
@@ -1682,8 +1709,8 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 
 	dir := b - a
 	dir = normalize_vec(&dir)
-	trn := terrain.terrain
 
+	trn :*terrain_info= terrain.terrain
 	dyn_clear(&ctx.terrain_chunks_to_col)
 
 	//__dbg_break
@@ -1702,6 +1729,11 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	tri_pos :_vec
 	found_tri := false;
 
+	radius := 10.0
+
+	globals.trn = terrain
+
+	chunks_together_width :u32
 	for m in trn.meshes
 	{
 		m_aabb :aabb = ?
@@ -1787,8 +1819,76 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 							if ray_triangle_intersect(&rinfo)
 							{
 								//printf("tri found {t}\n")
-								
+								globals.chunk = ch
+								//__dbg_break
+
 								tri_pos = *start + dir * rinfo.t_out
+								chunks_in_radius :=  cast(u32)radius / trn.chunks_col_window_size
+
+								h := chunks_in_radius*4
+								w := chunks_in_radius*4
+								
+								if (chunks_in_radius % 2) != 0
+								{
+									chunks_in_radius++
+								}
+								chunks_together_width = h
+
+								left_ch := get_chunk_on_pos(trn, ch.left_neighbor)
+								globals.chunk = ch
+								globals.h = h
+								globals.w = w
+								//find leftmost
+								cur := w /2
+								while cur > 0
+								{
+									globals.chunk = left_ch
+									aux := get_chunk_on_pos(trn, left_ch.left_neighbor)
+									if aux == nil
+									{
+										break;
+									}
+									left_ch = aux
+									cur--
+								}
+								ASSERT(left_ch)
+
+								//find uppermost
+								upper_most_ch := get_chunk_on_pos(trn, left_ch.up_neighbor)
+								if upper_most_ch == nil
+								{
+									upper_most_ch = left_ch
+								}
+								cur = h /2
+								while cur > 0
+								{
+									globals.chunk = upper_most_ch
+									aux := get_chunk_on_pos(trn, upper_most_ch.up_neighbor)
+									if aux == nil
+									{
+										break;
+									}
+									upper_most_ch = aux
+									cur--
+								}
+
+								for y in 0..h
+								{
+									cur_x_ch := upper_most_ch
+									for x in 0..w
+									{
+										dyn_add(&ctx.terrain_chunks_to_col, cur_x_ch)
+										cur_x_ch = get_chunk_on_pos(trn, cur_x_ch.right_neighbor)
+										globals.chunk = cur_x_ch
+										//__dbg_break
+
+										if cur_x_ch == nil
+											break;
+									}
+									upper_most_ch = get_chunk_on_pos(trn, upper_most_ch.down_neighbor)
+									if upper_most_ch == nil
+										break;
+								}
 
 								tri_pos.w = 0.0
 								found_tri = true
@@ -1796,11 +1896,6 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 							}
 						}
 						t+=3
-					}
-					if !mesh_added(&ctx.mesh_added_aux, ch.verts_mesh_idx)
-					{
-						dyn_add(&ctx.mesh_added_aux, ch.verts_mesh_idx)
-						//UpdateModel(m.model, m.verts.data)
 					}
 					if found_tri
 					{
@@ -1811,6 +1906,10 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 			//get_close_chunk_cols(ctx, ctx.terrain_chunks_to_col, terrain, m, pos, window)
 			//ctx.mesh_idx = cast(u32)i
 		}
+		if found_tri
+		{
+			break
+		}
 		//i++
 	}
 
@@ -1819,55 +1918,62 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 		dyn_clear(&ctx.mesh_added_aux)
 		return false
 	}
-	
-	radius := 10.0
-	for mi in ctx.mesh_added_aux
+
+	globals.chunk = nil
+	//__dbg_break
+	tris_per_unit := cast(s32)trn.tris_per_unit
+	dyn_clear(&ctx.mesh_added_aux)
+	for ch in ctx.terrain_chunks_to_col
 	{
-		//__dbg_break
-		m := trn.meshes[cast(u64)*mi]
-		/*
-		if cast(u64)*mi == 4
+		if !mesh_added(&ctx.mesh_added_aux, ch.verts_mesh_idx)
 		{
-			printf("is 4 %\n", cast(s32)*mi)
+			dyn_add(&ctx.mesh_added_aux, ch.verts_mesh_idx)
+			//UpdateModel(m.model, m.verts.data)
 		}
-		*/
-		vi :u64
-		verts := &m.verts
+	}
+
+
+	vertices_per_row := cast(s32)trn.vertices_per_row
+	for midx in ctx.mesh_added_aux
+	{
+		m:*mesh_info= trn.meshes[cast(u64)*midx]
+		v :u64
 		count := m.verts.count
-		//__dbg_break
-		while vi < count
+		cur_v:=0
+		while v < count
 		{
-			vec_pos := *cast(*_vec)verts[vi]
-			vec_pos += m.pos
-			vec_col := cast(*_vec)verts[vi + 3]
-
-			vec_pos.w = 0.0
-
-			vec_col.x = 1.0
-			vec_col.y = 1.0
-			vec_col.z = 1.0
-
-			dir = tri_pos - vec_pos
-			dist := absf(dot_vec(&dir, &dir))
+			vpos := *cast(*_vec)m.verts[v]
+			vpos += m.pos
+			vpos.w = 0.0
+			dir = tri_pos - vpos
+			d := dot_vec(&dir, &dir)
+			dist := absf(d)
+			//printf("dist is {ch.verts_mesh_idx}\n")
 			if dist < (radius * radius)
 			{
-				dist =len_vec(&dir)
-				vec_col.x = 0.0
-				vec_col.y = 1.0
-				vec_col.z = 0.0
-				vinfo : vertex_terrrain_modify=?
-				vinfo.vidx = vi
-				vinfo.dir = (radius - dist)/radius
+				//__dbg_break
+				dist = sqrt(dist)
+				vinfo:vertex_terrrain_modify=?
+				vinfo.vidx = v
 				vinfo.mesh = m
+				
+				vinfo.dir = (radius - dist)/radius
+				/*
+				vx := cur_v % vertices_per_row
+				vy := cur_v / vertices_per_row
+				is_in_limit := vy == 0 || vy == (vertices_per_row - 1)
+				if is_in_limit
+				{
+					vinfo.dir = vinfo.dir *0.8
+				}
+				*/
 				dyn_add(&ctx.vertex_terrain, &vinfo)
 			}
-
-			vi += 6
+			v += TERRAIN_VERTEX_SIZE
 		}
 
 		UpdateModel(m.model, m.verts.data)
 	}
-
 	
 	return true
 }

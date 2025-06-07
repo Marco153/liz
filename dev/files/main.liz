@@ -156,6 +156,7 @@ context: struct
 	terrain_chunks_to_col : dyn_array(*chunk_col_info)
 	mesh_added_aux : dyn_array(u32)
 	vertex_terrain : dyn_array(vertex_terrrain_modify)
+	aux_vertex_terrain : dyn_array(vertex_terrrain_modify)
 }
 perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
     tanHalfFov:= tanf(fov / 2.0);
@@ -2086,6 +2087,95 @@ view_collision ::fn(ccc : u32)
 	}
 	else if VIEW_COL_METHOD == 2
 	{
+
+		trn :*terrain_info= globals.trn.terrain
+		tpos := globals.trn.pos
+		if globals.chunk
+		{
+			ch :*chunk_col_info= globals.chunk
+
+			aux :*chunk_col_info
+			if IsKeyHeld(key_enum.KEY_1)
+			{
+				//printf("curx {cast(s32)ch.pos_x}, cury {cast(s32)ch.pos_y}\n")
+				aux = get_chunk_on_pos(trn, ch.left_neighbor)
+				if aux != nil
+				{
+					ch = aux
+				}
+			}
+			else if IsKeyHeld(key_enum.KEY_2)
+			{
+				aux = get_chunk_on_pos(trn, ch.up_neighbor)
+				if aux != nil
+				{
+					ch = aux
+				}
+			}
+			else if IsKeyHeld(key_enum.KEY_3)
+			{
+				aux = get_chunk_on_pos(trn, ch.down_neighbor)
+				if aux != nil
+				{
+					ch = aux
+				}
+			}
+			else if IsKeyHeld(key_enum.KEY_4)
+			{
+				aux = get_chunk_on_pos(trn, ch.right_neighbor)
+				if aux != nil
+				{
+					ch = aux
+				}
+			}
+			info :verts_from_tri_info=?
+			mesh :*mesh_info= trn.meshes[cast(u64)ch.verts_mesh_idx]
+			tris := &ch.tris
+
+
+			t :u64= 0
+			while t < tris.count
+			{
+				info.t = t
+				get_verts_pos_from_tris(&info, tris.data, mesh.verts.data)
+				//print_vec(&info.v1_out)
+				info.v1_out += tpos + mesh.pos
+				info.v2_out += tpos + mesh.pos
+				info.v3_out += tpos + mesh.pos
+
+				draw_tri(ctx, &info.v3_out, &info.v2_out, &info.v1_out, &col, 0)
+
+				t += 3
+			}
+		}
+
+		else
+		{
+
+			info :verts_from_tri_info=?
+			for ch in ctx.terrain_chunks_to_col
+			{
+				mesh :*mesh_info= trn.meshes[cast(u64)ch.verts_mesh_idx]
+				tris := &ch.tris
+
+
+				t :u64= 0
+				while t < tris.count
+				{
+					info.t = t
+					get_verts_pos_from_tris(&info, tris.data, mesh.verts.data)
+					//print_vec(&info.v1_out)
+					info.v1_out += tpos + mesh.pos
+					info.v2_out += tpos + mesh.pos
+					info.v3_out += tpos + mesh.pos
+
+					draw_tri(ctx, &info.v3_out, &info.v2_out, &info.v1_out, &col, 0)
+
+					t += 3
+				}
+			}
+		}
+		/*
 		DrawEntity(ctx, globals.trn, cam_pos, cam_rot)
 		if IsKeyHeld(key_enum.KEY_1)
 		{
@@ -2096,7 +2186,11 @@ view_collision ::fn(ccc : u32)
 			draw_aabb(ctx, &globals.aabb2_min, &globals.aabb2_max)
 			
 		}
+		*/
 		a :=0
+	}
+	else if VIEW_COL_METHOD == 3
+	{
 	}
 
 
@@ -2358,6 +2452,17 @@ init_tri_terrain::fn(trn : *terrain_info)
 	}
 
 }
+make_chunk_idx_within_mesh::fn(mesh_x : u8, mesh_y : u8, chunk_x : u8, chunk_y : u8) ! s32
+{
+	ret:s32
+	ret = cast(s32)(cast(u32)mesh_x | (cast(u32)mesh_y << 8))
+	if(mesh_y >= 16)
+	{
+		__dbg_break
+	}
+	ret = ret | cast(s32)((cast(u32)chunk_x << 16) | (cast(u32)chunk_y << 24))
+	return ret;
+}
 generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 {
 	ASSERT((MESH_WIDTH % 2) == 1)
@@ -2445,6 +2550,10 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 	last_mesh_idx := cast(u32)trn.meshes.count - 1
 
 	//__dbg_break
+
+	lastm :*mesh_info= ptr_offset(trn.meshes.data, cast(u64)last_mesh_idx, mesh_info)
+	size_u32 := cast(u32)size
+
 	for y in 0..total_chunks_cols
 	{
 		for x in 0..total_chunks_cols
@@ -2455,10 +2564,55 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 			end_x := cast(u64)x * tris_per_unit_u64 + tris_per_unit_u64
 			end_y := cast(u64)y * tris_per_unit_u64 + tris_per_unit_u64
 			create_chunk_col_for_terrain(trn, last_mesh_idx, start_x, start_y, end_x, end_y)
+
+			last_chunk := dyn_last(&lastm.chunks)
+
+			pos_x_u8 := cast(u8)(pos_x / (size_u32 - 1))
+			pos_y_u8 := cast(u8)(pos_y / (size_u32 - 1))
+			x_u8 := cast(u8)x
+			y_u8 := cast(u8)y
+			total_chunks_col_u8 := cast(u8)total_chunks_cols
+			//if pos_x_u8 == 1 && pos_y_u8 == 1 && x == 1 && y == 1
+				//__dbg_break;
+
+			if x_u8 > 0
+			{
+				last_chunk.left_neighbor = make_chunk_idx_within_mesh(pos_x_u8, pos_y_u8, x_u8 - 1, y_u8)
+			}
+			else if pos_x_u8 > 0
+			{
+				last_chunk.left_neighbor = make_chunk_idx_within_mesh(pos_x_u8 - 1, pos_y_u8, total_chunks_col_u8 - 1, y_u8)
+			}
+			
+			if (x_u8 + 1) < total_chunks_col_u8
+			{
+				last_chunk.right_neighbor = make_chunk_idx_within_mesh(pos_x_u8, pos_y_u8, x_u8 + 1, y_u8)
+			}
+			else if (pos_x_u8 + 1) < cast(u8)trn.size
+			{
+				last_chunk.right_neighbor = make_chunk_idx_within_mesh(pos_x_u8 + 1, pos_y_u8, 0, y_u8)
+			}
+
+			if y_u8 > 0
+			{
+				last_chunk.up_neighbor = make_chunk_idx_within_mesh(pos_x_u8, pos_y_u8, x_u8, y_u8 - 1)
+			}
+			else if pos_y_u8 > 0
+			{
+				last_chunk.up_neighbor = make_chunk_idx_within_mesh(pos_x_u8, pos_y_u8 - 1, x_u8, total_chunks_col_u8 - 1)
+			}
+			
+			if (y_u8 + 1) < total_chunks_col_u8
+			{
+				last_chunk.down_neighbor = make_chunk_idx_within_mesh(pos_x_u8, pos_y_u8, x_u8, y_u8 + 1)
+			}
+			else if (pos_x_u8 + 1) < cast(u8)trn.size
+			{
+				last_chunk.down_neighbor = make_chunk_idx_within_mesh(pos_x_u8, pos_y_u8 + 1, x_u8, 0)
+			}
 		}
 	}
 	
-	//__dbg_break
 	return ret
 }
 create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_quad : u64, start_y_quad : u64, end_x_quad : u64, end_y_quad : u64 )
@@ -2470,6 +2624,10 @@ create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_qu
 	t :u64
 	chunk.pos_x = cast(f32)cast(s32)start_x_quad
 	chunk.pos_y = cast(f32)cast(s32)start_y_quad
+	chunk.up_neighbor = -1
+	chunk.down_neighbor = -1
+	chunk.left_neighbor = -1
+	chunk.right_neighbor = -1
 	count := trn.tris.count
 	tris := &trn.tris
 	tst := 0
@@ -2503,22 +2661,28 @@ create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_qu
 	}
 	dyn_add(&mesh.chunks, &chunk)
 }
+
 generate_terrain::fn(ctx : *context, e : *entity)
 {
 	terrain := e.terrain
 	globals.alloc = &ctx.terrain_alloc
 	ctx.alloc = &ctx.terrain_alloc
 	init_tri_terrain(terrain)
+	trn :*terrain_info= e.terrain
+	trn.size = 6
 	i := 0
+	//__dbg_break
 
 	mesh :*mesh_info
-	for y in 0..6
+	for y in 0..trn.size
 	{
-		for x in 0..6
+		for x in 0..trn.size
 		{
 			generate_mesh(terrain, cast(u32)x * (terrain.width - 1), cast(u32)y * (terrain.width - 1))
 		}
 	}
+	//__dbg_break
+
 	globals.alloc = &ctx.main_alloc
 	ctx.alloc = &ctx.main_alloc
 

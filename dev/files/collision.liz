@@ -20,8 +20,7 @@ col_type : etruct
 	),
 	CAPSULE(
 		radius : f32,
-		ycap : f32,
-		ybase : f32,
+		height : f32
 	),
 	TRIANGLE(
 		normal :_vec
@@ -35,6 +34,7 @@ collider : struct
 {
 	using type : col_type
 	ent : * entity
+	pos : _vec
 }
 
 find_support::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider, dir : *_vec) ! _vec
@@ -60,19 +60,20 @@ find_furthest_point::fn(col : *collider, dir : *_vec) ! _vec
 	CAPSULE
 	{
 		result := normalize_vec(dir)*col.CAPSULE.radius;
+		
 		if dir.y > 0.0
 		{
-			result.y += col.CAPSULE.ycap 
+			result.y += col.CAPSULE.height *0.5
 		}
 		else
-			result.y += col.CAPSULE.ybase;
+			result.y -= col.CAPSULE.height *0.5;
 
-        return result + col.ent.pos; //convert support to world spac
+        return result + col.pos; //convert support to world spac
 	}
 	SPHERE
 	{
 		result := normalize_vec(dir)*col.SPHERE.radius;
-		return col.ent.pos + result
+		return col.pos + result
 
 	}
 	TRIANGLE
@@ -106,7 +107,7 @@ find_furthest_point::fn(col : *collider, dir : *_vec) ! _vec
 		cur_idx :u64= 0
 		for v in col.CUBE.verts
 		{
-			aux := *v - col.ent.pos
+			aux := *v - col.pos
 			proj:= dot_vec(dir, &aux);
 			if proj > _max
 			{
@@ -146,10 +147,12 @@ gjk_state : struct
 	epa_new_sup : _vec
 	mink_diff : [64]_vec
 	mink_diff_vert : u64
+
+	aux_col : collider
 }
 simplex_push_front::fn(gjk : *gjk_state, pos : *_vec)
 {
-	aux : [3]_vec= ?
+	aux : [4]_vec= ?
 	memcpy(aux[0], gjk.simplex[0], 3 * 16)
 	*gjk.simplex[0] = *pos
 	memcpy(gjk.simplex[1], aux[0], 3 * 16)
@@ -157,6 +160,7 @@ simplex_push_front::fn(gjk : *gjk_state, pos : *_vec)
 }
 GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 {
+	//memset(gjk.simplex, 0, sizeof(gjk.simplex))
 	unitx :_vec
 	unitx.x = 1.0
 	gjk.simplex_verts = 0
@@ -209,8 +213,6 @@ same_direction ::fn(a : *_vec, b : *_vec) ! bool
 {
 	//printf("on same \n")
 	d :=dot_vec(a, b)
-	//print_vec(a)
-	//print_vec(b)
 	//printf("d % \n end of same\n", cast(s32)(d * 100.0))
 	return d > 0.0
 }
@@ -384,91 +386,6 @@ ApplyTranformationsToVerts::fn(a_pos : *_vec, a_vel : *_vec, a_pivot : *_vec, a_
 	a: = 0;
 }
 
-ProjectVertices::fn(vertices : *_vec, v_len : u32, axis:*_vec, _min : *f32, max : *f32)
-{
-	//__dbg_break
-	*cast(*s32)_min = FLOAT_MAX;
-	*cast(*s32)max = FLOAT_MIN;
-
-	for i in 0..v_len
-	{
-		v: _vec = ? ;
-        v = *ptr_offset(vertices, cast(u64)i, _vec);
-        proj:= dot_vec(axis, &v);
-
-		if proj < *_min
-        {
-			*_min = proj;
-		}
-		if proj > *max
-		{
-			*max = proj;
-		}
-	}
-}
-
-GetColNormalAxisAndDepth::fn(a_verts : *_vec, va_len : u32, b_verts : *_vec, vb_len : u32, col : *collision) !bool
-{
-	/*
-	aux_arA:dyn_array(_vec);
-	aux_arA.data = a_verts;
-	aux_arA.count = va_len;
-	aux_arB:dyn_array(_vec);
-	aux_arB.data = b_verts;
-	aux_arB.count = vb_len;
-
-	PrintV3(9000.0, 0.0, 0.0);
-	for v in aux_arA
-	{
-		PrintV3(v.x, v.y, v.z);
-	}
-	PrintV3(9000.0, 0.0, 0.0);
-	for v in aux_arB
-	{
-		PrintV3(v.x, v.y, v.z);
-	}
-	__dbg_break;
-	*/
-	for i in 0..va_len
-	{
-		va:_vec = *ptr_offset(a_verts, cast(u64)i, _vec);
-		vb:_vec = *ptr_offset(a_verts, cast(u64)(i + 1) % 4, _vec);
-
-
-		edge: = vb - va;
-
-		axis:_vec;
-		axis.x = -edge.y;
-		axis.y = edge.x;
-		//__dbg_break
-		axis = normalize_vec(&axis);
-
-		minA: f32;
-		maxA: f32;
-		minB: f32;
-		maxB:f32;
-
-		//__dbg_break
-		ProjectVertices(a_verts, va_len, &axis, &minA, &maxA);
-		ProjectVertices(b_verts, vb_len, &axis, &minB, &maxB);
-
-		if minA >= maxB || minB >= maxA
-		{
-			return false;
-		}
-
-		axis_depth:f32 = minf(maxB - minA, maxA - minB);
-
-
-		if axis_depth < col.depth
-		{
-			col.depth = axis_depth;
-			col.normal = axis;
-			a: = 0;
-		}
-	}
-	return true;
-}
 
 NearlyEqualV3::fn x64(a: *_vec, b : *_vec) !bool
 {
@@ -958,23 +875,6 @@ FindContactPoints::fn(vertsA : *_vec, vertsALen : u32, vertsB : *_vec, vertsBLen
 	GetContactPointToArr(vertsB, vertsBLen, vertsA, vertsALen, contacts.data, &contacts.count, &minDist);
 }
 
-AreTwoEntColliding::fn(ctx : *context, ent_a : *entity, ent_b : *entity, col : *collision, dt : f32)!bool
-{
-	//ASSERT(col.contacts.alloc.id == 0x1234);
-    cinfo: col_info;
-	cinfo.a_pos = ent_a.pos;
-	cinfo.a_size = ent_a.col_size;
-	cinfo.a_pivot = ent_a.pivot;
-	cinfo.a_ent = ent_a;
-
-	cinfo.b_pos = ent_b.pos;
-	cinfo.b_size = ent_b.col_size;
-	cinfo.b_pivot = ent_b.pivot;
-	cinfo.b_ent = ent_b;
-
-	collision_has_occurred: = AreTwoObjectsColliding(ctx, &cinfo, col);
-	return collision_has_occurred;
-}
 DrawCols::fn(ctx : *context)
 {
 	a_verts : [4]_vec;
@@ -1002,111 +902,6 @@ DrawCols::fn(ctx : *context)
 			Draw(ctx.window, &draw);
 		}
 	}
-}
-AreTwoObjectsColliding::fn(ctx : *context, cinfo : *col_info, col : *collision)! bool
-{
-	//ASSERT(col.contacts.alloc.id == 0x1234);
-	using cinfo;
-	/*
-	if ctx.col_it >= 253
-		__dbg_break;
-	mask: = 0xff800000;
-	x_p: = *cast(*s32)(&ctx.player.pos.x);
-	not_a_number: = (x_p & mask) == mask;
-	if not_a_number
-		__dbg_break;
-		*/
-
-	a_verts : [4]_vec;
-	b_verts : [4]_vec;
-
-	
-	up :_vec;
-	up.y = 1.0;
-	down :_vec;
-	down.y = -1.0;
-
-	left :_vec;
-	left.x = -1.0;
-
-	right :_vec;
-	right.x = 1.0;
-
-	ctx.col_it++;
-	col.col_it = ctx.col_it;
-
-	start_t := GetTime()
-	ApplyTranformationsToVerts(&a_pos, &a_vel, &a_pivot, &a_size, &a_rot, a_verts, a_ent);
-	ApplyTranformationsToVerts(&b_pos, &b_vel, &b_pivot, &b_size, &b_rot, b_verts, b_ent);
-	globals.timer += GetTime() - start_t
-
-	
-	/*
-	if ctx.draw_col
-	{
-		pos: = *a_verts[0];
-		size_x: = (*a_verts[3] - *a_verts[0]).x;
-		size_y: = (*a_verts[1] - *a_verts[0]).y;
-
-		draw: draw_info;
-		draw.pos = pos;
-		draw.cam_pos = ctx.cam_pos_global;
-		draw.cam_size = ctx.cam_size;
-		draw.ent_size.x = size_x;
-		draw.ent_size.y = size_y;
-		draw.flags = DRAW_INFO_LINE;
-		*draw.color[3] = 1.0;
-		Draw(ctx.window, &draw);
-
-	}
-	*/
-
-	*cast(*u32)(&col.depth) = FLOAT_MAX;
-	if !GetColNormalAxisAndDepth(a_verts[0], 4, b_verts[0], 4, col)
-		return false;
-	if !GetColNormalAxisAndDepth(b_verts[0], 4, a_verts[0], 4, col)
-		return false;
-	//__dbg_break
-
-	//if b_ent.is_trigger
-		//__dbg_break;
-
-
-	col.depth = col.depth / len_vec(&col.normal);
-	col.normal = normalize_vec(&col.normal);
-	col.ent = b_ent
-	
-
-	centerA: _vec;
-	centerB: _vec;
-
-	for v in a_verts
-	{
-		centerA = centerA + *v;
-	}
-	centerA = centerA / cast(f32)a_verts.len;
-	
-	for v in b_verts
-	{
-		centerB = centerB + *v;
-	}
-	centerB = centerB / cast(f32)b_verts.len;
-	//centerB.y = centerB.y / cast(f32)b_verts.len;
-	//centerB.z = centerB.z / cast(f32)b_verts.len;
-	
-	dir:= centerB - centerA;
-
-	dot:= dot_vec(&dir, &col.normal);
-	if dot < 0.0
-	{
-		col.normal = col.normal * -1.0;
-	}
-    
-	//if cinfo.b_ent.type == ent_type.SPEAR
-		//__dbg_break;
-    //FindContactPoints(a_verts, 4, b_verts, 4, &col.contacts);
-
-	return true;
 }
 
 add_body::fn(ctx : *context, ent : *entity)
@@ -1361,7 +1156,6 @@ get_close_chunk_cols::fn(ctx : *context, terrain_chunks_to_col : *dyn_array(*chu
 	vec_aux.y = max_x
 	vec_aux.z = min_y
 	vec_aux.w = max_y
-	//print_vec(&vec_aux)
 
 	imin_x := cast(u32)min_x
 	imax_x := cast(u32)max_x
@@ -1485,8 +1279,10 @@ StepCol::fn(ctx : *context, dt : f32)
 
 		c1 := cast(*collider)e.col
 		e.pos += e.vel * dt
+		c1.pos = e.pos
 		CopyVerts(c1)
 		col : collision=?
+		mtv :_vec=?
 
 		for e2 in ctx.bodies
 		{
@@ -1494,11 +1290,14 @@ StepCol::fn(ctx : *context, dt : f32)
 				continue;
 			
 			c2 := cast(*collider)e2.col
+			c2.pos = e2.pos
 
 
 			gjk.col1 = c1
 			gjk.col2 = c2
 			in_col :bool= false
+			player_mov_up_col :bool= false
+			player_mov_up_col_mtv :bool= false
 			tri_col := false
 			tri_normal :_vec= ?
 
@@ -1524,6 +1323,38 @@ StepCol::fn(ctx : *context, dt : f32)
 			else
 			{
 				CopyVerts(c2)
+				//__dbg_break
+				if is_flag_on(e.flags, LAYER_ENTITY_PLAYABLE)
+				{
+					ASSERT(e != nil)
+					ASSERT(e.mov_info != nil)
+
+					r :=c1.CAPSULE.radius
+					gjk.aux_col.type = col_type.SPHERE
+					gjk.aux_col.SPHERE.radius = r
+					gjk.aux_col.pos = e.pos
+					gjk.aux_col.pos += e.forward * r * 2.0 + -ctx.up * 0.5
+					gjk.aux_col.ent = *e
+					
+					if GJK(gjk, &gjk.aux_col, c2)
+					{
+						e.mov_info.down_col = true
+						e.mov_info.ent_col = *e2
+					}
+
+					gjk.aux_col.pos = e.pos
+					gjk.aux_col.pos += e.forward * r + ctx.up * 0.7
+					
+					if GJK(gjk, &gjk.aux_col, c2)
+					{
+						e.mov_info.up_col = true
+						mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], &gjk.aux_col, c2, &col)
+						
+						col.normal = col.normal * -1.0
+						e.mov_info.up_col_norm = col.normal
+					}
+				}
+
 				if GJK(gjk, c1, c2)
 				{
 					in_col = true
@@ -1531,7 +1362,6 @@ StepCol::fn(ctx : *context, dt : f32)
 			}
 			if in_col
 			{
-				mtv :_vec=?
 				if(false)
 				{
 					//__dbg_break
@@ -1540,16 +1370,26 @@ StepCol::fn(ctx : *context, dt : f32)
 					penetration_depth := dot_vec(&tri_normal, &other_min_point)
 					mtv = tri_normal * penetration_depth
 				}
-				else
+				else if(player_mov_up_col == false)
 				{
 					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
 				}
 				col.normal = col.normal * -1.0
-				if e.col_enter
+				if !EntIsInCollision(*e, *e2, &col)
 				{
-					e.col_enter(*e, *e2, &col)
+					if e.col_enter != nil
+					{
+						e.col_enter(*e, *e2, &col);
+					}
 				}
-				c1.ent.pos -= mtv
+				if e.col_stay != nil
+				{
+					e.col_stay(*e, *e2, &col);
+				}
+				if e.is_trigger == false
+				{
+					e.pos -= mtv
+				}
 
 			}
 		}
@@ -1569,69 +1409,10 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 
 NarrowPhase::fn(ctx : *context, ref : *entity, close : *dyn_array(*entity), out : *dyn_array(contact_col), dt : f32)
 {
-	if close.count == 0
-		return;
-	for e in *close
-	{
-		if ref == * e
-			continue;
-		regrow(out, out.count + 1);
-		last: = (*out)[out.count - 1];
-		if last.col.contacts.alloc == nil || last.col.contacts.alloc.id != 0x1234
-		{
-			last.col.contacts.alloc = ctx.alloc;
-			dyn_init(&last.col.contacts, 4);
-		}
-		dyn_clear(&last.col.contacts);
-		last.col.contacts.count = last.col.contacts.cap;
-		if AreTwoEntColliding(ctx, ref, *e, &last.col, dt)
-		{
-			last.col.ignore_trigger_do_collision = false;
-			last.col.ignore_collision = false;
-			last.ent_a = ref;
-			last.ent_b = *e;
-		}
-		else
-		{
-			out.count--;
-		}
-
-	}
 	
 }
 BroadPhase::fn(ctx : *context, ref_pos : *_vec, ref_size : *_vec, out : *dyn_array(*entity))
 {
-	for e in ctx.bodies
-	{
-		if !e.is_active
-			continue;
-		
-		dyn_add(out, e);
-		continue;
-		
-
-		dist: = len_vec(&(e.pos - *ref_pos));
-		col_a:ent_col;
-		col_b:ent_col=?;
-		col_a.pos = *ref_pos;
-		col_a.size = *ref_size;
-		
-		col_b.pos = e.pos;
-		col_b.size = e.col_size;
-		col_b.pivot = e.pivot;
-		
-		
-		
-
-		
-		max_side: = maxf(ref_size.x * 2.0, ref_size.y * 2.0) ;
-		max_side = maxf(max_side, e.size.x * 2.0);
-		max_side = maxf(max_side, e.size.y * 2.0);
-
-		max_side += 10.0;
-		res :_vec=?;
-		
-	}
 }
  CheckRayAgainstVertices::fn(vertices : *_vec, verts_len : u32, ray_start : *_vec, ray_end : *_vec, ent : *entity, info : *collision)!bool
 {

@@ -371,6 +371,8 @@ struct lang_state
 	bool track_alloc_regs;
 	own_std::vector<int> tracked_regs;
 
+	node *zero_float;
+
 	bool is_engine;
 	scope* root;
 
@@ -9776,6 +9778,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	lalloc.init(1024 * 32);
 	printf("ret %p, addr %p, last %p, \n", dbg->return_stack_bc2_func.ar.start, lalloc.data, lalloc.data + lalloc.max);
 
+
 	new(&dbg->return_stack_bc2_func)own_std::vector<call_stack_info>();
 	dbg->return_stack_bc2_func.reserve(16);
 	dbg->return_stack_bc2_func.clear();
@@ -9910,6 +9913,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		}
 		if (cur_bc->type == INT3)
 		{
+			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
 			dbg->frame_is_from_dbg = true;
 			if (!dbg->cur_func || dbg->cur_func != dbg->prev_func)
@@ -14615,6 +14619,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	int idx = 0;
 	stmnt_dbg* cur_st = gen_state->cur_func->wasm_stmnts.begin();
 	int start_bc = ret.size();
+	bool break_here = false;
 	FOR_VEC(ir, irs)
 	{
 		int start_size = ret.size();
@@ -14632,6 +14637,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		ir_val_aux lhs = {};
 		ir_val_aux rhs = {};
 		ir_val_aux dst = {};
+		if(break_here)
+		{
+			HERE()
+		}
 		switch (ir->type)
 		{
 		case IR_STACK_END:
@@ -14941,7 +14950,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				GenX64MemToReg(ret, lhs.reg, lhs.reg_sz, rhs.voffset, rhs.reg, CMP_SSE_2_SSE);
 			}
 			// CMP R D
-			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
+			else if ((ir->bin.lhs.type == IR_TYPE_REG || ir->bin.lhs.type == IR_TYPE_RET_REG)&& ir->bin.rhs.type == IR_TYPE_DECL)
 			{
 				
 				GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->bin.lhs, false, false);
@@ -14961,9 +14970,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				}
 				else
 				{
+					inst = CMP_R_2_R;
 					if (lhs.is_float)
 						inst = CMP_SSE_2_SSE;
-					GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, CMP_R_2_R);
+					GenX64RegToReg(lang_stat, ret, lhs.reg, lhs.reg_sz, rhs.reg, inst);
 				}
 
 				FreeSpecificReg(lang_stat, lhs.reg);
@@ -15113,7 +15123,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				raise(SIGTRAP);
 			}
 			*/
-			//BREAK(cur_line == 2814)
 			GenX64BytecodeFromAssignIR(lang_stat,
 				ret,
 				irs,
@@ -15126,7 +15135,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_CAST_INT_TO_F32:
 		{
 			int a = 0;
-			//BREAK(cur_line == 1425)
 			switch (ir->bin.rhs.type)
 			{
 			case IR_TYPE_INT:
@@ -15353,6 +15361,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			bc.type = byte_code_enum::INT3;
 			bc.line = cur_line;
 			ret.emplace_back(bc);
+			if(cur_line == 2289)
+			{
+				//break_here = true;
+			}
 		}break;
 		case IR_END_SUB_IF_BLOCK:
 		{
@@ -17979,6 +17991,11 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 
 	//own_std::string file_name = file_name_dir.substr(last_bar_main+1);
 
+	auto t = (token2 *)AllocMiscData(lang_stat, sizeof(token2));
+	lang_stat->zero_float = new_node(lang_stat, t);
+	lang_stat->zero_float->type = N_FLOAT;
+	lang_stat->zero_float->t = t;
+	lang_stat->zero_float->t->f = 0.0;
     return 0;
 }
 

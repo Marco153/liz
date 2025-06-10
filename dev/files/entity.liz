@@ -90,7 +90,7 @@ NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
 	add_body(ctx, trigger);
 	*/
 	add_body(ctx, *out_ent);
-	dyn_add(&ctx.playable_ents, out_ent);
+	//dyn_add(&ctx.playable_ents, out_ent);
 }
 draw_terrain::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec, e : *entity)
 {
@@ -122,6 +122,9 @@ DrawEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 		return;
 	for e in ctx.drawable_ents
 	{
+		if e.is_active == false
+			continue
+
 		if(e.type == ent_type.TERRAIN)
 		{
 			draw_terrain(ctx, cam_pos, cam_rot, *e)
@@ -153,6 +156,11 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 		if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))
 		{
 			draw.flags = DRAW_INFO_TRANSPARENT;
+		}
+		if(is_flag_on(ent.flags, ENTITY_HAS_TEXTURE))
+		{
+			draw.flags = DRAW_INFO_HAS_TEXTURE;
+			draw.texture_id = ent.tex_id
 		}
 		Draw3D(ctx.window, &draw);
 	}

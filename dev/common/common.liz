@@ -1377,8 +1377,11 @@ ImGuiInputText::fn outsider(label : str_lit, buf : str_lit, buf_sz : u32);
 ImGuiInputInt::fn outsider(label : str_lit, int : *s32);
 ImGuiCheckbox::fn outsider(label : str_lit, b : *bool);
 
+HideCursor::fn outsider(bool);
 IsMouseOnGameWindow::fn outsider()!bool;
 
+GetMouseVelX::fn outsider() ! f32;
+GetMouseVelY::fn outsider() ! f32;
 GetMouseScreenPosX::fn outsider() ! f32;
 GetMouseScreenPosY::fn outsider() ! f32;
 GetMouseNormalizedPosX::fn outsider() ! f32;

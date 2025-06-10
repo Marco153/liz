@@ -597,6 +597,7 @@ struct open_gl_state
 	int vao;
 	int line_vao;
 	int line_vbo;
+	int shader_program3d_tex;
 	int shader_program3d;
 	int terrain_shader_program3d;
 	int shader_program3d_line;
@@ -610,6 +611,10 @@ struct open_gl_state
 	int tex_offset;
 	int pos_u;
 
+	float mouse_last_x;
+	float mouse_last_y;
+	float mouse_vel_x;
+	float mouse_vel_y;
 	int generated_meshes;
 
 	int buttons[TOTAL_KEYS];
@@ -1321,10 +1326,28 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 		cam_rot_y = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 4];
 		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
 	}
+	int shaderProgram = gl_state->shader_program3d;
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
+	{
+		//HERE()
+		shaderProgram = gl_state->shader_program3d_tex;
+		glUseProgram(shaderProgram);
+		gl_state->tex_size = glGetUniformLocation(shaderProgram, "tex_size");
+		if (draw->tex_size_x == 0)
+			draw->tex_size_x = 1.0;
+		if (draw->tex_size_y == 0)
+			draw->tex_size_y = 1.0;
+		glUniform2f(gl_state->tex_size, draw->tex_size_x, draw->tex_size_y);
+		//gl_state->tex_offset = glGetUniformLocation(prog, "tex_offset");
+		ASSERT(draw->texture_id < TOTAL_TEXTURES);
+		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
+		texture_info* t = &gl_state->textures[draw->texture_id];
+
+		glBindTexture(GL_TEXTURE_2D, t->id);
+	}
 	//ASSERT(draw->perspective_mat != 0)
 	//float * perspective_mat= (float *)dbg->mem_buffer[draw->perspective_mat];
 
-	int shaderProgram = gl_state->shader_program3d;
 	int indicies_to_draw = 36;
 	if(IS_FLAG_OFF(draw->flags, DRAW_INFO_TRANSPARENT2))
 	{
@@ -3531,7 +3554,7 @@ void EndFrame(dbg_state* dbg)
 
 	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
-	//gl_state->last_time = glfwGetTime();
+	gl_state->last_time = glfwGetTime();
 	ImGui::Render();
 	//int display_w, display_h;
 	//glfwGetFramebufferSize(window, &display_w, &display_h);
@@ -3582,6 +3605,8 @@ void ShouldClose(dbg_state* dbg)
 	ClearKeys(gl_state);
 
 	dbg->frame_is_from_dbg = false;
+	gl_state->mouse_vel_x = 0.0;
+	gl_state->mouse_vel_y = 0.0;
 
 	glfwPollEvents();
 
@@ -3739,7 +3764,7 @@ void UpdateTexture(dbg_state* dbg)
 	texture_info* t = &gl_state->textures[tex_id];
 
 	glBindTexture(GL_TEXTURE_2D, t->id);
-	//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
 	GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, x_offset, y_offset, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data_ptr));
 	stbi_write_png("dbg_img.png", width, height, 4, data_ptr, width * 4);
 
@@ -3857,7 +3882,7 @@ int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* sr
 	}
 	if (sp_data)
 	{
-		//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
 		//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
 
 		//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
@@ -3998,7 +4023,7 @@ void LoadSheetFromLayer(dbg_state* dbg)
 		int y_offset = cur_cell->src_tex_offset_y / px_width;
 		auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
 		CopyFromSrcImgToBuffer((char*)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
-		//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
 		GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0,
 			cur_cell->grid_x * px_width,
 			cur_cell->grid_y * px_width,
@@ -4035,7 +4060,7 @@ int CreateSpriteFromLayer(lang_state *lang_stat, open_gl_state *gl_state, aux_la
 		int y_offset = cur_cell->src_tex_offset_y / px_width;
 		auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
 		CopyFromSrcImgToBuffer((char*)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
-		//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
 		GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0,
 			cur_cell->grid_x * px_width,
 			cur_cell->grid_y * px_width,
@@ -4447,7 +4472,6 @@ void LoadModel(dbg_state* dbg)
 	own_std::string full_path = dbg->cur_func->from_file->path + model_path;
 
 	int free_idx = -1;
-	//HERE()
 	int idx = HasModel(dbg, full_path, &free_idx);
 	if(idx != -1)
 	{
@@ -5095,8 +5119,10 @@ void Init3D(dbg_state* dbg)
 	char* vertexShaderSrc = "\n\
 	#version 330 core\n\
 	layout (location = 0) in vec3 aPos;\n\
+	layout(location = 1) in vec2 aTexCoord;\n\
 	out vec4 vColor;\n\
 	out vec3 fragPos;\n\
+	out vec2 TexCoord;\n\
 	uniform mat4 model;\n\
 	uniform vec4 rot;\n\
 	uniform mat4 view;\n\
@@ -5115,6 +5141,7 @@ void Init3D(dbg_state* dbg)
 		fragPos = aux.xyz;\n\
 		gl_Position = projection * view * aux;\n\
 		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
+		TexCoord = aTexCoord;\n\
 	}\
 	";
 
@@ -5146,6 +5173,27 @@ void Init3D(dbg_state* dbg)
 	";
 
 	// Fragment Shader
+	char* fragmentShaderSrcTex = "\n\
+	#version 330 core\n\
+	out vec4 FragColor;\n\
+	in vec2 TexCoord;\n\
+	in vec4 vColor;\n\
+	in vec3 fragPos;\n\
+	uniform vec4 col;\n\
+	uniform vec2 tex_size;\n\
+	uniform vec2 tex_offset;\n\
+	uniform sampler2D tex;\n\
+	void main() {\n\
+		vec3 dx = dFdx(fragPos);\n\
+		vec3 dy = dFdy(fragPos);\n\
+		vec3 norm = normalize(cross(dx, dy));\n\
+		vec3 lightDir = normalize(vec3(-1.0, 0.5, 0.0));\n\
+		float d = max(dot(lightDir, norm), 0.2);\n\
+		vec4 tex_col =  texture(tex, TexCoord);\n\
+		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
+		FragColor *= col * vColor * tex_col;\n\
+	}\
+	";
 	char* fragmentShaderSrc = "\n\
 	#version 330 core\n\
 	out vec4 FragColor;\n\
@@ -5163,39 +5211,60 @@ void Init3D(dbg_state* dbg)
 	}\
 	";
 	
+	// Cube vertices with UVs (each face gets its own 4 vertices)
+	GLfloat cubeVerts[] = {
+		// Front face
+		-0.5f, -0.5f,  0.5f,   0.0f, 0.0f,
+		0.5f, -0.5f,  0.5f,   1.0f, 0.0f,
+		0.5f,  0.5f,  0.5f,   1.0f, 1.0f,
+		-0.5f,  0.5f,  0.5f,   0.0f, 1.0f,
 
-	// Cube vertices
-	GLfloat vertices[] = {
-		-0.5f, -0.5f, -0.5f,
-		0.5f, -0.5f, -0.5f,
-		0.5f,  0.5f, -0.5f,
-		-0.5f,  0.5f, -0.5f,
-		-0.5f, -0.5f,  0.5f,
-		0.5f, -0.5f,  0.5f,
-		0.5f,  0.5f,  0.5f,
-		-0.5f,  0.5f,  0.5f
+		// Back face
+		-0.5f, -0.5f, -0.5f,   1.0f, 0.0f,
+		0.5f, -0.5f, -0.5f,   0.0f, 0.0f,
+		0.5f,  0.5f, -0.5f,   0.0f, 1.0f,
+		-0.5f,  0.5f, -0.5f,   1.0f, 1.0f,
+
+		// Left face
+		-0.5f, -0.5f, -0.5f,   0.0f, 0.0f,
+		-0.5f, -0.5f,  0.5f,   1.0f, 0.0f,
+		-0.5f,  0.5f,  0.5f,   1.0f, 1.0f,
+		-0.5f,  0.5f, -0.5f,   0.0f, 1.0f,
+
+		// Right face
+		0.5f, -0.5f, -0.5f,   1.0f, 0.0f,
+		0.5f, -0.5f,  0.5f,   0.0f, 0.0f,
+		0.5f,  0.5f,  0.5f,   0.0f, 1.0f,
+		0.5f,  0.5f, -0.5f,   1.0f, 1.0f,
+
+		// Top face
+		-0.5f,  0.5f, -0.5f,   0.0f, 1.0f,
+		0.5f,  0.5f, -0.5f,   1.0f, 1.0f,
+		0.5f,  0.5f,  0.5f,   1.0f, 0.0f,
+		-0.5f,  0.5f,  0.5f,   0.0f, 0.0f,
+
+		// Bottom face
+		-0.5f, -0.5f, -0.5f,   0.0f, 0.0f,
+		0.5f, -0.5f, -0.5f,   1.0f, 0.0f,
+		0.5f, -0.5f,  0.5f,   1.0f, 1.0f,
+		-0.5f, -0.5f,  0.5f,   0.0f, 1.0f
 	};
 
-	// Index array for drawing cube with triangles
+
 	GLuint indices[] = {
-		// Back face
-		0, 1, 2, 2, 3, 0,
-		// Front face
-		4, 6, 5, 4, 7, 6,
-		// Left face
-		4, 0, 3, 3, 7, 4,
-		// Right face
-		1, 5, 6, 6, 2, 1,
-		// Bottom face
-		4, 5, 1, 1, 0, 4,
-		// Top face
-		3, 2, 6, 6, 7, 3
+		0, 2, 1,   2, 0, 3,       // Front face
+		4, 5, 6,   6, 7, 4,       // Back face
+		8, 9,10,  10,11, 8,       // Left face
+		12,13,14,  14,15,12,       // Right face
+		16,17,18,  18,19,16,       // Top face
+		20,21,22,  22,23,20        // Bottom face
 	};
 
 	// Compile shaders
     GLuint terrain_vs = compileShader(GL_VERTEX_SHADER, terrainVertexShaderSrc);
     GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
     GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
+    GLuint fs_tex = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTex);
     GLuint shaderProgram = glCreateProgram();
 
 
@@ -5203,6 +5272,12 @@ void Init3D(dbg_state* dbg)
     glAttachShader(shaderProgram, fs);
     glLinkProgram(shaderProgram);
 	gl_state->shader_program3d = shaderProgram;
+
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs_tex);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_tex = shaderProgram;
 
     shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, terrain_vs);
@@ -5292,13 +5367,19 @@ void Init3D(dbg_state* dbg)
     glBindVertexArray(VAO);
     
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVerts), cubeVerts, GL_STATIC_DRAW);
     
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
     
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+
+	// Position attribute (location = 0)
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	// UV attribute (location = 1)
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
 
 	gl_state->vao3d = VAO;
 	model_info *cube_m = &gl_state->models[0];
@@ -5315,7 +5396,7 @@ void Init3D(dbg_state* dbg)
 	
 	glBindVertexArray(VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(float) *6, vertices, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) *6, cubeVerts, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 	glBindVertexArray(0);
@@ -5328,7 +5409,7 @@ void Init3D(dbg_state* dbg)
 	
 	glBindVertexArray(VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, 18 * sizeof(float), vertices, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
+	glBufferData(GL_ARRAY_BUFFER, 18 * sizeof(float), cubeVerts, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
 	//normal
 	glEnableVertexAttribArray(0);
@@ -5344,7 +5425,7 @@ void Init3D(dbg_state* dbg)
     loadIdentity(gl_state->view);
     loadIdentity(gl_state->projection);
 
-    perspective(gl_state->projection, 45.0f * (3.14159f / 180.0f), (float)gl_state->width / (float)gl_state->height, 0.1f, 500.0f);
+    perspective(gl_state->projection, 70.0f * (3.14159f / 180.0f), (float)gl_state->width / (float)gl_state->height, 0.1f, 500.0f);
     gl_state->view[14] = -5.0f;  // translate view back
     gl_state->view[13] = -1.0f;  // translate view back
     //gl_state->model[13] = -1.0f;  // translate view back
@@ -5363,6 +5444,36 @@ void Init3D(dbg_state* dbg)
 
 
 }
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
+{
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+    double currentTime = glfwGetTime();
+
+    double deltaTime = currentTime - gl_state->last_time;
+    
+    if (deltaTime > 0.0 && gl_state->mouse_last_x != 0.0) {
+        gl_state->mouse_vel_x = (xpos - gl_state->mouse_last_x);
+        gl_state->mouse_vel_y = (ypos - gl_state->mouse_last_y);
+    }
+    
+    gl_state->mouse_last_x = xpos;
+    gl_state->mouse_last_y = ypos;
+}
+void HideCursor(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	bool val = *(bool *)&dbg->mem_buffer[base_ptr + 8];
+
+	if(val)
+	{
+		glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+	}
+	else
+	{
+		glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+	}
+}
 void OpenWindow(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -5372,6 +5483,8 @@ void OpenWindow(dbg_state* dbg)
 
 
 	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->mouse_vel_x = 0.0;
+	gl_state->mouse_vel_y = 0.0;
 	if (!gl_state->is_engine)
 	{
 		gl_state->scene_srceen_width = wnd_width;
@@ -5437,6 +5550,7 @@ void OpenWindow(dbg_state* dbg)
 	glfwSetScrollCallback(window, scroll_callback);
 	glfwSetWindowCloseCallback(window, window_close_callback);
 	glfwSetMouseButtonCallback(window, MouseCallback);
+	glfwSetCursorPosCallback(window, cursor_position_callback);
 
 	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)window;
 
@@ -6035,6 +6149,16 @@ void GetMouseNormalizedPosX(dbg_state *dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
 
 }
+void GetMouseVelY(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->mouse_vel_y;
+}
+void GetMouseVelX(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->mouse_vel_x;
+}
 void GetMouseScreenPosY(dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -6337,6 +6461,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosY", (OutsiderFuncType)GetMouseNormalizedPosY);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX", (OutsiderFuncType)GetMouseScreenPosX);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
+	AssignOutsiderFunc(&lang_stat, "GetMouseVelX", (OutsiderFuncType)GetMouseVelX);
+	AssignOutsiderFunc(&lang_stat, "GetMouseVelY", (OutsiderFuncType)GetMouseVelY);
 
 
 	AssignOutsiderFunc(&lang_stat, "FreeTexture", (OutsiderFuncType)FreeTexture);
@@ -6411,6 +6537,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow", (OutsiderFuncType)IsMouseOnGameWindow);
 	AssignOutsiderFunc(&lang_stat, "GetTopStackPtr", (OutsiderFuncType)GetTopStackPtr);
 	AssignOutsiderFunc(&lang_stat, "GetInstRealAddr", (OutsiderFuncType)GetInstRealAddr);
+	AssignOutsiderFunc(&lang_stat, "HideCursor", (OutsiderFuncType)HideCursor);
 	lang_stat.cur_decl = 0;
 
 	opts.wasm_dir = wasm_dir;

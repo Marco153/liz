@@ -611,6 +611,17 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 
 		type_struct2* strct =  ret->strct_constr.strct;
 		int i = 0;
+		if (dummy_type.type == TYPE_VECTOR_TYPE)
+		{
+			ASSERT(n->exprs->size() <= 4)
+			while(n->exprs->size() < 4)
+			{
+				comma_ret f;
+				f.n = lang_stat->zero_float;
+				n->exprs->emplace_back(f);
+			}
+		}
+		
 		FOR_VEC(c, *n->exprs)
 		{
 			ast_struct_construct_info info;
@@ -4594,6 +4605,8 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 
         if(ast->cond.scope)
         {
+			auto prev = lang_stat->no_stmnt_of_conds;
+			lang_stat->no_stmnt_of_conds = false;
             GetIRFromAst(lang_stat, ast->cond.scope, out);
 			if (is_stmnt_without_semicolon)
 				GenIfExpr(lang_stat, ast->cond.scope->stats.back(), out, top);
@@ -4602,6 +4615,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
                 ir.type = IR_BREAK_OUT_IF_BLOCK;
                 out->emplace_back(ir);
             }
+			lang_stat->no_stmnt_of_conds = prev;
 
         }
 

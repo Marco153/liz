@@ -38,6 +38,7 @@ context: struct
 	cam_aux_forward_global : *_vec,
 	window:*u8,
 	can_move :bool,
+	/*
 	cur_clip : *clip,
 	alphabet : clip,
 	character_texs : clip,
@@ -48,48 +49,6 @@ context: struct
 	water_texs : clip,
 	axe_throw_texs : u32,
 	spear_throw_texs : u32,
-
-	gjk : *gjk_state
-	
-	up : _vec
-	character_start_obj_idx : u32,
-	
-	mesh_idx :u32
-
-	cam_col_left : bool,
-	cam_col_right : bool,
-	cam_col_top : bool,
-	cam_col_bottom : bool,
-
-	editor_cam : bool,
-
-	perspective_mat : [4 * 4]f32
-	
-	already_allocated_ents_count : u32,
-	already_allocated_str_count : u32,
-	already_allocated_mem_count : u32,
-	
-
-	waypoints:dyn_array(waypoint)
-
-	cutscene_idx : u32,
-	cam_size :f32,
-
-	axe_tex : u64,
-	col_mask_tex : u64,
-
-	col_it : u64,
-	
-	frames_total : u64,
-	coroutines: coroutine_ctx,
-	
-	time_since_start : f32,
-
-	layers_ptr : *dyn_array(*layer_sprites),
-	masking_objs: dyn_array(*_vec),
-	
-	player_start_level_pos : _vec,
-	
 	character_idle : *clip2,
 	character_walk : *clip2,
 	character_kick : *clip2,
@@ -117,6 +76,51 @@ context: struct
 	
 	spear_clip : *clip2,
 
+	*/
+
+	gjk : *gjk_state
+	aux_col1 : collider
+	aux_col2 : collider
+	
+	up : _vec
+	character_start_obj_idx : u32,
+	
+	mesh_idx :u32
+
+	cam_col_left : bool,
+	cam_col_right : bool,
+	cam_col_top : bool,
+	cam_col_bottom : bool,
+
+	editor_cam : bool,
+
+	perspective_mat : [4 * 4]f32
+	
+	already_allocated_ents_count : u32,
+	already_allocated_str_count : u32,
+	already_allocated_mem_count : u32,
+	
+	grass_tex : u32
+	waypoints:dyn_array(waypoint)
+
+	cutscene_idx : u32,
+	cam_size :f32,
+
+	axe_tex : u64,
+	col_mask_tex : u64,
+
+	col_it : u64,
+	
+	frames_total : u64,
+	coroutines: coroutine_ctx,
+	
+	time_since_start : f32,
+
+	layers_ptr : *dyn_array(*layer_sprites),
+	masking_objs: dyn_array(*_vec),
+	
+	player_start_level_pos : _vec,
+	
 	timers : timer_context,
 	prntr : printer,
 
@@ -627,7 +631,7 @@ CreateAnim::fn(ctx : *context, start_idx : u32, end_idx : u32, texs_idxs : *u32,
 	tm.type = timeline_type.TEXTURE;
 
 
-	tex_ptr: = ctx.character_texs.tex_idxs;
+	//tex_ptr: = ctx.character_texs.tex_idxs;
 	
 	for i in start_idx..end_idx
 	{
@@ -735,7 +739,6 @@ NewAxeEnt::fn(ctx : *context) ! *entity
 	axe_ent := NewEnt(ctx.alloc, "axe");
 	axe_ent.is_trigger = true;
 	axe_ent.type = ent_type.AXE;
-	axe_ent.col_enter = axe_trig_collision_enter;
 	add_body(ctx, axe_ent);
 	axe_ent.flags = ENTITY_HAS_TEXTURE | ENTITY_DONT_FREE;
 	axe_ent.layer = LAYER_TRIGGER
@@ -787,7 +790,7 @@ NewPlayerEnt::fn(ctx : *context, name : str_lit) ! *entity
 	player_ent_trigger: = player_ent.mov_info.trigger;
 	pinfo: = player_ent.mov_info;
 	pinfo.{
-		speed = 5.0;
+		speed = 0.01;
 	};
 	
 	mov_info := player_ent.mov_info;
@@ -816,6 +819,7 @@ DrawUpperInv::fn(ctx : *context, islot : *inv_slot)
 	
 	draw.flags = DRAW_INFO_HAS_TEXTURE;
 	item := islot.item;
+	/*
 	if item == inv_item.AXE
 	{
 		draw.texture_id = *ctx.inv_texs.tex_idxs;
@@ -832,6 +836,7 @@ DrawUpperInv::fn(ctx : *context, islot : *inv_slot)
 	{
 		__dbg_break;
 	}
+	*/
 	draw.pos.z = 0.5;
 	draw.color = []f32{1.0, 1.0, 1.0, 1.0};
 	Draw(ctx.window, &draw);
@@ -1404,27 +1409,6 @@ new_thinking::fn(ctx : *context, e : *entity)
 
 }
 
-test_ang ::fn(a : s32)
-{
-	axis : _vec
-	axis.z = 0.0
-	axis.x = 0.0
-	axis.y = 1.0
-	forward : _vec
-	forward.z = 1.0
-	
-	rot :_vec
-	ang := 3.1415 / 4.0
-	s := sin(ang)
-	rot.x = axis.x * s
-	rot.y = axis.y * s
-	rot.z = axis.z * s
-	rot.w = cos(ang)
-
-	rotate_vector(&forward, &forward, &rot)
-
-	
-}
 draw_vertex ::fn(ctx : *context, pos : *_vec, sz : *_vec, cam_pos : *_vec, cam_rot : *_vec)
 {
 	draw : draw_info3d
@@ -1554,7 +1538,6 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 		*cam_pos -= actual_forward * dt * speed
 	}
 	
-	//print_vec(&actual_forward)
 
 
 	if IsMouseHeld(mouse_enum.LEFT)
@@ -2138,7 +2121,6 @@ view_collision ::fn(ccc : u32)
 			{
 				info.t = t
 				get_verts_pos_from_tris(&info, tris.data, mesh.verts.data)
-				//print_vec(&info.v1_out)
 				info.v1_out += tpos + mesh.pos
 				info.v2_out += tpos + mesh.pos
 				info.v3_out += tpos + mesh.pos
@@ -2164,7 +2146,6 @@ view_collision ::fn(ccc : u32)
 				{
 					info.t = t
 					get_verts_pos_from_tris(&info, tris.data, mesh.verts.data)
-					//print_vec(&info.v1_out)
 					info.v1_out += tpos + mesh.pos
 					info.v2_out += tpos + mesh.pos
 					info.v3_out += tpos + mesh.pos
@@ -2209,11 +2190,17 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	mov := player_ent.mov_info
 	on_ground := player_ent.on_ground
 	grav := &mov.gravity_vel
+	//printf("down col {cast(u32)mov.down_col}, up col {cast(u32)mov.up_col}\n")
+	if mov.up_col == false && mov.down_col
+	{
+	}
 
 	if on_ground
 	{
 		grav.y = -0.05
+		mov.jmp.vel.x = 0.0
 		mov.jmp.vel.y = 0.0
+		mov.jmp.vel.z = 0.0
 		mov.jmp.time_off_ground = 0.0
 		mov.jmp.jmpd = false
 	}
@@ -2224,7 +2211,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		{
 			mov.jmp.vel.y = 0.0
 		}
-		grav.y += -25.0 * *dt
+		grav.y += -15.0 * *dt
 		//grav.y = -1.0
 	}
 	if IsKeyDown(key_enum.KEY_JMP) && (on_ground && mov.jmp.time_off_ground == 0.0 || mov.jmp.time_off_ground <= 0.5)
@@ -2242,43 +2229,35 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	if IsKeyHeld(key_enum.KEY_W)
 	{
-		mov.v += *dt * mov.speed
+		mov.v += *dt *10.0
 		mov_pressed = true
 	}
 	else if IsKeyHeld(key_enum.KEY_S)
 	{
-		mov.v -= *dt * mov.speed
+		mov.v -= *dt * 10.0
 		mov_pressed = true
 	}
 	else
 	{
-		mov.v += -mov.v * *dt * mov.speed
+		mov.v += -mov.v * *dt * 10.0
 	}
 
 
 	if IsKeyHeld(key_enum.KEY_A)
 	{
-		mov.h += *dt * mov.speed
+		mov.h += *dt * 10.0
 		mov_pressed = true
 	}
 	else if IsKeyHeld(key_enum.KEY_D)
 	{
-		mov.h -= *dt * mov.speed
+		mov.h -= *dt * 10.0
 		mov_pressed = true
 	}
 	else
 	{
-		mov.h += -mov.h * *dt * mov.speed
+		mov.h += -mov.h * *dt * 10.0
 	}
 
-
-	if on_ground
-	{
-
-		//mov.platform_vel += steep_dir
-
-
-	}
 	mov.v = clamp(mov.v, -1.0, 1.0)
 	mov.h = clamp(mov.h, -1.0, 1.0)
 
@@ -2295,15 +2274,57 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	on player_ent.state
 	{
+	entity_state.ON_WALL
+	{
+		cross = cross_vec(&ctx.up, &player_ent.normal_col)
+		d := dot_vec(&cross, &player_ent.vel)
+
+		player_ent.vel.x = 0.0
+		player_ent.vel.z = 0.0
+		player_ent.vel.y = -0.5
+		if IsKeyDown(key_enum.KEY_JMP)
+		{
+			mov.jmp.vel = *ctx.cam_forward_global * 5.0 + ctx.up * 15.0
+			player_ent.state = entity_state.IDLE
+		}
+		if on_ground
+		{
+			player_ent.state = entity_state.IDLE
+		}
+	}
+	entity_state.SLERP
+	{
+		player_ent.is_trigger = true
+		mov.slerp_timer += *dt
+		maxt := 0.2
+		if mov.slerp_timer > maxt
+		{
+			player_ent.pos = mov.slerp_end
+			player_ent.state = entity_state.IDLE
+			player_ent.is_trigger = false
+		}
+		dir := mov.slerp_end - mov.slerp_start
+
+		p := mov.slerp_timer / maxt
+		player_ent.pos = mov.slerp_start + (dir * p)
+
+	}
 	entity_state.IDLE
 	{
 		mov.platform_vel += -mov.platform_vel * *dt * 2.0
 		player_ent.color.x = 1.0
 		player_ent.color.y = 0.0
 		player_ent.color.z = 0.0
+		speed := mov.speed
 
-		player_ent.vel = actual_forward * mov.speed + *grav
-		player_ent.vel += mov.jmp.vel + mov.platform_vel
+		if IsKeyHeld(key_enum.KEY_SHIFT)
+		{
+			speed = speed * 1.8
+		}
+
+
+		player_ent.vel = actual_forward * speed + *grav
+		player_ent.vel += mov.jmp.vel; // + mov.platform_vel
 		if dot_vec(&actual_forward, &actual_forward) > 0.01 && !mov.on_rotating_cam
 		{
 			*forward = normalize_vec(&actual_forward)
@@ -2314,6 +2335,49 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		if IsKeyDown(key_enum.KEY_ACT1) && !on_ground
 		{
 			player_ent.state = entity_state.SURF
+		}
+		d_up := dot_vec(&player_ent.normal_col, &ctx.up)
+		if IsMouseDown(mouse_enum.RIGHT) && mov.col_in_stay && absf(d_up) < 0.1 && !on_ground
+		{
+			player_ent.state = entity_state.ON_WALL
+		}
+		if IsKeyDown(key_enum.KEY_JMP) && mov.down_col && mov.up_col==false
+		{
+			//__dbg_break
+			ASSERT(mov.ent_col)
+			c1 := cast(*collider)player_ent.col
+			ASSERT(c1.type == col_type.CAPSULE)
+			r := c1.CAPSULE.radius
+			c1.pos = player_ent.pos
+			c1.pos += player_ent.forward *r * 2.0 + ctx.up * 1.4
+			c2 := cast(*collider)mov.ent_col.col
+			c2.type = col_type.CUBE
+			c2.pos = mov.ent_col.pos
+			c2.ent = mov.ent_col
+			CopyVerts(c2)
+			gjk := ctx.gjk
+
+			if GJK(gjk, c1, c2)
+			{
+				//__dbg_break
+				col : collision
+				
+				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
+				
+				col.normal = col.normal * -1.0
+				mov.slerp_end = c1.pos
+			}
+			else
+			{
+				mov.slerp_end = c1.pos
+			}
+
+			mov.slerp_timer = 0.0
+			mov.slerp_start = player_ent.pos
+			player_ent.state = entity_state.SLERP
+			player_ent.vel.x = 0.0
+			player_ent.vel.y = 0.0
+			player_ent.vel.z = 0.0
 		}
 	}
 	entity_state.SURF
@@ -2408,7 +2472,6 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	player_ent.vel.z = clamp(player_ent.vel.z, -20.0, 20.0)
 
 
-	//print_vec(&actual_forward)
 
 
 	ang := angle_on_axis(aux_forward, forward, &ctx.up)
@@ -2425,6 +2488,9 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		mov.max_y_cam_pos = player_ent.pos.y
 		mov.min_y_cam_pos = mov.max_y_cam_pos - width
 	}	
+	mov.down_col = false
+	mov.col_in_stay = false
+	mov.up_col = false
 }
 
 MESH_WIDTH :const s32= 33
@@ -2688,6 +2754,23 @@ generate_terrain::fn(ctx : *context, e : *entity)
 
 }
 
+print_mov :: fn(mov : *entity)
+{
+	//OpenLocalsWindow(__LINE__)
+}
+new_cube::fn(ctx : *context, pos : *_vec, size : *_vec) ! *entity
+{
+	other := NewEnt(ctx.alloc, "block 1")
+	other.pos = *pos
+	other.size = *size
+	other.flags = other.flags | ENTITY_3D | ENTITY_HAS_TEXTURE
+	add_body(ctx, other)
+	dyn_add(&ctx.drawable_ents, other)
+	other.is_active = true
+	other.is_static = true
+
+	return other
+}
 main_loop::fn(ctx : *context)
 {
 	//perspective(ctx.perspective_mat[0], fov : f32, aspect : f32, near : f32, far : f32)
@@ -2734,12 +2817,13 @@ main_loop::fn(ctx : *context)
 	player_ent:*entity=NewPlayerEnt(ctx, "player");
 	{
 		c1 := cast(*collider)player_ent.col
-		c1.type = col_type.SPHERE
-		c1.SPHERE.radius = 0.5
+		c1.type = col_type.CAPSULE
+		c1.CAPSULE.radius = 0.2
+		c1.CAPSULE.height = 1.7
 	}
 
-	player_ent.mov_info.speed = 10.0
-	player_ent.mov_info.jmp.speed = 4.0
+	player_ent.mov_info.speed = 2.0
+	player_ent.mov_info.jmp.speed = 2.1
 	//player_ent.model = test_model
 
 	ctx.player = player_ent;
@@ -2782,22 +2866,21 @@ main_loop::fn(ctx : *context)
 	info_3d : draw_info3d
 	globals.after_init = true
 
-	dyn_add(&ctx.drawable_ents, &player_ent);
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = 00.0
-	player_ent.pos.y = 80.0
-	player_ent.pos.z = 0.0
+	player_ent.pos.x = 8.0
+	player_ent.pos.y = 76.0
+	player_ent.pos.z = 9.0
 
 
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
 	other := NewEnt(ctx.alloc, "block 1")
 	other.flags = other.flags | ENTITY_3D
-	add_body(ctx, other)
+	//add_body(ctx, other)
 	dyn_add(&ctx.drawable_ents, other)
-	other.is_active = true
+	//other.is_active = true
 	other.type= ent_type.TERRAIN
 	other.terrain = terrain
-	other.is_static = true
+	//other.is_static = true
 	other.pos.x = 0.0
 	other.pos.y = -2.0
 	other.pos.z = 0.0
@@ -2807,11 +2890,12 @@ main_loop::fn(ctx : *context)
 	terrain.height = MESH_WIDTH - 1
 	trn_ent := other
 
+
 	generate_terrain(ctx, other)
 
 
-	mx := GetMouseScreenPosX();
-	my := GetMouseScreenPosY();
+	mx := 0.0
+	my := 0.0
 
 	player_ent.forward.z = -1.0
 
@@ -2846,9 +2930,20 @@ main_loop::fn(ctx : *context)
 	forward := &player_ent.forward
 	pmov := player_ent.mov_info
 	cam_up_dist := 5.0
+	hidden_cur := true
+
+	cube := new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{20.0, 1.0, 20.0});
+	cube.tex_id = ctx.grass_tex
+
+	cube = new_cube(ctx, &_vec{5.0, 70.5, 10.0}, &_vec{10.5, 5.0, 0.5});
+	cube.tex_id = ctx.grass_tex
+	
+	cube = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{10.5, 2.2, 0.5, 0.0});
+	cube.tex_id = ctx.grass_tex
+
+	HideCursor(hidden_cur)
 	while !ShouldClose(ctx.window)
 	{
-		//OpenLocalsWindow(__LINE__)
 		globals.timer = 0.0;
 		{
 			//start_pos:_vec = ? ;
@@ -2868,8 +2963,8 @@ main_loop::fn(ctx : *context)
 		screenmx := GetMouseScreenPosX();
 		screenmy := GetMouseScreenPosY();
 		
-		curmx := GetMouseNormalizedPosX();
-		curmy := GetMouseNormalizedPosY();
+		curmx := GetMouseScreenPosX();
+		curmy := GetMouseScreenPosY();
 
 		//dt: = GetTime() - last_time;
 		dt: = 0.017;
@@ -2893,72 +2988,6 @@ main_loop::fn(ctx : *context)
 
 		//cam_mov(ctx)
 
-		
-		add_cam_forward := cam_forward
-		if pmov.ab > 1.5
-		{
-
-			add_cam_forward += (*forward - add_cam_forward)
-		}
-
-		//__dbg_break
-		player_pos := player_ent.pos
-		player_pos.y = pmov.min_y_cam_pos + cam_up_dist;
-		
-		target_pos := player_pos - add_cam_forward * cam_to_player_dist
-
-		if IsKeyDown(key_enum.KEY_ACT0)
-		{
-			timer_for_cam_go_back_of_player = 0.0
-			cam_start_pos_before_rotate_to_back_pos = player_back_pos
-			ang_diff_for_cam_go_back_of_player = angle_on_axis(&cam_forward, forward, &ctx.up)
-		}
-		add_mul := 1.0
-
-		pmov.on_getting_to_back_pos = false
-		if IsKeyHeld(key_enum.KEY_ACT0)
-		{
-			timer_for_cam_go_back_of_player += dt
-			time_for_complete_rot := 0.5
-			pmov.on_rotating_cam = true
-			add_mul = 4.0
-			if timer_for_cam_go_back_of_player < (time_for_complete_rot + 0.1)
-			{
-				local_pos_back_rot := cam_start_pos_before_rotate_to_back_pos - player_pos
-
-				pmov.on_getting_to_back_pos = true
-
-				p := timer_for_cam_go_back_of_player / time_for_complete_rot
-				p = clamp(p, 0.0, 1.0)
-
-				ang = p * ang_diff_for_cam_go_back_of_player
-				local_pos_back_rot = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * local_pos_back_rot
-				target_pos = local_pos_back_rot + player_pos
-				player_back_pos = target_pos
-			}
-			else
-			{
-				target_pos = player_pos - *forward * cam_to_player_dist;
-				player_back_pos = target_pos
-			}
-		}
-		else
-			pmov.on_rotating_cam = false;
-		
-		player_back_pos += (target_pos - player_back_pos) * dt * 4.0
-		dir_to_player := (cam_pos-player_pos)
-		dist := len_vec(&dir_to_player)
-
-		if dist <= cam_to_player_dist && !pmov.on_rotating_cam
-		{
-			target_pos_limit := player_pos - cam_forward * cam_to_player_dist
-			target_pos_to_other := target_pos - target_pos_limit
-			player_back_pos = target_pos_limit
-		}
-		dir_to_cam := (player_back_pos - cam_pos)
-
-		//print_f32(dot_up)
-
 
 		if IsKeyDown(key_enum.KEY_F1)
 		{
@@ -2968,14 +2997,6 @@ main_loop::fn(ctx : *context)
 
 		if ctx.editor_cam
 		{
-			/*
-			pos1 := _vec{1.0, 0.0, 0.0, 0.0}
-			pos2 := _vec{1.0, 0.0, 1.0, 0.0}
-			pos3 := _vec{0.0, 0.0, 1.0, 0.0}
-			//draw_tri(ctx, &globals.tri_v1, &globals.tri_v2, &globals.tri_v3, &col, 0)
-			draw_tri(ctx, &pos1, &pos2, &pos3, &pos1, 0)
-			*/
-
 			if IsMouseHeld(mouse_enum.RIGHT){
 				sz : _vec
 				sz.x = 1.0
@@ -2991,7 +3012,7 @@ main_loop::fn(ctx : *context)
 				cam_dir = cam_pos + dir * 2000.0
 
 				dyn_clear(&ctx.vertex_terrain)
-				RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
+				//RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
 				for vtx in ctx.vertex_terrain
 				{
 					verts := &vtx.mesh.verts
@@ -3021,94 +3042,58 @@ main_loop::fn(ctx : *context)
 				}
 			}
 			
-			cam_mov_editor(ctx, mx, my)
 		}
 		else
 		{
-			cam_pos += dir_to_cam * dt * 2.0 * add_mul
+			//cam_mov_editor(ctx, mx, my)
 			
-			dir := ctx.player.pos - cam_pos
-			dist = len_vec(&dir)
-			dir = normalize_vec(&dir)
+			//print_f32(GetMouseVelX())
+			
+			cam_rot.y -= GetMouseVelX() * dt * 0.3
+			cam_forward = euler_to_quaternion(0.0 , radians_to_degree(cam_rot.y), 0.0) * aux_forward
 
-			ang = angle_on_axis(&aux_forward, &dir, &ctx.up)
-			ang2 := angle_on_axis(&cam_forward, &dir, &cross)
-			cam_rot.y = ang
-			cam_forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * aux_forward
-			cam_rot.x = -ang2
+			double_pi := PI * 2.0
+			if cam_rot.y > double_pi
+			{
+				diff := cam_rot.y - double_pi
+				cam_rot.y = diff
+			}
+			if cam_rot.y < -double_pi
+			{
+				diff := cam_rot.y + double_pi
+				cam_rot.y = diff
+			}
+			cam_rot.x -= GetMouseVelY() * dt * 0.3
+
+			max_rot_x := 45.0 * (3.14159 / 180.0)
+			cam_rot.x = clamp(cam_rot.x, -max_rot_x, max_rot_x)
+			cam_pos = player_ent.pos
+			player_ent.forward = cam_forward
+
+			//print_vec(&cam_rot)
+
 			PhysicsUpdate(ctx, dt)
 		}
+		
+		if IsKeyDown(key_enum.KEY_F2)
+		{
+			hidden_cur = !hidden_cur
+			HideCursor(hidden_cur)
+		}
+		print_mov(player_ent)
+
 		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
 		globals.temp_alloc.cur = 0
 
-/*
-		color : _vec=?
-		color.x = 0.0
-		color.y = 0.0
-		color.z = 1.0
-		color.w = 1.0
-		line_start : _vec;
-		line_start.z = 0.0
-		line_end : _vec;
-		line_end.z = -0.5
-		ctx.cam_pos_global = nil
-		draw_line(ctx, &line_start, &line_end, &color, DRAW_LINE_NO_PROJ)
-
-		line_start.z = 0.0
-		line_end.x = -0.5
-		color.x = 1.0
-		color.y = 0.0
-		color.z = 0.0
-		draw_line(ctx, &line_start, &line_end, &color, DRAW_LINE_NO_PROJ)
-		ctx.cam_pos_global = &cam_pos
-		*/
-
-		mx = GetMouseNormalizedPosX() - curmx;
-		my = GetMouseNormalizedPosY() - curmy;
+		mx = GetMouseScreenPosX() - curmx;
+		my = GetMouseScreenPosY() - curmy;
+		mx = mx / 500.0
+		my = my / 500.0
 		EndFrame(ctx.window);
 		ctx.frames_total++;
 	}
 }
 
-move_color_in_time::fn(src_original : *v4, src : *v4, dst_x : f32, dst_y : f32, dst_z : f32, dst_w : f32, dt : f32, time : f32) ! bool
-{
-	dst:v4;
-	dst.x = dst_x;
-	dst.y = dst_y;
-	dst.z = dst_z;
-	dst.w = dst_w;
-	dir:= dst - *src;
-	dir_og:= dst - *src_original;
-	dir_og_len:= len_v4(&dir_og);
-
-	norm := normalize_v4(&dir);
-
-	*src = *src + norm * (dt / time) * dir_og_len;
-
-	if len_v4(&dir) < 0.01
-		return true;
-
-	return false;
-
-}
-move_vec::fn(src : *_vec, dst_x : f32, dst_y : f32, dst_z : f32, dt : f32, vel : f32) ! bool
-{
-	dst:_vec;
-	dst.x = dst_x;
-	dst.y = dst_y;
-	dst.z = dst_z;
-	dir:= dst - *src;
-
-	norm := normalize_vec(&dir);
-
-	*src = *src + norm * dt * vel;
-
-	if len_vec(&dir) < 0.1
-		return true;
-
-	return false;
-
-}
 
 UpdateEntsWithClips::fn(ctx : *context, dt : f32)
 {
@@ -3124,26 +3109,6 @@ UpdateEntsWithClips::fn(ctx : *context, dt : f32)
 	}
 }
 
-ser_test_e: etruct
-{
-	VAL1(
-		num : u32,
-		#serializable(num)
-	),
-	VAL2(
-		ch : char,
-		#serializable(ch)
-	)
-
-}
-
-ser_test_st :struct
-{
-	val : ser_test_e
-
-	u : u32,
-	#serializable(val)
-}
 
 main:: fn(){
 
@@ -3231,25 +3196,11 @@ main:: fn(){
 	AssignTexFolder("../images");
 	textures:dyn_array(texture_info);
 	LoadTexFolder("../images", &ctx.textures);
+	ctx.grass_tex = LoadTex("grass.png", 0, 0, 32, 32)
 	//AssignSoundFolder("../sound");
-	LoadClip("abcd.png", 0, 0, 32, 32, 30, 1.0, &ctx.alphabet);
-	LoadClip("character2.png", 0, 0, 64, 64, 60, 1.0, &ctx.character_texs);
-	LoadClip("thraxer.png", 0, 0, 64, 64, 19, 1.0, &ctx.thraxer_texs);
-	LoadClip("wolf.png", 0, 0, 64, 64, 12, 1.0, &ctx.wolf_texs);
-	LoadClip("inv_items.png", 0, 0, 32, 32, 3, 1.0, &ctx.inv_texs);
-	LoadClip("spear.png", 0, 0, 64, 64, 5, 1.0, &ctx.spear_texs);
-	LoadClip("water.png", 0, 0, 32, 32, 3, 1.0, &ctx.water_texs);
-	ctx.axe_throw_texs = 39;
-	ctx.spear_throw_texs = 46;
-	ctx.prntr.texs = ctx.alphabet.tex_idxs;
-	//ctx.prntr.str = "this is a dialogue that fills the box";
-	//ctx.prntr.str_ln = str_ln(cast(str_lit)ctx.prntr.str);
-	ctx.prntr.time_to_next_ch = 0.01;
-	ctx.prntr.pos.x = -0.5;
-	ctx.prntr.pos.y = -0.5;
-	
-	ctx.axe_tex = LoadTex("axe.png", 0, 0, 32, 32);
-	ctx.col_mask_tex = LoadTex("col_mask.png", 0, 0, 256, 256);
+	//LoadClip("abcd.png", 0, 0, 32, 32, 30, 1.0, &ctx.alphabet);
+	//LoadClip("character2.png", 0, 0, 64, 64, 60, 1.0, &ctx.character_texs);
+	//ctx.col_mask_tex = LoadTex("col_mask.png", 0, 0, 256, 256);
 
 	*ctx.curtain[0] = 0.0;
 	*ctx.curtain[1] = 0.0;

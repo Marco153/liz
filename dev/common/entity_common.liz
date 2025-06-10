@@ -38,6 +38,9 @@ entity_state:enum
 {
 	IDLE,
 	SURF,
+	EDGE,
+	ON_WALL,
+	SLERP,
 }
 behaviour_state: enum
 {
@@ -263,6 +266,13 @@ player_info: struct
 	v : f32
 	ab : f32
 
+	slerp_start : _vec
+	slerp_end : _vec
+	slerp_timer : f32
+
+	up_col_norm : _vec
+	ent_col : *entity
+
 	max_y_cam_pos : f32
 	min_y_cam_pos : f32
 
@@ -273,7 +283,11 @@ player_info: struct
 	platform : *entity,
 	trigger : *entity,
 	
-	
+	up_col : bool
+	down_col : bool
+
+	col_in_stay : bool
+
 	jmp : jmp_info,
 	speed : f32,
 }

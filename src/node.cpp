@@ -9711,6 +9711,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		if (is_vector || IS_FLAG_ON(strct->type.strct->flags, TP_STRCT_TUPLE))
 		{
+
 			FOR_VEC(c, *n->exprs)
 			{
 				if (!DescendNameFinding(lang_stat, c->n, n->scp))

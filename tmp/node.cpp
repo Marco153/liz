@@ -5195,6 +5195,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	type2 dummy_type;
 
 	bool rhs_type_not_done_but_its_ptr = false;
+	BREAK(ncall->t->line == 205)
 	if (ncall->r && !DescendNameFinding(lang_stat, ncall->r, scp))
 	{
 		if (ncall->r->type != N_BINOP && NameFindingGetType(lang_stat, ncall->r, scp, dummy_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE | NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE))

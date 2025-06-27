@@ -33,6 +33,7 @@ token_type: etruct
 	EXCLAMATION,
 	COLON,
 	NEW_LINE,
+	SEMI_COLON,
 	STR_LIT(
 		str: string
 	),
@@ -51,9 +52,9 @@ op_prec_enum : enum
 	EXCLAMATION,
 	POINT,
 	AT,
+	COMMA,
 	EQUAL,
 	NEW_LINE,
-	COMMA,
 	
 }
 
@@ -612,6 +613,13 @@ parse_item::fn (pinfo : *parse_info) ! *node
 
 	return ret;
 }
+new_ast2::fn() !*ast_rep
+{
+	ret: = LinearGet(&globals.ast_alloc, 1)
+	memset(ret, 0, sizeof(ast_rep))
+	
+	return ret
+}
 new_ast::fn(n : *node) !*ast_rep
 {
 	ret: = LinearGet(&globals.ast_alloc, 1)
@@ -693,7 +701,7 @@ is_bin::fn(tkn : *token, prec : *u32) !bool
 		*prec = cast(u32)op_prec_enum.COND_EQ_LIKE
 		return true
 	}
-	else if tkn.type == token_type.NEW_LINE
+	else if tkn.type == token_type.NEW_LINE || tkn.type == token_type.SEMI_COLON
 	{
 		*prec = cast(u32)op_prec_enum.NEW_LINE
 		return true
@@ -1022,6 +1030,7 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 {
 	if ast.type == ast_type.BIN
 	{
+		op := cast(token_type)ast.BIN.op
 		ast_to_string(*ast.BIN.expr[0], out)
 		for i in 1..ast.BIN.expr.count
 		{
@@ -1031,6 +1040,10 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 			{
 				PushStrLit(out, " = ")
 				//*out
+			}
+			else if ast.BIN.op == cast(u32)token_type.SEMI_COLON
+			{
+				PushStrLit(out, "; ")
 			}
 			else if ast.BIN.op == cast(u32)token_type.COMMA
 			{
@@ -1044,19 +1057,29 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 	}
 	else if ast.type == ast_type.INDEX
 	{
+		__dbg_break
 		if ast.INDEX.lhs
 		{
 			ast_to_string(ast.INDEX.lhs, out)
 		}
 		PushStrLit(out, "[")
-		ast_to_string(ast.INDEX.rhs, out)
+		if ast.INDEX.rhs
+		{
+			ast_to_string(ast.INDEX.rhs, out)
+		}
 		PushStrLit(out, "]")
 
 	}
 	else if ast.type == ast_type.SCOPE
 	{
 		PushStrLit(out, "\{")
-		//ast_to_string(ast.SCOPE.ast, out)
+		for s in ast.SCOPE.stmnts
+		{
+			ast_to_string(*s, out)
+			PushStrLit(out, "; ")
+		}
+
+		out.data.count -= 2
 		PushStrLit(out, "\}")
 	}
 	else if ast.type == ast_type.INT
@@ -1261,7 +1284,7 @@ Tokenize::fn(tkns : *dyn_array(token), str : str_lit)
 
 				tkn.type = token_type.STR_LIT
 
-				AssignStr(&tkn.type.STR_LIT.str, str[start], cast(u32)str_len)
+				AssignStr(&tkn.type.STR_LIT.str, cast(*u8)str[start], cast(u32)str_len)
 				dyn_add(tkns, &tkn);
 				continue
 
@@ -1273,6 +1296,10 @@ Tokenize::fn(tkns : *dyn_array(token), str : str_lit)
 			else if *str[i] == ']
 			{
 				tkn.type = token_type.CLOSE_BRACKETS
+			}
+			else if *str[i] == ';
+			{
+				tkn.type = token_type.SEMI_COLON
 			}
 			else if *str[i] == '\n 
 			{
@@ -1342,7 +1369,7 @@ Tokenize::fn(tkns : *dyn_array(token), str : str_lit)
 
 new_scope::fn(parent : *scope) !*scope
 {
-	ret: = cast(*scope)heap_alloc(globals.alloc, sizeof(scope))
+	ret: = cast(*scope)LinearGet(&globals.scope_alloc, 1)
 	memset(ret, 0, sizeof(scope))
 	ret.parent = parent
 	return ret
@@ -1629,7 +1656,6 @@ parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_re
 	}
 	else if n.type == node_type.SCOPE
 	{
-		__dbg_break
 		ret.type = ast_type.SCOPE
 
 		new_scp := new_scope(scp)

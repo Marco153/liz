@@ -286,7 +286,16 @@ own_std::string TypeToString(type2 &tp)
 		if (tp.e_decl->type.type == TYPE_STRUCT_TYPE)
 			ret += own_std::string("enum ") + tp.e_decl->name;
 		else
-			ret += own_std::string("enum ") + tp.e_decl->type.e_decl->name;
+		{
+			if(tp.e_decl->type.type == TYPE_TEMPLATE)
+			{
+				ret += own_std::string("enum ") + tp.e_decl->type.tp->e_decl->name;
+			}
+			else
+			{
+				ret += own_std::string("enum ") + tp.e_decl->type.e_decl->name;
+			}
+		}
 	}break;
 	case enum_type2::TYPE_BOOL:
 	{
@@ -904,6 +913,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				found_char = true;
 				tkn.type = T_OPEN_PARENTHESES;
 			}break;
+
 			case '\"':
 			{
 				int cur_idx = 1;

@@ -58,8 +58,15 @@ namespace own_std
 			u64 total = len - sz;
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, total);
 			string new_one;
-			memcpy(buffer, data_, sz);
-			memcpy(buffer + sz, data_ + offset + sz, len - (offset + sz));
+			if(offset == 0)
+			{
+				memcpy(buffer, data_ + sz, total);
+			}
+			else
+			{
+				memcpy(buffer, data_, sz);
+				memcpy(buffer + sz, data_ + offset + sz, len - (offset + sz));
+			}
 			__lang_globals.free(__lang_globals.data, data_);
 			data_ = buffer;
 			len = total;

@@ -1,5 +1,6 @@
 import "../../core";
 import "../common";
+import "../lang";
 
 THROW_ANIM_START_TEX_IDX: const s32= 32;
 THROW_AIR_ANIM_START_TEX_IDX: const s32= 53;
@@ -228,17 +229,6 @@ cel_info :struct
 	original:cel_type,
 	is_lever :bool,
 	movable_on_water:bool,
-	using u ::union
-	{
-		mov: *movable,
-		door : *cel_info,
-	}
-}
-movable:struct
-{
-	cur : _vec,
-	final:_vec,
-	going :bool,
 }
 level :struct
 {
@@ -761,8 +751,11 @@ NewPlayerEnt::fn(ctx : *context, name : str_lit) ! *entity
 {
 	player_ent:*entity;
 	NewPlayableEnt(ctx, &player_ent, false);
+
+	dyn_add(&player_ent.remove_from, ent_part_of.DRAWABLE)
+	dyn_add(&player_ent.remove_from, ent_part_of.COLLIDER)
 	
-	player_ent.flags = player_ent.flags | ENTITY_DONT_FREE;
+	player_ent.flags = player_ent.flags | ENTITY_DONT_FREE | ENTITY_SERIALIZE;
 	//player_ent.mov_info.axe_ent = NewAxeEnt(ctx);
 	
 	
@@ -1540,47 +1533,13 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 	
 
 
-	if IsMouseHeld(mouse_enum.LEFT)
+	if IsMouseHeld(mouse_enum.RIGHT)
 	{
-		mx = mx * 4.0
-		my = my * 4.0
 		*cam_forward = euler_to_quaternion(0.0, radians_to_degree(mx), 0.0) * *cam_forward
 
 		cam_rot.y += mx
 		cam_rot.x += my
 	}
-/*
-	dt = dt * 2.0
-	if IsKeyHeld(key_enum.KEY_SHIFT)
-	{
-		if IsMouseHeld(mouse_enum.LEFT)
-		{
-			*cam_forward = euler_to_quaternion(0.0, radians_to_degree(dt), 0.0) * *cam_forward
-
-			cam_rot.y += dt
-			//cam_rot.x += dt
-		}
-		if IsMouseHeld(mouse_enum.RIGHT)
-		{
-			*cam_forward = euler_to_quaternion(0.0, -radians_to_degree(dt), 0.0) * *cam_forward
-
-			cam_rot.y -= dt
-			//cam_rot.x += dt
-		}
-	}
-	else if IsKeyHeld(key_enum.KEY_JMP)
-	{
-
-		if IsMouseHeld(mouse_enum.LEFT)
-		{
-			cam_rot.x += dt
-		}
-		if IsMouseHeld(mouse_enum.RIGHT)
-		{
-			cam_rot.x -= dt
-		}
-	}
-	*/
 }
 cam_mov::fn(ctx : *context)
 {
@@ -1785,20 +1744,20 @@ view_collision ::fn(ccc : u32)
 	{
 		e1.color.w = 0.5;
 		e1.flags = e1.flags | ENTITY_TRANSPARENT;
-		DrawEntity(ctx, e1, cam_pos, cam_rot)
+		//DrawEntity(ctx, e1, cam_pos, cam_rot)
 	}
 	else
 	{
 		e1 = ctx.player
 		e1.color.w = 0.5;
 		e1.flags = e1.flags | ENTITY_TRANSPARENT;
-		DrawEntity(ctx, e1, cam_pos, cam_rot)
+		//DrawEntity(ctx, e1, cam_pos, cam_rot)
 	}
 	if e2
 	{
 		e2.color.w = 0.5;
 		e2.flags = e2.flags | ENTITY_TRANSPARENT;
-		DrawEntity(ctx, e2, cam_pos, cam_rot)
+		//DrawEntity(ctx, e2, cam_pos, cam_rot)
 
 	}
 
@@ -2120,7 +2079,7 @@ view_collision ::fn(ccc : u32)
 			while t < tris.count
 			{
 				info.t = t
-				get_verts_pos_from_tris(&info, tris.data, mesh.verts.data)
+				get_verts_pos_from_tris(&info, tris.data, mesh.verts.data, TERRAIN_VERTEX_SIZE)
 				info.v1_out += tpos + mesh.pos
 				info.v2_out += tpos + mesh.pos
 				info.v3_out += tpos + mesh.pos
@@ -2130,10 +2089,16 @@ view_collision ::fn(ccc : u32)
 				t += 3
 			}
 		}
-
 		else
 		{
+			if IsKeyHeld(key_enum.KEY_1)
+			{
+				DrawEntity(ctx, globals.trn, cam_pos, cam_rot)
+			}
+			draw_line(ctx, &globals.ray_origin, &globals.ray_end, &col, 0)
+			draw_tri(ctx, &globals.tri_v3, &globals.tri_v2, &globals.tri_v1, &col, 0)
 
+/*
 			info :verts_from_tri_info=?
 			for ch in ctx.terrain_chunks_to_col
 			{
@@ -2155,6 +2120,7 @@ view_collision ::fn(ccc : u32)
 					t += 3
 				}
 			}
+			*/
 		}
 		/*
 		DrawEntity(ctx, globals.trn, cam_pos, cam_rot)
@@ -2175,7 +2141,6 @@ view_collision ::fn(ccc : u32)
 	}
 
 
-	Draw3DTransparency(ctx.window);
 
 }
 print_f32::fn(a : f32)
@@ -2763,13 +2728,204 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec) ! *entity
 	other := NewEnt(ctx.alloc, "block 1")
 	other.pos = *pos
 	other.size = *size
-	other.flags = other.flags | ENTITY_3D | ENTITY_HAS_TEXTURE
+	other.flags = other.flags | ENTITY_3D | ENTITY_HAS_TEXTURE | ENTITY_SERIALIZE
+	other.flags = other.flags & ~ENTITY_TRANSPARENT
 	add_body(ctx, other)
 	dyn_add(&ctx.drawable_ents, other)
 	other.is_active = true
 	other.is_static = true
 
 	return other
+}
+new_axis_ent::fn(ctx : *context, name : str_lit, sz : *_vec, col : *_vec) ! *entity
+{
+	ret := NewEnt(ctx.alloc, name)
+	ret.is_active = true
+	ret.is_trigger = true
+	ret.type = ent_type.AXIS
+	ret.flags = ret.flags | ENTITY_ALWAYS_ON_FRONT | ENTITY_3D | ENTITY_DONT_FREE
+	ret.size = *sz
+	memcpy(&ret.color, col, 16)
+	dyn_add(&ctx.drawable_ents, ret)
+	dyn_add(&ctx.bodies, ret)
+	add_body(ctx, ret)
+
+	return ret
+}
+select_action:enum
+{
+	MOV,
+	SCALE_ONE_AXIS,
+	SCALE_ONE_AXIS2,
+	SCALE,
+}
+DeserializeEntVar::fn(ctx : *context, type : *type_data, data : *void, ast : *ast_rep)
+{
+	on type.tp
+	{
+	type_enum.TYPE_VECTOR
+	{
+		vec := cast(*_vec)data
+
+		ASSERT(ast.type == ast_type.SCOPE)
+
+		bin := *ast.SCOPE.stmnts[0]
+		
+		ASSERT(is_ast_bin(bin, cast(u32)token_type.COMMA))
+		cur := cast(*f32)data
+		for c in bin.BIN.expr
+		{
+			ASSERT(c.type == ast_type.INT)
+			*cur = *cast(*f32)cast(*s32)&c.INT.num
+
+			cur = ptr_offset(cur, 1, f32)
+		}
+	}
+	type_enum.TYPE_U32
+	{
+		*cast(*u32)data = cast(u32)ast.INT.num
+	}
+	type_enum.TYPE_ENUM
+	{
+		*cast(*s32)data = cast(s32)ast.INT.num
+	}
+	type_enum.TYPE_STR_LIT
+	{
+		*cast(*str_lit)data = cast(str_lit)ast.STR_LIT.str.data.data
+	}
+	default
+	{
+		__dbg_break
+	}
+	}
+	
+}
+DeserializeAllEnt::fn(ctx : *context)
+{
+
+	file_name := "../scenes/01"
+	fl_sz: = GetFileSize(file_name);
+	if fl_sz == -1
+		__dbg_break
+	file: = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
+	ReadFile(file_name, file);
+	i :s64
+
+	tkns : dyn_array(token)
+
+	lang_stat :lang_state
+
+	pinfo :parse_info
+	pinfo.tkns = &tkns
+
+	root :*scope= new_scope(nil)
+
+	for i2 in 0..globals.entities.max
+	{
+		ent := ptr_offset(globals.entities.start, i2, entity);
+		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
+		{
+			ent.flags = 0;
+		}
+	}
+
+	while i < fl_sz
+	{
+		if *file[i] == '(
+		{
+			ent := NewEnt(ctx.alloc, "")
+			i++
+			
+			start := i
+			while cast(s64)i < fl_sz && IsNumber(*file[i])
+				i++;
+
+			num_len: = i - start
+			ent_str_sz := str_2_num(cast(str_lit)file[start], cast(u32)num_len)
+
+			i++
+
+
+			aux_ptr := file[i + ent_str_sz]
+			prev_char := *aux_ptr
+			*aux_ptr = cast(char)0
+
+			pinfo.cur_tkn = 0
+			dyn_clear(&tkns)
+
+			Tokenize(&tkns, cast(str_lit)file[i])
+			globals.nodes_alloc.cur = 0
+			globals.ast_alloc.cur = 0
+			globals.scope_alloc.cur = 1
+
+			nd :*node= parse_scope(&pinfo)
+			ast :*ast_rep= parse_node_to_ast(&lang_stat, nd, root)
+			aux_str:string
+			ast_to_string(ast, &aux_str)
+			__dbg_break
+			ASSERT(ast.type == ast_type.SCOPE)
+
+			stmnts:*ast_rep= *ast.SCOPE.stmnts[0]
+			test := cast(token_type)stmnts.BIN.op
+
+			ASSERT(is_ast_bin(stmnts, cast(u32)token_type.SEMI_COLON))
+
+			etype :*type_data= GetTypeData(cast(*entity)0)
+			for st in stmnts.BIN.expr
+			{
+				ASSERT(is_ast_bin(*st, cast(u32)token_type.EQUAL))
+				name :*string= &st.BIN.expr[0].STR_LIT.str
+
+				var_type:*type_data
+				for i2 in 0..etype.entries
+				{
+					cur_var: = ptr_offset(etype, 1 + i2, type_data);
+					if *name == cur_var.name
+					{
+						var_type = cur_var
+						break;
+					}
+				}
+
+
+				ASSERT(var_type)
+
+				data := ptr_offset(ent, var_type.offset, u8)
+				DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
+			}
+			__dbg_break
+			i += ent_str_sz - 1
+
+		}
+		i++
+	}
+	__dbg_break
+}
+SerializeAllEnt::fn(ctx : *context)
+{
+	out :string
+	for i in 0..globals.entities.max
+	{
+		ent := ptr_offset(globals.entities.start, i, entity);
+		if ent.type == ent_type.AXIS
+			continue;
+
+		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
+		{
+			globals.ast_alloc.cur = 0
+			aux :string
+
+			ast := SerializeEnt(ent)
+			
+			ast_to_string(ast, &aux)
+			PushStrLit(&out, "({aux.data.count})")
+			PushStr(&out, &aux)
+			heap_free(aux.data.alloc, aux.data.data)
+			PushStrLit(&out, "; ")
+		}
+	}
+	out.data.count -= 2
+	WriteFile("../scenes/01", out.data.data, out.data.count)
 }
 main_loop::fn(ctx : *context)
 {
@@ -2788,6 +2944,7 @@ main_loop::fn(ctx : *context)
 	LinearInit(&globals.temp_alloc, ctx.alloc, 128)
 	LinearInit(&globals.nodes_alloc, ctx.alloc, 512)
 	LinearInit(&globals.ast_alloc, ctx.alloc, 512)
+	LinearInit(&globals.scope_alloc, ctx.alloc, 16)
 
 
 	//using ctx;
@@ -2822,7 +2979,7 @@ main_loop::fn(ctx : *context)
 		c1.CAPSULE.height = 1.7
 	}
 
-	player_ent.mov_info.speed = 2.0
+	player_ent.mov_info.speed = 2.5
 	player_ent.mov_info.jmp.speed = 2.1
 	//player_ent.model = test_model
 
@@ -2889,9 +3046,10 @@ main_loop::fn(ctx : *context)
 	terrain.width = MESH_WIDTH - 1
 	terrain.height = MESH_WIDTH - 1
 	trn_ent := other
+	
+	str :string
 
-
-	generate_terrain(ctx, other)
+	//generate_terrain(ctx, other)
 
 
 	mx := 0.0
@@ -2937,28 +3095,43 @@ main_loop::fn(ctx : *context)
 
 	cube = new_cube(ctx, &_vec{5.0, 70.5, 10.0}, &_vec{10.5, 5.0, 0.5});
 	cube.tex_id = ctx.grass_tex
+	cube.name = "cube1"
 	
 	cube = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{10.5, 2.2, 0.5, 0.0});
 	cube.tex_id = ctx.grass_tex
+	cube.name = "cube2"
 
 	HideCursor(hidden_cur)
+	out_ent : *entity= nil
+	prev_select_ent_col : _vec
+
+
+	x_axis_ent := new_axis_ent(ctx, "x_axis", &_vec{1.0, 0.2, 0.2}, &_vec{1.0, 0.0, 0.0, 1.0})
+	y_axis_ent := new_axis_ent(ctx, "y_axis", &_vec{0.2, 1.0, 0.2}, &_vec{0.0, 1.0, 0.0, 1.0})
+	z_axis_ent := new_axis_ent(ctx, "z_axis", &_vec{0.2, 0.2, 1.0}, &_vec{0.0, 0.0, 1.0, 1.0})
+
+	x_axis_ent.forward.x = 1.0
+
+	y_axis_ent.forward.y = 1.0
+
+	z_axis_ent.forward.z = 1.0
+	start_selected_pos :_vec
+
+	axis_sel_ent : *entity
+
+	select_up : _vec
+	select_right : _vec
+	
+	sel_action : select_action
+
+	SerializeAllEnt(ctx)
+	__dbg_break
+	DeserializeAllEnt(ctx)
+
+
 	while !ShouldClose(ctx.window)
 	{
 		globals.timer = 0.0;
-		{
-			//start_pos:_vec = ? ;
-			//end_pos:_vec = ? ;
-
-			//out_ent: *entity;
-			/*
-			if !Raycast(ctx, &start_pos, &end_pos, &col, LAYER_TRIGGER, &out_ent)
-			{
-				ChangeBehaviour(enemy_ent, behaviour_state.GET_CLOSER_THEN_ATTACK);
-				//PrintV3(5.0, 0.0, 0.0);
-			}
-			*/
-		}
-		//PrintV3(einfo.forward.x, 0.0, 0.0);
 
 		screenmx := GetMouseScreenPosX();
 		screenmy := GetMouseScreenPosY();
@@ -2989,14 +3162,227 @@ main_loop::fn(ctx : *context)
 		//cam_mov(ctx)
 
 
+
+		change_select_ent_col :bool
+
 		if IsKeyDown(key_enum.KEY_F1)
 		{
 			ctx.editor_cam = !ctx.editor_cam 
+			change_select_ent_col = true
 
+			if !ctx.editor_cam
+			{
+				x_axis_ent.is_active = false
+				y_axis_ent.is_active = false
+				z_axis_ent.is_active = false
+			}
 		}
-
 		if ctx.editor_cam
 		{
+			mvx := GetMouseVelX() * dt
+			mvy := GetMouseVelY() * dt
+			cam_mov_editor(ctx, mvx, mvy)
+			if IsKeyDown(key_enum.KEY_1)
+			{
+				sel_action = select_action.MOV
+			}
+			if IsKeyDown(key_enum.KEY_2)
+			{
+				if sel_action == select_action.SCALE_ONE_AXIS
+				{
+					sel_action = select_action.SCALE_ONE_AXIS2
+				}
+				else if sel_action == select_action.SCALE_ONE_AXIS2
+				{
+					sel_action = select_action.SCALE_ONE_AXIS
+				}
+				else
+				{
+					sel_action = select_action.SCALE_ONE_AXIS
+				}
+
+			}
+			if IsKeyDown(key_enum.KEY_3)
+			{
+				sel_action = select_action.SCALE
+			}
+
+			if axis_sel_ent
+			{
+				fw := axis_sel_ent.forward 
+
+				dx := dot_vec(&fw, &select_right) * mvx
+				print_vec(&select_right)
+
+				on sel_action
+				{
+				select_action.MOV
+				{
+					dy := dot_vec(&fw, &select_up) * -mvy
+					out_ent.pos += fw * (dx + dy) * 4.0
+				}
+				select_action.SCALE_ONE_AXIS
+				{
+					dx = -dx
+					dy := dot_vec(&fw, &select_up) * mvy
+					fw = fw * 0.5
+
+					out_ent.pos -= fw * (dx + dy) * 2.0
+					out_ent.size -= fw * (dx + dy) * 4.0;
+
+				}
+				select_action.SCALE
+				{
+					dy := dot_vec(&fw, &select_up) * -mvy
+
+					out_ent.size += fw * (dx + dy) * 4.0;
+
+				}
+				select_action.SCALE_ONE_AXIS2
+				{
+					dy := dot_vec(&fw, &select_up) * -mvy
+					fw = fw * 0.5
+
+					out_ent.pos += fw * (dx + dy) * 2.0
+					out_ent.size -= fw * (dx + dy) * 4.0;
+
+				}
+				}
+			}
+
+			if IsKeyDown(key_enum.KEY_DEL) && out_ent != nil
+			{
+
+				DeleteEnt(ctx, out_ent)
+				out_ent = nil
+				x_axis_ent.is_active = true
+				y_axis_ent.is_active = true
+				z_axis_ent.is_active = true
+			}
+			if out_ent
+			{
+				if out_ent.type == ent_type.AXIS
+				{
+				}
+				else
+				{
+					s := clamp(sin(GetTime() * 4.0), 0.0, 1.0)
+					yellow :_vec
+					yellow.x = 0.5
+					yellow.y = 0.5
+					yellow.z = 0.5
+					yellow.w = prev_select_ent_col.w
+
+					diff := yellow - prev_select_ent_col
+
+					aux := prev_select_ent_col + (diff * s)
+
+					out_ent.color.x = aux.x
+					out_ent.color.y = aux.y
+					out_ent.color.z = aux.z
+
+					x_axis_ent.pos = out_ent.pos
+
+					y_axis_ent.pos = out_ent.pos
+					
+					z_axis_ent.pos = out_ent.pos
+
+					if sel_action == select_action.SCALE_ONE_AXIS2
+					{
+						x_axis_ent.pos.x -= 0.5
+						y_axis_ent.pos.y -= 0.5
+						z_axis_ent.pos.z -= 0.5
+					}
+					else
+					{
+						x_axis_ent.pos.x += 0.5
+						y_axis_ent.pos.y += 0.5
+						z_axis_ent.pos.z += 0.5
+					}
+				}
+			}
+
+			if IsKeyDown(key_enum.KEY_I)
+			{
+				
+				dir := ScreenMouseToWorld(screenmx, screenmy)
+				
+				//dir.y = -dir.y
+				cam_dir := cam_pos + dir * 20.0
+				cam_dir2 := cam_pos + dir * 5.0
+
+				cam_dir = cam_pos + dir * 2000.0
+
+				dyn_clear(&ctx.vertex_terrain)
+				prev_sel := out_ent
+				aux_sel : *entity
+				if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+				{
+					cube = new_cube(ctx, &col.contact_point, &_vec{1.0, 1.0, 1.0});
+					cube.tex_id = ctx.grass_tex
+				}
+			}
+			if IsMouseUp(mouse_enum.LEFT)
+			{
+				axis_sel_ent = nil
+			}
+			if IsMouseDown(mouse_enum.LEFT)
+			{
+				dir := ScreenMouseToWorld(screenmx, screenmy)
+				
+				//dir.y = -dir.y
+				cam_dir := cam_pos + dir * 20.0
+				cam_dir2 := cam_pos + dir * 5.0
+
+				cam_dir = cam_pos + dir * 2000.0
+
+				dyn_clear(&ctx.vertex_terrain)
+				prev_sel := out_ent
+				aux_sel : *entity
+				if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+				{
+					x_axis_ent.is_active = true
+					y_axis_ent.is_active = true
+					z_axis_ent.is_active = true
+
+					select_right = cross_vec(&dir, &ctx.up)
+					select_up = cross_vec(&select_right, &dir)
+
+					if aux_sel.type != ent_type.AXIS
+					{
+
+						out_ent = aux_sel
+						if prev_sel != nil
+						{
+							if  prev_sel != out_ent
+								change_select_ent_col = true;
+						}
+						else
+						{
+							memcpy(&prev_select_ent_col, &out_ent.color, 16)
+							start_selected_pos = out_ent.pos
+						}
+					}
+					else
+					{
+						axis_sel_ent = aux_sel
+					}
+				}
+				else
+				{
+					if out_ent
+					{
+						memcpy(&out_ent.color, &prev_select_ent_col, 16)
+						out_ent = nil
+					}
+
+					x_axis_ent.is_active = false
+					y_axis_ent.is_active = false
+					z_axis_ent.is_active = false
+				}
+				//RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
+			}
+			/*
 			if IsMouseHeld(mouse_enum.RIGHT){
 				sz : _vec
 				sz.x = 1.0
@@ -3041,11 +3427,11 @@ main_loop::fn(ctx : *context)
 					UpdateModel(m.model, m.verts.data)
 				}
 			}
+			*/
 			
 		}
 		else
 		{
-			//cam_mov_editor(ctx, mx, my)
 			
 			//print_f32(GetMouseVelX())
 			
@@ -3075,6 +3461,9 @@ main_loop::fn(ctx : *context)
 			PhysicsUpdate(ctx, dt)
 		}
 		
+		if change_select_ent_col && out_ent != nil
+		{
+		}
 		if IsKeyDown(key_enum.KEY_F2)
 		{
 			hidden_cur = !hidden_cur
@@ -3143,7 +3532,31 @@ main:: fn(){
 	*globals.cube_verts[6] = _vec{0.5,  0.5,  0.5, 0.0}
 	*globals.cube_verts[7] = _vec{-0.5,  0.5,  0.5, 0.0};
 
-	
+	globals.cube_tris = [30]s32{
+		// Front face
+		0, 1, 2,
+		0, 2, 3,
+		
+		// Back face
+		4, 6, 5,
+		4, 7, 6,
+		
+		// Left face
+		0, 3, 7,
+		0, 7, 4,
+		
+		// Right face
+		1, 5, 6,
+		1, 6, 2,
+		
+		// Top face
+		3, 2, 6,
+		3, 6, 7,
+		
+		// Bottom face
+		0, 4, 5,
+		0, 5, 1
+	};
 
 	SetIsEngine(false);
 	ctx.timers.timers_count = 128;
@@ -3197,10 +3610,6 @@ main:: fn(){
 	textures:dyn_array(texture_info);
 	LoadTexFolder("../images", &ctx.textures);
 	ctx.grass_tex = LoadTex("grass.png", 0, 0, 32, 32)
-	//AssignSoundFolder("../sound");
-	//LoadClip("abcd.png", 0, 0, 32, 32, 30, 1.0, &ctx.alphabet);
-	//LoadClip("character2.png", 0, 0, 64, 64, 60, 1.0, &ctx.character_texs);
-	//ctx.col_mask_tex = LoadTex("col_mask.png", 0, 0, 256, 256);
 
 	*ctx.curtain[0] = 0.0;
 	*ctx.curtain[1] = 0.0;

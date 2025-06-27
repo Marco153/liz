@@ -15,6 +15,7 @@ ent_type:enum
 	FLOATY_PLATFORM,
 	INTERACT,
 	TERRAIN,
+	AXIS,
 }
 enemy_enum : enum
 {
@@ -62,6 +63,9 @@ ENTITY_DONT_FREE: const s32 = 4;
 ENTITY_FREED: const s32 = 8;
 ENTITY_3D: const s32 = 16;
 ENTITY_TRANSPARENT: const s32 = 32;
+ENTITY_ALWAYS_ON_FRONT: const s32 = 64 | ENTITY_TRANSPARENT;
+ENTITY_IN_USE: const s32 = 128
+ENTITY_SERIALIZE: const s32 = 256
 
 LAYER_ENTITY_PLAYABLE:const s32 = 1;
 LAYER_PLAYER:const s32 = 2;
@@ -126,6 +130,11 @@ thinking : struct
 	check_mid_term : bool
 }
 
+ent_part_of:enum
+{
+	DRAWABLE,
+	COLLIDER
+}
 entity:struct
 {
 	type : ent_type,
@@ -165,6 +174,7 @@ entity:struct
 	mov_info : *player_info,
 	axe : *axe_info,
 	ents_in_collision : dyn_array(in_col_ent),
+	part_of : dyn_array(u32),
 	cl : *clip2,
 	clip_time : f32,
 	clip_done : bool,
@@ -203,6 +213,7 @@ entity:struct
 		spear_on_col_with : *entity,
 	}
 	masking_objs : *dyn_array(*_vec),
+	remove_from : dyn_array(ent_part_of),
 	stencil_val : u8,
 	stencil_func : stencil_func_enum,
 	tex_size_x : f32,

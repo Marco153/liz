@@ -2929,6 +2929,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			char last_ptr = top->ptr;
 			bool is_int = e->cast.type.type == TYPE_U32 || e->cast.type.type == TYPE_S32 || e->cast.type.type == TYPE_S64 || e->cast.type.type == TYPE_U64;
 
+			//BREAK(e->line_number == 2772)
 
 			if (is_int && top->is_float == true && top->ptr == 0)
 			{
@@ -3012,7 +3013,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.to_assign.reg_sz = 8;
 				ir.assign.only_lhs = true;
 				ir.assign.lhs = *top;
-				ir.assign.lhs.is_float = e->cast.type.IsFloat();
+				ir.assign.lhs.is_float = false;
 				//ir.assign.lhs.deref = 0;
 
 				out->emplace_back(ir);

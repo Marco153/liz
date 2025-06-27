@@ -387,6 +387,7 @@ struct func_decl
 	ast_rep* ast;
 
     machine_code *code;
+	node *from_call;
 
 	int references;
 
@@ -450,6 +451,7 @@ struct func_decl
 
 	int var_args_start_offset;
 	int line;
+	int aux;
 	/*
 	func_decl *NewFuncComplete()
 	{
@@ -460,10 +462,11 @@ struct func_decl
 
 	}
 	*/
-	func_decl *new_func()
+	func_decl *new_func(int from)
 	{
 		auto ret = (func_decl*)__lang_globals.alloc(__lang_globals.data, sizeof(func_decl));
 		memset(ret, 0, sizeof(func_decl));
+		ret->aux = 4;
 		//memcpy(ret, this, sizeof(func_decl));
 		//ret->args.assign(args.begin(), args.end());
 		ret->func_node = this->func_node;
@@ -634,7 +637,9 @@ struct type_struct2
 			type2 tp = {};
 			tp.type = TYPE_FUNC;
 			tp.fdecl = fdecl;
-			AddNewDeclToFileGlobalScope(lang_stat, NewDecl(lang_stat, fdecl->name, tp));
+			decl2 *decl = NewDecl(lang_stat, fdecl->name, tp);
+			fdecl->this_decl = decl;
+			AddNewDeclToFileGlobalScope(lang_stat, decl);
 			found_op->type.overload_funcs->fdecls.push_back(fdecl);
 			//lang_stat->fu
 		}

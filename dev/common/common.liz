@@ -13,6 +13,7 @@ DRAW_INFO_TRIANGLE:const s32 = 512;
 DRAW_INFO_NO_PROJ:const s32 = 1024;
 DRAW_INFO_DBG_BREAK:const s32 = 0x800
 DRAW_INFO_TERRAIN:const s32 = 0x1000
+DRAW_INFO_ALWAYS_ON_FRONT:const s32 = 0x2000
 
 END_OF_LAYERS :const s32= 0xbebad0;
 SCENE_NAME_NAME_MAX : const s32= 32;
@@ -48,6 +49,7 @@ global_struct : struct
 	allocs_occured : linear_alloc(*u8),
 	nodes_alloc : linear_alloc(node),
 	ast_alloc : linear_alloc(ast_rep),
+	scope_alloc : linear_alloc(scope),
 
 	after_init : bool,
 
@@ -56,6 +58,7 @@ global_struct : struct
 	args : rel_array(var_arg)
 
 	cube_verts : [8]_vec
+	cube_tris : [30]s32
 	gjk : *void
 	ctx : *void
 
@@ -192,6 +195,11 @@ operator ==(self : *string, str : str_lit) ! bool
 	
 }
 
+AssignStr::fn(str : *string, strl : str_lit)
+{
+	str.data.count = 0
+	dyn_add_data(&str.data, strl, cast(u32)str_ln(strl));
+}
 AssignStr::fn(str : *string, buffer : *u8, bsz : u32)
 {
 	str.data.count = 0
@@ -464,6 +472,7 @@ key_enum : enum
 	KEY_Q,
 	KEY_E,
 	KEY_W,
+	KEY_I,
 	KEY_ESCAPE,
 	KEY_SPACE,
 	KEY_F1,
@@ -1210,6 +1219,136 @@ GetTypeSize::fn(tp : *type_data) !u64
 	__dbg_break
 	return 0
 }
+/*
+SerializeStructAst::fn(type : *type_data, data : *void) ! *ast_rep
+{
+	ret := new_ast2()
+	ret.type = ast_rep.SCOPE
+
+	for i in 0..type.entries
+	{
+		cur_var: = ptr_offset(type, 1 + i, type_data);
+		if is_flag_on(cur_var.flags, DECL_SERIALIZABLE)
+		{
+			final_ptr: = cast(u64)data + cur_var.offset
+			if cur_var.ptr > 0
+			{
+				//__dbg_break
+				ptr := cur_var.ptr
+				while ptr > 0
+				{
+					final_ptr = *cast(*u64)final_ptr
+					ptr--
+				}
+			}
+			//InsertTab(buffer, tab + 1)
+			aux := SerializeAst(cur_var, final_ptr);
+			dyn_add(&ret.SCOPE.stmnts, aux)
+		}
+	}
+	return ret
+
+}
+*/
+IntToAst::fn(i : s32)!*ast_rep
+{
+	num := new_ast2()
+	num.type = ast_type.INT
+	num.INT.num = i
+	return num
+}
+AssignmentToAst::fn(name : str_lit, rhs : *ast_rep)!*ast_rep
+{
+	ret := new_ast2()
+	ret.type = ast_type.BIN
+
+	name_ast := new_ast2()
+	name_ast.type = ast_type.STR_LIT
+	AssignStr(&name_ast.STR_LIT.str, name)
+
+	ret.BIN.op = cast(u32)token_type.EQUAL
+	dyn_add(&ret.BIN.expr, name_ast)
+	dyn_add(&ret.BIN.expr, rhs)
+
+	return ret
+}
+VecToAst::fn(v : *_vec)!*ast_rep
+{
+	ret := new_ast2()
+
+	ret.type = ast_type.SCOPE
+
+	op := new_ast2()
+	op.type = ast_type.BIN
+	op.BIN.op = cast(u32)token_type.COMMA
+
+	dyn_add(&op.BIN.expr, IntToAst(*cast(*s32)&v.x))
+	dyn_add(&op.BIN.expr, IntToAst(*cast(*s32)&v.y))
+	dyn_add(&op.BIN.expr, IntToAst(*cast(*s32)&v.z))
+	dyn_add(&op.BIN.expr, IntToAst(*cast(*s32)&v.w))
+
+	dyn_add(&ret.SCOPE.stmnts, op)
+
+	return ret
+}
+S32AssignmentToAst::fn(name : str_lit, rhs : s32)!*ast_rep
+{
+	num := new_ast2()
+	num.type = ast_type.INT
+	num.INT.num = rhs
+	return AssignmentToAst(name, num)
+}
+StrLitAssignmentToAst::fn(name : str_lit, rhs : str_lit)!*ast_rep
+{
+	str_ast := new_ast2()
+	str_ast.type = ast_type.STR_LIT
+	AssignStr(&str_ast.STR_LIT.str, rhs)
+	return AssignmentToAst(name, str_ast)
+}
+ArrayU32AssignmentToAst::fn(name : str_lit, rhs : *dyn_array(u32))!*ast_rep
+{
+	idx := new_ast2()
+	idx.type = ast_type.INDEX
+
+	__dbg_break
+	if rhs.count > 0
+	{
+		bin := new_ast2()
+		bin.type = ast_type.BIN
+
+		idx.INDEX.rhs = bin
+		for v in *rhs
+		{
+			n := new_ast2()
+			n.type = ast_type.INT
+			n.INT.num = cast(s64)*v
+			dyn_add(&bin.BIN.expr, n)
+		}
+	}
+	return AssignmentToAst(name, idx)
+}
+VecAssignmentToAst::fn(name : str_lit, rhs : *_vec)!*ast_rep
+{
+	v := VecToAst(rhs)
+	return AssignmentToAst(name, v)
+}
+SerializeEnt::fn(ent : *entity) ! *ast_rep
+{
+	ret := new_ast2()
+	ret.type = ast_type.SCOPE
+	
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("pos", &ent.pos))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("size", &ent.size))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("rot", &ent.rot))
+	dyn_add(&ret.SCOPE.stmnts, StrLitAssignmentToAst("name", ent.name))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)ent.type))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("model", cast(s32)ent.model))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("flags", cast(s32)ent.flags))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("layer", cast(s32)ent.layer))
+	dyn_add(&ret.SCOPE.stmnts, ArrayU32AssignmentToAst("remove_from", cast(*dyn_array(u32))&ent.remove_from))
+
+	return ret
+}
 Serialize::fn(buffer : *dyn_array(char), type : *type_data, data : *void, tab : u8, name : *rel_string)
 {
 	buffer_aux: [128] char;
@@ -1391,7 +1530,7 @@ LoadClip::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, 
 SetIsEngine::fn outsider(bool);
 LoadSheetFromLayer::fn outsider(layer : *aux_layer_info_struct, str_tbl : *u8) !u64;
 
-GetFileSize::fn outsider(name : str_lit) ! u64;
+GetFileSize::fn outsider(name : str_lit) ! s64;
 ReadFile::fn outsider(name : str_lit, buffer : *u8);
 WriteFile::fn outsider(name : str_lit, buffer : *u8, sz : u64);
 CopyTextureToBuffer::fn outsider(tex_id : u64, buffer : *u8, buffer_size : u64);

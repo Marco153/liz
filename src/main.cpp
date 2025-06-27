@@ -68,6 +68,7 @@ enum key_enum
 	_KEY_Q,
 	_KEY_E,
 	_KEY_W,
+	_KEY_I,
 	_KEY_ESCAPE,
 	_KEY_SPACE,
 	_KEY_F1,
@@ -1029,6 +1030,7 @@ void Print(dbg_state* dbg)
 #define DRAW_INFO_NO_PROJ 0x400
 #define DRAW_INFO_DBG_BREAK 0x800
 #define DRAW_INFO_TERRAIN 0x1000
+#define DRAW_INFO_ALWAYS_ON_FRONT 0x2000
 enum class stencil_func
 {
 	EQUAL,
@@ -1128,8 +1130,6 @@ void Draw3DTransparency(dbg_state* dbg)
 		c->type.flags |= DRAW_INFO_TRANSPARENT2;
 		Draw3DBase(dbg, &c->type);
 	}
-
-
 }
 void quaternion_to_matrix4x4(float qx, float qy, float qz, float qw, float* matrix) {
     // Normalize the quaternion (in case it's not already normalized)
@@ -1349,10 +1349,16 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	//float * perspective_mat= (float *)dbg->mem_buffer[draw->perspective_mat];
 
 	int indicies_to_draw = 36;
+	glDepthMask(GL_TRUE);
+	glEnable(GL_DEPTH_TEST);
 	if(IS_FLAG_OFF(draw->flags, DRAW_INFO_TRANSPARENT2))
 	{
-		glDepthMask(GL_TRUE);
 		glDisable(GL_BLEND);
+	}
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_ALWAYS_ON_FRONT))
+	{
+		glDepthMask(GL_FALSE);
+		glDisable(GL_DEPTH_TEST);
 	}
 	if(IS_FLAG_ON(draw->flags, DRAW_INFO_TERRAIN))
 	{
@@ -1744,6 +1750,10 @@ int FromGameToGLFWKey(int in)
 	int key;
 	switch ((key_enum)in)
 	{
+	case _KEY_I:
+	{
+		key = GLFW_KEY_I;
+	}break;
 	case _KEY_UP:
 	{
 		key = GLFW_KEY_W;
@@ -4274,14 +4284,17 @@ void GetFileSize(dbg_state* dbg)
 	char* name = (char*)&dbg->mem_buffer[name_offset];
 
 
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	work_dir = work_dir + name;
 #ifdef LINUX
 	struct stat st;
 
-    if (stat(name, &st) != 0) {
+    if (stat(work_dir.c_str(), &st) != 0) {
         perror("stat");
+		*(s64*)&dbg->mem_buffer[RET_1_REG * 8] = -1;
         return;
     }
-	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = st.st_size;
+	*(s64*)&dbg->mem_buffer[RET_1_REG * 8] = st.st_size;
 #else
 	LARGE_INTEGER file_size;
 	own_std::string work_dir = dbg->cur_func->from_file->path;
@@ -5254,10 +5267,10 @@ void Init3D(dbg_state* dbg)
 	GLuint indices[] = {
 		0, 2, 1,   2, 0, 3,       // Front face
 		4, 5, 6,   6, 7, 4,       // Back face
-		8, 9,10,  10,11, 8,       // Left face
+		8, 10,9,  10,8, 11,       // Left face
 		12,13,14,  14,15,12,       // Right face
 		16,17,18,  18,19,16,       // Top face
-		20,21,22,  22,23,20        // Bottom face
+		20,22,21,  22,20,23        // Bottom face
 	};
 
 	// Compile shaders
@@ -5999,7 +6012,7 @@ void WriteFileInterpreter(dbg_state* dbg)
 	//MaybeAddBarToEndOfStr(&work_dir);
 
 	work_dir = work_dir + name_ptr;
-	MaybeAddBarToEndOfStr(&work_dir);
+	//MaybeAddBarToEndOfStr(&work_dir);
 
 	WriteFileLang((char *)work_dir.c_str(), buffer_ptr, buffer_sz);
 

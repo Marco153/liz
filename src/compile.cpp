@@ -489,6 +489,8 @@ struct lang_state
 	int cur_per_stmnt_strct_val_sz;
 	int cur_per_stmnt_strct_val_offset;
 
+	int aux;
+
 	own_std::string linker_options;
 	web_assembly_state* wasm_state;
 
@@ -13772,7 +13774,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 
 				
 				//assign.lhs.deref++;
-				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false, assign.to_assign.reg);
+				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false);
 				//assign.lhs.deref--;
 				ASSERT(lhs.reg != PRE_X64_RSP_REG)
 				//if()

@@ -966,23 +966,23 @@ verts_from_tri_info:struct
 	cross : _vec, 
 	t : u64
 }
-get_verts_pos_from_tris::fn(info : *verts_from_tri_info, tris : *u32, verts : *f32)
+get_verts_pos_from_tris::fn(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
 {
 		t := info.t
 		idx :=  cast(u64)*ptr_offset(tris, t, u32)
-		*cast(*_vec)&info.v1_out = *cast(*_vec)ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		*cast(*_vec)&info.v1_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
 		info.v1_out.w = 0.0
 
 
 		idx = *ptr_offset(tris, t + 1, u32)
-		*cast(*_vec)&info.v2_out = *cast(*_vec)ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		*cast(*_vec)&info.v2_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
 		info.v2_out.w = 0.0
 
 		//v2_out += e2.pos + cpos
 
 		idx = *ptr_offset(tris, t + 2, u32)
 
-		*cast(*_vec)&info.v3_out = *cast(*_vec)ptr_offset(verts, idx * TERRAIN_VERTEX_SIZE, f32)
+		*cast(*_vec)&info.v3_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
 		info.v3_out.w = 0.0
 
 		tri_edge1 := info.v2_out - info.v1_out
@@ -1019,7 +1019,7 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 
 		info :verts_from_tri_info=?
 		info.t = t
-		get_verts_pos_from_tris(&info, tris.data, verts.data)
+		get_verts_pos_from_tris(&info, tris.data, verts.data, TERRAIN_VERTEX_SIZE)
 		_v1 = info.v1_out
 		_v2 = info.v2_out
 		_v3 = info.v3_out
@@ -1386,7 +1386,8 @@ StepCol::fn(ctx : *context, dt : f32)
 				{
 					e.col_stay(*e, *e2, &col);
 				}
-				if e.is_trigger == false
+				if e.is_trigger == false && e2.is_trigger == false
+
 				{
 					e.pos -= mtv
 				}
@@ -1572,7 +1573,7 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 					{
 						info :verts_from_tri_info=?
 						info.t = t
-						get_verts_pos_from_tris(&info, tris_data, verts_data)
+						get_verts_pos_from_tris(&info, tris_data, verts_data, TERRAIN_VERTEX_SIZE)
 						_v1 = info.v1_out
 						_v2 = info.v2_out
 						_v3 = info.v3_out
@@ -1758,7 +1759,7 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	
 	return true
 }
-Raycast::fn(ctx : *context, start : *_vec, end : *_vec, info:*collision, layers_to_ignore:u32, collided : **entity) !bool
+Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
 {
 	dyn_clear(&ctx.broad_phase_ents);
 
@@ -1772,35 +1773,67 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, info:*collision, layers_
 	sz.x = len * 2.0;
 	sz.y = len * 2.0;
 	zero:_vec;
-	BroadPhase(ctx, &mean, &sz, &ctx.broad_phase_ents);
-	for it in ctx.broad_phase_ents
+	dir := *end - *start
+	cur_dist := 99999.0
+	found := false
+	aux_ent : *entity
+	for it in ctx.bodies
 	{
 		if is_flag_on(it.layer, layers_to_ignore)
 			continue;
-		//if ((it->flags & ENTITY_FLAGS_NO_COLLISION) == 0 && (it->collision_layer & layers_to_ignore) == 0)
+		e := *it
+		
+		c1 := cast(*collider)it.col
+		c1.pos = e.pos
+		CopyVerts(c1)
+		
+		on c1.type
 		{
-			a_verts : [4]_vec;
-			ApplyTranformationsToVerts(&it.pos, &it.vel, &it.pivot, &it.col_size, &it.rot, a_verts, *it);
-			aux_arA:dyn_array(_vec);
-			aux_arA.data = a_verts[0];
-			aux_arA.count = 4;
-				
-			if CheckRayAgainstVertices(a_verts, 4, start, end, *it, info)
+		col_type.CUBE
+		{
+			globals.trn = e
+			globals.ray_origin = *start
+			globals.ray_end = *end
+			//__dbg_break
+			t :u64
+			while t < 30
 			{
-				info.ent = *it
-				/*
-				if (it->up.x != 0 && it->col_line != nullptr)
+				info :verts_from_tri_info=?
+				info.t = t
+				get_verts_pos_from_tris(&info, cast(*u32)globals.cube_tris, cast(*f32)c1.CUBE.verts[0], 4)
+				rinfo : raycast_info=?
+				rinfo.ray_origin = *start
+				rinfo.ray_dir = dir
+				rinfo.v0 = info.v1_out
+				rinfo.v1 = info.v2_out
+				rinfo.v2 = info.v3_out
+				if ray_triangle_intersect(&rinfo)
 				{
-					CheckRayAgainstVertices(&it->col_line->positions, start, end, nullptr, info);
+					tri_pos := *start + dir * rinfo.t_out
+					dist_dir := *start - tri_pos
+					d := dot_vec(&dist_dir, &dist_dir)
+
+					cinfo.contact_point = tri_pos
+
+					if e.type == ent_type.AXIS
+					{
+						*collided = e
+						return true
+					}
+
+					if d < cur_dist
+					{
+						cur_dist = d
+						found = true
+						*collided = e
+						aux_ent = e
+					}
+
 				}
-				*/
-				if *collided
-				{
-					*collided = *it;
-				}
-				return true;
+				t += 3
 			}
 		}
+		}
 	}
-	return false;
+	return found;
 }

@@ -22,13 +22,58 @@ DisableEnt::fn(ent : *entity)
 	}
 }
 
+DeleteEnt::fn(ctx : *context, ent : *entity)
+{
+	for t in ent.part_of
+	{
+		te := cast(ent_part_of)*t
+		on te
+		{
+		ent_part_of.DRAWABLE
+		{
+			i :u32= 0
+			for e in ctx.drawable_ents
+			{
+				if *e == ent
+				{
+					break
+				}
+				i++
+			}
+			dyn_rem(&ctx.drawable_ents, i)
+		}
+		ent_part_of.COLLIDER
+		{
+			i :u32= 0
+			for e in ctx.bodies
+			{
+				if *e == ent
+				{
+					break
+				}
+				i++
+			}
+			dyn_rem(&ctx.bodies, i)
+
+		}
+		}
+	}
+	ent.flags = 0
+}
 NewEnt::fn(alloc : *mem_alloc, name : str_lit) ! *entity
 {
-	ent := LinearGet(&globals.entities, 1)
-	//ASSERT((globals.entity_cur + 1) <= globals.entity_max)
-	//ent := ptr_offset(globals.entity_start,globals.entity_cur, entity);
+	ent :*entity
+	for i in 0..globals.entities.max
+	{
+		ent = ptr_offset(globals.entities.start, i, entity);
+		if is_flag_off(ent.flags, ENTITY_IN_USE)
+		{
+			break
+		}
+	}
+	ASSERT(ent)
 	memset(ent, 0, sizeof(entity));
-	//globals.entity_cur++;
+	ent.flags = ENTITY_IN_USE
 	ent.color = []f32{1.0, 1.0, 1.0, 1.0};
 	ent.name = name;
 	ent.size.x = 1.0;
@@ -39,7 +84,7 @@ NewEnt::fn(alloc : *mem_alloc, name : str_lit) ! *entity
 	ent.col_size.z = 1.0;
 	ent.tex_size_x = 1.0;
 	ent.tex_size_y = 1.0;
-	ent.rot = euler_to_quaternion(0.0, 00.0, 0.0).v
+	ent.rot = euler_to_quaternion(0.0, 0.0, 0.0).v
 	
 	return ent;
 }
@@ -134,6 +179,7 @@ DrawEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 			DrawEntity(ctx, *e, cam_pos, cam_rot);
 		}
 	}
+	Draw3DTransparency(ctx.window);
 }
 DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 {
@@ -153,13 +199,17 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 		draw.cam_forward = ctx.cam_forward_global
 		draw.ent_size = ent.size
 		memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
+		if(is_flag_on(ent.flags, ENTITY_ALWAYS_ON_FRONT))
+		{
+			draw.flags = draw.flags | DRAW_INFO_ALWAYS_ON_FRONT;
+		}
 		if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))
 		{
-			draw.flags = DRAW_INFO_TRANSPARENT;
+			draw.flags = draw.flags | DRAW_INFO_TRANSPARENT;
 		}
 		if(is_flag_on(ent.flags, ENTITY_HAS_TEXTURE))
 		{
-			draw.flags = DRAW_INFO_HAS_TEXTURE;
+			draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
 			draw.texture_id = ent.tex_id
 		}
 		Draw3D(ctx.window, &draw);

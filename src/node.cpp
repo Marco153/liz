@@ -1137,7 +1137,7 @@ node* node_iter::parse_str(own_std::string& str, int* i, int start_line)
 
 		end++;
 	}
-	own_std::string new_str = str.substr(*i + 1, end - 1);
+	own_std::string new_str = str.substr(*i + 1, end);
 
 	*i = end;
 
@@ -1277,6 +1277,7 @@ node* node_iter::parse_expr()
 
 		own_std::string ref_str;
 		int open_curly_open = 0;
+
 		while (i < str.size())
 		{
 			int clamped = i - 1;
@@ -2877,6 +2878,7 @@ own_std::vector<type2> TemplatesTypeToLangArray(lang_state *lang_stat, own_std::
 			given_arg->decl.type.type = FromTypeToVarType(given_arg->decl.type.type);
 		}
 		else if (og_a->type.type == enum_type2::TYPE_STRUCT)
+
 		{
 			type2 tp;
 			if (TemplTypeFromStruct(&og_a->type, &tp, &given_arg->decl.type, t->name))
@@ -2937,7 +2939,6 @@ own_std::vector<decl2*> GetTemplateTypes(lang_state *lang_stat, own_std::vector<
 		{
 			cur_t->final_type = (type2*)AllocMiscData(lang_stat, sizeof(type2));
 			*(cur_t->final_type) = a->decl.type;
-
 			decl2 decl;
 			decl.name = cur_t->name;
 
@@ -3358,6 +3359,9 @@ enum_type2 FromVarTypeToType(enum_type2 tp)
 	case  enum_type2::TYPE_STR_LIT:
 		ret_type = enum_type2::TYPE_STR_LIT;
 		break;
+	case  enum_type2::TYPE_ENUM_IDX_32:
+		ret_type = enum_type2::TYPE_ENUM_IDX_32;
+		break;
 	default:
 		ASSERT(false)
 	}
@@ -3479,6 +3483,9 @@ enum_type2 FromTypeToVarType(enum_type2 tp)
 		break;
 	case  enum_type2::TYPE_TYPEDEF:
 		ret_type = enum_type2::TYPE_TYPEDEF;
+		break;
+	case  enum_type2::TYPE_ENUM_IDX_32:
+		ret_type = enum_type2::TYPE_ENUM_IDX_32;
 		break;
 	case  enum_type2::TYPE_STR_LIT:
 		ret_type = enum_type2::TYPE_STR_LIT;
@@ -3907,6 +3914,9 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	char msg_hdr[256];
 	switch (n->type)
 	{
+	case node_type::N_ON:
+	{
+	}break;
 	case node_type::N_FOR:
 	case node_type::N_WHILE:
 	{
@@ -4269,6 +4279,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			case enum_type2::TYPE_VOID_TYPE:
 			case enum_type2::TYPE_VECTOR_TYPE:
 			case enum_type2::TYPE_CHAR_TYPE:
+			case enum_type2::TYPE_ENUM:
 				ret_type.ptr++;
 				break;
 			case enum_type2::TYPE_S64:
@@ -4754,6 +4765,7 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 		return true;
 	}
 	type2 dummy_type;
+	
 	FOR_VEC(_fdecl, overload->fdecls)
 	{
 		func_decl* f = *_fdecl;
@@ -4761,11 +4773,22 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 			continue;
 		if (TemplatedFuncMatchWithTypes(lang_stat, ncall, scp, given_args, f))
 		{
-			own_std::string fname = FuncNameWithTempls(lang_stat, overload->name, given_args);
-			auto found_decl = FindIdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+			own_std::string fname;
+			decl2 *found_decl= nullptr;
+			if(f->templates.size() == 0)
+			{
+				found_decl = f->this_decl;
+			}
+			else
+			{
+				fname = FuncNameWithTempls(lang_stat, overload->name, given_args);
+				found_decl = FindIdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+			}
+
+
 			if (!found_decl)
 			{
-				func_decl *fdecl = f->new_func();
+				func_decl *fdecl = f->new_func(5);
 				func_decl* src_fdecl = f;
 				fdecl->func_node = f->func_node->NewTree(lang_stat);
 
@@ -4785,7 +4808,8 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 				decl2* new_decl = NewDecl(lang_stat, fname, tp);
 				new_decl->flags = DECL_NOT_DONE;
 
-				// @test it_next->type.fdecl->scp->parent->vars.emplace_back(new_decl);
+				fdecl->from_call = ncall;
+
 				lang_stat->root->vars.emplace_back(new_decl);
 				lang_stat->funcs_scp->AddDecl(new_decl);
 				//
@@ -4795,6 +4819,12 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 				found_decl = new_decl;
 				fdecl->name = fname;
 				int i = 0;
+				FOR_VEC(t, *given_args)
+				{
+					fdecl->args.emplace_back(NewDecl(lang_stat, "unamed", *t));
+					i++;
+				}
+				i=0;
 				FOR_VEC(t, fdecl->templates)
 				{
 					decl2* cur_templ = lang_stat->aux_scp->vars[i];
@@ -4802,12 +4832,18 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 					fdecl->scp->vars.emplace_back(NewDecl(lang_stat, t->name, cur_templ->type));
 					i++;
 				}
+				fdecl->this_decl = new_decl;
 				//fdecl->scp->AssignDecls(templates_types.begin(), templates_types.end());
 				fdecl->flags |= FUNC_DECL_TEMPLATES_DECLARED_TO_SCOPE;
+				f = fdecl;
+				overload->cached.Add(ncall, *out);
+				*out = f;
+			}
+			else
+			{
+				*out = found_decl->type.fdecl;
 			}
 
-			*out = f;
-			overload->cached.Add(ncall, f);
 			return true;
 		}
 
@@ -4837,12 +4873,12 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, own_st
 			ASSERT(0);
 
 
-			fdecl = src_fdecl->new_func();
+			fdecl = src_fdecl->new_func(6);
 			fdecl->func_node = src_fdecl->func_node->NewTree(lang_stat);
 		}
 		else
 		{
-			fdecl = it_next->type.fdecl->new_func();
+			fdecl = it_next->type.fdecl->new_func(6);
 			src_fdecl = it_next->type.fdecl;
 			fdecl->func_node = it_next->type.fdecl->func_node->NewTree(lang_stat);
 		}
@@ -4861,6 +4897,8 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, own_st
 		tp.fdecl = fdecl;
 		decl2* new_decl = NewDecl(lang_stat, fname, tp);
 		new_decl->flags = DECL_NOT_DONE;
+		fdecl->this_decl = new_decl;
+		fdecl->from_call = ncall;
 
 		// @test it_next->type.fdecl->scp->parent->vars.emplace_back(new_decl);
 		lang_stat->root->vars.emplace_back(new_decl);
@@ -4872,6 +4910,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, own_st
 			it_next->type.overload_funcs->fdecls.emplace_back(fdecl);
 
 		}
+
 
 		found_decl = new_decl;
 		fdecl->name = fname;
@@ -4886,6 +4925,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_state *lang_stat, own_st
 		}
 		fdecl = found_decl->type.fdecl;
 	}
+	
 
 
 	if (it_next->type.type == TYPE_OVERLOADED_FUNCS)
@@ -5247,16 +5287,14 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				lhs->type.fdecl->templates.size() == 0 &&
 				IS_FLAG_ON(lhs->flags, DECL_NOT_DONE) && !is_self_ref)
 			{
-				/*
 				if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 				{
 					REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
-						VAR_ARGS("for some reason func was not done")
-						)
-					//ExitProcess(1);
+						VAR_ARGS("for some reason func '%s' was not done. \n it seems like that function reached up until this line %d", ncall->l->t->str.c_str(), lhs->type.fdecl->reached_nd->t->line)
+						);
+					ExitProcess(1);
 				}
 				else
-				*/
 					return false;
 			}
 
@@ -5509,12 +5547,14 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				}
 			}
 				*/
+			//BREAK(ncall->t->line == 1131)
 			if (lhs->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
 			{
 				FOR_VEC(t, args)
 				{
 					args_types.emplace_back(t->decl.type);
 				}
+
 
 				auto gotten_func = lhs->type.ChooseFuncOverload(lang_stat, &args_types);
 
@@ -5532,19 +5572,39 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					{
 						//if (lhs->type.overload_funcs->templated)
 						//{
-							own_std::string fname = FuncNameWithTempls(lang_stat, lhs->name, &args_types);
 
-							auto found_decl = FindIdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
-							if (!found_decl)
+							//auto found_decl = FindIwdentifier(fname, scp, &dummy_type, FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE);
+							if (!CheckIfTemplateOverloadHasFunc(lang_stat, ncall, scp, &args_types, lhs, &gotten_func))
 							{
-								if (!CheckIfTemplateOverloadHasFunc(lang_stat, ncall, scp, &args_types, lhs, &gotten_func))
-									return false;
-								ncall->l->t->str = fname;
+								if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+								{
+									REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
+										VAR_ARGS("no func for this")
+									);
+								}
+								return false;
 							}
-							else
-								gotten_func = found_decl->type.fdecl;
+							int i = 0;
+							/*
+							FOR_VEC(t, gotten_func->args)
+							{
+								if((*t)->type.type == TYPE_TEMPLATE)
+								{
+									args_types2.emplace_back(args_types[i]);
+								}
+								else
+									args_types2.emplace_back((*t)->type);
+								i++;
+							}
+								*/
+							ASSERT(!gotten_func->name.empty())
+							//own_std::string fname = FuncNameWithTempls(lang_stat, lhs->name, &args_types2);
+							ncall->l->t->str = gotten_func->name;
 
+							//gotten_func->name = fname;
+							//gotten_func->this_decl->name = fname;
 							is_templated_overload_so_no_need_to_get_templ_types = true;
+							//args_types = args_types2;
 						//}
 						//else
 							//return false;
@@ -5611,11 +5671,14 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				//if(lhs->type.type == TYPE_OVERLOADED_FUNCS)
 					//func_name 
 
+				//BREAK(ncall->t->line == 205)
+				//BREAK(ncall->t->line == 755)
 				if (!AddNewTemplFuncFromLangArrayTemplTypesToScope(lang_stat, lhs->name, scp, &templ_types, ncall, &new_func))
 				{
 					lang_stat->cur_file = last_fl;
 					return false;
 				}
+				//BREAK(ncall->t->line == 205)
 
 				if (lhs->type.type == TYPE_OVERLOADED_FUNCS)
 				{
@@ -6015,6 +6078,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	{
 		fnode->fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 		memset(fnode->fdecl, 0, sizeof(func_decl));
+		fnode->fdecl->aux = 1;
 		fnode->fdecl->from_file = lang_stat->cur_file;
 		child_scp->line_start = n->scope_line_start;
 		child_scp->line_end = n->scope_line_end;
@@ -6295,6 +6359,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 	char msg_hdr[256];
 	decl2* lhs_decl = nullptr;
 	//auto lhs_decl = DescendNameFinding(lang_stat, n->l, scp);
+	//BREAK(n->t->line == 122);
 	if (!n->decl)
 	{
 		lhs_decl = DescendNameFinding(lang_stat, n->l, scp);
@@ -6304,7 +6369,19 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 		lhs_decl = n->decl;
 
 	if (!lhs_decl)
+	{
+		if (IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+		{
+			REPORT_ERROR(n->l->t->line, n->l->t->line_offset,
+				VAR_ARGS("'%s' not found",
+					n->l->t->str.c_str()
+				)
+			);
+			ExitProcess(1);
+		}
+
 		return nullptr;
+	}
 
 	type2 lhs_tp;
 
@@ -6606,14 +6683,6 @@ decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, own_std::string n
 		new_decl->type.strct->name = new_decl->name;
 
 	}
-	// @test
-	/*
-	// naming the fdecl with this func name
-	else if (is_func)
-	{
-		new_decl->type.fdecl->name = new_decl->name;
-	}
-	*/
 	// adding flags for the extern func
 	else if (new_decl->type.type == TYPE_FUNC_EXTERN)
 	{
@@ -6621,7 +6690,31 @@ decl2* DeclareDeclToScopeAndMaybeToFunc(lang_state *lang_stat, own_std::string n
 	}
 	// 
 	else if (new_decl->type.type == TYPE_ENUM)
+	{
 		new_decl->type.from_enum = tp->e_decl;
+
+		if(tp->e_decl->type.type != TYPE_ENUM_TYPE)
+		{
+			if(tp->e_decl->type.type == TYPE_TEMPLATE)
+			{
+				if(tp->e_decl->type.tp->type == TYPE_ENUM_TYPE)
+					new_decl->type.from_enum = tp->e_decl->type.tp->e_decl;
+				else
+				{
+					ASSERT(0)
+				}
+			}
+			else if(tp->e_decl->type.type == TYPE_ENUM)
+			{
+				new_decl->type.from_enum = tp->e_decl->type.e_decl;
+				ASSERT(new_decl->type.from_enum->type.type == TYPE_ENUM_TYPE)
+			}
+			else
+			{
+				ASSERT(0)
+			}
+		}
+	}
 
 	// @test to delete this doesn't work
 	// naming the fdecl with this func name
@@ -6762,6 +6855,7 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 	decl2* d = NewDecl(lang_stat, f->name, tp);
 	lang_stat->cur_file->global->AddDecl(d);
 	lang_stat->funcs_scp->AddDecl(d);
+	f->this_decl = d;
 
 	decl_exist->type.overload_funcs->fdecls.emplace_back(f);
 	decl_exist->type.type = enum_type2::TYPE_OVERLOADED_FUNCS;
@@ -7264,6 +7358,12 @@ bool IsKeyword(node* n, keyword kw)
 
 bool NameFindingOnExprEtruct(lang_state *lang_stat, type_struct2 *strct, node *n, scope *scp, bool create_point_binop)
 {
+	if (CMP_NTYPE_BIN(n, T_POINT))
+	{
+		ASSERT(strct->name == n->l->t->str)
+		memcpy(n, n->r, sizeof(node));
+		//n = n->r;
+	}
 	if(n->type == N_BINOP)
 	{
 
@@ -9117,6 +9217,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 								ExitProcess(1);
 							}
 						}
+						//BREAK(n->t->line == 137)
 
 						if (n->r->type == node_type::N_STRUCT_DECL)
 							tstrct->size = SetVariablesAddress(&tstrct->vars, 0, &tstrct->biggest_type);
@@ -9218,6 +9319,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							
 								cnode->fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));
 								memset(cnode->fdecl, 0, sizeof(func_decl));
+								cnode->fdecl->aux = 2;
 								cnode->fdecl->from_file = lang_stat->cur_file;
 
 								ret_type.type = TYPE_FUNC_TYPE;
@@ -9262,6 +9364,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							}
 							overload_strct->fdecls.emplace_back(ret_type.fdecl);
 							decl2 *d = DeclareDeclToScopeAndMaybeToFunc(lang_stat, new_name, &ret_type, scp, n);
+							ret_type.fdecl->this_decl = d;
 							lang_stat->funcs_scp->AddDecl(d);
 
 						}
@@ -9538,6 +9641,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		*/
 
 		//scp = GetScopeFromParent(n, given_scp);
+		//BREAK(n->t->line == 120);
 		if (n->l->l != nullptr && !DescendNameFinding(lang_stat, n->l->l, scp) && scp->parent != nullptr)
 			return nullptr;
 		if (n->l->r != nullptr && !DescendNameFinding(lang_stat, n->l->r, scp) && scp->parent != nullptr)
@@ -9584,10 +9688,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				// we only want to return if we're not in global scope
 				if (!ret_decl && IS_FLAG_OFF(scp->flags, SCOPE_IS_GLOBAL))
 				{
-					if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
-					{
-						scp->fdecl->reached_nd = cur_node->l;
-					}
 					return nullptr;
 				}
 
@@ -9607,10 +9707,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				auto ret_decl = DescendNameFinding(lang_stat, cur_node->r, scp);
 				if (!ret_decl && IS_FLAG_OFF(scp->flags, SCOPE_IS_GLOBAL))
 				{
-					if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
-					{
-						scp->fdecl->reached_nd = cur_node->r;
-					}
 					return nullptr;
 				}
 
@@ -10240,6 +10336,15 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		if (lhs_type.type == TYPE_ENUM_TYPE)
 		{
 			lhs_type.from_enum = lhs_type.e_decl;
+			if(lhs_type.from_enum->type.type == TYPE_TEMPLATE)
+			{
+				HERE()
+				lhs_type.from_enum = lhs_type.from_enum->type.tp->e_decl;
+			}
+			else if(lhs_type.from_enum->type.type == TYPE_ENUM_TYPE)
+			{
+				lhs_type.from_enum = lhs_type.from_enum->type.e_decl;
+			}
 		}
 		if (lhs_type.type == TYPE_FUNC_DEF)
 		{
@@ -10296,6 +10401,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case enum_type2::TYPE_S32_TYPE:
 		case enum_type2::TYPE_S16_TYPE:
 		case enum_type2::TYPE_ENUM_TYPE:
+		case enum_type2::TYPE_ENUM:
 		case enum_type2::TYPE_S8_TYPE:
 		case enum_type2::TYPE_U32_TYPE:
 		case enum_type2::TYPE_U16_TYPE:
@@ -10338,6 +10444,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		ret_type = lhs_type;
 		if(ret_type.type != TYPE_FUNC_PTR)
 			ret_type.type = FromTypeToVarType(ret_type.type);
+		if(ret_type.type == TYPE_ENUM && ret_type.e_decl && ret_type.e_decl->type.type == TYPE_ENUM)
+		{
+			//HERE()
+			ret_type.e_decl = ret_type.e_decl->type.e_decl;
+			ret_type.from_enum = ret_type.e_decl;
+		}
 	}break;
 	case node_type::N_UNOP:
 	{
@@ -10534,6 +10646,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				case enum_type2::TYPE_VECTOR:
 				case enum_type2::TYPE_STR_LIT:
 				case enum_type2::TYPE_FUNC_PTR:
+				case enum_type2::TYPE_ENUM:
 					should_deref = true;
 					break;
 				default:
@@ -10757,6 +10870,23 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl)
 				ReportUndeclaredIdentifier(lang_stat, n->t);
 
+				/*
+			if(!decl)
+			{
+				FOR_VEC(fd, lang_stat->funcs_scp->vars)
+				{
+
+					func_decl *f = (*fd)->type.fdecl;
+					printf("name: %s\n", f->name.c_str());
+				}
+				FOR_VEC(fd, lang_stat->root->vars)
+				{
+
+					func_decl *f = (*fd)->type.fdecl;
+					printf("name: %sRR\n", f->name.c_str());
+				}
+			}
+				*/
 			if (decl->type.type == TYPE_INT)
 			{
 				ASSERT(decl->type.is_const);
@@ -10791,9 +10921,19 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				}
 				*/
 			}
-			else if (decl->type.type == TYPE_ENUM)
+			else if (decl->type.type == TYPE_ENUM && !ret_type.e_decl)
 			{
 				ret_type.e_decl = ret_type.from_enum;
+			}
+			if (decl->type.type == TYPE_ENUM && ret_type.e_decl->type.type == TYPE_TEMPLATE)
+			{
+				ret_type.e_decl = ret_type.e_decl->type.tp->e_decl;
+				ret_type.from_enum = ret_type.e_decl;
+			}
+			if (decl->type.type == TYPE_ENUM && ret_type.e_decl->type.type == TYPE_ENUM)
+			{
+				ret_type.e_decl = ret_type.e_decl->type.e_decl;
+				ret_type.from_enum = ret_type.e_decl;
 			}
 		}
 	}break;
@@ -11367,6 +11507,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		case tkn_type2::T_MUL:
 		case tkn_type2::T_DIV:
 		case tkn_type2::T_MINUS:
+		case tkn_type2::T_PIPE:
 		case tkn_type2::T_PERCENT:
 		case tkn_type2::T_PLUS:
 		{
@@ -11531,7 +11672,14 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			//return ret_type;
 
 			type2 rtp = DescendNode(lang_stat, n->r, scp);
+			
+			if(rtp.type == TYPE_ENUM && rtp.e_decl && rtp.e_decl->type.type == TYPE_ENUM)
+			{
+				HERE()
+				rtp = DescendNode(lang_stat, n->r, scp);
+			}
 			MaybeConvertEtructEnumToStructType(rtp);
+			ltp = DescendNode(lang_stat, n->l, scp);
 
 			if (ltp.type == enum_type2::TYPE_AUTO)
 			{
@@ -11667,7 +11815,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					if (n->r->type != N_QUESTION_MARK)
 					{
 						if (!CompareTypes(&ltp, &rtp))
+						{
+							HERE()
+							ltp = DescendNode(lang_stat, n->l, scp);
+							rtp = DescendNode(lang_stat, n->r, scp);
+							CompareTypes(&ltp, &rtp);
 							ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
+						}
 
 
 						if (rtp.type == TYPE_FUNC && n->r->type == N_FUNC_DECL)
@@ -11750,6 +11904,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				PointLogic(lang_stat, n, scp, &ret_type);
 			if (ret_type.type == TYPE_ENUM_IDX_32)
 			{
+				//decl2 *d = ret_type.from_enum->type.GetEnumDecl(n->r->t->str);
+				//n->type = N_INT;
+				//n->t->i = d->type.e_idx;
+			}
+			if (ret_type.type == TYPE_ENUM && ret_type.e_decl->type.type == TYPE_TEMPLATE)
+			{
+				ret_type.e_decl = ret_type.e_decl->type.tp->e_decl;
 				//decl2 *d = ret_type.from_enum->type.GetEnumDecl(n->r->t->str);
 				//n->type = N_INT;
 				//n->t->i = d->type.e_idx;
@@ -12497,7 +12658,7 @@ unit_file* AddNewFile(lang_state *lang_stat, own_std::string name, own_std::stri
 func_decl* type_struct2::CreateNewOpOverload(lang_state *lang_stat, func_decl* original, overload_op tp)
 {
 	// creating overloaded function for this struct
-	auto new_func = original->new_func();
+	auto new_func = original->new_func(4);
 	new_func->func_node = original->func_node->NewTree(lang_stat);
 	new_func->flags = FUNC_DECL_IS_OP_OVERLOAD | (original->flags & FUNC_DECL_X64);
 

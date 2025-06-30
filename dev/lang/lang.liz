@@ -602,7 +602,13 @@ parse_item::fn (pinfo : *parse_info) ! *node
 		indx := new_node(cur_tkn)
 		indx.type = node_type.INDEX
 		indx.INDEX.lhs = ret
-		indx.INDEX.rhs = parse(pinfo, 999, parser_op.GREATER_EQ)
+
+		peek = peek_tkn(pinfo)
+
+		if peek.type != token_type.CLOSE_BRACKETS
+		{
+			indx.INDEX.rhs = parse(pinfo, 999, parser_op.GREATER_EQ)
+		}
 		ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_BRACKETS)
 		ret = indx
 	}
@@ -1057,7 +1063,6 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 	}
 	else if ast.type == ast_type.INDEX
 	{
-		__dbg_break
 		if ast.INDEX.lhs
 		{
 			ast_to_string(ast.INDEX.lhs, out)

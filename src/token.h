@@ -722,11 +722,7 @@ struct type_struct2
 		if (original_strct && original_strct->name == "dyn_array")
 		{
 			strct_ptr->flags |= TP_STRCT_IS_DYN_ARRAY;
-			if (name == "dyn_array_1layer_sprites")
-				auto a = 0;
 		}
-		if (name == "layer_sprites")
-			auto a = 0;
 
 		InsertIntoCharVector(&strct_str_tbl, (void *)this->name.data(), this->name.size());
 
@@ -755,6 +751,15 @@ struct type_struct2
 			offset_to_str_tbl += strct_str_tbl.size();
 			offset_to_str_tbl -= offsetof(type_data, name);
 
+			/*
+			if((*v)->name == "remove_from")
+			{
+				HERE()
+				own_std::string name = (*v)->type.strct->original_strct ? (*v)->type.strct->original_strct->name :"no name";
+				auto a= 0;
+			}
+				*/
+
 			if (IS_FLAG_ON((*v)->flags, DECL_PTR_HAS_LEN))
 			{
 				var_ptr->flags = (*v)->flags;
@@ -777,6 +782,10 @@ struct type_struct2
 				if(IS_FLAG_OFF((*v)->type.strct->flags, TP_STRCT_ACTUAL_SERIALIZED))
 				{
 					(*v)->type.strct->depends_on_me.emplace_back(type_sect_offset + last_size);
+				}
+				if((*v)->type.strct->original_strct && (*v)->type.strct->original_strct->name == "dyn_array")
+				{
+					var_ptr->flags |= TP_STRCT_IS_DYN_ARRAY;
 				}
 			}
 			i++;

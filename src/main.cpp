@@ -73,10 +73,16 @@ enum key_enum
 	_KEY_SPACE,
 	_KEY_F1,
 	_KEY_F2,
+	_KEY_F3,
+	_KEY_F4,
 	_KEY_F5,
+	_KEY_F6,
+	_KEY_F7,
+	_KEY_F8,
 	_KEY_F9,
 	_KEY_F10,
 	_KEY_F11,
+	_KEY_F12,
 	_KEY_ENTER,
 	_KEY_K,
 	_KEY_1,
@@ -1329,7 +1335,6 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	int shaderProgram = gl_state->shader_program3d;
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
 	{
-		//HERE()
 		shaderProgram = gl_state->shader_program3d_tex;
 		glUseProgram(shaderProgram);
 		gl_state->tex_size = glGetUniformLocation(shaderProgram, "tex_size");
@@ -1386,7 +1391,6 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 
 			shaderProgram = gl_state->shader_program3d_line_no_proj;
 		}
-		//HERE()
 		glUseProgram(shaderProgram);
 		glBindVertexArray(gl_state->vao3d_line);
 		glBindBuffer(GL_ARRAY_BUFFER, gl_state->vbo3d_line);
@@ -1782,14 +1786,6 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_DELETE;
 	}break;
-	case _KEY_F5:
-	{
-		key = GLFW_KEY_F5;
-	}break;
-	case _KEY_F9:
-	{
-		key = GLFW_KEY_F9;
-	}break;
 	case _KEY_F:
 	{
 		key = GLFW_KEY_F;
@@ -1810,9 +1806,45 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_F2;
 	}break;
+	case _KEY_F3:
+	{
+		key = GLFW_KEY_F3;
+	}break;
+	case _KEY_F4:
+	{
+		key = GLFW_KEY_F4;
+	}break;
+	case _KEY_F5:
+	{
+		key = GLFW_KEY_F5;
+	}break;
+	case _KEY_F6:
+	{
+		key = GLFW_KEY_F6;
+	}break;
+	case _KEY_F7:
+	{
+		key = GLFW_KEY_F7;
+	}break;
+	case _KEY_F8:
+	{
+		key = GLFW_KEY_F8;
+	}break;
+	case _KEY_F9:
+	{
+		key = GLFW_KEY_F9;
+	}break;
+	case _KEY_F10:
+	{
+		key = GLFW_KEY_F10;
+	}break;
 	case _KEY_F11:
 	{
 		key = GLFW_KEY_F11;
+	}break;
+	case _KEY_F12:
+	{
+		key = GLFW_KEY_F12;
 	}break;
 	case _KEY_LCTRL:
 	{
@@ -2008,15 +2040,17 @@ void IsKeyUp(dbg_state* dbg)
 void IsKeyDown(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
-	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int keyo = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
 
-	key = FromGameToGLFWKey(key);
+	int key = FromGameToGLFWKey(keyo);
 	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
 
 	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN) || IS_FLAG_ON(gl_state->buttons[key], KEY_RECENTLY_DOWN))
 	{
+		//if(keyo == _KEY_1) HERE();
+		key = FromGameToGLFWKey(keyo);
 		*addr = 1;
 		gl_state->buttons[key] &= ~KEY_RECENTLY_DOWN;
 		gl_state->buttons[key] = (gl_state->buttons[key] & 0xffff);
@@ -2057,7 +2091,15 @@ void ImGuiCheckbox(dbg_state* dbg)
 	char *name = (char *)&dbg->mem_buffer[name_offset];
 	int bool_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	auto bool_ptr = (bool*)&dbg->mem_buffer[bool_offset];
-	ImGui::Checkbox(name, bool_ptr);
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	if(ImGui::Checkbox(name, bool_ptr))
+	{
+		*addr = 1;
+	}
+	else
+	{
+		*addr = 0;
+	}
 }
 void ImGuiSetNextItemAllowOverlap(dbg_state* dbg)
 {
@@ -2150,6 +2192,20 @@ void ImGuiGetCursorPosX(dbg_state* dbg)
 	*addr = ImGui::GetCursorPosX();
 }
 
+void ImGuiButton(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (ImGui::Button(name_str))
+		*addr = true;
+	else
+		*addr = false;
+
+}
 void ImGuiSelectable(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -6510,6 +6566,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ImGuiText", (OutsiderFuncType)ImGuiText);
 	AssignOutsiderFunc(&lang_stat, "ImGuiImage", (OutsiderFuncType)ImGuiImage);
 	AssignOutsiderFunc(&lang_stat, "ImGuiSelectable", (OutsiderFuncType)ImGuiSelectable);
+	AssignOutsiderFunc(&lang_stat, "ImGuiButton", (OutsiderFuncType)ImGuiButton);
 	AssignOutsiderFunc(&lang_stat, "ImGuiSameLine", (OutsiderFuncType)ImGuiSameLine);
 	AssignOutsiderFunc(&lang_stat, "ImGuiPushItemWidth", (OutsiderFuncType)ImGuiPushItemWidth);
 	AssignOutsiderFunc(&lang_stat, "ImGuiPopItemWidth", (OutsiderFuncType)ImGuiPopItemWidth);

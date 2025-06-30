@@ -21,6 +21,11 @@ obj_mov_based_on_cam_pos :struct
 	mul_vel : _vec,
 	texture_offset : bool,
 }
+temporarily_not_serialize_info:struct
+{
+	str : string
+	ent : *entity
+}
 context: struct
 {
 	//scenes : *scene_info,
@@ -153,15 +158,24 @@ context: struct
 
 	textures : dyn_array(texture_info),
 
+
 	ents_with_clip : dyn_array(*entity),
 	player : *entity,
 
 	draw_col :bool,
 	draw_origin :bool,
+	save_player_pos : bool
+	editor_wnd :bool
 	terrain_chunks_to_col : dyn_array(*chunk_col_info)
 	mesh_added_aux : dyn_array(u32)
 	vertex_terrain : dyn_array(vertex_terrrain_modify)
 	aux_vertex_terrain : dyn_array(vertex_terrrain_modify)
+	temporarily_not_serialize_ents : dyn_array(temporarily_not_serialize_info)
+
+	save_scene_buffer : [32]char
+	session_id : u32
+
+	ents : dyn_array(*entity)
 }
 perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
     tanHalfFov:= tanf(fov / 2.0);
@@ -726,7 +740,7 @@ axe_throw_callback::fn(data : *anim_callback_info) !bool
 
 NewAxeEnt::fn(ctx : *context) ! *entity
 {
-	axe_ent := NewEnt(ctx.alloc, "axe");
+	axe_ent := NewEnt(ctx, "axe");
 	axe_ent.is_trigger = true;
 	axe_ent.type = ent_type.AXE;
 	add_body(ctx, axe_ent);
@@ -1050,7 +1064,7 @@ create_map_from_str::fn(ctx : *context, str : str_lit, final_t : *_vec)
 			block_height := cur_downwards_idx - y
 			sz.y = cast(f32)block_height
 		}
-		ent := NewEnt(ctx.alloc, "block");
+		ent := NewEnt(ctx, "block");
 		ent.is_active = true;
 		ent.pos = start_pos
 		ent.pos.z = 0.1
@@ -2725,7 +2739,7 @@ print_mov :: fn(mov : *entity)
 }
 new_cube::fn(ctx : *context, pos : *_vec, size : *_vec) ! *entity
 {
-	other := NewEnt(ctx.alloc, "block 1")
+	other := NewEnt(ctx, "block 1")
 	other.pos = *pos
 	other.size = *size
 	other.flags = other.flags | ENTITY_3D | ENTITY_HAS_TEXTURE | ENTITY_SERIALIZE
@@ -2735,19 +2749,21 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec) ! *entity
 	other.is_active = true
 	other.is_static = true
 
+	dyn_add(&other.remove_from, ent_part_of.DRAWABLE)
+	dyn_add(&other.remove_from, ent_part_of.COLLIDER)
+
 	return other
 }
 new_axis_ent::fn(ctx : *context, name : str_lit, sz : *_vec, col : *_vec) ! *entity
 {
-	ret := NewEnt(ctx.alloc, name)
-	ret.is_active = true
+	ret := NewEnt(ctx, name)
+	ret.is_active = false
 	ret.is_trigger = true
 	ret.type = ent_type.AXIS
 	ret.flags = ret.flags | ENTITY_ALWAYS_ON_FRONT | ENTITY_3D | ENTITY_DONT_FREE
 	ret.size = *sz
 	memcpy(&ret.color, col, 16)
 	dyn_add(&ctx.drawable_ents, ret)
-	dyn_add(&ctx.bodies, ret)
 	add_body(ctx, ret)
 
 	return ret
@@ -2761,54 +2777,104 @@ select_action:enum
 }
 DeserializeEntVar::fn(ctx : *context, type : *type_data, data : *void, ast : *ast_rep)
 {
-	on type.tp
+	if is_flag_on(type.flags, TP_STRCT_IS_DYN_ARRAY)
 	{
-	type_enum.TYPE_VECTOR
-	{
-		vec := cast(*_vec)data
+		ASSERT(ast.type == ast_type.INDEX)
+		cur_tp_ptr := ptr_offset(type.strct, 1, type_data)
 
-		ASSERT(ast.type == ast_type.SCOPE)
 
-		bin := *ast.SCOPE.stmnts[0]
-		
-		ASSERT(is_ast_bin(bin, cast(u32)token_type.COMMA))
-		cur := cast(*f32)data
-		for c in bin.BIN.expr
+		on cur_tp_ptr.tp
 		{
-			ASSERT(c.type == ast_type.INT)
-			*cur = *cast(*f32)cast(*s32)&c.INT.num
+		type_enum.TYPE_ENUM
+		{
+			ar := cast(*dyn_array(u32))data
+			bin := ast.INDEX.rhs
 
-			cur = ptr_offset(cur, 1, f32)
+			if !bin
+				return;
+			dyn_clear(ar)
+			for c in bin.BIN.expr
+			{
+				ASSERT(c.type == ast_type.INT)
+				dyn_add(ar, cast(u32)c.INT.num)
+			}
 		}
+		default
+		{
+			__dbg_break
+		}
+		}
+
 	}
-	type_enum.TYPE_U32
+	else
 	{
-		*cast(*u32)data = cast(u32)ast.INT.num
-	}
-	type_enum.TYPE_ENUM
-	{
-		*cast(*s32)data = cast(s32)ast.INT.num
-	}
-	type_enum.TYPE_STR_LIT
-	{
-		*cast(*str_lit)data = cast(str_lit)ast.STR_LIT.str.data.data
-	}
-	default
-	{
-		__dbg_break
-	}
+		on type.tp
+		{
+		type_enum.TYPE_BOOL
+		{
+			*cast(*u8)data = cast(u8)ast.INT.num
+		}
+		type_enum.TYPE_VECTOR
+		{
+			vec := cast(*_vec)data
+
+			ASSERT(ast.type == ast_type.SCOPE)
+
+			bin := *ast.SCOPE.stmnts[0]
+			
+			ASSERT(is_ast_bin(bin, cast(u32)token_type.COMMA))
+			cur := cast(*f32)data
+			for c in bin.BIN.expr
+			{
+				ASSERT(c.type == ast_type.INT)
+				*cur = *cast(*f32)cast(*s32)&c.INT.num
+
+				cur = ptr_offset(cur, 1, f32)
+			}
+		}
+		type_enum.TYPE_U32
+		{
+			*cast(*u32)data = cast(u32)ast.INT.num
+		}
+		type_enum.TYPE_ENUM
+		{
+			*cast(*s32)data = cast(s32)ast.INT.num
+		}
+		type_enum.TYPE_STR_LIT
+		{
+			if ast.type == ast_type.WORD
+			{
+				*cast(*str_lit)data = string_to_str_lit(ctx.alloc, &ast.WORD.str)
+			}
+			else if ast.type == ast_type.STR_LIT
+			{
+				*cast(*str_lit)data = string_to_str_lit(ctx.alloc, &ast.STR_LIT.str)
+			}
+			else
+			{
+				__dbg_break
+			}
+		}
+		default
+		{
+			__dbg_break
+		}
+		}
 	}
 	
 }
-DeserializeAllEnt::fn(ctx : *context)
+DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 {
 
-	file_name := "../scenes/01"
+	file_name = "../scenes/{file_name}"
 	fl_sz: = GetFileSize(file_name);
 	if fl_sz == -1
 		__dbg_break
 	file: = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
 	ReadFile(file_name, file);
+	fl :=cast(*scene_file)file
+
+	file = cast(str_lit)ptr_offset(file, sizeof(*fl), u8);
 	i :s64
 
 	tkns : dyn_array(token)
@@ -2825,6 +2891,7 @@ DeserializeAllEnt::fn(ctx : *context)
 		ent := ptr_offset(globals.entities.start, i2, entity);
 		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
 		{
+			DeleteEnt(ctx, ent)
 			ent.flags = 0;
 		}
 	}
@@ -2833,7 +2900,6 @@ DeserializeAllEnt::fn(ctx : *context)
 	{
 		if *file[i] == '(
 		{
-			ent := NewEnt(ctx.alloc, "")
 			i++
 			
 			start := i
@@ -2862,7 +2928,6 @@ DeserializeAllEnt::fn(ctx : *context)
 			ast :*ast_rep= parse_node_to_ast(&lang_stat, nd, root)
 			aux_str:string
 			ast_to_string(ast, &aux_str)
-			__dbg_break
 			ASSERT(ast.type == ast_type.SCOPE)
 
 			stmnts:*ast_rep= *ast.SCOPE.stmnts[0]
@@ -2871,10 +2936,29 @@ DeserializeAllEnt::fn(ctx : *context)
 			ASSERT(is_ast_bin(stmnts, cast(u32)token_type.SEMI_COLON))
 
 			etype :*type_data= GetTypeData(cast(*entity)0)
+
+			flags := cast(u32)stmnts.BIN.expr[0].BIN.expr[1].INT.num
+
+			ent :*entity
+
+			if is_flag_on(flags, ENTITY_DONT_FREE)
+			{
+				bin := stmnts.BIN.expr[1]
+				ASSERT(bin.BIN.expr[0].WORD.str == "idx")
+				ent_idx := cast(u32)stmnts.BIN.expr[1].BIN.expr[1].INT.num
+				ASSERT(ent_idx < globals.entities.max)
+				ent = ptr_offset(globals.entities.start, ent_idx, entity)
+			}
+			else
+			{
+				ent = NewEnt(ctx, "")
+			}
+
+
 			for st in stmnts.BIN.expr
 			{
 				ASSERT(is_ast_bin(*st, cast(u32)token_type.EQUAL))
-				name :*string= &st.BIN.expr[0].STR_LIT.str
+				name :*string= &st.BIN.expr[0].WORD.str
 
 				var_type:*type_data
 				for i2 in 0..etype.entries
@@ -2887,48 +2971,189 @@ DeserializeAllEnt::fn(ctx : *context)
 					}
 				}
 
-
-				ASSERT(var_type)
+				if !var_type continue;
 
 				data := ptr_offset(ent, var_type.offset, u8)
 				DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
+
 			}
-			__dbg_break
+			printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
 			i += ent_str_sz - 1
+
+
+			if is_flag_off(ent.flags, ENTITY_DONT_FREE)
+			{
+				for en in ent.remove_from
+				{
+					on *en
+					{
+					ent_part_of.DRAWABLE
+					{
+						dyn_add(&ctx.drawable_ents, ent)
+					}
+					ent_part_of.COLLIDER
+					{
+						add_body(ctx, ent);
+					}
+					ent_part_of.INSTANTIATED
+					{
+						//__dbg_break
+						//dyn_add(&ctx.ents, ent)
+					}
+					default
+					{
+						__dbg_break
+					}
+					}
+				}
+			}
 
 		}
 		i++
 	}
-	__dbg_break
 }
-SerializeAllEnt::fn(ctx : *context)
+free_lang_stuff::fn()
+{
+	globals.ast_alloc.cur = 0
+	globals.scope_alloc.cur = 0
+	globals.nodes_alloc.cur = 0
+}
+SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 {
 	out :string
+	fl:scene_file
+	fl.session_id = ctx.session_id
+
+	dyn_add_data(&out.data, &fl, sizeof(fl));
+
+	printf("file name bef %", file_name)
+	file_name = "../dev/scenes/{file_name}"
+	printf("file name aft {file_name}")
+
 	for i in 0..globals.entities.max
 	{
 		ent := ptr_offset(globals.entities.start, i, entity);
+		if is_flag_off(ent.flags, ENTITY_IN_USE)
+		{
+			continue
+		}
+		printf("ent saved {ent.name}, flags {ent.flags}\n")
 		if ent.type == ent_type.AXIS
 			continue;
 
+		if is_flag_on(ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
+		{
+			__dbg_break
+			continue
+		}
+
 		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
 		{
-			globals.ast_alloc.cur = 0
+			free_lang_stuff()
 			aux :string
 
-			ast := SerializeEnt(ent)
+			ast := SerializeEnt(ent, cast(u64)i)
 			
 			ast_to_string(ast, &aux)
 			PushStrLit(&out, "({aux.data.count})")
 			PushStr(&out, &aux)
 			heap_free(aux.data.alloc, aux.data.data)
-			PushStrLit(&out, "; ")
+			PushStrLit(&out, "\n ")
+
+			globals.temp_alloc.cur = 0
+			//printf("str {out}\n")
 		}
 	}
 	out.data.count -= 2
-	WriteFile("../scenes/01", out.data.data, out.data.count)
+	WriteFile(file_name, out.data.data, out.data.count)
+}
+editor_window::fn(ctx : *context, out_ent : *entity)
+{
+	HideCursor(false)
+	ImGuiBegin("editor", &ctx.editor_wnd, 0);
+
+	for e in ctx.ents
+	{
+		buffer:[64]char
+		//if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
+		sprintf(buffer, 32, "{e.name}, {cast(u32)e.flags}, addr {cast(u32)cast(u64)*e}")
+		ImGuiText(cast(str_lit)buffer)
+		if out_ent == *e
+		{
+			ImGuiSameLine()
+			ImGuiText("o")
+
+		}
+	}
+	ImGuiInputText(" ", cast(str_lit)ctx.save_scene_buffer[0], 32)
+
+	printf(cast(str_lit)ctx.save_scene_buffer)
+	ImGuiSameLine()
+	dummy_sel :bool
+	if ImGuiSelectable("save", dummy_sel, 40.0, 15.0)
+	{
+		SerializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
+	}
+	ImGuiSameLine()
+	if ImGuiSelectable("open", dummy_sel, 40.0, 15.0)
+	{
+		DeserializeAllEnt(ctx, cast(str_lit)ctx.save_scene_bufferr[0])
+	}
+
+
+	if out_ent
+	{
+		not_serialize := is_flag_on(out_ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
+		if ImGuiCheckbox("not serialize", &not_serialize)
+		{
+			val := out_ent.flags & ENTITY_TEMPORARILY_NOT_SERIALIZE
+			out_ent.flags = out_ent.flags & ~ENTITY_TEMPORARILY_NOT_SERIALIZE
+
+			val = (~val) & ENTITY_TEMPORARILY_NOT_SERIALIZE
+
+			out_ent.flags = out_ent.flags | val
+
+			found :bool;
+			idx : u64;
+			for e in ctx.temporarily_not_serialize_ents
+			{
+				if e.ent == out_ent
+				{
+					found = true
+					break
+				}
+				idx++
+			}
+			if is_flag_on(out_ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
+			{
+				ASSERT(found)
+				t :*temporarily_not_serialize_info=ctx.temporarily_not_serialize_ents[idx]
+				heap_free(t.str.data.alloc, t.str.data.data)
+				
+				dyn_rem(&ctx.temporarily_not_serialize_ents, cast(u32)idx)
+			}
+			else
+			{
+				ASSERT(found == false)
+				t:temporarily_not_serialize_info
+				ast := SerializeEnt(out_ent, cast(u64)idx)
+				
+				ast_to_string(ast, &t.str)
+
+				dyn_add(&ctx.temporarily_not_serialize_ents, &t)
+			}
+		}
+		ImGuiText(out_ent.name)
+		ImGuiCheckbox("active: ", &out_ent.is_active)
+		ImGuiText("pos: ")
+		ImGuiSameLine()
+		ImGuiShowV3(&out_ent.pos)
+	}
+	ImGuiEnd()
 }
 main_loop::fn(ctx : *context)
 {
+	ctx.session_id = cast(u32)(Rand01() * 1000.0)
 	//perspective(ctx.perspective_mat[0], fov : f32, aspect : f32, near : f32, far : f32)
     perspective(&ctx.perspective_mat, 45.0 * (3.14159 / 180.0), 1.0, 0.1, 500.0);
 	test_model := LoadModel("../models/test.fbx")
@@ -2941,7 +3166,7 @@ main_loop::fn(ctx : *context)
 	LinearInit(&globals.entities, ctx.alloc, 32)
 	LinearInit(&globals.str_alloc, ctx.alloc, 128)
 	LinearInit(&globals.allocs_occured, ctx.alloc, 32)
-	LinearInit(&globals.temp_alloc, ctx.alloc, 128)
+	LinearInit(&globals.temp_alloc, ctx.alloc, 1024)
 	LinearInit(&globals.nodes_alloc, ctx.alloc, 512)
 	LinearInit(&globals.ast_alloc, ctx.alloc, 512)
 	LinearInit(&globals.scope_alloc, ctx.alloc, 16)
@@ -3030,7 +3255,7 @@ main_loop::fn(ctx : *context)
 
 
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
-	other := NewEnt(ctx.alloc, "block 1")
+	other := NewEnt(ctx, "block 1")
 	other.flags = other.flags | ENTITY_3D
 	//add_body(ctx, other)
 	dyn_add(&ctx.drawable_ents, other)
@@ -3090,7 +3315,8 @@ main_loop::fn(ctx : *context)
 	cam_up_dist := 5.0
 	hidden_cur := true
 
-	cube := new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{20.0, 1.0, 20.0});
+	cube :*entity
+	cube = new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{20.0, 1.0, 20.0});
 	cube.tex_id = ctx.grass_tex
 
 	cube = new_cube(ctx, &_vec{5.0, 70.5, 10.0}, &_vec{10.5, 5.0, 0.5});
@@ -3124,9 +3350,8 @@ main_loop::fn(ctx : *context)
 	
 	sel_action : select_action
 
-	SerializeAllEnt(ctx)
-	__dbg_break
-	DeserializeAllEnt(ctx)
+	//SerializeAllEnt(ctx)
+	DeserializeAllEnt(ctx, "01")
 
 
 	while !ShouldClose(ctx.window)
@@ -3139,8 +3364,8 @@ main_loop::fn(ctx : *context)
 		curmx := GetMouseScreenPosX();
 		curmy := GetMouseScreenPosY();
 
-		//dt: = GetTime() - last_time;
-		dt: = 0.017;
+		dt: = GetTime() - last_time;
+		//dt: = 0.017;
 		last_time = GetTime();
 		ctx.time_since_start += dt
 
@@ -3209,10 +3434,10 @@ main_loop::fn(ctx : *context)
 
 			if axis_sel_ent
 			{
+				print_vec(&out_ent.pos)
 				fw := axis_sel_ent.forward 
 
 				dx := dot_vec(&fw, &select_right) * mvx
-				print_vec(&select_right)
 
 				on sel_action
 				{
@@ -3428,6 +3653,14 @@ main_loop::fn(ctx : *context)
 				}
 			}
 			*/
+			if IsKeyDown(key_enum.KEY_F3)
+			{
+				ctx.editor_wnd = !ctx.editor_wnd
+			}
+			if ctx.editor_wnd
+			{
+				editor_window(ctx, out_ent)
+			}
 			
 		}
 		else
@@ -3456,7 +3689,6 @@ main_loop::fn(ctx : *context)
 			cam_pos = player_ent.pos
 			player_ent.forward = cam_forward
 
-			//print_vec(&cam_rot)
 
 			PhysicsUpdate(ctx, dt)
 		}
@@ -3470,6 +3702,7 @@ main_loop::fn(ctx : *context)
 			HideCursor(hidden_cur)
 		}
 		print_mov(player_ent)
+		//OpenLocalsWindow(__LINE__)
 
 		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
 		globals.temp_alloc.cur = 0

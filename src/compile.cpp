@@ -66,7 +66,7 @@ typedef long long s64;
 #define MEM_PTR_START_ADDR (STACK_PTR_START + 1000)
 #define MEM_PTR_MAX_ADDR 18008
 
-#define DATA_SECT_MAX 5048
+#define DATA_SECT_MAX 6048
 #define DATA_SECT_OFFSET 1024 * 1024 * 32
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
@@ -326,10 +326,28 @@ enum gen_enum
 	GEN_X64,
 };
 
+enum class later_find_type
+{
+	PTR_FIND,
+	ENUM,
+};
 struct ptr_decl_that_have_len
 {
-	decl2* decl;
+	later_find_type type;
+	union
+	{
+		own_std::string name;
+		decl2* decl;
+	};
 	scope* scp;
+	~ptr_decl_that_have_len()
+	{
+
+	}
+	ptr_decl_that_have_len()
+	{
+
+	}
 };
 
 struct web_assembly_state;
@@ -6819,7 +6837,9 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_ENUM:
 		{
 			if(d->type.from_enum)
+			{
 				vdbg->type_idx = d->type.from_enum->offset;
+			}
 		}break;
 		case TYPE_BOOL:
 		case TYPE_INT:
@@ -7384,7 +7404,8 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			d->flags |= DECL_PTR_HAS_LEN;
 			own_std::string ptr_len_name = own_std::string((const char *)string_sect + cur_var->ptr_has_len_var_name.name_on_string_sect, cur_var->ptr_has_len_var_name.name_len);
 			d->len_for_ptr_name = ptr_len_name.substr();
-			ptr_decl_that_have_len ptr_decl;
+			ptr_decl_that_have_len ptr_decl={};
+			ptr_decl.type = later_find_type::PTR_FIND;
 			ptr_decl.decl = d;
 			ptr_decl.scp = scp_final;
 			lang_stat->ptrs_have_len.emplace_back(ptr_decl);
@@ -7405,6 +7426,10 @@ unit_file *WasmInterpSearchFile(lang_state* lang_stat, own_std::string *name)
 	return nullptr;
 }
 
+void WasmInterpBuildEnum(wasm_interp *winterp, unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize *file, scope *parent, scope_dbg *scp_pre, bool create_vars = false)
+{
+
+}
 
 scope *WasmInterpBuildScopes(wasm_interp *winterp, unsigned char* data, unsigned int len, lang_state* lang_stat, dbg_file_seriealize *file, scope *parent, scope_dbg *scp_pre, bool create_vars = false)
 {
@@ -10771,10 +10796,6 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 	char buffer[256];
 	//ImGui::Text("offset: %d", d->offset);
 	//ImGui::SameLine();
-	if (d->name == "l_ptr")
-	{
-		auto a = 0;
-	}
 	if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
 	{
 		if(ptr_decl > 0)
@@ -11308,10 +11329,13 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	type2 dummy_type;
 	FOR_VEC(pinfo, lang_stat->ptrs_have_len)
 	{
-		decl2 *d = FindIdentifier(pinfo->decl->len_for_ptr_name, pinfo->scp, &dummy_type);
-		ASSERT(d);
-		pinfo->decl->len_for_ptr = d;
-		pinfo->decl->len_for_ptr_offset = d->offset;
+		if(pinfo->type == later_find_type::PTR_FIND)
+		{
+			decl2 *d = FindIdentifier(pinfo->decl->len_for_ptr_name, pinfo->scp, &dummy_type);
+			ASSERT(d);
+			pinfo->decl->len_for_ptr = d;
+			pinfo->decl->len_for_ptr_offset = d->offset;
+		}
 	}
 	for (int i = 0; i < file->total_funcs; i++)
 	{

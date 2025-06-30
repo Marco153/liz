@@ -87,10 +87,23 @@ global_struct : struct
 }
 globals : global global_struct
 
+scene_file:struct
+{
+	session_id : u32
+}
+
 rel_string : struct
 {
 	offset : u32,
 	count : u32,
+}
+string_to_str_lit::fn(alloc : *mem_alloc, str: *string) ! str_lit
+{
+	ln := str.data.count
+	ret := cast(*u8)heap_alloc(alloc, cast(u32)ln + 1)
+	memcpy(ret, str.data.data, ln)
+	*ptr_offset(ret, ln, u8) = 0
+	return cast(str_lit)ret
 }
 AppendStr::fn(self: *string, ch : char)
 {
@@ -477,10 +490,16 @@ key_enum : enum
 	KEY_SPACE,
 	KEY_F1,
 	KEY_F2,
+	KEY_F3,
+	KEY_F4,
 	KEY_F5,
+	KEY_F6,
+	KEY_F7,
+	KEY_F8,
 	KEY_F9,
 	KEY_F10,
 	KEY_F11,
+	KEY_F12,
 	KEY_ENTER,
 	KEY_K,
 	KEY_1,
@@ -1263,8 +1282,8 @@ AssignmentToAst::fn(name : str_lit, rhs : *ast_rep)!*ast_rep
 	ret.type = ast_type.BIN
 
 	name_ast := new_ast2()
-	name_ast.type = ast_type.STR_LIT
-	AssignStr(&name_ast.STR_LIT.str, name)
+	name_ast.type = ast_type.WORD
+	AssignStr(&name_ast.WORD.str, name)
 
 	ret.BIN.op = cast(u32)token_type.EQUAL
 	dyn_add(&ret.BIN.expr, name_ast)
@@ -1310,11 +1329,11 @@ ArrayU32AssignmentToAst::fn(name : str_lit, rhs : *dyn_array(u32))!*ast_rep
 	idx := new_ast2()
 	idx.type = ast_type.INDEX
 
-	__dbg_break
 	if rhs.count > 0
 	{
 		bin := new_ast2()
 		bin.type = ast_type.BIN
+		bin.BIN.op = cast(u32)token_type.COMMA
 
 		idx.INDEX.rhs = bin
 		for v in *rhs
@@ -1332,19 +1351,27 @@ VecAssignmentToAst::fn(name : str_lit, rhs : *_vec)!*ast_rep
 	v := VecToAst(rhs)
 	return AssignmentToAst(name, v)
 }
-SerializeEnt::fn(ent : *entity) ! *ast_rep
+SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 {
 	ret := new_ast2()
 	ret.type = ast_type.SCOPE
 	
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("flags", cast(s32)ent.flags))
+	if(is_flag_on(ent.flags, ENTITY_DONT_FREE))
+	{
+		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("idx", cast(s32)idx))
+	}
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("pos", &ent.pos))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("size", &ent.size))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("rot", &ent.rot))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("color", &ent.color))
 	dyn_add(&ret.SCOPE.stmnts, StrLitAssignmentToAst("name", ent.name))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)ent.type))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("model", cast(s32)ent.model))
-	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("flags", cast(s32)ent.flags))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("layer", cast(s32)ent.layer))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_active", cast(s32)ent.is_active))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_trigger", cast(s32)ent.is_trigger))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_static", cast(s32)ent.is_static))
 	dyn_add(&ret.SCOPE.stmnts, ArrayU32AssignmentToAst("remove_from", cast(*dyn_array(u32))&ent.remove_from))
 
 	return ret
@@ -1493,6 +1520,7 @@ ImGuiEnd::fn outsider();
 ImGuiBeginChild::fn outsider(str_lit, f32, f32);
 ImGuiEndChild::fn outsider();
 ImGuiText::fn outsider(str_lit);
+ImGuiButton::fn outsider(str_lit) ! bool;
 ImGuiImage::fn outsider(u64, f32, f32);
 ImGuiSelectable::fn outsider(str_lit, selected : bool, w :f32, h : f32) !bool;
 ImGuiSameLine::fn outsider();
@@ -1514,7 +1542,7 @@ ImGuiShowV3::fn outsider(*_vec);
 ImGuiSetWindowFontScale::fn outsider(size : f32);
 ImGuiInputText::fn outsider(label : str_lit, buf : str_lit, buf_sz : u32);
 ImGuiInputInt::fn outsider(label : str_lit, int : *s32);
-ImGuiCheckbox::fn outsider(label : str_lit, b : *bool);
+ImGuiCheckbox::fn outsider(label : str_lit, b : *bool) ! bool;
 
 HideCursor::fn outsider(bool);
 IsMouseOnGameWindow::fn outsider()!bool;
@@ -2007,6 +2035,3 @@ equal_vec::fn(a : *_vec, b : *_vec) ! bool
 {
 	return cmpf(a.x, b.x) && cmpf(a.y, b.y) && cmpf(a.z, b.z) && cmpf(a.w, b.w)
 }
-
-
-

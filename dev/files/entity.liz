@@ -24,7 +24,7 @@ DisableEnt::fn(ent : *entity)
 
 DeleteEnt::fn(ctx : *context, ent : *entity)
 {
-	for t in ent.part_of
+	for t in ent.remove_from
 	{
 		te := cast(ent_part_of)*t
 		on te
@@ -55,12 +55,34 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 			}
 			dyn_rem(&ctx.bodies, i)
 
+			heap_free(ent.ents_in_collision.alloc, ent.ents_in_collision.data);
+
+
+			heap_free(ctx.alloc, ent.col)
+		}
+		ent_part_of.INSTANTIATED
+		{
+			i :u32= 0
+			for e in ctx.ents
+			{
+				if *e == ent
+				{
+					break
+				}
+				i++
+			}
+			dyn_rem(&ctx.ents, i)
+
+		}
+		default
+		{
+			__dbg_break
 		}
 		}
 	}
 	ent.flags = 0
 }
-NewEnt::fn(alloc : *mem_alloc, name : str_lit) ! *entity
+NewEnt::fn(ctx : *context, name : str_lit) ! *entity
 {
 	ent :*entity
 	for i in 0..globals.entities.max
@@ -73,8 +95,10 @@ NewEnt::fn(alloc : *mem_alloc, name : str_lit) ! *entity
 	}
 	ASSERT(ent)
 	memset(ent, 0, sizeof(entity));
+	dyn_add(&ent.remove_from, ent_part_of.INSTANTIATED)
+	dyn_add(&ctx.ents, ent)
 	ent.flags = ENTITY_IN_USE
-	ent.color = []f32{1.0, 1.0, 1.0, 1.0};
+	ent.color = _vec{1.0, 1.0, 1.0, 1.0};
 	ent.name = name;
 	ent.size.x = 1.0;
 	ent.size.y = 1.0;
@@ -90,14 +114,14 @@ NewEnt::fn(alloc : *mem_alloc, name : str_lit) ! *entity
 }
 NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
 {
-	*out_ent = NewEnt(ctx.alloc, "playable_ent");
+	*out_ent = NewEnt(ctx, "playable_ent");
 	mov_info: = cast(*player_info)heap_alloc(ctx.alloc, sizeof(player_info));
 	out_ent.mov_info = mov_info;
 
 	//memset(*out_ent, 0, sizeof(entity));
 
 	/*
-	trigger := NewEnt(ctx.alloc, "trigger of playable_ent");
+	trigger := NewEnt(ctx, "trigger of playable_ent");
 	
 	if !should_be_freed
 	{

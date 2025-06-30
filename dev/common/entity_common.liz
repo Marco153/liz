@@ -66,6 +66,7 @@ ENTITY_TRANSPARENT: const s32 = 32;
 ENTITY_ALWAYS_ON_FRONT: const s32 = 64 | ENTITY_TRANSPARENT;
 ENTITY_IN_USE: const s32 = 128
 ENTITY_SERIALIZE: const s32 = 256
+ENTITY_TEMPORARILY_NOT_SERIALIZE: const s32 = 512
 
 LAYER_ENTITY_PLAYABLE:const s32 = 1;
 LAYER_PLAYER:const s32 = 2;
@@ -133,7 +134,8 @@ thinking : struct
 ent_part_of:enum
 {
 	DRAWABLE,
-	COLLIDER
+	COLLIDER,
+	INSTANTIATED
 }
 entity:struct
 {
@@ -146,7 +148,7 @@ entity:struct
 	col_size : _vec,
 	rot : _vec,
 	angle_rot : _vec,
-	color : v4,
+	color : _vec,
 	vel : _vec,
 	impact_vel : _vec,
 	forward : _vec,
@@ -174,7 +176,6 @@ entity:struct
 	mov_info : *player_info,
 	axe : *axe_info,
 	ents_in_collision : dyn_array(in_col_ent),
-	part_of : dyn_array(u32),
 	cl : *clip2,
 	clip_time : f32,
 	clip_done : bool,

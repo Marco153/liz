@@ -2490,6 +2490,11 @@ bool CheckFuncRetType(lang_state *lang_stat, func_decl* fdecl, scope* scp)
 		if (!NameFindingGetType(lang_stat, fnode->l->r, scp, fdecl->ret_type))
 			return false;
 		fdecl->ret_type.type = FromTypeToVarType(fdecl->ret_type.type);
+		if(fdecl->ret_type.type == TYPE_ENUM && fdecl->ret_type.e_decl->type.type == TYPE_ENUM_TYPE)
+		{
+			fdecl->ret_type.e_decl = fdecl->ret_type.e_decl->type.e_decl;
+			fdecl->ret_type.from_enum = fdecl->ret_type.e_decl;
+		}
 	}
 	else
 		fdecl->ret_type.type = enum_type2::TYPE_VOID;
@@ -5547,7 +5552,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				}
 			}
 				*/
-			//BREAK(ncall->t->line == 1131)
+			//BREAK(ncall->t->line == 2781)
 			if (lhs->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
 			{
 				FOR_VEC(t, args)
@@ -10338,12 +10343,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			lhs_type.from_enum = lhs_type.e_decl;
 			if(lhs_type.from_enum->type.type == TYPE_TEMPLATE)
 			{
-				HERE()
 				lhs_type.from_enum = lhs_type.from_enum->type.tp->e_decl;
 			}
 			else if(lhs_type.from_enum->type.type == TYPE_ENUM_TYPE)
 			{
 				lhs_type.from_enum = lhs_type.from_enum->type.e_decl;
+				lhs_type.e_decl = lhs_type.from_enum;
 			}
 		}
 		if (lhs_type.type == TYPE_FUNC_DEF)
@@ -11051,6 +11056,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 							// return types mismatch
 							else
 							{
+								HERE()
+								ret_type = DescendNode(lang_stat, n->r, scp);
+								CompareTypes(&fdecl->ret_type, &ret_type, false);
 								REPORT_ERROR(n->t->line, n->t->line_offset, VAR_ARGS("return value mismatches with function return type.Expected %s, received %s\n\n%s\n...\n",
 									TypeToString(fdecl->ret_type).c_str(), TypeToString(ret_type).c_str(), GetFileLn(lang_stat, fdecl->func_node->t->line - 1)))
 							}
@@ -11816,10 +11824,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					{
 						if (!CompareTypes(&ltp, &rtp))
 						{
+							/*
 							HERE()
 							ltp = DescendNode(lang_stat, n->l, scp);
 							rtp = DescendNode(lang_stat, n->r, scp);
 							CompareTypes(&ltp, &rtp);
+							*/
 							ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 						}
 

@@ -83,6 +83,7 @@ context: struct
 	spear_clip : *clip2,
 
 	*/
+	ent_collider_modify : bool
 
 	gjk : *gjk_state
 	aux_col1 : collider
@@ -102,9 +103,6 @@ context: struct
 
 	perspective_mat : [4 * 4]f32
 	
-	already_allocated_ents_count : u32,
-	already_allocated_str_count : u32,
-	already_allocated_mem_count : u32,
 	
 	grass_tex : u32
 	waypoints:dyn_array(waypoint)
@@ -157,6 +155,7 @@ context: struct
 	ents_think : dyn_array(*entity),
 
 	textures : dyn_array(texture_info),
+	models : dyn_array(model_info),
 
 
 	ents_with_clip : dyn_array(*entity),
@@ -172,11 +171,26 @@ context: struct
 	aux_vertex_terrain : dyn_array(vertex_terrrain_modify)
 	temporarily_not_serialize_ents : dyn_array(temporarily_not_serialize_info)
 
-	save_scene_buffer : [32]char
+	editor_wnd_type : editor_window_enum
+	save_scene_buffer : [64]char
 	session_id : u32
 
+
 	ents : dyn_array(*entity)
+
+	cur_model_selected_idx : s32
+
+	preview_ent : *entity
+
+	cur_preview_idx : u8
 }
+editor_window_enum:enum
+{
+	ENTS,
+	MODELS,
+	PREFABS,
+}
+
 perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
     tanHalfFov:= tanf(fov / 2.0);
 	memset(mat, 0, 16)
@@ -196,6 +210,7 @@ inverse_perspective::fn(inv_mat : *f32, fov : f32, aspect : f32, near : f32, far
     *ptr_offset(inv_mat, 14, f32) = -1.0;
     *ptr_offset(inv_mat, 15, f32) = (far + near) / (2.0 * far * near);
 }
+
 
 
 anim_type:enum
@@ -302,6 +317,7 @@ WasmDbg::fn outsider(*context);
 AssignCtxAddr::fn outsider(*context);
 AssignTexFolder::fn outsider(str_lit);
 AssignSoundFolder::fn outsider(str_lit);
+AssignModelFolder::fn outsider(str_lit);
 PlayAudio::fn outsider(str_lit);
 
 Max::fn(a : s32, b : s32) !s32
@@ -2742,6 +2758,7 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec) ! *entity
 	other := NewEnt(ctx, "block 1")
 	other.pos = *pos
 	other.size = *size
+	other.col_size = *size
 	other.flags = other.flags | ENTITY_3D | ENTITY_HAS_TEXTURE | ENTITY_SERIALIZE
 	other.flags = other.flags & ~ENTITY_TRANSPARENT
 	add_body(ctx, other)
@@ -3026,9 +3043,6 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 
 	dyn_add_data(&out.data, &fl, sizeof(fl));
 
-	printf("file name bef %", file_name)
-	file_name = "../dev/scenes/{file_name}"
-	printf("file name aft {file_name}")
 
 	for i in 0..globals.entities.max
 	{
@@ -3065,6 +3079,9 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 		}
 	}
 	out.data.count -= 2
+	printf("file name bef %", file_name)
+	file_name = "../scenes/{file_name}"
+	printf("file name aft {file_name}")
 	WriteFile(file_name, out.data.data, out.data.count)
 }
 editor_window::fn(ctx : *context, out_ent : *entity)
@@ -3072,90 +3089,203 @@ editor_window::fn(ctx : *context, out_ent : *entity)
 	HideCursor(false)
 	ImGuiBegin("editor", &ctx.editor_wnd, 0);
 
-	for e in ctx.ents
+	aux_bool :=ctx.editor_wnd_type == editor_window_enum.ENTS
+	if ImGuiSelectable("ents", aux_bool, 40.0, 15.0)
 	{
-		buffer:[64]char
-		//if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
-		sprintf(buffer, 32, "{e.name}, {cast(u32)e.flags}, addr {cast(u32)cast(u64)*e}")
-		ImGuiText(cast(str_lit)buffer)
-		if out_ent == *e
-		{
-			ImGuiSameLine()
-			ImGuiText("o")
-
-		}
-	}
-	ImGuiInputText(" ", cast(str_lit)ctx.save_scene_buffer[0], 32)
-
-	printf(cast(str_lit)ctx.save_scene_buffer)
-	ImGuiSameLine()
-	dummy_sel :bool
-	if ImGuiSelectable("save", dummy_sel, 40.0, 15.0)
-	{
-		SerializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
+		ctx.editor_wnd_type = editor_window_enum.ENTS
 	}
 	ImGuiSameLine()
-	if ImGuiSelectable("open", dummy_sel, 40.0, 15.0)
+
+	aux_bool =ctx.editor_wnd_type == editor_window_enum.MODELS
+	if ImGuiSelectable("models", aux_bool, 40.0, 15.0)
 	{
-		DeserializeAllEnt(ctx, cast(str_lit)ctx.save_scene_bufferr[0])
+		ctx.editor_wnd_type = editor_window_enum.MODELS
 	}
 
-
-	if out_ent
+	aux_bool =ctx.editor_wnd_type == editor_window_enum.PREFABS
+	ImGuiSameLine()
+	if ImGuiSelectable("prefabs", aux_bool, 40.0, 15.0)
 	{
-		not_serialize := is_flag_on(out_ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
-		if ImGuiCheckbox("not serialize", &not_serialize)
+		ctx.editor_wnd_type = editor_window_enum.PREFABS
+	}
+
+	on ctx.editor_wnd_type
+	{
+	editor_window_enum.MODELS
+	{
+		idx :s32
+		for m in ctx.models
 		{
-			val := out_ent.flags & ENTITY_TEMPORARILY_NOT_SERIALIZE
-			out_ent.flags = out_ent.flags & ~ENTITY_TEMPORARILY_NOT_SERIALIZE
-
-			val = (~val) & ENTITY_TEMPORARILY_NOT_SERIALIZE
-
-			out_ent.flags = out_ent.flags | val
-
-			found :bool;
-			idx : u64;
-			for e in ctx.temporarily_not_serialize_ents
+			selected := idx == ctx.cur_model_selected_idx
+			if ImGuiSelectable(m.name, selected, 140.0, 15.0)
 			{
-				if e.ent == out_ent
-				{
-					found = true
-					break
-				}
-				idx++
+				ctx.cur_model_selected_idx = cast(s32)m.model
 			}
-			if is_flag_on(out_ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
+			idx++
+		}
+
+		screenmx := GetMouseScreenPosX();
+		screenmy := GetMouseScreenPosY();
+		
+		cam_pos := *ctx.cam_pos_global
+		dir := ScreenMouseToWorld(screenmx, screenmy)
+
+		//dir.y = -dir.y
+		cam_dir := cam_pos + dir * 20.0
+		cam_dir2 := cam_pos + dir * 5.0
+
+		cam_dir = cam_pos + dir * 2000.0
+
+		dyn_clear(&ctx.vertex_terrain)
+		prev_sel := out_ent
+		aux_sel : *entity
+		col: collision;
+		if ctx.cur_model_selected_idx != -1
+		{
+			if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
 			{
-				ASSERT(found)
-				t :*temporarily_not_serialize_info=ctx.temporarily_not_serialize_ents[idx]
-				heap_free(t.str.data.alloc, t.str.data.data)
-				
-				dyn_rem(&ctx.temporarily_not_serialize_ents, cast(u32)idx)
+				ctx.preview_ent.model = cast(u32)ctx.cur_model_selected_idx
+				ctx.preview_ent.is_active = true
+				ctx.preview_ent.pos = col.contact_point
+
+				inv := col.normal
+				vert:= ModelFarthestPoint(cast(u32)ctx.cur_model_selected_idx, &inv)
+				ctx.preview_ent.pos += vert * -1.0
 			}
 			else
 			{
-				ASSERT(found == false)
-				t:temporarily_not_serialize_info
-				ast := SerializeEnt(out_ent, cast(u64)idx)
-				
-				ast_to_string(ast, &t.str)
-
-				dyn_add(&ctx.temporarily_not_serialize_ents, &t)
+				ctx.preview_ent.is_active = false
+				ctx.preview_ent.pos = col.contact_point
 			}
 		}
-		ImGuiText(out_ent.name)
-		ImGuiCheckbox("active: ", &out_ent.is_active)
-		ImGuiText("pos: ")
+	}
+	editor_window_enum.ENTS
+	{
+		for e in ctx.ents
+		{
+			buffer:[64]char
+			//if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
+			sprintf(buffer, 32, "{e.name}, {cast(u32)e.flags}, addr {cast(u32)cast(u64)*e}")
+			ImGuiText(cast(str_lit)buffer)
+			if out_ent == *e
+			{
+				ImGuiSameLine()
+				ImGuiText("o")
+
+			}
+		}
+		ImGuiInputText(" ", cast(str_lit)ctx.save_scene_buffer[0], 32)
+
 		ImGuiSameLine()
-		ImGuiShowV3(&out_ent.pos)
+		dummy_sel :bool
+
+		if ImGuiSelectable("save", dummy_sel, 40.0, 15.0)
+		{
+			SerializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
+		}
+		ImGuiSameLine()
+		if ImGuiSelectable("open", dummy_sel, 40.0, 15.0)
+		{
+			DeserializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
+		}
+
+
+		if out_ent
+		{
+			check := is_flag_on(out_ent.flags, ENTITY_ONLY_COL)
+			if ImGuiCheckbox("only col", &check)
+			{
+				toggle_flag(&out_ent.flags, ENTITY_ONLY_COL)
+			}
+			check = is_flag_on(out_ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
+			if ImGuiCheckbox("not serialize", &check)
+			{
+				toggle_flag(&out_ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
+
+				found :bool;
+				idx : u64;
+				for e in ctx.temporarily_not_serialize_ents
+				{
+					if e.ent == out_ent
+					{
+						found = true
+						break
+					}
+					idx++
+				}
+				if is_flag_on(out_ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
+				{
+					ASSERT(found)
+					t :*temporarily_not_serialize_info=ctx.temporarily_not_serialize_ents[idx]
+					heap_free(t.str.data.alloc, t.str.data.data)
+					
+					dyn_rem(&ctx.temporarily_not_serialize_ents, cast(u32)idx)
+				}
+				else
+				{
+					ASSERT(found == false)
+					t:temporarily_not_serialize_info
+					ast := SerializeEnt(out_ent, cast(u64)idx)
+					
+					ast_to_string(ast, &t.str)
+
+					dyn_add(&ctx.temporarily_not_serialize_ents, &t)
+				}
+			}
+			ImGuiText(out_ent.name)
+			ImGuiCheckbox("active: ", &out_ent.is_active)
+			ImGuiText("pos: ")
+			ImGuiSameLine()
+			ImGuiShowV3(&out_ent.pos)
+		}
+	}
 	}
 	ImGuiEnd()
 }
+change_preview_col_idx::fn(ctx : *context, new_val : u8)
+{
+	ctx.cur_preview_idx = (new_val) % 3;
+
+	on ctx.cur_preview_idx
+	{
+	0
+	{
+		ctx.ent_collider_modify = false
+		ctx.draw_col = false
+	}
+	1
+	{
+		ctx.ent_collider_modify = true
+		ctx.draw_col = false
+	}
+	2
+	{
+		ctx.ent_collider_modify = false
+		ctx.draw_col = true
+	}
+	}
+}
 main_loop::fn(ctx : *context)
 {
+	ctx.cur_model_selected_idx = -1
 	ctx.session_id = cast(u32)(Rand01() * 1000.0)
 	//perspective(ctx.perspective_mat[0], fov : f32, aspect : f32, near : f32, far : f32)
     perspective(&ctx.perspective_mat, 45.0 * (3.14159 / 180.0), 1.0, 0.1, 500.0);
+
+
+	hidx := HandleForGettingFilesInDir("../models")
+	total_fl := HandleDirTotalFiles(hidx)
+
+	for i in 0..total_fl
+	{
+		HandleDirFilenameAt(hidx, cast(u32)i, ctx.save_scene_buffer[0], 64)
+		m :model_info
+		m.model = LoadModel("../models/test.fbx")
+		m.name = new_str_lit(ctx.alloc, cast(str_lit)ctx.save_scene_buffer[0])
+		dyn_add(&ctx.models, &m)
+	}
+
+
 	test_model := LoadModel("../models/test.fbx")
 	ctx.up.y = 1.0
 	globals.up = ctx.up
@@ -3210,9 +3340,6 @@ main_loop::fn(ctx : *context)
 
 	ctx.player = player_ent;
 	
-	ctx.already_allocated_ents_count = globals.entities.cur;
-	ctx.already_allocated_str_count = globals.str_alloc.cur;
-	
 	dyn_init2(&ctx.masking_objs, 4, ctx.alloc);
 	dyn_init2(&ctx.start_pos, 4, ctx.alloc);
 
@@ -3230,7 +3357,7 @@ main_loop::fn(ctx : *context)
 	cam_wiggle_rot_timer:f32;
 	
 	
-	ctx.draw_col = true;
+	ctx.draw_col = false;
 	//ctx.draw_origin = true;
 
 	//__dbg_break
@@ -3239,7 +3366,6 @@ main_loop::fn(ctx : *context)
 	ctx.layers_ptr = &layers;
 
 	//ctx.alloc = &ctx.per_scene_alloc;
-	ctx.already_allocated_mem_count = cast(u32)cast(u64)GetMem(1);
 	//OpenSceneGame(ctx, "../scenes/01", &layers, &ctx.textures);
 	ctx.cam_size = 5.0;
 	//ctx.cam_size_original = ctx.cam_size;
@@ -3327,6 +3453,17 @@ main_loop::fn(ctx : *context)
 	cube.tex_id = ctx.grass_tex
 	cube.name = "cube2"
 
+	ctx.preview_ent = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{1.0, 1.0, 1.0, 0.0});
+	ctx.preview_ent.flags = ctx.preview_ent.flags | ENTITY_DONT_FREE
+	ctx.preview_ent.flags = ctx.preview_ent.flags & ~(ENTITY_SERIALIZE | ENTITY_HAS_TEXTURE)
+	ctx.preview_ent.is_active = false
+	ctx.preview_ent.name = "preview_ent"
+
+	ctx.preview_ent.color = _vec{1.0, 1.0, 1.0, 1.0}
+
+	remove_body(ctx, ctx.preview_ent)
+
+
 	HideCursor(hidden_cur)
 	out_ent : *entity= nil
 	prev_select_ent_col : _vec
@@ -3350,7 +3487,7 @@ main_loop::fn(ctx : *context)
 	
 	sel_action : select_action
 
-	//SerializeAllEnt(ctx)
+	SerializeAllEnt(ctx, "01")
 	DeserializeAllEnt(ctx, "01")
 
 
@@ -3400,259 +3537,300 @@ main_loop::fn(ctx : *context)
 				x_axis_ent.is_active = false
 				y_axis_ent.is_active = false
 				z_axis_ent.is_active = false
+				change_preview_col_idx(ctx, 0)
 			}
 		}
 		if ctx.editor_cam
 		{
-			mvx := GetMouseVelX() * dt
-			mvy := GetMouseVelY() * dt
-			cam_mov_editor(ctx, mvx, mvy)
-			if IsKeyDown(key_enum.KEY_1)
+			if !ImGuiHasFocus()
 			{
-				sel_action = select_action.MOV
-			}
-			if IsKeyDown(key_enum.KEY_2)
-			{
-				if sel_action == select_action.SCALE_ONE_AXIS
+				mvx := GetMouseVelX() * dt
+				mvy := GetMouseVelY() * dt
+				cam_mov_editor(ctx, mvx, mvy)
+				if IsKeyDown(key_enum.KEY_1)
 				{
-					sel_action = select_action.SCALE_ONE_AXIS2
+					sel_action = select_action.MOV
 				}
-				else if sel_action == select_action.SCALE_ONE_AXIS2
+				if IsKeyDown(key_enum.KEY_2)
 				{
-					sel_action = select_action.SCALE_ONE_AXIS
-				}
-				else
-				{
-					sel_action = select_action.SCALE_ONE_AXIS
-				}
-
-			}
-			if IsKeyDown(key_enum.KEY_3)
-			{
-				sel_action = select_action.SCALE
-			}
-
-			if axis_sel_ent
-			{
-				print_vec(&out_ent.pos)
-				fw := axis_sel_ent.forward 
-
-				dx := dot_vec(&fw, &select_right) * mvx
-
-				on sel_action
-				{
-				select_action.MOV
-				{
-					dy := dot_vec(&fw, &select_up) * -mvy
-					out_ent.pos += fw * (dx + dy) * 4.0
-				}
-				select_action.SCALE_ONE_AXIS
-				{
-					dx = -dx
-					dy := dot_vec(&fw, &select_up) * mvy
-					fw = fw * 0.5
-
-					out_ent.pos -= fw * (dx + dy) * 2.0
-					out_ent.size -= fw * (dx + dy) * 4.0;
-
-				}
-				select_action.SCALE
-				{
-					dy := dot_vec(&fw, &select_up) * -mvy
-
-					out_ent.size += fw * (dx + dy) * 4.0;
-
-				}
-				select_action.SCALE_ONE_AXIS2
-				{
-					dy := dot_vec(&fw, &select_up) * -mvy
-					fw = fw * 0.5
-
-					out_ent.pos += fw * (dx + dy) * 2.0
-					out_ent.size -= fw * (dx + dy) * 4.0;
-
-				}
-				}
-			}
-
-			if IsKeyDown(key_enum.KEY_DEL) && out_ent != nil
-			{
-
-				DeleteEnt(ctx, out_ent)
-				out_ent = nil
-				x_axis_ent.is_active = true
-				y_axis_ent.is_active = true
-				z_axis_ent.is_active = true
-			}
-			if out_ent
-			{
-				if out_ent.type == ent_type.AXIS
-				{
-				}
-				else
-				{
-					s := clamp(sin(GetTime() * 4.0), 0.0, 1.0)
-					yellow :_vec
-					yellow.x = 0.5
-					yellow.y = 0.5
-					yellow.z = 0.5
-					yellow.w = prev_select_ent_col.w
-
-					diff := yellow - prev_select_ent_col
-
-					aux := prev_select_ent_col + (diff * s)
-
-					out_ent.color.x = aux.x
-					out_ent.color.y = aux.y
-					out_ent.color.z = aux.z
-
-					x_axis_ent.pos = out_ent.pos
-
-					y_axis_ent.pos = out_ent.pos
-					
-					z_axis_ent.pos = out_ent.pos
-
-					if sel_action == select_action.SCALE_ONE_AXIS2
+					if sel_action == select_action.SCALE_ONE_AXIS
 					{
-						x_axis_ent.pos.x -= 0.5
-						y_axis_ent.pos.y -= 0.5
-						z_axis_ent.pos.z -= 0.5
+						sel_action = select_action.SCALE_ONE_AXIS2
+					}
+					else if sel_action == select_action.SCALE_ONE_AXIS2
+					{
+						sel_action = select_action.SCALE_ONE_AXIS
 					}
 					else
 					{
-						x_axis_ent.pos.x += 0.5
-						y_axis_ent.pos.y += 0.5
-						z_axis_ent.pos.z += 0.5
+						sel_action = select_action.SCALE_ONE_AXIS
 					}
+
 				}
-			}
-
-			if IsKeyDown(key_enum.KEY_I)
-			{
-				
-				dir := ScreenMouseToWorld(screenmx, screenmy)
-				
-				//dir.y = -dir.y
-				cam_dir := cam_pos + dir * 20.0
-				cam_dir2 := cam_pos + dir * 5.0
-
-				cam_dir = cam_pos + dir * 2000.0
-
-				dyn_clear(&ctx.vertex_terrain)
-				prev_sel := out_ent
-				aux_sel : *entity
-				if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+				if IsKeyDown(key_enum.KEY_3)
 				{
-					cube = new_cube(ctx, &col.contact_point, &_vec{1.0, 1.0, 1.0});
-					cube.tex_id = ctx.grass_tex
+					sel_action = select_action.SCALE
 				}
-			}
-			if IsMouseUp(mouse_enum.LEFT)
-			{
-				axis_sel_ent = nil
-			}
-			if IsMouseDown(mouse_enum.LEFT)
-			{
-				dir := ScreenMouseToWorld(screenmx, screenmy)
-				
-				//dir.y = -dir.y
-				cam_dir := cam_pos + dir * 20.0
-				cam_dir2 := cam_pos + dir * 5.0
-
-				cam_dir = cam_pos + dir * 2000.0
-
-				dyn_clear(&ctx.vertex_terrain)
-				prev_sel := out_ent
-				aux_sel : *entity
-				if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+				if IsKeyDown(key_enum.KEY_4)
 				{
-					x_axis_ent.is_active = true
-					y_axis_ent.is_active = true
-					z_axis_ent.is_active = true
+					change_preview_col_idx(ctx, ctx.cur_preview_idx + 1)
+				}
 
-					select_right = cross_vec(&dir, &ctx.up)
-					select_up = cross_vec(&select_right, &dir)
+				if axis_sel_ent
+				{
+					print_vec(&out_ent.pos)
+					fw := axis_sel_ent.forward 
 
-					if aux_sel.type != ent_type.AXIS
+					dx := dot_vec(&fw, &select_right) * mvx
+					pos_ptr := &out_ent.pos
+					size_ptr := &out_ent.size
+
+					if ctx.cur_preview_idx > 0
 					{
-
-						out_ent = aux_sel
-						if prev_sel != nil
+						if is_flag_on(out_ent.flags, ENTITY_ONLY_COL) && ctx.cur_preview_idx == 2
 						{
-							if  prev_sel != out_ent
-								change_select_ent_col = true;
+							pos_ptr = &out_ent.pos
+							size_ptr = &out_ent.col_size
 						}
 						else
 						{
-							memcpy(&prev_select_ent_col, &out_ent.color, 16)
-							start_selected_pos = out_ent.pos
+							pos_ptr = &out_ent.col_offset
+							size_ptr = &out_ent.col_size
+						}
+					}
+
+					on sel_action
+					{
+					select_action.MOV
+					{
+						dy := dot_vec(&fw, &select_up) * -mvy
+						*pos_ptr += fw * (dx + dy) * 4.0
+					}
+					select_action.SCALE_ONE_AXIS
+					{
+						dx = -dx
+						dy := dot_vec(&fw, &select_up) * mvy
+						fw = fw * 0.5
+
+						*pos_ptr -= fw * (dx + dy) * 2.0
+						*size_ptr -= fw * (dx + dy) * 4.0;
+
+					}
+					select_action.SCALE
+					{
+						dy := dot_vec(&fw, &select_up) * -mvy
+
+						*size_ptr += fw * (dx + dy) * 4.0;
+
+					}
+					select_action.SCALE_ONE_AXIS2
+					{
+						dy := dot_vec(&fw, &select_up) * -mvy
+						fw = fw * 0.5
+
+						*pos_ptr += fw * (dx + dy) * 2.0
+						*size_ptr -= fw * (dx + dy) * 4.0;
+
+					}
+					}
+				}
+
+				if IsKeyDown(key_enum.KEY_DEL) && out_ent != nil
+				{
+
+					DeleteEnt(ctx, out_ent)
+					out_ent = nil
+					x_axis_ent.is_active = true
+					y_axis_ent.is_active = true
+					z_axis_ent.is_active = true
+				}
+				if out_ent
+				{
+					if out_ent.type == ent_type.AXIS
+					{
+					}
+					else
+					{
+						s := clamp(sin(GetTime() * 4.0), 0.0, 1.0)
+						yellow :_vec
+						yellow.x = 0.5
+						yellow.y = 0.5
+						yellow.z = 0.5
+						yellow.w = prev_select_ent_col.w
+
+						diff := yellow - prev_select_ent_col
+
+						aux := prev_select_ent_col + (diff * s)
+
+						out_ent.color.x = aux.x
+						out_ent.color.y = aux.y
+						out_ent.color.z = aux.z
+
+						x_axis_ent.pos = out_ent.pos
+
+						y_axis_ent.pos = out_ent.pos
+						
+						z_axis_ent.pos = out_ent.pos
+
+						if sel_action == select_action.SCALE_ONE_AXIS2
+						{
+							x_axis_ent.pos.x -= 0.5
+							y_axis_ent.pos.y -= 0.5
+							z_axis_ent.pos.z -= 0.5
+						}
+						else
+						{
+							x_axis_ent.pos.x += 0.5
+							y_axis_ent.pos.y += 0.5
+							z_axis_ent.pos.z += 0.5
+						}
+						if ctx.ent_collider_modify
+						{
+							draw.model = 0
+							draw.pos = out_ent.pos + out_ent.col_offset
+							draw.ent_size = out_ent.col_size * 1.001
+							draw.cam_forward = &cam_forward
+							draw.cam_pos = &cam_pos
+							draw.cam_rot = &cam_rot
+							draw.rot = out_ent.rot
+							draw.flags = DRAW_INFO_TRANSPARENT
+							*draw.color[0] = 1.0
+							*draw.color[1] = 1.0
+							*draw.color[2] = 1.0
+							*draw.color[3] = 0.5
+							Draw3D(ctx.window, &draw)
+							//printf("drawing\n")
+						}
+					}
+				}
+
+				if IsKeyDown(key_enum.KEY_I)
+				{
+					
+					dir := ScreenMouseToWorld(screenmx, screenmy)
+					
+					//dir.y = -dir.y
+					cam_dir := cam_pos + dir * 20.0
+					cam_dir2 := cam_pos + dir * 5.0
+
+					cam_dir = cam_pos + dir * 2000.0
+
+					dyn_clear(&ctx.vertex_terrain)
+					prev_sel := out_ent
+					aux_sel : *entity
+					if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+					{
+						cube = new_cube(ctx, &col.contact_point, &_vec{1.0, 1.0, 1.0});
+						cube.tex_id = ctx.grass_tex
+					}
+				}
+				if IsMouseUp(mouse_enum.LEFT)
+				{
+					axis_sel_ent = nil
+				}
+				if IsMouseDown(mouse_enum.LEFT)
+				{
+					dir := ScreenMouseToWorld(screenmx, screenmy)
+					
+					//dir.y = -dir.y
+					cam_dir := cam_pos + dir * 20.0
+					cam_dir2 := cam_pos + dir * 5.0
+
+					cam_dir = cam_pos + dir * 2000.0
+
+					dyn_clear(&ctx.vertex_terrain)
+					prev_sel := out_ent
+					aux_sel : *entity
+					if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+					{
+						x_axis_ent.is_active = true
+						y_axis_ent.is_active = true
+						z_axis_ent.is_active = true
+
+						select_right = cross_vec(&dir, &ctx.up)
+						select_up = cross_vec(&select_right, &dir)
+
+						if aux_sel.type != ent_type.AXIS
+						{
+
+							out_ent = aux_sel
+							if prev_sel != nil
+							{
+								if  prev_sel != out_ent
+									change_select_ent_col = true;
+							}
+							else
+							{
+								memcpy(&prev_select_ent_col, &out_ent.color, 16)
+								start_selected_pos = out_ent.pos
+							}
+						}
+						else
+						{
+							axis_sel_ent = aux_sel
 						}
 					}
 					else
 					{
-						axis_sel_ent = aux_sel
+						if out_ent
+						{
+							memcpy(&out_ent.color, &prev_select_ent_col, 16)
+							out_ent = nil
+						}
+
+						x_axis_ent.is_active = false
+						y_axis_ent.is_active = false
+						z_axis_ent.is_active = false
 					}
+					//RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
 				}
-				else
-				{
-					if out_ent
+				/*
+				if IsMouseHeld(mouse_enum.RIGHT){
+					sz : _vec
+					sz.x = 1.0
+					sz.y = 1.0
+					sz.z = 1.0
+					dir := ScreenMouseToWorld(screenmx, screenmy)
+					
+					//dir.y = -dir.y
+					cam_dir := cam_pos + dir * 20.0
+					cam_dir2 := cam_pos + dir * 5.0
+
+					//draw_vertex(ctx, &cam_dir, &sz, &cam_pos, &cam_rot)
+					cam_dir = cam_pos + dir * 2000.0
+
+					dyn_clear(&ctx.vertex_terrain)
+					//RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
+					for vtx in ctx.vertex_terrain
 					{
-						memcpy(&out_ent.color, &prev_select_ent_col, 16)
-						out_ent = nil
+						verts := &vtx.mesh.verts
+						vec_pos := cast(*_vec)verts[vtx.vidx]
+						vec_pos.y += vtx.dir
 					}
-
-					x_axis_ent.is_active = false
-					y_axis_ent.is_active = false
-					z_axis_ent.is_active = false
 				}
-				//RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
-			}
-			/*
-			if IsMouseHeld(mouse_enum.RIGHT){
-				sz : _vec
-				sz.x = 1.0
-				sz.y = 1.0
-				sz.z = 1.0
-				dir := ScreenMouseToWorld(screenmx, screenmy)
-				
-				//dir.y = -dir.y
-				cam_dir := cam_pos + dir * 20.0
-				cam_dir2 := cam_pos + dir * 5.0
-
-				//draw_vertex(ctx, &cam_dir, &sz, &cam_pos, &cam_rot)
-				cam_dir = cam_pos + dir * 2000.0
-
-				dyn_clear(&ctx.vertex_terrain)
-				//RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
-				for vtx in ctx.vertex_terrain
+				if IsMouseUp(mouse_enum.RIGHT)
 				{
-					verts := &vtx.mesh.verts
-					vec_pos := cast(*_vec)verts[vtx.vidx]
-					vec_pos.y += vtx.dir
-				}
-			}
-			if IsMouseUp(mouse_enum.RIGHT)
-			{
-				for mi in ctx.mesh_added_aux
-				{
-					m := terrain.meshes[cast(u64)*mi]
-					vi :u64
-					verts := &m.verts
-					count := m.verts.count
-					//__dbg_break
-					while vi < count
+					for mi in ctx.mesh_added_aux
 					{
-						vec_col := cast(*_vec)verts[vi + 3]
-						vec_col.x = 1.0
-						vec_col.y = 1.0
-						vec_col.z = 1.0
+						m := terrain.meshes[cast(u64)*mi]
+						vi :u64
+						verts := &m.verts
+						count := m.verts.count
+						//__dbg_break
+						while vi < count
+						{
+							vec_col := cast(*_vec)verts[vi + 3]
+							vec_col.x = 1.0
+							vec_col.y = 1.0
+							vec_col.z = 1.0
 
-						vi += 6
+							vi += 6
+						}
+						UpdateModel(m.model, m.verts.data)
 					}
-					UpdateModel(m.model, m.verts.data)
 				}
-			}
 			*/
+			}
 			if IsKeyDown(key_enum.KEY_F3)
 			{
 				ctx.editor_wnd = !ctx.editor_wnd
@@ -3839,8 +4017,8 @@ main:: fn(){
 	ctx.prntr.chars_per_line = 24;
 
 
+	AssignModelFolder("../models");
 	AssignTexFolder("../images");
-	textures:dyn_array(texture_info);
 	LoadTexFolder("../images", &ctx.textures);
 	ctx.grass_tex = LoadTex("grass.png", 0, 0, 32, 32)
 

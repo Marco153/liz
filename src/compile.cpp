@@ -2852,6 +2852,26 @@ struct call_stack_info
 	func_decl* fdecl;
 	stmnt_dbg* st;
 };
+enum class handle_enum
+{
+	FILES_DIR,
+};
+struct handle_info
+{
+	handle_enum type;
+	bool in_use;
+	struct dir_files
+	{
+		own_std::string path;
+		own_std::vector<char *> files;
+		int cur;
+	};
+	union
+	{
+		dir_files *dir;
+	};
+};
+#define TOTAL_HANDLES 16
 struct dbg_state
 {
 	dbg_break_type break_type;
@@ -2906,8 +2926,26 @@ struct dbg_state
 	bool break_in_outsider;
 	bool *can_execute;
 
+	handle_info handles[TOTAL_HANDLES];
+
 	void* data;
 };
+
+int GetFreeHandle(dbg_state *dbg)
+{
+
+	for(int i = 0; i < TOTAL_HANDLES; i++)
+	{
+		auto cur = dbg->handles[i];
+		if(!cur.in_use)
+		{
+			cur.in_use = true;
+
+			return i;
+		}
+	}
+	ASSERT(0)
+}
 void WasmModifyCurBcPtr(dbg_state* dbg, wasm_bc* to)
 {
 	dbg->some_bc_modified = true;
@@ -17854,7 +17892,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
-	lang_stat->max_decl = 7500;
+	lang_stat->max_decl = 8500;
 	lang_stat->cur_decl = 0;
 	lang_stat->decl_arena = (decl2*)AllocMiscData(lang_stat, lang_stat->max_decl * sizeof(decl2));
 	//lang_stat->max_misc = 16 * 1024 * 1024;

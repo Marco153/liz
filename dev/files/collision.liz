@@ -164,6 +164,7 @@ GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 	unitx :_vec
 	unitx.x = 1.0
 	gjk.simplex_verts = 0
+	//__dbg_break
 	sup := find_support(gjk, col1, col2, &unitx)
 
 	simplex_push_front(gjk, &sup)
@@ -917,6 +918,31 @@ add_body::fn(ctx : *context, ent : *entity)
 	c1.ent = ent
 }
 
+remove_body::fn(ctx : *context, ent : *entity)
+{
+	i :u32= 0
+	found :=false
+	for e in ctx.bodies
+	{
+		if *e == ent
+		{
+			found = true
+			break
+		}
+		i++
+	}
+	if !found
+	{
+		return
+	}
+
+	dyn_rem(&ctx.bodies, i)
+
+	heap_free(ent.ents_in_collision.alloc, ent.ents_in_collision.data);
+
+	heap_free(ctx.alloc, ent.col)
+}
+
 EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
 {
 	inserted: = false;
@@ -951,8 +977,9 @@ CopyVerts::fn(col : *collider)
 		e := col.ent
 		for v in col.CUBE.verts
 		{
-			*v = *v * e.size
+			*v = *v * e.col_size
 			*v += e.pos
+			*v += e.col_offset
 		}
 	}
 }
@@ -1387,7 +1414,6 @@ StepCol::fn(ctx : *context, dt : f32)
 					e.col_stay(*e, *e2, &col);
 				}
 				if e.is_trigger == false && e2.is_trigger == false
-
 				{
 					e.pos -= mtv
 				}
@@ -1804,9 +1830,11 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 				rinfo : raycast_info=?
 				rinfo.ray_origin = *start
 				rinfo.ray_dir = dir
-				rinfo.v0 = info.v1_out
-				rinfo.v1 = info.v2_out
-				rinfo.v2 = info.v3_out
+				c_offset := c1.ent.col_offset
+				rinfo.v0 = info.v1_out + c_offset
+				rinfo.v1 = info.v2_out + c_offset
+				rinfo.v2 = info.v3_out + c_offset
+
 				if ray_triangle_intersect(&rinfo)
 				{
 					tri_pos := *start + dir * rinfo.t_out
@@ -1826,6 +1854,7 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 						cur_dist = d
 						found = true
 						*collided = e
+						cinfo.normal = info.cross
 						aux_ent = e
 					}
 

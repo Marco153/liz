@@ -28,6 +28,15 @@ linear_alloc :struct(T)
 	max : u32,
 	#make_ptr_len(start, cur)
 }
+toggle_flag::fn(out : *u32, flag : u32)
+{
+	val_aux := *out & flag
+	*out = *out & ~flag
+
+	val_aux = (~val_aux) & flag
+
+	*out = *out | val_aux
+}
 LinearInit::fn{T}(linear_al : *linear_alloc(T), alloc : *mem_alloc, max : u32)
 {
 	linear_al.start = cast(*T)heap_alloc(alloc, max * sizeof(T))
@@ -96,6 +105,14 @@ rel_string : struct
 {
 	offset : u32,
 	count : u32,
+}
+new_str_lit::fn(alloc : *mem_alloc, str: str_lit) ! str_lit
+{
+	ln := str_ln(str)
+	ret := cast(*u8)heap_alloc(alloc, cast(u32)ln + 1)
+	memcpy(ret, str, ln)
+	*ptr_offset(ret, ln, u8) = 0
+	return cast(str_lit)ret
 }
 string_to_str_lit::fn(alloc : *mem_alloc, str: *string) ! str_lit
 {
@@ -588,6 +605,7 @@ ScreenMouseToWorld::fn outsider(mx : f32, my : f32) ! _vec;
 Perlin2D::fn outsider(x:f32, y:f32, freq:f32, depth : u32) ! f32;
 CreateMesh::fn outsider(*create_mesh_info) ! u32;
 LoadModel::fn outsider(name : str_lit) ! u32;
+ModelFarthestPoint::fn outsider(idx : u32, axis : *_vec) ! _vec;
 
 PrintV3::fn outsider(f32, f32, f32);
 PrintV3Int::fn outsider(s32, s32, s32);
@@ -1363,6 +1381,8 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 	}
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("pos", &ent.pos))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("size", &ent.size))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("col_size", &ent.col_size))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("col_offset", &ent.col_offset))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("rot", &ent.rot))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("color", &ent.color))
 	dyn_add(&ret.SCOPE.stmnts, StrLitAssignmentToAst("name", ent.name))
@@ -1582,6 +1602,11 @@ UpdateTexture::fn outsider(tex_id : u64, x_offset : u32, y_offset : u32, width :
 LoadTex::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! u32;
 LoadTexEx::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, u_type : u32, v_type : u32) ! u32;
 
+HandleForGettingFilesInDir::fn outsider(str_lit) ! u32;
+HandleDirTotalFiles::fn outsider(u32) ! u32;
+HandleDirFilenameAt::fn outsider(u32, idx : u32, buffer:*u8, sz:u32);
+FreeHandleGet::fn outsider(u32);
+
 GetFuncStackSize::fn intrinsic() !u64;
 GetTopStackPtr::fn outsider() !*u64;
 GetInstRealAddr::fn outsider(u64) !u64;
@@ -1597,6 +1622,11 @@ FreeSheet::fn(alloc : *mem_alloc,l : *layer_sprites)
 	heap_free(l.cells.alloc, l.cells.data);
 	heap_free(l.cells.alloc, l);
 	FreeTexture(l.tex_id);
+}
+model_info: struct
+{
+	name : str_lit,
+	model : u32
 }
 texture_info: struct
 {

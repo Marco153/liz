@@ -67,6 +67,7 @@ ENTITY_ALWAYS_ON_FRONT: const s32 = 64 | ENTITY_TRANSPARENT;
 ENTITY_IN_USE: const s32 = 128
 ENTITY_SERIALIZE: const s32 = 256
 ENTITY_TEMPORARILY_NOT_SERIALIZE: const s32 = 512
+ENTITY_ONLY_COL: const s32 = 1024
 
 LAYER_ENTITY_PLAYABLE:const s32 = 1;
 LAYER_PLAYER:const s32 = 2;
@@ -146,6 +147,7 @@ entity:struct
 	pivot : _vec,
 	size : _vec,
 	col_size : _vec,
+	col_offset : _vec,
 	rot : _vec,
 	angle_rot : _vec,
 	color : _vec,

@@ -44,21 +44,7 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 		}
 		ent_part_of.COLLIDER
 		{
-			i :u32= 0
-			for e in ctx.bodies
-			{
-				if *e == ent
-				{
-					break
-				}
-				i++
-			}
-			dyn_rem(&ctx.bodies, i)
-
-			heap_free(ent.ents_in_collision.alloc, ent.ents_in_collision.data);
-
-
-			heap_free(ctx.alloc, ent.col)
+			remove_body(ctx, ent)
 		}
 		ent_part_of.INSTANTIATED
 		{
@@ -213,30 +199,59 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 		
 	if(is_flag_on(ent.flags, ENTITY_3D))
 	{
+		/*
+		str :string
+		AssignStr(&str, ent.name)
+		if str == "preview_ent"
+		{
+			__dbg_break
+		}
+		*/
 		draw : draw_info3d
-		draw.model = ent.model
-		draw.pos = ent.pos
-		draw.rot = ent.rot
-		draw.cam_pos = cam_pos
-		draw.cam_rot = cam_rot
-		draw.perspective_mat = ctx.perspective_mat
-		draw.cam_forward = ctx.cam_forward_global
-		draw.ent_size = ent.size
-		memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
-		if(is_flag_on(ent.flags, ENTITY_ALWAYS_ON_FRONT))
+		if is_flag_off(ent.flags, ENTITY_ONLY_COL)
 		{
-			draw.flags = draw.flags | DRAW_INFO_ALWAYS_ON_FRONT;
+			draw.model = ent.model
+			draw.pos = ent.pos
+			draw.rot = ent.rot
+			draw.cam_pos = cam_pos
+			draw.cam_rot = cam_rot
+			draw.perspective_mat = ctx.perspective_mat
+			draw.cam_forward = ctx.cam_forward_global
+			draw.ent_size = ent.size
+			memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
+			if(is_flag_on(ent.flags, ENTITY_ALWAYS_ON_FRONT))
+			{
+				draw.flags = draw.flags | DRAW_INFO_ALWAYS_ON_FRONT;
+			}
+			if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))
+			{
+				draw.flags = draw.flags | DRAW_INFO_TRANSPARENT;
+			}
+			if(is_flag_on(ent.flags, ENTITY_HAS_TEXTURE))
+			{
+				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
+				draw.texture_id = ent.tex_id
+			}
+			Draw3D(ctx.window, &draw);
 		}
-		if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))
+
+
+		if ctx.draw_col && ent.type != ent_type.AXIS
 		{
-			draw.flags = draw.flags | DRAW_INFO_TRANSPARENT;
+			draw.model = 0
+			draw.pos = ent.pos + ent.col_offset
+			draw.ent_size = ent.col_size * 1.001
+			//draw.cam_forward = &cam_forward
+			draw.cam_pos = cam_pos
+			draw.cam_rot = cam_rot
+			draw.rot = ent.rot
+			draw.flags = DRAW_INFO_TRANSPARENT
+			*draw.color[0] = 1.0
+			*draw.color[1] = 1.0
+			*draw.color[2] = 1.0
+			*draw.color[3] = 0.5
+			Draw3D(ctx.window, &draw)
 		}
-		if(is_flag_on(ent.flags, ENTITY_HAS_TEXTURE))
-		{
-			draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
-			draw.texture_id = ent.tex_id
-		}
-		Draw3D(ctx.window, &draw);
 	}
 	else
 	{

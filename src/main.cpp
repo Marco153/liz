@@ -228,7 +228,36 @@ struct Vec3 {
     Vec3 operator-(Vec3 v) const { return {x-v.x, y-v.y, z-v.z}; }
     float length() const { return std::sqrt(x*x + y*y + z*z); }
     Vec3 normalized() const { float l = length(); return {x/l, y/l, z/l}; }
+    Vec3 ()
+	{
+
+	}
+    Vec3 (float _x, float _y, float _z)
+	{
+		x = _x;
+		y = _y;
+		z = _z;
+	}
 };
+Vec3 rotate(const Vec3& v, const Vec3& axis, float angle) {
+    // Normalize the axis
+    Vec3 a = axis.normalized();
+    
+    // Compute rotation components
+    float cos_theta = std::cos(angle);
+    float sin_theta = std::sin(angle);
+    
+    // Rodrigues' rotation formula
+    Vec3 term1 = v * cos_theta;
+    Vec3 term2 = a * (a.x*v.x + a.y*v.y + a.z*v.z) * (1 - cos_theta);
+    Vec3 term3 = Vec3{
+        a.y*v.z - a.z*v.y,
+        a.z*v.x - a.x*v.z,
+        a.x*v.y - a.y*v.x
+    } * sin_theta;
+    
+    return term1 + term2 + term3;
+}
 
 struct Mat4{
     float m[16]; // Column-major 4x4 matrix
@@ -502,6 +531,9 @@ struct model_info
 	u32 ebo;
 	int indicies;
 	int verts_size;
+
+	float *vertices;
+	int model_verts_count;
 };
 struct texture_info
 {
@@ -638,6 +670,7 @@ struct open_gl_state
 
 	bool game_started;
 	own_std::string texture_folder;
+	own_std::string model_folder;
 	bool is_engine;
 
 	int width;
@@ -4530,16 +4563,9 @@ void UpdateModel(dbg_state* dbg)
 
 	glBufferSubData(GL_ARRAY_BUFFER, 0, m->verts_size, verts);
 }
-void LoadModel(dbg_state* dbg)
+void LoadModelBase(dbg_state* dbg, own_std::string &full_path)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
-	int model_path_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
-	char *model_path = (char *)&dbg->mem_buffer[model_path_offset];
-
-	unsigned int size = 0;
 	auto gl_state = (open_gl_state*)dbg->data;
-	own_std::string full_path = dbg->cur_func->from_file->path + model_path;
-
 	int free_idx = -1;
 	int idx = HasModel(dbg, full_path, &free_idx);
 	if(idx != -1)
@@ -4568,6 +4594,9 @@ void LoadModel(dbg_state* dbg)
     // Create vertex array (positions only for simplicity)
     auto vertices = (float *)malloc(mesh->mNumVertices * 3 * sizeof(float));
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+		Vec3 *v = (Vec3 *)&mesh->mVertices[i].x;
+
+		*v = rotate(*v, Vec3(1.0, 0.0, 0.0), -3.1415 * 0.5) * 0.5;
         vertices[i * 3 + 0] = mesh->mVertices[i].x;
         vertices[i * 3 + 1] = mesh->mVertices[i].y;
         vertices[i * 3 + 2] = mesh->mVertices[i].z;
@@ -4613,14 +4642,88 @@ void LoadModel(dbg_state* dbg)
 	m->ebo = EBO;
 	m->indicies = index_count;
 
-    free(vertices);
+	m->model_verts_count = mesh->mNumVertices;
+	m->vertices = vertices;
+
+    //free(vertices);
     free(indices);
     aiReleaseImport(scene);
 
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
 	auto a = 0;
+}
+void ModelFarthestPoint(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int axis_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	auto v = (Vec3 *)&dbg->mem_buffer[axis_ptr];
 
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	model_info *m = &gl_state->models[model_idx];
+
+	int idx = 0;
+	float min = 0.0;
+	int vert_size = 3;
+	for(int i = 0; i < m->model_verts_count; i++)
+	{
+		float *cur = &m->vertices[i * vert_size];
+		auto cur_vec = (Vec3 *)cur;
+
+		float d = vec3_dot(*v, *cur_vec);
+		if(min < d)
+		{
+			idx = i;
+			min = d;
+		}
+	}
+
+	auto ret = GetFloatRegValPtr(dbg, FLOAT_REG_0);
+	auto aux = GetRegValPtr(dbg, RET_1_REG);
+	
+	auto p = (Vec3 *)&m->vertices[idx * vert_size];
+	memcpy(ret, p, 16);
+	memcpy(aux, p, 8);
+	*(((float *)ret) + 3) = 0.0f;
+}
+void LoadModel(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int model_path_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *model_path = (char *)&dbg->mem_buffer[model_path_offset];
+
+	unsigned int size = 0;
+	auto gl_state = (open_gl_state*)dbg->data;
+	own_std::string full_path = dbg->cur_func->from_file->path + model_path;
+	LoadModelBase(dbg, full_path);
+
+}
+void LoadModelFolder(dbg_state* dbg)
+{
+
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	auto folder_name = (char *)&dbg->mem_buffer[folder_name_offset];
+	auto ar = (own_std::vector<int> *)&dbg->mem_buffer[ar_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->texture_folder = folder_name;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	gl_state->model_folder = work_dir + gl_state->model_folder;
+	MaybeAddBarToEndOfStr(&(gl_state->model_folder));
+	
+	own_std::vector<char*> file_names;
+	GetFilesInDirectory(gl_state->texture_folder, nullptr, &file_names);
 }
 void LoadTexFolder(dbg_state* dbg)
 {
@@ -4901,6 +5004,93 @@ void AssignSoundFolder(dbg_state* dbg)
 	}
 
 	//ImageFolderToFile(gl_state->texture_folder);
+
+}
+void AssignModelFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	
+	gl_state->model_folder = name_str;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	gl_state->model_folder = work_dir + gl_state->model_folder;
+	MaybeAddBarToEndOfStr(&(gl_state->model_folder));
+
+	//ImageFolderToFile(gl_state->texture_folder);
+	own_std::vector<char*> file_names;
+	GetFilesInDirectory((char *)gl_state->model_folder.c_str(), nullptr, &file_names);
+
+}
+void FreeHandle(dbg_state *dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int hidx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	handle_info *h = &dbg->handles[hidx];
+	h->in_use = false;
+}
+void HandleDirFilenameAt(dbg_state *dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int hidx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int idx = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int buffer_size = *(int*)&dbg->mem_buffer[base_ptr + 32];
+
+	char *buffer = (char *)&dbg->mem_buffer[buffer_offset];
+
+
+	handle_info *h = &dbg->handles[idx];
+	ASSERT(h->type == handle_enum::FILES_DIR);
+
+	char *name = h->dir->files[idx];
+	int str_ln = strlen(name);
+
+	ASSERT(str_ln < buffer_size);
+
+
+	memcpy(buffer, name, str_ln);
+}
+void HandleDirTotalFiles(dbg_state *dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	handle_info *h = &dbg->handles[idx];
+	ASSERT(h->type == handle_enum::FILES_DIR);
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = h->dir->files.size();
+}
+void HandleForGettingFilesInDir(dbg_state *dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	int idx = GetFreeHandle(dbg);
+
+	handle_info *h = &dbg->handles[idx];
+	h->dir = (handle_info::dir_files *)AllocMiscData(dbg->lang_stat, sizeof(handle_info::dir_files));
+	h->type = handle_enum::FILES_DIR;
+
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+
+	h->dir->path = work_dir + name_str;
+	MaybeAddBarToEndOfStr(&h->dir->path);
+	GetFilesInDirectory((char *)h->dir->path.c_str(), nullptr, &h->dir->files);
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
 
 }
 void AssignTexFolder(dbg_state* dbg)
@@ -6524,7 +6714,14 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "PrintV3Int", (OutsiderFuncType)PrintV3Int);
 	AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
 
+
+	AssignOutsiderFunc(&lang_stat, "HandleForGettingFilesInDir", (OutsiderFuncType)HandleForGettingFilesInDir);
+	AssignOutsiderFunc(&lang_stat, "HandleDirFilenameAt", (OutsiderFuncType)HandleDirFilenameAt);
+	AssignOutsiderFunc(&lang_stat, "HandleDirTotalFiles", (OutsiderFuncType)HandleDirTotalFiles);
+	AssignOutsiderFunc(&lang_stat, "FreeHandle", (OutsiderFuncType)FreeHandle);
+
 	AssignOutsiderFunc(&lang_stat, "AssignTexFolder", (OutsiderFuncType)AssignTexFolder);
+	AssignOutsiderFunc(&lang_stat, "AssignModelFolder", (OutsiderFuncType)AssignModelFolder);
 
 	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosX", (OutsiderFuncType)GetMouseNormalizedPosX);
 	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosY", (OutsiderFuncType)GetMouseNormalizedPosY);
@@ -6597,6 +6794,7 @@ int main(int argc, char* argv[])
 
 	AssignOutsiderFunc(&lang_stat, "LoadTexFolder", (OutsiderFuncType)LoadTexFolder);
 	AssignOutsiderFunc(&lang_stat, "LoadModel", (OutsiderFuncType)LoadModel);
+	AssignOutsiderFunc(&lang_stat, "ModelFarthestPoint", (OutsiderFuncType)ModelFarthestPoint);
 	AssignOutsiderFunc(&lang_stat, "UpdateModel", (OutsiderFuncType)UpdateModel);
 	AssignOutsiderFunc(&lang_stat, "CreateMesh", (OutsiderFuncType)CreateMesh);
 	AssignOutsiderFunc(&lang_stat, "GenRawTexture", (OutsiderFuncType)GenRawTexture);

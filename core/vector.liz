@@ -46,7 +46,7 @@ quaternion_conjugate::fn(out : *_vec, q : *_vec) {
 	out.w = q.w
 }
 
-multiply_quaternions::fn(out : *_vec, q1 : *_vec, q2 : *_vec) {
+multiply_quaternions::fn x64(out : *_vec, q1 : *_vec, q2 : *_vec) {
 	out.x = q1.w*q2.x + q1.x*q2.w + q1.y*q2.z - q1.z*q2.y
 	out.y = q1.w*q2.y - q1.x*q2.z + q1.y*q2.w + q1.z*q2.x
 	out.z = q1.w*q2.z + q1.x*q2.y - q1.y*q2.x + q1.z*q2.w
@@ -157,6 +157,57 @@ look_at_quaternion::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! quaternion
 	ret.v.w = cos(d *0.5)
 	return ret
 }
+build_model_matrix ::fn x64(out_matrix : *f32, position : *_vec, q : *f32, scale : *_vec) 
+{
+	// Extract quaternion components using ptr_offset
+    x := *ptr_offset(q, 0, f32)
+    y := *ptr_offset(q, 1, f32)
+    z := *ptr_offset(q, 2, f32)
+    w := *ptr_offset(q, 3, f32)
+    
+    // Calculate quaternion products
+    x2 := x + x
+    y2 := y + y
+    z2 := z + z
+    xx := x * x2
+    xy := x * y2
+    xz := x * z2
+    yy := y * y2
+    yz := y * z2
+    zz := z * z2
+    wx := w * x2
+    wy := w * y2
+    wz := w * z2
+    
+    // Apply scale
+    sx := scale.x
+    sy := scale.y
+    sz := scale.z
+    
+    // First column (becomes first row in row-major)
+    *ptr_offset(out_matrix, 0, f32) = (1.0 - (yy + zz)) * sx
+    *ptr_offset(out_matrix, 1, f32) = (xy - wz) * sy
+    *ptr_offset(out_matrix, 2, f32) = (xz + wy) * sz
+    *ptr_offset(out_matrix, 3, f32) = position.x
+    
+    // Second column (becomes second row in row-major)
+    *ptr_offset(out_matrix, 4, f32) = (xy + wz) * sx
+    *ptr_offset(out_matrix, 5, f32) = (1.0 - (xx + zz)) * sy
+    *ptr_offset(out_matrix, 6, f32) = (yz - wx) * sz
+    *ptr_offset(out_matrix, 7, f32) = position.y
+    
+    // Third column (becomes third row in row-major)
+    *ptr_offset(out_matrix, 8, f32) = (xz - wy) * sx
+    *ptr_offset(out_matrix, 9, f32) = (yz + wx) * sy
+    *ptr_offset(out_matrix, 10, f32) = (1.0 - (xx + yy)) * sz
+    *ptr_offset(out_matrix, 11, f32) = position.z
+    
+    // Fourth column (becomes fourth row in row-major)
+    *ptr_offset(out_matrix, 12, f32) = 0.0
+    *ptr_offset(out_matrix, 13, f32) = 0.0
+    *ptr_offset(out_matrix, 14, f32) = 0.0
+    *ptr_offset(out_matrix, 15, f32) = 1.0
+}
 operator *(self : *quaternion, rhs : *quaternion) !quaternion
 {
 	ret : quaternion = ?
@@ -223,6 +274,23 @@ operator * (a : *mat4x4, b : *mat4x4) !mat4x4
     }
     
     return result;
+}
+
+operator *(self : *mat4x4, vec : *_vec) !_vec
+{
+    ret: _vec;
+	aux := *cast(*_vec)self.vals[0]
+	ret.x = dot_vec(vec, &aux)
+
+	aux = *cast(*_vec)self.vals[4]
+	ret.y = dot_vec(vec, &aux)
+
+	aux = *cast(*_vec)self.vals[8]
+	ret.z = dot_vec(vec, &aux)
+			
+	aux = *cast(*_vec)self.vals[12]
+	ret.w = dot_vec(vec, &aux)
+	return ret;
 }
 operator *(self : *mat4x4, vec : *v3) !v3
 {

@@ -12,30 +12,6 @@ signf::fn x64(a :f32) !f32
 
 }
 
-col_type : etruct
-{
-	SPHERE(
-		radius : f32
-		
-	),
-	CAPSULE(
-		radius : f32,
-		height : f32
-	),
-	TRIANGLE(
-		normal :_vec
-		verts : [3]_vec
-	),
-	CUBE(
-		verts : [8]_vec
-	)
-}
-collider : struct
-{
-	using type : col_type
-	ent : * entity
-	pos : _vec
-}
 
 find_support::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider, dir : *_vec) ! _vec
 {
@@ -53,7 +29,7 @@ find_support::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider, dir : *_v
 	}
 
 }
-find_furthest_point::fn(col : *collider, dir : *_vec) ! _vec
+find_furthest_point::fn x64(col : *collider, dir : *_vec) ! _vec
 {
 	on col.type
 	{
@@ -150,7 +126,7 @@ gjk_state : struct
 
 	aux_col : collider
 }
-simplex_push_front::fn(gjk : *gjk_state, pos : *_vec)
+simplex_push_front::fn x64(gjk : *gjk_state, pos : *_vec)
 {
 	aux : [4]_vec= ?
 	memcpy(aux[0], gjk.simplex[0], 3 * 16)
@@ -210,7 +186,7 @@ gjk_next_simplex ::fn(gjk : *gjk_state, dir : *_vec) ! bool
 	}
 	return false;
 }
-same_direction ::fn(a : *_vec, b : *_vec) ! bool
+same_direction ::fn x64(a : *_vec, b : *_vec) ! bool
 {
 	//printf("on same \n")
 	d :=dot_vec(a, b)
@@ -319,7 +295,7 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *_vec) ! bool
 	}
 	return false
 }
-gjk_line ::fn(gjk : *gjk_state, dir : *_vec) ! bool
+gjk_line ::fn x64(gjk : *gjk_state, dir : *_vec) ! bool
 {
 	a := gjk.simplex[0]
 	b := gjk.simplex[1]
@@ -974,12 +950,21 @@ CopyVerts::fn(col : *collider)
 	if col.type == col_type.CUBE
 	{
 		memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
+		mat : mat4x4=?
+		q :quaternion=?
 		e := col.ent
+		q.v = e.rot
+
+		//__dbg_break
+		//__dbg_break
+		build_model_matrix(cast(*f32)&mat, &(e.pos + e.col_offset), cast(*f32)&q.v, &e.col_size)
+
 		for v in col.CUBE.verts
 		{
-			*v = *v * e.col_size
-			*v += e.pos
-			*v += e.col_offset
+			v.w = 1.0
+			*v = mat * *v
+			v.w = 0.0
+			a := 0
 		}
 	}
 }
@@ -1229,6 +1214,20 @@ aabb : struct
     _min : _vec  
     _max : _vec
 }
+// 3D Axis-Aligned Bounding Box collision check
+aabbCheck3D::fn x64(a: *aabb, b: *aabb) ! bool
+{
+    // X-axis overlap check
+    x_overlap := (a._min.x <= b._max.x) && (a._max.x >= b._min.x)
+    
+    // Y-axis overlap check
+    y_overlap := (a._min.y <= b._max.y) && (a._max.y >= b._min.y)
+    
+    // Z-axis overlap check
+    z_overlap := (a._min.z <= b._max.z) && (a._max.z >= b._min.z)
+
+    return x_overlap && y_overlap && z_overlap
+}
 
 // Collision check function taking pointer to AABBs
 aabbCheck::fn(a: *aabb, b: *aabb) ! bool
@@ -1313,7 +1312,7 @@ StepCol::fn(ctx : *context, dt : f32)
 
 		for e2 in ctx.bodies
 		{
-			if *e == *e2
+			if *e == *e2 || !e2.is_active || is_flag_on(e.ignore_collision_with_layers, e2.layer) || is_flag_on(e2.ignore_collision_with_layers, e.layer)
 				continue;
 			
 			c2 := cast(*collider)e2.col
@@ -1349,9 +1348,24 @@ StepCol::fn(ctx : *context, dt : f32)
 			}
 			else
 			{
+				m_aabb :aabb = ?
+				p_aabb :aabb = ?
+				sz1 := e.col_size * 2.0
+				sz2 := e2.col_size * 2.0
+
+				m_aabb._min = e.pos - sz1
+				m_aabb._max = e.pos + sz1
+
+				p_aabb._min = e2.pos - sz2
+				p_aabb._max = e2.pos + sz2
+				if !aabbCheck3D(&m_aabb, &p_aabb)
+				{
+					continue
+				}
+
 				CopyVerts(c2)
 				//__dbg_break
-				if is_flag_on(e.flags, LAYER_ENTITY_PLAYABLE)
+				if is_flag_on(e.layer, LAYER_ENTITY_PLAYABLE)
 				{
 					ASSERT(e != nil)
 					ASSERT(e.mov_info != nil)
@@ -1425,7 +1439,7 @@ StepCol::fn(ctx : *context, dt : f32)
 }
 PhysicsUpdate::fn(ctx : *context, dt : f32)
 {
-	steps := 1
+	steps := 2
 	for i in 0..steps
 	{
 		dt = dt / cast(f32)steps

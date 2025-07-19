@@ -14,6 +14,8 @@ DRAW_INFO_NO_PROJ:const s32 = 1024;
 DRAW_INFO_DBG_BREAK:const s32 = 0x800
 DRAW_INFO_TERRAIN:const s32 = 0x1000
 DRAW_INFO_ALWAYS_ON_FRONT:const s32 = 0x2000
+DRAW_INFO_NO_DEPTH_TEST:const s32 = 0x4000
+DRAW_INFO_NO_LIGHT:const s32 = 0x8000
 
 END_OF_LAYERS :const s32= 0xbebad0;
 SCENE_NAME_NAME_MAX : const s32= 32;
@@ -378,6 +380,10 @@ draw_info3d: struct
 
 	tex_offset_x:f32,
 	tex_offset_y:f32,
+
+	color_lerp : f32
+	sec_color : _vec
+	
 
 	perspective_mat  : *f32
 }
@@ -1385,6 +1391,7 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("col_offset", &ent.col_offset))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("rot", &ent.rot))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("color", &ent.color))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("sec_color", &ent.sec_color))
 	dyn_add(&ret.SCOPE.stmnts, StrLitAssignmentToAst("name", ent.name))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)ent.type))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("model", cast(s32)ent.model))
@@ -1393,6 +1400,18 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_trigger", cast(s32)ent.is_trigger))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_static", cast(s32)ent.is_static))
 	dyn_add(&ret.SCOPE.stmnts, ArrayU32AssignmentToAst("remove_from", cast(*dyn_array(u32))&ent.remove_from))
+	
+	if is_flag_on(ent.flags, ENTITY_HAS_TEXTURE)
+	{
+		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("tex_id", cast(s32)ent.tex_id))
+	}
+	if ent.col
+	{
+		c := cast(*collider)ent.col
+		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("col", cast(s32)c.type))
+	}
+
+
 
 	return ret
 }

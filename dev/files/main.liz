@@ -44,10 +44,18 @@ context: struct
 	cam_aux_forward_global : *_vec,
 	window:*u8,
 	can_move :bool,
+
+	bullets : dyn_array(*entity)
+
+	character_texs : clip,
+	character_idle : *clip2,
+	character_walk : *clip2,
+
+	ball_tex : u32
+
 	/*
 	cur_clip : *clip,
 	alphabet : clip,
-	character_texs : clip,
 	wolf_texs : clip,
 	inv_texs : clip,
 	spear_texs : clip,
@@ -55,8 +63,6 @@ context: struct
 	water_texs : clip,
 	axe_throw_texs : u32,
 	spear_throw_texs : u32,
-	character_idle : *clip2,
-	character_walk : *clip2,
 	character_kick : *clip2,
 	character_sweeped : *clip2,
 	character_medium_kick : *clip2,
@@ -105,6 +111,7 @@ context: struct
 	
 	
 	grass_tex : u32
+	aim_tex : u32
 	waypoints:dyn_array(waypoint)
 
 	cutscene_idx : u32,
@@ -159,6 +166,7 @@ context: struct
 
 
 	ents_with_clip : dyn_array(*entity),
+	look_at_ents : dyn_array(*entity),
 	player : *entity,
 
 	draw_col :bool,
@@ -181,8 +189,21 @@ context: struct
 	cur_model_selected_idx : s32
 
 	preview_ent : *entity
+	test_ent : *entity
 
 	cur_preview_idx : u8
+}
+get_bullet::fn(ctx : *context) ! *entity
+{
+	for e in ctx.bullets
+	{
+		if !e.is_active
+		{
+			return *e
+		}
+	}
+	ASSERT(0)
+	return nil
 }
 editor_window_enum:enum
 {
@@ -327,6 +348,20 @@ Max::fn(a : s32, b : s32) !s32
 }
 
 
+DrawSquare::fn(ctx : *context, x : f32, y : f32, w : f32, h : f32, col : *_vec)
+{
+	draw : draw_info
+	draw.pos.x = x
+	draw.pos.y = y
+	draw.pos.z = 0.05
+	memcpy(draw.color[0], col, 16)
+	draw.ent_size.x = w
+	draw.ent_size.y = h
+	draw.cam_size = 1.0
+
+	draw.flags = DRAW_INFO_NO_SCREEN_RATIO | DRAW_INFO_NO_DEPTH_TEST
+	Draw(ctx.window, &draw)
+}
 DrawText::fn(ctx : *context)
 {
 	if ctx.to_draw.count == 0
@@ -815,7 +850,8 @@ NewPlayerEnt::fn(ctx : *context, name : str_lit) ! *entity
 	pinfo.{
 		speed = 0.01;
 	};
-	
+
+
 	mov_info := player_ent.mov_info;
 	
 	player_ent.flags = player_ent.flags | ENTITY_HAS_TEXTURE;
@@ -1709,7 +1745,7 @@ _draw_col ::fn(ctx : *context, c : *collider)
 	}
 	}
 }
-VIEW_COL_METHOD:const s32= 2
+VIEW_COL_METHOD:const s32= 0
 draw_aabb::fn(ctx : *context, _min : *_vec, _max : *_vec)
 {
 	_v1 := *_min
@@ -1761,7 +1797,11 @@ view_collision ::fn(ccc : u32)
 	e2 := gjk.col2.ent
 	mx := &globals.mx
 	my := &globals.my
-	cam_mov(ctx)
+	dt := 0.017
+	mvx := GetMouseVelX() * dt
+	mvy := GetMouseVelY() * dt
+	cam_mov_editor(ctx, mvx, mvy)
+	//cam_mov(ctx)
 
 	//printf("curx %, mx %\n", cast(s32)(curmx * 100.0), cast(s32)(*mx * 100.0))
 
@@ -1818,9 +1858,29 @@ view_collision ::fn(ccc : u32)
 
 	globals.temp_alloc.cur = 0
 
+	c1 := cast(*collider)e1.col
+	c2 := cast(*collider)e2.col
+
 	#if VIEW_COL_METHOD == 0
 	{
 		target_face :u64= gjk.closest_face
+		if IsKeyHeld(key_enum.KEY_1) && c2.type == col_type.CUBE
+		{
+			t:u64
+			while t < 30
+			{
+				t1 := cast(u64)*globals.cube_tris[t]
+				t2 := cast(u64)*globals.cube_tris[t + 1]
+				t3 := cast(u64)*globals.cube_tris[t + 2]
+				_v1 := *c2.CUBE.verts[t1]
+				_v2 := *c2.CUBE.verts[t2]
+				_v3 := *c2.CUBE.verts[t3]
+
+				draw_tri(ctx, &_v3, &_v2, &_v1, &col, 0)
+				//print_vec(&_v1)
+				t+= 3
+			}
+		}
 		if IsKeyHeld(key_enum.KEY_2)
 		{
 			target_face = gjk.cur_face_facing_point;
@@ -2177,8 +2237,18 @@ print_f32::fn(a : f32)
 {
 	printf("f %\n", cast(s32)(a * 100.0))
 }
+reset_jmp::fn(mov : *player_info)
+{
+	mov.jmp.vel.x = 0.0
+	mov.jmp.vel.y = 0.0
+	mov.jmp.vel.z = 0.0
+	mov.jmp.time_off_ground = 0.0
+	mov.jmp.jmpd = false
+}
+
 player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 {
+	//OpenLocalsWindow(__LINE__)
 	player_ent := ctx.player
 	forward := &player_ent.forward
 	cross := cross_vec(&ctx.up, ctx.cam_forward_global)
@@ -2193,11 +2263,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	if on_ground
 	{
 		grav.y = -0.05
-		mov.jmp.vel.x = 0.0
-		mov.jmp.vel.y = 0.0
-		mov.jmp.vel.z = 0.0
-		mov.jmp.time_off_ground = 0.0
-		mov.jmp.jmpd = false
+		reset_jmp(mov)
 	}
 	else
 	{
@@ -2208,14 +2274,6 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		}
 		grav.y += -15.0 * *dt
 		//grav.y = -1.0
-	}
-	if IsKeyDown(key_enum.KEY_JMP) && (on_ground && mov.jmp.time_off_ground == 0.0 || mov.jmp.time_off_ground <= 0.5)
-		&& !mov.jmp.jmpd
-	{
-		player_ent.vel.y = 0.0
-		mov.jmp.vel.y = 1.0 * mov.jmp.speed
-		mov.jmp.jmpd = true
-		player_ent.on_ground = false
 	}
 
 	mov_pressed := false
@@ -2256,8 +2314,8 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	mov.v = clamp(mov.v, -1.0, 1.0)
 	mov.h = clamp(mov.h, -1.0, 1.0)
 
-	mov.ab = (absf(mov.v) + absf(mov.h))
-	weight := clamp(mov.ab - 1.0, 0.0, 1.0) + 1.0
+	ab := (absf(mov.v) + absf(mov.h))
+	weight := clamp(ab - 1.0, 0.0, 1.0) + 1.0
 	actual_forward := *ctx.cam_forward_global * mov.v + cross * mov.h
 	actual_forward = actual_forward / weight
 	if mov.on_getting_to_back_pos
@@ -2277,10 +2335,13 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		player_ent.vel.x = 0.0
 		player_ent.vel.z = 0.0
 		player_ent.vel.y = -0.5
-		if IsKeyDown(key_enum.KEY_JMP)
+		if IsKeyDown(key_enum.KEY_JMP) && !mov.exhausted
 		{
-			mov.jmp.vel = *ctx.cam_forward_global * 5.0 + ctx.up * 15.0
+			grav.y = 0.0
+			mov.jmp.vel = *ctx.cam_forward_global * 5.0 + ctx.up * 6.0
 			player_ent.state = entity_state.IDLE
+
+			mov.stamina -= 0.2
 		}
 		if on_ground
 		{
@@ -2312,11 +2373,75 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		player_ent.color.z = 0.0
 		speed := mov.speed
 
+		trying_to_run := false
 		if IsKeyHeld(key_enum.KEY_SHIFT)
 		{
-			speed = speed * 1.8
+			trying_to_run = true
+			if !mov.exhausted
+			{
+				speed = speed * 1.8
+			}
+		}
+		if IsKeyDown(key_enum.KEY_JMP) && (on_ground && mov.jmp.time_off_ground == 0.0 || mov.jmp.time_off_ground <= 0.5)
+			&& !mov.jmp.jmpd
+		{
+			if !mov.exhausted
+			{
+				player_ent.vel.y = 0.0
+				mov.jmp.vel.y = 1.0 * mov.jmp.speed
+				mov.jmp.jmpd = true
+				player_ent.on_ground = false
+
+				mov.stamina -= 0.05
+
+			}
 		}
 
+		if mov.stamina < 0.01
+		{
+			mov.exhausted = true
+		}
+
+		if mov.exhausted && mov.stamina > 0.3
+		{
+			mov.exhausted = false
+		}
+
+		if ab < 0.01 && on_ground
+		{
+			mov.stamina += *dt * mov.stamina_recover_rate
+		}
+
+		if mov.exhausted
+		{
+			if trying_to_run
+			{
+				speed = speed * 0.8
+				mov.stamina_temp_max -= speed * *dt * mov.stamina_decrease_rate * 0.1
+			}
+			else
+			{
+				speed = speed * 0.5
+			}
+		}
+		else
+		{
+			decrease_vel := speed * *dt * mov.stamina_decrease_rate
+			if trying_to_run
+			{
+				decrease_vel = decrease_vel * 2.0
+			}
+
+			if ab > 0.5
+			{
+				mov.stamina -= decrease_vel
+				mov.stamina_temp_max -= decrease_vel * 0.03
+			}
+		}
+
+
+
+		mov.stamina = clamp(mov.stamina, 0.0, mov.stamina_temp_max)
 
 		player_ent.vel = actual_forward * speed + *grav
 		player_ent.vel += mov.jmp.vel; // + mov.platform_vel
@@ -2324,6 +2449,26 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		{
 			*forward = normalize_vec(&actual_forward)
 		}
+
+		if IsMouseDown(mouse_enum.LEFT)
+		{
+			cam_rot := *ctx.cam_rot_global
+			cam_pos := *ctx.cam_pos_global
+			b := get_bullet(ctx)
+			b.col_enter = bullet_collision_enter
+			b.ignore_collision_with_layers = LAYER_PLAYER
+			b.tex_id = ctx.ball_tex
+			b.pos = cam_pos
+			dir := euler_to_quaternion(radians_to_degree(cam_rot.x), radians_to_degree(cam_rot.y), 0.0) * *ctx.cam_aux_forward_global
+			b.size.x = 0.2
+			b.size.y = 0.2
+			b.col_size = b.size
+
+			b.is_active = true
+			b.vel = dir * 40.0
+		}
+
+		
 		ang := angle_on_axis(aux_forward, forward, &ctx.up)
 		player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
 
@@ -2991,12 +3136,35 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 				if !var_type continue;
 
 				data := ptr_offset(ent, var_type.offset, u8)
-				DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
+				if *name == "col"
+				{
+					if  ent.col == nil
+					{
+						add_body(ctx, ent);
+
+						c := cast(*collider)ent.col
+						c.type = cast(col_type)st.BIN.expr[1].INT.num
+					}
+
+				}
+				else
+				{
+					DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
+				}
 
 			}
-			printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
+			//printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
 			i += ent_str_sz - 1
 
+	
+			str :string
+			AssignStr(&str, ent.name)
+			if str == "test"
+			{
+				print_ar(cast(*dyn_array(u32))&ent.remove_from)
+				ctx.test_ent = ent
+				printf("\nc {ent.remove_from.count}\n")
+			}
 
 			if is_flag_off(ent.flags, ENTITY_DONT_FREE)
 			{
@@ -3004,13 +3172,29 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 				{
 					on *en
 					{
+					ent_part_of.PLAYABLE
+					{
+						dyn_add(&ctx.playable_ents, ent)
+						if ent.type == ent_type.ENEMY
+						{
+							ent.playable_func = enemy_mov
+						}
+					}
+					ent_part_of.ANIMATION
+					{
+						dyn_add(&ctx.ents_with_clip, ent)
+					}
+					ent_part_of.LOOK_AT_PLAYER
+					{
+						dyn_add(&ctx.look_at_ents, ent)
+					}
 					ent_part_of.DRAWABLE
 					{
 						dyn_add(&ctx.drawable_ents, ent)
 					}
 					ent_part_of.COLLIDER
 					{
-						add_body(ctx, ent);
+						//add_body(ctx, ent);
 					}
 					ent_part_of.INSTANTIATED
 					{
@@ -3265,6 +3449,78 @@ change_preview_col_idx::fn(ctx : *context, new_val : u8)
 	}
 	}
 }
+enemy_mov::fn(ctx : *context, ent : *entity, dt : *f32)
+{
+	//printf("enemy\n")
+	ent.cl = ctx.character_walk
+	dir := ctx.player.pos - ent.pos
+	dir = normalize_vec(&dir)
+	ent.vel = dir + ent.impact_vel
+	ent.vel.y += -1.0
+	ent.sec_color.w = 1.0
+
+	ent.impact_vel += -ent.impact_vel * *dt * 4.0
+
+	ent.color_lerp += -ent.color_lerp * *dt * 8.0
+}
+playble_ents_logic::fn(ctx : *context, dt : *f32)
+{
+	for e in ctx.playable_ents
+	{
+		if !e.is_active
+		{
+			continue;
+		}
+		e.playable_func(ctx, *e, dt)
+	}
+}
+print_ar::fn(ar : *dyn_array(u32))
+{
+	printf("count {ar.count}\n")
+	for i in *ar
+	{
+		printf("c is {*i}\n")
+	}
+}
+draw_ui_gameplay::fn(ctx : *context, info : *player_info)
+{
+	w := 0.2
+	stamina_w := info.stamina * w
+	stamina_temp_max_w := info.stamina_temp_max * w
+	DrawSquare(ctx, -0.9, 0.9, w, 0.1, &_vec{0.0, 0.0, 0.0, 1.0})
+	DrawSquare(ctx, -0.9, 0.9, stamina_temp_max_w, 0.1, &_vec{0.0, 0.3, 0.0, 1.0})
+
+	col :=_vec{0.0, 1.0, 0.0, 1.0}
+	if info.exhausted
+	{
+		col =_vec{1.0, 0.0, 0.0, 1.0}
+	}
+	DrawSquare(ctx, -0.9, 0.9, stamina_w, 0.1, &col)
+}
+NewPlaneEnt::fn(ctx : *context, name : str_lit, pos : *_vec, size : *_vec) ! *entity
+{
+	ret := NewEnt(ctx, name);
+	ret.type = ent_type.ENEMY
+	ret.flags = ret.flags | ENTITY_SERIALIZE | ENTITY_3D | ENTITY_HAS_TEXTURE
+	ret.is_active = true
+
+
+	dyn_add(&ret.remove_from, ent_part_of.LOOK_AT_PLAYER)
+	dyn_add(&ret.remove_from, ent_part_of.ANIMATION)
+	dyn_add(&ret.remove_from, ent_part_of.PLAYABLE)
+	dyn_add(&ctx.look_at_ents, ret)
+	add_body(ctx, ret)
+
+	ret.pos = *pos
+	ret.size = *size
+	ret.col_size = *size
+	ret.color.x = 1.0
+	ret.color.y = 1.0
+	ret.color.z = 1.0
+	ret.color.w = 1.0
+
+	return ret
+}
 main_loop::fn(ctx : *context)
 {
 	ctx.cur_model_selected_idx = -1
@@ -3301,9 +3557,21 @@ main_loop::fn(ctx : *context)
 	LinearInit(&globals.ast_alloc, ctx.alloc, 512)
 	LinearInit(&globals.scope_alloc, ctx.alloc, 16)
 
+	total_bullets := 8
+	
+	bullet_sz := _vec{0.1, 0.1, 0.1}
+	for i in 0..total_bullets
+	{
+		e := NewPlaneEnt(ctx, "bullet{i}", &ctx.up, &bullet_sz)
+		e.flags = e.flags & ~(ENTITY_SERIALIZE) | ENTITY_DONT_FREE
+		e.is_active = false
+		e.type = ent_type.BULLET
+		dyn_add(&ctx.bullets, e)
+	}
 
 	//using ctx;
 	draw:draw_info3d;
+	draw2d:draw_info;
 	//AssignCamStuff(scn, &draw);
 	pos :_vec;
 	speed :f32= 10.0;
@@ -3334,7 +3602,7 @@ main_loop::fn(ctx : *context)
 		c1.CAPSULE.height = 1.7
 	}
 
-	player_ent.mov_info.speed = 2.5
+	player_ent.mov_info.speed = 4.5
 	player_ent.mov_info.jmp.speed = 2.1
 	//player_ent.model = test_model
 
@@ -3379,7 +3647,13 @@ main_loop::fn(ctx : *context)
 	player_ent.pos.y = 76.0
 	player_ent.pos.z = 9.0
 
+	player_ent.mov_info.stamina = 1.0
+	player_ent.mov_info.stamina_recover_rate = 0.05
+	player_ent.mov_info.stamina_decrease_rate = 0.005
+	player_ent.mov_info.stamina_temp_max = 1.0
 
+
+/*
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
 	other := NewEnt(ctx, "block 1")
 	other.flags = other.flags | ENTITY_3D
@@ -3401,6 +3675,7 @@ main_loop::fn(ctx : *context)
 	str :string
 
 	//generate_terrain(ctx, other)
+	*/
 
 
 	mx := 0.0
@@ -3441,17 +3716,36 @@ main_loop::fn(ctx : *context)
 	cam_up_dist := 5.0
 	hidden_cur := true
 
+	
 	cube :*entity
 	cube = new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{20.0, 1.0, 20.0});
 	cube.tex_id = ctx.grass_tex
 
-	cube = new_cube(ctx, &_vec{5.0, 70.5, 10.0}, &_vec{10.5, 5.0, 0.5});
+	test_e := NewPlaneEnt(ctx, "test", &ctx.up, &_vec{0.5, 1.5, 0.5})
+	test_e.pos = cube.pos
+	test_e.pos.y += 1.0
+	test_e.pos.x += 1.0
+	test_e.size.x += 1.0
+	//test_e.size.y += 0.5
+	test_e.col_size.z = 0.5
+	test_e.col_size.x = 0.5
+	test_e.col_size.y = 1.5
+	test_e.color.x = 1.0
+	test_e.color.y = 1.0
+	test_e.color.z = 1.0
+	test_e.color.w = 1.0
+	test_e.sec_color = test_e.color
+
+	test_e.tex_id = *ptr_offset(ctx.character_texs.tex_idxs, 0, u32)
+
+	cube = new_cube(ctx, &_vec{5.0, 70.5, 10.0}, &_vec{10.5, 8.0, 0.5});
 	cube.tex_id = ctx.grass_tex
 	cube.name = "cube1"
 	
-	cube = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{10.5, 2.2, 0.5, 0.0});
+	cube = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{10.5, 5.2, 1.5, 0.0});
 	cube.tex_id = ctx.grass_tex
 	cube.name = "cube2"
+	cube.rot = euler_to_quaternion(0.0, 45.0, 0.0).v
 
 	ctx.preview_ent = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{1.0, 1.0, 1.0, 0.0});
 	ctx.preview_ent.flags = ctx.preview_ent.flags | ENTITY_DONT_FREE
@@ -3490,6 +3784,10 @@ main_loop::fn(ctx : *context)
 	SerializeAllEnt(ctx, "01")
 	DeserializeAllEnt(ctx, "01")
 
+	//test_e = ctx.test_ent
+
+
+	//dyn_add(&test_e.remove_from, ent_part_of.LOOK_AT_PLAYER)
 
 	while !ShouldClose(ctx.window)
 	{
@@ -3501,11 +3799,13 @@ main_loop::fn(ctx : *context)
 		curmx := GetMouseScreenPosX();
 		curmy := GetMouseScreenPosY();
 
-		dt: = GetTime() - last_time;
-		//dt: = 0.017;
+		//dt: = GetTime() - last_time;
+		dt: = 0.017;
 		last_time = GetTime();
 		ctx.time_since_start += dt
+		//print_f32(dt)
 
+		//print_vec(&cam_forward)
 
 		ClearBackground(0.2, 0.5, 0.8);
 
@@ -3513,13 +3813,9 @@ main_loop::fn(ctx : *context)
 		player_ent.color.x = 1.0
 		player_ent.color.y = 0.0
 		player_ent.color.z = 0.0
-		other.color.x = f
-		other.color.y = f
-		other.color.z = f
 
 		ang: f32=?
 		cross := cross_vec(&ctx.up, &cam_forward)
-		player_mov(ctx, &aux_forward, &dt)
 
 		//cam_mov(ctx)
 
@@ -3695,8 +3991,8 @@ main_loop::fn(ctx : *context)
 							draw.rot = out_ent.rot
 							draw.flags = DRAW_INFO_TRANSPARENT
 							*draw.color[0] = 1.0
-							*draw.color[1] = 1.0
-							*draw.color[2] = 1.0
+							*draw.color[1] = 0.0
+							*draw.color[2] = 0.0
 							*draw.color[3] = 0.5
 							Draw3D(ctx.window, &draw)
 							//printf("drawing\n")
@@ -3844,10 +4140,14 @@ main_loop::fn(ctx : *context)
 		else
 		{
 			
+			player_mov(ctx, &aux_forward, &dt)
 			//print_f32(GetMouseVelX())
 			
-			cam_rot.y -= GetMouseVelX() * dt * 0.3
+			mouse_sense := 0.5
+			cam_rot.y -= GetMouseVelX() * dt * mouse_sense
 			cam_forward = euler_to_quaternion(0.0 , radians_to_degree(cam_rot.y), 0.0) * aux_forward
+
+
 
 			double_pi := PI * 2.0
 			if cam_rot.y > double_pi
@@ -3860,14 +4160,26 @@ main_loop::fn(ctx : *context)
 				diff := cam_rot.y + double_pi
 				cam_rot.y = diff
 			}
-			cam_rot.x -= GetMouseVelY() * dt * 0.3
+			cam_rot.x -= GetMouseVelY() * dt * mouse_sense
 
-			max_rot_x := 45.0 * (3.14159 / 180.0)
+			max_rot_x := 75.0 * (3.14159 / 180.0)
 			cam_rot.x = clamp(cam_rot.x, -max_rot_x, max_rot_x)
-			cam_pos = player_ent.pos
 			player_ent.forward = cam_forward
 
+			cam_pos = player_ent.pos
+			dir := euler_to_quaternion(radians_to_degree(cam_rot.x), radians_to_degree(cam_rot.y), 0.0) * aux_forward
+			cam_dir := cam_pos + dir * 2000.0
 
+			aux_sel : *entity
+			if IsMouseDown(mouse_enum.LEFT) && Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+			{
+				printf("col name {aux_sel.name}\n")
+			}
+
+
+
+
+			UpdateEntsWithClips(ctx, dt)
 			PhysicsUpdate(ctx, dt)
 		}
 		
@@ -3880,9 +4192,19 @@ main_loop::fn(ctx : *context)
 			HideCursor(hidden_cur)
 		}
 		print_mov(player_ent)
+		playble_ents_logic(ctx, &dt)
 		//OpenLocalsWindow(__LINE__)
 
 		DrawEnts(ctx, ctx.cam_pos_global, &cam_rot)
+		LookAtPlayerEnts(ctx, ctx.cam_pos_global, &cam_rot)
+
+		if !ctx.editor_cam
+		{
+			s:= 0.003
+			// aim
+			DrawSquare(ctx, -s, -s, s, s, &_vec{1.0, 1.0, 1.0, 1.0})
+			draw_ui_gameplay(ctx, ctx.player.mov_info)
+		}
 		globals.temp_alloc.cur = 0
 
 		mx = GetMouseScreenPosX() - curmx;
@@ -4021,6 +4343,20 @@ main:: fn(){
 	AssignTexFolder("../images");
 	LoadTexFolder("../images", &ctx.textures);
 	ctx.grass_tex = LoadTex("grass.png", 0, 0, 32, 32)
+	ctx.aim_tex = LoadTex("aim.png", 0, 0, 32, 32)
+	ctx.ball_tex = LoadTex("ball.png", 0, 0, 32, 32)
+
+	LoadClip("character.png", 0, 0, 64, 64, 3, 1.0, &ctx.character_texs);
+
+	idle_clip := CreateAnim(&ctx, 0, 1, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+	walk_clip: = CreateAnim(&ctx, 1, 3, ctx.character_texs.tex_idxs, ctx.character_texs.total_texs);
+
+	idle_clip.loop = true
+	walk_clip.loop = true
+
+	ctx.character_idle = idle_clip
+	ctx.character_walk = walk_clip
+	ctx.character_walk.vel = 0.2
 
 	*ctx.curtain[0] = 0.0;
 	*ctx.curtain[1] = 0.0;

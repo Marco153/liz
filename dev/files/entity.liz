@@ -22,6 +22,20 @@ DisableEnt::fn(ent : *entity)
 	}
 }
 
+RemoveEntFromAr::fn(ar : *dyn_array(*entity), ent : *entity)
+{
+
+	i :u32= 0
+	for e in *ar
+	{
+		if *e == ent
+		{
+			break
+		}
+		i++
+	}
+	dyn_rem(ar, i)
+}
 DeleteEnt::fn(ctx : *context, ent : *entity)
 {
 	for t in ent.remove_from
@@ -29,18 +43,21 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 		te := cast(ent_part_of)*t
 		on te
 		{
+		ent_part_of.LOOK_AT_PLAYER
+		{
+			RemoveEntFromAr(&ctx.look_at_ents, ent)
+		}
+		ent_part_of.PLAYABLE
+		{
+			RemoveEntFromAr(&ctx.playable_ents, ent)
+		}
+		ent_part_of.ANIMATION
+		{
+			RemoveEntFromAr(&ctx.ents_with_clip, ent)
+		}
 		ent_part_of.DRAWABLE
 		{
-			i :u32= 0
-			for e in ctx.drawable_ents
-			{
-				if *e == ent
-				{
-					break
-				}
-				i++
-			}
-			dyn_rem(&ctx.drawable_ents, i)
+			RemoveEntFromAr(&ctx.drawable_ents, ent)
 		}
 		ent_part_of.COLLIDER
 		{
@@ -48,17 +65,7 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 		}
 		ent_part_of.INSTANTIATED
 		{
-			i :u32= 0
-			for e in ctx.ents
-			{
-				if *e == ent
-				{
-					break
-				}
-				i++
-			}
-			dyn_rem(&ctx.ents, i)
-
+			RemoveEntFromAr(&ctx.ents, ent)
 		}
 		default
 		{
@@ -85,7 +92,7 @@ NewEnt::fn(ctx : *context, name : str_lit) ! *entity
 	dyn_add(&ctx.ents, ent)
 	ent.flags = ENTITY_IN_USE
 	ent.color = _vec{1.0, 1.0, 1.0, 1.0};
-	ent.name = name;
+	ent.name = new_str_lit(ctx.alloc, name);
 	ent.size.x = 1.0;
 	ent.size.y = 1.0;
 	ent.size.z = 1.0;
@@ -166,10 +173,49 @@ draw_terrain::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec, e : *entity)
 		draw.ent_size.x = 1.0
 		draw.ent_size.y = 1.0
 		draw.ent_size.z = 1.0
-		draw.ent_size.w = 0.0
 		memcpy(cast(*void)draw.color, &e.color, 4 * sizeof(f32));
 		Draw3D(ctx.window, &draw);
 	}
+}
+LookAtPlayerEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
+{
+	for ent in ctx.look_at_ents
+	{
+		if !ent.is_active
+		{
+			continue
+		}
+		ent.rot = euler_to_quaternion(0.0, radians_to_degree(ctx.cam_rot_global.y), 0.0).v
+		draw : draw_info3d
+
+		draw.model = 1
+		draw.pos = ent.pos
+		draw.rot = ent.rot
+		draw.cam_pos = cam_pos
+		draw.cam_rot = cam_rot
+		draw.perspective_mat = ctx.perspective_mat
+		draw.cam_forward = ctx.cam_forward_global
+		draw.ent_size = ent.size
+		memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
+		memcpy(cast(*void)&draw.sec_color, &ent.sec_color, 4 * sizeof(f32));
+		draw.color_lerp = ent.color_lerp
+		if(is_flag_on(ent.flags, ENTITY_ALWAYS_ON_FRONT))
+		{
+			draw.flags = draw.flags | DRAW_INFO_ALWAYS_ON_FRONT;
+		}
+		if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))
+		{
+			draw.flags = draw.flags | DRAW_INFO_TRANSPARENT;
+		}
+		if(is_flag_on(ent.flags, ENTITY_HAS_TEXTURE))
+		{
+			draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE ;
+			draw.texture_id = ent.tex_id
+		}
+		draw.flags = draw.flags | DRAW_INFO_NO_LIGHT;
+		Draw3D(ctx.window, &draw);
+	}
+
 }
 DrawEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 {
@@ -218,7 +264,9 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			draw.perspective_mat = ctx.perspective_mat
 			draw.cam_forward = ctx.cam_forward_global
 			draw.ent_size = ent.size
-			memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
+			memcpy(cast(*void)&draw.color, &ent.color, 4 * sizeof(f32));
+			memcpy(cast(*void)&draw.sec_color, &ent.sec_color, 4 * sizeof(f32));
+			draw.color_lerp = ent.color_lerp
 			if(is_flag_on(ent.flags, ENTITY_ALWAYS_ON_FRONT))
 			{
 				draw.flags = draw.flags | DRAW_INFO_ALWAYS_ON_FRONT;

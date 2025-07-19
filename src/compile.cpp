@@ -13087,7 +13087,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				{
 					GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, assign.lhs.is_packed_float);
 				}
-				if (lhs.reg == PRE_X64_RSP_REG)
+				if (lhs.reg == PRE_X64_RSP_REG && !lhs.is_float)
 					bc.type = MOV_M_2_REG_PARAM;
 				else
 				{

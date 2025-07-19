@@ -99,6 +99,12 @@ enum key_enum
 #include "../include/GLFW/glfw3.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
+#ifdef LINUX
+#define GLFW_EXPOSE_NATIVE_X11
+#include <GLFW/glfw3native.h>
+#endif
+#include <X11/Xlib.h>
+#include <X11/extensions/Xfixes.h> 
 
 struct v4
 {
@@ -492,14 +498,27 @@ Mat4 mat4_lookAt(Vec3 eye, Vec3 center, Vec3 up) {
 
     return result;
 }
-void update_camera_direction(float yaw, float pitch, Vec3* front) {
-    float radYaw = yaw * (3.14159265f / 180.0f);
-    float radPitch = pitch * (3.14159265f / 180.0f);
+void update_camera_direction(float yaw, float pitch, float roll, Vec3* front,  Vec3* up) {
+	auto DEG_TO_RAD = (3.14159265f / 180.0f);
+	// Calculate front vector from yaw and pitch (standard FPS camera)
+    front->x = cosf(yaw * DEG_TO_RAD) * cosf(pitch * DEG_TO_RAD);
+    front->y = sinf(pitch * DEG_TO_RAD);
+    front->z = sinf(yaw * DEG_TO_RAD) * cosf(pitch * DEG_TO_RAD);
+    *front = vec3_normalize(*front); // Normalize to avoid speed variations
 
-    front->x = cosf(radYaw) * cosf(radPitch);
-    front->y = sinf(radPitch);
-    front->z = sinf(radYaw) * cosf(radPitch);
-    *front = vec3_normalize(*front);
+    // Apply roll to the up vector (rotation around the front vector)
+    Vec3 worldUp = {0.0f, 1.0f, 0.0f}; // Default global up (Y-axis)
+    Vec3 right = vec3_cross(*front, worldUp);
+    right = vec3_normalize(right);
+
+    // Rotate the up vector around the front vector by the roll angle
+    float cr = cosf(roll * DEG_TO_RAD);
+    float sr = sinf(roll * DEG_TO_RAD);
+    up->x = cr * worldUp.x - sr * right.x;
+    up->y = cr * worldUp.y - sr * right.y;
+    up->z = cr * worldUp.z - sr * right.z;
+    *up = vec3_normalize(*up);
+
 }
 ///
 
@@ -623,6 +642,13 @@ struct draw_info3d
 	float tex_offset_x;
 	float tex_offset_y;
 
+	float lerp_color;
+
+	float sec_color_r;
+	float sec_color_g;
+	float sec_color_b;
+	float sec_color_a;
+
 	unsigned long long perspective_mat;
 };
 struct open_gl_state
@@ -637,6 +663,7 @@ struct open_gl_state
 	int line_vao;
 	int line_vbo;
 	int shader_program3d_tex;
+	int shader_program3d_tex_no_light;
 	int shader_program3d;
 	int terrain_shader_program3d;
 	int shader_program3d_line;
@@ -669,6 +696,7 @@ struct open_gl_state
 	//YankBuffer yank[8];
 
 	bool game_started;
+	bool cursor_hidden;
 	own_std::string texture_folder;
 	own_std::string model_folder;
 	bool is_engine;
@@ -1070,6 +1098,8 @@ void Print(dbg_state* dbg)
 #define DRAW_INFO_DBG_BREAK 0x800
 #define DRAW_INFO_TERRAIN 0x1000
 #define DRAW_INFO_ALWAYS_ON_FRONT 0x2000
+#define DRAW_INFO_NO_DEPTH_TEST 0x4000
+#define DRAW_INFO_NO_LIGHT 0x8000
 enum class stencil_func
 {
 	EQUAL,
@@ -1216,59 +1246,55 @@ void build_model_matrix(float* out_matrix,
                        const Vec3* position,
                        const float* quaternion, // [x,y,z,w]
                        const Vec3* scale) {
+
+  // Extract quaternion components
+    float x = quaternion[0];
+    float y = quaternion[1];
+    float z = quaternion[2];
+    float w = quaternion[3];
     
-    // First create identity matrix
-    float temp[16] = {
-        1, 0, 0, 0,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1
-    };
+    // Calculate quaternion products (for rotation matrix)
+    float x2 = x + x;
+    float y2 = y + y;
+    float z2 = z + z;
+    float xx = x * x2;
+    float xy = x * y2;
+    float xz = x * z2;
+    float yy = y * y2;
+    float yz = y * z2;
+    float zz = z * z2;
+    float wx = w * x2;
+    float wy = w * y2;
+    float wz = w * z2;
     
-    // Apply scale
-    temp[0]  = scale->x;
-    temp[5]  = scale->y;
-    temp[10] = scale->z;
+    // Apply scale to the rotation matrix
+    float sx = scale->x;
+    float sy = scale->y;
+    float sz = scale->z;
     
-    // Convert quaternion to rotation matrix
-    float qx = quaternion[0], qy = quaternion[1], qz = quaternion[2], qw = quaternion[3];
+    // First row
+    out_matrix[0] = (1.0f - (yy + zz)) * sx;
+    out_matrix[1] = (xy + wz) * sx;
+    out_matrix[2] = (xz - wy) * sx;
+    out_matrix[3] = 0.0f;
     
-    // Normalize quaternion
-    float length = sqrtf(qx*qx + qy*qy + qz*qz + qw*qw);
-    qx /= length;
-    qy /= length;
-    qz /= length;
-    qw /= length;
+    // Second row
+    out_matrix[4] = (xy - wz) * sy;
+    out_matrix[5] = (1.0f - (xx + zz)) * sy;
+    out_matrix[6] = (yz + wx) * sy;
+    out_matrix[7] = 0.0f;
     
-    // Calculate quaternion components squared
-    float xx = qx * qx, yy = qy * qy, zz = qz * qz;
-    float xy = qx * qy, xz = qx * qz, yz = qy * qz;
-    float xw = qx * qw, yw = qy * qw, zw = qz * qw;
+    // Third row
+    out_matrix[8] = (xz + wy) * sz;
+    out_matrix[9] = (yz - wx) * sz;
+    out_matrix[10] = (1.0f - (xx + yy)) * sz;
+    out_matrix[11] = 0.0f;
     
-    // Create rotation matrix (will multiply with scale)
-    float rot[16] = {
-        1-2*(yy+zz),  2*(xy-zw),    2*(xz+yw),    0,
-        2*(xy+zw),    1-2*(xx+zz),  2*(yz-xw),    0,
-        2*(xz-yw),    2*(yz+xw),    1-2*(xx+yy),  0,
-        0,            0,            0,            1
-    };
-    
-    // Multiply scale and rotation (scale first, then rotate)
-    float scaled_rot[16];
-    for(int i = 0; i < 4; i++) {
-        for(int j = 0; j < 4; j++) {
-            scaled_rot[i*4+j] = 0;
-            for(int k = 0; k < 4; k++) {
-                scaled_rot[i*4+j] += rot[i*4+k] * temp[k*4+j];
-            }
-        }
-    }
-    
-    // Apply translation
-    memcpy(out_matrix, scaled_rot, sizeof(float)*16);
+    // Fourth row (translation)
     out_matrix[12] = position->x;
     out_matrix[13] = position->y;
     out_matrix[14] = position->z;
+    out_matrix[15] = 1.0f;	
 }
 
 void GetViewMatrix(dbg_state* dbg, draw_info3d *draw)
@@ -1328,6 +1354,7 @@ void ScreenMouseToWorld(dbg_state* dbg)
 	*(((float *)ret) + 3) = 0.0f;
 }
 #define RAD_TO_DEG 57.29577
+#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("\ngl error %d\n", glGetError()); fflush(stdout); ExitProcess(1);}
 void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1380,6 +1407,10 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 		ASSERT(draw->texture_id < TOTAL_TEXTURES);
 		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
 		texture_info* t = &gl_state->textures[draw->texture_id];
+		int sec_color = glGetUniformLocation(shaderProgram, "sec_color");
+		int sec_color_lerp = glGetUniformLocation(shaderProgram, "color_lerp");
+		GL_CALL(glUniform4f(sec_color, draw->sec_color_r, draw->sec_color_g, draw->sec_color_b, draw->sec_color_a));
+		GL_CALL(glUniform1f(sec_color_lerp, draw->lerp_color));
 
 		glBindTexture(GL_TEXTURE_2D, t->id);
 	}
@@ -1402,6 +1433,17 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	{
 		shaderProgram = gl_state->terrain_shader_program3d;
 	}
+
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_NO_LIGHT))
+	{
+		shaderProgram = gl_state->shader_program3d_tex_no_light;
+		glUseProgram(shaderProgram);
+		int sec_color = glGetUniformLocation(shaderProgram, "sec_color");
+		int sec_color_lerp = glGetUniformLocation(shaderProgram, "color_lerp");
+		GL_CALL(glUniform4f(sec_color, draw->sec_color_r, draw->sec_color_g, draw->sec_color_b, draw->sec_color_a));
+		GL_CALL(glUniform1f(sec_color_lerp, draw->lerp_color));
+	}
+
 	if(IS_FLAG_ON(draw->flags, DRAW_INFO_DBG_BREAK))
 	{
 		raise(SIGTRAP);
@@ -1501,8 +1543,9 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 
 	float yaw = -cam_rot_y * RAD_TO_DEG + -90.0;
 	float pitch = cam_rot_x * RAD_TO_DEG;
+	float roll = cam_rot_z * RAD_TO_DEG;
 
-	update_camera_direction(yaw, pitch, &cameraFront);
+	update_camera_direction(yaw, pitch, roll, &cameraFront, &cameraUp);
 	Mat4 view = mat4_lookAt(cameraPos, vec3_add(cameraPos, cameraFront), cameraUp);
 	memcpy(gl_state->view, view.m, sizeof(gl_state->view));
 
@@ -1540,7 +1583,6 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	}
 
 }
-#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("\ngl error %d\n", glGetError()); fflush(stdout); ExitProcess(1);}
 void Draw3D(dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
@@ -1613,7 +1655,7 @@ void Draw(dbg_state* dbg)
 	glBindVertexArray(vao);
 
 	gl_state->color_u = glGetUniformLocation(prog, "color");
-	glUniform4f(gl_state->color_u, draw->color_r, draw->color_b, draw->color_g, draw->color_a);
+	glUniform4f(gl_state->color_u, draw->color_r, draw->color_g, draw->color_b, draw->color_a);
 
 	gl_state->pos_u = glGetUniformLocation(prog, "pos");
 	glUniform3f(gl_state->pos_u, draw->pos_x, draw->pos_y, draw->pos_z);
@@ -1721,6 +1763,12 @@ void Draw(dbg_state* dbg)
 		glColorMask(false, false, false, false);
 		//glDepthMask(false);
 	}
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_NO_DEPTH_TEST))
+	{
+		glDisable(GL_DEPTH_TEST);
+		glDepthMask(false);
+	}
+
 	//else
 	//{
 		if (IS_FLAG_ON(draw->flags, DRAW_INFO_WIREFRAME))
@@ -5432,7 +5480,7 @@ void Init3D(dbg_state* dbg)
 	";
 
 	// Fragment Shader
-	char* fragmentShaderSrcTex = "\n\
+	char* fragmentShaderSrcTexNoLight = "\n\
 	#version 330 core\n\
 	out vec4 FragColor;\n\
 	in vec2 TexCoord;\n\
@@ -5442,15 +5490,39 @@ void Init3D(dbg_state* dbg)
 	uniform vec2 tex_size;\n\
 	uniform vec2 tex_offset;\n\
 	uniform sampler2D tex;\n\
+	uniform vec4 sec_color;\n\
+	uniform float color_lerp;\n\
 	void main() {\n\
+		vec4 tex_col =  texture(tex, TexCoord);\n\
+		if(tex_col.a == 0.0){\n\
+			discard;\n\
+		}\n\
+		FragColor = col * vColor * tex_col;\n\
+		FragColor = (1.0 - color_lerp) * FragColor + color_lerp * sec_color;\n\
+	}\
+	";
+	char* fragmentShaderSrcTex = "\n\
+	#version 330 core\n\
+	out vec4 FragColor;\n\
+	in vec2 TexCoord;\n\
+	in vec4 vColor;\n\
+	in vec3 fragPos;\n\
+	uniform vec4 col;\n\
+	uniform vec4 sec_color;\n\
+	uniform float color_lerp;\n\
+	uniform vec2 tex_size;\n\
+	uniform vec2 tex_offset;\n\
+	uniform sampler2D tex;\n\
+	void main() {\n\
+		vec4 tex_col =  texture(tex, TexCoord);\n\
 		vec3 dx = dFdx(fragPos);\n\
 		vec3 dy = dFdy(fragPos);\n\
 		vec3 norm = normalize(cross(dx, dy));\n\
 		vec3 lightDir = normalize(vec3(-1.0, 0.5, 0.0));\n\
 		float d = max(dot(lightDir, norm), 0.2);\n\
-		vec4 tex_col =  texture(tex, TexCoord);\n\
 		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
 		FragColor *= col * vColor * tex_col;\n\
+		FragColor = (1.0 - color_lerp) * FragColor + color_lerp * sec_color;\n\
 	}\
 	";
 	char* fragmentShaderSrc = "\n\
@@ -5471,6 +5543,13 @@ void Init3D(dbg_state* dbg)
 	";
 	
 	// Cube vertices with UVs (each face gets its own 4 vertices)
+	GLfloat planeVerts[] = {
+		// Front face
+		-0.5f, -0.5f,  0.0f,   0.0f, 0.0f,
+		0.5f, -0.5f,  0.0f,   1.0f, 0.0f,
+		0.5f,  0.5f,  0.0f,   1.0f, 1.0f,
+		-0.5f,  0.5f,  0.0f,   0.0f, 1.0f,
+	};
 	GLfloat cubeVerts[] = {
 		// Front face
 		-0.5f, -0.5f,  0.5f,   0.0f, 0.0f,
@@ -5510,6 +5589,9 @@ void Init3D(dbg_state* dbg)
 	};
 
 
+	GLuint indicesPlane[] = {
+		0, 2, 1,   2, 0, 3,       // Front face
+	};
 	GLuint indices[] = {
 		0, 2, 1,   2, 0, 3,       // Front face
 		4, 5, 6,   6, 7, 4,       // Back face
@@ -5523,6 +5605,7 @@ void Init3D(dbg_state* dbg)
     GLuint terrain_vs = compileShader(GL_VERTEX_SHADER, terrainVertexShaderSrc);
     GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
     GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
+    GLuint fs_tex_no_light = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTexNoLight);
     GLuint fs_tex = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTex);
     GLuint shaderProgram = glCreateProgram();
 
@@ -5537,6 +5620,12 @@ void Init3D(dbg_state* dbg)
     glAttachShader(shaderProgram, fs_tex);
     glLinkProgram(shaderProgram);
 	gl_state->shader_program3d_tex = shaderProgram;
+
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs_tex_no_light);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_tex_no_light = shaderProgram;
 
     shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, terrain_vs);
@@ -5650,6 +5739,7 @@ void Init3D(dbg_state* dbg)
 
 
 
+
 	glGenVertexArrays(1, &VAO);
 	glGenBuffers(1, &VBO);
 	
@@ -5679,6 +5769,33 @@ void Init3D(dbg_state* dbg)
 	gl_state->vbo3d_tri = VBO;
 
     glEnable(GL_DEPTH_TEST);
+
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(planeVerts), planeVerts, GL_STATIC_DRAW);
+    
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indicesPlane), indicesPlane, GL_STATIC_DRAW);
+    
+
+	// Position attribute (location = 0)
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	// UV attribute (location = 1)
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+	model_info *plane_m = &gl_state->models[1];
+	plane_m->name = "plane";
+	plane_m->vao = VAO;
+	plane_m->ebo = EBO;
+	plane_m->vbo = VBO;
+	plane_m->indicies = 6;
 
 	loadIdentity(gl_state->model);
     loadIdentity(gl_state->view);
@@ -5714,10 +5831,39 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
         gl_state->mouse_vel_x = (xpos - gl_state->mouse_last_x);
         gl_state->mouse_vel_y = (ypos - gl_state->mouse_last_y);
     }
-    
+	//glfwSetCursorPos(window, 0, 0);
     gl_state->mouse_last_x = xpos;
     gl_state->mouse_last_y = ypos;
+	//glfwSetCursorPos(window, gl_state->width / 2, gl_state->height / 2);
 }
+#ifdef LINUX
+void hide_cursor_x11(GLFWwindow* glfwWindow) {
+    // Get X11 display and window from GLFW
+    Display* display = glfwGetX11Display();
+    Window window = glfwGetX11Window(glfwWindow);
+    
+
+    // Method 2: Using XFixes extension (more reliable)
+    int event_base, error_base;
+    if (XFixesQueryExtension(display, &event_base, &error_base)) {
+        XFixesHideCursor(display, window);
+        XFlush(display);
+    }
+}
+
+void show_cursor_x11(GLFWwindow* glfwWindow) {
+    Display* display = glfwGetX11Display();
+    Window window = glfwGetX11Window(glfwWindow);
+    
+    // Method 2: Using XFixes
+    int event_base, error_base;
+    if (XFixesQueryExtension(display, &event_base, &error_base)) {
+        XFixesShowCursor(display, window);
+        XFlush(display);
+    }
+}
+#endif
+
 void HideCursor(dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -5726,11 +5872,19 @@ void HideCursor(dbg_state* dbg)
 
 	if(val)
 	{
+#ifdef AOEOAE
+		hide_cursor_x11((GLFWwindow *)gl_state->glfw_window);
+#else
 		glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+#endif
 	}
 	else
 	{
+#ifdef AOEAOE
+		show_cursor_x11((GLFWwindow *)gl_state->glfw_window);
+#else
 		glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+#endif
 	}
 }
 void OpenWindow(dbg_state* dbg)
@@ -5798,6 +5952,10 @@ void OpenWindow(dbg_state* dbg)
 		ASSERT(0);
 		glfwTerminate();
 		return;
+
+	}
+	if (glfwRawMouseMotionSupported()) {
+		glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 	}
 	gl_state->glfw_window = window;
 
@@ -6149,7 +6307,7 @@ void PrintV3(dbg_state* dbg)
 	float z = *(float*)&dbg->mem_buffer[base_ptr + 24];
 	printf("x: %.3f, y: %.3f, z: %.3f\n", x, y, z);
 
-	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
+	//*(float*)&dbg->mem_buffer[REt_1_REG * 8] = sinf(val);
 }
 void OpenLocalsWindow(dbg_state* dbg)
 {

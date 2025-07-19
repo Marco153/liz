@@ -41,5 +41,27 @@ col_info:struct
 }
 
 
-
-
+col_type : etruct
+{
+	SPHERE(
+		radius : f32
+		
+	),
+	CAPSULE(
+		radius : f32,
+		height : f32
+	),
+	TRIANGLE(
+		normal :_vec
+		verts : [3]_vec
+	),
+	CUBE(
+		verts : [8]_vec
+	)
+}
+collider : struct
+{
+	using type : col_type
+	ent : * entity
+	pos : _vec
+}

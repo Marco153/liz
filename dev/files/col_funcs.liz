@@ -84,6 +84,19 @@ player_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 		ent_a.on_ground = true
 	}
 }
+bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	ent_a.is_active = false
+	if ent_b.type == ent_type.ENEMY
+	{
+
+		vel := ent_a.vel
+		vel = normalize_vec(&vel) * 4.0
+		vel.y = 2.0
+		ent_b.impact_vel = vel 
+		ent_b.color_lerp = 1.0
+	}
+}
 player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 	up : _vec

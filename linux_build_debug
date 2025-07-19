@@ -1,1 +1,1 @@
-clang++ -ferror-limit=5 -Isrc/include -Isrc/include/imgui/docking -o build/a.out -gfull -L./src/lib -l:libglfw.so.3.4 -lassimp -std=c++11 src/main.cpp libdeflate.o imgui*.o -Wno-everything
+clang++ -ferror-limit=5 -Isrc/include -Isrc/include/imgui/docking -o build/a.out -gfull -L./src/lib -l:libglfw.so.3.4 -lX11 -lXfixes -lassimp -std=c++11 src/main.cpp libdeflate.o imgui*.o -Wno-everything

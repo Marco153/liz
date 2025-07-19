@@ -8,6 +8,7 @@ ent_type:enum
 	AXE,
 	DEFENSE,
 	ENEMY,
+	BULLET,
 	CHANGE_SCENE_TRIGGER,
 	RESET_LEVEL,
 	SPEAR,
@@ -74,6 +75,7 @@ LAYER_PLAYER:const s32 = 2;
 LAYER_TRIGGER :const s32 = 4;
 LAYER_ENEMY :const s32 = 8;
 LAYER_MAYBE_ONLY_UP_COL :const s32 = 0x10;
+LAYER_LOOK_AT_PLAYER :const s32 = 0x20;
 
 event_type : enum
 {
@@ -136,7 +138,10 @@ ent_part_of:enum
 {
 	DRAWABLE,
 	COLLIDER,
-	INSTANTIATED
+	INSTANTIATED,
+	LOOK_AT_PLAYER,
+	ANIMATION,
+	PLAYABLE,
 }
 entity:struct
 {
@@ -151,6 +156,8 @@ entity:struct
 	rot : _vec,
 	angle_rot : _vec,
 	color : _vec,
+	sec_color : _vec,
+	color_lerp : f32,
 	vel : _vec,
 	impact_vel : _vec,
 	forward : _vec,
@@ -159,6 +166,7 @@ entity:struct
 	col_enter : fn(*entity, *entity, *collision),
 	col_stay : fn(*entity, *entity, *collision),
 	col_exit : fn(*entity, *entity, *collision),
+	playable_func : fn(*void, *entity, *f32),
 	col : *void,
 
 	on_ground : bool,
@@ -174,6 +182,7 @@ entity:struct
 
 	layer : u32,
 	dont_res_cols_with_layers : u32,
+	ignore_collision_with_layers : u32,
 
 	mov_info : *player_info,
 	axe : *axe_info,
@@ -187,6 +196,11 @@ entity:struct
 	
 	using u :: union
 	{
+		bullet ::struct
+		{
+			cur_timer : f32
+			time_max : f32
+		};
 		dmg ::struct
 		{
 			from: *entity,
@@ -299,9 +313,18 @@ player_info: struct
 	
 	up_col : bool
 	down_col : bool
+	exhausted : bool
+
 
 	col_in_stay : bool
 
 	jmp : jmp_info,
 	speed : f32,
+
+	stamina : f32
+	stamina_temp_max : f32
+	stamina_max : f32
+
+	stamina_recover_rate : f32
+	stamina_decrease_rate : f32
 }

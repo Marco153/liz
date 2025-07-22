@@ -2219,6 +2219,7 @@ void ImGuiEnumCombo(dbg_state* dbg)
 		return;
 	}
 
+	bool clicked = false;
 	own_std::vector<char*>* ar = e->type.enum_names;
 	if (ImGui::BeginCombo("type##obj_type", (*ar)[*var_addr]))
 	{
@@ -2226,11 +2227,23 @@ void ImGuiEnumCombo(dbg_state* dbg)
 		{
 			char* ptr = (*ar)[i];
 			if (ImGui::Selectable(ptr))
+			{
 				*var_addr = i;
+			}
 		}
 		ImGui::EndCombo();
 	}
-
+	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = clicked;
+}
+void ImGuiShowV4(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto v = (v3*)&dbg->mem_buffer[v_offset];
+	char buffer[128];
+	snprintf(buffer, 128, "##%p", v);
+	ImGui::DragFloat4(buffer, (float*)v, 0.5);
 }
 void ImGuiShowV3(dbg_state* dbg)
 {
@@ -4619,6 +4632,7 @@ void LoadModelBase(dbg_state* dbg, own_std::string &full_path)
 	if(idx != -1)
 	{
 		*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
+		ASSERT(0)
 		return;
 	}
 
@@ -4634,6 +4648,7 @@ void LoadModelBase(dbg_state* dbg, own_std::string &full_path)
 
     if (!scene) {
         printf("Failed to load FBX: %s\n", aiGetErrorString());
+		ASSERT(0)
         return;
     }
 
@@ -4744,7 +4759,7 @@ void LoadModel(dbg_state* dbg)
 
 	unsigned int size = 0;
 	auto gl_state = (open_gl_state*)dbg->data;
-	own_std::string full_path = dbg->cur_func->from_file->path + model_path;
+	own_std::string full_path = gl_state->model_folder + model_path;
 	LoadModelBase(dbg, full_path);
 
 }
@@ -5134,7 +5149,6 @@ void HandleForGettingFilesInDir(dbg_state *dbg)
 		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
 	}
 	own_std::string work_dir = dbg->cur_func->from_file->path;
-
 	h->dir->path = work_dir + name_str;
 	MaybeAddBarToEndOfStr(&h->dir->path);
 	GetFilesInDirectory((char *)h->dir->path.c_str(), nullptr, &h->dir->files);
@@ -6342,8 +6356,8 @@ void MemCpy(dbg_state* dbg)
 	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int c_ptr = *(int*)&dbg->mem_buffer[base_ptr + 24];
-	int *a = (int*)&dbg->mem_buffer[a_ptr];
-	int *b = (int*)&dbg->mem_buffer[b_ptr];
+	void *a = (void*)&dbg->mem_buffer[a_ptr];
+	void *b = (void*)&dbg->mem_buffer[b_ptr];
 	memcpy(a, b, c_ptr);
 
 }
@@ -6960,6 +6974,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetMouseScroll", (OutsiderFuncType)GetMouseScroll);
 	AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
 	AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
+	AssignOutsiderFunc(&lang_stat, "ImGuiShowV4", (OutsiderFuncType)ImGuiShowV4);
 	AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow", (OutsiderFuncType)IsMouseOnGameWindow);
 	AssignOutsiderFunc(&lang_stat, "GetTopStackPtr", (OutsiderFuncType)GetTopStackPtr);
 	AssignOutsiderFunc(&lang_stat, "GetInstRealAddr", (OutsiderFuncType)GetInstRealAddr);

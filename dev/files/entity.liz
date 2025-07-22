@@ -36,6 +36,10 @@ RemoveEntFromAr::fn(ar : *dyn_array(*entity), ent : *entity)
 	}
 	dyn_rem(ar, i)
 }
+deactivate_ent::fn(ctx : *context, e : *entity)
+{
+	e.is_active = false
+}
 DeleteEnt::fn(ctx : *context, ent : *entity)
 {
 	for t in ent.remove_from
@@ -54,6 +58,13 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 		ent_part_of.ANIMATION
 		{
 			RemoveEntFromAr(&ctx.ents_with_clip, ent)
+		}
+		ent_part_of.EMMITTER
+		{
+			RemoveEntFromAr(&ctx.emmitters, ent)
+
+			heap_free(ctx.alloc, ent.emmitter.particles)
+			heap_free(ctx.alloc, ent.emmitter)
 		}
 		ent_part_of.DRAWABLE
 		{

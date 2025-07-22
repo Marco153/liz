@@ -760,11 +760,20 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			}
 			else if (f->name == "GetTypeData")
 			{
+				//BREAK(n->t->line == 3360)
 				dummy_type = DescendNode(lang_stat, n->r, scp);
 				ret->type = AST_INT;
 				if (dummy_type.type == TYPE_STRUCT_TYPE || dummy_type.type == TYPE_STRUCT)
 				{
 					ret->num = dummy_type.strct->type_sect_offset + MEM_PTR_START_ADDR;
+				}
+				else if (dummy_type.type == TYPE_ENUM_TYPE || dummy_type.type == TYPE_ENUM)
+				{
+					ret->num = dummy_type.e_decl->serialized_type_idx + MEM_PTR_START_ADDR;
+				}
+				else
+				{
+					ASSERT(0)
 				}
 			}
 			else if (f->name == "get_func_bc")

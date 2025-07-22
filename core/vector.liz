@@ -20,6 +20,47 @@ quaternion : struct
 {
 	v : _vec
 }
+// Finds a perpendicular vector using swap-negate-smallest-components
+findPerpendicularVector::fn(n : *_vec) ! _vec
+{
+    // Step 1: Find the two smallest absolute components
+    max_axis:u8 = 0
+	max_val:= n.x
+
+
+    if absf(*ptr_offset(n, 1, f32)) > max_val
+	{
+		max_val = n.y
+		max_axis = 1
+    }
+    if absf(*ptr_offset(n, 2, f32)) > max_val
+	{
+		max_val = n.z
+		max_axis = 2
+    }
+
+
+	ret : _vec
+	on max_axis
+	{
+	0
+	{
+		ret.x = -n.z
+		ret.z = n.x
+	}
+	1
+	{
+		ret.y = -n.x
+		ret.x = n.y
+	}
+	2
+	{
+		ret.z = -n.y
+		ret.y = n.z
+	}
+	}
+	return ret
+}
 normalize_quaternion::fn(out : *_vec, q : *_vec) {
 
     mag := sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z)
@@ -208,7 +249,7 @@ build_model_matrix ::fn x64(out_matrix : *f32, position : *_vec, q : *f32, scale
     *ptr_offset(out_matrix, 14, f32) = 0.0
     *ptr_offset(out_matrix, 15, f32) = 1.0
 }
-operator *(self : *quaternion, rhs : *quaternion) !quaternion
+operator * x64(self : *quaternion, rhs : *quaternion) !quaternion
 {
 	ret : quaternion = ?
 
@@ -276,7 +317,7 @@ operator * (a : *mat4x4, b : *mat4x4) !mat4x4
     return result;
 }
 
-operator *(self : *mat4x4, vec : *_vec) !_vec
+operator * x64(self : *mat4x4, vec : *_vec) !_vec
 {
     ret: _vec;
 	aux := *cast(*_vec)self.vals[0]
@@ -290,22 +331,6 @@ operator *(self : *mat4x4, vec : *_vec) !_vec
 			
 	aux = *cast(*_vec)self.vals[12]
 	ret.w = dot_vec(vec, &aux)
-	return ret;
-}
-operator *(self : *mat4x4, vec : *v3) !v3
-{
-    ret: v3;
-	ret.x = vec.x * *self.vals[0] +
-			vec.y * *self.vals[1] +
-			vec.z * *self.vals[2];
-
-	ret.y = vec.x * *self.vals[4] +
-			vec.y * *self.vals[5] +
-			vec.z * *self.vals[6];
-
-	ret.z = vec.x * *self.vals[8] +
-			vec.y * *self.vals[9] +
-			vec.z * *self.vals[10];
 	return ret;
 }
 

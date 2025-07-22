@@ -66,7 +66,7 @@ typedef long long s64;
 #define MEM_PTR_START_ADDR (STACK_PTR_START + 1000)
 #define MEM_PTR_MAX_ADDR 18008
 
-#define DATA_SECT_MAX 6048
+#define DATA_SECT_MAX 7048
 #define DATA_SECT_OFFSET 1024 * 1024 * 32
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
@@ -9469,6 +9469,14 @@ void Bc2Logic(dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int 
 	}break;
 	case MOV_PCKD_SSE_2_M:
 	{
+		/*
+		stmnt_dbg* cur_st;
+		func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
+		if (cur_func)
+		{
+			cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
+		}
+			*/
 		auto reg_src_ptr = (float *)GetFloatRegValPtr(dbg, reg_src + FLOAT_REG_0);
 		u64* mem_ptr = GetMemValPtr(dbg, reg_dst, mem_offset);
 		
@@ -15073,7 +15081,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				GenX64ImmToReg(ret, lhs.reg, 4, ir->bin.rhs.i, CMP_I_2_R);
 				FreeSpecificReg(lang_stat, lhs.reg);
 			}
-			else if (ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
+			// CMP R R
+			else if ((ir->bin.lhs.type == IR_TYPE_REG || ir->bin.lhs.type == IR_TYPE_RET_REG)  && ir->bin.rhs.type == IR_TYPE_REG)
 			{
 				
 				GenX64ToIrValReg2(lang_stat, ret, &lhs, &ir->bin.lhs, false, ir->bin.lhs.is_packed_float);

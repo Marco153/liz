@@ -99,7 +99,7 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 //memcpy::fn outsider(dst : *void, src : *void, sz : u64) !void;
 memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 {
-	ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
+	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
 	while i < sz
 	{

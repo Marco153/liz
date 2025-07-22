@@ -22,6 +22,10 @@ collision:struct
 	ent : *entity,
 	ignore_trigger_do_collision : bool,
 	ignore_collision : bool,
+
+	t1 : u32
+	t2 : u32
+	t3 : u32
 }
 col_info:struct
 {

@@ -73,6 +73,29 @@ CanIgnoreTriggerAndDoCollision::fn(ent_a : *entity, spear : *entity, col : *coll
 player_collision_exit::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 }
+/*
+enemy_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	up : _vec
+	up.y = 1.0
+	ent_a.normal_col = col.normal
+	if dot_vec(&col.normal, &up) > 0.5
+	{
+		ent_a.on_ground = true
+		//ent_a. = true
+	}
+}
+*/
+enemy_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	up : _vec
+	up.y = 1.0
+	ent_a.normal_col = col.normal
+	if dot_vec(&col.normal, &up) > 0.5
+	{
+		ent_a.on_ground = true
+	}
+}
 player_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 	up : _vec
@@ -92,10 +115,37 @@ bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 
 		vel := ent_a.vel
 		vel = normalize_vec(&vel) * 4.0
-		vel.y = 2.0
+		vel.y = 1.5
+		ent_b.vel.y = 0.0
 		ent_b.impact_vel = vel 
 		ent_b.color_lerp = 1.0
+
+		h := ent_b.col_size.y
+		start_pos := ent_b.pos.y - (ent_b.col_size.y * 0.5)
+		rel_y := ent_a.pos.y - start_pos 
+
+		percent_h := rel_y / h
+
+		if percent_h >= 0.7
+		{
+			ent_b.hp -= ent_a.bullet.dmg_val + 50.0
+			ent_b.sec_color.y = 0.0
+			ent_b.sec_color.z = 0.0
+		}
+		else
+		{
+			ent_b.hp -= ent_a.bullet.dmg_val
+			ent_b.sec_color.y = 1.0
+			ent_b.sec_color.z = 1.0
+		}
 	}
+	ev :create_event_info
+	ev.type = create_event_etruct.CREATE_EMMITTER
+	ev.CREATE_EMMITTER.pos = ent_a.pos
+	ev.CREATE_EMMITTER.normal = col.normal
+	ev.CREATE_EMMITTER.timer_deactivate = 1.0
+	//ev.CREATE_EMMITTER.flags = PARTICLE_FLAGS_LOOP
+	dyn_add(&globals.create_events, &ev)
 }
 player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {

@@ -23,6 +23,7 @@ SCENE_NAME_NAME_MAX : const s32= 32;
 MASKING_DIAMETER :const f32=7.0;
 
 
+
 linear_alloc :struct(T)
 {
 	start : *T,
@@ -52,6 +53,19 @@ LinearGet::fn{T}(alloc : *linear_alloc(T), count : u32) ! *T
 	alloc.cur += count;
 	return ret
 }
+create_event_etruct:etruct
+{
+	CREATE_EMMITTER(
+		pos : _vec
+		normal: _vec
+		timer_deactivate : f32
+		flags : u32
+	)
+}
+create_event_info:struct
+{
+	using type : create_event_etruct
+}
 global_struct : struct
 {
 	entities : linear_alloc(entity),
@@ -69,7 +83,7 @@ global_struct : struct
 	args : rel_array(var_arg)
 
 	cube_verts : [8]_vec
-	cube_tris : [30]s32
+	cube_tris : [36]s32
 	gjk : *void
 	ctx : *void
 
@@ -93,6 +107,7 @@ global_struct : struct
 
 	chunk : *chunk_col_info
 	chunks_ar : *dyn_array(*chunk_col_info)
+	create_events : dyn_array(create_event_info)
 	h : u32
 	w : u32
 }
@@ -236,6 +251,11 @@ AssignStr::fn(str : *string, buffer : *u8, bsz : u32)
 {
 	str.data.count = 0
 	dyn_add_data(&str.data, buffer, bsz);
+}
+AssignStr::fn(str : *string, rhs : *string)
+{
+	str.data.count = 0
+	dyn_add_data(&str.data, rhs.data.data, cast(u32)rhs.data.count);
 }
 
 saved_regs : struct
@@ -895,6 +915,34 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 				memcpy(dst, cast(*u8)cur_arg.val, arg_str_ln);
 				buffer_idx += arg_str_ln;
 			}
+			else if cur_arg.type == type_enum.TYPE_BOOL
+
+			{
+				true_str := "true"
+				false_str := "false"
+				ln :u64=0
+				correct_str :str_lit
+				
+				val :=cast(u8)cast(u64)cur_arg.val
+				if val == 0
+				{
+					correct_str = false_str
+				}
+				else if val == 1
+				{
+					correct_str = true_str
+				}
+				else
+				{
+					__dbg_break
+				}
+				ln = str_ln(correct_str)
+
+				memcpy(ptr_offset(buffer, buffer_idx, u8), correct_str, ln);
+				buffer_idx += ln;
+
+
+			}
 			else if cur_arg.type == type_enum.TYPE_U32 || cur_arg.type == type_enum.TYPE_S32 ||
 					cur_arg.type == type_enum.TYPE_U8 || cur_arg.type == type_enum.TYPE_S8 ||
 					cur_arg.type == type_enum.TYPE_U16 || cur_arg.type == type_enum.TYPE_S16 ||
@@ -948,9 +996,11 @@ sprintf::fn(buffer : *u8, bsz : u32, format : str_lit, ...) !u64
 }
 printf::fn(format : str_lit, ...)
 {
+	prev_sz := globals.temp_alloc.cur
 	buffer : [128]u8;
 	sprintf_base(buffer, 128, format, &__var_args);
 	PrintStr(cast(str_lit)buffer);
+	globals.temp_alloc.cur = prev_sz 
 }
 
 DECL_SERIALIZABLE:const s32= 0x200
@@ -1395,6 +1445,7 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 	dyn_add(&ret.SCOPE.stmnts, StrLitAssignmentToAst("name", ent.name))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)ent.type))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("model", cast(s32)ent.model))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("hp", *cast(*s32)&ent.hp))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("layer", cast(s32)ent.layer))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_active", cast(s32)ent.is_active))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_trigger", cast(s32)ent.is_trigger))
@@ -1574,10 +1625,11 @@ ImGuiHasFocus::fn outsider() ! bool;
 ImGuiTreeNodeEx::fn outsider(name : str_lit) !bool;
 ImGuiTreePop::fn outsider();
 ImGuiAddRect::fn outsider(this : *u8, min_x : f32, min_y : f32, max_x : f32, max_y : f32, color : u32);
-ImGuiEnumCombo::fn outsider(enum_name : str_lit, line : u32, enum_var_addr : *u32);
+ImGuiEnumCombo::fn outsider(enum_name : str_lit, line : u32, enum_var_addr : *u32) !bool;
 ImGuiInitTextEditor::fn outsider(name : str_lit);
 ImGuiRenderTextEditor::fn outsider();
 ImGuiShowV3::fn outsider(*_vec);
+ImGuiShowV4::fn outsider(*_vec);
 ImGuiSetWindowFontScale::fn outsider(size : f32);
 ImGuiInputText::fn outsider(label : str_lit, buf : str_lit, buf_sz : u32);
 ImGuiInputInt::fn outsider(label : str_lit, int : *s32);
@@ -2052,7 +2104,7 @@ max3::fn(a :f32, b :f32, c : f32)!f32
 		ret = c;
     return ret;
 }
-maxf::fn(a :f32, b :f32)!f32
+maxf::fn x64(a :f32, b :f32)!f32
 {
 	if a > b return a;
     return b;
@@ -2070,7 +2122,7 @@ abss32::fn(a :s32)!s32
     return a;
 
 }
-minf::fn(a :f32, b :f32)!f32
+minf::fn x64(a :f32, b :f32)!f32
 {
 	if a > b return b;
     return a;

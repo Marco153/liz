@@ -17,6 +17,7 @@ ent_type:enum
 	INTERACT,
 	TERRAIN,
 	AXIS,
+	EMMITTER,
 }
 enemy_enum : enum
 {
@@ -76,6 +77,7 @@ LAYER_TRIGGER :const s32 = 4;
 LAYER_ENEMY :const s32 = 8;
 LAYER_MAYBE_ONLY_UP_COL :const s32 = 0x10;
 LAYER_LOOK_AT_PLAYER :const s32 = 0x20;
+LAYER_IGNORE_RAYCAST :const s32 = 0x40;
 
 event_type : enum
 {
@@ -141,24 +143,56 @@ ent_part_of:enum
 	INSTANTIATED,
 	LOOK_AT_PLAYER,
 	ANIMATION,
+	TO_DEACTIVATE,
 	PLAYABLE,
+	EMMITTER,
+}
+
+particle_emmitter_type:enum
+{
+	POS_SZ_VEL
+}
+particle_pos_sz_vel :struct
+{
+	pos : _vec
+	sz : _vec
+	vel : _vec
+	rot : _vec
+	ang_vel : _vec
+	time : f32
+}
+PARTICLE_FLAGS_LOOP :const s32= 1
+particle_emmitter:struct
+{
+	type : particle_emmitter_type
+	particles : *void
+	total:u32
+	normal : _vec
+	cross : _vec
+	flags : u32
 }
 entity:struct
 {
 	type : ent_type,
 	state : entity_state,
 	name : str_lit,
+
+	//using base : base_entity
 	pos : _vec,
 	pivot : _vec,
+	color : _vec,
+	vel : _vec,
+	model : u32
+	flags : u32,
+	tex_id : u32,
+
 	size : _vec,
 	col_size : _vec,
 	col_offset : _vec,
 	rot : _vec,
 	angle_rot : _vec,
-	color : _vec,
 	sec_color : _vec,
 	color_lerp : f32,
-	vel : _vec,
 	impact_vel : _vec,
 	forward : _vec,
 	hp : f32,
@@ -167,7 +201,9 @@ entity:struct
 	col_stay : fn(*entity, *entity, *collision),
 	col_exit : fn(*entity, *entity, *collision),
 	playable_func : fn(*void, *entity, *f32),
+	
 	col : *void,
+	emmitter : *particle_emmitter
 
 	on_ground : bool,
 	was_hit : bool,
@@ -178,7 +214,6 @@ entity:struct
 	can_start_combo : bool,
 	normal_col : _vec
 
-	model : u32
 
 	layer : u32,
 	dont_res_cols_with_layers : u32,
@@ -190,16 +225,14 @@ entity:struct
 	cl : *clip2,
 	clip_time : f32,
 	clip_done : bool,
-	tex_id : u32,
-	flags : u32,
 	thoughts : *thinking
 	
+	timer_deactivate : f32
 	using u :: union
 	{
 		bullet ::struct
 		{
-			cur_timer : f32
-			time_max : f32
+			dmg_val : f32
 		};
 		dmg ::struct
 		{
@@ -228,6 +261,7 @@ entity:struct
 		};
 		platform_idle_time : f32,
 		spear_on_col_with : *entity,
+		
 	}
 	masking_objs : *dyn_array(*_vec),
 	remove_from : dyn_array(ent_part_of),

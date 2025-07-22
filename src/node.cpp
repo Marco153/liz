@@ -7096,29 +7096,34 @@ void EnumToTypeSect(lang_state *lang_stat, own_std::string enum_name, scope* scp
 
 	int i = 0;
 
-	FOR_VEC(v, vars)
+	FOR_VEC(vr, vars)
 	{
-		if (IS_FLAG_ON((*v)->flags, DECL_FROM_USING))
+		decl2 *v = *vr;
+		if (IS_FLAG_ON(v->flags, DECL_FROM_USING))
 			continue;
 
 		int last_size = buffer.size();
-		buffer.insert(buffer.end(), sizeof(int), 0);
+		buffer.insert(buffer.end(), sizeof(type_data), 0);
+		strct_ptr = (type_data *)&buffer[last_size];
 
-		var_ptr = (int*)&buffer[last_size];
+		offset_to_str_tbl  = (vars.size() - i) * sizeof(type_data);
+		offset_to_str_tbl += strct_str_tbl.size();
+		offset_to_str_tbl -= offsetof(type_data, name);
 
-		offset_to_str_tbl = strct_str_tbl.size();
+		strct_ptr->name = offset_to_str_tbl;
+		strct_ptr->name_len = v->name.size();
 
-		ASSERT((*v)->name.size() < 65000 && offset_to_str_tbl < 65000);
 
-		*var_ptr = (int)((short)offset_to_str_tbl | (short)(*v)->name.size());
+		ASSERT(v->name.size() < 65000 && offset_to_str_tbl < 65000);
 
-		InsertIntoCharVector(&strct_str_tbl, (void*)(*v)->name.data(), (*v)->name.size());
+
+		InsertIntoCharVector(&strct_str_tbl, (void*)v->name.data(), v->name.size());
 
 		i++;
 	}
 
-	type_sect->insert(type_sect->end(), strct_str_tbl.begin(), strct_str_tbl.end());
 	type_sect->insert(type_sect->end(), buffer.begin(), buffer.end());
+	type_sect->insert(type_sect->end(), strct_str_tbl.begin(), strct_str_tbl.end());
 }
 
 void AddStructMembersToScopeWithUsing(lang_state *lang_stat, type_struct2 *strct, scope *scp, node *by_name_nd)
@@ -9014,6 +9019,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					}
 					ret_type.scp = child_scp;
 					decl_exist->type.e_decl = decl_exist;
+					decl_exist->serialized_type_idx = lang_stat->type_sect.size();
+
 					EnumToTypeSect(lang_stat, decl_exist->name, child_scp);
 					own_std::string final_name = own_std::string("$$enum ") + decl_exist->name;
 					// inserting an symbol for the type

@@ -6634,7 +6634,8 @@ void *CreateThreadAux(void *data)
 	auto gl_state = (open_gl_state *)a->dbg->data;
 	byte_code2 *start = a->dbg->lang_stat->bcs2_start + a->func_bc_idx;
 	auto window = (GLFWwindow *)gl_state->glfw_window;
-	HackFunc(a->thread_id, a->dbg, window, start);
+	HERE()
+	ThreadFunc(a->thread_id, a->dbg, window, start);
 	return nullptr;
 }
 void _JoinThread(int thread_id, dbg_state* dbg)
@@ -6643,11 +6644,16 @@ void _JoinThread(int thread_id, dbg_state* dbg)
 }
 void _CreateThread(int thread_id, dbg_state* dbg)
 {
+	dbg->total_threads++;
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int func_addr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 #ifdef LINUX
 	pthread_t thread;
 	auto args = (thread_creation* )malloc(sizeof(thread_creation));
+	memset(args, 0, sizeof(thread_creation));
+	args->dbg = dbg;
+	args->thread_id = dbg->total_threads;
+	args->func_bc_idx = func_addr;
 
     pthread_create(&thread, NULL, CreateThreadAux, args);
 

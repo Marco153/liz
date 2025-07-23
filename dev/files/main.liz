@@ -3854,8 +3854,14 @@ emmitters_func::fn(ctx : *context, dt : f32)
 		}
 	}
 }
+test_thread::fn(data : *void)
+{
+	val := *cast(*u32)data
+}
 main_loop::fn(ctx : *context)
 {
+	val_tast := 5
+	//CreateThread(test_thread, &val_tast)
 	ctx.cur_model_selected_idx = -1
 	ctx.session_id = cast(u32)(Rand01() * 1000.0)
 	//perspective(ctx.perspective_mat[0], fov : f32, aspect : f32, near : f32, far : f32)

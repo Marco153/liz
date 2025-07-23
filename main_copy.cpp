@@ -885,8 +885,8 @@ add_body::fn(ctx : *context, ent : *entity)
 {
 	dyn_add(&ctx.bodies, &ent);
 	ent.ents_in_collision.alloc = ctx.alloc;
-	dyn_init(&ent.ents_in_collision, 8);
-	ent.ents_in_collision.count = 8
+	dyn_init(&ent.ents_in_collision, 4);
+	ent.ents_in_collision.count = 4
 
 	ent.col = cast(*void)heap_alloc(ctx.alloc, sizeof(collider))
 	c1 := cast(*collider)ent.col
@@ -945,62 +945,9 @@ EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
 	ASSERT(inserted);
 	return true;
 }
-minPerComponent::fn x64(a: *_vec, b: *_vec) ! _vec 
+CopyVerts::fn(col : *collider)
 {
-	ret : _vec
-	ret.x = minf(a.x, b.x)
-	ret.y = minf(a.y, b.y)
-	ret.z = minf(a.z, b.z)
-	ret.w = minf(a.w, b.w)
-    return ret
-}
-
-// Returns component-wise maximum of two vectors
-maxPerComponent::fn x64(a: *_vec, b: *_vec) ! _vec 
-{
-	ret : _vec
-	ret.x = maxf(a.x, b.x)
-	ret.y = maxf(a.y, b.y)
-	ret.z = maxf(a.z, b.z)
-	ret.w = maxf(a.w, b.w)
-    return ret
-}
-CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
-{
-	a := 0
-	on col.type 
-	{
-	col_type.CAPSULE
-	{
-		e := col.ent
-		r := col.CAPSULE.radius * 2.0
-		h := col.CAPSULE.height
-		_min.x = e.pos.x - r
-		_min.y = e.pos.y - h
-		_min.z = e.pos.z - r
-		_min.w = 0.0
-
-		_max.x = e.pos.x + r
-		_max.y = e.pos.y + h
-		_max.z = e.pos.z + r
-		_max.w = 0.0
-	}
-	col_type.SPHERE
-	{
-
-		e := col.ent
-		r := col.SPHERE.radius * 2.0
-		_min.x = e.pos.x - r
-		_min.y = e.pos.y - r
-		_min.z = e.pos.z - r
-		_min.w = 0.0
-
-		_max.x = e.pos.x + r
-		_max.y = e.pos.y + r
-		_max.z = e.pos.z + r
-		_max.w = 0.0
-	}
-	col_type.CUBE
+	if col.type == col_type.CUBE
 	{
 		memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
 		mat : mat4x4=?
@@ -1017,14 +964,8 @@ CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
 			v.w = 1.0
 			*v = mat * *v
 			v.w = 0.0
-			*_min = minPerComponent(_min, v)
-			*_max = maxPerComponent(_max, v)
+			a := 0
 		}
-	}
-	default
-	{
-		__dbg_break
-	}
 	}
 }
 //solve_col::fn(e : *entity, )
@@ -1135,8 +1076,7 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 				//__dbg_break
 				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
 				c1.ent.pos -= mtv
-				dummy :_vec
-				CopyVerts(c1, &dummy, &dummy)
+				CopyVerts(c1)
 
 				col.normal = col.normal * -1.0
 				if !EntIsInCollision(e, e2, &col)
@@ -1366,13 +1306,9 @@ StepCol::fn(ctx : *context, dt : f32)
 		c1 := cast(*collider)e.col
 		e.pos += e.vel * dt
 		c1.pos = e.pos
-		m_aabb :aabb = ?
-		p_aabb :aabb = ?
-
-		CopyVerts(c1, &p_aabb._min, &p_aabb._max)
+		CopyVerts(c1)
 		col : collision=?
 		mtv :_vec=?
-
 
 		for e2 in ctx.bodies
 		{
@@ -1412,13 +1348,22 @@ StepCol::fn(ctx : *context, dt : f32)
 			}
 			else
 			{
-				
-				CopyVerts(c2, &m_aabb._min, &m_aabb._max)
+				m_aabb :aabb = ?
+				p_aabb :aabb = ?
+				sz1 := e.col_size * 2.0
+				sz2 := e2.col_size * 2.0
+
+				m_aabb._min = e.pos - sz1
+				m_aabb._max = e.pos + sz1
+
+				p_aabb._min = e2.pos - sz2
+				p_aabb._max = e2.pos + sz2
 				if !aabbCheck3D(&m_aabb, &p_aabb)
 				{
 					continue
 				}
 
+				CopyVerts(c2)
 				//__dbg_break
 				if is_flag_on(e.layer, LAYER_ENTITY_PLAYABLE)
 				{
@@ -1444,8 +1389,7 @@ StepCol::fn(ctx : *context, dt : f32)
 					if GJK(gjk, &gjk.aux_col, c2)
 					{
 						e.mov_info.up_col = true
-						if is_flag_off(e.dont_res_cols_with_layers, e2.layer) && is_flag_off(e2.dont_res_cols_with_layers, e.layer)
-							mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], &gjk.aux_col, c2, &col);
+						mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], &gjk.aux_col, c2, &col)
 						
 						col.normal = col.normal * -1.0
 						e.mov_info.up_col_norm = col.normal
@@ -1459,16 +1403,18 @@ StepCol::fn(ctx : *context, dt : f32)
 			}
 			if in_col
 			{
-				if is_flag_off(e.dont_res_cols_with_layers, e2.layer) && is_flag_off(e2.dont_res_cols_with_layers, e.layer)
-					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
-				else
+				if(false)
 				{
-					mtv.x = 0.0
-					mtv.y = 0.0
-					mtv.z = 0.0
-					mtv.w = 0.0
+					//__dbg_break
+					other_min_point := find_support(gjk, c1, c2, &(tri_normal)); 
+					dir := other_min_point - *c2.TRIANGLE.verts[0]
+					penetration_depth := dot_vec(&tri_normal, &other_min_point)
+					mtv = tri_normal * penetration_depth
 				}
-				
+				else if(player_mov_up_col == false)
+				{
+					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
+				}
 				col.normal = col.normal * -1.0
 				if !EntIsInCollision(*e, *e2, &col)
 				{
@@ -1488,38 +1434,16 @@ StepCol::fn(ctx : *context, dt : f32)
 
 			}
 		}
-
 	}
 
 }
 PhysicsUpdate::fn(ctx : *context, dt : f32)
 {
 	steps := 2
-
-	dyn_clear(&globals.create_events)
-
 	for i in 0..steps
 	{
 		dt = dt / cast(f32)steps
 		StepCol(ctx, dt)
-	}
-
-	for ev in globals.create_events
-	{
-		on ev.type
-		{
-		create_event_etruct.CREATE_EMMITTER
-		{
-			ent := get_inactive_ent(ctx, &ctx.emmitters, INACTIVE_FLAGS_GET_FIRST_WHEN_NONE_FOUND)
-			ent.pos = ev.CREATE_EMMITTER.pos
-			ent.timer_deactivate = ev.CREATE_EMMITTER.timer_deactivate
-			ent.emmitter.normal = -ev.CREATE_EMMITTER.normal
-			ent.emmitter.cross = findPerpendicularVector(&ev.CREATE_EMMITTER.normal)
-			ent.emmitter.flags = ev.CREATE_EMMITTER.flags
-			init_emmitter(ent)
-			dyn_add(&ctx.to_deactivate, ent)
-		}
-		}
 	}
 }
 
@@ -1893,27 +1817,15 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 	cur_dist := 99999.0
 	found := false
 	aux_ent : *entity
-	i:= 0
-	is_axis := false
-
 	for it in ctx.bodies
 	{
-		if is_flag_on(it.layer, layers_to_ignore | LAYER_IGNORE_RAYCAST) 
+		if is_flag_on(it.layer, layers_to_ignore)
 			continue;
 		e := *it
 		
 		c1 := cast(*collider)it.col
-		/*
-		if c1 == nil
-		{
-			printf("no collder raycast\n")
-			printf("{e.name}\n")
-			ASSERT(0)
-		}
-		*/
-		c1.pos = e.pos;
-		dummy :_vec=?;
-		CopyVerts(c1, &dummy, &dummy);
+		c1.pos = e.pos
+		CopyVerts(c1)
 		
 		on c1.type
 		{
@@ -1924,7 +1836,7 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 			globals.ray_end = *end
 			//__dbg_break
 			t :u64
-			while t < 36
+			while t < 30
 			{
 				info :verts_from_tri_info=?
 				info.t = t
@@ -1943,28 +1855,20 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 					dist_dir := *start - tri_pos
 					d := dot_vec(&dist_dir, &dist_dir)
 
+					cinfo.contact_point = tri_pos
 
-
-					ent_is_axis := e.type == ent_type.AXIS
-					if ent_is_axis
+					if e.type == ent_type.AXIS
 					{
-						is_axis = true
-						//printf("is axis {e.name}\n")
+						*collided = e
+						return true
 					}
+
 					if d < cur_dist
 					{
 						cur_dist = d
 						found = true
-						if is_axis && ent_is_axis || is_axis == false
-						{
-							*collided = e
-							//printf("got {e.name}, is_axis {is_axis}, ent_is_axis {ent_is_axis}\n")
-						}
+						*collided = e
 						cinfo.normal = info.cross
-						cinfo.contact_point = tri_pos
-						cinfo.t1 = cast(u32)*globals.cube_tris[t]
-						cinfo.t2 = cast(u32)*globals.cube_tris[t + 1]
-						cinfo.t3 = cast(u32)*globals.cube_tris[t + 2]
 						aux_ent = e
 					}
 
@@ -1973,7 +1877,6 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 			}
 		}
 		}
-		i++
 	}
 	return found;
 }

@@ -63,8 +63,7 @@ typedef long long s64;
 //#define MEM_ALLOC_ADDR 17000
 #define MEM_PTR_CUR_ADDR 10000
 #define STACK_PTR_START 60000
-#define STACK_PTR_START_THREAD2 (STACK_PTR_START + 10000)
-#define MEM_PTR_START_ADDR (STACK_PTR_START_THREAD2)
+#define MEM_PTR_START_ADDR (STACK_PTR_START + 10000)
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 7048
@@ -80,7 +79,7 @@ typedef long long s64;
 #define FLOAT_REG_SIZE_BYTES 16
 #define FLOAT_REG_0 35
 // 10 is for the amount of float regs, altough we actually have less than 10
-#define END_OF_REGS (FLOAT_REG_0 * 8 + 10 * 16)
+#define END_OF_REGS (FLOAT_REG_0 * 16 + 10 * 16)
 #define RIP_REG 34
 #define GLOBALS_OFFSET 11000
 
@@ -2893,8 +2892,6 @@ struct dbg_state
 	bool aux_break;
 	bool aux_break2;
 	func_decl* prev_func;
-
-	int total_threads;
 	union
 	{
 		func_decl* next_stat_break_func;
@@ -2933,7 +2930,6 @@ struct dbg_state
 
 	void* data;
 };
-u64* GetRegValPtr(int thread_id, dbg_state* dbg, short reg);
 
 int GetFreeHandle(dbg_state *dbg)
 {
@@ -3725,7 +3721,7 @@ int WasmGetMemOffsetVal(dbg_state* dbg, unsigned int offset)
 }
 int WasmGetDeclVal(dbg_state* dbg, int offset)
 {
-	int mem = *(int*)GetRegValPtr(0, dbg, BASE_STACK_PTR_REG);
+	int mem = *(int*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
 	return *(int*)&dbg->mem_buffer[mem + offset];
 }
 void WasmFromAstArrToStackVal(dbg_state* dbg, own_std::vector<ast_rep *> expr, typed_stack_val* out)
@@ -4999,7 +4995,7 @@ void AuxX64Call(void *func_code, void **ret_addr, __m128 *vec_ret, char *dbg_mem
 
 
 }
-void WasmCallX64(int thread_id, wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer, func_decl *call_f, int base_ptr)
+void WasmCallX64(wasm_interp* winterp, dbg_state& dbg, unsigned char* mem_buffer, func_decl *call_f, int base_ptr)
 {
 	int tsize = winterp->dbg->lang_stat->type_sect.size();
 	unsigned char *cdata = winterp->dbg->lang_stat->code_sect.data();
@@ -5036,15 +5032,15 @@ void WasmCallX64(int thread_id, wasm_interp* winterp, dbg_state& dbg, unsigned c
 			{
 				_mm_store_ps((float*)&dbg.mem_buffer[FLOAT_REG_0 * FLOAT_REG_SIZE_BYTES], vec_ret);
 			}
-			*(long long *)GetRegValPtr(thread_id, &dbg, RET_1_REG) = (long long) final_val;
+			*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) final_val;
 
 		}
 		else
 		{
 			if(addr > dbg.mem_buffer)
-				*(long long *)GetRegValPtr(thread_id, &dbg, RET_1_REG) = (long long) ((unsigned char *)addr - (unsigned char *)dbg.mem_buffer);
+				*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) ((unsigned char *)addr - (unsigned char *)dbg.mem_buffer);
 			else
-				*(long long *)GetRegValPtr(thread_id, &dbg, RET_1_REG) = (long long) (addr);
+				*(long long *)& dbg.mem_buffer[RET_1_REG * 8] = (long long) (addr);
 		}
 		call_f->ret_type.ptr++;
 	}
@@ -5072,8 +5068,8 @@ void WasmDoCallInstructionIr(dbg_state *dbg, ir_rep **bc, block_linked **cur, fu
 
 void IrEndStack(dbg_state* dbg, ir_rep** ptr, ir_rep* start)
 {
-	auto base = (u64 *)GetRegValPtr(0, dbg, BASE_STACK_PTR_REG);
-	auto stack = (u64 *)GetRegValPtr(0, dbg, STACK_PTR_REG);
+	auto base = (u64 *)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
+	auto stack = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
 	*stack += dbg->cur_func->stack_size + 8;
 	*base = *(u64 *)&dbg->mem_buffer[*stack];
 	*stack += 8;
@@ -5101,8 +5097,8 @@ bool IrLogic2(dbg_state* dbg, ir_rep** ptr, ir_rep *start)
 	}break;
 	case IR_STACK_BEGIN:
 	{
-		auto base_reg = (u64 *)GetRegValPtr(0, dbg, BASE_STACK_PTR_REG);
-		auto stack_reg = (u64 *)GetRegValPtr(0, dbg, STACK_PTR_REG);
+		auto base_reg = (u64 *)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
+		auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
 		*stack_reg -= 8;
 		// saving prev base ptr
 		*(u64 *)&dbg->mem_buffer[*stack_reg] = *base_reg;
@@ -5240,7 +5236,7 @@ bool IrLogic2(dbg_state* dbg, ir_rep** ptr, ir_rep *start)
 			OutsiderFuncType found = dbg->wasm_state->get_func(call_f->name);
 			//if (dbg->wasm_state->outsiders.find(call_f->name) != dbg->wasm_state->outsiders.end())
 			//{
-				auto stack_reg = (u64 *)GetRegValPtr(0, dbg, STACK_PTR_REG);
+				auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
 				*stack_reg -= 8;
 				//OutsiderFuncType func_ptr = dbg->wasm_state->outsiders[call_f->name];
 				found(0, dbg);
@@ -5283,8 +5279,8 @@ bool IrLogic(dbg_state* dbg, ir_rep** ptr)
 	{
 	case IR_STACK_BEGIN:
 	{
-		auto base_reg = (u64 *)GetRegValPtr(0, dbg, BASE_STACK_PTR_REG);
-		auto stack_reg = (u64 *)GetRegValPtr(0, dbg, STACK_PTR_REG);
+		auto base_reg = (u64 *)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
+		auto stack_reg = (u64 *)&dbg->mem_buffer[STACK_PTR_REG * 8];
 		stack_reg += 8;
 		*stack_reg = *base_reg;
 		*base_reg = *stack_reg;
@@ -5531,6 +5527,7 @@ void UpdateExprWindow(dbg_state& dbg, int stack_reg, int line)
 	}
 	memcpy(dbg.mem_buffer, saved_regs, 258);
 }
+u64* GetRegValPtr(int thread_id, dbg_state* dbg, short reg);
 void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int line)
 {
 	dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
@@ -6326,7 +6323,7 @@ void WasmOnArgs(dbg_state* dbg)
 
 void JsPrint(dbg_state* dbg)
 {
-	//*(int*)GetRegValPtr(thread_id, dbg, RET_1_REG) = 7;
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = 7;
 }
 void WasmDoCallInstruction(dbg_state *dbg, wasm_bc **bc, block_linked **cur, func_decl *call_f)
 {
@@ -7719,7 +7716,7 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
 		{
 			auto stack_reg = (u64 *)&dbg.mem_buffer[STACK_PTR_REG * 8];
-			WasmCallX64(0, winterp, dbg, mem_buffer, call_f, *stack_reg);
+			WasmCallX64(winterp, dbg, mem_buffer, call_f, *stack_reg);
 		}
 		else
 		{
@@ -8352,11 +8349,11 @@ void DoOperationOnPtr(char* ptr, char sz, u64 val, tkn_type2 op)
 #define EFLAGS_BELOW 4
 u64 *GetFloatRegValPtr(int thread_id, dbg_state *dbg, short reg)
 {
-	return (u64*)&dbg->mem_buffer[END_OF_REGS * thread_id + reg  * FLOAT_REG_SIZE_BYTES];
+	return (u64*)&dbg->mem_buffer[reg * FLOAT_REG_SIZE_BYTES];
 }
 u64 *GetRegValPtr(int thread_id, dbg_state *dbg, short reg)
 {
-	return (u64*)&dbg->mem_buffer[END_OF_REGS * thread_id + reg * 8];
+	return (u64*)&dbg->mem_buffer[reg * 8];
 }
 u64 *GetMemValPtr(dbg_state *dbg, short reg, int offset)
 {
@@ -9002,16 +8999,16 @@ void MakeCurBcToBeBreakpoint(dbg_state* dbg, byte_code2* bc, int line, bool one_
 	bc->type = INT3;
 }
 #pragma optimize("", off)
-void Bc2CallX64(int thread_id, dbg_state* dbg, byte_code2** ptr, func_decl *call_f)
+void Bc2CallX64(dbg_state* dbg, byte_code2** ptr, func_decl *call_f)
 {
 	auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 	*stack_reg -= 8;
-	WasmCallX64(thread_id, dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_reg);
+	WasmCallX64(dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_reg);
 	*stack_reg += 8;
-	auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, RET_1_REG);
+	auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
 	if (call_f->ret_type.IsFloat())
 	{
-		auto reg_dst_ptr = (float*)GetFloatRegValPtr(thread_id, dbg, FLOAT_REG_0);
+		auto reg_dst_ptr = (float*)&dbg->mem_buffer[FLOAT_REG_0 * FLOAT_REG_SIZE_BYTES];
 		*reg_dst_ptr = *(float*)reg_src_ptr;
 	}
 	else
@@ -9349,7 +9346,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case JMP_E:
 	{
-		u64 flags = *(u64*)GetRegValPtr(thread_id, dbg, EFLAGS_REG);
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
 		if (IS_FLAG_ON(flags, EFLAGS_ZERO))
 		{
 			*ptr += bc->i + 1;
@@ -9358,7 +9355,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case JMP_NE:
 	{
-		u64 flags = *(u64*)GetRegValPtr(thread_id, dbg, EFLAGS_REG);
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
 		if (IS_FLAG_OFF(flags, EFLAGS_ZERO))
 		{
 			*ptr += bc->i + 1;
@@ -9368,7 +9365,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case JMP_B:
 	case JMP_L:
 	{
-		u64 flags = *(u64*)GetRegValPtr(thread_id, dbg, EFLAGS_REG);
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
 		if (IS_FLAG_ON(flags, EFLAGS_BELOW))
 		{
 			*ptr += bc->i + 1;
@@ -9378,7 +9375,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case JMP_BE:
 	case JMP_LE:
 	{
-		u64 flags = *(u64*)GetRegValPtr(thread_id, dbg, EFLAGS_REG);
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
 		if (IS_FLAG_ON(flags, EFLAGS_BELOW | EFLAGS_ZERO))
 		{
 			*ptr += bc->i + 1;
@@ -9388,7 +9385,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case JMP_A:
 	case JMP_G:
 	{
-		u64 flags = *(u64*)GetRegValPtr(thread_id, dbg, EFLAGS_REG);
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
 		if (IS_FLAG_ON(flags, EFLAGS_ABOVE))
 		{
 			*ptr += bc->i + 1;
@@ -9398,7 +9395,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case JMP_AE:
 	case JMP_GE:
 	{
-		u64 flags = *(u64*)GetRegValPtr(thread_id, dbg, EFLAGS_REG);
+		u64 flags = *(u64*)&dbg->mem_buffer[EFLAGS_REG * 8];
 		if (IS_FLAG_ON(flags, EFLAGS_ABOVE | EFLAGS_ZERO))
 		{
 			*ptr += bc->i + 1;
@@ -9553,11 +9550,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		*ptr =(byte_code2 *) *mem_ptr;
 		(*reg_stack_ptr) += 8;
 		*inc_ptr = false;
-
-		if(thread_id == 0)
-		{
-			dbg->return_stack_bc2.pop_back();
-		}
+		dbg->return_stack_bc2.pop_back();
 
 		switch (dbg->break_type)
 		{
@@ -9589,27 +9582,27 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 			OutsiderFuncType found = wasm_state->get_func(call_f->name);
 			//if (wasm_state->outsiders.find(call_f->name) != wasm_state->outsiders.end())
 			//{
-				u64 prev_reg_val = *(u64*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
-				u64 prev_base_reg_val = *(u64*)GetRegValPtr(thread_id, dbg, BASE_STACK_PTR_REG);
+				u64 prev_reg_val = *(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+				u64 prev_base_reg_val = *(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
 
 				auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 				*stack_reg -= 8;
 
-				*(u64*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG) = *stack_reg;
-				*(u64*)GetRegValPtr(thread_id, dbg, BASE_STACK_PTR_REG) = *stack_reg;
+				*(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8] = *stack_reg;
+				*(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8] = *stack_reg;
 
 				//OutsiderFuncType func_ptr = wasm_state->outsiders[call_f->name];
 				found(thread_id, dbg);
 				*stack_reg += 8;
-				auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, RET_1_REG);
+				auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
 				auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
 				auto reg_xmm0_dst_ptr = (u64*)&dbg->mem_buffer[FLOAT_REG_0 * FLOAT_REG_SIZE_BYTES];
 
 				*reg_dst_ptr = *reg_src_ptr;
 				*reg_xmm0_dst_ptr = *reg_src_ptr;
 
-				*(u64*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG) = prev_reg_val;
-				*(u64*)GetRegValPtr(thread_id, dbg, BASE_STACK_PTR_REG) = prev_base_reg_val;
+				*(u64*)&dbg->mem_buffer[STACK_PTR_REG * 8] = prev_reg_val;
+				*(u64*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8] = prev_base_reg_val;
 			//}
 			//else
 				//ASSERT(0);
@@ -9617,13 +9610,13 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		}
 		else if (IS_FLAG_ON(call_f->flags, FUNC_DECL_X64))
 		{
-			Bc2CallX64(thread_id, dbg, ptr, call_f);
+			Bc2CallX64(dbg, ptr, call_f);
 			/*
 			auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
 			*stack_reg -= 8;
 			WasmCallX64(dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_reg);
 			*stack_reg += 8;
-			auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, RET_1_REG);
+			auto reg_src_ptr = (u64*)&dbg->mem_buffer[RET_1_REG * 8];
 			if (call_f->ret_type.IsFloat())
 			{
 				auto reg_dst_ptr = (float*)&dbg->mem_buffer[FLOAT_REG_0 * 8];
@@ -9674,10 +9667,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		(*reg_stack_ptr) -= 8;
 		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
 		*mem_ptr = (u64)(*ptr + 1);
-		if(thread_id == 0)
-		{
-			dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
-		}
+		dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
 		*ptr += imm;
 		*inc_ptr = false;
 	}break;
@@ -9688,10 +9678,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		(*reg_stack_ptr) -= 8;
 		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
 		*mem_ptr = (u64)(*ptr + 1);
-		if(thread_id == 0)
-		{
-			dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
-		}
+		dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
 		*ptr = dbg->lang_stat->bcs2_start + *reg_src_ptr;
 		*inc_ptr = false;
 	}break;
@@ -9800,24 +9787,6 @@ bool StatHasInst(stmnt_dbg *cur_st, byte_code2 *start_bc, byte_code2 **out, byte
 	return false;
 }
 
-void ThreadFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
-{
-	byte_code2** rip_ptr = (byte_code2**)GetRegValPtr(thread_id, dbg, RIP_REG);
-
-	*rip_ptr = cur_bc;
-
-	while(true)
-	{
-
-		bool inc_ptr = true;
-		bool valid = false;
-		Bc2Logic(0, dbg, rip_ptr, &inc_ptr, &valid, 0);
-		if (inc_ptr)
-		{
-			(*rip_ptr)++;
-		}
-	}
-}
 void HackFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
 {
 	byte_code2** rip_ptr = (byte_code2**)GetRegValPtr(thread_id, dbg, RIP_REG);
@@ -10392,7 +10361,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 	glfwSetErrorCallback(glfw_error_callback);
 	OpenWindow(0, &dbg);
-	auto window = *(GLFWwindow** ) GetRegValPtr(0, &dbg, RET_1_REG);
+	auto window = *(GLFWwindow** ) &dbg.mem_buffer[RET_1_REG * 8];
 	dbg.dbg_alloc = (mem_alloc *)AllocMiscData(dbg.lang_stat, sizeof(mem_alloc));
 	dbg.dbg_alloc->chunks_cap = 1024 * 1024;
 	dbg.dbg_alloc->in_use.hash_table_size = 1024 * 1024;

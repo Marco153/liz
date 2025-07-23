@@ -627,6 +627,8 @@ vertex_terrrain_modify:struct
 }
 
 CreateThread::fn outsider(fn(*void), *void)!u32;
+JoinThread::fn outsider(u32)!u32;
+
 UpdateModel::fn outsider(model : u32, verts : *f32, ) ! _vec;
 ScreenMouseToWorld::fn outsider(mx : f32, my : f32) ! _vec;
 Perlin2D::fn outsider(x:f32, y:f32, freq:f32, depth : u32) ! f32;

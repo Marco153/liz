@@ -154,6 +154,8 @@ context: struct
 	freeze_timer : f32,
 	enable_freeze_timer : bool,
 
+	cols_to_res : dyn_array(collision_res),
+
 	to_draw : dyn_array(draw_info),
 	bodies : dyn_array(*entity),
 	broad_phase_ents : dyn_array(*entity),
@@ -1921,13 +1923,13 @@ view_collision ::fn(ccc : u32)
 			target_face = gjk.cur_face_facing_point;
 
 			//__dbg_break
-			draw_vertex(ctx, &gjk.epa_new_sup, &v_sz, cam_pos, cam_rot)
+			//draw_vertex(ctx, &gjk.epa_new_sup, &v_sz, cam_pos, cam_rot)
 		}
 		if IsKeyHeld(key_enum.KEY_3)
 		{
 			for i in 0..16
 			{
-				draw_vertex(ctx, gjk.mink_diff[cast(u64)i], &v_sz, cam_pos, cam_rot)
+				//draw_vertex(ctx, gjk.mink_diff[cast(u64)i], &v_sz, cam_pos, cam_rot)
 			}
 			
 		}
@@ -2533,7 +2535,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			c2.pos = mov.ent_col.pos
 			c2.ent = mov.ent_col
 			dummy : _vec
-			CopyVerts(c2, &dummy, &dummy)
+			CopyVerts(c2)
 			gjk := ctx.gjk
 
 			if GJK(gjk, c1, c2)
@@ -3856,12 +3858,18 @@ emmitters_func::fn(ctx : *context, dt : f32)
 }
 test_thread::fn(data : *void)
 {
-	val := *cast(*u32)data
+	val := cast(*u32)data
+
+	*val = 6
 }
 main_loop::fn(ctx : *context)
 {
 	val_tast := 5
-	//CreateThread(test_thread, &val_tast)
+	//test_thread(&val_tast)
+	th_id := CreateThread(test_thread, &val_tast)
+	JoinThread(th_id)
+	__dbg_break
+
 	ctx.cur_model_selected_idx = -1
 	ctx.session_id = cast(u32)(Rand01() * 1000.0)
 	//perspective(ctx.perspective_mat[0], fov : f32, aspect : f32, near : f32, far : f32)
@@ -4169,8 +4177,8 @@ main_loop::fn(ctx : *context)
 	while !ShouldClose(ctx.window)
 	{
 
-		printf("total {ctx.to_deactivate.count}\n")
 /*
+		printf("total {ctx.to_deactivate.count}\n")
 		t:u64
 		while t < 30
 		{

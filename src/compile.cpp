@@ -2856,6 +2856,19 @@ struct call_stack_info
 enum class handle_enum
 {
 	FILES_DIR,
+	THREAD,
+};
+struct thread_creation
+{
+	int parent_thread;
+	int thread_id;
+	dbg_state *dbg;
+	int func_bc_idx;
+#ifdef LINUX
+	pthread_t thread;
+#else
+#endif
+	int args_addr;
 };
 struct handle_info
 {
@@ -2870,6 +2883,7 @@ struct handle_info
 	union
 	{
 		dir_files *dir;
+		thread_creation *th;
 	};
 };
 #define TOTAL_HANDLES 16
@@ -5630,7 +5644,7 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int
 
 
 void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl);
-u64* GetMemValPtr(dbg_state* dbg, short reg, int offset);
+u64* GetMemValPtr(int, dbg_state* dbg, short reg, int offset);
 void ShowExprWindow(dbg_state& dbg, int stack_reg, int line)
 {
 	char buffer[128];
@@ -8358,9 +8372,9 @@ u64 *GetRegValPtr(int thread_id, dbg_state *dbg, short reg)
 {
 	return (u64*)&dbg->mem_buffer[END_OF_REGS * thread_id + reg * 8];
 }
-u64 *GetMemValPtr(dbg_state *dbg, short reg, int offset)
+u64 *GetMemValPtr(int thread_id, dbg_state *dbg, short reg, int offset)
 {
-	auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg * 8];
+	auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg);
 	u64 offset_ = *reg_src_ptr + offset;
 	return (u64*)&dbg->mem_buffer[offset_];
 }
@@ -9077,8 +9091,8 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case MOV_M_2_REG_PARAM:
 	{
-		u64* reg_src_ptr = GetMemValPtr(dbg, reg_src * 8, mem_offset);
-		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, reg_dst * 8);
+		u64* reg_src_ptr = GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, PRE_X64_RSP_REG, reg_dst * 8);
 
 		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
 
@@ -9086,7 +9100,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case MOV_SSE_2_REG_PARAM:
 	{
 		u64* reg_src_ptr = GetFloatRegValPtr(thread_id, dbg, FLOAT_REG_0 + reg_src);
-		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, reg_dst * 8);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, PRE_X64_RSP_REG, reg_dst * 8);
 
 		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
 
@@ -9094,7 +9108,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case MOV_R_2_REG_PARAM:
 	{
 		u64* reg_src_ptr = GetRegValPtr(thread_id, dbg, reg_src);
-		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, reg_dst * 8);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, PRE_X64_RSP_REG, reg_dst * 8);
 
 
 		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
@@ -9110,7 +9124,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case MOV_M:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		u64* mem_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
 		u64* reg = GetRegValPtr(thread_id, dbg, reg_dst);
 
 		DoOperationOnPtr((char *)reg, sz, *mem_ptr, op); 
@@ -9127,8 +9141,8 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case MOV_R:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
-		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_src * 8];
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
+		auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_src);;
 
 
 		if(is_unsigned)
@@ -9161,7 +9175,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	{
 
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_dst_ptr = (long long*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_dst_ptr = (long long*)GetRegValPtr(thread_id, dbg, reg_dst);
 
 		*reg_dst_ptr = imm;
 		/*
@@ -9183,7 +9197,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	{
 
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
-		auto reg_dst_ptr = (char*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
 
 
 		if(is_unsigned)
@@ -9193,7 +9207,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case CMP_I_2_R:
 	{
-		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
 		
 		u64* eflags = GetRegValPtr(thread_id, dbg, EFLAGS_REG);
 		*eflags = 0;
@@ -9214,7 +9228,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case CMP_M_2_R:
 	{
-		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_src * 8];
+		auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_src);
 		u64 offset = *reg_src_ptr + mem_offset;
 		
 		auto mem_ptr = (s64*)&dbg->mem_buffer[offset];
@@ -9229,7 +9243,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case CMP_R_2_M:
 	{
-		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
 		u64 offset = *reg_dst_ptr + mem_offset;
 		
 		auto dst = (s64*)&dbg->mem_buffer[offset];
@@ -9254,7 +9268,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case FILL_M_2_PCKED_SSE:
 	{
-		auto reg_src_ptr = (float*)GetMemValPtr(dbg, reg_src, mem_offset);
+		auto reg_src_ptr = (float*)GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
 		auto reg_dst_ptr = (float*)GetFloatRegValPtr(thread_id, dbg, reg_dst + FLOAT_REG_0);
 		__m128 filled = _mm_set_ps(*reg_src_ptr, *reg_src_ptr, *reg_src_ptr, *reg_src_ptr);
 		_mm_store_ps(reg_dst_ptr, filled);
@@ -9263,7 +9277,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case MOV_M_2_PCKD_SSE:
 	{
-		auto reg_src_ptr = (float*)GetMemValPtr(dbg, reg_src, mem_offset);
+		auto reg_src_ptr = (float*)GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
 		auto reg_dst_ptr = (float*)GetFloatRegValPtr(thread_id, dbg, reg_dst + FLOAT_REG_0);
 		memcpy(reg_dst_ptr, reg_src_ptr, FLOAT_REG_SIZE_BYTES);
 		/*
@@ -9277,7 +9291,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case CMP_MEM_2_SSE:
 	{
-		auto reg_src_ptr = (float*)GetMemValPtr(dbg, reg_src, mem_offset);
+		auto reg_src_ptr = (float*)GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
 		auto reg_dst_ptr = (float*)GetFloatRegValPtr(thread_id, dbg, reg_dst + FLOAT_REG_0);
 
 		u64* eflags = GetRegValPtr(thread_id, dbg, EFLAGS_REG);
@@ -9288,7 +9302,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case CMP_SSE_2_MEM:
 	{
 		auto reg_src_ptr = (float *)GetFloatRegValPtr(thread_id, dbg, reg_src + FLOAT_REG_0);
-		auto reg_dst_ptr = (float*)GetMemValPtr(dbg, reg_dst, mem_offset);
+		auto reg_dst_ptr = (float*)GetMemValPtr(thread_id, dbg, reg_dst, mem_offset);
 
 		u64* eflags = GetRegValPtr(thread_id, dbg, EFLAGS_REG);
 		*eflags = 0;
@@ -9336,7 +9350,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case CMP_I_2_M:
 	{
-		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
 		u64 offset = *reg_dst_ptr + mem_offset;
 		
 		auto dst = (s64*)&dbg->mem_buffer[offset];
@@ -9409,7 +9423,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	{
 		//tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
 		auto reg_dst_ptr = (int *)GetFloatRegValPtr(thread_id, dbg, reg_dst + FLOAT_REG_0);
-		auto mem_ptr = (int *)GetMemValPtr(dbg, reg_src, mem_offset);
+		auto mem_ptr = (int *)GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
 		DoOperationOnPtrFloat((char *)reg_dst_ptr, 2, (float)*mem_ptr, T_EQUAL);
 	}break;
 	case MOV_SSE_2_R:
@@ -9445,7 +9459,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
 		auto reg_dst_ptr = (int *)GetFloatRegValPtr(thread_id, dbg, reg_dst + FLOAT_REG_0);
-		auto mem_ptr = (float *)GetMemValPtr(dbg, reg_src, mem_offset);
+		auto mem_ptr = (float *)GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
 
 		DoOperationOnPtrFloat((char*)reg_dst_ptr, 2, *mem_ptr, op);
 	}break;
@@ -9456,7 +9470,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
 		auto reg_src_ptr = (int *)GetFloatRegValPtr(thread_id, dbg, reg_src + FLOAT_REG_0);
-		u64* mem_ptr = GetMemValPtr(dbg, reg_dst, mem_offset);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, reg_dst, mem_offset);
 		DoOperationOnPtr((char *)mem_ptr, 2, *reg_src_ptr, op);
 	}break;
 	case MOV_F_2_PCKED_SSE:
@@ -9481,7 +9495,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		}
 			*/
 		auto reg_src_ptr = (float *)GetFloatRegValPtr(thread_id, dbg, reg_src + FLOAT_REG_0);
-		u64* mem_ptr = GetMemValPtr(dbg, reg_dst, mem_offset);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, reg_dst, mem_offset);
 		
 		memcpy(mem_ptr, reg_src_ptr, FLOAT_REG_SIZE_BYTES);
 		//_mm_storeu_ps(reg_dst_ptr, dst);
@@ -9539,7 +9553,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case STORE_R_2_M:
 	{
 		u64* reg_src_ptr = GetRegValPtr(thread_id, dbg, reg_src);
-		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
 		u64 offset = *reg_dst_ptr + mem_offset;
 		
 		auto dst = (char*)&dbg->mem_buffer[offset];
@@ -9549,7 +9563,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	{
 		u64* reg_src_ptr = GetRegValPtr(thread_id, dbg, reg_src);
 		u64* reg_stack_ptr = GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
-		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, PRE_X64_RSP_REG, 0);
 		*ptr =(byte_code2 *) *mem_ptr;
 		(*reg_stack_ptr) += 8;
 		*inc_ptr = false;
@@ -9645,13 +9659,13 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case MOVSX_M:
 	{
 		u64* dst_ptr = GetRegValPtr(thread_id, dbg, reg_dst);
-		u64* src_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
+		u64* src_ptr = GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
 		DoMovSXInts(dbg, dst_ptr, src_ptr, bc->rhs_and_lhs_reg_sz);
 	}break;
 	case MOVZX_M:
 	{
 		u64* dst_ptr = GetRegValPtr(thread_id, dbg, reg_dst);
-		u64* src_ptr = GetMemValPtr(dbg, reg_src, mem_offset);
+		u64* src_ptr = GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
 		DoMovZXInts(dbg, dst_ptr, src_ptr, bc->rhs_and_lhs_reg_sz);
 	}break;
 	case MOVSX_R:
@@ -9672,7 +9686,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	{
 		u64* reg_stack_ptr = GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 		(*reg_stack_ptr) -= 8;
-		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, PRE_X64_RSP_REG, 0);
 		*mem_ptr = (u64)(*ptr + 1);
 		if(thread_id == 0)
 		{
@@ -9686,7 +9700,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		u64* reg_src_ptr = GetRegValPtr(thread_id, dbg, reg_dst);
 		u64* reg_stack_ptr = GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 		(*reg_stack_ptr) -= 8;
-		u64* mem_ptr = GetMemValPtr(dbg, PRE_X64_RSP_REG, 0);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, PRE_X64_RSP_REG, 0);
 		*mem_ptr = (u64)(*ptr + 1);
 		if(thread_id == 0)
 		{
@@ -9699,7 +9713,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	{
 		u64* reg_dst_ptr = GetRegValPtr(thread_id, dbg, reg_dst);
 
-		auto reg_src_ptr = (u64*)&dbg->mem_buffer[reg_src * 8];
+		auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_src);
 		u64 offset = *reg_src_ptr + mem_offset;
 		
 		auto dst = (u64)offset;
@@ -9707,7 +9721,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	}break;
 	case STORE_I_2_M:
 	{
-		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[reg_dst * 8];
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
 		u64 offset = *reg_dst_ptr + mem_offset;
 		
 		auto dst = (char*)&dbg->mem_buffer[offset];
@@ -9751,7 +9765,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case MOV_I_2_REG_PARAM:
 	{
 		reg_src += REG_PARAM_START;
-		auto stack_ptr = (u64*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+		auto stack_ptr = (u64*)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 		u64 stack_val = *stack_ptr;
 		stack_val += reg_dst * 8;
 		*(u64*)&dbg->mem_buffer[stack_val] = imm;
@@ -9811,10 +9825,14 @@ void ThreadFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *c
 
 		bool inc_ptr = true;
 		bool valid = false;
-		Bc2Logic(0, dbg, rip_ptr, &inc_ptr, &valid, 0);
+		Bc2Logic(thread_id, dbg, rip_ptr, &inc_ptr, &valid, 0);
 		if (inc_ptr)
 		{
 			(*rip_ptr)++;
+		}
+		if (*rip_ptr == nullptr)
+		{
+			break;
 		}
 	}
 }

@@ -120,9 +120,11 @@ gjk_state : struct
 	sup2 : _vec
 	dir : _vec
 
+/*
 	epa_new_sup : _vec
 	mink_diff : [64]_vec
 	mink_diff_vert : u64
+	*/
 
 	aux_col : collider
 }
@@ -620,6 +622,7 @@ SimpleAsm::fn x64(ret : *s32) ! s32
 	return 1;
 
 }
+/*
 add_vert::fn(gjk : *gjk_state, v : *_vec)
 {
 	for i in 0..gjk.mink_diff_vert
@@ -633,6 +636,7 @@ add_vert::fn(gjk : *gjk_state, v : *_vec)
 	gjk.mink_diff[gjk.mink_diff_vert] = *v
 	gjk.mink_diff_vert++
 }
+*/
 //code from GJK.h https://github.com/kevinmoran/GJK/tree/master
 EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *collider, col2 : *collider, out : * collision) ! _vec
 {
@@ -726,7 +730,7 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
             {
 				n := faces[i][3]
 				gjk.cur_face_facing_point = i
-				gjk.epa_new_sup = p
+				//gjk.epa_new_sup = p
 				//__dbg_break
 				//view_collision(1)
 
@@ -965,9 +969,19 @@ maxPerComponent::fn x64(a: *_vec, b: *_vec) ! _vec
 	ret.w = maxf(a.w, b.w)
     return ret
 }
-CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
+CopyVerts::fn(col : *collider)
 {
+	/*
+	if col.data_ready
+	{
+		return
+	}
+	col.data_ready = true
+	*/
+
 	a := 0
+	_min := &col._min
+	_max := &col._max
 	on col.type 
 	{
 	col_type.CAPSULE
@@ -1136,7 +1150,7 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
 				c1.ent.pos -= mtv
 				dummy :_vec
-				CopyVerts(c1, &dummy, &dummy)
+				CopyVerts(c1)
 
 				col.normal = col.normal * -1.0
 				if !EntIsInCollision(e, e2, &col)
@@ -1369,7 +1383,10 @@ StepCol::fn(ctx : *context, dt : f32)
 		m_aabb :aabb = ?
 		p_aabb :aabb = ?
 
-		CopyVerts(c1, &p_aabb._min, &p_aabb._max)
+
+		CopyVerts(c1)
+		p_aabb._min = c1._min
+		p_aabb._max = c1._max
 		col : collision=?
 		mtv :_vec=?
 
@@ -1413,7 +1430,9 @@ StepCol::fn(ctx : *context, dt : f32)
 			else
 			{
 				
-				CopyVerts(c2, &m_aabb._min, &m_aabb._max)
+				CopyVerts(c2)
+				m_aabb._min = c2._min
+				m_aabb._max = c2._max
 				if !aabbCheck3D(&m_aabb, &p_aabb)
 				{
 					continue
@@ -1469,7 +1488,15 @@ StepCol::fn(ctx : *context, dt : f32)
 					mtv.w = 0.0
 				}
 				
+				aux :collision_res=?
 				col.normal = col.normal * -1.0
+				aux.col = col
+				aux.e1 = *e
+				aux.e2 = *e2
+				aux.mtv = mtv
+				dyn_add(&ctx.cols_to_res, &aux)
+
+/*
 				if !EntIsInCollision(*e, *e2, &col)
 				{
 					if e.col_enter != nil
@@ -1485,6 +1512,7 @@ StepCol::fn(ctx : *context, dt : f32)
 				{
 					e.pos -= mtv
 				}
+				*/
 
 			}
 		}
@@ -1500,8 +1528,39 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 
 	for i in 0..steps
 	{
+		/*
+		for e in ctx.bodies
+		{
+			c1 := cast(*collider)e.col
+			c1.data_ready = false
+		}
+		*/
+
+		dyn_clear(&ctx.cols_to_res)
 		dt = dt / cast(f32)steps
 		StepCol(ctx, dt)
+		for c in ctx.cols_to_res
+		{
+			//__dbg_break
+			e := c.e1
+			e2 := c.e2
+			col := &c.col
+			if !EntIsInCollision(e, e2, col)
+			{
+				if e.col_enter != nil
+				{
+					e.col_enter(e, e2, col);
+				}
+			}
+			if e.col_stay != nil
+			{
+				e.col_stay(e, e2, col);
+			}
+			if e.is_trigger == false && e2.is_trigger == false
+			{
+				e.pos -= c.mtv
+			}
+		}
 	}
 
 	for ev in globals.create_events
@@ -1913,7 +1972,7 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 		*/
 		c1.pos = e.pos;
 		dummy :_vec=?;
-		CopyVerts(c1, &dummy, &dummy);
+		CopyVerts(c1)
 		
 		on c1.type
 		{
@@ -1962,9 +2021,6 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 						}
 						cinfo.normal = info.cross
 						cinfo.contact_point = tri_pos
-						cinfo.t1 = cast(u32)*globals.cube_tris[t]
-						cinfo.t2 = cast(u32)*globals.cube_tris[t + 1]
-						cinfo.t3 = cast(u32)*globals.cube_tris[t + 2]
 						aux_ent = e
 					}
 

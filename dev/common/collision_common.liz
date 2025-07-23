@@ -22,10 +22,13 @@ collision:struct
 	ent : *entity,
 	ignore_trigger_do_collision : bool,
 	ignore_collision : bool,
-
-	t1 : u32
-	t2 : u32
-	t3 : u32
+}
+collision_res : struct
+{
+	e1 : *entity
+	e2 : *entity
+	mtv : _vec
+	col : collision
 }
 col_info:struct
 {
@@ -68,4 +71,7 @@ collider : struct
 	using type : col_type
 	ent : * entity
 	pos : _vec
+	_min : _vec
+	_max : _vec
+	data_ready : bool
 }

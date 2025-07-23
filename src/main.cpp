@@ -6621,12 +6621,6 @@ void GetMouseScreenPosX(int thread_id, dbg_state *dbg)
 
 }
 void HackFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc);
-struct thread_creation
-{
-	int thread_id;
-	dbg_state *dbg;
-	int func_bc_idx;
-};
 void *CreateThreadAux(void *data)
 {
 	auto a = (thread_creation *)data;
@@ -6634,32 +6628,73 @@ void *CreateThreadAux(void *data)
 	auto gl_state = (open_gl_state *)a->dbg->data;
 	byte_code2 *start = a->dbg->lang_stat->bcs2_start + a->func_bc_idx;
 	auto window = (GLFWwindow *)gl_state->glfw_window;
-	HERE()
+	auto dbg = a->dbg;
+	int addr = a->args_addr;
+
+	auto stack_ptr = GetRegValPtr(a->thread_id, dbg, PRE_X64_RSP_REG);
+	*stack_ptr = STACK_PTR_START_THREAD2;
+
+	// args for thread 
+	int *offset = (int *)&dbg->mem_buffer[STACK_PTR_START_THREAD2 + 8];
+	*offset = addr;
+
+
+	// nulling the ret address
+	offset = (int *)(int *)&dbg->mem_buffer[STACK_PTR_START_THREAD2];
+	*offset = 0;
+
+
 	ThreadFunc(a->thread_id, a->dbg, window, start);
 	return nullptr;
 }
+void _WaitThread(int thread_id, dbg_state* dbg)
+{
+
+}
 void _JoinThread(int thread_id, dbg_state* dbg)
 {
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int th_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	handle_info *h = &dbg->handles[th_id];
+
+	h->th->thread;
+#ifdef LINUX
+	pthread_join(h->th->thread, NULL);
+#else
+#endif
 
 }
 void _CreateThread(int thread_id, dbg_state* dbg)
 {
 	dbg->total_threads++;
+	auto new_thread_id = dbg->total_threads;
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int func_addr = *(int*)&dbg->mem_buffer[base_ptr + 8];
-#ifdef LINUX
-	pthread_t thread;
-	auto args = (thread_creation* )malloc(sizeof(thread_creation));
-	memset(args, 0, sizeof(thread_creation));
-	args->dbg = dbg;
-	args->thread_id = dbg->total_threads;
-	args->func_bc_idx = func_addr;
+	int idx = GetFreeHandle(dbg);
 
-    pthread_create(&thread, NULL, CreateThreadAux, args);
+
+
+	handle_info *h = &dbg->handles[idx];
+	h->th = (thread_creation *)AllocMiscData(dbg->lang_stat, sizeof(thread_creation));
+	auto args = h->th;
+	h->type = handle_enum::THREAD;
+#ifdef LINUX
+	memset(args, 0, sizeof(thread_creation));
+
+	h->th->args_addr = *(int *)&dbg->mem_buffer[base_ptr + 16];
+
+	args->dbg = dbg;
+	args->thread_id = new_thread_id;
+	args->func_bc_idx = func_addr;
+	args->parent_thread = thread_id;
+
+    pthread_create(&args->thread, NULL, CreateThreadAux, args);
 
 #else
 #endif
-
+	int *ret = (int *)GetRegValPtr(thread_id, dbg, RET_1_REG);
+	*ret = idx;
 }
 void Rand01(int thread_id, dbg_state* dbg)
 {
@@ -6911,6 +6946,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetTime", (OutsiderFuncType)GetTime);
 
 	AssignOutsiderFunc(&lang_stat, "CreateThread", (OutsiderFuncType)_CreateThread);
+	AssignOutsiderFunc(&lang_stat, "JoinThread", (OutsiderFuncType)_JoinThread);
 
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);

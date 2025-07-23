@@ -2,6 +2,7 @@
 #define LINUX
 
 #ifdef LINUX
+#include <pthread.h>
 #include <sys/mman.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -538,7 +539,7 @@ void update_camera_direction(float yaw, float pitch, float roll, Vec3* front,  V
 
 struct AudioClip;
 struct sound_state;
-void GetMem(dbg_state* dbg);
+void GetMem(int, dbg_state* dbg);
 
 AudioClip* CreateNewAudioClip(char* name);
 
@@ -1077,7 +1078,7 @@ HRESULT InitXAudio2(sound_state &sound, bool start_playing)
 
 void Print(dbg_state* dbg)
 {
-	int base = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base = *(int*)GetRegValPtr(0, dbg, STACK_PTR_REG);
 	int mem_alloc_addr = *(int*)&dbg->mem_buffer[base + 8];
 
 	int a = 0;
@@ -1163,10 +1164,10 @@ int GetTextureSlotId(open_gl_state* gl_state)
 	ASSERT(0);
 	return -1;
 }
-void Draw3DBase(dbg_state* dbg, draw_info3d *draw);
-void Draw3DTransparency(dbg_state* dbg)
+void Draw3DBase(int, dbg_state* dbg, draw_info3d *draw);
+void Draw3DTransparency(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
 
 
@@ -1197,7 +1198,7 @@ void Draw3DTransparency(dbg_state* dbg)
 	FOR_VEC(c, gl_state->transparent_objs)
 	{
 		c->type.flags |= DRAW_INFO_TRANSPARENT2;
-		Draw3DBase(dbg, &c->type);
+		Draw3DBase(thread_id, dbg, &c->type);
 	}
 }
 void quaternion_to_matrix4x4(float qx, float qy, float qz, float qw, float* matrix) {
@@ -1299,7 +1300,7 @@ void build_model_matrix(float* out_matrix,
 
 void GetViewMatrix(dbg_state* dbg, draw_info3d *draw)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(0, dbg, STACK_PTR_REG);
 	int out_addr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	auto mat = (float*)&dbg->mem_buffer[out_addr];
 
@@ -1327,9 +1328,9 @@ Vec3 ScreenMouseToWorldActual(
 
     return dir;
 }
-void ScreenMouseToWorld(dbg_state* dbg)
+void ScreenMouseToWorld(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float mx = *(float*)&dbg->mem_buffer[base_ptr + 8];
 	float my = *(float*)&dbg->mem_buffer[base_ptr + 16];
 
@@ -1346,8 +1347,8 @@ void ScreenMouseToWorld(dbg_state* dbg)
 	Mat4 invViewProj = Inverse(viewProj);
 	Vec3 p = ScreenMouseToWorldActual(mx, my, gl_state->width, gl_state->height, invViewProj);
 
-	auto ret = GetFloatRegValPtr(dbg, FLOAT_REG_0);
-	auto aux = GetRegValPtr(dbg, RET_1_REG);
+	auto ret = GetFloatRegValPtr(thread_id, dbg, FLOAT_REG_0);
+	auto aux = GetRegValPtr(thread_id, dbg, RET_1_REG);
 	
 	memcpy(ret, &p, 16);
 	memcpy(aux, &p, 8);
@@ -1355,9 +1356,9 @@ void ScreenMouseToWorld(dbg_state* dbg)
 }
 #define RAD_TO_DEG 57.29577
 #define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("\ngl error %d\n", glGetError()); fflush(stdout); ExitProcess(1);}
-void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
+void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
 
 
@@ -1583,9 +1584,9 @@ void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
 	}
 
 }
-void Draw3D(dbg_state* dbg)
+void Draw3D(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
 
 	//raise(SIGTRAP);
@@ -1602,11 +1603,11 @@ void Draw3D(dbg_state* dbg)
 		gl_state->transparent_objs.emplace_back(v);
 		return;
 	}
-	Draw3DBase(dbg, draw);
+	Draw3DBase(thread_id, dbg, draw);
 }
-void Draw(dbg_state* dbg)
+void Draw(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
 
 
@@ -1788,9 +1789,9 @@ void Draw(dbg_state* dbg)
 	//glDrawArrays(GL_TRIANGLES, 0, 3);
 	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
 }
-void ClearBackground(dbg_state* dbg)
+void ClearBackground(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	void* addr = &dbg->mem_buffer[base_ptr + 8];
 	float r = *(float*)&dbg->mem_buffer[base_ptr + 8];
 	float g = *(float*)&dbg->mem_buffer[base_ptr + 8 * 2];
@@ -2001,9 +2002,9 @@ int FromGameToGLFWKey(int in)
 	return key;
 }
 
-void IsMouseDoubleClick(dbg_state* dbg)
+void IsMouseDoubleClick(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -2026,9 +2027,9 @@ void IsMouseDoubleClick(dbg_state* dbg)
 		ASSERT(0)
 
 }
-void IsMouseDown(dbg_state* dbg)
+void IsMouseDown(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -2051,9 +2052,9 @@ void IsMouseDown(dbg_state* dbg)
 		ASSERT(0)
 
 
-}void IsMouseUp(dbg_state* dbg)
+}void IsMouseUp(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -2076,9 +2077,9 @@ void IsMouseDown(dbg_state* dbg)
 		ASSERT(0)
 
 }
-void IsMouseHeld(dbg_state* dbg)
+void IsMouseHeld(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -2100,9 +2101,9 @@ void IsMouseHeld(dbg_state* dbg)
 	else
 		* addr = 0;
 }
-void IsKeyUp(dbg_state* dbg)
+void IsKeyUp(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -2118,9 +2119,9 @@ void IsKeyUp(dbg_state* dbg)
 		*addr = 0;
 
 }
-void IsKeyDown(dbg_state* dbg)
+void IsKeyDown(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int keyo = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -2140,7 +2141,7 @@ void IsKeyDown(dbg_state* dbg)
 		*addr = 0;
 
 }
-bool IsKeyRepeat(void *data, int key)
+bool IsKeyRepeat(int thread_id, void *data, int key)
 {
 	auto gl_state = (open_gl_state*)data;
 	//key = FromGameToGLFWKey(key);
@@ -2152,7 +2153,7 @@ bool IsKeyRepeat(void *data, int key)
 	return false;
 
 }
-bool IsKeyDown(void *data, key_enum keye)
+bool IsKeyDown(int thread_id, void *data, key_enum keye)
 {
 	auto gl_state = (open_gl_state*)((dbg_state*)data)->data;
 	//key = FromGameToGLFWKey(key);
@@ -2165,9 +2166,9 @@ bool IsKeyDown(void *data, key_enum keye)
 	return false;
 
 }
-void ImGuiCheckbox(dbg_state* dbg)
+void ImGuiCheckbox(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name = (char *)&dbg->mem_buffer[name_offset];
 	int bool_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
@@ -2182,17 +2183,17 @@ void ImGuiCheckbox(dbg_state* dbg)
 		*addr = 0;
 	}
 }
-void ImGuiSetNextItemAllowOverlap(dbg_state* dbg)
+void ImGuiSetNextItemAllowOverlap(int thread_id, dbg_state* dbg)
 {
 	ImGui::SetNextItemAllowOverlap();
 }
-void ImGuiPopItemWidth(dbg_state* dbg)
+void ImGuiPopItemWidth(int thread_id, dbg_state* dbg)
 {
 	ImGui::PopItemWidth();
 }
-void ImGuiEnumCombo(dbg_state* dbg)
+void ImGuiEnumCombo(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name = (char *)&dbg->mem_buffer[name_offset];
 
@@ -2236,59 +2237,59 @@ void ImGuiEnumCombo(dbg_state* dbg)
 	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
 	*addr = clicked;
 }
-void ImGuiShowV4(dbg_state* dbg)
+void ImGuiShowV4(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
 	auto v = (v3*)&dbg->mem_buffer[v_offset];
 	char buffer[128];
 	snprintf(buffer, 128, "##%p", v);
 	ImGui::DragFloat4(buffer, (float*)v, 0.5);
 }
-void ImGuiShowV3(dbg_state* dbg)
+void ImGuiShowV3(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
 	auto v = (v3*)&dbg->mem_buffer[v_offset];
 	char buffer[128];
 	snprintf(buffer, 128, "##%p", v);
 	ImGui::DragFloat3(buffer, (float*)v, 0.5);
 }
-void ImGuiPushItemWidth(dbg_state* dbg)
+void ImGuiPushItemWidth(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float w = *(float*)&dbg->mem_buffer[base_ptr + 8];
 	ImGui::PushItemWidth(w);
 }
-void ImGuiSameLine(dbg_state* dbg)
+void ImGuiSameLine(int thread_id, dbg_state* dbg)
 {
 	ImGui::SameLine();
 }
 
-void ImGuiGetCursorScreenPosY(dbg_state* dbg)
+void ImGuiGetCursorScreenPosY(int thread_id, dbg_state* dbg)
 {
 	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
 	*addr = ImGui::GetCursorScreenPos().y;
 }
-void ImGuiGetCursorScreenPosX(dbg_state* dbg)
+void ImGuiGetCursorScreenPosX(int thread_id, dbg_state* dbg)
 {
 	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
 	*addr = ImGui::GetCursorScreenPos().x;
 }
-void ImGuiGetCursorPosY(dbg_state* dbg)
+void ImGuiGetCursorPosY(int thread_id, dbg_state* dbg)
 {
 	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
 	*addr = ImGui::GetCursorPosY();
 }
-void ImGuiGetCursorPosX(dbg_state* dbg)
+void ImGuiGetCursorPosX(int thread_id, dbg_state* dbg)
 {
 	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
 	*addr = ImGui::GetCursorPosX();
 }
 
-void ImGuiButton(dbg_state* dbg)
+void ImGuiButton(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 
@@ -2300,9 +2301,9 @@ void ImGuiButton(dbg_state* dbg)
 		*addr = false;
 
 }
-void ImGuiSelectable(dbg_state* dbg)
+void ImGuiSelectable(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 	bool selected = *(bool*)&dbg->mem_buffer[base_ptr + 16];
@@ -2318,15 +2319,15 @@ void ImGuiSelectable(dbg_state* dbg)
 
 }
 
-void ImGuiTreePop(dbg_state* dbg)
+void ImGuiTreePop(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	ImGui::TreePop();
 }
 
-void ImGuiTreeNodeEx(dbg_state* dbg)
+void ImGuiTreeNodeEx(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 	
@@ -2336,18 +2337,18 @@ void ImGuiTreeNodeEx(dbg_state* dbg)
 	*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = ret;
 }
 
-void ImGuiHasFocus(dbg_state* dbg)
+void ImGuiHasFocus(int thread_id, dbg_state* dbg)
 {
 	auto& io = ImGui::GetIO(); 
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	if (io.WantCaptureMouse)
 		*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = true;
 	else
 		*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = false;
 }
-void ImGuiAddRect(dbg_state* dbg)
+void ImGuiAddRect(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int this_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	float min_x = *(float*)&dbg->mem_buffer[base_ptr + 16];
 	float min_y = *(float*)&dbg->mem_buffer[base_ptr + 24];
@@ -2364,9 +2365,9 @@ own_std::string GetWorkDir(unit_file *file, lang_state* lang_stat)
 	work_dir = work_dir.substr(0, last_bar + 1);
 	return work_dir;
 }
-void ImGuiSetWindowFontScale(dbg_state* dbg)
+void ImGuiSetWindowFontScale(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float fsz = *(float*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
 
@@ -3217,7 +3218,7 @@ HANDLE hStdOutRead, hStdOutWrite;
 
 void ImGuiRenderTextEditor(dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	auto gl_state = (open_gl_state*)dbg->data;
 
 
@@ -3535,7 +3536,7 @@ void InitWindowEditor(dbg_state* dbg, open_gl_state *gl_state, WindowEditor* ed)
 }
 void ImGuiInitTextEditor(dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name = (char*)&dbg->mem_buffer[name_offset];
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -3603,9 +3604,9 @@ void GoBackOneDir(own_std::string* dir)
 	*dir += '\\';
 }
 
-void ImGuiInputInt(dbg_state* dbg)
+void ImGuiInputInt(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int var_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
@@ -3613,9 +3614,9 @@ void ImGuiInputInt(dbg_state* dbg)
 	int* var_addr = (int *)&dbg->mem_buffer[var_offset];
 	ImGui::InputInt(label, var_addr);
 }
-void ImGuiInputText(dbg_state* dbg)
+void ImGuiInputText(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int buf_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int buf_sz = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -3626,9 +3627,9 @@ void ImGuiInputText(dbg_state* dbg)
 	char* buf = (char *)&dbg->mem_buffer[buf_offset];
 	ImGui::InputText(label, buf, buf_sz);
 }
-void ImGuiImage(dbg_state* dbg)
+void ImGuiImage(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int id = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int sz_x = (int)*(float*)&dbg->mem_buffer[base_ptr + 16];
 	int sz_y = (int)*(float*)&dbg->mem_buffer[base_ptr + 24];
@@ -3642,14 +3643,14 @@ void ImGuiImage(dbg_state* dbg)
 	ImGui::Image((ImTextureID)(intptr_t)t->id, ImVec2(sz_x, sz_y), ImVec2(0, 1), ImVec2(1, 0));
 
 }
-void ImGuiEnd(dbg_state* dbg)
+void ImGuiEnd(int thread_id, dbg_state* dbg)
 {
 	ImGui::End();
 
 }
-void ImGuiBegin(dbg_state* dbg)
+void ImGuiBegin(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 
@@ -3658,14 +3659,14 @@ void ImGuiBegin(dbg_state* dbg)
 	int flags = *(int*)&dbg->mem_buffer[base_ptr + 24];
 	ImGui::Begin(name_str, bool_ptr, flags);
 }
-void ImGuiEndChild(dbg_state* dbg)
+void ImGuiEndChild(int thread_id, dbg_state* dbg)
 {
 	ImGui::EndChild();
 
 }
-void ImGuiBeginChild(dbg_state* dbg)
+void ImGuiBeginChild(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	float sz_x = *(float*)&dbg->mem_buffer[base_ptr + 16];
 	float sz_y = *(float*)&dbg->mem_buffer[base_ptr + 24];
@@ -3673,16 +3674,16 @@ void ImGuiBeginChild(dbg_state* dbg)
 	ImGui::BeginChild(name_str, ImVec2(sz_x, sz_y));
 }
 
-void ImGuiText(dbg_state* dbg)
+void ImGuiText(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 	ImGui::Text(name_str);
 }
-void IsKeyHeld(dbg_state* dbg)
+void IsKeyHeld(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -3699,16 +3700,16 @@ void IsKeyHeld(dbg_state* dbg)
 		*addr = 0;
 
 }
-void GetTime(dbg_state* dbg)
+void GetTime(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 
 	auto ret = (float*)&dbg->mem_buffer[RET_1_REG * 8];
 	*ret = glfwGetTime();
 }
-void EndFrame(dbg_state* dbg)
+void EndFrame(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
 
 
@@ -3751,9 +3752,9 @@ void ClearKeys(void *data)
 	}
 
 }
-void ShouldClose(dbg_state* dbg)
+void ShouldClose(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	long long wnd = *(long long*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow*)(long long)wnd);
@@ -3912,7 +3913,7 @@ void CheckOpenGLError(const char* stmt, const char* fname, int line)
 void UpdateTexture(dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(0, dbg, STACK_PTR_REG);
 	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int x_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int y_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -3936,7 +3937,7 @@ void UpdateTexture(dbg_state* dbg)
 void CopyTextureToBuffer(dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(0, dbg, STACK_PTR_REG);
 	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int buffer_size = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -3959,7 +3960,7 @@ void CopyTextureToBuffer(dbg_state* dbg)
 int GenRawTexture(dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(0, dbg, STACK_PTR_REG);
 	int sz_x = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int sz_y = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	unsigned int texture;
@@ -4149,11 +4150,11 @@ struct aux_cell_info
 	};
 };
 
-void LoadSheetFromLayer(dbg_state* dbg)
+void LoadSheetFromLayer(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int layer_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	auto cur_layer = (aux_layer_info_struct*)&dbg->mem_buffer[layer_offset];
 	auto cur_cell = (sp_cell *)(cur_layer + 1);
@@ -4412,9 +4413,9 @@ int LoadSpriteSheet(dbg_state* dbg, own_std::string sp_file_name, int *tex_width
 }
 
 
-void ReadFileInterp(dbg_state* dbg)
+void ReadFileInterp(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char* name = (char*)&dbg->mem_buffer[name_offset];
 
@@ -4427,9 +4428,9 @@ void ReadFileInterp(dbg_state* dbg)
 	char *file = ReadEntireFileLang((char *)work_dir.c_str(), &size);
 	memcpy(buffer_ptr, file, size);
 }
-void GetFileSize(dbg_state* dbg)
+void GetFileSize(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char* name = (char*)&dbg->mem_buffer[name_offset];
 
@@ -4458,22 +4459,22 @@ void GetFileSize(dbg_state* dbg)
 	CloseHandle(file);
 #endif
 }
-int GetMem(dbg_state* dbg, int sz)
+int GetMem(int thread_id, dbg_state* dbg, int sz)
 {
-	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	*(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG) -= 16;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	*(int*)&dbg->mem_buffer[base_ptr + 8] = sz;
 	int idx = 0;
 
-	GetMem(dbg);
+	GetMem(thread_id, dbg);
 	int offset = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
 
-	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] += 16;
+	*(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG) += 16;
 	return offset;
 }
-void LoadSceneFolder(dbg_state* dbg)
+void LoadSceneFolder(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
@@ -4503,7 +4504,7 @@ void LoadSceneFolder(dbg_state* dbg)
 
 	int str_tbl_offset = file_names.size() * 8;
 	sz += str_tbl_offset;
-	int offset = GetMem(dbg, sz);
+	int offset = GetMem(thread_id, dbg, sz);
 
 	ar->ar.start = (int *)(long long)offset;
 	ar->ar.count = file_names.size();
@@ -4557,9 +4558,9 @@ struct create_mesh_info
 	int tris_count;
 };
 
-void CreateMesh(dbg_state* dbg)
+void CreateMesh(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int create_mesh_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	auto minfo = (create_mesh_info *)&dbg->mem_buffer[create_mesh_offset];
@@ -4607,10 +4608,10 @@ void CreateMesh(dbg_state* dbg)
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
 }
-void UpdateModel(dbg_state* dbg)
+void UpdateModel(int thread_id, dbg_state* dbg)
 {
 	//HERE()
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int model = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int verts_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
@@ -4624,7 +4625,7 @@ void UpdateModel(dbg_state* dbg)
 
 	glBufferSubData(GL_ARRAY_BUFFER, 0, m->verts_size, verts);
 }
-void LoadModelBase(dbg_state* dbg, own_std::string &full_path)
+void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	int free_idx = -1;
@@ -4716,9 +4717,9 @@ void LoadModelBase(dbg_state* dbg, own_std::string &full_path)
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
 	auto a = 0;
 }
-void ModelFarthestPoint(dbg_state* dbg)
+void ModelFarthestPoint(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int axis_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	auto v = (Vec3 *)&dbg->mem_buffer[axis_ptr];
@@ -4743,30 +4744,30 @@ void ModelFarthestPoint(dbg_state* dbg)
 		}
 	}
 
-	auto ret = GetFloatRegValPtr(dbg, FLOAT_REG_0);
-	auto aux = GetRegValPtr(dbg, RET_1_REG);
+	auto ret = GetFloatRegValPtr(thread_id, dbg, FLOAT_REG_0);
+	auto aux = GetRegValPtr(thread_id, dbg, RET_1_REG);
 	
 	auto p = (Vec3 *)&m->vertices[idx * vert_size];
 	memcpy(ret, p, 16);
 	memcpy(aux, p, 8);
 	*(((float *)ret) + 3) = 0.0f;
 }
-void LoadModel(dbg_state* dbg)
+void LoadModel(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int model_path_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *model_path = (char *)&dbg->mem_buffer[model_path_offset];
 
 	unsigned int size = 0;
 	auto gl_state = (open_gl_state*)dbg->data;
 	own_std::string full_path = gl_state->model_folder + model_path;
-	LoadModelBase(dbg, full_path);
+	LoadModelBase(thread_id, dbg, full_path);
 
 }
-void LoadModelFolder(dbg_state* dbg)
+void LoadModelFolder(int thread_id, dbg_state* dbg)
 {
 
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
@@ -4788,9 +4789,9 @@ void LoadModelFolder(dbg_state* dbg)
 	own_std::vector<char*> file_names;
 	GetFilesInDirectory(gl_state->texture_folder, nullptr, &file_names);
 }
-void LoadTexFolder(dbg_state* dbg)
+void LoadTexFolder(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
@@ -4833,7 +4834,7 @@ void LoadTexFolder(dbg_state* dbg)
 		total_pngs++;
 	}
 
-	int offset = GetMem(dbg, total_pngs * sizeof(texture_info));
+	int offset = GetMem(thread_id, dbg, total_pngs * sizeof(texture_info));
 
 	ar->ar.start = (int *)(u64)offset;
 	ar->ar.count = total_pngs;
@@ -4881,12 +4882,12 @@ void LoadTexFolder(dbg_state* dbg)
 
 
 		int len = strlen(name) + 1;
-		int name_offset = GetMem(dbg, len);
+		int name_offset = GetMem(thread_id, dbg, len);
 		auto name_dst = (char*)&dbg->mem_buffer[name_offset];
 		memcpy(name_dst, name, len);
 
 		int sz = tex_height * tex_width * tex_channels;
-		int data_offset = GetMem(dbg, sz);
+		int data_offset = GetMem(thread_id, dbg, sz);
 		memcpy(&dbg->mem_buffer[data_offset], tex_data, sz);
 
 
@@ -4905,9 +4906,9 @@ void LoadTexFolder(dbg_state* dbg)
 
 }
 
-void LoadTex(dbg_state* dbg)
+void LoadTex(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 
 	auto info = (load_clip_args*)&dbg->mem_buffer[base_ptr + 8];
 	info->file_name = (unsigned char*)&dbg->mem_buffer[(long long)info->file_name];
@@ -4935,7 +4936,7 @@ void LoadTex(dbg_state* dbg)
 	auto ret = (int*)&dbg->mem_buffer[RET_1_REG * 8];
 	*ret = idx;
 }
-void ImageFolderToFile(own_std::string folder)
+void ImageFolderToFile(int thread_id, own_std::string folder)
 {
 	struct file_header
 	{
@@ -5021,9 +5022,9 @@ void ImageFolderToFile(own_std::string folder)
 	WriteFileLang("../web/images.data", (void *)images_encoded_str.data(), images_encoded_str.size());
 }
 
-void FromGamePlayAudio(dbg_state* dbg)
+void FromGamePlayAudio(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -5042,9 +5043,9 @@ void FromGamePlayAudio(dbg_state* dbg)
 	gl_state->sound->audio_clips_to_play.emplace_back(q);
 }
 
-void AssignSoundFolder(dbg_state* dbg)
+void AssignSoundFolder(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 
@@ -5069,9 +5070,9 @@ void AssignSoundFolder(dbg_state* dbg)
 	//ImageFolderToFile(gl_state->texture_folder);
 
 }
-void AssignModelFolder(dbg_state* dbg)
+void AssignModelFolder(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 
@@ -5093,17 +5094,17 @@ void AssignModelFolder(dbg_state* dbg)
 	GetFilesInDirectory((char *)gl_state->model_folder.c_str(), nullptr, &file_names);
 
 }
-void FreeHandle(dbg_state *dbg)
+void FreeHandle(int thread_id, dbg_state *dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int hidx = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	handle_info *h = &dbg->handles[hidx];
 	h->in_use = false;
 }
-void HandleDirFilenameAt(dbg_state *dbg)
+void HandleDirFilenameAt(int thread_id, dbg_state *dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int hidx = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int idx = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -5123,18 +5124,18 @@ void HandleDirFilenameAt(dbg_state *dbg)
 
 	memcpy(buffer, name, str_ln);
 }
-void HandleDirTotalFiles(dbg_state *dbg)
+void HandleDirTotalFiles(int thread_id, dbg_state *dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	handle_info *h = &dbg->handles[idx];
 	ASSERT(h->type == handle_enum::FILES_DIR);
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = h->dir->files.size();
 }
-void HandleForGettingFilesInDir(dbg_state *dbg)
+void HandleForGettingFilesInDir(int thread_id, dbg_state *dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 
@@ -5155,9 +5156,9 @@ void HandleForGettingFilesInDir(dbg_state *dbg)
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
 
 }
-void AssignTexFolder(dbg_state* dbg)
+void AssignTexFolder(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 
@@ -5174,7 +5175,7 @@ void AssignTexFolder(dbg_state* dbg)
 	gl_state->texture_folder = work_dir + gl_state->texture_folder;
 	MaybeAddBarToEndOfStr(&(gl_state->texture_folder));
 
-	ImageFolderToFile(gl_state->texture_folder);
+	ImageFolderToFile(thread_id, gl_state->texture_folder);
 
 }
 
@@ -5245,18 +5246,18 @@ float perlin2d(float x, float y, float freq, int depth)
     return fin/div;
 }
 
-void Perlin2D(dbg_state* dbg)
+void Perlin2D(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float x = *(float*)&dbg->mem_buffer[base_ptr + 8];
 	float y = *(float*)&dbg->mem_buffer[base_ptr + 16];
 	float freq = *(float*)&dbg->mem_buffer[base_ptr + 24];
 	int depth = *(int*)&dbg->mem_buffer[base_ptr + 32];
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = perlin2d(x, y, freq, depth);
 }
-void LoadClip(dbg_state* dbg)
+void LoadClip(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 
 	auto info = (load_clip_args*)&dbg->mem_buffer[base_ptr + 8];
 	info->file_name = (unsigned char*)&dbg->mem_buffer[(long long)info->file_name];
@@ -5266,15 +5267,15 @@ void LoadClip(dbg_state* dbg)
 
 	auto gl_state = (open_gl_state*)dbg->data;
 
-	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
-	base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	*(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG) -= 16;
+	base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	*(int*)&dbg->mem_buffer[base_ptr + 8] = info->total_sps * sizeof(int);
 	int idx = 0;
 
-	GetMem(dbg);
+	GetMem(thread_id, dbg);
 	int offset = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
 
-	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] += 16;
+	*(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG) += 16;
 
 	*(int**)&info->cinfo->texs_idxs = (int*)(long long)offset;
 	info->cinfo->total_texs = info->total_sps;
@@ -5327,7 +5328,7 @@ int CompileShader(char* source, int type)
 	}
 	return shader;
 }
-void UpdateLastTime(dbg_state* dbg)
+void UpdateLastTime(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	if (gl_state)
@@ -5335,9 +5336,9 @@ void UpdateLastTime(dbg_state* dbg)
 
 }
 
-void SetIsEngine(dbg_state* dbg)
+void SetIsEngine(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	bool val = *(bool*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
 	gl_state->lang_stat->is_engine = val;
@@ -5878,10 +5879,10 @@ void show_cursor_x11(GLFWwindow* glfwWindow) {
 }
 #endif
 
-void HideCursor(dbg_state* dbg)
+void HideCursor(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	bool val = *(bool *)&dbg->mem_buffer[base_ptr + 8];
 
 	if(val)
@@ -5901,9 +5902,9 @@ void HideCursor(dbg_state* dbg)
 #endif
 	}
 }
-void OpenWindow(dbg_state* dbg)
+void OpenWindow(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int wnd_width = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int wnd_height = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	//open_simplex_noise(77374, &dbg->simplex_ctx);
@@ -6215,7 +6216,7 @@ void OpenWindow(dbg_state* dbg)
 /*
 void DebuggerCommand(dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int str_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	//ASSERT(sz > 0)
 
@@ -6232,9 +6233,9 @@ void DebuggerCommand(dbg_state* dbg)
 
 }
 */
-void SetMem(dbg_state* dbg)
+void SetMem(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	ASSERT(sz > 0)
 
@@ -6242,9 +6243,9 @@ void SetMem(dbg_state* dbg)
 	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
 	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] = sz;
 }
-void SubMem(dbg_state* dbg)
+void SubMem(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	ASSERT(sz > 0)
 
@@ -6255,9 +6256,9 @@ void SubMem(dbg_state* dbg)
 	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
 
 }
-void GetMem(dbg_state* dbg)
+void GetMem(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	ASSERT(sz > 0)
 	ASSERT(base_ptr > (MEM_PTR_CUR_ADDR + 8));
@@ -6272,33 +6273,33 @@ void GetMem(dbg_state* dbg)
 
 }
 
-void GetTimeSinceStart(dbg_state* dbg)
+void GetTimeSinceStart(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 	//auto gl_state = (open_gl_state*)dbg->data;
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = (float)glfwGetTime();
 }
-void Sqrt(dbg_state* dbg)
+void Sqrt(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sqrt(val);
 }
-void PrintStr(dbg_state* dbg)
+void PrintStr(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int str_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	char* str = (char*)&dbg->mem_buffer[str_offset];
 	printf("%s", str);
 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
-void PrintV3Int(dbg_state* dbg)
+void PrintV3Int(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int x = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int y = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int z = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -6313,9 +6314,9 @@ void PrintV3Int(dbg_state* dbg)
 
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
 }
-void PrintV3(dbg_state* dbg)
+void PrintV3(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float x = *(float*)&dbg->mem_buffer[base_ptr + 8];
 	float y = *(float*)&dbg->mem_buffer[base_ptr + 16];
 	float z = *(float*)&dbg->mem_buffer[base_ptr + 24];
@@ -6323,10 +6324,10 @@ void PrintV3(dbg_state* dbg)
 
 	//*(float*)&dbg->mem_buffer[REt_1_REG * 8] = sinf(val);
 }
-void OpenLocalsWindow(dbg_state* dbg)
+void OpenLocalsWindow(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
-	int stack_base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int stack_base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int line = *(int*)&dbg->mem_buffer[stack_base_ptr + 8];
 	if (dbg->frame_is_from_dbg)
 		return;
@@ -6340,9 +6341,9 @@ void OpenLocalsWindow(dbg_state* dbg)
 	//ImGui::Text("AOe");
 	///glfwSwapBuffers(window);
 }
-void MemSet(dbg_state* dbg)
+void MemSet(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int b = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int c = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -6350,9 +6351,9 @@ void MemSet(dbg_state* dbg)
 	memset(a, b, c);
 
 }
-void MemCpy(dbg_state* dbg)
+void MemCpy(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int c_ptr = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -6361,10 +6362,10 @@ void MemCpy(dbg_state* dbg)
 	memcpy(a, b, c_ptr);
 
 }
-void PointLineDistance(dbg_state* dbg)
+void PointLineDistance(int thread_id, dbg_state* dbg)
 {
 	/*
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int c_ptr = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -6404,9 +6405,9 @@ void PointLineDistance(dbg_state* dbg)
 	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = 
 	*/
 }
-void DotV3(dbg_state* dbg)
+void DotV3(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	float *a = (float*)&dbg->mem_buffer[a_ptr];
@@ -6415,10 +6416,10 @@ void DotV3(dbg_state* dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 }
-void WriteFileInterpreter(dbg_state* dbg)
+void WriteFileInterpreter(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int buffer_sz = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -6435,54 +6436,54 @@ void WriteFileInterpreter(dbg_state* dbg)
 	WriteFileLang((char *)work_dir.c_str(), buffer_ptr, buffer_sz);
 
 }
-void GetInstRealAddr(dbg_state* dbg)
+void GetInstRealAddr(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int inst_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = (u64)(dbg->lang_stat->bcs2_start + inst_idx);
 }
-void GetTopStackPtr(dbg_state* dbg)
+void GetTopStackPtr(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = base_ptr + 8;
 
 }
-void Asin(dbg_state* dbg)
+void Asin(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = asin(val);
 }
-void Acos(dbg_state* dbg)
+void Acos(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = acosf(val);
 }
-void Cos(dbg_state* dbg)
+void Cos(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = cosf(val);
 }
-void GetMouseScroll(dbg_state* dbg)
+void GetMouseScroll(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->scroll;
 }
-void Tan(dbg_state* dbg)
+void Tan(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = tanf(val);
 }
-void Sin(dbg_state* dbg)
+void Sin(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
@@ -6508,7 +6509,7 @@ own_std::string GetFolderName(own_std::string path)
 
 	return path.substr(last_bar + 1);
 }
-void IsMouseOnGameWindow(dbg_state *dbg)
+void IsMouseOnGameWindow(int thread_id, dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
@@ -6534,7 +6535,7 @@ void IsMouseOnGameWindow(dbg_state *dbg)
 		ret = false;
 	*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = ret;
 }
-void GetMouseNormalizedPosY(dbg_state *dbg)
+void GetMouseNormalizedPosY(int thread_id, dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
@@ -6556,7 +6557,7 @@ void GetMouseNormalizedPosY(dbg_state *dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
 
 }
-void GetMouseNormalizedPosX(dbg_state *dbg)
+void GetMouseNormalizedPosX(int thread_id, dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
@@ -6580,17 +6581,17 @@ void GetMouseNormalizedPosX(dbg_state *dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
 
 }
-void GetMouseVelY(dbg_state *dbg)
+void GetMouseVelY(int thread_id, dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->mouse_vel_y;
 }
-void GetMouseVelX(dbg_state *dbg)
+void GetMouseVelX(int thread_id, dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->mouse_vel_x;
 }
-void GetMouseScreenPosY(dbg_state *dbg)
+void GetMouseScreenPosY(int thread_id, dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
@@ -6604,7 +6605,7 @@ void GetMouseScreenPosY(dbg_state *dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
 
 }
-void GetMouseScreenPosX(dbg_state *dbg)
+void GetMouseScreenPosX(int thread_id, dbg_state *dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
@@ -6619,16 +6620,51 @@ void GetMouseScreenPosX(dbg_state *dbg)
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
 
 }
-void Rand01(dbg_state* dbg)
+void HackFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc);
+struct thread_creation
+{
+	int thread_id;
+	dbg_state *dbg;
+	int func_bc_idx;
+};
+void *CreateThreadAux(void *data)
+{
+	auto a = (thread_creation *)data;
+
+	auto gl_state = (open_gl_state *)a->dbg->data;
+	byte_code2 *start = a->dbg->lang_stat->bcs2_start + a->func_bc_idx;
+	auto window = (GLFWwindow *)gl_state->glfw_window;
+	HackFunc(a->thread_id, a->dbg, window, start);
+	return nullptr;
+}
+void _JoinThread(int thread_id, dbg_state* dbg)
+{
+
+}
+void _CreateThread(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int func_addr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+#ifdef LINUX
+	pthread_t thread;
+	auto args = (thread_creation* )malloc(sizeof(thread_creation));
+
+    pthread_create(&thread, NULL, CreateThreadAux, args);
+
+#else
+#endif
+
+}
+void Rand01(int thread_id, dbg_state* dbg)
 {
 	auto r = ((unsigned int)rand()) % 2000;
 	double f = (double)r / 2000;
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = f;
 }
 
-void FreeTexture(dbg_state* dbg)
+void FreeTexture(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	auto gl_state = (open_gl_state*)dbg->data;
 	texture_info* t = &gl_state->textures[tex_id];
@@ -6638,9 +6674,9 @@ void FreeTexture(dbg_state* dbg)
 		t->used = false;
 	}
 }
-void ScreenRatio(dbg_state* dbg)
+void ScreenRatio(int thread_id, dbg_state* dbg)
 {
-	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	auto gl_state = (open_gl_state*)dbg->data;
 	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
 
@@ -6722,6 +6758,7 @@ AudioClip* CreateNewAudioClip(char* name)
 	return ret;
 
 }
+
 
 
 int main(int argc, char* argv[])
@@ -6828,7 +6865,7 @@ int main(int argc, char* argv[])
 				opts.wasm_dir = argv[3];
 				//opts.wasm_dir += folder_name;
 				opts.release = true;
-				ImageFolderToFile(opts.file + "/images/");
+				ImageFolderToFile(0, opts.file + "/images/");
 				opts.file += "files";
 			}
 		}
@@ -6866,6 +6903,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "Draw3D", (OutsiderFuncType)Draw3D);
 	AssignOutsiderFunc(&lang_stat, "Draw3DTransparency", (OutsiderFuncType)Draw3DTransparency);
 	AssignOutsiderFunc(&lang_stat, "GetTime", (OutsiderFuncType)GetTime);
+
+	AssignOutsiderFunc(&lang_stat, "CreateThread", (OutsiderFuncType)_CreateThread);
 
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);

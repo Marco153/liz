@@ -54,7 +54,7 @@ struct ast_rep;
 struct ir_rep;
 struct dbg_state;
 
-typedef  void(*OutsiderFuncType)(dbg_state*);
+typedef  void(*OutsiderFuncType)(int, dbg_state*);
 
 struct ast_stats
 {

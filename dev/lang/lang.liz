@@ -40,6 +40,7 @@ token_type: etruct
 	WORD(
 		str: string
 	),
+	EOF
 }
 op_prec_enum : enum
 {
@@ -55,7 +56,7 @@ op_prec_enum : enum
 	COMMA,
 	EQUAL,
 	NEW_LINE,
-	
+	EOF,
 }
 
 token : struct
@@ -70,6 +71,11 @@ ast_type :etruct
 {
 	EMPTY,
 	STATS(
+	),
+	UNIFORM(
+		type : *ast_rep
+		name : *ast_rep
+		d : *decl
 	),
 	WORD_SCOPE(
 		scp : *ast_rep
@@ -160,6 +166,10 @@ node_type :etruct
 	RET(
 		n:*node,
 	),
+	UNIFORM(
+		type : *node
+		name : *node
+	),
 	UNOP(
 		un:*node,
 		op : u32,
@@ -232,6 +242,16 @@ lang_type_type : etruct
 	S64,
 	S64_TYPE,
 
+
+	V2,
+	V2_TYPE,
+	V3,
+	V3_TYPE,
+	V4,
+	V4_TYPE,
+
+	MAT4,
+
 	U8,
 	U8_TYPE,
 	U16,
@@ -269,6 +289,7 @@ lang_type : struct
 decl : struct
 {
 	name : string,
+	actual_name : string,
 	tp : lang_type,
 	flags : u64,
 	offset : s32
@@ -317,6 +338,9 @@ lang_state : struct
 {
 	reg_types : [TOTAL_REGS]lang_type,
 	funcs : dyn_array(*func_decl)
+
+	uniforms : dyn_array(*decl)
+
 	outsiders : dyn_array(*func_decl)
 
 	cur_func : *func_decl,
@@ -332,9 +356,9 @@ parse_info : struct
 	lang_stat : *lang_state,
 }
 
-parse_all ::fn (pinfo : *parse_info)
+parse_all ::fn (pinfo : *parse_info) ! *node
 {
-
+	return parse(pinfo, cast(u32)op_prec_enum.EOF, parser_op.GREATER_EQ)
 }
 parser_op : enum
 {
@@ -471,7 +495,6 @@ parse_item::fn (pinfo : *parse_info) ! *node
 			ret.type = node_type.FUNC
 			ret.FUNC.fdecl = new_func()
 			peek = peek_tkn(pinfo)
-			//__dbg_break
 			if peek.type == token_type.WORD
 			{
 				if peek.WORD.str == "outsider"
@@ -517,6 +540,7 @@ parse_item::fn (pinfo : *parse_info) ! *node
 			{
 				pinfo.cur_tkn--
 			}
+			//peek = peek_tkn(pinfo)
 		}
 		else if cur_tkn.WORD.str == "return"
 		{
@@ -529,6 +553,12 @@ parse_item::fn (pinfo : *parse_info) ! *node
 			ret.type = node_type.WHILE
 			ret.WHILE.cond = parse_cond(pinfo)
 			ret.WHILE.scp_nd = parse_scope(pinfo)
+		}
+		else if cur_tkn.WORD.str == "uniform"
+		{
+			ret.type = node_type.UNIFORM
+			ret.UNIFORM.type = parse_item(pinfo)
+			ret.UNIFORM.name = parse_item(pinfo)
 		}
 		else if cur_tkn.WORD.str == "if"
 		{
@@ -656,6 +686,11 @@ is_bin::fn(tkn : *token, prec : *u32) !bool
 	if tkn.type == token_type.EQUAL
 	{
 		*prec = cast(u32)op_prec_enum.EQUAL
+		return true
+	}
+	else if tkn.type == token_type.EOF
+	{
+		*prec = cast(u32)op_prec_enum.EOF
 		return true
 	}
 	else if tkn.type == token_type.MINUS
@@ -795,6 +830,10 @@ parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
 			n.CALL.name = ret
 			n.CALL.args = parse_item(pinfo)
 			ret = n
+		}
+		else if peek.type == token_type.EOF
+		{
+			return ret;
 		}
 		else if peek.type == token_type.OPEN_CURLY
 		{
@@ -961,6 +1000,7 @@ parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
 			if (pinfo.cur_tkn + 1) < pinfo.tkns.count  && peek.type == token_type.NEW_LINE 
 				&& peek_next.type == token_type.NEW_LINE
 			{
+				/*
 				new_top.BIN.rhs = new_node(peek)
 				new_top.BIN.rhs.type = node_type.EMPTY_STMNT
 
@@ -969,6 +1009,7 @@ parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
 				new_st.BIN.lhs = new_top
 
 				new_top = new_st
+				*/
 
 				eat_new_line(pinfo)
 				pinfo.cur_tkn--
@@ -1047,6 +1088,26 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 				PushStrLit(out, " = ")
 				//*out
 			}
+			else if ast.BIN.op == cast(u32)token_type.MINUS
+			{
+				PushStrLit(out, " - ")
+			}
+			else if ast.BIN.op == cast(u32)token_type.POINT
+			{
+				PushStrLit(out, ".")
+			}
+			else if ast.BIN.op == cast(u32)token_type.PLUS
+			{
+				PushStrLit(out, " + ")
+			}
+			else if ast.BIN.op == cast(u32)token_type.MUL
+			{
+				PushStrLit(out, " * ")
+			}
+			else if ast.BIN.op == cast(u32)token_type.NEW_LINE
+			{
+				PushStrLit(out, "N;N ")
+			}
 			else if ast.BIN.op == cast(u32)token_type.SEMI_COLON
 			{
 				PushStrLit(out, "; ")
@@ -1060,6 +1121,32 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 
 			ast_to_string(cur, out)
 		}
+	}
+	else if ast.type == ast_type.CALL
+	{
+
+		if ast.CALL.name.type == ast_type.TYPE
+		{
+			PushStrLit(out, builtin_type_to_string(&ast.CALL.name.TYPE.tp))
+		}
+		else
+		{
+			ASSERT(ast.CALL.name.type == ast_type.WORD)
+			str :*string= &ast.CALL.name.WORD.str
+			PushStr(out, str)
+		}
+
+		PushStrLit(out, "(")
+
+		for a in ast.CALL.args
+		{
+			ast_to_string(*a, out)
+			PushStrLit(out, ", ")
+		}
+		out.data.count -= 2
+		PushStrLit(out, ")")
+
+
 	}
 	else if ast.type == ast_type.INDEX
 	{
@@ -1078,14 +1165,29 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 	else if ast.type == ast_type.SCOPE
 	{
 		PushStrLit(out, "\{")
+		if globals.add_new_line_new_stmnt_ast_to_string
+		{
+			PushStrLit(out, "\n")
+		}
 		for s in ast.SCOPE.stmnts
 		{
 			ast_to_string(*s, out)
 			PushStrLit(out, "; ")
+			if globals.add_new_line_new_stmnt_ast_to_string
+			{
+				PushStrLit(out, "\n")
+			}
 		}
 
 		out.data.count -= 2
-		PushStrLit(out, "\}")
+		if globals.add_new_line_new_stmnt_ast_to_string
+		{
+			PushStrLit(out, "\n\}\n")
+		}
+		else
+		{
+			PushStrLit(out, "\}")
+		}
 	}
 	else if ast.type == ast_type.INT
 	{
@@ -1095,12 +1197,30 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 	{
 		PushStrLit(out, "\"{ast.STR_LIT.str}\"")
 	}
+	else if ast.type == ast_type.UNIFORM
+	{
+		PushStrLit(out, "uniform ")
+	}
 	else if ast.type == ast_type.WORD
 	{
-		PushStr(out, &ast.WORD.str)
+		if ast.WORD.str == "POSITION"
+		{
+
+			PushStrLit(out, "gl_Position")
+		}
+		else if ast.WORD.str == "COLOR"
+		{
+
+			PushStrLit(out, "frag_Color")
+		}
+		else
+		{
+			PushStr(out, &ast.WORD.str)
+		}
 	}
 	else
 		__dbg_break;
+	globals.temp_alloc.cur = 0
 }
 
 IsNumber::fn(ch : char) ! bool
@@ -1302,6 +1422,10 @@ Tokenize::fn(tkns : *dyn_array(token), str : str_lit)
 			{
 				tkn.type = token_type.CLOSE_BRACKETS
 			}
+			else if *str[i] == '*
+			{
+				tkn.type = token_type.MUL
+			}
 			else if *str[i] == ';
 			{
 				tkn.type = token_type.SEMI_COLON
@@ -1369,13 +1493,19 @@ Tokenize::fn(tkns : *dyn_array(token), str : str_lit)
 			dyn_add(tkns, &tkn);
 		}
 	}
-	a := 0;
+	tkn :token=?
+	tkn.type = token_type.EOF
+	dyn_add(tkns, &tkn)
 }
 
 new_scope::fn(parent : *scope) !*scope
 {
 	ret: = cast(*scope)LinearGet(&globals.scope_alloc, 1)
 	memset(ret, 0, sizeof(scope))
+	if parent != nil
+	{
+		dyn_add(&parent.children, ret)
+	}
 	ret.parent = parent
 	return ret
 }
@@ -1462,6 +1592,7 @@ parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_re
 	}
 	else if n.type == node_type.EMPTY_STMNT
 	{
+		__dbg_break
 		ret.type = ast_type.EMPTY_STMNT
 	}
 	else if n.type == node_type.CALL
@@ -1639,10 +1770,32 @@ parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_re
 			ret.type = ast_type.TYPE
 			ret.TYPE.tp.tp = lang_type_type.S8
 		}
+		else if (n.WORD.str == "v2")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.V2
+		}
+		else if (n.WORD.str == "v3")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.V3
+		}
+		else if (n.WORD.str == "v4")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.V4
+		}
+		else if (n.WORD.str == "mat4")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.MAT4
+		}
 		else
 		{
 			ret.type = ast_type.WORD
 			ret.WORD.str = n.WORD.str
+			//ret.WORD.d = find_identifier(&n.WORD.str, scp)
+			//ASSERT(ret.WORD.d)
 		}
 	}
 	else if n.type == node_type.UNOP
@@ -1658,6 +1811,14 @@ parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_re
 		ret.STRUCT.scp_nd = parse_node_to_ast(lang_stat, n.STRUCT.scp_nd, scp)
 		ret.STRUCT.st = new_struct()
 
+	}
+	else if n.type == node_type.UNIFORM
+	{
+		ret.type = ast_type.UNIFORM
+		ret.UNIFORM.type = parse_node_to_ast(lang_stat, n.UNIFORM.type, scp)
+		ret.UNIFORM.name = parse_node_to_ast(lang_stat, n.UNIFORM.name, scp)
+		//d : = declare_decl_to_scp(lang_stat, scp, &ret.UNIFORM.name.WORD.str, &ret.UNIFORM.type.TYPE.tp)
+		//ret.UNIFORM.d = d
 	}
 	else if n.type == node_type.SCOPE
 	{
@@ -1859,6 +2020,7 @@ descend_find_type::fn(lang_stat : *lang_state, ast : *ast_rep, scp : *scope, tp 
 					{
 						return false;
 					}
+					name = &a.BIN.expr[0].WORD.str
 				}
 				else
 				{
@@ -1866,6 +2028,7 @@ descend_find_type::fn(lang_stat : *lang_state, ast : *ast_rep, scp : *scope, tp 
 					{
 						return false;
 					}
+					name = &a.WORD.str
 				}
 				d := declare_decl_to_scp(lang_stat, lang_stat.cur_func.scp, name, tp)
 
@@ -1937,11 +2100,11 @@ declare_decl_to_scp::fn(lang_stat : *lang_state, scp: *scope, name : *string, tp
 }
 descend_name_finding::fn(lang_stat : *lang_state, ast : *ast_rep, scp: *scope, out_decl : **decl) ! bool
 {
+	tp : lang_type
 	if ast.type == ast_type.BIN
 	{
 		if ast.BIN.op == cast(u32)token_type.COLON
 		{
-			tp : lang_type
 			lhs := *ast.BIN.expr[0]
 
 			//if ast.t.line == 13
@@ -2063,9 +2226,22 @@ descend_name_finding::fn(lang_stat : *lang_state, ast : *ast_rep, scp: *scope, o
 		if !descend_name_finding(lang_stat, ast.WHILE.scp_ast, scp, nil)
 			return false
 	}
+	else if ast.type == ast_type.UNIFORM
+	{
+		d := find_identifier(&ast.UNIFORM.name.WORD.str, scp)
+		if d
+			return true
+		if !descend_find_type(lang_stat, ast.UNIFORM.type, scp, &tp)
+		{
+			// we should know what uniform type it is firt pass, it should be a builtin
+			__dbg_break
+		}
+		d = declare_decl_to_scp(lang_stat, scp, &ast.UNIFORM.name.WORD.str, &tp)
+		dyn_add(&lang_stat.uniforms, d)
+	}
 	else if ast.type == ast_type.FUNC
 	{
-
+		__dbg_break
 	}
 	else
 	{

@@ -67,7 +67,7 @@ typedef long long s64;
 #define MEM_PTR_START_ADDR (STACK_PTR_START_THREAD2)
 #define MEM_PTR_MAX_ADDR 18008
 
-#define DATA_SECT_MAX 7048
+#define DATA_SECT_MAX 8048
 #define DATA_SECT_OFFSET 1024 * 1024 * 32
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
@@ -2864,8 +2864,13 @@ struct thread_creation
 	int thread_id;
 	dbg_state *dbg;
 	int func_bc_idx;
+	byte_code2 **rip_ptr;
+	int heandle_id;
 #ifdef LINUX
 	pthread_t thread;
+	pthread_cond_t cond;
+	pthread_mutex_t mutex;
+
 #else
 #endif
 	int args_addr;
@@ -2907,6 +2912,10 @@ struct dbg_state
 	bool aux_break;
 	bool aux_break2;
 	func_decl* prev_func;
+
+	thread_creation *thread;
+	
+	byte_code2* thread_bc;
 
 	int total_threads;
 	union
@@ -2954,10 +2963,10 @@ int GetFreeHandle(dbg_state *dbg)
 
 	for(int i = 0; i < TOTAL_HANDLES; i++)
 	{
-		auto cur = dbg->handles[i];
-		if(!cur.in_use)
+		auto cur = &dbg->handles[i];
+		if(!cur->in_use)
 		{
-			cur.in_use = true;
+			cur->in_use = true;
 
 			return i;
 		}
@@ -5722,7 +5731,7 @@ func_decl *GetFuncBasedOnBc2(dbg_state *dbg, byte_code2 *bc)
 	}
 	return nullptr;
 }
-void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type, int &mem_wnd_offset, int total_items, int stack_reg, func_decl *fdecl)
+void SHowMemWindow(int thread_id, dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type, int &mem_wnd_offset, int total_items, int stack_reg, func_decl *fdecl)
 {
 	ImGui::BeginChild("mem", ImVec2(500, 400));
 
@@ -5739,9 +5748,9 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 	own_std::string mem_val;
 	for (int r = 0; r <= (BASE_STACK_PTR_REG + 7); r++)
 	{
-		mem_val = GetMemAddrString(dbg, mem_wnd_offset + r * 8, type_sz, 8, mem_wnd_show_type);
+		mem_val = GetMemAddrString(dbg, thread_id * END_OF_REGS + mem_wnd_offset + r * 8, type_sz, 8, mem_wnd_show_type);
 
-		own_std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+		own_std::string addr_name = WasmNumToString(&dbg, thread_id * END_OF_REGS + mem_wnd_offset + r * 8);
 
 		int cur_addr = mem_wnd_offset + r;
 		if (cur_addr == (BASE_STACK_PTR_REG))
@@ -5751,7 +5760,7 @@ void SHowMemWindow(dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type
 
 		ImGui::Text("%s: %s", addr_name.c_str(), mem_val.c_str());
 	}
-	int base_ptr = WasmGetMemOffsetVal(&dbg, stack_reg * 8);
+	int base_ptr = *(int *)GetRegValPtr(thread_id, &dbg, stack_reg);
 	for (int r = 0; r < 8; r++)
 	{
 		int addr = base_ptr + r * 8;
@@ -9039,6 +9048,7 @@ void Bc2CallX64(int thread_id, dbg_state* dbg, byte_code2** ptr, func_decl *call
 void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bool *valid, int offset)
 {
 	byte_code2* bc = *ptr;;
+	/*
 	if (bc < dbg->lang_stat->bcs2_start || bc > dbg->lang_stat->bcs2_end)
 	{
 		*inc_ptr = false;
@@ -9059,7 +9069,6 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		return;
 	}
 	
-	/*
 	stmnt_dbg* cur_st;
 	func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
 	if (cur_func)
@@ -9606,7 +9615,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 				u64 prev_reg_val = *(u64*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 				u64 prev_base_reg_val = *(u64*)GetRegValPtr(thread_id, dbg, BASE_STACK_PTR_REG);
 
-				auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+				auto stack_reg = (u64 *)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 				*stack_reg -= 8;
 
 				*(u64*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG) = *stack_reg;
@@ -9616,8 +9625,8 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 				found(thread_id, dbg);
 				*stack_reg += 8;
 				auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, RET_1_REG);
-				auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
-				auto reg_xmm0_dst_ptr = (u64*)&dbg->mem_buffer[FLOAT_REG_0 * FLOAT_REG_SIZE_BYTES];
+				auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, 0);
+				auto reg_xmm0_dst_ptr = (u64*)GetFloatRegValPtr(thread_id, dbg, FLOAT_REG_0);
 
 				*reg_dst_ptr = *reg_src_ptr;
 				*reg_xmm0_dst_ptr = *reg_src_ptr;
@@ -9814,11 +9823,15 @@ bool StatHasInst(stmnt_dbg *cur_st, byte_code2 *start_bc, byte_code2 **out, byte
 	return false;
 }
 
-void ThreadFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
+void SuspendThread(thread_creation *th, dbg_state *dbg);
+void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
 {
+	int thread_id = thread->thread_id;
 	byte_code2** rip_ptr = (byte_code2**)GetRegValPtr(thread_id, dbg, RIP_REG);
 
 	*rip_ptr = cur_bc;
+
+	thread->rip_ptr = rip_ptr;
 
 	while(true)
 	{
@@ -9833,6 +9846,12 @@ void ThreadFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *c
 		if (*rip_ptr == nullptr)
 		{
 			break;
+		}
+		if((*rip_ptr)->type == INT3)
+		{
+			dbg->thread = thread;
+			dbg->cur_func = nullptr;
+			SuspendThread(thread, dbg);
 		}
 	}
 }
@@ -9938,6 +9957,9 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 	while (cur_bc != nullptr)
 	{
+		byte_code2** rip_ptr = (byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
+		int thread_id = 0;
+
 
 		lalloc.cur = 0;
 
@@ -9947,13 +9969,20 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		}
 		cur_bc = *(byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
 		int offset = cur_bc - start_bc;
+		if(dbg->thread != nullptr)
+		{
+			thread_creation * th = dbg->thread;
+			cur_bc = *th->rip_ptr;
+			rip_ptr = th->rip_ptr;
+			thread_id = th->thread_id;
+		}
 
 
 		switch (dbg->break_type)
 		{
 		case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
 		{
-			int rsp = *(int*)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+			int rsp = *(int*)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 
 			if (dbg->next_stat_break_func && ((dbg->same_func_stack_ptr == rsp ) && offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end))
 			{
@@ -10019,7 +10048,15 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		
 		bool inc_ptr = true;
 		bool valid = true;
-		Bc2Logic(0, dbg, (byte_code2**)&dbg->mem_buffer[RIP_REG * 8], &inc_ptr, &valid, offset);
+		//printf("%p\n", *rip_ptr);
+		if(dbg->thread == nullptr)
+		{
+			Bc2Logic(0, dbg, (byte_code2**)&dbg->mem_buffer[RIP_REG * 8], &inc_ptr, &valid, offset);
+		}
+		else
+		{
+			inc_ptr = false;
+		}
 
 		__lang_globals.data = prev_data;
 		__lang_globals.alloc = prev_alloc;
@@ -10033,7 +10070,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		{
 			(*rip_ptr)++;
 		}
-		if (cur_bc->type == INT3)
+		if (cur_bc->type == INT3 || dbg->thread != nullptr)
 		{
 			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
@@ -10241,9 +10278,9 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			ImGui::EndChild();
 
 			ImGui::SameLine();
-			SHowMemWindow(*dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items, PRE_X64_RSP_REG, dbg->cur_func);
+			SHowMemWindow(thread_id, *dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items, PRE_X64_RSP_REG, dbg->cur_func);
 
-			int base_ptr = WasmGetRegVal(dbg, PRE_X64_RSP_REG);
+			int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 			BeginLocalsChild(*dbg, base_ptr, cur_scp);
 
 			ImGui::SameLine();
@@ -10905,7 +10942,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			d->type.ptr--;
 			int tp_sz = GetTypeSize(&d->type);
 			d->flags &= ~DECL_PTR_HAS_LEN;
-			len = clamp(len, 0, 64);
+			len = clamp(len, 0, 90);
 			for (int i = 0; i < len; i++)
 			{
 				int cur_addr = addr + i * tp_sz;
@@ -10997,14 +11034,14 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 				return;
 			}
 
-			snprintf(buffer, 64, "%s(&%d)##%d",  d->name.c_str(), base_ptr, base_ptr);
+			snprintf(buffer, 256, "%s(&%d)##%detruct",  d->name.c_str(), base_ptr, base_ptr);
 			base_ptr += 4;
 			ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 			if (ImGui::TreeNodeEx(buffer, flag))
 			{
 				if (edecl->type.type == TYPE_STRUCT)
 				{
-					snprintf(buffer, 64, "%s(&%d)##%d", edecl->name.c_str(), base_ptr, base_ptr);
+					snprintf(buffer, 64, "%s(&%d)##%detruct", edecl->name.c_str(), base_ptr, base_ptr);
 					ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
 					if (ImGui::TreeNodeEx(buffer, flag))
 					{
@@ -17058,6 +17095,27 @@ void AssertFuncByteCode(lang_state* lang_stat)
 			while i < sz\n\
 			{\n\
 				*cast(*u8)(cast(u64)(dst) + i) = *cast(*u8)(cast(u64)(src) + i);\n\
+				i++;\n\
+			}\n\
+		}\n\
+		start::fn(a : s32) ! s32{\n\
+			f32_ar: = []f32{ 1.0, 2.0, 3.0 };\n\
+			f := *f32_ar[0] + *f32_ar[1] + *f32_ar[2];\n\
+			if f < 5.9 || f > 6.1\n\
+			{\n\
+				return -1;\n\
+			}\n\
+			return 1;\n\
+		}\n\
+		", 1);
+		val = ExecuteString(&info, "\
+		memcpy::fn(dst : *void, src : *void, sz : u64) !void\n\
+		{\n\
+			i:u64 = 0;\n\
+			sz = sz / 16;\n\
+			while i < sz\n\
+			{\n\
+				*cast(*_vec)(cast(u64)(dst) + i * sizeof(_vec)) = *cast(*_vec)(cast(u64)(src) + i * sizeof(_vec));\n\
 				i++;\n\
 			}\n\
 		}\n\

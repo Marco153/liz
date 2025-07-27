@@ -1392,8 +1392,9 @@ node* node_iter::parse_expr()
 			n->type = node_type::N_KEYWORD;
 			n->kw = keyword::KW_CONTINUE;
 
-			if (peek_tkn()->type != T_SEMI_COLON)
-				n->r = parse_(0, parser_cond::LESSER_EQUAL);
+			cur_tkn = peek_tkn();
+			if (cur_tkn->type != T_SEMI_COLON && cur_tkn->type != T_NEW_LINE)
+				n->r = parse_(PREC_SEMI_COLON, parser_cond::LESSER_EQUAL);
 		}
 		else if (cur_tkn->str == "break")
 		{
@@ -1459,8 +1460,9 @@ node* node_iter::parse_expr()
 		{
 			n->type = node_type::N_KEYWORD;
 			n->kw = keyword::KW_RETURN;
-			if (peek_tkn()->type != tkn_type2::T_SEMI_COLON)
-				n->r = parse_(0, parser_cond::LESSER_EQUAL);
+			cur_tkn = peek_tkn();
+			if (cur_tkn->type != tkn_type2::T_SEMI_COLON && cur_tkn->type != tkn_type2::T_NEW_LINE)
+				n->r = parse_(PREC_SEMI_COLON, parser_cond::LESSER_EQUAL);
 			if (n->r && n->r->type == N_EMPTY)
 				n->r = nullptr;
 		}
@@ -8717,7 +8719,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						equal_stmnt = n->r;
 					}
 					bool is_bool = lhs->type.type == TYPE_BOOL;
-					bool is_struct_val = (lhs->type.type == TYPE_STRUCT || lhs->type.type == TYPE_VECTOR)&& lhs->type.ptr == 0
+					bool is_struct_val = (lhs->type.type == TYPE_STRUCT)&& lhs->type.ptr == 0
 						&& IsNodeUnop(equal_stmnt->r, T_MUL);
 					if (lhs->type.type == TYPE_STRUCT && lhs->type.ptr == 0 && !zero_initialization)
 					{

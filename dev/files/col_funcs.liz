@@ -142,8 +142,19 @@ bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	ev :create_event_info
 	ev.type = create_event_etruct.CREATE_EMMITTER
 	ev.CREATE_EMMITTER.pos = ent_a.pos
-	ev.CREATE_EMMITTER.normal = col.normal
-	ev.CREATE_EMMITTER.timer_deactivate = 1.0
+	ev.CREATE_EMMITTER.timer_deactivate = 0.5
+
+	ev.CREATE_EMMITTER.normal = -col.normal
+	ev.CREATE_EMMITTER.cross = findPerpendicularVector(&col.normal)
+	ev.CREATE_EMMITTER.gravity.y = -2.0
+	ev.CREATE_EMMITTER.min_sz.x = 0.1
+	ev.CREATE_EMMITTER.min_sz.y = 0.1
+	ev.CREATE_EMMITTER.min_sz.z = 0.1
+	ev.CREATE_EMMITTER.max_sz.x = 0.3
+	ev.CREATE_EMMITTER.max_sz.y = 0.3
+	ev.CREATE_EMMITTER.max_sz.z = 0.3
+	ev.CREATE_EMMITTER.particle_lifetime = ev.CREATE_EMMITTER.timer_deactivate
+	ev.CREATE_EMMITTER.speed = 2.0
 	//ev.CREATE_EMMITTER.flags = PARTICLE_FLAGS_LOOP
 	dyn_add(&globals.create_events, &ev)
 }

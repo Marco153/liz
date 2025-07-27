@@ -702,6 +702,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 			ASSERT(coroutine_prolegue);
 			ret->func.stats->stats.insert(ret->func.stats->stats.begin(), coroutine_prolegue->stats.begin(), coroutine_prolegue->stats.end());
 		}
+		
+		InsertDeferd(&ret->func.stats, scp, false);
 
 
 		lang_stat->cur_func = last;
@@ -718,6 +720,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 		{
 			scp->defered.emplace_back(ret);
 		}
+		return nullptr;
 	}break;
 	case node_type::N_CALL:
 	{

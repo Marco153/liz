@@ -63,13 +63,14 @@ ENTITY_HAS_TEXTURE: const s32 = 1;
 ENTITY_IS_MASKED: const s32 = 2;
 ENTITY_DONT_FREE: const s32 = 4;
 ENTITY_FREED: const s32 = 8;
-ENTITY_3D: const s32 = 16;
-ENTITY_TRANSPARENT: const s32 = 32;
-ENTITY_ALWAYS_ON_FRONT: const s32 = 64 | ENTITY_TRANSPARENT;
-ENTITY_IN_USE: const s32 = 128
-ENTITY_SERIALIZE: const s32 = 256
-ENTITY_TEMPORARILY_NOT_SERIALIZE: const s32 = 512
-ENTITY_ONLY_COL: const s32 = 1024
+ENTITY_3D: const s32 = 0x10;
+ENTITY_TRANSPARENT: const s32 = 0x20;
+ENTITY_ALWAYS_ON_FRONT: const s32 = 0x40;
+ENTITY_IN_USE: const s32 = 0x80
+ENTITY_SERIALIZE: const s32 = 0x100
+ENTITY_TEMPORARILY_NOT_SERIALIZE: const s32 = 0x200
+ENTITY_ONLY_COL: const s32 = 0x400
+ENTITY_NO_LIGHT: const s32 = 0x1000
 
 LAYER_ENTITY_PLAYABLE:const s32 = 1;
 LAYER_PLAYER:const s32 = 2;
@@ -78,6 +79,7 @@ LAYER_ENEMY :const s32 = 8;
 LAYER_MAYBE_ONLY_UP_COL :const s32 = 0x10;
 LAYER_LOOK_AT_PLAYER :const s32 = 0x20;
 LAYER_IGNORE_RAYCAST :const s32 = 0x40;
+LAYER_SINGLE_COLLISION_TEST :const s32 = 0x80;
 
 event_type : enum
 {
@@ -160,16 +162,20 @@ particle_pos_sz_vel :struct
 	rot : _vec
 	ang_vel : _vec
 	time : f32
+
 }
-PARTICLE_FLAGS_LOOP :const s32= 1
+PARTICLE_FLAGS_LOOP :const s32= 0x1
+PARTICLE_FLAGS_RANDOM_START_TIMER :const s32= 0x2
+PARTICLE_FLAGS_FIRST_TIME :const s32= 0x4
+//PARTICLE_FLAGS_TEXTURE :const s32= 0x4
+
+
 particle_emmitter:struct
 {
 	type : particle_emmitter_type
 	particles : *void
 	total:u32
-	normal : _vec
-	cross : _vec
-	flags : u32
+	using p : particle_emmitter_base
 }
 entity:struct
 {
@@ -303,9 +309,8 @@ axe_info: struct
 inv_item:enum
 {
 	EMPTY,
-	AXE,
-	SPEAR,
-	BRACELET_OF_SINCERITY,
+	EXPLOSION_GEM,
+	SHOCK,
 }
 inv_slot:struct
 {
@@ -314,7 +319,7 @@ inv_slot:struct
 TOTA_INV_ITEMS:const s32= 4;
 inventory : struct
 {
-	items : dyn_array(inv_slot),
+	items : [TOTA_INV_ITEMS]inv_slot,
 }
 player_info: struct
 {
@@ -348,6 +353,9 @@ player_info: struct
 	up_col : bool
 	down_col : bool
 	exhausted : bool
+
+	inv : inventory
+	cur_item : u32
 
 
 	col_in_stay : bool

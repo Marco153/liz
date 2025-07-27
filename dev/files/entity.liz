@@ -22,19 +22,25 @@ DisableEnt::fn(ent : *entity)
 	}
 }
 
-RemoveEntFromAr::fn(ar : *dyn_array(*entity), ent : *entity)
+RemoveEntFromAr::fn(ar : *dyn_array(*entity), ent : *entity)!bool
 {
 
 	i :u32= 0
+	found := false
 	for e in *ar
 	{
 		if *e == ent
 		{
+			found = true
 			break
 		}
 		i++
 	}
-	dyn_rem(ar, i)
+	if found
+	{
+		dyn_rem(ar, i)
+	}
+	return found
 }
 deactivate_ent::fn(ctx : *context, e : *entity)
 {
@@ -42,6 +48,8 @@ deactivate_ent::fn(ctx : *context, e : *entity)
 }
 DeleteEnt::fn(ctx : *context, ent : *entity)
 {
+	a :=0
+	val :bool
 	for t in ent.remove_from
 	{
 		te := cast(ent_part_of)*t
@@ -49,26 +57,36 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 		{
 		ent_part_of.LOOK_AT_PLAYER
 		{
-			RemoveEntFromAr(&ctx.look_at_ents, ent)
+			val = RemoveEntFromAr(&ctx.look_at_ents, ent)
+			ASSERT(val)
+			a=0 
 		}
 		ent_part_of.PLAYABLE
 		{
-			RemoveEntFromAr(&ctx.playable_ents, ent)
+			val = RemoveEntFromAr(&ctx.playable_ents, ent)
+			ASSERT(val)
+			a=0 
 		}
 		ent_part_of.ANIMATION
 		{
-			RemoveEntFromAr(&ctx.ents_with_clip, ent)
+			val = RemoveEntFromAr(&ctx.ents_with_clip, ent)
+			ASSERT(val)
+			a=0 
 		}
 		ent_part_of.EMMITTER
 		{
-			RemoveEntFromAr(&ctx.emmitters, ent)
+			val = RemoveEntFromAr(&ctx.emmitters, ent)
+			ASSERT(val)
+			a=0 
 
 			heap_free(ctx.alloc, ent.emmitter.particles)
 			heap_free(ctx.alloc, ent.emmitter)
 		}
 		ent_part_of.DRAWABLE
 		{
-			RemoveEntFromAr(&ctx.drawable_ents, ent)
+			val = RemoveEntFromAr(&ctx.drawable_ents, ent)
+			ASSERT(val)
+			a=0 
 		}
 		ent_part_of.COLLIDER
 		{
@@ -76,7 +94,9 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 		}
 		ent_part_of.INSTANTIATED
 		{
-			RemoveEntFromAr(&ctx.ents, ent)
+			val = RemoveEntFromAr(&ctx.ents, ent)
+			ASSERT(val)
+			a=0 
 		}
 		default
 		{
@@ -281,6 +301,10 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			if(is_flag_on(ent.flags, ENTITY_ALWAYS_ON_FRONT))
 			{
 				draw.flags = draw.flags | DRAW_INFO_ALWAYS_ON_FRONT;
+			}
+			if(is_flag_on(ent.flags, ENTITY_NO_LIGHT))
+			{
+				draw.flags = draw.flags | DRAW_INFO_NO_LIGHT;
 			}
 			if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))
 			{

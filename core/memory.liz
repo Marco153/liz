@@ -101,11 +101,37 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 {
 	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
-	while i < sz
+	/*
+	if (sz % 16) == 0
 	{
-		*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
-		i++;
+		total := sz / 16
+
+		while i < total
+		{
+			*ptr_offset(dst, i, _vec) = *ptr_offset(src, i, _vec);
+			i++
+		}
 	}
+	else if (sz % 8) == 0
+	{
+		total := sz / 8
+
+		while i < total
+		{
+			*ptr_offset(dst, i, u64) = *ptr_offset(src, i, u64);
+			i++
+		}
+
+	}
+	else
+	{
+		*/
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
+			i++;
+		}
+	//}
 }
 MEM_TYPE: const s32 = 0;
 

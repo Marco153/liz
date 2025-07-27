@@ -1,0 +1,13 @@
+uniform mat4 model
+uniform mat4 view
+uniform mat4 projection
+
+vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2)
+{
+    tex_coord = uv
+    POSITION = projection * view * model  * v4(pos.xyz, 0.0)
+}
+fragment:fn(tex_coord : v2)
+{
+    COLOR = v4(1.0, 0.0, 0.0, 1.0)
+}

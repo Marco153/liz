@@ -89,7 +89,7 @@ regrow::fn{ T }(dyn : *dyn_array(T), sz : u64)
 }
 dyn_rem::fn{ T }(dyn : *dyn_array(T), idx : u32)
 {
-	ASSERT(idx >= 0);
+	ASSERT(idx >= 0 && idx < cast(u32)dyn.count);
 	if dyn.count == 0
 		return;
 

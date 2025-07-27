@@ -1983,6 +1983,41 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case DIV_I_2_R:
 		{
+			// xor rdx, rdx
+			byte_code aux;
+			aux.bin.lhs.reg = 2;
+			aux.bin.lhs.reg_sz = 8;
+			aux.bin.rhs.reg = 2;
+			aux.bin.rhs.reg_sz = 8;
+			CreateRegToReg(&aux, 0x30, 0x31, &ret);
+
+			if (bc->bin.lhs.reg != 0)
+			{
+				// moving register to rax
+				aux.bin.lhs.reg = 0;
+				aux.bin.lhs.reg_sz = 8;
+				aux.bin.rhs.reg = bc->bin.lhs.reg;
+				aux.bin.rhs.reg_sz = bc->bin.lhs.reg_sz;
+				CreateRegToReg(&aux, 0x88, 0x89, &ret);
+			}
+
+
+			MovImmToReg(ret, 3, 4, bc->bin.rhs.u64);
+
+			// multiplying rax by src
+
+			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
+			char src = FromBCRegToAsmReg(bc->bin.lhs.reg);
+
+			char mod = MakeModRM(false, 0, 3, 7);
+			ret.code.emplace_back(mod);
+
+			// moving the the remainign rdx to dst reg
+			aux.bin.rhs.reg = 0;
+			aux.bin.rhs.reg_sz = 8;
+			aux.bin.lhs.reg = bc->bin.lhs.reg;
+			aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
+			CreateRegToReg(&aux, 0x88, 0x89, &ret);
 			//TODO
 		}break;
 		case DIV_M_2_R:

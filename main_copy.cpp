@@ -1,1882 +1,7008 @@
-import "../../core";
-import "../common";
+//#define USE_TEXT_EDITOR 
+#define LINUX
 
-FLOAT_MAX: const u32= 0x7f800000;
-FLOAT_MIN: const u32= 0xff800000;
-DBG_COL: const u32= 1
+#ifdef LINUX
+#include <sys/mman.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <limits.h>       //For PATH_MAX
+#include <signal.h>       //For PATH_MAX
+#include <assimp/cimport.h>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
-signf::fn x64(a :f32) !f32
+int min(int a, int b)
 {
-	if a < 0.0 return -1.0;
-    return 1.0;
+	return a < b ?a : b;
+}
+int max(int a, int b)
+{
+	return a >b ?a : b;
+}
+void TerminateProcess(int val, int val2)
+{
+	kill(val, SIGKILL);
+}
+void ExitProcess(int val)
+{
+	*(int *)0=0;
+	_exit(val);
+	
+}
+#else
+#include <sndfile.h>  // Library for reading WAV files
+#include <dsound.h>
+#include <xaudio2.h>
+#endif
 
+int clamp(int v, int min, int max)
+{
+	if (v <= min) return min;
+	if (v >= max) return max;
+	return v;
+}
+enum key_enum
+{
+	_KEY_LEFT,
+	_KEY_RIGHT,
+	_KEY_DOWN,
+	_KEY_UP,
+	_KEY_ACT0,
+	_KEY_ACT1,
+	_KEY_ACT2,
+	_KEY_ACT3,
+	_KEY_JMP,
+	_KEY_DEL,
+	_KEY_SHIFT,
+	_KEY_TAB,
+	_KEY_ALT,
+	_KEY_LCTRL,
+	_KEY_A,
+	_KEY_S,
+	_KEY_D,
+	_KEY_F,
+	_KEY_Q,
+	_KEY_E,
+	_KEY_W,
+	_KEY_I,
+	_KEY_ESCAPE,
+	_KEY_SPACE,
+	_KEY_F1,
+	_KEY_F2,
+	_KEY_F3,
+	_KEY_F4,
+	_KEY_F5,
+	_KEY_F6,
+	_KEY_F7,
+	_KEY_F8,
+	_KEY_F9,
+	_KEY_F10,
+	_KEY_F11,
+	_KEY_F12,
+	_KEY_ENTER,
+	_KEY_K,
+	_KEY_1,
+	_KEY_2,
+	_KEY_3,
+	_KEY_4,
+};
+
+//#include <editor/TextEditor.cpp>
+#include <glad/glad.h> 
+#include <glad/glad.c> 
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3.h"
+#include "../include/GLFW/glfw3.h"
+#define IMGUI_DEFINE_MATH_OPERATORS
+#include "imgui.h"
+#ifdef LINUX
+#define GLFW_EXPOSE_NATIVE_X11
+#include <GLFW/glfw3native.h>
+#endif
+#include <X11/Xlib.h>
+#include <X11/extensions/Xfixes.h> 
+
+struct v4
+{
+	float x;
+	float y;
+	float z;
+	float w;
+
+	v4 mul(float m)
+	{
+		v4 ret;
+		ret.x = x * m;
+		ret.y = y * m;
+		ret.z = z * m;
+		return ret;
+	}
+	v4 operator *(float f)
+	{
+		v4 ret;
+		ret.x = this->x * f;
+		ret.y = this->y + f;
+		return ret;
+	}
+	v4 operator -(v4& other)
+	{
+		v4 ret;
+		ret.x = this->x - other.x;
+		ret.y = this->y - other.y;
+		return ret;
+	}
+	v4 operator +(v4& other)
+	{
+		v4 ret;
+		ret.x = this->x + other.x;
+		ret.y = this->y + other.y;
+		return ret;
+	}
+	ImVec2 IM()
+	{
+		ImVec2 ret;
+		ret.x = this->x;
+		ret.y = this->y;
+		return ret;
+	}
+	float dot(v4& other)
+	{
+		return x * other.x + y * other.y + z * other.y;
+	}
+	float len(v4& other)
+	{
+		return 1.0;
+	}
+};
+struct v3
+{
+	float x;
+	float y;
+	float z;
+
+	v3 mul(float m)
+	{
+		v3 ret;
+		ret.x = x * m;
+		ret.y = y * m;
+		ret.z = z * m;
+		return ret;
+	}
+	v3 operator *(float f)
+	{
+		v3 ret;
+		ret.x = this->x * f;
+		ret.y = this->y + f;
+		return ret;
+	}
+	v3 operator -(v3& other)
+	{
+		v3 ret;
+		ret.x = this->x - other.x;
+		ret.y = this->y - other.y;
+		return ret;
+	}
+	v3 operator +(v3& other)
+	{
+		v3 ret;
+		ret.x = this->x + other.x;
+		ret.y = this->y + other.y;
+		return ret;
+	}
+	ImVec2 IM()
+	{
+		ImVec2 ret;
+		ret.x = this->x;
+		ret.y = this->y;
+		return ret;
+	}
+	float dot(v3& other)
+	{
+		return x * other.x + y * other.y + z * other.y;
+	}
+	float len(v3& other)
+	{
+		return 1.0;
+	}
+};
+#if defined(_MSC_VER) && (_MSC_VER >= 1900) && !defined(IMGUI_DISABLE_WIN32_FUNCTIONS)
+#pragma comment(lib, "legacy_stdio_definitions")
+#endif
+#include "compile.cpp"
+#include "memory.cpp"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h> 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h> 
+#include <iostream>
+#include <vector>
+#define DR_FLAC_IMPLEMENTATION
+#include "dr_flac.h"
+#include <fstream>
+#include "sort.cpp"
+
+// gpt generated code
+struct Vec3 {
+    float x, y, z;
+    Vec3 operator*(float s) const { return {x*s, y*s, z*s}; }
+    Vec3 operator+(Vec3 v) const { return {x+v.x, y+v.y, z+v.z}; }
+    Vec3 operator-(Vec3 v) const { return {x-v.x, y-v.y, z-v.z}; }
+    float length() const { return std::sqrt(x*x + y*y + z*z); }
+    Vec3 normalized() const { float l = length(); return {x/l, y/l, z/l}; }
+    Vec3 ()
+	{
+
+	}
+    Vec3 (float _x, float _y, float _z)
+	{
+		x = _x;
+		y = _y;
+		z = _z;
+	}
+};
+Vec3 rotate(const Vec3& v, const Vec3& axis, float angle) {
+    // Normalize the axis
+    Vec3 a = axis.normalized();
+    
+    // Compute rotation components
+    float cos_theta = std::cos(angle);
+    float sin_theta = std::sin(angle);
+    
+    // Rodrigues' rotation formula
+    Vec3 term1 = v * cos_theta;
+    Vec3 term2 = a * (a.x*v.x + a.y*v.y + a.z*v.z) * (1 - cos_theta);
+    Vec3 term3 = Vec3{
+        a.y*v.z - a.z*v.y,
+        a.z*v.x - a.x*v.z,
+        a.x*v.y - a.y*v.x
+    } * sin_theta;
+    
+    return term1 + term2 + term3;
 }
 
+struct Mat4{
+    float m[16]; // Column-major 4x4 matrix
 
-find_support::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider, dir : *_vec) ! _vec
+    Vec3 operator*(Vec3 v) const {
+        return {
+            m[0]*v.x + m[4]*v.y + m[8]*v.z + m[12],
+            m[1]*v.x + m[5]*v.y + m[9]*v.z + m[13],
+            m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14]
+        };
+    }
+	Vec3 multiplyPoint(float x, float y, float z, float w) const {
+        float rx =
+            m[0] * x + m[4] * y + m[8] * z + m[12] * w;
+        float ry =
+            m[1] * x + m[5] * y + m[9] * z + m[13] * w;
+        float rz =
+            m[2] * x + m[6] * y + m[10] * z + m[14] * w;
+        float rw =
+            m[3] * x + m[7] * y + m[11] * z + m[15] * w;
+        if (rw != 0.0f) {
+            rx /= rw;
+            ry /= rw;
+            rz /= rw;
+        }
+        return {rx, ry, rz};
+    }
+    
+};
+Mat4 Inverse(const Mat4& m) {
+    Mat4 inv;
+    const float* a = m.m;
+
+    inv.m[0] =   a[5] * a[10] * a[15] - 
+                 a[5] * a[11] * a[14] - 
+                 a[9] * a[6] * a[15] + 
+                 a[9] * a[7] * a[14] +
+                 a[13] * a[6] * a[11] - 
+                 a[13] * a[7] * a[10];
+
+    inv.m[4] =  -a[4] * a[10] * a[15] + 
+                 a[4] * a[11] * a[14] + 
+                 a[8] * a[6] * a[15] - 
+                 a[8] * a[7] * a[14] - 
+                 a[12] * a[6] * a[11] + 
+                 a[12] * a[7] * a[10];
+
+    inv.m[8] =   a[4] * a[9] * a[15] - 
+                 a[4] * a[11] * a[13] - 
+                 a[8] * a[5] * a[15] + 
+                 a[8] * a[7] * a[13] + 
+                 a[12] * a[5] * a[11] - 
+                 a[12] * a[7] * a[9];
+
+    inv.m[12] = -a[4] * a[9] * a[14] + 
+                 a[4] * a[10] * a[13] +
+                 a[8] * a[5] * a[14] - 
+                 a[8] * a[6] * a[13] - 
+                 a[12] * a[5] * a[10] + 
+                 a[12] * a[6] * a[9];
+
+    inv.m[1] =  -a[1] * a[10] * a[15] + 
+                 a[1] * a[11] * a[14] + 
+                 a[9] * a[2] * a[15] - 
+                 a[9] * a[3] * a[14] - 
+                 a[13] * a[2] * a[11] + 
+                 a[13] * a[3] * a[10];
+
+    inv.m[5] =   a[0] * a[10] * a[15] - 
+                 a[0] * a[11] * a[14] - 
+                 a[8] * a[2] * a[15] + 
+                 a[8] * a[3] * a[14] + 
+                 a[12] * a[2] * a[11] - 
+                 a[12] * a[3] * a[10];
+
+    inv.m[9] =  -a[0] * a[9] * a[15] + 
+                 a[0] * a[11] * a[13] + 
+                 a[8] * a[1] * a[15] - 
+                 a[8] * a[3] * a[13] - 
+                 a[12] * a[1] * a[11] + 
+                 a[12] * a[3] * a[9];
+
+    inv.m[13] =  a[0] * a[9] * a[14] - 
+                 a[0] * a[10] * a[13] - 
+                 a[8] * a[1] * a[14] + 
+                 a[8] * a[2] * a[13] + 
+                 a[12] * a[1] * a[10] - 
+                 a[12] * a[2] * a[9];
+
+    inv.m[2] =   a[1] * a[6] * a[15] - 
+                 a[1] * a[7] * a[14] - 
+                 a[5] * a[2] * a[15] + 
+                 a[5] * a[3] * a[14] + 
+                 a[13] * a[2] * a[7] - 
+                 a[13] * a[3] * a[6];
+
+    inv.m[6] =  -a[0] * a[6] * a[15] + 
+                 a[0] * a[7] * a[14] + 
+                 a[4] * a[2] * a[15] - 
+                 a[4] * a[3] * a[14] - 
+                 a[12] * a[2] * a[7] + 
+                 a[12] * a[3] * a[6];
+
+    inv.m[10] =  a[0] * a[5] * a[15] - 
+                 a[0] * a[7] * a[13] - 
+                 a[4] * a[1] * a[15] + 
+                 a[4] * a[3] * a[13] + 
+                 a[12] * a[1] * a[7] - 
+                 a[12] * a[3] * a[5];
+
+    inv.m[14] = -a[0] * a[5] * a[14] + 
+                 a[0] * a[6] * a[13] + 
+                 a[4] * a[1] * a[14] - 
+                 a[4] * a[2] * a[13] - 
+                 a[12] * a[1] * a[6] + 
+                 a[12] * a[2] * a[5];
+
+    inv.m[3] =  -a[1] * a[6] * a[11] + 
+                 a[1] * a[7] * a[10] + 
+                 a[5] * a[2] * a[11] - 
+                 a[5] * a[3] * a[10] - 
+                 a[9] * a[2] * a[7] + 
+                 a[9] * a[3] * a[6];
+
+    inv.m[7] =   a[0] * a[6] * a[11] - 
+                 a[0] * a[7] * a[10] - 
+                 a[4] * a[2] * a[11] + 
+                 a[4] * a[3] * a[10] + 
+                 a[8] * a[2] * a[7] - 
+                 a[8] * a[3] * a[6];
+
+    inv.m[11] = -a[0] * a[5] * a[11] + 
+                 a[0] * a[7] * a[9] + 
+                 a[4] * a[1] * a[11] - 
+                 a[4] * a[3] * a[9] - 
+                 a[8] * a[1] * a[7] + 
+                 a[8] * a[3] * a[5];
+
+    inv.m[15] =  a[0] * a[5] * a[10] - 
+                 a[0] * a[6] * a[9] - 
+                 a[4] * a[1] * a[10] + 
+                 a[4] * a[2] * a[9] + 
+                 a[8] * a[1] * a[6] - 
+                 a[8] * a[2] * a[5];
+
+    float det = a[0] * inv.m[0] + a[1] * inv.m[4] + a[2] * inv.m[8] + a[3] * inv.m[12];
+
+    if (det == 0) {
+        std::cerr << "Matrix inversion failed, determinant is zero.\n";
+        return m; // Return original as fallback
+    }
+
+    det = 1.0f / det;
+
+    for (int i = 0; i < 16; i++) {
+        inv.m[i] *= det;
+    }
+
+    return inv;
+}
+Mat4 Multiply(const Mat4& a, const Mat4& b) {
+    Mat4 result = {};
+    for (int row = 0; row < 4; row++) {
+        for (int col = 0; col < 4; col++) {
+            result.m[row * 4 + col] =
+                a.m[row * 4 + 0] * b.m[0 * 4 + col] +
+                a.m[row * 4 + 1] * b.m[1 * 4 + col] +
+                a.m[row * 4 + 2] * b.m[2 * 4 + col] +
+                a.m[row * 4 + 3] * b.m[3 * 4 + col];
+        }
+    }
+    return result;
+}
+Vec3 vec3_(float *f)
 {
-	#if DBG_COL == 0
-	{
-		 return find_furthest_point(col1, dir) - find_furthest_point(col2, &(-*dir))
-	}
-	else
-	{
-		sup1 := find_furthest_point(col1, dir)
-		sup2 := find_furthest_point(col2, &(-*dir))
-		gjk.sup1 = sup1
-		gjk.sup2 = sup2
-		return sup1 - sup2
-	}
+	Vec3 ret;
+	memcpy(&ret, f, sizeof(float) * 3);
+	return ret;
+}
+Vec3 vec3_mul(Vec3 a, Vec3 b) {
+    return (Vec3){ a.x + b.x, a.y + b.y, a.z + b.z };
+}
+Vec3 vec3_add(Vec3 a, Vec3 b) {
+    return (Vec3){ a.x + b.x, a.y + b.y, a.z + b.z };
+}
+
+Vec3 vec3_sub(Vec3 a, Vec3 b) {
+    return (Vec3){ a.x - b.x, a.y - b.y, a.z - b.z };
+}
+
+Vec3 vec3_cross(Vec3 a, Vec3 b) {
+    return (Vec3){
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x
+    };
+}
+
+float vec3_dot(Vec3 a, Vec3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+Vec3 vec3_normalize(Vec3 v) {
+    float length = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    return (Vec3){ v.x / length, v.y / length, v.z / length };
+}
+Mat4 mat4_lookAt(Vec3 eye, Vec3 center, Vec3 up) {
+    Vec3 f = vec3_normalize(vec3_sub(center, eye));
+    Vec3 s = vec3_normalize(vec3_cross(f, up));
+    Vec3 u = vec3_cross(s, f);
+
+    Mat4 result = {0};
+    result.m[0] = s.x;
+    result.m[1] = u.x;
+    result.m[2] = -f.x;
+    result.m[3] = 0.0f;
+
+    result.m[4] = s.y;
+    result.m[5] = u.y;
+    result.m[6] = -f.y;
+    result.m[7] = 0.0f;
+
+    result.m[8] = s.z;
+    result.m[9] = u.z;
+    result.m[10] = -f.z;
+    result.m[11] = 0.0f;
+
+    result.m[12] = -vec3_dot(s, eye);
+    result.m[13] = -vec3_dot(u, eye);
+    result.m[14] = vec3_dot(f, eye);
+    result.m[15] = 1.0f;
+
+    return result;
+}
+void update_camera_direction(float yaw, float pitch, float roll, Vec3* front,  Vec3* up) {
+	auto DEG_TO_RAD = (3.14159265f / 180.0f);
+	// Calculate front vector from yaw and pitch (standard FPS camera)
+    front->x = cosf(yaw * DEG_TO_RAD) * cosf(pitch * DEG_TO_RAD);
+    front->y = sinf(pitch * DEG_TO_RAD);
+    front->z = sinf(yaw * DEG_TO_RAD) * cosf(pitch * DEG_TO_RAD);
+    *front = vec3_normalize(*front); // Normalize to avoid speed variations
+
+    // Apply roll to the up vector (rotation around the front vector)
+    Vec3 worldUp = {0.0f, 1.0f, 0.0f}; // Default global up (Y-axis)
+    Vec3 right = vec3_cross(*front, worldUp);
+    right = vec3_normalize(right);
+
+    // Rotate the up vector around the front vector by the roll angle
+    float cr = cosf(roll * DEG_TO_RAD);
+    float sr = sinf(roll * DEG_TO_RAD);
+    up->x = cr * worldUp.x - sr * right.x;
+    up->y = cr * worldUp.y - sr * right.y;
+    up->z = cr * worldUp.z - sr * right.z;
+    *up = vec3_normalize(*up);
 
 }
-find_furthest_point::fn x64(col : *collider, dir : *_vec) ! _vec
+///
+
+#define KEY_HELD 1
+#define KEY_DOWN 2
+#define KEY_UP   4
+#define KEY_RECENTLY_DOWN   8
+#define KEY_REPEAT   0x10
+#define KEY_DOUBLE_CLICK   0x20
+#define PI   3.141592
+
+#define TOTAL_KEYS   (GLFW_KEY_LAST + 3)
+#define TOTAL_TEXTURES   256
+#define TOTAL_MODELS   128
+
+#define DOUBLE_CLICK_MAX_TIME 0.2
+
+struct AudioClip;
+struct sound_state;
+void GetMem(dbg_state* dbg);
+
+AudioClip* CreateNewAudioClip(char* name);
+
+struct model_info
 {
-	on col.type
+	own_std::string name;
+	u32 vbo;
+	u32 vao;
+	u32 ebo;
+	int indicies;
+	int verts_size;
+
+	float *vertices;
+	int model_verts_count;
+};
+struct texture_info
+{
+	bool used;
+	int id;
+};
+struct texture_raw
+{
+	char* name;
+	unsigned char* data;
+	int width;
+	int height;
+	char channels;
+};
+enum class buffer_type
+{
+	FILE,
+};
+struct Buffer
+{
+	buffer_type type;
+	own_std::string name;
+	own_std::string name_without_path;
+	//TextEditor* ed;
+};
+std::vector<Buffer> buffers;
+struct open_gl_state;
+struct WindowEditor
+{
+	bool on_cmd;
+	Buffer* cur_buffer;
+	Buffer* cmd_buffer;
+	Buffer* prev_buffer;
+	ImVec2 main_buffer_sz;
+	own_std::vector<Buffer*>ed_buffers;
+	open_gl_state* gl_state;
+};
+
+#ifdef LINUX
+#define LANG_FILE int
+#else
+#define LANG_FILE HANDLE
+#endif
+
+struct draw_info3d
+{
+	int model;
+	float pos_x;
+	float pos_y;
+	float pos_z;
+	float pos_w;
+
+	float pivot_x;
+	float pivot_y;
+	float pivot_z;
+	float pivot_w;
+
+	float ent_size_x;
+	float ent_size_y;
+	float ent_size_z;
+	float ent_size_w;
+
+	float color_r;
+	float color_g;
+	float color_b;
+	float color_a;
+
+	float ent_rot_x;
+	float ent_rot_y;
+	float ent_rot_z;
+	float ent_rot_w;
+
+	int texture_id;
+
+	float cam_size;
+
+	unsigned long long cam_pos_addr;
+	unsigned long long cam_rot_addr;
+	unsigned long long cam_forward_addr;
+
+	int flags;
+	int stencil_func;
+	u32 stencil_val;
+
+	float tex_size_x;
+	float tex_size_y;
+	float tex_offset_x;
+	float tex_offset_y;
+
+	float lerp_color;
+
+	float sec_color_r;
+	float sec_color_g;
+	float sec_color_b;
+	float sec_color_a;
+
+	unsigned long long perspective_mat;
+};
+struct open_gl_state
+{
+	int vao3d;
+	int vao3d_line;
+	int vbo3d_line;
+
+	int vao3d_tri;
+	int vbo3d_tri;
+	int vao;
+	int line_vao;
+	int line_vbo;
+	int shader_program3d_tex;
+	int shader_program3d_tex_no_light;
+	int shader_program3d;
+	int terrain_shader_program3d;
+	int shader_program3d_line;
+	int shader_program3d_line_no_proj;
+	int shader_program3d_tri;
+	int shader_program;
+	int line_shader_program;
+	int shader_program_no_texture;
+	int color_u;
+	int tex_size;
+	int tex_offset;
+	int pos_u;
+
+	float mouse_last_x;
+	float mouse_last_y;
+	float mouse_vel_x;
+	float mouse_vel_y;
+	int generated_meshes;
+
+	int buttons[TOTAL_KEYS];
+	float time_pressed[TOTAL_KEYS];
+	texture_info textures[TOTAL_TEXTURES];
+	model_info models[TOTAL_MODELS];
+	own_std::vector<texture_raw> textures_raw;
+	own_std::vector<RatedStuff<draw_info3d>> transparent_objs;
+	double last_time;
+
+	float model[16], view[16], projection[16];
+
+	//YankBuffer yank[8];
+
+	bool game_started;
+	bool cursor_hidden;
+	own_std::string texture_folder;
+	own_std::string model_folder;
+	bool is_engine;
+
+	int width;
+	int height;
+
+	int scene_srceen_width;
+	int scene_srceen_height;
+	int frame_buffer;
+	int frame_buffer_tex;
+
+	int scroll;
+
+	void* glfw_window;
+	lang_state* lang_stat;
+	sound_state* sound;
+
+	float lmouse_click_timer;
+
+	lang_state* lsp_lang_stat;
+	mem_alloc* lsp_alloc;
+
+	WindowEditor search_files_ed;
+	WindowEditor main_ed;
+	bool file_window;
+	own_std::string  cur_dir;
+	own_std::vector<char*>files;
+	own_std::vector<char*>files_aux;
+
+	bool suggestion_accepted;
+
+	own_std::string  func_def_str;
+
+	own_std::string lsp_dir_to_compile;
+
+	float for_func_def_first_parentheses_pos_x;
+	float for_func_def_first_parentheses_pos_y;
+
+	int suggestion_cursor_line;
+	int suggestion_cursor_column;
+	int func_def_cursor_column;
+	int suggestion_cursor_column_end;
+	int selected_suggestion;
+	own_std::vector<decl2> intellisense_suggestion;
+	own_std::vector<RatedStuff<int>> intellisense_suggestion_aux;
+
+	LANG_FILE lsp_process;
+	LANG_FILE lsp_thread;
+    LANG_FILE hStdInRead, hStdInWrite;
+    LANG_FILE hStdOutRead, hStdOutWrite;
+
+	LANG_FILE for_engine_game_process;
+	LANG_FILE for_engine_game_thread;
+	LANG_FILE for_engine_game_stdin;
+	LANG_FILE for_engine_game_stdout;
+
+	/*
+	Buffer* cur_buffer;
+	Buffer* cmd_buffer;
+	own_std::vector<Buffer*>ed_buffers;
+	*/
+	own_std::vector<RatedStuff<int>> rated_files;
+};
+
+class XAudioClass;
+#define AUDIO_CLIP_FLAGS_LOOP 1
+struct AudioClip
+{
+	own_std::string name;
+	own_std::vector<short> buffer;
+	float time;
+};
+struct AudioClipQueued
+{
+	AudioClip* clip;
+	unsigned int cur_idx;
+
+	int flags;
+};
+struct sound_state
+{
+	int samples_per_sec = 44100;
+	int samples_in_buffer = 1;
+	int hz = 440;
+	unsigned long long running_idx = 0;
+	char* harmonics_buffer;
+#ifdef LINUX
+#else
+	IXAudio2SourceVoice* pSourceVoice;
+	XAUDIO2_BUFFER buffers[2];
+	unsigned char cur_buffer_to_submit = 0;
+	XAudioClass *audio_class;
+#endif
+	own_std::vector<AudioClip *> audio_clips_src;
+	own_std::vector<AudioClipQueued> audio_clips_to_play;
+
+};
+
+
+void AddAudioClipToPlay(sound_state* sound, AudioClip* clip)
+{
+	AudioClipQueued q = {};
+	q.clip = clip;
+	sound->audio_clips_to_play.emplace_back(q);
+}
+void FillBuffer(sound_state *sound, char* buffer, int total_samples_in_buffer, int bytes_per_sample, int hz_arg)
+{
+	int count = total_samples_in_buffer * bytes_per_sample;
+
+	short* sample = (short*)buffer;
+	int wave_period = sound->samples_per_sec / hz_arg;
+	int idx_that_was_period_complete = -1;
+	int volume = 3000;
+
+	/*
+	timer t;
+	InitTimer(&t);
+	StartTimer(&t);
+	*/
+
+
+	char b[256];
+
+	for (int i = 0; i < count; i += bytes_per_sample)
 	{
-	CAPSULE
-	{
-		result := normalize_vec(dir)*col.CAPSULE.radius;
-		
-		if dir.y > 0.0
+
+		unsigned int cur_idx = sound->running_idx % wave_period;
+		float last_sin = (float)(cur_idx) / (float)wave_period;
+
+		float sin_fundamental = sinf(last_sin * 2 * PI);
+		short val = sin_fundamental * volume;
+		/*
+		int possible_harmonics = 8;
+
+		for (int h = 0; h < possible_harmonics; h++)
 		{
-			result.y += col.CAPSULE.height *0.5
+			bool harmonic_on = ((1 << h) & harmonics) != 0;
+
+			short h_plus_one = h + 1;
+
+
+			float sine_h = harmonic_on ? sinf((last_sin * 2 * PI) * h_plus_one) : 0;
+
+			float wave_period_max = (possible_harmonics * wave_period);
+			float cur_h_wave_period = (wave_period * h_plus_one);
+
+			short h_squared = (h_plus_one * h_plus_one);
+			short new_harmonic_val = (short)((sine_h) * (float)(volume / h_squared));
+
+			float t = GetVolumeFromControls(cur_h_wave_period);
+			new_harmonic_val = (short)((float)new_harmonic_val * t);
+
+			val += new_harmonic_val;
+
 		}
-		else
-			result.y -= col.CAPSULE.height *0.5;
+		*/
 
-        return result + col.pos; //convert support to world spac
+		*sample++ = val;
+		*sample++ = val;
+		sound->running_idx++;
 	}
-	SPHERE
-	{
-		result := normalize_vec(dir)*col.SPHERE.radius;
-		return col.pos + result
+	/*
+	EndTimer(&t);
 
+	//PushBufferToQueue((short *) buffer, samples_per_sec);
+
+	__int64 ms = GetTimerMS(&t);
+	__int64 cycles = GetCyclesElapsed(&t);
+	int a = 0;
+	*/
+}
+
+
+#ifdef LINUX
+#else
+class XAudioClass : public IXAudio2VoiceCallback
+{
+public :
+	sound_state* sound;
+	void XAudioClass::OnLoopEnd(void* data)
+	{
+
+		//FillBuffer((char *)data, 48000, 4, hz);
 	}
-	TRIANGLE
+	void XAudioClass::OnVoiceProcessingPassStart(UINT32)
 	{
-		//Find which triangle vertex is furthest along dir
-        dot0 := dot_vec(col.TRIANGLE.verts[0], dir);
-        dot1 := dot_vec(col.TRIANGLE.verts[1], dir);
-        dot2 := dot_vec(col.TRIANGLE.verts[2], dir);
-        furthest_point := *col.TRIANGLE.verts[0]
-        if(dot1>dot0){
-            furthest_point = *col.TRIANGLE.verts[1]
-            if(dot2>dot1) 
-                furthest_point = *col.TRIANGLE.verts[2]
-        }
-        else if(dot2>dot0) {
-            furthest_point = *col.TRIANGLE.verts[2]
-        }
-
-        //fake some depth behind triangle so we have volume
-		n := col.TRIANGLE.normal * 0.1
-        if(dot_vec(dir, &n)<0.0)
-			furthest_point-= n;
-
-        return furthest_point;
 	}
-	CUBE
+	void XAudioClass::OnVoiceProcessingPassEnd(void)
 	{
-		_max : f32
-		*cast(*s32)&_max = FLOAT_MIN;
-		max_idx :u64= 0
-		cur_idx :u64= 0
-		for v in col.CUBE.verts
+	}
+	void XAudioClass::OnStreamEnd(void)
+	{
+	}
+	void XAudioClass::OnBufferStart(void*)
+	{
+		HRESULT hr;
+		sound->cur_buffer_to_submit++;
+		sound->cur_buffer_to_submit %= 2;
+		XAUDIO2_BUFFER* picked_buffer = &sound->buffers[sound->cur_buffer_to_submit];
+		int total_sounds = sound->audio_clips_to_play.size();
+		short* start = (short *)picked_buffer->pAudioData;
+		memset(start, 0, picked_buffer->AudioBytes);
+		FOR_VEC(it, sound->audio_clips_to_play)
 		{
-			aux := *v - col.pos
-			proj:= dot_vec(dir, &aux);
-			if proj > _max
+			start = (short *)picked_buffer->pAudioData;
+			AudioClip* clip_ptr = it->clip;
+			short* src_buffer = clip_ptr->buffer.data();
+			if (it->cur_idx >= clip_ptr->buffer.size())
+				continue;
+			short* dbg = &src_buffer[it->cur_idx + 1];
+			for (int i = 0; i < sound->samples_in_buffer * 4; i += 4)
 			{
-				max_idx = cur_idx
-				_max = proj
+				float p = (float)it->cur_idx / (float)clip_ptr->buffer.size();
+				*start += src_buffer[it->cur_idx];
+				start++;
+				*start += src_buffer[it->cur_idx + 1];
+				start++;
+				it->cur_idx += 2;
 			}
-			cur_idx++
 		}
-		return *col.CUBE.verts[max_idx]
-	}
-	}
-	return _vec{0.0, 0.0, 0.0, 0.0}
-}
-EPA_TOLERANCE:const f32= 0.0001
-EPA_MAX_NUM_FACES:const s32= 64
-EPA_MAX_NUM_LOOSE_EDGES:const s32= 32
-EPA_MAX_NUM_ITERATIONS:const s32= 64
-gjk_state : struct
-{
-	simplex : [4]_vec
-	simplex_verts : u32
-
-	epa_faces : [EPA_MAX_NUM_FACES][4]_vec
-	epa_loose_edges : [EPA_MAX_NUM_LOOSE_EDGES][2]_vec
-	num_faces : u64
-	num_loose_edges : u64
-	closest_face : u64
-	cur_face_facing_point : u64
-
-	col1 : *collider,
-	col2 : *collider,
-
-	sup1 : _vec
-	sup2 : _vec
-	dir : _vec
-
-	epa_new_sup : _vec
-	mink_diff : [64]_vec
-	mink_diff_vert : u64
-
-	aux_col : collider
-}
-simplex_push_front::fn x64(gjk : *gjk_state, pos : *_vec)
-{
-	aux : [4]_vec= ?
-	memcpy(aux[0], gjk.simplex[0], 3 * 16)
-	*gjk.simplex[0] = *pos
-	memcpy(gjk.simplex[1], aux[0], 3 * 16)
-	gjk.simplex_verts = min(gjk.simplex_verts + 1, 4)
-}
-GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
-{
-	//memset(gjk.simplex, 0, sizeof(gjk.simplex))
-	unitx :_vec
-	unitx.x = 1.0
-	gjk.simplex_verts = 0
-	//__dbg_break
-	sup := find_support(gjk, col1, col2, &unitx)
-
-	simplex_push_front(gjk, &sup)
-
-	dir := -sup
-	gjk.dir = dir
-	for it in 0..32
-	{
-		sup = find_support(gjk, col1, col2, &dir)
-
-		gjk.dir = dir
-
-		if(dot_vec(&sup, &dir) <= 0.0)
+		int i = 0;
+		FOR_VEC(it, sound->audio_clips_to_play)
 		{
-			return false
+			AudioClip* clip_ptr = it->clip;
+			if (it->cur_idx >= clip_ptr->buffer.size())
+			{
+				sound->audio_clips_to_play.remove(i);
+			}
+			i++;
 		}
-		simplex_push_front(gjk, &sup)
-
-		if(gjk_next_simplex(gjk, &dir))
+		///sound->audio_clips_to_play.
+		//FillBuffer(sound, (char*)picked_buffer->pAudioData, sound->samples_in_buffer, 4, 440);
+		if (FAILED(hr = sound->pSourceVoice->SubmitSourceBuffer(picked_buffer, nullptr)))
 		{
-			return true
+			ASSERT(false);
 		}
-	}
-	return false;
-}
 
-gjk_next_simplex ::fn(gjk : *gjk_state, dir : *_vec) ! bool
+
+	}
+	void XAudioClass::OnBufferEnd(void*)
+	{
+	}
+	void XAudioClass::OnVoiceError(void*, HRESULT)
+	{
+	}
+};
+DWORD WINAPI GameAndEngineMsgThread(
+  _In_ LPVOID lpParameter
+)
 {
-	on gjk.simplex_verts
+	auto dbg = (dbg_state* )lpParameter;
+	auto gl_state = (open_gl_state*)dbg->data;;
+	auto lang_stat = (lang_state*)dbg->lang_stat;;
+	HANDLE std_in = GetStdHandle(STD_INPUT_HANDLE);
+	HANDLE std_out = GetStdHandle(STD_OUTPUT_HANDLE);
+	while(true)
 	{
-	2
-	{
-		return gjk_line(gjk, dir)
-	}
-	3
-	{
-		return gjk_triangle(gjk, dir)
-	}
-	4
-	{
-		return gjk_tetrahedron(gjk, dir)
-	}
-	}
-	return false;
-}
-same_direction ::fn x64(a : *_vec, b : *_vec) ! bool
-{
-	//printf("on same \n")
-	d :=dot_vec(a, b)
-	//printf("d % \n end of same\n", cast(s32)(d * 100.0))
-	return d > 0.0
-}
-gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *_vec) ! bool
-{
-	a := *gjk.simplex[0]
-	b := *gjk.simplex[1]
-	c := *gjk.simplex[2]
-	d := *gjk.simplex[3]
-
-	ab := b - a
-	ac := c - a
-	ad := d - a
-	ao := -a
-
-	abc := cross_vec(&ab, &ac)
-	acd := cross_vec(&ac, &ad)
-	adb := cross_vec(&ad, &ab)
-	if same_direction(&abc, &ao)
-	{
-		*gjk.simplex[0] = a
-		*gjk.simplex[1] = b
-		*gjk.simplex[2] = c
-		gjk.simplex_verts = 3
-
-		return gjk_triangle(gjk, dir)
-	}
-	if same_direction(&acd, &ao)
-	{
-		*gjk.simplex[0] = a
-		*gjk.simplex[1] = c
-		*gjk.simplex[2] = d
-		gjk.simplex_verts = 3
-
-		return gjk_triangle(gjk, dir)
-	}
-	if same_direction(&adb, &ao)
-	{
-		*gjk.simplex[0] = a
-		*gjk.simplex[1] = d
-		*gjk.simplex[2] = b
-		gjk.simplex_verts = 3
-
-		return gjk_triangle(gjk, dir)
-	}
-	return true
-
-}
-gjk_triangle ::fn(gjk : *gjk_state, dir : *_vec) ! bool
-{
-	a := *gjk.simplex[0]
-	b := *gjk.simplex[1]
-	c := *gjk.simplex[2]
-
-	ab := b - a
-	ac := c - a
-	ao := -a
-
-	abc := cross_vec(&ab, &ac)
-	if same_direction(&cross_vec(&abc, &ac), &ao)
-	{
-		if same_direction(&ac, &ao)
+		if(!gl_state->is_engine)
 		{
-			*gjk.simplex[0] = a
-			*gjk.simplex[1] = c
-			gjk.simplex_verts = 2
-			*dir = cross_vec(&cross_vec(&ac, &ao), &ac)
+			own_std::string str;
+			CheckPipeAndGetString(std_in, str);
+			if (str.size() > 0)
+			{
+				auto br = (engine_msg_break *)str.data();
+				char* file_name = (char*)(br + 1);
+
+				own_std::string file_name_str = file_name;
+				unit_file *fl=ThereIsFile(dbg->lang_stat, file_name_str);
+				if (!fl)
+					continue;
+				func_decl* fdecl = GetFuncWithLine2(dbg->lang_stat, br->line, fl);
+				if (!fdecl)
+					continue;
+
+				stmnt_dbg* s = nullptr;
+				FOR_VEC(st, fdecl->wasm_stmnts)
+				{
+					if(st->line == br->line)
+					{
+						s = st;
+						break;
+					}
+				}
+
+				if (!s)
+					continue;
+				
+				
+				if (lang_stat->is_x64_bc_backend)
+				{
+					byte_code2* bc = lang_stat->bcs2_start + s->start;
+					MakeCurBcToBeBreakpoint(dbg, bc, s->line, false);
+				}
+				else
+				{
+					dbg->bcs[s->start].dbg_brk = br->add;
+					dbg->bcs[s->start].from_engine_break = br->add;
+				}
+			}
+			//FlushFileBuffers(std_out);
 		}
-		else
+		else if(gl_state->game_started)
 		{
-			*gjk.simplex[0] = a
-			*gjk.simplex[1] = b
-			gjk.simplex_verts = 2
-			return gjk_line(gjk, dir)
+			own_std::string str;
+			CheckPipeAndGetString(gl_state->for_engine_game_stdout, str);
+			if (str.size() > 0)
+			{
+				printf("from game:%s", str.c_str());
+			}
+			//FlushFileBuffers(std_out);
 		}
+
+		Sleep(500);
+	}
+}
+HRESULT InitXAudio2(sound_state &sound, bool start_playing)
+{
+	sound.harmonics_buffer = (char*)malloc(sound.samples_in_buffer * 4 * 4);
+	memset(sound.buffers, 0, sizeof(sound.buffers));
+	void *src = &sound.harmonics_buffer[sound.samples_in_buffer * 4];
+	void *dst = sound.harmonics_buffer;
+
+	HRESULT hr;
+	hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	if (FAILED(hr))
+		return hr;
+
+	IXAudio2* pXAudio2 = nullptr;
+	if (FAILED(hr = XAudio2Create(&pXAudio2, 0,  XAUDIO2_DEFAULT_PROCESSOR | XAUDIO2_DEBUG_ENGINE)))
+		return hr;
+
+
+	XAUDIO2_EFFECT_CHAIN chain = {};
+
+	IXAudio2MasteringVoice* pMasterVoice = nullptr;
+	if (FAILED(hr = pXAudio2->CreateMasteringVoice(&pMasterVoice)))
+		return hr;
+
+	WAVEFORMATEX wave_format = {};
+
+	wave_format.wFormatTag = WAVE_FORMAT_PCM;
+	wave_format.nChannels = 2;
+	wave_format.nSamplesPerSec = sound.samples_per_sec;
+	wave_format.wBitsPerSample = 16;
+	wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
+	wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
+
+
+	if (FAILED(hr = pXAudio2->CreateSourceVoice(&sound.pSourceVoice, (WAVEFORMATEX*)&wave_format, XAUDIO2_VOICE_NOPITCH, XAUDIO2_MAX_FREQ_RATIO, sound.audio_class, nullptr, nullptr)))
+		return hr;
+
+
+	XAUDIO2_BUFFER& xaudio_buff = sound.buffers[0];
+	xaudio_buff.Flags = 0;
+	xaudio_buff.AudioBytes = sound.samples_in_buffer * 4;
+	xaudio_buff.pAudioData = (BYTE*)src;
+	xaudio_buff.PlayLength = 0;
+
+
+	XAUDIO2_BUFFER& xaudio_buff2 = sound.buffers[1];
+	memcpy((void*)&xaudio_buff2, (void*)&xaudio_buff, sizeof(XAUDIO2_BUFFER));
+	xaudio_buff2.pAudioData = (BYTE*)dst;
+
+	if (FAILED(hr = sound.pSourceVoice->SubmitSourceBuffer(&sound.buffers[sound.cur_buffer_to_submit], nullptr)))
+	{
+	}
+	//cpy_thread = CreateThread(NULL, 0, ThreadProc, nullptr, 0, nullptr);
+
+	if (start_playing)
+	{
+		if (FAILED(hr = sound.pSourceVoice->Start(0)))
+			return hr;
+	}
+	return 0;
+}
+#endif
+
+void Print(dbg_state* dbg)
+{
+	int base = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mem_alloc_addr = *(int*)&dbg->mem_buffer[base + 8];
+
+	int a = 0;
+
+
+}
+#define DRAW_INFO_HAS_TEXTURE 1
+#define DRAW_INFO_NO_SCREEN_RATIO 2
+#define DRAW_INFO_WIREFRAME 4
+#define DRAW_INFO_STENCIL_WRITE 8
+#define DRAW_INFO_STENCIL_TEST 0x10
+#define DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER 0x20
+#define DRAW_INFO_LINE 0x40
+#define DRAW_INFO_TRANSPARENT 0x80
+#define DRAW_INFO_TRANSPARENT2 0x100
+#define DRAW_INFO_TRIANGLE 0x200
+#define DRAW_INFO_NO_PROJ 0x400
+#define DRAW_INFO_DBG_BREAK 0x800
+#define DRAW_INFO_TERRAIN 0x1000
+#define DRAW_INFO_ALWAYS_ON_FRONT 0x2000
+#define DRAW_INFO_NO_DEPTH_TEST 0x4000
+#define DRAW_INFO_NO_LIGHT 0x8000
+enum class stencil_func
+{
+	EQUAL,
+	NEQUAL,
+};
+struct draw_info
+{
+	float pos_x;
+	float pos_y;
+	float pos_z;
+	float pos_w;
+
+	float pivot_x;
+	float pivot_y;
+	float pivot_z;
+	float pivot_w;
+
+	float ent_size_x;
+	float ent_size_y;
+	float ent_size_z;
+	float ent_size_w;
+
+	float color_r;
+	float color_g;
+	float color_b;
+	float color_a;
+
+	float ent_rot_x;
+	float ent_rot_y;
+	float ent_rot_z;
+	float ent_rot_w;
+
+	int texture_id;
+
+	float cam_size;
+
+	unsigned long long cam_pos_addr;
+	unsigned long long cam_rot_addr;
+
+	int flags;
+	int stencil_func;
+	u32 stencil_val;
+
+	float tex_size_x;
+	float tex_size_y;
+	float tex_offset_x;
+	float tex_offset_y;
+};
+
+int GetTextureSlotId(open_gl_state* gl_state)
+{
+	for (int i = 0; i < TOTAL_TEXTURES; i++)
+	{
+		texture_info* t = &gl_state->textures[i];
+		if (!t->used)
+		{
+			t->used = true;
+			return i;
+		}
+	}
+	ASSERT(0);
+	return -1;
+}
+void Draw3DBase(dbg_state* dbg, draw_info3d *draw);
+void Draw3DTransparency(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+
+	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
+
+	//raise(SIGTRAP);
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	FOR_VEC(c, gl_state->transparent_objs)
+	{
+		draw_info3d *draw = &c->type;
+		__m128 vec1 = _mm_loadu_ps((float*)&dbg->mem_buffer[draw->cam_pos_addr]);
+		__m128 vec2 = _mm_loadu_ps(&c->type.pos_x);
+		vec1 = _mm_sub_ps(vec1, vec2);
+		vec1 = _mm_mul_ps(vec1, vec1);
+
+		Vec3 v1;
+		_mm_storeu_ps(&v1.x, vec1);
+		c->val = vec3_dot(v1, v1);
+
+	}
+	SortRatedStuff(&gl_state->transparent_objs);
+
+	glDepthMask(GL_FALSE);
+	glEnable(GL_BLEND);
+
+    glUseProgram(gl_state->shader_program3d);
+	FOR_VEC(c, gl_state->transparent_objs)
+	{
+		c->type.flags |= DRAW_INFO_TRANSPARENT2;
+		Draw3DBase(dbg, &c->type);
+	}
+}
+void quaternion_to_matrix4x4(float qx, float qy, float qz, float qw, float* matrix) {
+    // Normalize the quaternion (in case it's not already normalized)
+    float length = sqrtf(qx*qx + qy*qy + qz*qz + qw*qw);
+    qx /= length;
+    qy /= length;
+    qz /= length;
+    qw /= length;
+
+    // Calculate quaternion components squared
+    float xx = qx * qx;
+    float xy = qx * qy;
+    float xz = qx * qz;
+    float xw = qx * qw;
+    
+    float yy = qy * qy;
+    float yz = qy * qz;
+    float yw = qy * qw;
+    
+    float zz = qz * qz;
+    float zw = qz * qw;
+
+    // Set the matrix elements (column-major order)
+    matrix[0]  = 1.0f - 2.0f * (yy + zz);  // m00
+    matrix[1]  = 2.0f * (xy + zw);         // m10
+    matrix[2]  = 2.0f * (xz - yw);         // m20
+    matrix[3]  = 0.0f;                      // m30
+    
+    matrix[4]  = 2.0f * (xy - zw);         // m01
+    matrix[5]  = 1.0f - 2.0f * (xx + zz);  // m11
+    matrix[6]  = 2.0f * (yz + xw);         // m21
+    matrix[7]  = 0.0f;                      // m31
+    
+    matrix[8]  = 2.0f * (xz + yw);         // m02
+    matrix[9]  = 2.0f * (yz - xw);         // m12
+    matrix[10] = 1.0f - 2.0f * (xx + yy);  // m22
+    matrix[11] = 0.0f;                      // m32
+    
+    matrix[12] = 0.0f;                      // m03
+    matrix[13] = 0.0f;                      // m13
+    matrix[14] = 0.0f;                      // m23
+    matrix[15] = 1.0f;                      // m33
+}
+void build_model_matrix(float* out_matrix, 
+                       const Vec3* position,
+                       const float* quaternion, // [x,y,z,w]
+                       const Vec3* scale) {
+
+  // Extract quaternion components
+    float x = quaternion[0];
+    float y = quaternion[1];
+    float z = quaternion[2];
+    float w = quaternion[3];
+    
+    // Calculate quaternion products (for rotation matrix)
+    float x2 = x + x;
+    float y2 = y + y;
+    float z2 = z + z;
+    float xx = x * x2;
+    float xy = x * y2;
+    float xz = x * z2;
+    float yy = y * y2;
+    float yz = y * z2;
+    float zz = z * z2;
+    float wx = w * x2;
+    float wy = w * y2;
+    float wz = w * z2;
+    
+    // Apply scale to the rotation matrix
+    float sx = scale->x;
+    float sy = scale->y;
+    float sz = scale->z;
+    
+    // First row
+    out_matrix[0] = (1.0f - (yy + zz)) * sx;
+    out_matrix[1] = (xy + wz) * sx;
+    out_matrix[2] = (xz - wy) * sx;
+    out_matrix[3] = 0.0f;
+    
+    // Second row
+    out_matrix[4] = (xy - wz) * sy;
+    out_matrix[5] = (1.0f - (xx + zz)) * sy;
+    out_matrix[6] = (yz + wx) * sy;
+    out_matrix[7] = 0.0f;
+    
+    // Third row
+    out_matrix[8] = (xz + wy) * sz;
+    out_matrix[9] = (yz - wx) * sz;
+    out_matrix[10] = (1.0f - (xx + yy)) * sz;
+    out_matrix[11] = 0.0f;
+    
+    // Fourth row (translation)
+    out_matrix[12] = position->x;
+    out_matrix[13] = position->y;
+    out_matrix[14] = position->z;
+    out_matrix[15] = 1.0f;	
+}
+
+void GetViewMatrix(dbg_state* dbg, draw_info3d *draw)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int out_addr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	auto mat = (float*)&dbg->mem_buffer[out_addr];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	memcpy(mat, gl_state->view, 16);
+
+}
+Vec3 ScreenMouseToWorldActual(
+    float mouseX, float mouseY,
+    float screenWidth, float screenHeight,
+    const Mat4& invViewProj)
+{
+    // Convert screen position to normalized device coordinates (-1 to +1)
+    float ndcX = (2.0f * mouseX) / screenWidth - 1.0f;
+    float ndcY = 1.0f - (2.0f * mouseY) / screenHeight; // Invert Y for screen coords
+
+	//printf("mx %.3f my %.3f, sw %.3f, sh %.3f\n", mouseX, mouseY, screenWidth, screenHeight);
+    // Clip space positions at near and far plane
+    Vec3 nearPoint = invViewProj.multiplyPoint(ndcX, ndcY, -1.0f, 1.0f);
+    Vec3 farPoint = invViewProj.multiplyPoint(ndcX, ndcY, 1.0f, 1.0f);
+
+    // Ray direction
+    Vec3 dir = (farPoint - nearPoint).normalized();
+
+    return dir;
+}
+void ScreenMouseToWorld(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float mx = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float my = *(float*)&dbg->mem_buffer[base_ptr + 16];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	float screen_ratio = (float)gl_state->height / (float)gl_state->width;
+	//my *= screen_ratio;
+
+
+	Mat4 view;
+	Mat4 proj;
+	memcpy(&view, &gl_state->view,  4 * 4 * 4);
+	memcpy(&proj, &gl_state->projection, 4 * 4 * 4);
+	Mat4 viewProj = Multiply(view, proj);
+	Mat4 invViewProj = Inverse(viewProj);
+	Vec3 p = ScreenMouseToWorldActual(mx, my, gl_state->width, gl_state->height, invViewProj);
+
+	auto ret = GetFloatRegValPtr(dbg, FLOAT_REG_0);
+	auto aux = GetRegValPtr(dbg, RET_1_REG);
+	
+	memcpy(ret, &p, 16);
+	memcpy(aux, &p, 8);
+	*(((float *)ret) + 3) = 0.0f;
+}
+#define RAD_TO_DEG 57.29577
+#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("\ngl error %d\n", glGetError()); fflush(stdout); ExitProcess(1);}
+void Draw3DBase(dbg_state* dbg, draw_info3d *draw)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+
+	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+	float cam_forward_x = 0;
+	float cam_forward_y = 0;
+	float cam_forward_z = 0;
+	if (draw->cam_forward_addr != 0)
+	{
+		cam_forward_x = *(float*)&dbg->mem_buffer[draw->cam_forward_addr];
+		cam_forward_y = *(float*)&dbg->mem_buffer[draw->cam_forward_addr + 4];
+		cam_forward_z = *(float*)&dbg->mem_buffer[draw->cam_forward_addr + 8];
+	}
+
+	float cam_pos_x = 0;
+	float cam_pos_y = 0;
+	float cam_pos_z = 0;
+	if (draw->cam_pos_addr != 0)
+	{
+		cam_pos_x = *(float*)&dbg->mem_buffer[draw->cam_pos_addr];
+		cam_pos_y = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 4];
+		cam_pos_z = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 8];
+	}
+
+	float cam_rot_x = 0;
+	float cam_rot_y = 0;
+	float cam_rot_z = 0;
+	if (draw->cam_rot_addr != 0)
+	{
+		cam_rot_x = *(float*)&dbg->mem_buffer[draw->cam_rot_addr];
+		cam_rot_y = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 4];
+		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
+	}
+	int shaderProgram = gl_state->shader_program3d;
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
+	{
+		shaderProgram = gl_state->shader_program3d_tex;
+		glUseProgram(shaderProgram);
+		gl_state->tex_size = glGetUniformLocation(shaderProgram, "tex_size");
+		if (draw->tex_size_x == 0)
+			draw->tex_size_x = 1.0;
+		if (draw->tex_size_y == 0)
+			draw->tex_size_y = 1.0;
+		glUniform2f(gl_state->tex_size, draw->tex_size_x, draw->tex_size_y);
+		//gl_state->tex_offset = glGetUniformLocation(prog, "tex_offset");
+		ASSERT(draw->texture_id < TOTAL_TEXTURES);
+		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
+		texture_info* t = &gl_state->textures[draw->texture_id];
+		int sec_color = glGetUniformLocation(shaderProgram, "sec_color");
+		int sec_color_lerp = glGetUniformLocation(shaderProgram, "color_lerp");
+		GL_CALL(glUniform4f(sec_color, draw->sec_color_r, draw->sec_color_g, draw->sec_color_b, draw->sec_color_a));
+		GL_CALL(glUniform1f(sec_color_lerp, draw->lerp_color));
+
+		glBindTexture(GL_TEXTURE_2D, t->id);
+	}
+	//ASSERT(draw->perspective_mat != 0)
+	//float * perspective_mat= (float *)dbg->mem_buffer[draw->perspective_mat];
+
+	int indicies_to_draw = 36;
+	glDepthMask(GL_TRUE);
+	glEnable(GL_DEPTH_TEST);
+	if(IS_FLAG_OFF(draw->flags, DRAW_INFO_TRANSPARENT2))
+	{
+		glDisable(GL_BLEND);
+	}
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_ALWAYS_ON_FRONT))
+	{
+		glDepthMask(GL_FALSE);
+		glDisable(GL_DEPTH_TEST);
+	}
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_TERRAIN))
+	{
+		shaderProgram = gl_state->terrain_shader_program3d;
+	}
+
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_NO_LIGHT))
+	{
+		shaderProgram = gl_state->shader_program3d_tex_no_light;
+		glUseProgram(shaderProgram);
+		int sec_color = glGetUniformLocation(shaderProgram, "sec_color");
+		int sec_color_lerp = glGetUniformLocation(shaderProgram, "color_lerp");
+		GL_CALL(glUniform4f(sec_color, draw->sec_color_r, draw->sec_color_g, draw->sec_color_b, draw->sec_color_a));
+		GL_CALL(glUniform1f(sec_color_lerp, draw->lerp_color));
+	}
+
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_DBG_BREAK))
+	{
+		raise(SIGTRAP);
+	}
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_LINE | DRAW_INFO_NO_PROJ))
+	{
+		
+		float line[6];
+		draw->pos_x -= cam_pos_x;
+		draw->pos_y -= cam_pos_y;
+		draw->pos_z -= cam_pos_z;
+		draw->ent_size_x -= cam_pos_x;
+		draw->ent_size_y -= cam_pos_y;
+		draw->ent_size_z -= cam_pos_z;
+		memcpy(&line[0], &draw->pos_x, 12);
+		memcpy(&line[3], &draw->ent_size_x, 12);
+		shaderProgram = gl_state->shader_program3d_line;
+		if(IS_FLAG_ON(draw->flags, DRAW_INFO_NO_PROJ))
+		{
+
+			shaderProgram = gl_state->shader_program3d_line_no_proj;
+		}
+		glUseProgram(shaderProgram);
+		glBindVertexArray(gl_state->vao3d_line);
+		glBindBuffer(GL_ARRAY_BUFFER, gl_state->vbo3d_line);
+
+		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(line), line);
+
+	}
+	else if(IS_FLAG_ON(draw->flags, DRAW_INFO_TRIANGLE))
+	{
+		Vec3 tri[6];
+
+		Vec3 *a = (Vec3 *)&draw->pos_x;
+		a->x -= cam_pos_x;
+		a->y -= cam_pos_y;
+		a->z -= cam_pos_z;
+		Vec3 *b = (Vec3 *)&draw->pivot_x;
+		b->x -= cam_pos_x;
+		b->y -= cam_pos_y;
+		b->z -= cam_pos_z;
+		//*b = vec3_sub(*b, vec3_(&cam_pos_x));
+		Vec3 *c = (Vec3 *)&draw->ent_size_x;
+		c->x -= cam_pos_x;
+		c->y -= cam_pos_y;
+		c->z -= cam_pos_z;
+		//*c = vec3_sub(*c, vec3_(&cam_pos_x));
+
+		Vec3 normal  = vec3_cross(vec3_sub(*a, *b), vec3_sub(*a, *c));
+		normal  = vec3_normalize(normal);
+
+		tri[0] = *a;
+		tri[1] = normal;
+		tri[2] = *b;
+		tri[3] = normal;
+		tri[4] = *c;
+		tri[5] = normal;
+		shaderProgram = gl_state->shader_program3d_tri;
+		glUseProgram(shaderProgram);
+		glBindVertexArray(gl_state->vao3d_tri);
+		glBindBuffer(GL_ARRAY_BUFFER, gl_state->vbo3d_tri);
+
+		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(tri), tri);
+
 	}
 	else
 	{
-		//__dbg_break
-		if same_direction(&cross_vec(&ab, &abc), &ao)
+		model_info *m = &gl_state->models[draw->model];
+		//BREAK(draw->model == 1)
+		glBindVertexArray(m->vao);
+		indicies_to_draw = m->indicies;
+	}
+	// Uniform locations
+    glUseProgram(shaderProgram);
+    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
+    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
+    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
+    GLint time_3d = glGetUniformLocation(shaderProgram, "time");
+    GLint rot_u = glGetUniformLocation(shaderProgram, "rot");
+    GLint col = glGetUniformLocation(shaderProgram, "col");
+
+
+	build_model_matrix(gl_state->model, 
+						(const Vec3 *)&draw->pos_x,
+						(const float*)&draw->ent_rot_x,
+						(const Vec3*)&draw->ent_size_x);
+
+    gl_state->model[12] += -cam_pos_x;
+    gl_state->model[13] += -cam_pos_y;
+    gl_state->model[14] += -cam_pos_z;
+    gl_state->model[15] = 1.0f;
+
+	Vec3 cameraPos = {cam_pos_x, cam_pos_y, cam_pos_z};
+	Vec3 cameraFront = {cam_forward_x, cam_forward_y, cam_forward_z};
+	Vec3 cameraUp = {0.0f, 1.0f, 0.0f};
+
+
+	float yaw = -cam_rot_y * RAD_TO_DEG + -90.0;
+	float pitch = cam_rot_x * RAD_TO_DEG;
+	float roll = cam_rot_z * RAD_TO_DEG;
+
+	update_camera_direction(yaw, pitch, roll, &cameraFront, &cameraUp);
+	Mat4 view = mat4_lookAt(cameraPos, vec3_add(cameraPos, cameraFront), cameraUp);
+	memcpy(gl_state->view, view.m, sizeof(gl_state->view));
+
+	//printf("sx %.3f, sy %.3f, sz %.3f\n", draw->ent_size_x, draw->ent_size_y, draw->ent_size_z);
+	//printf("sx %.3f, sy %.3f, sz %.3f\n", cam_forward_x, cam_forward_y, cam_forward_z);
+	//printf("cx %.3f, cy %.3f, cz %.3f, rx %.3f, ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x, cam_rot_y, cam_rot_z);
+    gl_state->view[12] = -0.0;
+    gl_state->view[13] = 0.0;
+    gl_state->view[14] = 0.0;
+
+
+	float time [16 ];
+	time[0] = glfwGetTime();;
+	//printf("time %.3f\n", gl_state->last_time);
+	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, gl_state->model);
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gl_state->view);
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, gl_state->projection);
+	//glUniform4f(rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z, draw->ent_rot_w);
+	glUniform4f(rot_u, cam_rot_x, cam_rot_y, cam_rot_z, draw->ent_rot_w);
+	glUniform4f(col, draw->color_r, draw->color_g, draw->color_b, draw->color_a);
+
+
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+	{
+		glDrawArrays(GL_LINES, 0, 2);
+	}
+	else if(IS_FLAG_ON(draw->flags, DRAW_INFO_TRIANGLE))
+	{
+		glDrawArrays(GL_TRIANGLES, 0, 3);
+	}
+	else
+	{
+		//glBindVertexArray(gl_state->vao3d);
+		glDrawElements(GL_TRIANGLES, indicies_to_draw, GL_UNSIGNED_INT, 0);
+	}
+
+}
+void Draw3D(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+	//raise(SIGTRAP);
+
+	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
+	auto draw = (draw_info3d*)(long long*)&dbg->mem_buffer[draw_addr];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	//raise(SIGTRAP);
+	if(IS_FLAG_ON(draw->flags, DRAW_INFO_TRANSPARENT))
+	{
+		RatedStuff<draw_info3d> v;
+		v.type = *draw;
+		gl_state->transparent_objs.emplace_back(v);
+		return;
+	}
+	Draw3DBase(dbg, draw);
+}
+void Draw(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+
+	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
+	auto draw = (draw_info*)(long long*)&dbg->mem_buffer[draw_addr];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	int prog = gl_state->shader_program;
+	int vao = gl_state->vao;
+
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
+	{
+		prog = gl_state->shader_program;
+		glUseProgram(prog);
+		gl_state->tex_size = glGetUniformLocation(prog, "tex_size");
+		if (draw->tex_size_x == 0)
+			draw->tex_size_x = 1.0;
+		if (draw->tex_size_y == 0)
+			draw->tex_size_y = 1.0;
+		glUniform2f(gl_state->tex_size, draw->tex_size_x, draw->tex_size_y);
+		//gl_state->tex_offset = glGetUniformLocation(prog, "tex_offset");
+		ASSERT(draw->texture_id < TOTAL_TEXTURES);
+		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
+		texture_info* t = &gl_state->textures[draw->texture_id];
+
+		glBindTexture(GL_TEXTURE_2D, t->id);
+	}
+	else if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+	{
+		prog = gl_state->line_shader_program;
+		vao = gl_state->line_vao;
+		glUseProgram(prog);
+		glBindVertexArray(vao);
+		glBindBuffer(GL_ARRAY_BUFFER, gl_state->line_vbo);
+
+		glBufferSubData(GL_ARRAY_BUFFER, 0, 4 * 4, &draw->pos_x);
+	}
+	else
+	{
+		prog = gl_state->shader_program_no_texture;
+		//glDisable(GL_TEXTURE_2D);
+	}
+
+	glUseProgram(prog);
+	glBindVertexArray(vao);
+
+	gl_state->color_u = glGetUniformLocation(prog, "color");
+	glUniform4f(gl_state->color_u, draw->color_r, draw->color_g, draw->color_b, draw->color_a);
+
+	gl_state->pos_u = glGetUniformLocation(prog, "pos");
+	glUniform3f(gl_state->pos_u, draw->pos_x, draw->pos_y, draw->pos_z);
+
+	int pivot_u = glGetUniformLocation(prog, "pivot");
+	glUniform3f(pivot_u, draw->pivot_x, draw->pivot_y, draw->pivot_z);
+
+	int cam_size_u = glGetUniformLocation(prog, "cam_size");
+	glUniform1f(cam_size_u, draw->cam_size);
+
+	float screen_ratio = (float)gl_state->height / (float)gl_state->width;
+	int screen_ratio_u = glGetUniformLocation(prog, "screen_ratio");
+
+	if (gl_state->is_engine)
+	{
+		screen_ratio = (float)gl_state->scene_srceen_height / (float)gl_state->scene_srceen_width;
+	}
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_NO_SCREEN_RATIO))
+	{
+		screen_ratio = 1;
+	}
+	glUniform1f(screen_ratio_u, screen_ratio);
+
+	float cam_pos_x = 0;
+	float cam_pos_y = 0;
+	float cam_pos_z = 0;
+	if (draw->cam_pos_addr != 0)
+	{
+		cam_pos_x = *(float*)&dbg->mem_buffer[draw->cam_pos_addr];
+		cam_pos_y = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 4];
+		cam_pos_z = *(float*)&dbg->mem_buffer[draw->cam_pos_addr + 8];
+	}
+	int cam_pos_u = glGetUniformLocation(prog, "cam_pos");
+	glUniform3f(cam_pos_u, cam_pos_x, cam_pos_y, cam_pos_z);
+
+	float cam_rot_x = 0;
+	float cam_rot_y = 0;
+	float cam_rot_z = 0;
+	if (draw->cam_rot_addr != 0)
+	{
+		cam_rot_x = *(float*)&dbg->mem_buffer[draw->cam_rot_addr];
+		cam_rot_y = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 4];
+		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
+	}
+	int cam_rot_u = glGetUniformLocation(prog, "cam_rot");
+	glUniform3f(cam_rot_u, cam_rot_x, cam_rot_y, cam_rot_z);
+
+	int ent_rot_u = glGetUniformLocation(prog, "ent_rot");
+	glUniform3f(ent_rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z);
+
+
+	int ent_size_u = glGetUniformLocation(prog, "ent_size");
+	glUniform3f(ent_size_u, draw->ent_size_x, draw->ent_size_y, draw->ent_size_z);
+
+	if (gl_state->is_engine)
+	{
+		// Render to our framebuffer
+		//glBindFramebuffer(GL_FRAMEBUFFER, gl_state->frame_buffer);
+		//glViewport(0, 0, gl_state->scene_srceen_width, gl_state->scene_srceen_height); // Render on the whole framebuffer, complete from the lower left corner to the upper right
+
+		glViewport(0, gl_state->height - gl_state->scene_srceen_height, gl_state->scene_srceen_width, gl_state->scene_srceen_height);
+	}
+	else
+	{
+		glViewport(0, 0, gl_state->width, gl_state->height);
+	}
+
+	glDisable(GL_STENCIL_TEST);
+	glColorMask(true, true, true, true);
+	glDepthMask(true);
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_STENCIL_WRITE))
+	{
+		glEnable(GL_STENCIL_TEST);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE); 
+		glStencilFunc(GL_ALWAYS, draw->stencil_val, 0xFF);
+		glStencilMask(0xFF);
+		//glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+		//glDisable(GL_STENCIL_TEST);
+
+	}
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_STENCIL_TEST))
+	{
+		glEnable(GL_STENCIL_TEST);
+		glStencilMask(0xFF);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE); 
+		switch ((stencil_func)draw->stencil_func)
 		{
-			*gjk.simplex[0] = a
-			*gjk.simplex[1] = b
-			gjk.simplex_verts = 2
-			return gjk_line(gjk, dir)
+		case stencil_func::EQUAL:
+		{
+			glStencilFunc(GL_EQUAL, draw->stencil_val, 0xFF);
+		}break;
+		case stencil_func::NEQUAL:
+		{
+			glStencilFunc(GL_NOTEQUAL, draw->stencil_val, 0xFF);
+		}break;
+		default:
+			ASSERT(0);
+		}
+		//glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+		//glDisable(GL_STENCIL_TEST);
+
+	}
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER))
+	{
+		glColorMask(false, false, false, false);
+		//glDepthMask(false);
+	}
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_NO_DEPTH_TEST))
+	{
+		glDisable(GL_DEPTH_TEST);
+		glDepthMask(false);
+	}
+
+	//else
+	//{
+		if (IS_FLAG_ON(draw->flags, DRAW_INFO_WIREFRAME))
+		{
+			glDrawElements(GL_LINE_LOOP, 6, GL_UNSIGNED_INT, 0);
+		}
+		else if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
+		{
+			glDrawArrays(GL_LINES, 0, 2);
 		}
 		else
+			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	//}
+
+
+
+	//glDrawArrays(GL_TRIANGLES, 0, 3);
+	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
+}
+void ClearBackground(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	void* addr = &dbg->mem_buffer[base_ptr + 8];
+	float r = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float g = *(float*)&dbg->mem_buffer[base_ptr + 8 * 2];
+	float b = *(float*)&dbg->mem_buffer[base_ptr + 8 * 3];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->transparent_objs.clear();
+	if (gl_state->is_engine)
+	{
+		//glViewport(0, 0, 1000, 1000);
+		glClearColor(0, 0, 0, 1.0f); // Set the new color
+		glClearDepth(1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		// Step 2: Enable scissor testing
+		glEnable(GL_SCISSOR_TEST);
+
+		// Step 3: Define the area you want to clear with a different color
+		glScissor(0, gl_state->height - gl_state->scene_srceen_height,
+			gl_state->scene_srceen_width, gl_state->scene_srceen_height);
+		glClearColor(r, g, b, 1.0f); // Set the new color
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear only the scissor region
+
+		// Step 4: Disable scissor testing (optional)
+		glDisable(GL_SCISSOR_TEST);
+		//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow *)(long long)wnd);
+	}
+	else
+	{
+		//glViewport(0, 0, 1000, 1000);
+		glDepthMask(GL_TRUE);
+		glClearColor(r, g, b, 1.0f); // Set the new color
+		glClearDepth(1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+		/*
+		*/
+	}
+}
+
+int FromGameToGLFWKey(int in)
+{
+	int key;
+	switch ((key_enum)in)
+	{
+	case _KEY_I:
+	{
+		key = GLFW_KEY_I;
+	}break;
+	case _KEY_UP:
+	{
+		key = GLFW_KEY_W;
+	}break;
+	case _KEY_DOWN:
+	{
+		key = GLFW_KEY_S;
+	}break;
+	case _KEY_RIGHT:
+	{
+		key = GLFW_KEY_D;
+	}break;
+	case _KEY_ACT1:
+	{
+		key = GLFW_KEY_J;
+	}break;
+	case _KEY_ACT0:
+	{
+		key = GLFW_KEY_K;
+	}break;
+	case _KEY_JMP:
+	{
+		key = GLFW_KEY_SPACE;
+	}break;
+	case _KEY_DEL:
+	{
+		key = GLFW_KEY_DELETE;
+	}break;
+	case _KEY_F:
+	{
+		key = GLFW_KEY_F;
+	}break;
+	case _KEY_K:
+	{
+		key = GLFW_KEY_K;
+	}break;
+	case _KEY_ENTER:
+	{
+		key = GLFW_KEY_ENTER;
+	}break;
+	case _KEY_F1:
+	{
+		key = GLFW_KEY_F1;
+	}break;
+	case _KEY_F2:
+	{
+		key = GLFW_KEY_F2;
+	}break;
+	case _KEY_F3:
+	{
+		key = GLFW_KEY_F3;
+	}break;
+	case _KEY_F4:
+	{
+		key = GLFW_KEY_F4;
+	}break;
+	case _KEY_F5:
+	{
+		key = GLFW_KEY_F5;
+	}break;
+	case _KEY_F6:
+	{
+		key = GLFW_KEY_F6;
+	}break;
+	case _KEY_F7:
+	{
+		key = GLFW_KEY_F7;
+	}break;
+	case _KEY_F8:
+	{
+		key = GLFW_KEY_F8;
+	}break;
+	case _KEY_F9:
+	{
+		key = GLFW_KEY_F9;
+	}break;
+	case _KEY_F10:
+	{
+		key = GLFW_KEY_F10;
+	}break;
+	case _KEY_F11:
+	{
+		key = GLFW_KEY_F11;
+	}break;
+	case _KEY_F12:
+	{
+		key = GLFW_KEY_F12;
+	}break;
+	case _KEY_LCTRL:
+	{
+		key = GLFW_KEY_LEFT_CONTROL;
+	}break;
+	case _KEY_ALT:
+	{
+		key = GLFW_KEY_LEFT_ALT;
+	}break;
+	case _KEY_TAB:
+	{
+		key = GLFW_KEY_TAB;
+	}break;
+	case _KEY_SHIFT:
+	{
+		key = GLFW_KEY_LEFT_SHIFT;
+	}break;
+	case _KEY_A:
+	{
+		key = GLFW_KEY_A;
+	}break;
+	case _KEY_ESCAPE:
+	{
+		key = GLFW_KEY_ESCAPE;
+	}break;
+	case _KEY_SPACE:
+	{
+		key = GLFW_KEY_SPACE;
+	}break;
+	case _KEY_S:
+	{
+		key = GLFW_KEY_S;
+	}break;
+	case _KEY_D:
+	{
+		key = GLFW_KEY_D;
+	}break;
+	case _KEY_W:
+	{
+		key = GLFW_KEY_W;
+	}break;
+	case _KEY_E:
+	{
+		key = GLFW_KEY_E;
+	}break;
+	case _KEY_Q:
+	{
+		key = GLFW_KEY_Q;
+	}break;
+	case _KEY_LEFT:
+	{
+		key = GLFW_KEY_A;
+	}break;
+	case _KEY_1:
+	{
+		key = GLFW_KEY_1;
+	}break;
+	case _KEY_2:
+	{
+		key = GLFW_KEY_2;
+	}break;
+	case _KEY_3:
+	{
+		key = GLFW_KEY_3;
+	}break;
+	case _KEY_4:
+	{
+		key = GLFW_KEY_4;
+	}break;
+	default:
+		ASSERT(0);
+	}
+	return key;
+}
+
+void IsMouseDoubleClick(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	int state = 0;
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = 0;
+	if (mouse == 0)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST], KEY_DOUBLE_CLICK))
+			*addr = 1;
+	}
+	else if (mouse == 1)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST + 1], KEY_DOUBLE_CLICK))
+			*addr = 1;
+	}
+	else
+		ASSERT(0)
+
+}
+void IsMouseDown(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	int state = 0;
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = 0;
+	if (mouse == 0)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST], KEY_DOWN))
+			*addr = 1;
+	}
+	else if (mouse == 1)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST + 1], KEY_DOWN))
+			*addr = 1;
+	}
+	else
+		ASSERT(0)
+
+
+}void IsMouseUp(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	int state = 0;
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = 0;
+	if (mouse == 0)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST], KEY_UP))
+			*addr = 1;
+	}
+	else if (mouse == 1)
+	{
+		if (IS_FLAG_ON(gl_state->buttons[GLFW_KEY_LAST + 1], KEY_UP))
+			*addr = 1;
+	}
+	else
+		ASSERT(0)
+
+}
+void IsMouseHeld(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int mouse = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	int state = 0;
+	if(mouse == 0)
+		state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+	else if(mouse == 1)
+		state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
+	else
+		ASSERT(0)
+
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	if (state == GLFW_PRESS)
+	{
+		* addr = 1;
+	}
+	else
+		* addr = 0;
+}
+void IsKeyUp(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	key = FromGameToGLFWKey(key);
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_UP))
+	{
+		*addr = 1;
+	}
+	else
+		*addr = 0;
+
+}
+void IsKeyDown(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int keyo = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	int key = FromGameToGLFWKey(keyo);
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN) || IS_FLAG_ON(gl_state->buttons[key], KEY_RECENTLY_DOWN))
+	{
+		//if(keyo == _KEY_1) HERE();
+		key = FromGameToGLFWKey(keyo);
+		*addr = 1;
+		gl_state->buttons[key] &= ~KEY_RECENTLY_DOWN;
+		gl_state->buttons[key] = (gl_state->buttons[key] & 0xffff);
+	}
+	else
+		*addr = 0;
+
+}
+bool IsKeyRepeat(void *data, int key)
+{
+	auto gl_state = (open_gl_state*)data;
+	//key = FromGameToGLFWKey(key);
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN | KEY_REPEAT))
+	{
+		return true;
+	}
+	return false;
+
+}
+bool IsKeyDown(void *data, key_enum keye)
+{
+	auto gl_state = (open_gl_state*)((dbg_state*)data)->data;
+	//key = FromGameToGLFWKey(key);
+	auto key = FromGameToGLFWKey(keye);
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN))
+	{
+		return true;
+	}
+	return false;
+
+}
+void ImGuiCheckbox(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name = (char *)&dbg->mem_buffer[name_offset];
+	int bool_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	auto bool_ptr = (bool*)&dbg->mem_buffer[bool_offset];
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	if(ImGui::Checkbox(name, bool_ptr))
+	{
+		*addr = 1;
+	}
+	else
+	{
+		*addr = 0;
+	}
+}
+void ImGuiSetNextItemAllowOverlap(dbg_state* dbg)
+{
+	ImGui::SetNextItemAllowOverlap();
+}
+void ImGuiPopItemWidth(dbg_state* dbg)
+{
+	ImGui::PopItemWidth();
+}
+void ImGuiEnumCombo(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name = (char *)&dbg->mem_buffer[name_offset];
+
+	int line = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	int var_addr_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int *var_addr = (int*)&dbg->mem_buffer[var_addr_offset];
+
+	scope *scp = FindScpWithLine(dbg->cur_func, line);
+	type2 dummy;
+	own_std::string str(name);
+	decl2 *e = FindIdentifier(str, scp, &dummy);
+	if (!e)
+	{
+		ImGui::Text("enum not found: %s", name);
+		return;
+	}
+	ASSERT(e);
+	*var_addr = clamp(*var_addr, 0, e->type.enum_names->size() - 1);
+
+	if (*var_addr > 128 || *var_addr < 0)
+	{
+		ImGui::Text("value too high %d", *var_addr);
+		return;
+	}
+
+	bool clicked = false;
+	own_std::vector<char*>* ar = e->type.enum_names;
+	if (ImGui::BeginCombo("type##obj_type", (*ar)[*var_addr]))
+	{
+		for (int i = 0; i < ar->size(); i++)
 		{
-			if same_direction(&abc, &ao)
+			char* ptr = (*ar)[i];
+			if (ImGui::Selectable(ptr))
 			{
-				*dir = abc
+				*var_addr = i;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = clicked;
+}
+void ImGuiShowV4(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto v = (v3*)&dbg->mem_buffer[v_offset];
+	char buffer[128];
+	snprintf(buffer, 128, "##%p", v);
+	ImGui::DragFloat4(buffer, (float*)v, 0.5);
+}
+void ImGuiShowV3(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto v = (v3*)&dbg->mem_buffer[v_offset];
+	char buffer[128];
+	snprintf(buffer, 128, "##%p", v);
+	ImGui::DragFloat3(buffer, (float*)v, 0.5);
+}
+void ImGuiPushItemWidth(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float w = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	ImGui::PushItemWidth(w);
+}
+void ImGuiSameLine(dbg_state* dbg)
+{
+	ImGui::SameLine();
+}
+
+void ImGuiGetCursorScreenPosY(dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorScreenPos().y;
+}
+void ImGuiGetCursorScreenPosX(dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorScreenPos().x;
+}
+void ImGuiGetCursorPosY(dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorPosY();
+}
+void ImGuiGetCursorPosX(dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorPosX();
+}
+
+void ImGuiButton(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (ImGui::Button(name_str))
+		*addr = true;
+	else
+		*addr = false;
+
+}
+void ImGuiSelectable(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	bool selected = *(bool*)&dbg->mem_buffer[base_ptr + 16];
+	float w = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	float h = *(float*)&dbg->mem_buffer[base_ptr + 32];
+
+	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (ImGui::Selectable(name_str, selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(w, h)))
+		*addr = true;
+	else
+		*addr = false;
+
+}
+
+void ImGuiTreePop(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	ImGui::TreePop();
+}
+
+void ImGuiTreeNodeEx(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	
+	ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+	bool ret = ImGui::TreeNodeEx(name_str, flag);
+
+	*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = ret;
+}
+
+void ImGuiHasFocus(dbg_state* dbg)
+{
+	auto& io = ImGui::GetIO(); 
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	if (io.WantCaptureMouse)
+		*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = true;
+	else
+		*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = false;
+}
+void ImGuiAddRect(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int this_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	float min_x = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	float min_y = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	float max_x = *(float*)&dbg->mem_buffer[base_ptr + 32];
+	float max_y = *(float*)&dbg->mem_buffer[base_ptr + 40];
+	int col = *(int*)&dbg->mem_buffer[base_ptr + 48];
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	draw_list->AddRect(ImVec2(min_x, min_y), ImVec2(max_x, max_y), col);
+}
+own_std::string GetWorkDir(unit_file *file, lang_state* lang_stat)
+{
+	own_std::string work_dir = file->path;
+	int last_bar = work_dir.find_last_of('/');
+	work_dir = work_dir.substr(0, last_bar + 1);
+	return work_dir;
+}
+void ImGuiSetWindowFontScale(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float fsz = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	ImGui::SetWindowFontScale(fsz);
+
+}
+
+bool IsKeyHeld(dbg_state* dbg, key_enum keye)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	auto key = FromGameToGLFWKey(keye);
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_HELD))
+	{
+		return true;
+	}
+	return false;
+
+}
+void RenderFuncDef(void *data, float screen_x, float screen_y)
+{
+	auto wnd = (WindowEditor*)data;
+	open_gl_state* gl_state = wnd->gl_state;
+	int str_sz = wnd->gl_state->func_def_str.size();
+	if (str_sz == 0)
+		return;
+	ImVec2 min, max;
+	min.x = screen_x;
+	min.y = screen_y + 50.0;
+
+	max = min;
+	//max.x += 100.0;
+	max.y += 50.0;
+
+	ImVec2 prev_cursor = ImGui::GetCursorScreenPos();
+	ImGui::SetCursorScreenPos(min);
+
+	const float fontSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, "#", nullptr, nullptr).x;
+
+	//ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(100, 0, 100, 255));
+	ImGui::BeginChild("func def", ImVec2(str_sz * fontSize, 40));
+
+
+	char buffer[128];
+	int real_i = 0;
+	ImGui::PopStyleColor();
+	ImGui::EndChild();
+	ImGui::SetCursorScreenPos(prev_cursor);
+	//draw_list->AddRectFilled(min, max, IM_COL32(50, 50, 50, 255));
+}
+
+
+
+#ifdef USE_TEXT_EDITOR
+
+void PrintGameStdOut(open_gl_state* gl_state)
+{
+	own_std::string str;
+	CheckPipeAndGetString(gl_state->for_engine_game_stdout, str);
+	printf("%s", str.c_str());
+}
+
+void GetMsgFromGame(void* data)
+{
+	auto gl_state = (open_gl_state*)data;
+	if (!gl_state->game_started)
+		return;
+	own_std::string from_game_str;
+	CheckPipeAndGetString(gl_state->for_engine_game_stdout, from_game_str);
+	//if(from_game_str.size() > 0)
+		//printf("msg from game: %s", from_game_str.c_str());
+
+}
+void LspSendFolderToCompile(open_gl_state* lang_stat, HANDLE hStdInWrite, own_std::string folder);
+void CheckLspProcess(lang_state* lang_stat, open_gl_state* gl_state);
+void GotoPrevBuffer(void* data)
+{
+	auto wnd = (WindowEditor*)data;
+	if (!wnd->prev_buffer)
+		return;
+	Buffer* aux = wnd->prev_buffer;
+	wnd->prev_buffer = wnd->cur_buffer;
+	wnd->cur_buffer = aux;
+	wnd->cur_buffer->ed->EnsureCursorVisible();
+}
+void GlobalClearSearchStringHighlight(void *data)
+{
+	auto wnd = (WindowEditor*)data;
+	wnd->cur_buffer->ed->ClearSearchStringHighlight();
+}
+void GlobalExitCmdBuffer(void* data, bool restoreOriginalPos)
+{
+	auto wnd = (WindowEditor*)data;
+	wnd->on_cmd = false;
+	wnd->cmd_buffer->ed->haveKeyboardFocusAnyway = false;
+	TextEditor* main_ed = wnd->gl_state->main_ed.cur_buffer->ed;
+	main_ed->insertBuffer.clear();
+	if (restoreOriginalPos)
+	{
+		main_ed->SetCursorPosition(main_ed->originalCPosBeforeSearchString);
+		main_ed->matchedStrings.clear();
+	}
+}
+void SaveFile(void *data, char* contents, int size, own_std::string *file_name)
+{
+	auto wnd = (WindowEditor*)data;
+	WriteFileLang((char*)file_name->c_str(), contents, size);
+	CheckLspProcess(wnd->gl_state->lang_stat, wnd->gl_state);
+	LspSendFolderToCompile(wnd->gl_state,
+					wnd->gl_state->hStdInWrite, wnd->gl_state->lsp_dir_to_compile);
+}
+bool OnIntellisenseSuggestions(void* data)
+{
+	auto wnd = (WindowEditor*)data;
+	return wnd->gl_state->intellisense_suggestion_aux.size() > 0;
+}
+void MoveSelectedIllisenseSuggestions(void* data, int add, bool absolute)
+{
+	auto wnd = (WindowEditor*)data;
+	int* selected = &wnd->gl_state->selected_suggestion;
+	if (absolute)
+		*selected = add;
+	else
+	{
+		*selected += -add;
+	}
+
+
+
+	*selected = clamp(*selected, 0, wnd->gl_state->intellisense_suggestion.size() - 1);
+
+}
+void RenderIntellisenseSuggestions(void *data, float screen_x, float screen_y)
+{
+	auto wnd = (WindowEditor*)data;
+	if (wnd->gl_state->intellisense_suggestion.size() == 0 && wnd->gl_state->func_def_str.size() == 0)
+		return;
+	ImDrawList* draw_list = ImGui::GetWindowDrawList();
+	ImVec2 wnd_pos = ImGui::GetWindowPos();
+	ImVec2 wnd_sz = ImGui::GetWindowSize();
+
+	float suggestion_height = 100.0;
+
+
+	ImVec2 min, max;
+	min.x = screen_x;
+	if((screen_y + suggestion_height) >= (wnd_pos.y + wnd_sz.y))
+	{
+		min.y = screen_y -(suggestion_height);
+	}
+	else
+		min.y = screen_y + 20.0;
+
+	ImGui::SetCursorScreenPos(min);
+
+	int str_sz = wnd->gl_state->func_def_str.size();
+	float width = 200.0;
+	const float fontSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, "#", nullptr, nullptr).x;
+	if (str_sz != 0)
+	{
+		width = str_sz * fontSize;
+	}
+
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(100, 0, 100, 255));
+	ImGui::BeginChild("int sug", ImVec2(width, suggestion_height));
+	//draw_list->AddRectFilled(min, max, IM_COL32(50, 50, 50, 255));
+
+
+	if (str_sz != 0)
+	{
+		ImGui::Text(wnd->gl_state->func_def_str.c_str());
+		ImGui::Separator();
+	}
+
+	char buffer[128];
+	int real_i = 0;
+	//for(int i = wnd->gl_state->intellisense_suggestion.size() - 1; i>=0;i--)
+	FOR_VEC(sel, wnd->gl_state->intellisense_suggestion_aux)
+	{
+		//RatedStuff<int>* sel = &wnd->gl_state->intellisense_suggestion_aux[i];
+		decl2* d = &wnd->gl_state->intellisense_suggestion[sel->type];
+		if (d->name.size() == 0)
+			continue;
+
+
+		bool selected = wnd->gl_state->selected_suggestion == real_i;
+		snprintf(buffer, 128, "%s##%p", d->name.c_str(), d);
+		if (ImGui::Selectable(buffer, selected))
+			wnd->gl_state->selected_suggestion = real_i;
+		real_i++;
+	}
+	ImGui::PopStyleColor();
+	ImGui::EndChild();
+}
+void ClearIntellisenseSeggestion(void* data)
+{
+	auto wnd = (WindowEditor*)data;
+
+	wnd->gl_state->intellisense_suggestion.clear();
+	wnd->gl_state->intellisense_suggestion_aux.clear();
+	//wnd->gl_state->func_def_str.clear();
+
+}
+void AcceptIntellisenseSeggestion(void* data)
+{
+	auto wnd = (WindowEditor*)data;
+	TextEditor* ed = wnd->cur_buffer->ed;
+	int start_line = wnd->gl_state->suggestion_cursor_line;
+	int start_column = wnd->gl_state->suggestion_cursor_column + 3;
+	int max_column = ed->GetLineMaxColumn(wnd->gl_state->suggestion_cursor_line);
+
+	TextEditor::Coordinates coor(ed->mState.mCursorPosition);
+	coor.mColumn = wnd->gl_state->suggestion_cursor_column;
+	TextEditor::Coordinates start;
+	TextEditor::Coordinates end;
+	if(wnd->gl_state->suggestion_cursor_column >= max_column)
+	{
+		start = coor;
+		start.mColumn = max_column;
+	}
+	else
+	{
+		start = ed->FindWordStart2(coor);
+		end = ed->FindWordEnd(coor);
+		ed->DeleteRange(start, end);
+	}
+
+
+	int name_idx = wnd->gl_state->selected_suggestion;
+	int suggestion_idx = wnd->gl_state->intellisense_suggestion_aux[name_idx].type;
+	own_std::string name = wnd->gl_state->intellisense_suggestion[suggestion_idx].name;
+
+	ed->InsertTextAt(start, name.c_str());
+
+	ed->MoveRight(name.size());
+
+	wnd->gl_state->intellisense_suggestion.clear();
+	wnd->gl_state->intellisense_suggestion_aux.clear();
+
+}
+bool GlobalIsCurCmdBuffer(void* data)
+{
+	auto wnd = (WindowEditor*)data;
+	//wnd->on_cmd = false;
+	return wnd->on_cmd;
+}
+void GlobalGetFileName(void *data, own_std::string *out)
+{
+	auto wnd = (WindowEditor*)data;
+	*out = wnd->cur_buffer->name;
+}
+void GlobalChangeToCmdBuffer(void *data)
+{
+	auto wnd = (WindowEditor*)data;
+	wnd->on_cmd = true;
+	wnd->cmd_buffer->ed->mVimMode = VI_INSERT;
+	wnd->cmd_buffer->ed->ClearLines();
+}
+
+void GlobalGetCurBufferFileLines(void *data, own_std::string *file)
+{
+	auto wnd = (WindowEditor*)data;
+	//gl_state->cur_buffer = gl_state->cmd_buffer;
+
+	std::vector<own_std::string> txt = wnd->cur_buffer->ed->GetTextLines();
+	FOR_VEC(str, txt)
+	{
+		*file += *str;
+		*file += "\r\n";
+	}
+}
+float FuzzyMatch(const own_std::string& to_match, const own_std::string& src)
+{
+    float score = 0.0f;
+
+    // Match exact characters at the same positions
+    for (size_t i = 0; i < to_match.size() && i < src.size(); ++i)
+    {
+        if (to_match[i] == src[i])
+            score += 2.0f;
+    }
+
+    // Match characters at any position
+    for (size_t i = 0; i < to_match.size(); ++i)
+    {
+        for (size_t j = 0; j < src.size(); ++j)
+        {
+            if (to_match[i] == src[j])
+            {
+                score += 0.5f;
+
+                // Calculate neighboring indices with clamping
+                size_t prev_idx_src = clamp(static_cast<int>(j) - 1, 0, static_cast<int>(src.size()) - 1);
+                size_t next_idx_src = clamp(static_cast<int>(j) + 1, 0, static_cast<int>(src.size()) - 1);
+
+                size_t prev_idx_match = clamp(static_cast<int>(i) - 1, 0, static_cast<int>(to_match.size()) - 1);
+                size_t next_idx_match = clamp(static_cast<int>(i) + 1, 0, static_cast<int>(to_match.size()) - 1);
+
+                float add = 0.0f;
+
+                if (i != prev_idx_match && to_match[prev_idx_match] == src[prev_idx_src])
+                    add += 1.0f;
+
+                if (i != next_idx_match && to_match[next_idx_match] == src[next_idx_src])
+                    add += 1.0f;
+
+                score += add;
+            }
+        }
+    }
+
+    return score;
+}
+void ShowFileAndCmdBuffer(WindowEditor *wnd, int flags)
+{
+	bool focus_on_cmd = wnd->on_cmd;
+	flags |= focus_on_cmd * TEXT_ED_DONT_HAVE_CURSOR_FOCUS;
+	char buffer[32];
+	ImGui::Text(wnd->cur_buffer->name_without_path.c_str());
+	snprintf(buffer, 32, "editor##%p", wnd);
+	wnd->cur_buffer->ed->Render(buffer, wnd->main_buffer_sz, flags);
+	TextEditor* ed = wnd->cur_buffer->ed;
+	VIM_mode_enum mode = wnd->cur_buffer->ed->mVimMode;
+	if (mode == VI_NORMAL)
+	{
+		ImGui::TextColored(ImVec4(ImColor(255, 255, 0)), "NORMAL");
+	}
+	else if (mode == VI_VISUAL)
+	{
+		ImGui::TextColored(ImVec4(ImColor(255, 0, 0)), "VISUAL");
+	}
+	else if (mode == VI_INSERT)
+	{
+		ImGui::TextColored(ImVec4(ImColor(255, 255, 0)), "INSERT");
+	}
+	ImGui::SameLine();
+	ImGui::Text("(%d:%d)", ed->mState.mCursorPosition.mLine + 1, ed->mState.mCursorPosition.mColumn + 1);
+	ImGui::SameLine();
+	ImGui::Text(ed->insertBuffer.c_str());
+
+
+
+	bool isFirstCharacterSlash = wnd->cur_buffer->ed->firstChInInsertBufferIsSlash;
+	flags = !focus_on_cmd * TEXT_ED_DONT_HAVE_CURSOR_FOCUS;
+	if (isFirstCharacterSlash)
+		wnd->cmd_buffer->ed->haveKeyboardFocusAnyway = true;
+
+	snprintf(buffer, 32, "cmd##%p", wnd);
+	wnd->cmd_buffer->ed->Render(buffer, ImVec2(0.0, 50.0), flags);
+}
+
+void ChangeFileOfBuffer(Buffer* b, own_std::string file_name)
+{
+	int read = 0;
+	char* buffer = ReadEntireFileLang((char*)file_name.c_str(), &read);
+
+	b->ed->SetText(buffer);
+	heap_free((mem_alloc*)__lang_globals.data, buffer);
+
+}
+
+void LspPushStringIntoVector(own_std::string* str, own_std::vector<char>* out)
+{
+	int sz = str->size();
+
+	int idx = out->size();
+	out->make_count(out->size() + 4);
+	*((int*)(out->data() + idx)) = sz;
+
+	idx = out->size();
+	out->make_count(out->size() + sz);
+	memcpy(out->data() + idx, str->data(), sz);
+
+}
+Buffer* NewBuffer(dbg_state* dbg, WindowEditor* wnd)
+{
+	auto buf = (Buffer*)AllocMiscData(dbg->lang_stat, sizeof(Buffer));
+	buf->ed = (TextEditor*)AllocMiscData(dbg->lang_stat, sizeof(TextEditor));
+	new(buf->ed)TextEditor();
+	buf->ed->data = (void*)wnd;
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	ASSERT(gl_state);
+	buf->ed->yank = &gl_state->yank[0];
+
+	return buf;
+}
+Buffer* AddFileToBuffer(dbg_state* dbg, own_std::string file_name, WindowEditor* wnd)
+{
+	for (int i = 0; i < file_name.size(); i++)
+	{
+		if (file_name[i] == '/')
+			file_name[i] = '\\';
+	}
+	TCHAR name_buffer[MAX_PATH];
+
+	int error = GetLongPathName((char*)file_name.c_str(), name_buffer, MAX_PATH);
+	if (error == 0)
+	{
+		printf("error in opening file buffer, code %d", GetLastError());
+		ASSERT(0);
+	}
+	file_name = name_buffer;
+	bool has_it = false;
+	FOR_VEC(buf, wnd->ed_buffers)
+	{
+		Buffer* b = *buf;
+
+		if (b->type == buffer_type::FILE && b->name == file_name)
+		{
+			has_it = true;
+			return b;
+		}
+	}
+	Buffer* buf = NewBuffer(dbg, wnd);
+
+	TextEditor* ed = buf->ed;
+	buf->type = buffer_type::FILE;
+
+	buf->name = file_name;
+
+	int last_bar = file_name.find_last_of("\\/");
+
+	buf->name_without_path = file_name.substr(last_bar + 1);
+
+
+	std::ifstream t(file_name);
+	if (t.good())
+	{
+		own_std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
+		ed->SetText(str);
+	}
+	else
+	{
+		ASSERT(0);
+	}
+
+	wnd->ed_buffers.emplace_back(buf);
+	return buf;
+}
+
+void LspGetFileSyntaxHightlighting(lang_state* lang_stat, own_std::string fname, open_gl_state* gl_state)
+{
+	lsp_header hdr;
+	hdr.magic = 0x77;
+	hdr.msg_type = lsp_msg_enum::LSP_SYNTAX;
+	hdr.msg_len = sizeof(lsp_header) + fname.size() + 1;
+	own_std::vector<char> buffer;
+	char* cstr = (char*)fname.c_str();
+	buffer.insert(buffer.end(), (char*)&hdr, (char*)(&hdr + 1));
+	buffer.insert(buffer.end(), cstr, cstr + fname.size() + 1);
+
+	Write(gl_state->hStdInWrite, buffer.data(), buffer.size());
+}
+
+void SetNewBuffer(WindowEditor* ed, Buffer* new_b)
+{
+	if(ed->cur_buffer != new_b)
+		ed->prev_buffer = ed->cur_buffer;
+	ed->cur_buffer = new_b;
+}
+
+
+int LspCompile(lang_state* lang_stat, own_std::string folder, open_gl_state* gl_state, int line, int line_offset)
+{
+	DWORD bytesRead;
+	DWORD availableBytes = 0;
+
+	char read_buffer[1024];
+	if (PeekNamedPipe(gl_state->hStdOutRead, NULL, 0, NULL, &availableBytes, NULL) && availableBytes > 0)
+	{
+		own_std::string final_str;
+		int cur_read = 0;
+		while (cur_read < availableBytes)
+		{
+			ReadFile(gl_state->hStdOutRead, read_buffer, sizeof(read_buffer) - 1, &bytesRead, NULL);
+			read_buffer[bytesRead] = 0;
+			cur_read += bytesRead;
+			final_str += own_std::string(read_buffer, bytesRead);
+		}
+		char* aux_buffer = (char*)final_str.data();
+		auto hdr = (lsp_header*)aux_buffer;
+		switch (lang_stat->intentions_to_lsp)
+		{
+		case lsp_intention_enum::DECL_DEF_LINE:
+		{
+			char* line = (char*)(hdr + 1);
+			gl_state->func_def_str = line;
+		}break;
+		case lsp_intention_enum::WAITING_FOLDER_TO_COMPILE:
+		{
+			if (hdr->msg_type == lsp_msg_enum::LSP_TASK_DONE)
+			{
+
+				lang_stat->intentions_to_lsp = lsp_intention_enum::SYNTAX;
+				own_std::string fname = gl_state->main_ed.cur_buffer->name;
+				LspGetFileSyntaxHightlighting(lang_stat, fname, gl_state);
+			}
+		}break;
+		case lsp_intention_enum::SYNTAX:
+		{
+			if (hdr->msg_type == lsp_msg_enum::LSP_SYNTAX_RES)
+			{
+				Buffer* ed_buffer = gl_state->main_ed.cur_buffer;
+				for (int i = 0; i < ed_buffer->ed->mLines.size(); i++)
+				{
+					int col = 0;
+					ed_buffer->ed->ColorizeLine(i, col);
+					/*
+					FOR_VEC(gl, *cur_line)
+					{
+						gl->color = 0xffffffff;
+					}
+					*/
+				}
+				char* cur_ptr = (char*)(hdr + 1);
+				auto syntax_hdr = (lsp_syntax_hightlight_hdr*)cur_ptr;
+				long long offset = ((char*)cur_ptr) - ((char*)hdr);
+				while (syntax_hdr->type != lsp_syntax_hightlight_enum::SEOF && offset < hdr->msg_len)
+				{
+					switch (syntax_hdr->type)
+					{
+					case lsp_syntax_hightlight_enum::WORD:
+					{
+						auto w = (lsp_syntax_hightlight_word*)syntax_hdr;
+						auto* line = &ed_buffer->ed->mLines[w->line - 1];
+						if (line->size() != 0)
+						{
+							if (w->column_end > line->size())
+								return 0 ;
+
+							for (int i = w->column_start; i < w->column_end; i++)
+							{
+								//int glyph_idx = ed_buffer->ed->GetCharacterIndex(TextEditor::Coordinates(w->line - 1, i));
+
+								(*line)[i].color = w->color;
+							}
+						}
+						cur_ptr = (char*)(w + 1);
+					}break;
+					default:
+						ASSERT(false);
+					}
+
+					long long offset = ((char*)cur_ptr) - ((char*)hdr);
+					syntax_hdr = (lsp_syntax_hightlight_hdr*)cur_ptr;
+				}
+			}
+		}break;
+		case lsp_intention_enum::GOTO_FUNC_DEF:
+		{
+			if (hdr->msg_type == lsp_msg_enum::LSP_GOTO_FUNC_RES)
+			{
+				int new_func_pos = *(int*)(hdr + 1);
+				gl_state->main_ed.cur_buffer->ed->SetCursorPosition(
+					TextEditor::Coordinates(new_func_pos, 0));
+			}
+		}break;
+		case lsp_intention_enum::GOTO_DEF:
+		{
+			if (hdr->msg_type == lsp_msg_enum::LSP_GOTO_DEF_RES)
+			{
+				char* cur_ptr = (char*)(hdr + 1);
+				auto gt_def = (goto_def*)cur_ptr;
+				char* file_name = (char*)(gt_def + 1);
+
+				Buffer* buf = AddFileToBuffer(lang_stat->dstate, file_name, &gl_state->main_ed);
+
+				if (file_name != gl_state->main_ed.cmd_buffer->name)
+				{
+					SetNewBuffer(&gl_state->main_ed, buf);
+					LspGetFileSyntaxHightlighting(lang_stat, file_name, gl_state);
+					lang_stat->intentions_to_lsp = lsp_intention_enum::SYNTAX;
+				}
+				TextEditor* ed = gl_state->main_ed.cur_buffer->ed;
+				ed->SetCursorPosition(TextEditor::Coordinates(gt_def->line.line - 1, gt_def->line.column));
+
+			}
+		}break;
+		case lsp_intention_enum::INTELLISENSE:
+		{
+			if (hdr->msg_type == lsp_msg_enum::LSP_INTELLISENSE_RES)
+			{
+				char* cur_ptr = (char*)(hdr + 1);
+				int total_decls = *(int*)(cur_ptr);
+				cur_ptr += 4;
+				char* str_tbl = cur_ptr + total_decls * sizeof(rel_type2);
+
+				for (int i = 0; i < total_decls; i++)
+				{
+					rel_type2* r = ((rel_type2*)cur_ptr) + i;
+					char* name = str_tbl + r->name;
+					decl2 decl;
+					gl_state->intellisense_suggestion.emplace_back(decl);
+					decl2* back = &gl_state->intellisense_suggestion.back();
+					back->name = own_std::string(name, r->name_len);
+					back->type.type = (enum_type2)r->type;
+					RatedStuff<int> rated;
+					rated.type = i;
+					gl_state->intellisense_suggestion_aux.emplace_back(rated);
+				}
+
+
+			}
+		}break;
+		}
+		aux_buffer[bytesRead] = '\0'; // Null-terminate the string
+		//std::cout << buffer;      // Output the captured data
+
+	}
+	return 0;
+}
+
+int CreateLspProcess(lang_state* lang_stat, open_gl_state* gl_state, own_std::string folder);
+void CheckLspProcess(lang_state* lang_stat, open_gl_state* gl_state)
+{
+	DWORD code;
+	GetExitCodeProcess(gl_state->lsp_process, &code);
+	if (code != STILL_ACTIVE)
+	{
+		CreateLspProcess(lang_stat, gl_state, gl_state->lsp_dir_to_compile);
+	}
+
+}
+void LspSendFolderToCompile(open_gl_state* gl_state, HANDLE hStdInWrite, own_std::string folder)
+{
+	lang_state* lang_stat = gl_state->lang_stat;
+	own_std::vector<char> buffer;
+
+	// 8 is for string sizes(folder name, and exe_dir)
+	int offset_to_str = +8;
+	buffer.make_count(sizeof(lsp_header));
+
+	LspPushStringIntoVector(&folder, &buffer);
+	LspPushStringIntoVector(&lang_stat->exe_dir, &buffer);
+	auto hdr = (lsp_header*)buffer.data();
+	hdr->magic = 0x77;
+	hdr->msg_type = lsp_msg_enum::ADD_FOLDER;
+	hdr->msg_len = buffer.size();
+
+	DWORD bytesWritten;
+	WriteFile(hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
+	//WriteFileLang("mock.data", buffer.data(), buffer.size());
+	lang_stat->intentions_to_lsp = lsp_intention_enum::WAITING_FOLDER_TO_COMPILE;
+
+}
+
+
+int CreateLspProcess(lang_state* lang_stat, open_gl_state* gl_state, own_std::string folder)
+{
+	SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+	HANDLE hStdInRead, hStdInWrite;
+	HANDLE hStdOutRead, hStdOutWrite;
+
+	// Create pipes for stdin and stdout
+
+	if (!CreatePipe(&hStdInRead, &hStdInWrite, &sa, 0)) {
+		std::cerr << "Failed to create stdin pipe.\n";
+		return 1;
+	}
+	if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
+		std::cerr << "Failed to create stdout pipe.\n";
+		return 1;
+	}
+
+	// Ensure the write handle to stdin and read handle to stdout are not inherited
+	if (!SetHandleInformation(hStdInWrite, HANDLE_FLAG_INHERIT, 0) ||
+		!SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0)) {
+		std::cerr << "Failed to set pipe handle information.\n";
+		return 1;
+	}
+
+	// Set up the STARTUPINFO structure
+	STARTUPINFO si = {};
+	si.cb = sizeof(STARTUPINFO);
+	si.hStdInput = hStdInRead;    // Child's stdin
+	si.hStdOutput = hStdOutWrite; // Child's stdout
+	si.hStdError = hStdOutWrite;  // Redirect stderr (optional)
+	si.dwFlags |= STARTF_USESTDHANDLES;
+
+	PROCESS_INFORMATION pi = {};
+
+	// Create the child process
+	if (!CreateProcess(
+		NULL,
+		(LPSTR)"E:/projects/WasmGame/lang2/src/lsp/lsp.exe", // Replace with your command
+		NULL,
+		NULL,
+		TRUE, // Inherit handles
+		0,
+		NULL,
+		NULL,
+		&si,
+		&pi)) {
+		std::cerr << "Failed to create process.\n";
+		return 1;
+	}
+
+	// Close unused pipe ends in the parent process
+	CloseHandle(hStdInRead);
+	CloseHandle(hStdOutWrite);
+
+	// Read from child's stdout
+	LspSendFolderToCompile(gl_state, hStdInWrite, folder);
+	// Write to child's stdin
+	gl_state->hStdInWrite = hStdInWrite;
+	gl_state->hStdOutRead = hStdOutRead;
+	gl_state->lsp_process = pi.hProcess;
+	gl_state->lsp_thread = pi.hThread;
+	//CloseHandle(hStdInWrite); // Close stdin write end after writing
+
+	//CloseHandle(hStdOutRead);
+
+	// Wait for the child process to finish
+	/*
+	WaitForSingleObject(pi.hProcess, INFINITE);
+
+	// Clean up
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+	*/
+
+	return 0;
+}
+
+void PushCStrIntoVector(own_std::vector<char>* out, char* ptr, int size)
+{
+	int offset = out->size();
+	out->make_count(out->size() + size);
+	memcpy(&(*out)[offset], ptr, size);
+}
+void LspSendLineStr(HANDLE hStdInWrite, lsp_msg_enum msg_type, int line, int column, own_std::string line_str, own_std::string file)
+{
+	to_lsp_linestr info;
+	info.hdr.magic = 0x77;
+	info.hdr.msg_type = msg_type;
+	info.hdr.msg_len = sizeof(to_lsp_linestr) + line_str.size() + 1 + file.size() + 1;
+	info.pos.line = line;
+	info.pos.column = column;
+	own_std::vector<char>buffer;
+	PushCStrIntoVector(&buffer, (char*)line_str.c_str(), line_str.size() + 1);
+	info.line_str_len = line_str.size() + 1;
+	PushCStrIntoVector(&buffer, (char*)file.c_str(), file.size() + 1);
+	buffer.insert(buffer.begin(), (char*)&info, (char*)(&info + 1));
+	DWORD bytesWritten;
+	WriteFile(hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
+}
+
+void LspSendCursorPosAndString(HANDLE hStdInWrite, lsp_msg_enum msg_type, int line, int column, own_std::string str)
+{
+	lsp_header hdr;
+	hdr.magic = 0x77;
+	hdr.msg_type = msg_type;
+	hdr.msg_len = sizeof(lsp_header) + sizeof(lsp_pos) + str.size();
+	lsp_pos int_info;
+	int_info.column = column;
+	int_info.line = line;
+
+
+	own_std::vector<char>buffer;
+	InsertIntoCharVector(&buffer, &hdr, sizeof(lsp_header));
+	InsertIntoCharVector(&buffer, &int_info, sizeof(lsp_pos));
+	InsertIntoCharVector(&buffer, (char*)str.data(), str.size() + 1);
+	//InsertIntoCharVector(&buffer, (void*)word.c_str(), word.size() + 1);
+
+	DWORD bytesWritten;
+	WriteFile(hStdInWrite, buffer.data(), buffer.size(), &bytesWritten, NULL);
+}
+
+void StartGame(open_gl_state *gl_state, own_std::string game_dir)
+{
+	DWORD code;
+	GetExitCodeProcess(gl_state->for_engine_game_process, &code);
+	if (code == STILL_ACTIVE)
+	{
+		TerminateProcess(gl_state->for_engine_game_process, 0);
+		CloseHandle(gl_state->for_engine_game_process);
+		CloseHandle(gl_state->for_engine_game_thread);
+	}
+HANDLE hStdInRead, hStdInWrite;
+HANDLE hStdOutRead, hStdOutWrite;
+#define CREATE_STDIN 
+#ifdef CREATE_STDIN
+	SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+
+	// Create pipes for stdin and stdout
+
+	if (!CreatePipe(&hStdInRead, &hStdInWrite, &sa, 0)) {
+		std::cerr << "Failed to create stdin pipe.\n";
+		return;
+	}
+	if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
+		std::cerr << "Failed to create stdout pipe.\n";
+		return;
+	}
+
+	// Ensure the write handle to stdin and read handle to stdout are not inherited
+	if (!SetHandleInformation(hStdInWrite, HANDLE_FLAG_INHERIT, 0) ||
+		!SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0)) {
+		std::cerr << "Failed to set pipe handle information.\n";
+		return;
+	}
+
+
+	// Set up the STARTUPINFO structure
+	STARTUPINFO si = {};
+	si.cb = sizeof(STARTUPINFO);
+	si.hStdInput = hStdInRead;    // Child's stdin
+	si.hStdOutput = hStdOutWrite; // Child's stdout
+	si.hStdError = hStdOutWrite;  // Redirect stderr (optional)
+	si.dwFlags |= STARTF_USESTDHANDLES;
+#else
+	STARTUPINFO si = {};
+	si.cb = sizeof(STARTUPINFO);
+#endif
+
+	PROCESS_INFORMATION pi = {};
+
+	// Create the child process
+	own_std::string full_cmd = "E:/projects/WasmGame/lang2/build/liz.exe run ";
+	full_cmd += game_dir;
+	if (!CreateProcess(
+		nullptr,
+		(char*) full_cmd.c_str(), // Replace with your command
+		NULL,
+		NULL,
+		TRUE, // Inherit handles
+		0,
+		NULL,
+		NULL,
+		&si,
+		&pi)) {
+			printf( "CreateProcess failed (%d).\n", GetLastError() );
+			return;
+	}
+
+#ifdef CREATE_STDIN
+	// Close unused pipe ends in the parent process
+	gl_state->for_engine_game_process = pi.hProcess;
+	gl_state->for_engine_game_thread = pi.hThread;
+	gl_state->for_engine_game_stdin = hStdInWrite;
+	gl_state->for_engine_game_stdout = hStdOutRead;
+	CloseHandle(hStdInRead);
+	CloseHandle(hStdOutWrite);
+#endif
+	gl_state->game_started = true;
+}
+
+void ImGuiRenderTextEditor(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+
+
+	ShowFileAndCmdBuffer(&gl_state->main_ed, 0);
+	/*
+	if (gl_state->func_def_str.size() > 0)
+	{
+		RenderFuncDef(&gl_state->main_ed, gl_state->for_func_def_first_parentheses_pos_x, gl_state->for_func_def_first_parentheses_pos_y);
+	}
+	*/
+
+	TextEditor* ed = gl_state->main_ed.cur_buffer->ed;
+	if (ed->IsTextChanged())
+	{
+		bool has_suggestions = gl_state->intellisense_suggestion.size() > 0;
+		if (has_suggestions);
+		{
+
+			int start_line = gl_state->suggestion_cursor_line;
+			int start_column = gl_state->suggestion_cursor_column;
+			//start_column = ed->GetCharacterIndex(TextEditor::Coordinates(start_line, start_column));
+			int end_line = gl_state->suggestion_cursor_line;
+			int end_column = ed->GetLineMaxColumn(start_line);
+			own_std::string line_str = ed->GetText(TextEditor::Coordinates(start_line, start_column),
+				TextEditor::Coordinates(end_line, end_column));
+
+			own_std::string out_str;
+			GetWordStr((char*)line_str.data(), line_str.size(), 0, &out_str);
+
+			gl_state->suggestion_cursor_column_end = start_column + out_str.size();
+
+			own_std::vector<RatedStuff<int>>* aux_suggs = &gl_state->intellisense_suggestion_aux;
+			aux_suggs->clear();
+			memset(aux_suggs->data(), 0, aux_suggs->size() * sizeof(RatedStuff<int>));
+
+			int i = 0;
+			FOR_VEC(d, gl_state->intellisense_suggestion)
+			{
+				RatedStuff<int> rated;
+				rated.type = i;
+
+				rated.val = FuzzyMatch(out_str, d->name);
+				aux_suggs->emplace_back(rated);
+				i++;
+			}
+			SortRatedStuffDescending(aux_suggs);
+			gl_state->selected_suggestion = 0;
+			auto a = 0;
+		}
+
+		TextEditor::Coordinates coor = ed->GetCursorPosition();
+		auto prevPos = ed->mState.mCursorPosition;
+		ed->MoveLeft(1);
+		own_std::string word_under_cursor = ed->GetWordUnderCursor();
+		ed->SetCursorPosition(prevPos);
+
+		bool can_get_all_scp_vars = word_under_cursor.size() == 1 && IsLetter(word_under_cursor[0]) && !has_suggestions;
+		if (ed->lastInsertedChar == ',' || ed->lastInsertedChar == ' ')
+		{
+			ClearIntellisenseSeggestion(&gl_state->main_ed);
+		}
+		if (ed->lastInsertedChar == '(')
+		{
+			/*
+			int out_line, out_column;
+			if(CheckMatchLevelsOfChar('(', coor.mLine, coor.mColumn, int *out_line, int *out_column)
+			*/
+			ed->MoveLeft(2);
+			word_under_cursor = ed->GetWordUnderCursor();
+			ed->MoveRight(2);
+
+			gl_state->suggestion_cursor_line = coor.mLine;
+			gl_state->func_def_cursor_column = coor.mColumn;
+
+
+			ImVec2 cspos = ed->mCursorScreenPos;
+			gl_state->for_func_def_first_parentheses_pos_x = cspos.x;
+			gl_state->for_func_def_first_parentheses_pos_y = cspos.y;
+
+			LspSendLineStr(gl_state->hStdInWrite, lsp_msg_enum::LSP_DECL_DEF_LINE, coor.mLine + 1,
+				ed->GetCharacterIndex(coor), word_under_cursor, gl_state->main_ed.cur_buffer->name);
+
+			gl_state->lang_stat->intentions_to_lsp = lsp_intention_enum::DECL_DEF_LINE;
+			gl_state->intellisense_suggestion.clear();
+			gl_state->intellisense_suggestion_aux.clear();
+
+		}
+		else if (ed->lastInsertedChar == '.' || can_get_all_scp_vars)
+		{
+			CheckLspProcess(dbg->lang_stat, gl_state);
+
+			own_std::string line_str = ed->GetCurrentLineText();
+
+			lsp_pos int_info;
+			int_info.column = ed->GetCharacterIndex(coor) - 1;
+			int_info.line = coor.mLine + 1;
+			gl_state->suggestion_cursor_line = int_info.line - 1;
+			if (can_get_all_scp_vars)
+			{
+				gl_state->suggestion_cursor_column = coor.mColumn - 1;
+				gl_state->suggestion_cursor_column_end = int_info.column;
 			}
 			else
 			{
-				*gjk.simplex[0] = a
-				*gjk.simplex[1] = c
-				*gjk.simplex[2] = b
-				gjk.simplex_verts = 3
+				gl_state->suggestion_cursor_column = coor.mColumn;
+				//gl_state->suggestion_cursor_column = int_info.column + 2;
+				gl_state->suggestion_cursor_column_end = int_info.column + 3;
+			}
 
-				*dir = -abc
+
+			LspSendLineStr(gl_state->hStdInWrite, lsp_msg_enum::INTELLISENSE, coor.mLine + 1,
+				ed->GetCharacterIndex(coor) - 1, line_str, gl_state->main_ed.cur_buffer->name);
+
+			dbg->lang_stat->intentions_to_lsp = lsp_intention_enum::INTELLISENSE;
+			gl_state->intellisense_suggestion.clear();
+			gl_state->intellisense_suggestion_aux.clear();
+
+		}
+	}
+	if (ed->gotoFuncSrcLine != 0)
+	{
+		own_std::vector<char> buffer;
+		own_std::string *file_name = &gl_state->main_ed.cur_buffer->name;
+		lsp_header hdr;
+		hdr.magic = 0x77;
+		hdr.msg_type = lsp_msg_enum::LSP_GOTO_FUNC_DEF;
+		hdr.msg_len = sizeof(lsp_header) + sizeof(lsp_pos) + file_name->size() + 1;
+		lsp_pos pos;
+		pos.line = gl_state->main_ed.cur_buffer->ed->GetCursorPosition().mLine;
+		buffer.insert(buffer.end(), (char*)&hdr, (char*)(&hdr + 1));
+		buffer.insert(buffer.end(), (char*)&pos, (char*)(&pos + 1));
+
+		char dir = 0;
+		if (ed->gotoFuncSrcLine == 1)
+		{
+			dir = 1;
+		}
+		else if (ed->gotoFuncSrcLine == -1)
+		{
+			dir = -1;
+		}
+		else
+		{
+			ASSERT(0);
+		}
+
+		buffer.insert(buffer.end(), (char*)&dir, (char*)(&dir+ 1));
+		PushCStrIntoVector(&buffer, (char*)file_name->c_str(), file_name->size() + 1);
+
+		Write(gl_state->hStdInWrite, buffer.data(), buffer.size());
+		ed->gotoFuncSrcLine = 0;
+		gl_state->lang_stat->intentions_to_lsp = lsp_intention_enum::GOTO_FUNC_DEF;
+		
+	}
+	if (ed->insertBuffer[0] == '/' &&
+		gl_state->main_ed.cmd_buffer->ed->IsTextChanged())
+	{
+		own_std::string line_str = gl_state->main_ed.cmd_buffer->ed->GetCurrentLineText();
+
+		if (line_str.size() > 0)
+		{
+			//line_str = line_str.substr(1);
+			int line = 0;
+			int column = 0;
+			if (ed->SearchStringRange(line_str, &line, &column))
+			{
 			}
 		}
 	}
-	return false
-}
-gjk_line ::fn x64(gjk : *gjk_state, dir : *_vec) ! bool
-{
-	a := gjk.simplex[0]
-	b := gjk.simplex[1]
-
-	ab := *b - *a
-	ao := -*a
-
-	if(same_direction(&ab, &ao))
+	if (ed->mState.mCursorPosition.mColumn < gl_state->func_def_cursor_column)
 	{
-		*dir = cross_vec(&cross_vec(&ab, &ao), &ab)
+		gl_state->func_def_str.clear();
+	}
+	if (ed->insertBuffer == "gd")
+	{
+		TextEditor::Coordinates coor = ed->FindWordEnd2(ed->mState.mCursorPosition);
+		
+		//own_std::string word = ed->GetWordUnderCursor();
+		Buffer* cur_buffer = gl_state->main_ed.cur_buffer;
+		own_std::string line_str = ed->GetCurrentLineText();
+		own_std::vector<char> buffer;
+		LspSendLineStr(gl_state->hStdInWrite, lsp_msg_enum::LSP_GOTO_DEF, coor.mLine + 1,
+			ed->GetCharacterIndex(coor), line_str, cur_buffer->name);
+
+		ed->insertBuffer.clear();
+		dbg->lang_stat->intentions_to_lsp = lsp_intention_enum::GOTO_DEF;
+	}
+	if (dbg->lang_stat->intentions_to_lsp != lsp_intention_enum::PAUSED)
+	{
+		dbg->lang_stat->dstate = dbg;
+		LspCompile(dbg->lang_stat, "../dev/engine/", gl_state, 0, 0);
+	}
+
+	/*
+	if (IsKeyHeld(dbg, _KEY_LCTRL) && IsKeyDown(dbg, _KEY_F))
+	{
+		bool CheckMatchLevelsOfChar(char target_ch, int line, int column, int *out_line, int *out_column)
+	}
+	*/
+	if (IsKeyHeld(dbg, _KEY_SHIFT) && IsKeyDown(dbg, _KEY_SPACE))
+	{
+		gl_state->file_window = !gl_state->file_window;
+		FOR_VEC(s, gl_state->files)
+		{
+			heap_free((mem_alloc*)__lang_globals.data, *s);
+		}
+		gl_state->files.clear();
+		WindowEditor* files_ed = &gl_state->search_files_ed;
+		//files_ed->cur_buffer->ed->SetReadOnly(true);
+		GetFilesInDirectory(gl_state->cur_dir, nullptr, &gl_state->files, 
+			GET_FILES_DIR_ADD_PATH_TO_FILE_NAME | GET_FILES_DIR_RECURSIVE);
+
+		files_ed->cmd_buffer->ed->ClearLines();
+		files_ed->cur_buffer->ed->ClearLines();
+		files_ed->on_cmd = true;
+		//files_ed->cur_buffer->ed->InsertText()
+		files_ed->cmd_buffer->ed->mVimMode = VI_INSERT;
+
+		own_std::string s;
+		FOR_VEC(str, gl_state->files)
+		{
+			s += *str;
+			s += "\r\n";
+		}
+		files_ed->cur_buffer->ed->InsertText(s);
+
+	}
+	if(gl_state->file_window)
+	{
+		bool val = true;
+		gl_state->rated_files.make_count(gl_state->files.size());
+		WindowEditor* files_ed = &gl_state->search_files_ed;
+		if (files_ed->cmd_buffer->ed->IsTextChanged())
+		{
+			gl_state->files_aux.clear();
+			gl_state->rated_files.clear();
+			files_ed->cur_buffer->ed->ClearLines();
+			int i = 0;
+			own_std::string line = files_ed->cmd_buffer->ed->GetCurrentLineText();
+
+			FOR_VEC(f_str, gl_state->files)
+			{
+				RatedStuff<int> rated;
+				rated.type = i;
+
+				rated.val = FuzzyMatch(line, *f_str);
+				gl_state->rated_files.emplace_back(rated);
+				i++;
+			}
+			SortRatedStuff(&gl_state->rated_files);
+
+			own_std::string s;
+			FOR_VEC(r, gl_state->rated_files)
+			{
+				s += gl_state->files[r->type];
+				s += "\r\n";
+			}
+			files_ed->cur_buffer->ed->InsertText(s);
+			files_ed->cur_buffer->ed->MoveUp(1);
+		}
+
+		ImGui::Begin("file window", &val);
+		ShowFileAndCmdBuffer(&gl_state->search_files_ed, TEXT_ED_ALLOW_ARRAW_NAVIGATION_EVEN_WHEN_NOT_FOCUS);
+		ImGui::End();
+
+		if (IsKeyDown(dbg, _KEY_ENTER))
+		{
+			own_std::string file_name = files_ed->cur_buffer->ed->GetCurrentLineText();
+			if (file_name.empty())
+				return;
+			int bar = file_name.find_last_of("\\/");
+			Buffer* buf = AddFileToBuffer(dbg, file_name, &gl_state->main_ed);
+			SetNewBuffer(&gl_state->main_ed, buf);
+			gl_state->file_window = false;
+		}
+	}
+	if (IsKeyDown(dbg, _KEY_F1))
+	{
+		StartGame(gl_state, "../dev/files");
+	}
+	if (IsKeyDown(dbg, _KEY_F9))
+	{
+
+		int cline = ed->GetCursorPosition().mLine + 1;
+		engine_msg_break msg;
+		own_std::vector<char> buffer;
+		msg.msg.type = engine_msg_enum::ADD_BREAK_POINT;
+		msg.line = cline;
+		if (ed->HasBreakpoint(cline))
+		{
+			ed->RemoveBreakpoint(cline);
+			msg.add = false;
+		}
+		else
+		{
+			ed->SetBreakpoint(cline);
+			msg.add = true;
+		}
+		
+		buffer.insert(buffer.end(), (char*)&msg, (char*)(&msg + 1));
+		own_std::string *s = &gl_state->main_ed.cur_buffer->name;
+		PushCStrIntoVector(&buffer, (char*)s->data(), s->size());
+		Write(gl_state->for_engine_game_stdin, (char*)buffer.data(), buffer.size());
+	}
+	//ed->Render("editor", ImVec2(0.0, 500.0);
+}
+
+
+void InitWindowEditor(dbg_state* dbg, open_gl_state *gl_state, WindowEditor* ed)
+{
+	ed->cmd_buffer = NewBuffer(dbg, ed);
+	ed->cur_buffer = NewBuffer(dbg, ed);
+	ed->gl_state = gl_state;
+	
+}
+void ImGuiInitTextEditor(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name = (char*)&dbg->mem_buffer[name_offset];
+	auto gl_state = (open_gl_state*)dbg->data;
+	
+	gl_state->lsp_alloc = (mem_alloc *)AllocMiscData(dbg->lang_stat, sizeof(mem_alloc));
+	gl_state->lsp_lang_stat = (lang_state *)AllocMiscData(dbg->lang_stat, sizeof(lang_state));
+	new(gl_state->lsp_alloc)mem_alloc();
+	dbg->lang_stat->intentions_to_lsp = lsp_intention_enum::INTELLISENSE;
+	dbg->lang_stat->intention_state = 0;
+
+	void* prev_alloc = __lang_globals.data;
+
+	InitMemAlloc(gl_state->lsp_alloc);
+
+	InitLang(gl_state->lsp_lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, gl_state->lsp_alloc);
+	//LspCompile(gl_state->lsp_lang_stat, "../dev/engine/", gl_state);
+	__lang_globals.data = prev_alloc;
+
+	InitWindowEditor(dbg, gl_state, &gl_state->main_ed);
+	InitWindowEditor(dbg, gl_state, &gl_state->search_files_ed);
+	gl_state->search_files_ed.main_buffer_sz.x = 0.0;
+	gl_state->search_files_ed.main_buffer_sz.y = 200.0;
+	gl_state->main_ed.main_buffer_sz.x = 0.0;
+	gl_state->main_ed.main_buffer_sz.y = 500.0;
+	Buffer* buf = gl_state->main_ed.cur_buffer;
+
+
+	own_std::string dir = dbg->cur_func->from_file->path;
+	GoBackOneDir(&dir);
+	gl_state->cur_dir = dir;
+	dir += name;
+	TextEditor* ed = buf->ed;
+	buf->type = buffer_type::FILE;
+	buf->name = dir;
+
+	gl_state->lsp_dir_to_compile = "../dev/files";
+
+	
+	gl_state->main_ed.cur_buffer = AddFileToBuffer(dbg, dir, &gl_state->main_ed);
+
+
+	std::ifstream t(dir);
+	if (t.good())
+	{
+		own_std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
+		ed->SetText(str);
 	}
 	else
 	{
-		gjk.simplex_verts = 1
-		*dir = ao
+		ASSERT(0);
 	}
-	return false
+
+	gl_state->main_ed.ed_buffers.emplace_back(buf);
+
+	CreateLspProcess(dbg->lang_stat, gl_state, gl_state->lsp_dir_to_compile);
+
+}
+#endif
+
+void GoBackOneDir(own_std::string* dir)
+{
+	dir->pop_back();
+	int last_bar = dir->find_last_of("/\\");
+	dir->erase(last_bar, -1);
+	*dir += '\\';
 }
 
-ApplyTranformationsToOneVert::fn x64(a_pos : *_vec, dir : *_vec, a_pivot : *_vec, a_size : *_vec, a_rot : *_vec, dst : *_vec)
+void ImGuiInputInt(dbg_state* dbg)
 {
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int var_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
-	*dst = (*dir - *a_pivot) * *a_size + *a_pos
-	//dst.y = (dir.y - a_pivot.y) * a_size.y + a_pos.y
-	//dst.z = (dir.z - a_pivot.z) * a_size.z + a_pos.z
-	dst.w = 0.0
-	//*ptr_offset(arr, 1, _vec) = mul__vec(&(up - *a_pivot), a_size);
+	char* label = (char *)&dbg->mem_buffer[label_offset];
+	int* var_addr = (int *)&dbg->mem_buffer[var_offset];
+	ImGui::InputInt(label, var_addr);
 }
-ApplyTranformationsToVerts::fn(a_pos : *_vec, a_vel : *_vec, a_pivot : *_vec, a_size : *_vec, a_rot : *_vec, arr : *_vec, ent : *entity)
+void ImGuiInputText(dbg_state* dbg)
 {
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int buf_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buf_sz = *(int*)&dbg->mem_buffer[base_ptr + 24];
 
-    //mat_z: mat4x4;
-/*
-	mat_z.vals = [4 * 4]f32{cos(a_rot.z), -sin(a_rot.z), 0.0, 0.0,
-							sin(a_rot.z), cos(a_rot.z) , 0.0, 0.0,
-							0.0         , 0.0          , 1.0, 0.0,
-							0.0         , 0.0          , 0.0, 1.0};
-							*/
-	zero :_vec;
+	char* label = (char *)&dbg->mem_buffer[label_offset];
+	if (own_std::string(label) == "scene_name")
+		auto a = 0;
+	char* buf = (char *)&dbg->mem_buffer[buf_offset];
+	ImGui::InputText(label, buf, buf_sz);
+}
+void ImGuiImage(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int sz_x = (int)*(float*)&dbg->mem_buffer[base_ptr + 16];
+	int sz_y = (int)*(float*)&dbg->mem_buffer[base_ptr + 24];
+	ImGuiIO& io = ImGui::GetIO();
 
-	up :_vec;
-	up.y = 1.0;
-	down :_vec;
-	down.y = -1.0;
+	ImTextureID my_tex_id = io.Fonts->TexID;
+	//id = my_tex_id;
 
-	left :_vec;
-	left.x = -1.0;
+	auto gl_state = (open_gl_state*)dbg->data;
+	texture_info* t = &gl_state->textures[id];
+	ImGui::Image((ImTextureID)(intptr_t)t->id, ImVec2(sz_x, sz_y), ImVec2(0, 1), ImVec2(1, 0));
 
-	right :_vec;
-	right.x = 1.0;
+}
+void ImGuiEnd(dbg_state* dbg)
+{
+	ImGui::End();
 
-	up_right :_vec;
-	up_right.x = 1.0
-	up_right.y = 1.0
+}
+void ImGuiBegin(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	int bool_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	bool *bool_ptr = (bool*)&dbg->mem_buffer[bool_offset];
+	int flags = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	ImGui::Begin(name_str, bool_ptr, flags);
+}
+void ImGuiEndChild(dbg_state* dbg)
+{
+	ImGui::EndChild();
+
+}
+void ImGuiBeginChild(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	float sz_x = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	float sz_y = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	ImGui::BeginChild(name_str, ImVec2(sz_x, sz_y));
+}
+
+void ImGuiText(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	ImGui::Text(name_str);
+}
+void IsKeyHeld(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int key = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	key = FromGameToGLFWKey(key);
+
+	int* addr = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	if (IS_FLAG_ON(gl_state->buttons[key], KEY_HELD))
+	{
+		*addr = 1;
+	}
+	else
+		*addr = 0;
+
+}
+void GetTime(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	auto ret = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*ret = glfwGetTime();
+}
+void EndFrame(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int draw_addr = *(int*)&dbg->mem_buffer[base_ptr + 8 * 2];
+
+
+	auto wnd = (GLFWwindow*)*(long long*)&dbg->mem_buffer[base_ptr + 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->last_time = glfwGetTime();
+	ImGui::Render();
+	//int display_w, display_h;
+	//glfwGetFramebufferSize(window, &display_w, &display_h);
+	//glViewport(0, 0, display_w, display_h);
+	//glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+	//glClear(GL_COLOR_BUFFER_BIT);
+	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	glfwSwapBuffers(wnd);
+	gl_state->scroll = 0;
+}
+void ClearKeys(void *data)
+{
+	auto gl_state = (open_gl_state*)data;
+	for (int i = 0; i < TOTAL_KEYS; i++)
+	{
+		int retain_flags = gl_state->buttons[i] & KEY_HELD;
+		gl_state->buttons[i] &= ~(KEY_DOWN | KEY_UP | KEY_REPEAT | KEY_DOUBLE_CLICK);
+		gl_state->buttons[i] |= retain_flags;
+
+		if (IS_FLAG_ON(gl_state->buttons[i], KEY_RECENTLY_DOWN))
+		{
+			unsigned short held_from = (unsigned short)(gl_state->buttons[i] >> 16);
+			held_from++;
+			if (held_from > 24)
+			{
+				gl_state->buttons[i] &= ~KEY_RECENTLY_DOWN;
+				gl_state->buttons[i] = (gl_state->buttons[i] & 0xffff);
+			}
+			else
+			{
+				gl_state->buttons[i] = (gl_state->buttons[i] & 0xffff) | (held_from << 16);
+			}
+		}
+	}
+
+}
+void ShouldClose(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	long long wnd = *(long long*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = glfwWindowShouldClose((GLFWwindow*)(long long)wnd);
+
+
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	ClearKeys(gl_state);
+
+	dbg->frame_is_from_dbg = false;
+	gl_state->mouse_vel_x = 0.0;
+	gl_state->mouse_vel_y = 0.0;
+
+	glfwPollEvents();
+
+	ImGui_ImplOpenGL3_NewFrame();
+	ImGui_ImplGlfw_NewFrame();
+	ImGui::NewFrame();
+}
+
+// Callback function for window close event
+void window_close_callback(GLFWwindow* window) 
+{
+    std::cout << "Window is about to close!" << std::endl;
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	if (gl_state->is_engine)
+	{
+		TerminateProcess(gl_state->for_engine_game_process, 0);
+		TerminateProcess(gl_state->lsp_process, 0);
+		ExitProcess(1);
+	}
+
+}
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	gl_state->scroll = yoffset;
+}
+
+void MouseCallback(GLFWwindow* window, int button, int action, int mods)
+{
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	int mouse_key = GLFW_KEY_LAST + button;
+	if (action == GLFW_PRESS)
+	{
+
+		gl_state->buttons[mouse_key] = KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN;
+		float t = glfwGetTime();
+
+		if ((t - gl_state->time_pressed[mouse_key]) < DOUBLE_CLICK_MAX_TIME)
+			gl_state->buttons[mouse_key] |= KEY_DOUBLE_CLICK;
+
+		gl_state->time_pressed[mouse_key] = t;
+		//printf("key(%d) is %d", key, gl_state->buttons[key]);
+	}
+	else if (action == GLFW_RELEASE)
+	{
+		gl_state->buttons[mouse_key] &= ~KEY_HELD;
+		gl_state->buttons[mouse_key] |= KEY_UP;
+	}
+	else if (action == GLFW_REPEAT)
+	{
+		gl_state->buttons[GLFW_KEY_LAST + button] |= KEY_REPEAT;
+	}
+}
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+	if (action == GLFW_PRESS)
+	{
+		gl_state->buttons[key] |= KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN;
+		float t = glfwGetTime();
+		if ((t - gl_state->time_pressed[key]) < DOUBLE_CLICK_MAX_TIME)
+			gl_state->buttons[key] |= KEY_DOUBLE_CLICK;
+
+		gl_state->time_pressed[key] = t;
+		//printf("key(%d) is %d", key, gl_state->buttons[key]);
+	}
+	else if (action == GLFW_RELEASE)
+	{
+		gl_state->buttons[key] &= ~KEY_HELD;
+		gl_state->buttons[key] |= KEY_UP;
+		//printf("key release(%d) is %d", key, gl_state->buttons[key]);
+	}
+	else if (action == GLFW_REPEAT)
+	{
+		gl_state->buttons[key] |= KEY_REPEAT;
+	}
+}
+struct clip
+{
+	unsigned int* texs_idxs;
+	unsigned int total_texs;
+	unsigned int id;
+	float len;
+	float cur_time;
+	bool loop;
+};
+struct load_clip_args
+{
+	unsigned char* file_name;
+	unsigned long long x_offset;
+	unsigned long long y_offset;
+	unsigned long long sp_width;
+	unsigned long long sp_height;
+	unsigned long long total_sps;
+	float len;
+	clip* cinfo;
+};
+texture_raw* HasRawTexture(open_gl_state* gl_state, own_std::string name)
+{
+	FOR_VEC(tex, gl_state->textures_raw)
+	{
+		if (own_std::string(tex->name) == name)
+		{
+			return tex;
+		}
+	}
+	int width, height, nrChannels;
+	unsigned char* src = nullptr;
+	stbi_set_flip_vertically_on_load(true);
+	src = stbi_load((char*)(gl_state->texture_folder + name).c_str(), &width, &height, &nrChannels, 0);
+	ASSERT(src);
+	gl_state->textures_raw.emplace_back(texture_raw());
+	texture_raw* new_tex = &gl_state->textures_raw.back();
+	//new_tex->name = "";
+	new_tex->name = std_str_to_heap(gl_state->lang_stat, &name);
+	new_tex->data = src;
+	new_tex->width = width;
+	new_tex->height = height;
+	new_tex->channels = nrChannels;
+	//ASSERT()
+	//gl_state->textures_raw.emplace_back(new_tex);
+	return new_tex;
+}
+
+void CheckOpenGLError(const char* stmt, const char* fname, int line)
+{
+	GLenum err = glGetError();
+	if (err != GL_NO_ERROR)
+	{
+		printf("OpenGL error %08x, at %s:%i - for %s\n", err, fname, line, stmt);
+		abort();
+	}
+}
+
+#ifdef _DEBUG
+#define GL_CHECK(stmt) do { \
+            stmt; \
+            CheckOpenGLError(#stmt, __FILE__, __LINE__); \
+        } while (0)
+#else
+#define GL_CHECK(stmt) stmt
+#endif
+void UpdateTexture(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int x_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int y_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int width = *(int*)&dbg->mem_buffer[base_ptr + 32];
+	int height = *(int*)&dbg->mem_buffer[base_ptr + 40];
+	int data = *(int*)&dbg->mem_buffer[base_ptr + 48];
+	auto data_ptr = (char*)&dbg->mem_buffer[data];
+
+	texture_info* t = &gl_state->textures[tex_id];
+
+	glBindTexture(GL_TEXTURE_2D, t->id);
+	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+	GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, x_offset, y_offset, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data_ptr));
+	stbi_write_png("dbg_img.png", width, height, 4, data_ptr, width * 4);
+
+	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData.data());
+
+
+
+}
+void CopyTextureToBuffer(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buffer_size = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	auto buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
+
+	texture_info* t = &gl_state->textures[tex_id];
+	glBindTexture(GL_TEXTURE_2D, t->id);
+	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	int width, height;
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
+	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+
+	ASSERT((width * height * 4) <= buffer_size);
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer_ptr);
+
+	stbi_write_png("dbg_img.png", width, height, 4, buffer_ptr, width * 4);
+
+}
+int GenRawTexture(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int sz_x = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int sz_y = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+
+	auto src = (unsigned char*)AllocMiscData(dbg->lang_stat, sz_x * sz_y * 4);
+	//memset(src, 0xffffff, 4 * 512);
+	//glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz_x, sz_y, 0, GL_RGBA, GL_UNSIGNED_BYTE, src));
+	//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
+
+	//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+	//stbi_write_png("dbg_img.png", width, height, 4, src, width * 4);
+	int idx = GetTextureSlotId(gl_state);
+	texture_info* tex = &gl_state->textures[idx];
+	tex->id = texture;
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
+
+	heap_free((mem_alloc*)__lang_globals.data, (char*)src);
+
+	return idx;
+}
+int GenTexture2(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* src, int width, int height)
+{
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	//glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, src));
+	//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
+
+	//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+	//stbi_write_png("dbg_img.png", width, height, 4, src, width * 4);
+	int idx = GetTextureSlotId(gl_state);
+	texture_info* tex = &gl_state->textures[idx];
+	tex->id = texture;
+
+	//heap_free((mem_alloc*)__lang_globals.data, (char*)sp_data);
+
+	return idx;
+}
+int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* src, int sp_width, int sp_height, int x_offset, int y_offset, int width, int height, int sp_idx)
+{
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	// set the texture wrapping/filtering options (on the currently bound texture object)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	//int sp_height = info->sp_width;
+	//int sp_width = info->sp_height;
+	auto sp_data = (unsigned char*)AllocMiscData(lang_stat, sp_width * sp_height * 4);
+	//int sp_idx = ;
+
+	y_offset = (height - (y_offset + sp_height));
+
+	for (int i = 0; i < sp_height; i++)
+	{
+		int cur_x_offset = (x_offset)+sp_idx * sp_width * 4;
+		//int y_offset = sp_idx * sp_height;
+		memcpy(sp_data + i * sp_width * 4, src + cur_x_offset + ((i + y_offset) * width * 4), sp_width * 4);
+		int  a = 0;
+	}
+	if (sp_data)
+	{
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
+		//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
+
+		//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
+	}
+	else
+	{
+		std::cout << "Failed to load texture" << std::endl;
+	}
+	//stbi_write_png("dbg_img.png", sp_width, sp_height, 4, sp_data, sp_width * 4);
+	int idx = GetTextureSlotId(gl_state);
+	texture_info* tex = &gl_state->textures[idx];
+	tex->id = texture;
+
+	heap_free((mem_alloc*)__lang_globals.data, (char*)sp_data);
+
+	return idx;
+}
+
+void MaybeAddBarToEndOfStr(own_std::string* str)
+{
+	if (str->size() != 0 && (*str)[str->size() - 1] != '/' && (*str)[str->size() - 1] != '\\')
+		(*str) += '/';
+
+}
+void CopyFromSrcImgToBuffer(char* src_img, char* buffer, int buffer_width, int buffer_height, int src_img_width)
+{
+	for (int y = 0; y < buffer_height; y++)
+	{
+		memcpy(buffer, src_img, buffer_width * 4);
+		buffer += buffer_width * 4;
+		src_img += src_img_width * 4;
+	}
+}
+struct sheet_file_header
+{
+	u32 total_layers;
+	u32 str_tbl_offset;
+	u32 str_tbl_sz;
+	u32 cell_info_size;
+};
+struct aux_layer_info_struct
+{
+	u64 version;
+	u32 type;
+	u32 pixels_per_width;
+
+	v4 pos;
+	v4 sz;
+	u32 grid_x;
+	u32 grid_y;
+	u32 total_of_used_cells;
+	u32 cell_sz;
+	struct 
+	{
+		bool is_masked;
+		u64 stencil_val;
+	};
+};
+
+struct sp_cell
+{
+	u64 version;
+	u64 tex_name;
+	u32 grid_x;
+	u32 grid_y;
+
+	u32 src_tex_offset_x;
+	u32 src_tex_offset_y;
+	bool is_masked;
+	u64 stencil_val;
+};
+struct aux_cell_info
+{
+	u64 version;
+	union
+	{
+		struct
+		{
+			u64 tex_name;
+			u32 grid_x;
+			u32 grid_y;
+
+			u32 src_tex_offset_x;
+			u32 src_tex_offset_y;
+		};
+		struct
+		{
+			v4 pos;
+			v4 sz;
+		}col;
+		struct
+		{
+			u32 type;
+			u32 enemy_type;
+			u64 add_info;
+			v4 pos;
+			v4 sz;
+		}obj;
+	};
+	struct 
+	{
+		bool is_masked;
+		u64 stencil_val;
+	};
+};
+
+void LoadSheetFromLayer(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int layer_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	auto cur_layer = (aux_layer_info_struct*)&dbg->mem_buffer[layer_offset];
+	auto cur_cell = (sp_cell *)(cur_layer + 1);
+
+	int str_tbl_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	auto str_tbl = (char*)&dbg->mem_buffer[str_tbl_offset];
+
 	
-    mul:= *a_pivot * -1.0 * *a_size; 
-    first := ptr_offset(arr, 0, _vec);
-	*first = mul + *a_pos;
+	int tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+	int tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+	auto tex_data = (char *) AllocMiscData(dbg->lang_stat, tex_width * tex_height * 4);
+	char px_width = cur_layer->pixels_per_width;
+	char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
+	//*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+	//*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+	//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
+	int tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8*)tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
+	texture_info* t = &gl_state->textures[tex_id];
+	glBindTexture(GL_TEXTURE_2D, t->id);
 
-	ApplyTranformationsToOneVert(a_pos, &up, a_pivot, a_size, a_rot, ptr_offset(arr, 1, _vec))
-	ApplyTranformationsToOneVert(a_pos, &up_right, a_pivot, a_size, a_rot, ptr_offset(arr, 2, _vec))
-	ApplyTranformationsToOneVert(a_pos, &right, a_pivot, a_size, a_rot, ptr_offset(arr, 3, _vec))
+	for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+	{
+		char* tex_name = str_tbl + cur_cell->tex_name;
+		texture_raw* tex_src = HasRawTexture(gl_state, tex_name);
 
-	//*ptr_offset(arr, 0, _vec) = *ptr_offset(arr, 0, _vec) + *a_pos;
-	a: = 0;
+		int x_offset = cur_cell->src_tex_offset_x / px_width;
+		int y_offset = cur_cell->src_tex_offset_y / px_width;
+		auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
+		CopyFromSrcImgToBuffer((char*)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+		GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0,
+			cur_cell->grid_x * px_width,
+			cur_cell->grid_y * px_width,
+			px_width, px_width,
+			GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
+		);
+
+		cur_cell++;
+	}
+	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+	heap_free((mem_alloc*)__lang_globals.data, (char*)tex_data);
+
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = tex_id;
+}
+
+int CreateSpriteFromLayer(lang_state *lang_stat, open_gl_state *gl_state, aux_layer_info_struct *cur_layer, aux_cell_info *cur_cell, char *str_table)
+{
+	int px_width = cur_layer->pixels_per_width;
+	char* aux_buffer = AllocMiscData(lang_stat, px_width * px_width * 4);
+	int tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+	int tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+	char *tex_data = (char *) AllocMiscData(lang_stat, tex_width * tex_height * 4);
+	//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
+	int tex_id = GenTexture2(lang_stat, gl_state, (u8*)*tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
+	texture_info* t = &gl_state->textures[tex_id];
+	glBindTexture(GL_TEXTURE_2D, t->id);
+
+	for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+	{
+		char* tex_name = str_table + cur_cell->tex_name;
+		texture_raw* tex_src = HasRawTexture(gl_state, tex_name);
+
+		int x_offset = cur_cell->src_tex_offset_x / px_width;
+		int y_offset = cur_cell->src_tex_offset_y / px_width;
+		auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
+		CopyFromSrcImgToBuffer((char*)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+		GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0,
+			cur_cell->grid_x * px_width,
+			cur_cell->grid_y * px_width,
+			px_width, px_width,
+			GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
+		);
+
+		cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+	}
+	heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+	return 1;
+
+}
+
+int LoadSpriteSheet(dbg_state* dbg, own_std::string sp_file_name, int *tex_width, int *tex_height, int *channels, char **tex_data)
+{
+	u32 read;
+	char* file = ReadEntireFileLang((char *)sp_file_name.c_str(), &read);
+
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	auto hdr = (sheet_file_header*)file;
+
+	int cell_size = sizeof(aux_cell_info);
+	if(hdr->cell_info_size != cell_size)
+	{
+		printf("error file %s: cell sizes different, on file sz is %d, but on compiler is %d", sp_file_name.c_str(), hdr->cell_info_size, cell_size);
+		return -1;
+	}
+	char* str_table = (file + hdr->str_tbl_offset);
+	
+	own_std::vector<char*> image_sprite_names;
+
+	u32 cur_ch = 0;
+
+	while (cur_ch < hdr->str_tbl_sz)
+	{
+		u32 start = cur_ch;
+		while (str_table[cur_ch] != 0)
+		{
+			cur_ch++;
+		}
+		image_sprite_names.emplace_back(&str_table[start]);
+		cur_ch++;
+
+	}
+
+	char* cur_ptr = (char*)(hdr + 1);
+	int tex_id = 0;
+	auto cur_layer = (aux_layer_info_struct*)cur_ptr;
+	auto cur_cell = (aux_cell_info *)(cur_layer + 1);
+	for (int i = 0; i < hdr->total_layers; i++)
+	{
+		// sprites
+		switch (cur_layer->type)
+		{
+		case 0:
+		{
+			if(cur_layer->cell_sz != sizeof(aux_layer_info_struct))
+			{
+				ASSERT(0);
+			}
+
+			int total_sprites = cur_layer->total_of_used_cells;
+			cur_layer++;
+			for (int j = 0; j < total_sprites; j++)
+			{
+				cur_cell = (aux_cell_info*)(cur_layer + 1);
+				cur_cell = (aux_cell_info*)(((char*)cur_cell) + cur_layer->cell_sz * cur_layer->total_of_used_cells);
+				cur_layer = (aux_layer_info_struct*)cur_cell;
+			}
+		}break;
+		// colliders
+		case 1:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+		}break;
+		// objs
+		case 2:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+		}break;
+		default:
+			printf("error file %s: layer type not known", sp_file_name.c_str(), cur_layer->type);
+			return -1;
+		}
+		if(cur_layer->total_of_used_cells == 0)
+		{
+			cur_cell = (aux_cell_info*)(cur_layer + 1);
+		}
+		cur_ptr = (char*)cur_cell;
+		cur_layer = (aux_layer_info_struct*)cur_cell;
+		cur_cell = (aux_cell_info*)(cur_layer + 1);
+	};
+	int val = *(int*)cur_ptr;
+	// end of layers
+	if(val != 0xbebad0)
+	{
+		printf("error file %s: value check at end of layers not matching, expected 0x%04x, found 0x%04x", sp_file_name.c_str(), 0x1234, val);
+		return -1;
+	}
+	return 1;
+	cur_ptr = (char*)(hdr + 1);
+	
+	tex_id = 0;
+	cur_layer = (aux_layer_info_struct*)cur_ptr;
+	cur_cell = (aux_cell_info *)(cur_layer + 1);
+	for (int i = 0; i < hdr->total_layers; i++)
+	{
+		// sprites
+		switch(cur_layer->type)
+		{
+		case 0:
+		{
+
+			int total_sprites = cur_layer->total_of_used_cells;
+			cur_layer++;
+			for (int j = 0; j < total_sprites; j++)
+			{
+				auto cur_cell = (aux_cell_info*)(cur_layer + 1);
+				CreateSpriteFromLayer(gl_state->lang_stat, gl_state, cur_layer, cur_cell, str_table);
+				cur_cell = (aux_cell_info*)(cur_layer + 1);
+				cur_cell = (aux_cell_info*)(((char*)cur_cell) + cur_layer->cell_sz * cur_layer->total_of_used_cells);
+				cur_layer = (aux_layer_info_struct*)cur_cell;
+			}
+			/*
+			int px_width = cur_layer->pixels_per_width;
+			char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
+			*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+			*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
+			*tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width * *tex_height * 4);
+			//int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
+			tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8*)*tex_data, cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
+			texture_info* t = &gl_state->textures[tex_id];
+			glBindTexture(GL_TEXTURE_2D, t->id);
+
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				char* tex_name = str_table + cur_cell->tex_name;
+				texture_raw* tex_src = HasRawTexture(gl_state, tex_name);
+
+				int x_offset = cur_cell->src_tex_offset_x / px_width;
+				int y_offset = cur_cell->src_tex_offset_y / px_width;
+				auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset * tex_src->width * 4 * px_width;
+				CopyFromSrcImgToBuffer((char*)data_ptr, aux_buffer, px_width, px_width, tex_src->width);
+				//GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+				GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0,
+					cur_cell->grid_x * px_width,
+					cur_cell->grid_y * px_width,
+					px_width, px_width,
+					GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
+				);
+
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+			heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
+			*/
+		}break;
+		// colliders
+		case 1:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+		}break;
+		// objs
+		case 2:
+		{
+			for (int c = 0; c < cur_layer->total_of_used_cells; c++)
+			{
+				cur_cell = (aux_cell_info *)(((char*)cur_cell) + cur_layer->cell_sz);
+			}
+		}break;
+		default:
+			ASSERT(false);
+		}
+		cur_ptr = (char*)cur_cell;
+		cur_layer = (aux_layer_info_struct*)cur_cell;
+		cur_cell = (aux_cell_info *)( cur_layer + 1);
+	}
+	return tex_id;
 }
 
 
-NearlyEqualV3::fn x64(a: *_vec, b : *_vec) !bool
+void ReadFileInterp(dbg_state* dbg)
 {
-	return NearlyEqualF32(a.x, b.x) && NearlyEqualF32(a.y, b.y) && NearlyEqualF32(a.z, b.z);
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char* name = (char*)&dbg->mem_buffer[name_offset];
+
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	char *buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
+
+	u32 size;
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	work_dir = work_dir + name;
+	char *file = ReadEntireFileLang((char *)work_dir.c_str(), &size);
+	memcpy(buffer_ptr, file, size);
 }
-NearlyEqualF32::fn x64(a:f32, b : f32) !bool
+void GetFileSize(dbg_state* dbg)
 {
-	return absf(a - b) < 0.005;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char* name = (char*)&dbg->mem_buffer[name_offset];
+
+
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	work_dir = work_dir + name;
+#ifdef LINUX
+	struct stat st;
+
+    if (stat(work_dir.c_str(), &st) != 0) {
+        perror("stat");
+		*(s64*)&dbg->mem_buffer[RET_1_REG * 8] = -1;
+        return;
+    }
+	*(s64*)&dbg->mem_buffer[RET_1_REG * 8] = st.st_size;
+#else
+	LARGE_INTEGER file_size;
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	work_dir = work_dir + name;
+	HANDLE file = OpenFileLang((char*)work_dir.c_str());
+	BOOL val = GetFileSizeEx(file, &file_size);
+	auto err = GetLastError();
+	ASSERT(val != 0);
+
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = file_size.QuadPart;
+	CloseHandle(file);
+#endif
 }
-//PointLineDistance::fn outsider(a:*_vec, b : *_vec, p : *_vec, closest_point : *_vec)!f32;
-
-
-PointLineDistance::fn(a:*_vec, b : *_vec, p : *_vec, closest_point : *_vec)!f32
+int GetMem(dbg_state* dbg, int sz)
 {
-	ab:_vec = *b - *a;
-	ap:_vec = *p - *a;
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	*(int*)&dbg->mem_buffer[base_ptr + 8] = sz;
+	int idx = 0;
 
-	proj:f32 = dot_vec(&ab, &ap);
-	d:f32 = proj / (dot_vec(&ab, &ab));
+	GetMem(dbg);
+	int offset = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
 
-	if d <= 0.0
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] += 16;
+	return offset;
+}
+void LoadSceneFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	auto folder_name = (char *)&dbg->mem_buffer[folder_name_offset];
+
+	auto ar = (own_std::vector<int> *)&dbg->mem_buffer[ar_offset];
+
+	//new(&dbg->scene_folder)own_std::string(folder_name);
+	dbg->scene_folder = dbg->cur_func->from_file->path + folder_name;
+	//dbg->scene_folder = (const char *)folder_name;
+	//MaybeAddBarToEndOfStr(&dbg->scene_folder);
+
+	own_std::vector<char *> file_names;
+
+	GetFilesInDirectory(dbg->scene_folder, nullptr, &file_names);
+
+	int sz = 0;
+
+	FOR_VEC(name, file_names)
+	{
+		sz += strlen(*name) + 1;
+	}
+	if (sz == 0)
+		return;
+
+	int str_tbl_offset = file_names.size() * 8;
+	sz += str_tbl_offset;
+	int offset = GetMem(dbg, sz);
+
+	ar->ar.start = (int *)(long long)offset;
+	ar->ar.count = file_names.size();
+		 
+
+	auto str_tbl_ptr = (char*)&dbg->mem_buffer[offset + str_tbl_offset];
+	auto start_idx = (int*)&dbg->mem_buffer[offset];
+	auto cur_idx = (long long*)&dbg->mem_buffer[offset];
+
+	int fl_idx = 0;
+	int cur_str_tbl_offset = 0;
+
+	FOR_VEC(fl, file_names)
+	{
+		int ln = strlen(*fl) + 1;
+
+		memcpy(str_tbl_ptr + cur_str_tbl_offset, *fl, ln);
+
+		*cur_idx = offset + str_tbl_offset + cur_str_tbl_offset;
+		cur_idx++;
+
+		cur_str_tbl_offset += ln;
+		fl_idx++;
+	}
+	int a = 0;
+
+
+}
+int HasModel(dbg_state *dbg, own_std::string &name, int *free_idx)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	for(int i = 0; i < TOTAL_MODELS; i++)
+	{
+		model_info *m = &gl_state->models[i];
+		if(*free_idx == -1 && m->ebo == 0)
+		{
+			*free_idx = i;
+		}
+		if(m->name == name)
+		{
+			return i;
+		}
+	}
+	return -1;
+}
+struct create_mesh_info
+{
+	long long verts_offset;
+	int verts_count;
+	long long tris_offset;
+	int tris_count;
+};
+
+void CreateMesh(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int create_mesh_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	auto minfo = (create_mesh_info *)&dbg->mem_buffer[create_mesh_offset];
+	auto verts = (float *)&dbg->mem_buffer[minfo->verts_offset];
+	auto inds = (int *)&dbg->mem_buffer[minfo->tris_offset];
+
+    GLuint VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    
+	int vertex_size = sizeof(float) * 6;
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, minfo->verts_count * vertex_size, verts, GL_DYNAMIC_DRAW);
+    
+    
+    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertex_size, (void*)0));
+    glEnableVertexAttribArray(0);
+    GL_CALL(glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertex_size, (void*)(3 * sizeof(float))));
+    glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, minfo->tris_count * sizeof(int), inds, GL_DYNAMIC_DRAW);
+	
+
+	int free_idx = -1;
+	//HERE()
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	char buffer[64];
+	sprintf(buffer, "mesh_%d", gl_state->generated_meshes);
+	own_std::string str(buffer);
+	int idx = HasModel(dbg, str, &free_idx);
+	
+	ASSERT(idx == -1 && free_idx != -1);
+	model_info*m = &gl_state->models[free_idx];
+	m->vbo = VBO;
+	m->vao = VAO;
+	m->ebo = EBO;
+	m->indicies = minfo->tris_count;
+	m->verts_size = minfo->verts_count * vertex_size;
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
+}
+void UpdateModel(dbg_state* dbg)
+{
+	//HERE()
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int model = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int verts_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	float *verts = (float *)&dbg->mem_buffer[verts_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	model_info*m = &gl_state->models[model];
+
+	glBindVertexArray(m->vao);
+	glBindBuffer(GL_ARRAY_BUFFER, m->vbo);
+
+	glBufferSubData(GL_ARRAY_BUFFER, 0, m->verts_size, verts);
+}
+void LoadModelBase(dbg_state* dbg, own_std::string &full_path)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int free_idx = -1;
+	int idx = HasModel(dbg, full_path, &free_idx);
+	if(idx != -1)
+	{
+		*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
+		ASSERT(0)
+		return;
+	}
+
+
+
+	const struct aiScene *scene = aiImportFile(
+        full_path.c_str(),
+        aiProcess_Triangulate | 
+        aiProcess_JoinIdenticalVertices | 
+        aiProcess_GenNormals | 
+        aiProcess_ImproveCacheLocality
+    );
+
+    if (!scene) {
+        printf("Failed to load FBX: %s\n", aiGetErrorString());
+		ASSERT(0)
+        return;
+    }
+
+    const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
+
+    // Create vertex array (positions only for simplicity)
+    auto vertices = (float *)malloc(mesh->mNumVertices * 3 * sizeof(float));
+    for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+		Vec3 *v = (Vec3 *)&mesh->mVertices[i].x;
+
+		*v = rotate(*v, Vec3(1.0, 0.0, 0.0), -3.1415 * 0.5) * 0.5;
+        vertices[i * 3 + 0] = mesh->mVertices[i].x;
+        vertices[i * 3 + 1] = mesh->mVertices[i].y;
+        vertices[i * 3 + 2] = mesh->mVertices[i].z;
+    }
+
+    // Create index array
+    unsigned int index_count = mesh->mNumFaces * 3;
+    auto indices = (unsigned int *)malloc(index_count * sizeof(unsigned int));
+    for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+        const struct aiFace *face = &mesh->mFaces[i];
+        if (face->mNumIndices != 3) continue; // skip non-triangles
+        indices[i * 3 + 0] = face->mIndices[2];
+        indices[i * 3 + 1] = face->mIndices[1];
+        indices[i * 3 + 2] = face->mIndices[0];
+    }
+
+
+    printf("Loaded mesh: %d vertices, %d indices\n", mesh->mNumVertices, index_count);
+
+
+    GLuint VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * 3 * sizeof(float), vertices, GL_STATIC_DRAW);
+    
+    
+    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0));
+    glEnableVertexAttribArray(0);
+    //GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
+    //glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(int), indices, GL_STATIC_DRAW);
+	
+	model_info*m = &gl_state->models[free_idx];
+	m->vbo = VBO;
+	m->vao = VAO;
+	m->ebo = EBO;
+	m->indicies = index_count;
+
+	m->model_verts_count = mesh->mNumVertices;
+	m->vertices = vertices;
+
+    //free(vertices);
+    free(indices);
+    aiReleaseImport(scene);
+
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
+	auto a = 0;
+}
+void ModelFarthestPoint(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int axis_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	auto v = (Vec3 *)&dbg->mem_buffer[axis_ptr];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	model_info *m = &gl_state->models[model_idx];
+
+	int idx = 0;
+	float min = 0.0;
+	int vert_size = 3;
+	for(int i = 0; i < m->model_verts_count; i++)
+	{
+		float *cur = &m->vertices[i * vert_size];
+		auto cur_vec = (Vec3 *)cur;
+
+		float d = vec3_dot(*v, *cur_vec);
+		if(min < d)
+		{
+			idx = i;
+			min = d;
+		}
+	}
+
+	auto ret = GetFloatRegValPtr(dbg, FLOAT_REG_0);
+	auto aux = GetRegValPtr(dbg, RET_1_REG);
+	
+	auto p = (Vec3 *)&m->vertices[idx * vert_size];
+	memcpy(ret, p, 16);
+	memcpy(aux, p, 8);
+	*(((float *)ret) + 3) = 0.0f;
+}
+void LoadModel(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int model_path_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *model_path = (char *)&dbg->mem_buffer[model_path_offset];
+
+	unsigned int size = 0;
+	auto gl_state = (open_gl_state*)dbg->data;
+	own_std::string full_path = gl_state->model_folder + model_path;
+	LoadModelBase(dbg, full_path);
+
+}
+void LoadModelFolder(dbg_state* dbg)
+{
+
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	auto folder_name = (char *)&dbg->mem_buffer[folder_name_offset];
+	auto ar = (own_std::vector<int> *)&dbg->mem_buffer[ar_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->texture_folder = folder_name;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	gl_state->model_folder = work_dir + gl_state->model_folder;
+	MaybeAddBarToEndOfStr(&(gl_state->model_folder));
+	
+	own_std::vector<char*> file_names;
+	GetFilesInDirectory(gl_state->texture_folder, nullptr, &file_names);
+}
+void LoadTexFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int folder_name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int ar_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	auto folder_name = (char *)&dbg->mem_buffer[folder_name_offset];
+	auto ar = (own_std::vector<int> *)&dbg->mem_buffer[ar_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->texture_folder = folder_name;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	gl_state->texture_folder = work_dir + gl_state->texture_folder;
+	MaybeAddBarToEndOfStr(&(gl_state->texture_folder));
+	
+	own_std::vector<char*> file_names;
+	GetFilesInDirectory(gl_state->texture_folder, nullptr, &file_names);
+
+	struct texture_info
+	{
+		u64 name;
+		u64 data;
+		u32 width;
+		u32 height;
+		u8 channels;
+		u64 idx;
+	};
+	int total_pngs = 0;
+	FOR_VEC(name_ptr, file_names)
+	{
+		char* name = *name_ptr;
+		own_std::string str = name;
+		int p_idx = str.find_last_of('.');
+		own_std::string ext = str.substr(p_idx + 1);
+		if (!(ext == "png" || ext == "sp"))
+			continue;
+		total_pngs++;
+	}
+
+	int offset = GetMem(dbg, total_pngs * sizeof(texture_info));
+
+	ar->ar.start = (int *)(u64)offset;
+	ar->ar.count = total_pngs;
+
+	int i = 0;
+	auto cur_tex = (texture_info*)&dbg->mem_buffer[offset];
+	FOR_VEC(name_ptr, file_names)
+	{
+		char* name = *name_ptr;
+		own_std::string str = name;
+		int p_idx = str.find_last_of('.');
+		own_std::string ext = str.substr(p_idx + 1);
+
+		int tex_idx = 0;
+		int tex_width = 0;
+		int tex_height = 0;
+		int tex_channels = 4;
+		char *tex_data = nullptr;
+		if (ext == "sp")
+		{
+				continue;
+			tex_idx = LoadSpriteSheet(dbg, gl_state->texture_folder + name, &tex_width, &tex_height, &tex_channels, &tex_data);
+			if(tex_idx == -1)
+			{
+				cur_tex->idx = -1;
+				continue;
+			}
+		}
+		else if (ext == "png")
+		{
+			texture_raw* tex_raw = HasRawTexture(gl_state, str);
+
+
+			tex_idx = GenTexture2(dbg->lang_stat, gl_state, tex_raw->data, tex_raw->width, tex_raw->height);
+			tex_width = tex_raw->width;
+			tex_height = tex_raw->height;
+			tex_channels = tex_raw->channels;
+			tex_data = (char *)tex_raw->data;
+			ASSERT(tex_data);
+		}
+		else
+		{
+			continue;
+		}
+
+
+		int len = strlen(name) + 1;
+		int name_offset = GetMem(dbg, len);
+		auto name_dst = (char*)&dbg->mem_buffer[name_offset];
+		memcpy(name_dst, name, len);
+
+		int sz = tex_height * tex_width * tex_channels;
+		int data_offset = GetMem(dbg, sz);
+		memcpy(&dbg->mem_buffer[data_offset], tex_data, sz);
+
+
+		cur_tex->name = name_offset;
+		cur_tex->data = data_offset;
+		cur_tex->width = tex_width;
+		cur_tex->height = tex_height;
+		cur_tex->channels = tex_channels;
+		cur_tex->idx = tex_idx;
+
+		cur_tex++;
+
+		i++;
+	}
+	auto end = 0;
+
+}
+
+void LoadTex(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+
+	auto info = (load_clip_args*)&dbg->mem_buffer[base_ptr + 8];
+	info->file_name = (unsigned char*)&dbg->mem_buffer[(long long)info->file_name];
+	//info->cinfo = (clip*)&dbg->mem_buffer[(long long)info->cinfo];
+	//info->cinfo->total_texs = info->total_sps;
+	//info->cinfo->len = info->len;
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	texture_raw* tex_raw = HasRawTexture(gl_state, own_std::string((char*)info->file_name));
+	int width, height, nrChannels;
+	unsigned char* src = nullptr;
+	src = tex_raw->data;
+	width = tex_raw->width;
+	height = tex_raw->height;
+	nrChannels = tex_raw->channels;
+
+	if (info->sp_width == 0)
+	{
+		info->sp_width = width;
+		info->sp_height = height;
+	}
+
+	int idx = GenTexture(dbg->lang_stat, gl_state, src, info->sp_width, info->sp_height, info->x_offset, info->y_offset, width, height, 0);
+	auto ret = (int*)&dbg->mem_buffer[RET_1_REG * 8];
+	*ret = idx;
+}
+void ImageFolderToFile(own_std::string folder)
+{
+	struct file_header
+	{
+		unsigned int total_imgs;
+		unsigned int data_sect_offset;
+		unsigned int str_tbl_offset;
+	};
+	struct file_png
+	{
+		unsigned int name;
+		unsigned int width;
+		unsigned int height;
+		unsigned char channels;
+		unsigned int data;
+	};
+	own_std::vector<char*> file_names;
+	own_std::vector<unsigned char> file_data;
+	own_std::vector<unsigned char> data_sect;
+	own_std::vector<unsigned char> str_table;
+	GetFilesInDirectory((char *)folder.c_str(), nullptr, &file_names);
+
+	own_std::vector<char*> sprite_sheets;
+
+	int total_imgs = 0;
+	FOR_VEC(ptr, file_names)
+	{
+		own_std::string str = *ptr;
+		int p_idx = str.find_last_of('.');
+		own_std::string ext = str.substr(p_idx + 1);
+		if (ext == "png")
+		{
+			int cur_str_table_offset = str_table.size();
+			auto c_str = (unsigned char*)str.c_str();
+			str_table.insert(str_table.end(), c_str, c_str + str.size() + 1);
+
+			int cur_offset = file_data.size();
+			file_data.make_count(file_data.size() + sizeof(file_png));
+			auto cur_file = (file_png*)(file_data.begin() + cur_offset);
+
+			int width, height, nrChannels;
+			unsigned char* src = nullptr;
+			stbi_set_flip_vertically_on_load(true);
+
+			src = stbi_load((char*)(folder + str).c_str(), &width, &height, &nrChannels, 0);
+			ASSERT(src);
+
+
+			cur_file->name = cur_str_table_offset;
+			cur_file->width = width;
+			cur_file->height = height;
+			cur_file->channels = nrChannels;
+			cur_file->data = data_sect.size();
+
+			data_sect.insert(data_sect.end(), src, src + (width * height * nrChannels));
+			stbi_image_free(src);
+			total_imgs++;
+
+		}
+	}
+	own_std::vector<unsigned char> final_buffer;
+
+	INSERT_VEC(final_buffer, file_data);
+	int data_sect_offset = final_buffer.size();
+	INSERT_VEC(final_buffer, data_sect);
+	int str_tbl_offset = final_buffer.size();
+	INSERT_VEC(final_buffer, str_table);
+
+	file_header hdr;
+	hdr.total_imgs = total_imgs;
+	hdr.str_tbl_offset = str_tbl_offset;
+	hdr.data_sect_offset = data_sect_offset;
+
+	final_buffer.insert(final_buffer.begin(), (unsigned char*)&hdr, (unsigned char*)(&hdr + 1));
+
+	int size = final_buffer.size();
+	if ((size % 4) != 0)
+		size += 4 - (size % 4);
+	final_buffer.make_count(size);
+
+	own_std::string imgs_str((char*)final_buffer.data(), final_buffer.size());
+	own_std::string images_encoded_str = base64_encode(imgs_str);
+
+	WriteFileLang("../web/images.data", (void *)images_encoded_str.data(), images_encoded_str.size());
+}
+
+void FromGamePlayAudio(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+	auto gl_state = (open_gl_state*)dbg->data;
+	AudioClip* clip = nullptr;
+	FOR_VEC(it, gl_state->sound->audio_clips_src)
+	{
+		if ((*it)->name == name_str)
+		{
+			clip = *it;
+			break;
+		}
+	}
+	ASSERT(clip);
+	AudioClipQueued q = {};
+	q.clip = clip;
+	gl_state->sound->audio_clips_to_play.emplace_back(q);
+}
+
+void AssignSoundFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	
+	///gl_state->texture_folder = name_str;
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	own_std::string sound_folder;
+	sound_folder = work_dir + name_str;
+	MaybeAddBarToEndOfStr(&(gl_state->texture_folder));
+
+	own_std::vector<char*> file_names;
+	GetFilesInDirectory((char *)sound_folder.c_str(), nullptr, &file_names);
+
+	FOR_VEC(str_ptr, file_names)
+	{
+		gl_state->sound->audio_clips_src.emplace_back(CreateNewAudioClip(*str_ptr));
+	}
+
+	//ImageFolderToFile(gl_state->texture_folder);
+
+}
+void AssignModelFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	
+	gl_state->model_folder = name_str;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	gl_state->model_folder = work_dir + gl_state->model_folder;
+	MaybeAddBarToEndOfStr(&(gl_state->model_folder));
+
+	//ImageFolderToFile(gl_state->texture_folder);
+	own_std::vector<char*> file_names;
+	GetFilesInDirectory((char *)gl_state->model_folder.c_str(), nullptr, &file_names);
+
+}
+void FreeHandle(dbg_state *dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int hidx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	handle_info *h = &dbg->handles[hidx];
+	h->in_use = false;
+}
+void HandleDirFilenameAt(dbg_state *dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int hidx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int idx = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int buffer_size = *(int*)&dbg->mem_buffer[base_ptr + 32];
+
+	char *buffer = (char *)&dbg->mem_buffer[buffer_offset];
+
+
+	handle_info *h = &dbg->handles[idx];
+	ASSERT(h->type == handle_enum::FILES_DIR);
+
+	char *name = h->dir->files[idx];
+	int str_ln = strlen(name);
+
+	ASSERT(str_ln < buffer_size);
+
+
+	memcpy(buffer, name, str_ln);
+}
+void HandleDirTotalFiles(dbg_state *dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	handle_info *h = &dbg->handles[idx];
+	ASSERT(h->type == handle_enum::FILES_DIR);
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = h->dir->files.size();
+}
+void HandleForGettingFilesInDir(dbg_state *dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	int idx = GetFreeHandle(dbg);
+
+	handle_info *h = &dbg->handles[idx];
+	h->dir = (handle_info::dir_files *)AllocMiscData(dbg->lang_stat, sizeof(handle_info::dir_files));
+	h->type = handle_enum::FILES_DIR;
+
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	h->dir->path = work_dir + name_str;
+	MaybeAddBarToEndOfStr(&h->dir->path);
+	GetFilesInDirectory((char *)h->dir->path.c_str(), nullptr, &h->dir->files);
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
+
+}
+void AssignTexFolder(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	
+	gl_state->texture_folder = name_str;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	gl_state->texture_folder = work_dir + gl_state->texture_folder;
+	MaybeAddBarToEndOfStr(&(gl_state->texture_folder));
+
+	ImageFolderToFile(gl_state->texture_folder);
+
+}
+
+static int SEED = 0;
+
+static int hash[] = {208,34,231,213,32,248,233,56,161,78,24,140,71,48,140,254,245,255,247,247,40,
+                     185,248,251,245,28,124,204,204,76,36,1,107,28,234,163,202,224,245,128,167,204,
+                     9,92,217,54,239,174,173,102,193,189,190,121,100,108,167,44,43,77,180,204,8,81,
+                     70,223,11,38,24,254,210,210,177,32,81,195,243,125,8,169,112,32,97,53,195,13,
+                     203,9,47,104,125,117,114,124,165,203,181,235,193,206,70,180,174,0,167,181,41,
+                     164,30,116,127,198,245,146,87,224,149,206,57,4,192,210,65,210,129,240,178,105,
+                     228,108,245,148,140,40,35,195,38,58,65,207,215,253,65,85,208,76,62,3,237,55,89,
+                     232,50,217,64,244,157,199,121,252,90,17,212,203,149,152,140,187,234,177,73,174,
+                     193,100,192,143,97,53,145,135,19,103,13,90,135,151,199,91,239,247,33,39,145,
+                     101,120,99,3,186,86,99,41,237,203,111,79,220,135,158,42,30,154,120,67,87,167,
+                     135,176,183,191,253,115,184,21,233,58,129,233,142,39,128,211,118,137,139,255,
+                     114,20,218,113,154,27,127,246,250,1,8,198,250,209,92,222,173,21,88,102,219};
+
+int noise2(int x, int y)
+{
+    int tmp = hash[(y + SEED) % 256];
+    return hash[(tmp + x) % 256];
+}
+
+float lin_inter(float x, float y, float s)
+{
+    return x + s * (y-x);
+}
+
+float smooth_inter(float x, float y, float s)
+{
+    return lin_inter(x, y, s * s * (3-2*s));
+}
+
+float noise2d(float x, float y)
+{
+    int x_int = x;
+    int y_int = y;
+    float x_frac = x - x_int;
+    float y_frac = y - y_int;
+    int s = noise2(x_int, y_int);
+    int t = noise2(x_int+1, y_int);
+    int u = noise2(x_int, y_int+1);
+    int v = noise2(x_int+1, y_int+1);
+    float low = smooth_inter(s, t, x_frac);
+    float high = smooth_inter(u, v, x_frac);
+    return smooth_inter(low, high, y_frac);
+}
+
+float perlin2d(float x, float y, float freq, int depth)
+{
+    float xa = x*freq;
+    float ya = y*freq;
+    float amp = 1.0;
+    float fin = 0;
+    float div = 0.0;
+
+    int i;
+    for(i=0; i<depth; i++)
+    {
+        div += 256 * amp;
+        fin += noise2d(xa, ya) * amp;
+        amp /= 2;
+        xa *= 2;
+        ya *= 2;
+    }
+
+    return fin/div;
+}
+
+void Perlin2D(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float x = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float y = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	float freq = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	int depth = *(int*)&dbg->mem_buffer[base_ptr + 32];
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = perlin2d(x, y, freq, depth);
+}
+void LoadClip(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+
+	auto info = (load_clip_args*)&dbg->mem_buffer[base_ptr + 8];
+	info->file_name = (unsigned char*)&dbg->mem_buffer[(long long)info->file_name];
+	info->cinfo = (clip*)&dbg->mem_buffer[(long long)info->cinfo];
+	info->cinfo->total_texs = info->total_sps;
+	info->cinfo->len = info->len;
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] -= 16;
+	base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	*(int*)&dbg->mem_buffer[base_ptr + 8] = info->total_sps * sizeof(int);
+	int idx = 0;
+
+	GetMem(dbg);
+	int offset = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
+
+	*(int*)&dbg->mem_buffer[STACK_PTR_REG * 8] += 16;
+
+	*(int**)&info->cinfo->texs_idxs = (int*)(long long)offset;
+	info->cinfo->total_texs = info->total_sps;
+
+	// load and generate the texture
+	int width, height, nrChannels;
+	texture_raw* tex_raw = HasRawTexture(gl_state, own_std::string((char*)info->file_name));
+	ASSERT(tex_raw);
+	unsigned char* src = nullptr;
+	src = tex_raw->data;
+	width = tex_raw->width;
+	height = tex_raw->height;
+	nrChannels = tex_raw->channels;
+
+	auto texs_id = (int*)&dbg->mem_buffer[(long long)info->cinfo->texs_idxs];
+
+	for (int cur_sp = 0; cur_sp < info->total_sps; cur_sp++)
+	{
+
+		texs_id[cur_sp] = GenTexture(dbg->lang_stat, gl_state, src, info->sp_width, info->sp_height, info->x_offset, info->y_offset, width, height, cur_sp);
+	}
+	/*
+	func_decl* call_f = FuncAddedWasmInterp(dbg->wasm_state, "heap_alloc");
+
+	block_linked* cur = NewBlock(nullptr);
+	WasmDoCallInstruction(dbg, dbg->cur_bc, &cur, call_f);
+	FreeBlock(cur);
+	int addr = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
+	//dbg->wasm_state->funcs
+	int a = 0;
+	*/
+}
+
+int CompileShader(char* source, int type)
+{
+	int  success;
+	char infoLog[512];
+	unsigned int shader;
+	shader = glCreateShader(type);
+	glShaderSource(shader, 1, &source, NULL);
+	glCompileShader(shader);
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+
+	//ASSERT(gl_)
+
+	if (!success)
+	{
+		glGetShaderInfoLog(shader, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+	}
+	return shader;
+}
+void UpdateLastTime(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	if (gl_state)
+		gl_state->last_time = glfwGetTime();
+
+}
+
+void SetIsEngine(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	bool val = *(bool*)&dbg->mem_buffer[base_ptr + 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->lang_stat->is_engine = val;
+	gl_state->is_engine = val;
+
+#ifdef LINUX
+#else
+	CreateThread(nullptr, 0, GameAndEngineMsgThread, (LPVOID)dbg, 0, nullptr);
+#endif
+	if(val)
+	{
+		gl_state->scene_srceen_width = 800;
+		gl_state->scene_srceen_height = 480;
+	}
+
+
+	/*
+	GLuint fbo, texture, depthBuffer;
+
+	// Create and bind the framebuffer
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	gl_state->frame_buffer = fbo;
+
+	// Create the texture to render to
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	gl_state->frame_buffer_tex = texture;
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 
+		gl_state->scene_srceen_width, 
+		gl_state->scene_srceen_height, 
+		0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr
+	);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	// Attach the texture to the framebuffer's color attachment
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+	// Create and attach a depth buffer (optional, for 3D scenes)
+	glGenRenderbuffers(1, &depthBuffer);
+	glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 
+		gl_state->scene_srceen_width,
+		gl_state->scene_srceen_height
+	);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuffer);
+
+	auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+	// Check framebuffer completeness
+	if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
+		printf("Error: Framebuffer is not complete!\n");
+		ASSERT(false);
+	}
+
+	// Unbind the framebuffer for now
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// Set the list of draw buffers.
+	GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+	glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+	*/
+
+}
+// Shader compilation helper
+GLuint compileShader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, NULL);
+    glCompileShader(shader);
+    GLint success;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char info[512];
+        glGetShaderInfoLog(shader, 512, NULL, info);
+        std::cerr << "Shader error:\n" << info << std::endl;
+    }
+    return shader;
+}
+
+// Matrix utility (replace with glm in serious projects)
+void loadIdentity(float* mat) {
+    std::fill(mat, mat + 16, 0.0f);
+    mat[0] = mat[5] = mat[10] = mat[15] = 1.0f;
+}
+
+void perspective(float* mat, float fov, float aspect, float near, float far) {
+    float tanHalfFov = tanf(fov / 2);
+    std::fill(mat, mat + 16, 0.0f);
+    mat[0] = 1 / (aspect * tanHalfFov);
+    mat[5] = 1 / tanHalfFov;
+    mat[10] = -(far + near) / (far - near);
+    mat[11] = -1;
+    mat[14] = -(2 * far * near) / (far - near);
+}
+void Init3D(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	char* vertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
+	layout(location = 1) in vec2 aTexCoord;\n\
+	out vec4 vColor;\n\
+	out vec3 fragPos;\n\
+	out vec2 TexCoord;\n\
+	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
+		// Extract quaternion components\n\
+		float w = q.w;\n\
+		vec3 u = q.xyz;\n\
+		// Apply rotation: v' = v + 2.0 * cross(u, cross(u, v) + w * v)\n\
+		return v + 2.0 * cross(u, cross(u, v) + w * v);\n\
+	}\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 aux = model * vec4(aPos, 1.0);\n\
+		fragPos = aux.xyz;\n\
+		gl_Position = projection * view * aux;\n\
+		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
+		TexCoord = aTexCoord;\n\
+	}\
+	";
+
+	char* terrainVertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
+	layout (location = 1) in vec3 vertexCol;\n\
+	out vec4 vColor;\n\
+	out vec3 fragPos;\n\
+	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
+		// Extract quaternion components\n\
+		float w = q.w;\n\
+		vec3 u = q.xyz;\n\
+		// Apply rotation: v' = v + 2.0 * cross(u, cross(u, v) + w * v)\n\
+		return v + 2.0 * cross(u, cross(u, v) + w * v);\n\
+	}\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 aux = model * vec4(aPos, 1.0);\n\
+		fragPos = aux.xyz;\n\
+		gl_Position = projection * view * aux;\n\
+		vColor = vec4(vertexCol.xyz, 1.0);\n\
+	}\n\
+	";
+
+	// Fragment Shader
+	char* fragmentShaderSrcTexNoLight = "\n\
+	#version 330 core\n\
+	out vec4 FragColor;\n\
+	in vec2 TexCoord;\n\
+	in vec4 vColor;\n\
+	in vec3 fragPos;\n\
+	uniform vec4 col;\n\
+	uniform vec2 tex_size;\n\
+	uniform vec2 tex_offset;\n\
+	uniform sampler2D tex;\n\
+	uniform vec4 sec_color;\n\
+	uniform float color_lerp;\n\
+	void main() {\n\
+		vec4 tex_col =  texture(tex, TexCoord);\n\
+		if(tex_col.a == 0.0){\n\
+			discard;\n\
+		}\n\
+		FragColor = col * vColor * tex_col;\n\
+		FragColor = (1.0 - color_lerp) * FragColor + color_lerp * sec_color;\n\
+	}\
+	";
+	char* fragmentShaderSrcTex = "\n\
+	#version 330 core\n\
+	out vec4 FragColor;\n\
+	in vec2 TexCoord;\n\
+	in vec4 vColor;\n\
+	in vec3 fragPos;\n\
+	uniform vec4 col;\n\
+	uniform vec4 sec_color;\n\
+	uniform float color_lerp;\n\
+	uniform vec2 tex_size;\n\
+	uniform vec2 tex_offset;\n\
+	uniform sampler2D tex;\n\
+	void main() {\n\
+		vec4 tex_col =  texture(tex, TexCoord);\n\
+		vec3 dx = dFdx(fragPos);\n\
+		vec3 dy = dFdy(fragPos);\n\
+		vec3 norm = normalize(cross(dx, dy));\n\
+		vec3 lightDir = normalize(vec3(-1.0, 0.5, 0.0));\n\
+		float d = max(dot(lightDir, norm), 0.2);\n\
+		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
+		FragColor *= col * vColor * tex_col;\n\
+		FragColor = (1.0 - color_lerp) * FragColor + color_lerp * sec_color;\n\
+	}\
+	";
+	char* fragmentShaderSrc = "\n\
+	#version 330 core\n\
+	out vec4 FragColor;\n\
+	in vec4 vColor;\n\
+	in vec3 fragPos;\n\
+	uniform vec4 col;\n\
+	void main() {\n\
+		vec3 dx = dFdx(fragPos);\n\
+		vec3 dy = dFdy(fragPos);\n\
+		vec3 norm = normalize(cross(dx, dy));\n\
+		vec3 lightDir = normalize(vec3(-1.0, 0.5, 0.0));\n\
+		float d = max(dot(lightDir, norm), 0.2);\n\
+		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
+		FragColor *= col * vColor;\n\
+	}\
+	";
+	
+	// Cube vertices with UVs (each face gets its own 4 vertices)
+	GLfloat planeVerts[] = {
+		// Front face
+		-0.5f, -0.5f,  0.0f,   0.0f, 0.0f,
+		0.5f, -0.5f,  0.0f,   1.0f, 0.0f,
+		0.5f,  0.5f,  0.0f,   1.0f, 1.0f,
+		-0.5f,  0.5f,  0.0f,   0.0f, 1.0f,
+	};
+	GLfloat cubeVerts[] = {
+		// Front face
+		-0.5f, -0.5f,  0.5f,   0.0f, 0.0f,
+		0.5f, -0.5f,  0.5f,   1.0f, 0.0f,
+		0.5f,  0.5f,  0.5f,   1.0f, 1.0f,
+		-0.5f,  0.5f,  0.5f,   0.0f, 1.0f,
+
+		// Back face
+		-0.5f, -0.5f, -0.5f,   1.0f, 0.0f,
+		0.5f, -0.5f, -0.5f,   0.0f, 0.0f,
+		0.5f,  0.5f, -0.5f,   0.0f, 1.0f,
+		-0.5f,  0.5f, -0.5f,   1.0f, 1.0f,
+
+		// Left face
+		-0.5f, -0.5f, -0.5f,   0.0f, 0.0f,
+		-0.5f, -0.5f,  0.5f,   1.0f, 0.0f,
+		-0.5f,  0.5f,  0.5f,   1.0f, 1.0f,
+		-0.5f,  0.5f, -0.5f,   0.0f, 1.0f,
+
+		// Right face
+		0.5f, -0.5f, -0.5f,   1.0f, 0.0f,
+		0.5f, -0.5f,  0.5f,   0.0f, 0.0f,
+		0.5f,  0.5f,  0.5f,   0.0f, 1.0f,
+		0.5f,  0.5f, -0.5f,   1.0f, 1.0f,
+
+		// Top face
+		-0.5f,  0.5f, -0.5f,   0.0f, 1.0f,
+		0.5f,  0.5f, -0.5f,   1.0f, 1.0f,
+		0.5f,  0.5f,  0.5f,   1.0f, 0.0f,
+		-0.5f,  0.5f,  0.5f,   0.0f, 0.0f,
+
+		// Bottom face
+		-0.5f, -0.5f, -0.5f,   0.0f, 0.0f,
+		0.5f, -0.5f, -0.5f,   1.0f, 0.0f,
+		0.5f, -0.5f,  0.5f,   1.0f, 1.0f,
+		-0.5f, -0.5f,  0.5f,   0.0f, 1.0f
+	};
+
+
+	GLuint indicesPlane[] = {
+		0, 2, 1,   2, 0, 3,       // Front face
+	};
+	GLuint indices[] = {
+		0, 2, 1,   2, 0, 3,       // Front face
+		4, 5, 6,   6, 7, 4,       // Back face
+		8, 10,9,  10,8, 11,       // Left face
+		12,13,14,  14,15,12,       // Right face
+		16,17,18,  18,19,16,       // Top face
+		20,22,21,  22,20,23        // Bottom face
+	};
+
+	// Compile shaders
+    GLuint terrain_vs = compileShader(GL_VERTEX_SHADER, terrainVertexShaderSrc);
+    GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
+    GLuint fs_tex_no_light = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTexNoLight);
+    GLuint fs_tex = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTex);
+    GLuint shaderProgram = glCreateProgram();
+
+
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d = shaderProgram;
+
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs_tex);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_tex = shaderProgram;
+
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs_tex_no_light);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_tex_no_light = shaderProgram;
+
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, terrain_vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->terrain_shader_program3d = shaderProgram;
+
+
+	char *otherVertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
+	out vec4 vColor;\n\
+	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 aux = view * vec4(aPos, 1.0);\n\
+		gl_Position = projection * aux;\n\
+		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
+	}\
+	";
+
+    vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_line = shaderProgram;
+
+	otherVertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
+	out vec4 vColor;\n\
+	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 aux = view * vec4(aPos, 1.0);\n\
+		gl_Position = aux;\n\
+		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
+	}\
+	";
+
+    vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_line_no_proj = shaderProgram;
+
+	otherVertexShaderSrc = "\n\
+	#version 330 core\n\
+	layout (location = 0) in vec3 aPos;\n\
+	layout (location = 1) in vec3 normal;\n\
+	out vec4 vColor;\n\
+	uniform mat4 model;\n\
+	uniform vec4 rot;\n\
+	uniform mat4 view;\n\
+	uniform mat4 projection;\n\
+	uniform mat4 time;\n\
+	void main() {\n\
+		float t = time[0][0];\n\
+		vec4 aux = view * vec4(aPos, 1.0);\n\
+		gl_Position = projection * aux;\n\
+		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
+	}\
+	";
+    vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
+    shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+	gl_state->shader_program3d_tri = shaderProgram;
+
+  // Vertex Array & Buffers
+    GLuint VAO, VBO, EBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVerts), cubeVerts, GL_STATIC_DRAW);
+    
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    
+
+	// Position attribute (location = 0)
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	// UV attribute (location = 1)
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+
+	gl_state->vao3d = VAO;
+	model_info *cube_m = &gl_state->models[0];
+	cube_m->name = "cube";
+	cube_m->vao = VAO;
+	cube_m->ebo = EBO;
+	cube_m->vbo = VBO;
+	cube_m->indicies = 36;
+
+
+
+
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+	
+	glBindVertexArray(VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) *6, cubeVerts, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	glBindVertexArray(0);
+	gl_state->vao3d_line = VAO;
+	gl_state->vbo3d_line = VBO;
+
+
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+	
+	glBindVertexArray(VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, 18 * sizeof(float), cubeVerts, GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+	//normal
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+	glBindVertexArray(0);
+	gl_state->vao3d_tri = VAO;
+	gl_state->vbo3d_tri = VBO;
+
+    glEnable(GL_DEPTH_TEST);
+
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+
+    glBindVertexArray(VAO);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(planeVerts), planeVerts, GL_STATIC_DRAW);
+    
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indicesPlane), indicesPlane, GL_STATIC_DRAW);
+    
+
+	// Position attribute (location = 0)
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	// UV attribute (location = 1)
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+	model_info *plane_m = &gl_state->models[1];
+	plane_m->name = "plane";
+	plane_m->vao = VAO;
+	plane_m->ebo = EBO;
+	plane_m->vbo = VBO;
+	plane_m->indicies = 6;
+
+	loadIdentity(gl_state->model);
+    loadIdentity(gl_state->view);
+    loadIdentity(gl_state->projection);
+
+    perspective(gl_state->projection, 70.0f * (3.14159f / 180.0f), (float)gl_state->width / (float)gl_state->height, 0.1f, 500.0f);
+    gl_state->view[14] = -5.0f;  // translate view back
+    gl_state->view[13] = -1.0f;  // translate view back
+    //gl_state->model[13] = -1.0f;  // translate view back
+	/*
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	// set the texture wrapping/filtering options (on the currently bound texture object)
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	// load and generate the texture
+	int width, height, nrChannels;
+	*/
+
+
+}
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
+{
+	auto gl_state = (open_gl_state*)glfwGetWindowUserPointer(window);
+    double currentTime = glfwGetTime();
+
+    double deltaTime = currentTime - gl_state->last_time;
+    
+    if (deltaTime > 0.0 && gl_state->mouse_last_x != 0.0) {
+        gl_state->mouse_vel_x = (xpos - gl_state->mouse_last_x);
+        gl_state->mouse_vel_y = (ypos - gl_state->mouse_last_y);
+    }
+	//glfwSetCursorPos(window, 0, 0);
+    gl_state->mouse_last_x = xpos;
+    gl_state->mouse_last_y = ypos;
+	//glfwSetCursorPos(window, gl_state->width / 2, gl_state->height / 2);
+}
+#ifdef LINUX
+void hide_cursor_x11(GLFWwindow* glfwWindow) {
+    // Get X11 display and window from GLFW
+    Display* display = glfwGetX11Display();
+    Window window = glfwGetX11Window(glfwWindow);
+    
+
+    // Method 2: Using XFixes extension (more reliable)
+    int event_base, error_base;
+    if (XFixesQueryExtension(display, &event_base, &error_base)) {
+        XFixesHideCursor(display, window);
+        XFlush(display);
+    }
+}
+
+void show_cursor_x11(GLFWwindow* glfwWindow) {
+    Display* display = glfwGetX11Display();
+    Window window = glfwGetX11Window(glfwWindow);
+    
+    // Method 2: Using XFixes
+    int event_base, error_base;
+    if (XFixesQueryExtension(display, &event_base, &error_base)) {
+        XFixesShowCursor(display, window);
+        XFlush(display);
+    }
+}
+#endif
+
+void HideCursor(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	bool val = *(bool *)&dbg->mem_buffer[base_ptr + 8];
+
+	if(val)
+	{
+#ifdef AOEOAE
+		hide_cursor_x11((GLFWwindow *)gl_state->glfw_window);
+#else
+		glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+#endif
+	}
+	else
+	{
+#ifdef AOEAOE
+		show_cursor_x11((GLFWwindow *)gl_state->glfw_window);
+#else
+		glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+#endif
+	}
+}
+void OpenWindow(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int wnd_width = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int wnd_height = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	//open_simplex_noise(77374, &dbg->simplex_ctx);
+
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	gl_state->mouse_vel_x = 0.0;
+	gl_state->mouse_vel_y = 0.0;
+	if (!gl_state->is_engine)
+	{
+		gl_state->scene_srceen_width = wnd_width;
+		gl_state->scene_srceen_height = wnd_height;
+		//gl_state->width = wnd_width;
+		//gl_state->height = wnd_height;
+	}
+	if (gl_state->glfw_window)
+	{
+		if(wnd_width == 0)
+		{
+			wnd_width = 100;
+		}
+		if(wnd_height == 0)
+		{
+			wnd_height = 100;
+		}
+		printf("will try to resize %p\n", gl_state->glfw_window);
+		glfwSetWindowSize((GLFWwindow *)gl_state->glfw_window, wnd_width, wnd_height);
+		gl_state->width = wnd_width;
+		gl_state->height = wnd_height;
+		*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)gl_state->glfw_window;
+		printf("resized");
+		return;
+	}
+
+	GLFWwindow* window;
+
+	/* Initialize the library */
+	if (!glfwInit())
+		return;
+
+	wnd_width = 1000;
+	wnd_height = 1000;
+	gl_state->width = wnd_width;
+	gl_state->height = wnd_height;
+	/* Create a windowed mode window and its OpenGL context */
+	const char* glsl_version = "#version 330";
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+	//glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+	/*
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac
+	*/
+
+	//glfwWindowHint(GLFW_REFRESH_RATE, 60);
+
+	window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World", NULL, NULL);
+	if (!window)
+	{
+		ASSERT(0);
+		glfwTerminate();
+		return;
+
+	}
+	if (glfwRawMouseMotionSupported()) {
+		glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+	}
+	gl_state->glfw_window = window;
+
+	/* Make the window's context current */
+	glfwMakeContextCurrent(window);
+
+	glfwSetWindowUserPointer(window, (void*)gl_state);
+	glfwSetKeyCallback(window, KeyCallback);
+	glfwSetScrollCallback(window, scroll_callback);
+	glfwSetWindowCloseCallback(window, window_close_callback);
+	glfwSetMouseButtonCallback(window, MouseCallback);
+	glfwSetCursorPosCallback(window, cursor_position_callback);
+
+	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = (long long)window;
+
+	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+
+	io.ConfigNavEscapeClearFocusItem = false;
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	io.ConfigWindowsMoveFromTitleBarOnly = true;
+
+
+
+	// Setup Dear ImGui style
+	ImGui::StyleColorsDark();
+	//ImGui::StyleColorsLight();
+
+	// Setup Platform/Renderer backends
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	ImGui_ImplOpenGL3_Init(glsl_version);
+
+
+	int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+
+	float vertices[] = {
+		// positions          // texture coords
+		 1.0f,  1.0f, 0.0f,   1.0f, 1.0f,   // top right
+		 1.0f,   0.0f, 0.0f,   1.0f, 0.0f,   // bottom right
+		 0.0f,	0.0f, 0.0f,   0.0f, 0.0f,   // bottom left
+		 0.0f,  1.0f, 0.0f,   0.0f, 1.0f    // top left 
+	};
+	unsigned int indices[] = {  // note that we start from 0!
+		0, 1, 3,   // first triangle
+		1, 2, 3    // second triangle
+	};
+
+
+	unsigned int LINEVAO;
+	unsigned int VBO;
+	glGenVertexArrays(1, &LINEVAO);
+	glBindVertexArray(LINEVAO);
+	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, 4 * 4, vertices, GL_DYNAMIC_DRAW);
+	GL_CALL(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0));
+	glEnableVertexAttribArray(0);
+
+	gl_state->line_vbo = VBO;
+
+	unsigned int VAO;
+	glGenVertexArrays(1, &VAO);
+	glBindVertexArray(VAO);
+	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+	GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0));
+	GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
+
+	unsigned int EBO;
+	glGenBuffers(1, &EBO);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+
+
+	const char* lineVertexShaderSource = "#version 330 core\n"
+		"layout (location = 0) in vec3 aPos;\n"
+		"layout (location = 1) in vec2 uv;\n"
+		"uniform vec3 pos;\n"
+		"uniform vec3 pivot;\n"
+		"uniform float cam_size;\n"
+		"uniform float screen_ratio;\n"
+		"uniform vec3 ent_size;\n"
+		"uniform vec3 cam_pos;\n"
+		"uniform vec3 cam_rot;\n"
+		"uniform vec3 ent_rot;\n"
+		"out vec2 TexCoord;\n"
+		"void main()\n"
+		"{\n"
+		"	mat3 A = mat3(cos(cam_rot.z), -sin(cam_rot.z), 0.0,\n"
+		"		 sin(cam_rot.z), cos(cam_rot.z), 0.0,\n"
+		"		 0.0, 0.0, 1.0);\n"
+		"	mat3 rot = mat3(cos(ent_rot.z), -sin(ent_rot.z), 0.0,\n"
+		"		 sin(ent_rot.z), cos(ent_rot.z), 0.0,\n"
+		"		 0.0, 0.0, 1.0);\n"
+		"   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+		"   gl_Position.xy -= cam_pos.xy;\n"
+		"   gl_Position.xy /= cam_size;\n"
+		"   gl_Position = vec4(A * gl_Position.xyz, 1.0);\n"
+		"}\0";
+	u32 lineVertexShader;
+	lineVertexShader = glCreateShader(GL_VERTEX_SHADER);
+	GL_CALL(glShaderSource(lineVertexShader, 1, &lineVertexShaderSource, NULL));
+	GL_CALL(glCompileShader(lineVertexShader));
+
+	int  success;
+	char infoLog[512];
+	glGetShaderiv(lineVertexShader, GL_COMPILE_STATUS, &success);
+
+	if (!success)
+	{
+		glGetShaderInfoLog(lineVertexShader, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+		ASSERT(false);
+	}
+
+	const char* vertexShaderSource = "#version 330 core\n"
+		"layout (location = 0) in vec3 aPos;\n"
+		"layout (location = 1) in vec2 uv;\n"
+		"uniform vec3 pos;\n"
+		"uniform vec3 pivot;\n"
+		"uniform float cam_size;\n"
+		"uniform float screen_ratio;\n"
+		"uniform vec3 ent_size;\n"
+		"uniform vec3 cam_pos;\n"
+		"uniform vec3 cam_rot;\n"
+		"uniform vec3 ent_rot;\n"
+		"out vec2 TexCoord;\n"
+		"void main()\n"
+		"{\n"
+		"	mat3 A = mat3(cos(cam_rot.z), -sin(cam_rot.z), 0.0,\n"
+		"		 sin(cam_rot.z), cos(cam_rot.z), 0.0,\n"
+		"		 0.0, 0.0, 1.0);\n"
+		"	mat3 rot = mat3(cos(ent_rot.z), -sin(ent_rot.z), 0.0,\n"
+		"		 sin(ent_rot.z), cos(ent_rot.z), 0.0,\n"
+		"		 0.0, 0.0, 1.0);\n"
+		"   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
+		"   gl_Position.xy -= pivot.xy;\n"
+		"   gl_Position.xy *= ent_size.xy;\n"
+		"   gl_Position = vec4(rot * gl_Position.xyz, 1.0);\n"
+		"   gl_Position.xy += pos.xy;\n"
+		"   gl_Position.xy -= cam_pos.xy;\n"
+		"   gl_Position.xy /= cam_size;\n"
+		"   gl_Position = vec4(A * gl_Position.xyz, 1.0);\n"
+		"   gl_Position.x *= screen_ratio;\n"
+		"   gl_Position.z = pos.z;\n"
+		"   TexCoord = uv;\n"
+		"}\0";
+
+	u32 vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	GL_CALL(glShaderSource(vertexShader, 1, &vertexShaderSource, NULL));
+	GL_CALL(glCompileShader(vertexShader));
+
+	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+
+	if (!success)
+	{
+		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+		ASSERT(false);
+	}
+	const char* fragmentShaderNoTextureSource = "#version 330 core\n"
+		"out vec4 FragColor;\n"
+		"in vec2 TexCoord;\n"
+		"uniform vec4 color;\n"
+		"void main(){\n"
+		//"vec4 tex_col =  texture(tex, uv);\n"
+		"FragColor =  color;\n"
+		"}\n";
+	const char* fragmentShaderSource = "#version 330 core\n"
+		"out vec4 FragColor;\n"
+		"in vec2 TexCoord;\n"
+		"uniform vec4 color;\n"
+		"uniform vec2 tex_size;\n"
+		"uniform vec2 tex_offset;\n"
+		"uniform sampler2D tex;\n"
+		"void main(){\n"
+		//"vec4 tex_col =  texture(tex, TexCoord + vec2(0.0, tex_size.y / 16.0));\n"
+		"vec4 tex_col =  texture(tex, (TexCoord + tex_offset)* tex_size);\n"
+		"if(tex_col.a == 0.0)discard;\n"
+		//"vec4 tex_col =  texture(tex, uv);\n"
+		"FragColor =  tex_col * color;\n"
+		"}\n";
+
+	unsigned int fragmentShader = CompileShader((char*)fragmentShaderSource, GL_FRAGMENT_SHADER);
+	unsigned int fragmentNoTextureShader = CompileShader((char*)fragmentShaderNoTextureSource, GL_FRAGMENT_SHADER);
+
+
+	unsigned int lineShaderProgram;
+	lineShaderProgram = glCreateProgram();
+	glAttachShader(lineShaderProgram, lineVertexShader);
+	glAttachShader(lineShaderProgram, fragmentNoTextureShader);
+	glLinkProgram(lineShaderProgram);
+	glUseProgram(lineShaderProgram);
+
+	unsigned int shaderProgram;
+	shaderProgram = glCreateProgram();
+	glAttachShader(shaderProgram, vertexShader);
+	glAttachShader(shaderProgram, fragmentShader);
+	glLinkProgram(shaderProgram);
+	glUseProgram(shaderProgram);
+
+	unsigned int shaderProgramNoTexture;
+	shaderProgramNoTexture = glCreateProgram();
+	glAttachShader(shaderProgramNoTexture, vertexShader);
+	glAttachShader(shaderProgramNoTexture, fragmentNoTextureShader);
+	glLinkProgram(shaderProgramNoTexture);
+	//glUseProgram(shaderProgram);
+
+
+	gl_state->vao = VAO;
+	gl_state->line_vao = LINEVAO;
+	gl_state->line_shader_program = lineShaderProgram;
+	gl_state->shader_program = shaderProgram;
+	gl_state->shader_program_no_texture = shaderProgramNoTexture;
+
+
+	glEnable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glDepthFunc(GL_LESS);
+
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_FRONT);
+
+
+
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+
+	Init3D(dbg);
+
+		// Vertex Shader
+
+}
+/*
+void DebuggerCommand(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int str_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	//ASSERT(sz > 0)
+
+	char* str = (char*)&dbg->mem_buffer[str_offset];
+
+
+	int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
+	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
+	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] += sz;
+	ASSERT((addr + sz) < 64000);
+	//*max += sz;
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
+
+}
+*/
+void SetMem(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	ASSERT(sz > 0)
+
+	int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
+	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
+	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] = sz;
+}
+void SubMem(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	ASSERT(sz > 0)
+
+		int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
+	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
+	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] -= sz;
+	ASSERT((addr - sz) >= 0);
+	//*(int*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
+
+}
+void GetMem(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int sz = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	ASSERT(sz > 0)
+	ASSERT(base_ptr > (MEM_PTR_CUR_ADDR + 8));
+
+		int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
+	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
+	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] += sz;
+	ASSERT((addr + sz) < DATA_SECT_OFFSET);
+	//*max += sz;
+
+	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = addr;
+
+}
+
+void GetTimeSinceStart(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	//auto gl_state = (open_gl_state*)dbg->data;
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = (float)glfwGetTime();
+}
+void Sqrt(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sqrt(val);
+}
+void PrintStr(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int str_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char* str = (char*)&dbg->mem_buffer[str_offset];
+	printf("%s", str);
+
+	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
+}
+void PrintV3Int(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int x = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int y = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int z = *(int*)&dbg->mem_buffer[base_ptr + 24];
+#ifdef LINUX
+	printf("x: %d, y: %d, z: %d\n", x, y, z);
+#else
+	char buffer[128];
+	int sz = snprintf(buffer, 128, "x: %d, y: %d, z: %d\n", x, y, z);
+	DWORD written = 0;
+	WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, sz, &written, NULL);
+#endif
+
+	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
+}
+void PrintV3(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float x = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float y = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	float z = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	printf("x: %.3f, y: %.3f, z: %.3f\n", x, y, z);
+
+	//*(float*)&dbg->mem_buffer[REt_1_REG * 8] = sinf(val);
+}
+void OpenLocalsWindow(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[BASE_STACK_PTR_REG * 8];
+	int stack_base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int line = *(int*)&dbg->mem_buffer[stack_base_ptr + 8];
+	if (dbg->frame_is_from_dbg)
+		return;
+
+	byte_code2 *addr = *(byte_code2 **)&dbg->mem_buffer[RIP_REG * 8];
+
+	func_decl *fdecl = GetFuncBasedOnBc2(dbg, addr);
+	scope *scp = FindScpWithLine(fdecl, line);
+	ASSERT(scp);
+	BeginLocalsChild(*dbg, base_ptr + 8, scp);
+	//ImGui::Text("AOe");
+	///glfwSwapBuffers(window);
+}
+void MemSet(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int b = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int c = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int *a = (int*)&dbg->mem_buffer[a_ptr];
+	memset(a, b, c);
+
+}
+void MemCpy(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int c_ptr = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	void *a = (void*)&dbg->mem_buffer[a_ptr];
+	void *b = (void*)&dbg->mem_buffer[b_ptr];
+	memcpy(a, b, c_ptr);
+
+}
+void PointLineDistance(dbg_state* dbg)
+{
+	/*
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int c_ptr = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int d_ptr = *(int*)&dbg->mem_buffer[base_ptr + 32];
+
+	auto a = (v4*)&dbg->mem_buffer[a_ptr];
+	auto b = (v4*)&dbg->mem_buffer[b_ptr];
+	auto p = (v4*)&dbg->mem_buffer[c_ptr];
+	auto closest_point = (v3*)&dbg->mem_buffer[d_ptr];
+
+	v3 ab;
+	ab.x = b->x - a->x;
+	ab.y = b->y - a->y;
+	ab.z = b->z - a->z;
+
+	v3 ap;
+	ap.x = p->x - a->x;
+	ap.y = p->y - a->y;
+	ap.z = p->z - a->z;
+
+	float proj = ab.dot(ap);
+	float d = proj / ab.dot(ab);
+	if (d <= 0)
 	{
 		*closest_point = *a;
 	}
-	else if d >= 1.0
+	else if (d >= 1)
 	{
 		*closest_point = *b;
 	}
 	else
 	{
-		*closest_point = *a + ab * d;
+		//*closest_point = *a + ab.mul(d);
 	}
-	__dbg_break
-	root: =len_vec(&(*closest_point - *p));
-	return root;
+	v3 ret;
+	//ret.x = closest_point->x - 
+	//*(float*)&dbg->mem_buffer[RET_1_REG * 8] = 
+	*/
 }
-test_strct:struct
+void DotV3(dbg_state* dbg)
 {
-	f : f32,
-}
-ModifyPtrArbitraryByte::fn x64(s : *s32, idx : u32, val : u8)
-{
-	*ptr_offset(s, idx, u8) = val;
-}
-ModifyPtrSecondByteToFour::fn x64(s : *s32)
-{
-	*ptr_offset(s, 2, u8) = 4;
-}
-ModifyPtrToThree::fn x64(s : *s32)
-{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int a_ptr = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int b_ptr = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	float *a = (float*)&dbg->mem_buffer[a_ptr];
+	float *b = (float*)&dbg->mem_buffer[b_ptr];
 
-	*s = 3;
-}
-ModifyStrctPtr::fn x64(s : *test_strct)
-{
-	s.f = 3.0;
-}
-SimpleAsm::fn x64(ret : *s32) ! s32 
-{
-	i: = 0;
-	if i != 0
-	{
-		*ret = i;
-		return -1;
-	}
-
-	*ret = 999;
-	if *ret != 999
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 1;
-	f: = 1.5;
-	if f < 1.4 || f > 1.6
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 2;
-	c: = &i;
-	if c != &i
-	{
-		*ret = i;
-		return -1;
-	}
-	i = 3;
-
-	c = cast(*s32)135;
-
-	if cast(u64)c != 135
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 4;
-	d: = 0x100;
-	c = &d;
-	e: = *ptr_offset(c, 1, u8);
-
-	if e != 1
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 5;
-	d = 0;
-	while d < 4
-	{
-		d++;
-	}
-	if d != 4
-	{
-		*ret = i;
-		return -1;
-
-	}
-
-	i = 5;
-	d = 0;
-	sz := 4;
-	while d < sz
-	{
-		d++;
-	}
-	if d != sz
-	{
-		*ret = i;
-		return -1;
-
-	}
-
-	if !(i == 5 && d == 4)
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 6;
-	d = 0;
-	ModifyPtrSecondByteToFour(&d);
-
-	if d != 0x40000
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 7;
-	d = 2;
-	d = d * 2;
-	if d != 0x4
-	{
-		*ret = i;
-		return -1;
-	}
-	d = d * d;
-	if d != 16
-	{
-		*ret = i;
-		return -1;
-	}
-
-	d = 4;
-	d = 3 + d * d;
-
-	if d != 19
-	{
-		*ret = i;
-		return -1;
-	}
-
-	c = &d;
-	c = cast(*s32)(cast(u64)c + 4);
-
-	if cast(u64)c != (cast(u64)(&d) + 4)
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 8;
-	d = 0;
-	ModifyPtrArbitraryByte(&d, 1, 2);
-
-	if d != 0x200
-	{
-		*ret = i;
-		return -1;
-	}
-	ModifyPtrArbitraryByte(&d, 2, 3);
-
-	if d != 0x30200
-	{
-		*ret = i;
-		return -1;
-	}
-
-	s:test_strct;
-	s.f = 2.0;
-	if s.f < 1.9 || s.f > 2.1
-	{
-		*ret = i;
-		return -1;
-	}
-	ModifyStrctPtr(&s);
-
-	if s.f < 2.9 || s.f > 3.1
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 9;
-	
-	d = 0x100;
-	g:= 0x100;
-
-	ptr: = &d;
-	c = &g;
-
-	if *ptr_offset(ptr, 1, u8) != *ptr_offset(c, 1, u8)
-	{
-		*ret = i;
-		return -1;
-	}
-
-	g = 4;
-
-	*ptr_offset(ptr, 2, u8) = *ptr_offset(c, 0, u8);
-
-	if *ptr_offset(ptr, 2, u8) != 4
-	{
-		*ret = i;
-		return -1;
-	}
-
-	i = 10;
-
-	f32_ar: = []f32{ 1.0, 2.0, 3.0 };
-
-	f = *f32_ar[0] + *f32_ar[1] + *f32_ar[2];
-
-	if f < 5.9 || f > 6.1
-	{
-		*ret = i;
-		return -1;
-	}
-
-	*ret = i + 1;
-	return 1;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 }
-add_vert::fn(gjk : *gjk_state, v : *_vec)
+void WriteFileInterpreter(dbg_state* dbg)
 {
-	for i in 0..gjk.mink_diff_vert
-	{
-		diff := *v - *gjk.mink_diff[cast(u64)i]
-		if dot_vec(&diff, &diff) < 0.0001
-		{
-			return
-		}
-	}
-	gjk.mink_diff[gjk.mink_diff_vert] = *v
-	gjk.mink_diff_vert++
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buffer_sz = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	auto name_ptr = (char*)&dbg->mem_buffer[name_offset];
+	auto buffer_ptr = (char*)&dbg->mem_buffer[buffer_offset];
+
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	work_dir = work_dir + name_ptr;
+	//MaybeAddBarToEndOfStr(&work_dir);
+
+	WriteFileLang((char *)work_dir.c_str(), buffer_ptr, buffer_sz);
+
 }
-//code from GJK.h https://github.com/kevinmoran/GJK/tree/master
-EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *collider, col2 : *collider, out : * collision) ! _vec
+void GetInstRealAddr(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int inst_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = (u64)(dbg->lang_stat->bcs2_start + inst_idx);
+}
+void GetTopStackPtr(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = base_ptr + 8;
+
+}
+void Asin(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = asin(val);
+}
+void Acos(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = acosf(val);
+}
+void Cos(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = cosf(val);
+}
+void GetMouseScroll(dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->scroll;
+}
+void Tan(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = tanf(val);
+}
+void Sin(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = sinf(val);
+}
+void Stub()
 {
 
-	cur_i : u64
+}
+
+own_std::string GetFolderName(own_std::string path)
+{
+	int last_bar = path.find_last_of('/');
+
+	if (last_bar == (path.size() - 1))
+	{
+		last_bar--;
+		while (path[last_bar] != '/' && path[last_bar] != '\\' && last_bar > 0)
+			last_bar--;
+		//last_bar = path.fi(path.data(), 0, last_bar - 1);
+	}
+	if (last_bar == -1)
+		last_bar = 0;
+
+	return path.substr(last_bar + 1);
+}
+void IsMouseOnGameWindow(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+	double ypos, xpos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+
+	if (gl_state->is_engine)
+	{
+		ypos /= gl_state->scene_srceen_height;
+		xpos /= gl_state->scene_srceen_width;
+	}
+	else
+	{
+		ypos /= gl_state->height;
+		xpos /= gl_state->width;
+	}
+	//ypos *= 10;
+	bool ret = true;
+
+	if (xpos > 1 || xpos < 0)
+		ret = false;
+	if (ypos > 1 || ypos < 0)
+		ret = false;
+	*(bool*)&dbg->mem_buffer[RET_1_REG * 8] = ret;
+}
+void GetMouseNormalizedPosY(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+	double ypos, xpos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+
+	if (gl_state->is_engine)
+	{
+		float ratio = (float)gl_state->scene_srceen_height / (float)gl_state->scene_srceen_width;
+		ypos /= gl_state->scene_srceen_height;
+	}
+	else
+	{
+		float ratio = (float)gl_state->height / (float)gl_state->width;
+		ypos /= gl_state->height;
+	}
+	ypos = ypos * 2 - 1;
+	//ypos *= 10;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
+
+}
+void GetMouseNormalizedPosX(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	double xpos, ypos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+	float ratio = (float)gl_state->height / (float)gl_state->width;
+	if (gl_state->is_engine)
+	{
+		ratio = (float)gl_state->scene_srceen_height / (float)gl_state->scene_srceen_width;
+		xpos /= gl_state->scene_srceen_width;
+	}
+	else
+	{
+		//ratio = (float)gl_state->height / (float)gl_state->width;
+		xpos /= gl_state->width;
+	}
+	xpos = xpos * 2 - 1;
+	xpos /= ratio;
+	//ypos *= ;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
+
+}
+void GetMouseVelY(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->mouse_vel_y;
+}
+void GetMouseVelX(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = gl_state->mouse_vel_x;
+}
+void GetMouseScreenPosY(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+	double ypos, xpos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+	if (gl_state->is_engine)
+	{
+		float ratio = (float)gl_state->height / (float)gl_state->scene_srceen_height;
+		//ypos *= ratio;
+	}
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ypos;
+
+}
+void GetMouseScreenPosX(dbg_state *dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	double xpos, ypos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+	if (gl_state->is_engine)
+	{
+		float ratio = (float)gl_state->width / (float)gl_state->scene_srceen_width;
+		//xpos *= ratio;
+	}
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = xpos;
+
+}
+void Rand01(dbg_state* dbg)
+{
+	auto r = ((unsigned int)rand()) % 2000;
+	double f = (double)r / 2000;
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = f;
+}
+
+void FreeTexture(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+	texture_info* t = &gl_state->textures[tex_id];
+	if (t->used)
+	{
+		glDeleteTextures(1, (GLuint *)&t->id);
+		t->used = false;
+	}
+}
+void ScreenRatio(dbg_state* dbg)
+{
+	int base_ptr = *(int*)&dbg->mem_buffer[STACK_PTR_REG * 8];
+	auto gl_state = (open_gl_state*)dbg->data;
+	GLFWwindow* window = (GLFWwindow*)gl_state->glfw_window;
+
+	if (gl_state->is_engine)
+	{
+		float ratio = (float)gl_state->scene_srceen_height / (float)gl_state->scene_srceen_width;
+		*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ratio;
+	}
+	else
+	{
+		float ratio = (float)gl_state->height / (float)gl_state->width;
+		*(float*)&dbg->mem_buffer[RET_1_REG * 8] = ratio;
+	}
+}
+
+
+
+bool fileExists(const char* filename) {
+	std::ifstream file(filename);
+	return file.is_open();
+}
+void* alloc_own(int size, mem_alloc* alloc)
+{
+	return heap_alloc(alloc, size);
+}
+void free_own(char* ptr, mem_alloc* alloc)
+{
+	heap_free(alloc, ptr);
+}
+void* realloc_own(char* ptr, int size, mem_alloc* alloc)
+{
+	void* ret = heap_alloc(alloc, size);
+	auto chunk = (mem_chunk *)alloc->in_use.Get(ptr);
+
+
+	memcpy(ret, ptr, min(chunk->size * BYTES_PER_CHUNK, size));
+
+	heap_free(alloc, ptr);
+	return ret;
+}
+AudioClip* CreateNewAudioClip(char* name)
+{
+	if (!fileExists(name)) {
+		std::cerr << "File could not be opened or does not exist: " << name << std::endl;
+		ASSERT(false);
+		return nullptr;
+	}
+
+	auto ret = (AudioClip *)__lang_globals.alloc(__lang_globals.data, sizeof(AudioClip));
+	memset(ret, 0, sizeof(AudioClip));
+	ret->name = name;
+	memset(&ret->buffer, 0, sizeof(own_std::vector<int>));
+
+	unsigned int channels;
+	unsigned int sampleRate;
+	drflac_uint64 totalPCMFrameCount;
+	//dr
+	drflac_int32* pSampleData = drflac_open_file_and_read_pcm_frames_s32(name, &channels, &sampleRate, &totalPCMFrameCount, NULL);
+
+
+	ret->buffer.make_count(totalPCMFrameCount * channels);
+	ret->time = (float)(totalPCMFrameCount ) / (float)sampleRate;
+	int sz = totalPCMFrameCount * channels;
+
+	for (int i = 0; i < sz; i++)
+	{
+
+		ret->buffer[i] = pSampleData[i] >> 16;
+	}
+	//memcpy(&ret->buffer[0], pSampleData, sz);
+	free(pSampleData);
+
 	/*
-	for v1 in col1.CUBE.verts
-	{
-		for v2 in col2.CUBE.verts
-		{
-			aux:= *v1 - *v2
-			add_vert(gjk, &aux)
-			cur_i++
-			//printf("i {cur_i}\n")
-			//globals.temp_alloc.cur = 0
-		}
-	}
+	drflac* pFlac = drflac_open_file("01.flac", &allocationCallbacks);
+	int sampleRate, channels;
+	short* buffer;
+	//int res = stb_vorbis_decode_filename(name, channels, &sampleRate, &buffer);
 	*/
-    faces := &gjk.epa_faces
-    loose_edges := &gjk.epa_loose_edges
-    
-	ba := *b-*a
-	ca := *c-*a
-	da := *d-*a
-	cb := *c-*b
-	db := *d-*b
-    //Init with final simplex from GJK
-    faces[0] = *a;
-    faces[1] = *b;
-    faces[2] = *c;
-    faces[3] = normalize_vec(&cross_vec(&ba, &ca)); //ABC
-    faces[1][0] = *a;
-    faces[1][1] = *c;
-    faces[1][2] = *d;
-    faces[1][3] = normalize_vec(&cross_vec(&ca, &da)); //ACD
-    faces[2][0] = *a;
-    faces[2][1] = *d;
-    faces[2][2] = *b;
-    faces[2][3] = normalize_vec(&cross_vec(&da, &ba)); //ADB
-    faces[3][0] = *b;
-    faces[3][1] = *d;
-    faces[3][2] = *c;
-    faces[3][3] = normalize_vec(&cross_vec(&db, &cb)); //BDC
+	return ret;
 
-    num_faces:u64=4;
-	gjk.num_faces = num_faces
-	//__dbg_break
-    closest_face:u64;
-	cur_k := 0
+}
 
-    for iterations in 0.. EPA_MAX_NUM_ITERATIONS
+
+int main(int argc, char* argv[])
+{
+	lang_state lang_stat;
+	mem_alloc alloc;
+	alloc.main_buffer = nullptr;
+	InitMemAlloc(&alloc);
+	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
+
+#ifdef LINUX
+	char path[1024];
+    ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+
+	own_std::string exe_full;
+	if (len != -1) {
+		path[len] = '\0';  
+		exe_full = path;
+	} else {
+		ASSERT(false);
+		// handle error
+	}
+	int last_bar = exe_full.find_last_of("\\/");
+	own_std::string exe_dir = exe_full.substr(0, last_bar + 1);
+	chdir(exe_dir.c_str());
+#else
+	TCHAR buffer[MAX_PATH] = { 0 };
+	GetModuleFileName(NULL, buffer, MAX_PATH);
+	own_std::string exe_full = buffer;
+	int last_bar = exe_full.find_last_of("\\/");
+	own_std::string exe_dir = exe_full.substr(0, last_bar + 1);
+	SetCurrentDirectory(exe_dir.c_str());
+#endif
+
+
+
+	sound_state sound;
+#ifdef LINUX
+#else
+	sound.audio_class = new XAudioClass();
+	//memset(sound.audio_class, 0, sizeof(sound.audio_class));
+	sound.audio_class->sound = &sound;
+
+	InitXAudio2(sound, false);
+#endif
+	/*
+	auto addr = heap_alloc(&alloc, 12);
+	auto addr2 = heap_alloc(&alloc, 12);
+	heap_free(&alloc, addr);
+	heap_free(&alloc, addr2);
+	*/
+
+
+
+	//sound.audio_clips_src.emplace_back(CreateNewAudioClip("02.flac"));
+	//AddAudioClipToPlay(&sound, sound.audio_clips_src[0]);
+
+	own_std::string oexe_dir = lang_stat.exe_dir.c_str();
+	last_bar = oexe_dir.find_last_of("/\\");
+	own_std::string dir = oexe_dir.substr(0, last_bar + 1);
+
+	dir = "hello";
+	dir = dir + "jij";
+
+	ASSERT(dir == "hellojij");
+
+
+	compile_options opts = {};
+	//opts.file = "../lang2/files";
+	//opts.wasm_dir = "../lang2/web/";
+	if (argc > 1)
 	{
-		globals.temp_alloc.cur = 0
-        //Find face that's closest to origin
-        min_dist:= dot_vec(faces[0][0], faces[0][3]);
-        closest_face = 0;
-        for i in 1..num_faces
+		own_std::string arg1 = argv[1];
+		if (arg1 == "run")
 		{
-            dist := dot_vec(faces[cast(u64)i][0], faces[cast(u64)i][3]);
-            if(dist<min_dist)
+			if (argc <= 2)
 			{
-                min_dist = dist;
-                closest_face = cast(u32)i;
-            }
-        }
-		gjk.closest_face = closest_face
-
-        //search normal to face that's closest to origin
-        search_dir := *faces[cast(u64)closest_face][3]; 
-        p := find_support(gjk, col1, col2, &search_dir)
-
-		dot := dot_vec(&p, &search_dir)
-		dist := dot-min_dist
-        if((dist)<EPA_TOLERANCE){
-            //Convergence (new point is not significantly further from origin)
-			//__dbg_break
-			out.normal = *faces[cast(u64)closest_face][3]
-            return *faces[cast(u64)closest_face][3] * dot_vec(&p, &search_dir); //dot vertex with normal to resolve collision along normal!
-        }
-
-        num_loose_edges:u64 = 0;
-
-		//printf("here\n")
-        //Find all triangles that are facing p
-		for i2 in 0..num_faces
-        {
-			i := cast(u64)i2
-			//printf("i {i}\n")
-			to_point := p-*faces[i][0] 
-            if(dot_vec(faces[i][3], &to_point)>0.0) //triangle i faces p, remove it
-            {
-				n := faces[i][3]
-				gjk.cur_face_facing_point = i
-				gjk.epa_new_sup = p
-				//__dbg_break
-				//view_collision(1)
-
-                //Add removed triangle's edges to loose edge list.
-                //If it's already there, remove it (both triangles it belonged to are gone)
-				for j2 in 0..3
-                {
-					j:=cast(u64)j2
-					//printf("j {j}\n")
-                    current_edge:[2]_vec=?
-					current_edge[0] = *faces[i][j];
-					current_edge[1] = *faces[i][(j+1)%3];
-                    found_edge := false;
-
-					for k2 in 0..num_loose_edges
-                    {
-						k := cast(u64)k2
-						//printf("k {k}\n")
-                        if(equal_vec(loose_edges[k][1], current_edge[0]) && 
-							equal_vec(loose_edges[k][0], current_edge[1]))
-						{
-                            //Edge is already in the list, remove it
-                            //THIS ASSUMES EDGE CAN ONLY BE SHARED BY 2 TRIANGLES (which should be true)
-                            //THIS ALSO ASSUMES SHARED EDGE WILL BE REVERSED IN THE TRIANGLES (which 
-                            //should be true provided every triangle is wound CCW)
-                            loose_edges[k][0] = loose_edges[num_loose_edges-1][0]; //Overwrite current edge
-                            loose_edges[k][1] = loose_edges[num_loose_edges-1][1]; //with last edge in list
-                            num_loose_edges--;
-                            found_edge = true;
-                            k2=cast(s64)num_loose_edges; //exit loop because edge can only be shared once
-                        }
-                    }//endfor loose_edges
-
-                    if(!found_edge){ //add current edge to list
-                        // assert(num_loose_edges<EPA_MAX_NUM_LOOSE_EDGES);
-                        if(num_loose_edges>=EPA_MAX_NUM_LOOSE_EDGES) break;
-						//__dbg_break
-                        loose_edges[num_loose_edges][0] = current_edge[0];
-                        loose_edges[num_loose_edges][1] = current_edge[1];
-                        num_loose_edges++;
-                    }
-					gjk.num_loose_edges = num_loose_edges
-                }
-				gjk.num_loose_edges = num_loose_edges
-				//printf("k loop end")
-
-                //Remove triangle i from list
-                faces[i][0] = faces[num_faces-1][0];
-                faces[i][1] = faces[num_faces-1][1];
-                faces[i][2] = faces[num_faces-1][2];
-                faces[i][3] = faces[num_faces-1][3];
-                num_faces--;
-                i2--;
-            }//endif p can see triangle i
-        }//endfor num_faces
-        
-		//__dbg_break
-        //Reconstruct polytope with p added
-		for i2 in 0..num_loose_edges
-        {
-			i := cast(u64)i2
-            // assert(num_faces<EPA_MAX_NUM_FACES);
-            if(num_faces>=EPA_MAX_NUM_FACES) break;
-            faces[num_faces][0] = *loose_edges[i][0];
-            faces[num_faces][1] = *loose_edges[i][1];
-            faces[num_faces][2] = p;
-			a_dir := *loose_edges[i][0]-*loose_edges[i][1]
-			b_dir := *loose_edges[i][0]-p
-			cross := cross_vec(&a_dir, &b_dir)
-            faces[num_faces][3] = normalize_vec(&cross);
-
-            //Check for wrong normal to maintain CCW winding
-            bias:= 0.000001; //in case dot result is only slightly < 0 (because origin is on face)
-            if(dot_vec(faces[num_faces][0], faces[num_faces][3])+bias < 0.0){
-                temp := *faces[num_faces][0];
-                faces[num_faces][0] = *faces[num_faces][1];
-                faces[num_faces][1] = temp;
-                faces[num_faces][3] = -*faces[num_faces][3];
-            }
-            num_faces++;
-        }
-    } //End for iterations
-    //printf("EPA did not converge\n");
-    //Return most recent closest point
-	//__dbg_break
-	out.normal = *faces[cast(u64)closest_face][3]
-    return *faces[closest_face][3] * dot_vec(faces[closest_face][0], faces[closest_face][3]);
-}
-GetContactPointToArr::fn(vertsA : *_vec, vertsALen : u32, vertsB : *_vec, vertsBLen : u32, contacts : *_vec, contacts_count : *u64, minDist : *f32)
-{
-    for idx in 0..vertsALen
-    {
-        i:= ptr_offset(vertsA, cast(u64)idx, _vec);
-		for j in 0..vertsBLen
-		{
-            va:= ptr_offset(vertsB, cast(u64)j, _vec);
-			vb:= ptr_offset(vertsB, cast(u64)(j + 1) % vertsBLen, _vec);
-
-			closest_point:_vec;
-            dist:f32 = PointLineDistance(va, vb, i, &closest_point);
-            
-			ptr: = ptr_offset(contacts, 0, _vec);
-			ptr1: = ptr_offset(contacts, 1, _vec);
-            if(NearlyEqualF32(dist, *minDist) && !NearlyEqualV3(&closest_point, ptr))
-            {
-				*contacts_count = 2;
-				*ptr = closest_point;
-            }
-            else if(dist < *minDist)
-            {
-                *minDist = dist;
-                *ptr = closest_point;
-            }
-        }
-    }
-}
-FindContactPoints::fn(vertsA : *_vec, vertsALen : u32, vertsB : *_vec, vertsBLen : u32, contacts : *dyn_array(_vec))
-{
-	ASSERT(contacts.alloc.id == 0x1234);
-    minDist: f32 = 99999.0;
-
-	GetContactPointToArr(vertsA, vertsALen, vertsB, vertsBLen, contacts.data, &contacts.count, &minDist);
-	GetContactPointToArr(vertsB, vertsBLen, vertsA, vertsALen, contacts.data, &contacts.count, &minDist);
-}
-
-DrawCols::fn(ctx : *context)
-{
-	a_verts : [4]_vec;
-	dummy :_vec;
-	for e in ctx.bodies
-	{
-		if !e.is_active
-			continue;
-		ApplyTranformationsToVerts(&e.pos, &e.vel, &e.pivot, &e.col_size, &dummy, a_verts, nil);
-		pos: = *a_verts[0];
-		size_x: = (*a_verts[3] - *a_verts[0]).x;
-		size_y: = (*a_verts[1] - *a_verts[0]).y;
-
-		if ctx.draw_col
-		{
-			draw: draw_info;
-			draw.pos = pos;
-			draw.pos.z = 0.9;
-			draw.cam_pos = ctx.cam_pos_global;
-			draw.cam_size = ctx.cam_size;
-			draw.ent_size.x = size_x;
-			draw.ent_size.y = size_y;
-			draw.flags = DRAW_INFO_WIREFRAME;
-			*draw.color[3] = 1.0;
-			Draw(ctx.window, &draw);
-		}
-	}
-}
-
-add_body::fn(ctx : *context, ent : *entity)
-{
-	dyn_add(&ctx.bodies, &ent);
-	ent.ents_in_collision.alloc = ctx.alloc;
-	dyn_init(&ent.ents_in_collision, 4);
-	ent.ents_in_collision.count = 4
-
-	ent.col = cast(*void)heap_alloc(ctx.alloc, sizeof(collider))
-	c1 := cast(*collider)ent.col
-	c1.type = col_type.CUBE
-	c1.ent = ent
-}
-
-remove_body::fn(ctx : *context, ent : *entity)
-{
-	i :u32= 0
-	found :=false
-	for e in ctx.bodies
-	{
-		if *e == ent
-		{
-			found = true
-			break
-		}
-		i++
-	}
-	if !found
-	{
-		return
-	}
-
-	dyn_rem(&ctx.bodies, i)
-
-	heap_free(ent.ents_in_collision.alloc, ent.ents_in_collision.data);
-
-	heap_free(ctx.alloc, ent.col)
-}
-
-EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
-{
-	inserted: = false;
-	for e in into.ents_in_collision
-	{
-		if (e.ent == nil) && !inserted
-		{
-			//PrintV3(6.0, 0.0, 0.0);
-			e.in_col = true;
-			e.ent = in_col;
-			e.col = *cinfo;
-			inserted = true;
-			return false;
-		}
-		else if (e.ent == in_col)
-		{
-			//PrintV3(5.0, 0.0, 0.0);
-			e.in_col = true;
-			e.col = *cinfo;
-			inserted = true;
-			return true;
-		}
-	}
-	ASSERT(inserted);
-	return true;
-}
-CopyVerts::fn(col : *collider)
-{
-	if col.type == col_type.CUBE
-	{
-		memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
-		mat : mat4x4=?
-		q :quaternion=?
-		e := col.ent
-		q.v = e.rot
-
-		//__dbg_break
-		//__dbg_break
-		build_model_matrix(cast(*f32)&mat, &(e.pos + e.col_offset), cast(*f32)&q.v, &e.col_size)
-
-		for v in col.CUBE.verts
-		{
-			v.w = 1.0
-			*v = mat * *v
-			v.w = 0.0
-			a := 0
-		}
-	}
-}
-//solve_col::fn(e : *entity, )
-
-verts_from_tri_info:struct
-{
-	v1_out : _vec, 
-	v2_out : _vec, 
-	v3_out : _vec, 
-	cross : _vec, 
-	t : u64
-}
-get_verts_pos_from_tris::fn(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
-{
-		t := info.t
-		idx :=  cast(u64)*ptr_offset(tris, t, u32)
-		*cast(*_vec)&info.v1_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
-		info.v1_out.w = 0.0
-
-
-		idx = *ptr_offset(tris, t + 1, u32)
-		*cast(*_vec)&info.v2_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
-		info.v2_out.w = 0.0
-
-		//v2_out += e2.pos + cpos
-
-		idx = *ptr_offset(tris, t + 2, u32)
-
-		*cast(*_vec)&info.v3_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
-		info.v3_out.w = 0.0
-
-		tri_edge1 := info.v2_out - info.v1_out
-		tri_edge2 := info.v3_out - info.v1_out
-		
-		info.cross = cross_vec(&tri_edge1, &tri_edge2)
-		info.cross = normalize_vec(&info.cross)
-}
-ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_col_info, trn : *terrain_info, chunk_pos : *_vec)
-{
-	e := c1.ent
-	e2 := c2.ent
-	t :u64
-	tris := &chunk.tris
-	verts := &trn.meshes[cast(u64)chunk.verts_mesh_idx].verts
-
-	cpos:=*chunk_pos
-
-	count := tris.count
-	col : collision=?
-	while t < count
-	{
-		_v1 :_vec=?
-		_v1.w = 0.0
-
-		_v2 :_vec=?
-		_v2.w = 0.0
-
-		_v3 :_vec=?
-		_v3.w = 0.0
-
-		cross :_vec=?
-		cross.w = 0.0
-
-		info :verts_from_tri_info=?
-		info.t = t
-		get_verts_pos_from_tris(&info, tris.data, verts.data, TERRAIN_VERTEX_SIZE)
-		_v1 = info.v1_out
-		_v2 = info.v2_out
-		_v3 = info.v3_out
-		cross = info.cross
-		
-		_v1 += e2.pos + cpos
-
-		dir := e.pos - _v1
-		dist := dot_vec(&dir, &dir)
-		//__dbg_break
-		if dist < 70.0
-		{
-			_v2 += e2.pos + cpos
-
-			_v3 += e2.pos + cpos
-
-			prev_cross := cross
-
-			c2.type = col_type.TRIANGLE
-			c2.TRIANGLE.verts[0] = _v1
-			c2.TRIANGLE.verts[1] = _v2
-			c2.TRIANGLE.verts[2] = _v3
-
-			c2.TRIANGLE.normal = cross
-
-			//if t == 375
-				//__dbg_break;
-			
-			/*
-			if chunk.verts_mesh_idx == 2 && c1.ent.pos.z >= 34.0
-			{
-				__dbg_break
-			}
-			*/
-			if GJK(gjk, c1, c2)
-			{
-				//__dbg_break
-				//if can_break
-					//__dbg_break
-				//tri_normal = cross
-
-				//__dbg_break
-				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
-				c1.ent.pos -= mtv
-				CopyVerts(c1)
-
-				col.normal = col.normal * -1.0
-				if !EntIsInCollision(e, e2, &col)
-				{
-					if e.col_enter != nil
-					{
-						e.col_enter(e, e2, &col);
-					}
-				}
-				if e.col_stay != nil
-				{
-					e.col_stay(e, e2, &col);
-				}
-			}
-		}
-		t += 3
-	}
-}
-add_pos_to_verts::fn(trn : *terrain_info, ch : *chunk_col_info, pos : *_vec)
-{
-	t :u64=0
-
-	count := cast(s64)trn.chunks_col_window_size
-	//__dbg_break
-	
-	verts := &trn.meshes[cast(u64)ch.verts_mesh_idx].verts
-	prev_w := pos.w
-	for y in 0..count
-	{
-		for x in 0..count
-		{
-			if y == (count - 1)
-			{
-				v_idx :u64= cast(u64)*ch.tris[t]
-				vec := cast(*_vec)verts[v_idx * 3]
-				*vec += *pos
-
-				v_idx = cast(u64)*ch.tris[t + 1]
-				vec = cast(*_vec)verts[v_idx * 3]
-				*vec += *pos
-
+				printf("no folder specified\n");
+				return 0;
 			}
 			else
 			{
-				v_idx := cast(u64)*ch.tris[t + 1]
-				vec := cast(*_vec)verts[v_idx * 3]
-				*vec += *pos
+				opts.file = argv[2];
+				opts.folder_name = GetFolderName(opts.file);
+				opts.wasm_dir = "";
+				opts.release = false;
 			}
-			t += 6
+
 		}
-	}
-	pos.w = prev_w
-}
-get_close_chunk_cols::fn(ctx : *context, terrain_chunks_to_col : *dyn_array(*chunk_col_info), e_trn : *entity, mesh : *mesh_info, ref_pos : *_vec, window : f32)
-{
-	trn :*terrain_info= e_trn.terrain
-
-	count := trn.tris.count
-	t :u64
-	verts := &mesh.verts
-	tris := &trn.tris
-
-	rel_pos := *ref_pos - e_trn.pos
-	rel_pos -= mesh.pos
-
-	min_x := rel_pos.x - window
-	max_x := rel_pos.x + window
-	min_y := rel_pos.z - window
-	max_y := rel_pos.z + window
-
-
-	min_x = min_x / cast(f32)trn.tris_per_unit
-	max_x = max_x / cast(f32)trn.tris_per_unit
-	min_y = min_y / cast(f32)trn.tris_per_unit
-	max_y = max_y / cast(f32)trn.tris_per_unit
-
-	min_x = cast(f32)cast(s32)min_x
-	max_x = cast(f32)cast(s32)max_x
-	min_y = cast(f32)cast(s32)min_y
-	max_y = cast(f32)cast(s32)max_y
-
-	min_x = clamp(min_x, 0.0, cast(f32)trn.chunks_col_per_row)
-	max_x = clamp(max_x, 0.0, cast(f32)trn.chunks_col_per_row)
-	min_y = clamp(min_y, 0.0, cast(f32)trn.chunks_col_per_row)
-	max_y = clamp(max_y, 0.0, cast(f32)trn.chunks_col_per_row)
-
-	vec_aux : _vec
-	vec_aux.x = min_x
-	vec_aux.y = max_x
-	vec_aux.z = min_y
-	vec_aux.w = max_y
-
-	imin_x := cast(u32)min_x
-	imax_x := cast(u32)max_x
-	imin_y := cast(u32)min_y
-	imax_y := cast(u32)max_y
-
-	w := cast(u32)(max_x - min_x) + 1
-	h := cast(u32)(max_y - min_y) + 1
-	//__dbg_break
-
-	if imax_x >= trn.chunks_col_per_row
-	{
-		w--
-	}
-	if imax_y >= trn.chunks_col_per_row
-	{
-		h--
-	}
-	//__dbg_break
-	for y in 0..h
-	{
-		for x in 0..w
+		else if (arg1 == "webgame")
 		{
-			cur_x := cast(u64)(imin_x + cast(u32)x)
-			cur_y := cast(u64)(imin_y + cast(u32)y)
-
-			ch := mesh.chunks[cur_y * trn.chunks_col_per_row + cur_x]
-			//printf("curx {cur_x}, cury {cur_y}, ")
-			//printf("ptr %\n", cast(u32)cast(u64)ch)
-			//globals.temp_alloc.cur = 0
-			dyn_add(terrain_chunks_to_col, ch)
-		}
-	}
-/*
-	if mesh == trn.meshes[1]
-	{
-		//OpenLocalsWindow(__LINE__)
-		//__dbg_break
-	}
-	*/
-}
-aabb : struct 
-{
-    _min : _vec  
-    _max : _vec
-}
-// 3D Axis-Aligned Bounding Box collision check
-aabbCheck3D::fn x64(a: *aabb, b: *aabb) ! bool
-{
-    // X-axis overlap check
-    x_overlap := (a._min.x <= b._max.x) && (a._max.x >= b._min.x)
-    
-    // Y-axis overlap check
-    y_overlap := (a._min.y <= b._max.y) && (a._max.y >= b._min.y)
-    
-    // Z-axis overlap check
-    z_overlap := (a._min.z <= b._max.z) && (a._max.z >= b._min.z)
-
-    return x_overlap && y_overlap && z_overlap
-}
-
-// Collision check function taking pointer to AABBs
-aabbCheck::fn(a: *aabb, b: *aabb) ! bool
-{
-    // Check for overlap on each axis
-	a_minx := (a._min.x <= b._max.x)
-	b_minx := (a._max.x >= b._min.x)
-
-	a_miny := (a._min.y <= b._max.y)
-	b_miny := (a._max.y >= b._min.y)
-
-    x_overlap := a_minx && b_minx
-    y_overlap := a_miny && b_miny
-	
-    //z_overlap := (a.min.z <= b.max.z) && (a.max.z >= b.min.z)
-
-    return x_overlap && y_overlap
-}
-get_closest_terrain_meshes_chunk_cols::fn(ctx : *context, pos : *_vec, trn_ent : *entity, terrain_chunks_to_col : *dyn_array(*chunk_col_info), window : f32)
-{
-	trn :*terrain_info=trn_ent.terrain
-	for m in trn.meshes
-	{
-		m_aabb :aabb = ?
-		p_aabb :aabb = ?
-
-		m_aabb._min = m.pos
-		m_aabb._min.y = m_aabb._min.z
-		
-		m_aabb._max = m_aabb._min
-		m_aabb._max.x += cast(f32)trn.width
-		m_aabb._max.y += cast(f32)trn.width
-		p_aabb._min.x = pos.x
-		p_aabb._min.y = pos.z
-		p_aabb._min = p_aabb._min + _vec{-window, -window, 0.0, 0.0}
-
-		p_aabb._max.x = pos.x
-		p_aabb._max.y = pos.z
-		p_aabb._max = p_aabb._max + _vec{window, window, 0.0, 0.0}
-		//if(can_break && m == trn.meshes[2])
-			//__dbg_break
-		if aabbCheck(&m_aabb, &p_aabb)
-		{
-			get_close_chunk_cols(ctx, terrain_chunks_to_col, trn_ent, m, pos, window)
-			//ctx.mesh_idx = cast(u32)i
-		}
-		//i++
-	}
-}
-StepCol::fn(ctx : *context, dt : f32)
-{
-	gjk := ctx.gjk
-	globals.ctx = cast(*void)ctx
-	globals.gjk = gjk
-	for e in ctx.bodies
-	{
-		if e.is_static || !e.is_active
-			continue;
-
-		for in_col in e.ents_in_collision
-		{
-			if !in_col.in_col && in_col.ent != nil
+			if (argc != 4)
 			{
-				//PrintV3(5.0, 0.0, 0.0);
-				//in_col.in_col = false;
-				if e.col_exit != nil
-				{
-					e.col_exit(*e, in_col.ent, &in_col.col);
-				}
-				in_col.ent = nil;
-			}
-			in_col.in_col = false;
-
-		}	
-
-		c1 := cast(*collider)e.col
-		e.pos += e.vel * dt
-		c1.pos = e.pos
-		CopyVerts(c1)
-		col : collision=?
-		mtv :_vec=?
-
-		for e2 in ctx.bodies
-		{
-			if *e == *e2 || !e2.is_active || is_flag_on(e.ignore_collision_with_layers, e2.layer) || is_flag_on(e2.ignore_collision_with_layers, e.layer)
-				continue;
-			
-			c2 := cast(*collider)e2.col
-			c2.pos = e2.pos
-
-
-			gjk.col1 = c1
-			gjk.col2 = c2
-			in_col :bool= false
-			player_mov_up_col :bool= false
-			player_mov_up_col_mtv :bool= false
-			tri_col := false
-			tri_normal :_vec= ?
-
-			if e2.type == ent_type.TERRAIN
-			{
-				can_break := false
-				if IsKeyDown(key_enum.KEY_F1)
-					can_break = true;
-
-				trn := e2.terrain
-				dyn_clear(&ctx.terrain_chunks_to_col)
-				i := 0
-				get_closest_terrain_meshes_chunk_cols(ctx, &e.pos, *e2, &ctx.terrain_chunks_to_col, 2.0)
-				for ch in ctx.terrain_chunks_to_col
-				{
-					m := trn.meshes[cast(u64)ch.verts_mesh_idx]
-					m_pos :_vec= m.pos
-					m_pos.w = 0.0
-
-					ChunkCol(gjk, c1, c2, *ch, trn, &m_pos)
-				}
+				printf("not all arguments were provided. webgame needs 1) the path/to/src/folder and 2)the path/to/output\n");
+				return 0;
 			}
 			else
 			{
-				m_aabb :aabb = ?
-				p_aabb :aabb = ?
-				sz1 := e.col_size * 2.0
-				sz2 := e2.col_size * 2.0
+				opts.file = argv[2];
 
-				m_aabb._min = e.pos - sz1
-				m_aabb._max = e.pos + sz1
+				MaybeAddBarToEndOfStr(&opts.file);
+				opts.folder_name = GetFolderName(opts.file);
 
-				p_aabb._min = e2.pos - sz2
-				p_aabb._max = e2.pos + sz2
-				if !aabbCheck3D(&m_aabb, &p_aabb)
-				{
-					continue
-				}
-
-				CopyVerts(c2)
-				//__dbg_break
-				if is_flag_on(e.layer, LAYER_ENTITY_PLAYABLE)
-				{
-					ASSERT(e != nil)
-					ASSERT(e.mov_info != nil)
-
-					r :=c1.CAPSULE.radius
-					gjk.aux_col.type = col_type.SPHERE
-					gjk.aux_col.SPHERE.radius = r
-					gjk.aux_col.pos = e.pos
-					gjk.aux_col.pos += e.forward * r * 2.0 + -ctx.up * 0.5
-					gjk.aux_col.ent = *e
-					
-					if GJK(gjk, &gjk.aux_col, c2)
-					{
-						e.mov_info.down_col = true
-						e.mov_info.ent_col = *e2
-					}
-
-					gjk.aux_col.pos = e.pos
-					gjk.aux_col.pos += e.forward * r + ctx.up * 0.7
-					
-					if GJK(gjk, &gjk.aux_col, c2)
-					{
-						e.mov_info.up_col = true
-						mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], &gjk.aux_col, c2, &col)
-						
-						col.normal = col.normal * -1.0
-						e.mov_info.up_col_norm = col.normal
-					}
-				}
-
-				if GJK(gjk, c1, c2)
-				{
-					in_col = true
-				}
-			}
-			if in_col
-			{
-				if(false)
-				{
-					//__dbg_break
-					other_min_point := find_support(gjk, c1, c2, &(tri_normal)); 
-					dir := other_min_point - *c2.TRIANGLE.verts[0]
-					penetration_depth := dot_vec(&tri_normal, &other_min_point)
-					mtv = tri_normal * penetration_depth
-				}
-				else if(player_mov_up_col == false)
-				{
-					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
-				}
-				col.normal = col.normal * -1.0
-				if !EntIsInCollision(*e, *e2, &col)
-				{
-					if e.col_enter != nil
-					{
-						e.col_enter(*e, *e2, &col);
-					}
-				}
-				if e.col_stay != nil
-				{
-					e.col_stay(*e, *e2, &col);
-				}
-				if e.is_trigger == false && e2.is_trigger == false
-				{
-					e.pos -= mtv
-				}
-
+				opts.wasm_dir = argv[3];
+				//opts.wasm_dir += folder_name;
+				opts.release = true;
+				ImageFolderToFile(opts.file + "/images/");
+				opts.file += "files";
 			}
 		}
+		else
+		{
+			printf("Command not recognized '%s'", arg1.c_str());
+			return 0;
+		}
 	}
-
-}
-PhysicsUpdate::fn(ctx : *context, dt : f32)
-{
-	steps := 2
-	for i in 0..steps
+	else
 	{
-		dt = dt / cast(f32)steps
-		StepCol(ctx, dt)
+		printf("no command provided");
+		return 0;
 	}
-}
+
+	MaybeAddBarToEndOfStr(&opts.wasm_dir);
+
+	auto wasm_dir = std_str_to_heap2(&opts.wasm_dir);
+	auto folder_name = std_str_to_heap2(&opts.folder_name);
+
+	Compile(&lang_stat, &opts);
+	memset(&lang_stat, 0, sizeof(lang_stat));
+	InitMemAlloc(&alloc);
+	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
+	//AssertFuncByteCode(&lang_stat);
+
+	AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
+	AssignOutsiderFunc(&lang_stat, "SetMem", (OutsiderFuncType)SetMem);
+	AssignOutsiderFunc(&lang_stat, "SubMem", (OutsiderFuncType)SubMem);
+	AssignOutsiderFunc(&lang_stat, "Print", (OutsiderFuncType)Print);
+	AssignOutsiderFunc(&lang_stat, "OpenWindow", (OutsiderFuncType)OpenWindow);
+	AssignOutsiderFunc(&lang_stat, "ShouldClose", (OutsiderFuncType)ShouldClose);
+	AssignOutsiderFunc(&lang_stat, "ClearBackground", (OutsiderFuncType)ClearBackground);
+	AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
+	AssignOutsiderFunc(&lang_stat, "Draw3D", (OutsiderFuncType)Draw3D);
+	AssignOutsiderFunc(&lang_stat, "Draw3DTransparency", (OutsiderFuncType)Draw3DTransparency);
+	AssignOutsiderFunc(&lang_stat, "GetTime", (OutsiderFuncType)GetTime);
+
+	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
+	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
+	AssignOutsiderFunc(&lang_stat, "IsKeyUp", (OutsiderFuncType)IsKeyUp);
+
+	AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
+	AssignOutsiderFunc(&lang_stat, "Perlin2D", (OutsiderFuncType)Perlin2D);
+	AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
+	AssignOutsiderFunc(&lang_stat, "LoadSceneFolder", (OutsiderFuncType)LoadSceneFolder);
+	//AssignOutsiderFunc(&lang_stat, "GetDeltaTime", (OutsiderFuncType)GetDeltaTime);
+	AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
+	AssignOutsiderFunc(&lang_stat, "GetTimeSinceStart", (OutsiderFuncType)GetTimeSinceStart);
+	AssignOutsiderFunc(&lang_stat, "sqrt", (OutsiderFuncType)Sqrt);
+	AssignOutsiderFunc(&lang_stat, "AssignCtxAddr", (OutsiderFuncType)Stub);
+	AssignOutsiderFunc(&lang_stat, "WasmDbg", (OutsiderFuncType)Stub);
+
+	AssignOutsiderFunc(&lang_stat, "PrintV3", (OutsiderFuncType)PrintV3);
+	AssignOutsiderFunc(&lang_stat, "PrintV3Int", (OutsiderFuncType)PrintV3Int);
+	AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
 
 
-NarrowPhase::fn(ctx : *context, ref : *entity, close : *dyn_array(*entity), out : *dyn_array(contact_col), dt : f32)
-{
+	AssignOutsiderFunc(&lang_stat, "HandleForGettingFilesInDir", (OutsiderFuncType)HandleForGettingFilesInDir);
+	AssignOutsiderFunc(&lang_stat, "HandleDirFilenameAt", (OutsiderFuncType)HandleDirFilenameAt);
+	AssignOutsiderFunc(&lang_stat, "HandleDirTotalFiles", (OutsiderFuncType)HandleDirTotalFiles);
+	AssignOutsiderFunc(&lang_stat, "FreeHandle", (OutsiderFuncType)FreeHandle);
+
+	AssignOutsiderFunc(&lang_stat, "AssignTexFolder", (OutsiderFuncType)AssignTexFolder);
+	AssignOutsiderFunc(&lang_stat, "AssignModelFolder", (OutsiderFuncType)AssignModelFolder);
+
+	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosX", (OutsiderFuncType)GetMouseNormalizedPosX);
+	AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosY", (OutsiderFuncType)GetMouseNormalizedPosY);
+	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX", (OutsiderFuncType)GetMouseScreenPosX);
+	AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY", (OutsiderFuncType)GetMouseScreenPosY);
+	AssignOutsiderFunc(&lang_stat, "GetMouseVelX", (OutsiderFuncType)GetMouseVelX);
+	AssignOutsiderFunc(&lang_stat, "GetMouseVelY", (OutsiderFuncType)GetMouseVelY);
+
+
+	AssignOutsiderFunc(&lang_stat, "FreeTexture", (OutsiderFuncType)FreeTexture);
 	
-}
-BroadPhase::fn(ctx : *context, ref_pos : *_vec, ref_size : *_vec, out : *dyn_array(*entity))
-{
-}
- CheckRayAgainstVertices::fn(vertices : *_vec, verts_len : u32, ray_start : *_vec, ray_end : *_vec, ent : *entity, info : *collision)!bool
-{
-	for j in 0..verts_len
+
+	AssignOutsiderFunc(&lang_stat, "IsMouseHeld", (OutsiderFuncType)IsMouseHeld);
+	AssignOutsiderFunc(&lang_stat, "IsMouseUp", (OutsiderFuncType)IsMouseUp);
+	AssignOutsiderFunc(&lang_stat, "IsMouseDown", (OutsiderFuncType)IsMouseDown);
+	AssignOutsiderFunc(&lang_stat, "IsMouseDoubleClick", (OutsiderFuncType)IsMouseDoubleClick);
+
+	AssignOutsiderFunc(&lang_stat, "ScreenRatio", (OutsiderFuncType)ScreenRatio);
+	AssignOutsiderFunc(&lang_stat, "AssignSoundFolder", (OutsiderFuncType)AssignSoundFolder);
+	AssignOutsiderFunc(&lang_stat, "PlayAudio", (OutsiderFuncType)FromGamePlayAudio);
+	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
+	AssignOutsiderFunc(&lang_stat, "ScreenMouseToWorld", (OutsiderFuncType)ScreenMouseToWorld);
+	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
+	AssignOutsiderFunc(&lang_stat, "tanf", (OutsiderFuncType)Tan);
+	AssignOutsiderFunc(&lang_stat, "cos", (OutsiderFuncType)Cos);
+	AssignOutsiderFunc(&lang_stat, "acos", (OutsiderFuncType)Acos);
+	AssignOutsiderFunc(&lang_stat, "asin", (OutsiderFuncType)Asin);
+	AssignOutsiderFunc(&lang_stat, "dot_v3", (OutsiderFuncType)DotV3);
+	AssignOutsiderFunc(&lang_stat, "memcpy", (OutsiderFuncType)MemCpy);
+	AssignOutsiderFunc(&lang_stat, "memset", (OutsiderFuncType)MemSet);
+	AssignOutsiderFunc(&lang_stat, "PointLineDistance", (OutsiderFuncType)PointLineDistance);
+	AssignOutsiderFunc(&lang_stat, "OpenLocalsWindow", (OutsiderFuncType)OpenLocalsWindow);
+	AssignOutsiderFunc(&lang_stat, "Rand01", (OutsiderFuncType)Rand01);
+
+	AssignOutsiderFunc(&lang_stat, "ImGuiBegin", (OutsiderFuncType)ImGuiBegin);
+	AssignOutsiderFunc(&lang_stat, "ImGuiEnd", (OutsiderFuncType)ImGuiEnd);
+	AssignOutsiderFunc(&lang_stat, "ImGuiBeginChild", (OutsiderFuncType)ImGuiBeginChild);
+	AssignOutsiderFunc(&lang_stat, "ImGuiEndChild", (OutsiderFuncType)ImGuiEndChild);
+	AssignOutsiderFunc(&lang_stat, "ImGuiText", (OutsiderFuncType)ImGuiText);
+	AssignOutsiderFunc(&lang_stat, "ImGuiImage", (OutsiderFuncType)ImGuiImage);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSelectable", (OutsiderFuncType)ImGuiSelectable);
+	AssignOutsiderFunc(&lang_stat, "ImGuiButton", (OutsiderFuncType)ImGuiButton);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSameLine", (OutsiderFuncType)ImGuiSameLine);
+	AssignOutsiderFunc(&lang_stat, "ImGuiPushItemWidth", (OutsiderFuncType)ImGuiPushItemWidth);
+	AssignOutsiderFunc(&lang_stat, "ImGuiPopItemWidth", (OutsiderFuncType)ImGuiPopItemWidth);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSetNextItemAllowOverlap", (OutsiderFuncType)ImGuiSetNextItemAllowOverlap);
+	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorPosX", (OutsiderFuncType)ImGuiGetCursorPosX);
+	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorPosY", (OutsiderFuncType)ImGuiGetCursorPosY);
+	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosX", (OutsiderFuncType)ImGuiGetCursorScreenPosX);
+	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosY", (OutsiderFuncType)ImGuiGetCursorScreenPosY);
+	AssignOutsiderFunc(&lang_stat, "ImGuiAddRect", (OutsiderFuncType)ImGuiAddRect);
+	AssignOutsiderFunc(&lang_stat, "ImGuiHasFocus", (OutsiderFuncType)ImGuiHasFocus);
+	AssignOutsiderFunc(&lang_stat, "ImGuiTreeNodeEx", (OutsiderFuncType)ImGuiTreeNodeEx);
+	AssignOutsiderFunc(&lang_stat, "ImGuiTreePop", (OutsiderFuncType)ImGuiTreePop);
+	AssignOutsiderFunc(&lang_stat, "ImGuiEnumCombo", (OutsiderFuncType)ImGuiEnumCombo);
+	//AssignOutsiderFunc(&lang_stat, "ImGuiInitTextEditor", (OutsiderFuncType)ImGuiInitTextEditor);
+	AssignOutsiderFunc(&lang_stat, "ImGuiInputText", (OutsiderFuncType)ImGuiInputText);
+	AssignOutsiderFunc(&lang_stat, "ImGuiInputInt", (OutsiderFuncType)ImGuiInputInt);
+	//AssignOutsiderFunc(&lang_stat, "ImGuiRenderTextEditor", (OutsiderFuncType)ImGuiRenderTextEditor);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSetWindowFontScale", (OutsiderFuncType)ImGuiSetWindowFontScale);
+	AssignOutsiderFunc(&lang_stat, "ImGuiCheckbox", (OutsiderFuncType)ImGuiCheckbox);
+
+	AssignOutsiderFunc(&lang_stat, "CopyTextureToBuffer", (OutsiderFuncType)CopyTextureToBuffer);
+
+	AssignOutsiderFunc(&lang_stat, "LoadSheetFromLayer", (OutsiderFuncType)LoadSheetFromLayer);
+
+	AssignOutsiderFunc(&lang_stat, "WriteFile", (OutsiderFuncType)WriteFileInterpreter);
+	AssignOutsiderFunc(&lang_stat, "ReadFile", (OutsiderFuncType)ReadFileInterp);
+	AssignOutsiderFunc(&lang_stat, "GetFileSize", (OutsiderFuncType)GetFileSize);
+
+	AssignOutsiderFunc(&lang_stat, "LoadTexFolder", (OutsiderFuncType)LoadTexFolder);
+	AssignOutsiderFunc(&lang_stat, "LoadModel", (OutsiderFuncType)LoadModel);
+	AssignOutsiderFunc(&lang_stat, "ModelFarthestPoint", (OutsiderFuncType)ModelFarthestPoint);
+	AssignOutsiderFunc(&lang_stat, "UpdateModel", (OutsiderFuncType)UpdateModel);
+	AssignOutsiderFunc(&lang_stat, "CreateMesh", (OutsiderFuncType)CreateMesh);
+	AssignOutsiderFunc(&lang_stat, "GenRawTexture", (OutsiderFuncType)GenRawTexture);
+	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);
+	AssignOutsiderFunc(&lang_stat, "GetMouseScroll", (OutsiderFuncType)GetMouseScroll);
+	AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
+	AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
+	AssignOutsiderFunc(&lang_stat, "ImGuiShowV4", (OutsiderFuncType)ImGuiShowV4);
+	AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow", (OutsiderFuncType)IsMouseOnGameWindow);
+	AssignOutsiderFunc(&lang_stat, "GetTopStackPtr", (OutsiderFuncType)GetTopStackPtr);
+	AssignOutsiderFunc(&lang_stat, "GetInstRealAddr", (OutsiderFuncType)GetInstRealAddr);
+	AssignOutsiderFunc(&lang_stat, "HideCursor", (OutsiderFuncType)HideCursor);
+	lang_stat.cur_decl = 0;
+
+	opts.wasm_dir = wasm_dir;
+	opts.folder_name = folder_name;
+
+	if (!opts.release)
 	{
-		va: = ptr_offset(vertices, cast(u64)j, _vec);
-		vb: = ptr_offset(vertices, cast(u64)(j + 1) % verts_len, _vec);
+		long long args[] = { 0 };
 
-		p:_vec=?;
+		open_gl_state gl_state = {};
+		memset(&gl_state, 0, sizeof(open_gl_state));
+		gl_state.transparent_objs.reserve(32);
+		gl_state.sound = &sound;
+		gl_state.lang_stat = &lang_stat;
 
-		if (DoTwoLinesIntersect(ray_start, ray_end, va, vb, &p))
-		{
-			dir: = *vb - *va;
-			n:_vec=?;
-			n.x = dir.y;
-			n.y = -dir.x;
+		AssignDbgFile(&lang_stat, (opts.wasm_dir + opts.folder_name + ".dbg").c_str());
+		//AssignDbgFile(&lang_stat, opts);
+		lang_stat.winterp->dbg->data = (void*)&gl_state;
+		RunDbgFunc(&lang_stat, "tests", args, 1);
+		RunDbgFunc(&lang_stat, "main", args, 1);
 
-			dot: = dot_vec(&(*ray_start - *ray_end), &n);
-			if (dot < 0.0)
-			{
-				n = n * -1.0;
-			}
-			info.contact_point = p;
-			info.normal = n;
-			return true;
-		}
+		int ret_val = *(int*)&lang_stat.winterp->dbg->mem_buffer[RET_1_REG * 8];
 	}
-	return false;
-}
-vertex_added::fn(ar : *dyn_array(vertex_terrrain_modify), idx : u64) ! bool
-{
-	for i in *ar
-	{
-		if i.vidx == idx
-		{
-			return true;
-		}
-	}
-	return false;
-}
-mesh_added::fn(ar : *dyn_array(u32), idx : u32) ! bool
-{
-	for i in *ar
-	{
-		if *i == idx
-		{
-			return true;
-		}
-	}
-	return false;
-}
-get_chunk_on_pos ::fn(trn : *terrain_info, pos_s : s32) ! *chunk_col_info
-{
-	if pos_s == -1
-		return nil;
-	pos := cast(u32)pos_s
-	mesh_x :u32= pos & 0xff
-	mesh_y :u32= (pos >> 8) & 0xff
-	ch_x :u32= (pos >> 16) & 0xff
-	ch_y :u32= (pos >> 24) & 0xff
+	ExitProcess(1);
+	int a = 0;
 
-	midx := cast(u64)(mesh_y * trn.size + mesh_x)
-
-	mesh := trn.meshes[cast(u64)midx]
-
-	chidx := cast(u64)ch_y * trn.chunks_col_per_row + ch_x
-
-	return mesh.chunks[chidx]
-}
-RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *entity) !bool
-{
-	a := *start
-	b := *end
-	//b.y = a.y
-
-	dir := b - a
-	dir = normalize_vec(&dir)
-
-	trn :*terrain_info= terrain.terrain
-	dyn_clear(&ctx.terrain_chunks_to_col)
-
-	//__dbg_break
-	aux_end := *end
-	aux_start := *start
-
-	line_normal := cross_vec(&dir, &ctx.up)
-	aux_start += line_normal * 5.0
-	aux_end -= line_normal * 5.0
-
-
-	norm :_vec
-	norm.x = dir.y
-	norm.y = dir.x
-
-	tri_pos :_vec
-	found_tri := false;
-
-	radius := 10.0
-
-	globals.trn = terrain
-
-	chunks_together_width :u32
-	for m in trn.meshes
-	{
-		m_aabb :aabb = ?
-		p_aabb :aabb = ?
-
-		m_aabb._min = m.pos + terrain.pos
-		m_aabb._min.y = m_aabb._min.z
-		
-		m_aabb._max = m_aabb._min
-		m_aabb._max.x += cast(f32)trn.width
-		m_aabb._max.y += cast(f32)trn.width
-
-		p_aabb._min.x = minf(aux_start.x, aux_end.x)
-		p_aabb._min.y = minf(aux_start.z, aux_end.z)
-
-		p_aabb._max.x = maxf(aux_start.x, aux_end.x)
-		p_aabb._max.y = maxf(aux_start.z, aux_end.z)
-
-/*
-		globals.aabb1_min = m_aabb._min
-		globals.aabb1_max = m_aabb._max
-		globals.aabb2_min = p_aabb._min
-		globals.aabb2_max = p_aabb._max
-		globals.trn = terrain
-		//__dbg_break
-		//if(can_break && m == trn.meshes[2])
-			//__dbg_break
-			*/
-		if aabbCheck(&m_aabb, &p_aabb)
-		{
-			added := false
-			for ch in m.chunks
-			{
-				ch_pos :_vec
-				ch_pos.x = ch.pos_x + m.pos.x
-				ch_pos.z = ch.pos_y + m.pos.z
-
-
-				dir_to_start := *start - ch_pos
-				d := dot_vec(&dir_to_start, &line_normal)
-				if absf(d) < 10.0
-				{
-					//dyn_add(&ctx.terrain_chunks_to_col, ch)
-					tris := &ch.tris
-					verts := &m.verts
-					t:u64
-					_v1 :_vec=?
-					_v2 :_vec=?
-					_v3 :_vec=?
-					cross :_vec=?
-					count :=  tris.count
-					tris_data := tris.data
-					verts_data := verts.data
-					while t < count
-					{
-						info :verts_from_tri_info=?
-						info.t = t
-						get_verts_pos_from_tris(&info, tris_data, verts_data, TERRAIN_VERTEX_SIZE)
-						_v1 = info.v1_out
-						_v2 = info.v2_out
-						_v3 = info.v3_out
-						cross = info.cross
-
-						dot_face := dot_vec(&cross, &dir)
-						dir_to_vert := _v1 - *start
-						dot_to_pos := dot_vec(&cross, &dir)
-						if dot_face > 0.0 && dot_to_pos > 0.0
-						{
-							_v1 += terrain.pos + m.pos
-							_v2 += terrain.pos + m.pos
-							_v3 += terrain.pos + m.pos
-
-							_v1.w = 0.0
-							_v2.w = 0.0
-							_v3.w = 0.0
-							
-							rinfo : raycast_info=?
-							rinfo.ray_origin = *start
-							rinfo.ray_dir = dir
-							rinfo.v0 = _v1
-							rinfo.v1 = _v2
-							rinfo.v2 = _v3
-							if ray_triangle_intersect(&rinfo)
-							{
-								//printf("tri found {t}\n")
-								globals.chunk = ch
-								//__dbg_break
-
-								tri_pos = *start + dir * rinfo.t_out
-								chunks_in_radius :=  cast(u32)radius / trn.chunks_col_window_size
-
-								h := chunks_in_radius*4
-								w := chunks_in_radius*4
-								
-								if (chunks_in_radius % 2) != 0
-								{
-									chunks_in_radius++
-								}
-								chunks_together_width = h
-
-								left_ch := get_chunk_on_pos(trn, ch.left_neighbor)
-								globals.chunk = ch
-								globals.h = h
-								globals.w = w
-								//find leftmost
-								cur := w /2
-								while cur > 0
-								{
-									globals.chunk = left_ch
-									aux := get_chunk_on_pos(trn, left_ch.left_neighbor)
-									if aux == nil
-									{
-										break;
-									}
-									left_ch = aux
-									cur--
-								}
-								ASSERT(left_ch)
-
-								//find uppermost
-								upper_most_ch := get_chunk_on_pos(trn, left_ch.up_neighbor)
-								if upper_most_ch == nil
-								{
-									upper_most_ch = left_ch
-								}
-								cur = h /2
-								while cur > 0
-								{
-									globals.chunk = upper_most_ch
-									aux := get_chunk_on_pos(trn, upper_most_ch.up_neighbor)
-									if aux == nil
-									{
-										break;
-									}
-									upper_most_ch = aux
-									cur--
-								}
-
-								for y in 0..h
-								{
-									cur_x_ch := upper_most_ch
-									for x in 0..w
-									{
-										dyn_add(&ctx.terrain_chunks_to_col, cur_x_ch)
-										cur_x_ch = get_chunk_on_pos(trn, cur_x_ch.right_neighbor)
-										globals.chunk = cur_x_ch
-										//__dbg_break
-
-										if cur_x_ch == nil
-											break;
-									}
-									upper_most_ch = get_chunk_on_pos(trn, upper_most_ch.down_neighbor)
-									if upper_most_ch == nil
-										break;
-								}
-
-								tri_pos.w = 0.0
-								found_tri = true
-								break;
-							}
-						}
-						t+=3
-					}
-					if found_tri
-					{
-						break
-					}
-				}
-			}
-			//get_close_chunk_cols(ctx, ctx.terrain_chunks_to_col, terrain, m, pos, window)
-			//ctx.mesh_idx = cast(u32)i
-		}
-		if found_tri
-		{
-			break
-		}
-		//i++
-	}
-
-	if !found_tri
-	{
-		dyn_clear(&ctx.mesh_added_aux)
-		return false
-	}
-
-	globals.chunk = nil
-	//__dbg_break
-	tris_per_unit := cast(s32)trn.tris_per_unit
-	dyn_clear(&ctx.mesh_added_aux)
-	for ch in ctx.terrain_chunks_to_col
-	{
-		if !mesh_added(&ctx.mesh_added_aux, ch.verts_mesh_idx)
-		{
-			dyn_add(&ctx.mesh_added_aux, ch.verts_mesh_idx)
-			//UpdateModel(m.model, m.verts.data)
-		}
-	}
-
-
-	vertices_per_row := cast(s32)trn.vertices_per_row
-	for midx in ctx.mesh_added_aux
-	{
-		m:*mesh_info= trn.meshes[cast(u64)*midx]
-		v :u64
-		count := m.verts.count
-		cur_v:=0
-		while v < count
-		{
-			vpos := *cast(*_vec)m.verts[v]
-			vpos += m.pos
-			vpos.w = 0.0
-			dir = tri_pos - vpos
-			d := dot_vec(&dir, &dir)
-			dist := absf(d)
-			//printf("dist is {ch.verts_mesh_idx}\n")
-			if dist < (radius * radius)
-			{
-				//__dbg_break
-				dist = sqrt(dist)
-				vinfo:vertex_terrrain_modify=?
-				vinfo.vidx = v
-				vinfo.mesh = m
-				
-				vinfo.dir = (radius - dist)/radius
-				/*
-				vx := cur_v % vertices_per_row
-				vy := cur_v / vertices_per_row
-				is_in_limit := vy == 0 || vy == (vertices_per_row - 1)
-				if is_in_limit
-				{
-					vinfo.dir = vinfo.dir *0.8
-				}
-				*/
-				dyn_add(&ctx.vertex_terrain, &vinfo)
-			}
-			v += TERRAIN_VERTEX_SIZE
-		}
-
-		UpdateModel(m.model, m.verts.data)
-	}
-	
-	return true
-}
-Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
-{
-	dyn_clear(&ctx.broad_phase_ents);
-
-	len: = len_vec(&(*start - *end));
-	mean:_vec = ? ;
-	mean.x = (start.x + end.x) / 2.0;
-	mean.y = (start.y + end.y) / 2.0;
-	mean.z = (start.z + end.z) / 2.0;
-
-	sz:_vec = ? ;
-	sz.x = len * 2.0;
-	sz.y = len * 2.0;
-	zero:_vec;
-	dir := *end - *start
-	cur_dist := 99999.0
-	found := false
-	aux_ent : *entity
-	for it in ctx.bodies
-	{
-		if is_flag_on(it.layer, layers_to_ignore)
-			continue;
-		e := *it
-		
-		c1 := cast(*collider)it.col
-		c1.pos = e.pos
-		CopyVerts(c1)
-		
-		on c1.type
-		{
-		col_type.CUBE
-		{
-			globals.trn = e
-			globals.ray_origin = *start
-			globals.ray_end = *end
-			//__dbg_break
-			t :u64
-			while t < 30
-			{
-				info :verts_from_tri_info=?
-				info.t = t
-				get_verts_pos_from_tris(&info, cast(*u32)globals.cube_tris, cast(*f32)c1.CUBE.verts[0], 4)
-				rinfo : raycast_info=?
-				rinfo.ray_origin = *start
-				rinfo.ray_dir = dir
-				c_offset := c1.ent.col_offset
-				rinfo.v0 = info.v1_out + c_offset
-				rinfo.v1 = info.v2_out + c_offset
-				rinfo.v2 = info.v3_out + c_offset
-
-				if ray_triangle_intersect(&rinfo)
-				{
-					tri_pos := *start + dir * rinfo.t_out
-					dist_dir := *start - tri_pos
-					d := dot_vec(&dist_dir, &dist_dir)
-
-					cinfo.contact_point = tri_pos
-
-					if e.type == ent_type.AXIS
-					{
-						*collided = e
-						return true
-					}
-
-					if d < cur_dist
-					{
-						cur_dist = d
-						found = true
-						*collided = e
-						cinfo.normal = info.cross
-						aux_ent = e
-					}
-
-				}
-				t += 3
-			}
-		}
-		}
-	}
-	return found;
 }

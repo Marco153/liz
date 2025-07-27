@@ -46,20 +46,38 @@ LinearInit::fn{T}(linear_al : *linear_alloc(T), alloc : *mem_alloc, max : u32)
 	printf("init addr %\n", cast(u32)cast(u64)linear_al.start)
 	linear_al.max = max
 }
+LinearSub::fn{T}(alloc : *linear_alloc(T), count : u32)
+{
+	ASSERT(((cast(s32)alloc.cur) - cast(s32)count) >= 0)
+	alloc.cur -= count;
+}
 LinearGet::fn{T}(alloc : *linear_alloc(T), count : u32) ! *T
 {
+	ASSERT(cast(s32)alloc.cur >= 0)
 	ASSERT((alloc.cur + 1) < alloc.max)
 	ret := ptr_offset(alloc.start, alloc.cur, T)
 	alloc.cur += count;
 	return ret
 }
+particle_emmitter_base :struct
+{
+	gravity : _vec
+	normal : _vec
+	cross : _vec
+	flags : u32
+	min_sz : _vec
+	max_sz : _vec
+	particle_lifetime : f32
+	speed : f32
+	random_start_timer : f32
+}
 create_event_etruct:etruct
 {
 	CREATE_EMMITTER(
 		pos : _vec
-		normal: _vec
 		timer_deactivate : f32
-		flags : u32
+
+		using p : particle_emmitter_base
 	)
 }
 create_event_info:struct
@@ -105,11 +123,18 @@ global_struct : struct
 
 	trn : *entity
 
+	all_axis_ent : *entity
+	all_axis_col : *collider
+
 	chunk : *chunk_col_info
 	chunks_ar : *dyn_array(*chunk_col_info)
 	create_events : dyn_array(create_event_info)
 	h : u32
 	w : u32
+
+	test_i : u32
+	add_new_line_new_stmnt_ast_to_string : bool
+
 }
 globals : global global_struct
 
@@ -626,8 +651,14 @@ vertex_terrrain_modify:struct
 	mesh : *mesh_info
 }
 
-CreateThread::fn outsider(fn(*void), *void)!u32;
+
+CompileShader::fn outsider(vertex_shader : str_lit, vs_len : u64, fragment_shader : str_lit, fs_len : u64) ! u32;
+
+CreateThread::fn outsider(fn(u32, *void), *void)!u32;
 JoinThread::fn outsider(u32)!u32;
+WaitThread::fn outsider(u32)!u32;
+ResumeThread::fn outsider(u32)!u32;
+SuspendThread::fn outsider(u32)!u32;
 
 UpdateModel::fn outsider(model : u32, verts : *f32, ) ! _vec;
 ScreenMouseToWorld::fn outsider(mx : f32, my : f32) ! _vec;
@@ -1216,21 +1247,18 @@ InsertTab::fn(buffer : *dyn_array(char), tab : u8)
 PushStr::fn(self : *string, str : *string)
 {
 	dyn_add_data(cast(*dyn_array(char))&self.data, str.data.data, cast(u32)str.data.count)
-	globals.temp_alloc.cur -= cast(u32)str.data.count
 }
 PushStrLit::fn(self : *string, str : str_lit)
 {
 	ln := str_ln(str)
 
 	dyn_add_data(cast(*dyn_array(char))&self.data, str, cast(u32)ln)
-	globals.temp_alloc.cur -= cast(u32)ln
 }
 PushStrLit::fn(buffer : *dyn_array(char), str : str_lit)
 {
 	ln := str_ln(str)
 
 	dyn_add_data(buffer, str, cast(u32)ln)
-	globals.temp_alloc.cur -= cast(u32)ln
 }
 SerializeStruct::fn(buffer : *dyn_array(char), type : *type_data, data : *void, tab : u8)
 {
@@ -1600,6 +1628,10 @@ Serialize::fn(buffer : *dyn_array(char), type : *type_data, data : *void, tab : 
 	}
 	a := 0
 }
+shader_info :struct
+{
+
+}
 TERRAIN_VERTEX_SIZE:const s32= 6
 
 sin::fn outsider(f32) !f32;
@@ -1619,6 +1651,7 @@ ImGuiSelectable::fn outsider(str_lit, selected : bool, w :f32, h : f32) !bool;
 ImGuiSameLine::fn outsider();
 ImGuiPushItemWidth::fn outsider(f32);
 ImGuiPopItemWidth::fn outsider();
+ImGuiSetCursorPos::fn outsider(f32, f32);
 ImGuiGetCursorPosX::fn outsider()! f32;
 ImGuiGetCursorPosY::fn outsider()! f32;
 ImGuiGetCursorScreenPosX::fn outsider()! f32;
@@ -2138,4 +2171,26 @@ cmpf::fn macro(a : _expr, b : _expr)
 equal_vec::fn(a : *_vec, b : *_vec) ! bool
 {
 	return cmpf(a.x, b.x) && cmpf(a.y, b.y) && cmpf(a.z, b.z) && cmpf(a.w, b.w)
+}
+builtin_type_to_string::fn(tp : *lang_type)!str_lit
+{
+	on tp.type
+	{
+	lang_type_type.V2
+	{
+		return "vec2"
+	}
+	lang_type_type.V3
+	{
+		return "vec3"
+	}
+	lang_type_type.V4
+	{
+		return "vec4"
+	}
+	lang_type_type.MAT4
+	{
+		return "mat4"
+	}
+	}
 }

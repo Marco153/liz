@@ -1399,11 +1399,13 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 		shaderProgram = gl_state->shader_program3d_tex;
 		glUseProgram(shaderProgram);
 		gl_state->tex_size = glGetUniformLocation(shaderProgram, "tex_size");
+		gl_state->tex_offset = glGetUniformLocation(shaderProgram, "tex_offset");
 		if (draw->tex_size_x == 0)
 			draw->tex_size_x = 1.0;
 		if (draw->tex_size_y == 0)
 			draw->tex_size_y = 1.0;
 		glUniform2f(gl_state->tex_size, draw->tex_size_x, draw->tex_size_y);
+		glUniform2f(gl_state->tex_offset, draw->tex_offset_x, draw->tex_offset_y);
 		//gl_state->tex_offset = glGetUniformLocation(prog, "tex_offset");
 		ASSERT(draw->texture_id < TOTAL_TEXTURES);
 		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
@@ -2229,6 +2231,7 @@ void ImGuiEnumCombo(int thread_id, dbg_state* dbg)
 			char* ptr = (*ar)[i];
 			if (ImGui::Selectable(ptr))
 			{
+				clicked = true;
 				*var_addr = i;
 			}
 		}
@@ -2255,6 +2258,13 @@ void ImGuiShowV3(int thread_id, dbg_state* dbg)
 	snprintf(buffer, 128, "##%p", v);
 	ImGui::DragFloat3(buffer, (float*)v, 0.5);
 }
+void ImGuiSetCursorPos(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	float x = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float y = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	ImGui::SetCursorPos(ImVec2(x, y));
+}
 void ImGuiPushItemWidth(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -2266,6 +2276,11 @@ void ImGuiSameLine(int thread_id, dbg_state* dbg)
 	ImGui::SameLine();
 }
 
+void ImGuiGetCursorPos(int thread_id, dbg_state* dbg)
+{
+	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
+	*addr = ImGui::GetCursorScreenPos().y;
+}
 void ImGuiGetCursorScreenPosY(int thread_id, dbg_state* dbg)
 {
 	float* addr = (float*)&dbg->mem_buffer[RET_1_REG * 8];
@@ -5105,7 +5120,7 @@ void FreeHandle(int thread_id, dbg_state *dbg)
 void HandleDirFilenameAt(int thread_id, dbg_state *dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
-	int hidx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int handle_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int idx = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
 	int buffer_size = *(int*)&dbg->mem_buffer[base_ptr + 32];
@@ -5113,7 +5128,7 @@ void HandleDirFilenameAt(int thread_id, dbg_state *dbg)
 	char *buffer = (char *)&dbg->mem_buffer[buffer_offset];
 
 
-	handle_info *h = &dbg->handles[idx];
+	handle_info *h = &dbg->handles[handle_idx];
 	ASSERT(h->type == handle_enum::FILES_DIR);
 
 	char *name = h->dir->files[idx];
@@ -5434,6 +5449,39 @@ void perspective(float* mat, float fov, float aspect, float near, float far) {
     mat[11] = -1;
     mat[14] = -(2 * far * near) / (far - near);
 }
+
+void CompileShader2(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int vs_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	int vs_len = *(int *)&dbg->mem_buffer[base_ptr + 16];
+	int fs_offset = *(int *)&dbg->mem_buffer[base_ptr + 24];
+	int fs_len = *(int *)&dbg->mem_buffer[base_ptr + 32];
+
+	auto vs_str = (char *)&dbg->mem_buffer[vs_offset];
+	auto fs_str = (char *)&dbg->mem_buffer[fs_offset];
+
+	char prev_char = vs_str[vs_len];
+	vs_str[vs_len] = 0;
+	printf("compiling vertex shader:\n%s\n", vs_str);
+    GLuint vs = compileShader(GL_VERTEX_SHADER, vs_str);
+	vs_str[vs_len] = prev_char;
+
+	prev_char = fs_str[fs_len];
+	fs_str[fs_len] = 0;
+	printf("compiling fragment shader:\n%s\n", fs_str);
+    GLuint fs = compileShader(GL_VERTEX_SHADER, fs_str);
+	fs_str[fs_len] = prev_char;
+
+    int shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vs);
+    glAttachShader(shaderProgram, fs);
+    glLinkProgram(shaderProgram);
+
+	auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+	*ret = shaderProgram;
+
+}
 void Init3D(dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -5606,6 +5654,7 @@ void Init3D(dbg_state* dbg)
 
 	GLuint indicesPlane[] = {
 		0, 2, 1,   2, 0, 3,       // Front face
+		0, 1, 2,   2, 3, 0,       // Front face
 	};
 	GLuint indices[] = {
 		0, 2, 1,   2, 0, 3,       // Front face
@@ -5810,7 +5859,7 @@ void Init3D(dbg_state* dbg)
 	plane_m->vao = VAO;
 	plane_m->ebo = EBO;
 	plane_m->vbo = VBO;
-	plane_m->indicies = 6;
+	plane_m->indicies = sizeof(indicesPlane) / sizeof(float);
 
 	loadIdentity(gl_state->model);
     loadIdentity(gl_state->view);
@@ -5832,8 +5881,6 @@ void Init3D(dbg_state* dbg)
 	// load and generate the texture
 	int width, height, nrChannels;
 	*/
-
-
 }
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 {
@@ -6634,22 +6681,71 @@ void *CreateThreadAux(void *data)
 	auto stack_ptr = GetRegValPtr(a->thread_id, dbg, PRE_X64_RSP_REG);
 	*stack_ptr = STACK_PTR_START_THREAD2;
 
-	// args for thread 
+	// thread_id
 	int *offset = (int *)&dbg->mem_buffer[STACK_PTR_START_THREAD2 + 8];
-	*offset = addr;
+	*offset = a->heandle_id;
 
+	// args for thread 
+	offset = (int *)&dbg->mem_buffer[STACK_PTR_START_THREAD2 + 16];
+	*offset = addr;
 
 	// nulling the ret address
 	offset = (int *)(int *)&dbg->mem_buffer[STACK_PTR_START_THREAD2];
 	*offset = 0;
 
 
-	ThreadFunc(a->thread_id, a->dbg, window, start);
+	ThreadFunc(a, a->dbg, window, start);
 	return nullptr;
 }
 void _WaitThread(int thread_id, dbg_state* dbg)
 {
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int th_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
+	handle_info *h = &dbg->handles[th_id];
+	//printf("trying to resume %d\n", th_id);
+#ifdef LINUX
+	pthread_mutex_lock(&h->th->mutex);
+	pthread_mutex_unlock(&h->th->mutex);
+#else
+#endif
+
+}
+void _ResumeThread(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int th_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	handle_info *h = &dbg->handles[th_id];
+	//printf("trying to resume %d\n", th_id);
+#ifdef LINUX
+	pthread_mutex_lock(&h->th->mutex);
+    pthread_cond_signal(&h->th->cond);
+	pthread_mutex_unlock(&h->th->mutex);
+#else
+#endif
+
+}
+void SuspendThread(thread_creation *th, dbg_state *dbg)
+{
+#ifdef LINUX
+
+	pthread_mutex_lock(&th->mutex);
+	printf("\nthread %d will sleep\n", th->thread_id);
+	pthread_cond_wait(&th->cond, &th->mutex);
+	printf("\nthread %d woke up\n", th->thread_id);
+	pthread_mutex_unlock(&th->mutex);
+#else
+#endif
+}
+void _SuspendThread(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int th_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	handle_info *h = &dbg->handles[th_id];
+	//HERE()
+	SuspendThread(h->th, dbg);
 }
 void _JoinThread(int thread_id, dbg_state* dbg)
 {
@@ -6658,7 +6754,6 @@ void _JoinThread(int thread_id, dbg_state* dbg)
 
 	handle_info *h = &dbg->handles[th_id];
 
-	h->th->thread;
 #ifdef LINUX
 	pthread_join(h->th->thread, NULL);
 #else
@@ -6682,7 +6777,7 @@ void _CreateThread(int thread_id, dbg_state* dbg)
 #ifdef LINUX
 	memset(args, 0, sizeof(thread_creation));
 
-	h->th->args_addr = *(int *)&dbg->mem_buffer[base_ptr + 16];
+	args->args_addr = *(int *)&dbg->mem_buffer[base_ptr + 16];
 
 	args->dbg = dbg;
 	args->thread_id = new_thread_id;
@@ -6947,6 +7042,9 @@ int main(int argc, char* argv[])
 
 	AssignOutsiderFunc(&lang_stat, "CreateThread", (OutsiderFuncType)_CreateThread);
 	AssignOutsiderFunc(&lang_stat, "JoinThread", (OutsiderFuncType)_JoinThread);
+	AssignOutsiderFunc(&lang_stat, "SuspendThread", (OutsiderFuncType)_SuspendThread);
+	AssignOutsiderFunc(&lang_stat, "ResumeThread", (OutsiderFuncType)_ResumeThread);
+	AssignOutsiderFunc(&lang_stat, "WaitThread", (OutsiderFuncType)_WaitThread);
 
 	AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
 	AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
@@ -7025,6 +7123,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorPosY", (OutsiderFuncType)ImGuiGetCursorPosY);
 	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosX", (OutsiderFuncType)ImGuiGetCursorScreenPosX);
 	AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosY", (OutsiderFuncType)ImGuiGetCursorScreenPosY);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSetCursorPos", (OutsiderFuncType)ImGuiSetCursorPos);
 	AssignOutsiderFunc(&lang_stat, "ImGuiAddRect", (OutsiderFuncType)ImGuiAddRect);
 	AssignOutsiderFunc(&lang_stat, "ImGuiHasFocus", (OutsiderFuncType)ImGuiHasFocus);
 	AssignOutsiderFunc(&lang_stat, "ImGuiTreeNodeEx", (OutsiderFuncType)ImGuiTreeNodeEx);
@@ -7060,6 +7159,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetTopStackPtr", (OutsiderFuncType)GetTopStackPtr);
 	AssignOutsiderFunc(&lang_stat, "GetInstRealAddr", (OutsiderFuncType)GetInstRealAddr);
 	AssignOutsiderFunc(&lang_stat, "HideCursor", (OutsiderFuncType)HideCursor);
+
+	AssignOutsiderFunc(&lang_stat, "CompileShader", (OutsiderFuncType)CompileShader2);
 	lang_stat.cur_decl = 0;
 
 	opts.wasm_dir = wasm_dir;

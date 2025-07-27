@@ -188,6 +188,33 @@ look_at_quaternion::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! quaternion
 {
 	ret : quaternion
 	ret.v.w = 1.0
+
+
+	// General case
+    axis := cross_vec(a, b)
+    axis_len := len_vec(&axis)
+    
+    if axis_len < 0.0001 {
+        // Vectors are parallel (handled above) or invalid
+        return ret
+    }
+    
+    // Normalize axis
+    axis = normalize_vec(&axis)
+    
+    // Calculate angle
+    cos_theta := dot_vec(a, b)
+    angle := acos(cos_theta)
+    
+    // Build quaternion
+    half_angle := angle * 0.5
+    s := sin(half_angle)
+	ret.v.w = cos(half_angle);
+	ret.v.x = axis.x * s
+	ret.v.y = axis.y * s
+	ret.v.z = axis.z * s
+
+/*
 	d := angle_on_axis(a, b, ref_up)
 	if d == 0.0
 		return ret;
@@ -196,6 +223,10 @@ look_at_quaternion::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! quaternion
 	ret.v.y = ref_up.y * s
 	ret.v.z = ref_up.z * s
 	ret.v.w = cos(d *0.5)
+	*/
+
+
+
 	return ret
 }
 build_model_matrix ::fn x64(out_matrix : *f32, position : *_vec, q : *f32, scale : *_vec) 
@@ -293,7 +324,7 @@ clampf::fn x64(val :f32, min : f32, max : f32) !f32
 	return val
 }
 // Row-major 4x4 matrix multiplication (A * B = C)
-operator * (a : *mat4x4, b : *mat4x4) !mat4x4 
+operator * x64(a : *mat4x4, b : *mat4x4) !mat4x4 
 {
     result : mat4x4=?;
     
@@ -317,7 +348,24 @@ operator * (a : *mat4x4, b : *mat4x4) !mat4x4
     return result;
 }
 
-operator * x64(self : *mat4x4, vec : *_vec) !_vec
+mul_mat_vec::fn x64(self : *mat4x4, vec : *_vec) !_vec
+{
+    ret: _vec;
+	aux := *cast(*_vec)self.vals[0]
+	ret.x = dot_vec(vec, &aux)
+
+	aux = *cast(*_vec)self.vals[4]
+	ret.y = dot_vec(vec, &aux)
+
+	aux = *cast(*_vec)self.vals[8]
+	ret.z = dot_vec(vec, &aux)
+			
+	aux = *cast(*_vec)self.vals[12]
+	ret.w = dot_vec(vec, &aux)
+	return ret;
+}
+
+operator *(self : *mat4x4, vec : *_vec) !_vec
 {
     ret: _vec;
 	aux := *cast(*_vec)self.vals[0]

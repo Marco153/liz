@@ -157,6 +157,20 @@ bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	ev.CREATE_EMMITTER.speed = 2.0
 	//ev.CREATE_EMMITTER.flags = PARTICLE_FLAGS_LOOP
 	dyn_add(&globals.create_events, &ev)
+
+	if ent_b.type == ent_type.EVENT
+	{
+		memset(&ev, 0, sizeof(ev))
+		on ent_b.event.type
+		{
+		entity_event_type.BRIDGE_ROTATE
+		{
+			ev.type = create_event_etruct.BRIDGE_ROTATE
+			ev.BRIDGE_ROTATE.ent_id = ent_b.event.BRIDGE_ROTATE.ent_id
+		}
+		}
+		dyn_add(&globals.create_events, &ev)
+	}
 }
 player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {

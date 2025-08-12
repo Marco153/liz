@@ -18,6 +18,10 @@ ent_type:enum
 	TERRAIN,
 	AXIS,
 	EMMITTER,
+	GRID,
+	BRIDGE,
+	EVENT,
+	PREVIEW_ENT,
 }
 enemy_enum : enum
 {
@@ -28,6 +32,18 @@ enemy_enum : enum
 interact_type : enum
 {
 
+}
+entity_event_type:etruct
+{
+	BRIDGE_ROTATE(
+		ent_id : u32
+	)
+}
+entity_event:struct
+{
+	using type : entity_event_type
+	one_time : bool
+	times_hit : u32
 }
 
 impact_enum:enum
@@ -47,11 +63,9 @@ entity_state:enum
 }
 behaviour_state: enum
 {
-	IDLE,	
-	WAIT,	
-	MAINTAIN_DISTANCE,
-	GET_CLOSER_THEN_ATTACK,
-	JUMP,
+	IDLE,
+	GO_TO,
+	ATTACK,
 }
 intention_state: enum
 {
@@ -71,6 +85,8 @@ ENTITY_SERIALIZE: const s32 = 0x100
 ENTITY_TEMPORARILY_NOT_SERIALIZE: const s32 = 0x200
 ENTITY_ONLY_COL: const s32 = 0x400
 ENTITY_NO_LIGHT: const s32 = 0x1000
+ENTITY_CUSTOM_SHADER: const s32 = 0x2000
+ENTITY_NO_ROTATION_ON_COLLISION: const s32 = 0x4000
 
 LAYER_ENTITY_PLAYABLE:const s32 = 1;
 LAYER_PLAYER:const s32 = 2;
@@ -182,6 +198,11 @@ entity:struct
 	type : ent_type,
 	state : entity_state,
 	name : str_lit,
+	using info_::union
+	{
+		mov_info : *player_info,
+		en_info : *enemy_info,
+	}
 
 	//using base : base_entity
 	pos : _vec,
@@ -201,7 +222,11 @@ entity:struct
 	color_lerp : f32,
 	impact_vel : _vec,
 	forward : _vec,
-	hp : f32,
+	using u3 :: union
+	{
+		hp : f32,
+		bridge_rot : f32,
+	}
 	collided_entered : bool,
 	col_enter : fn(*entity, *entity, *collision),
 	col_stay : fn(*entity, *entity, *collision),
@@ -220,12 +245,14 @@ entity:struct
 	can_start_combo : bool,
 	normal_col : _vec
 
+	material_idx : s32
+	in_material_instance : u32
 
 	layer : u32,
 	dont_res_cols_with_layers : u32,
 	ignore_collision_with_layers : u32,
 
-	mov_info : *player_info,
+
 	axe : *axe_info,
 	ents_in_collision : dyn_array(in_col_ent),
 	cl : *clip2,
@@ -236,6 +263,7 @@ entity:struct
 	timer_deactivate : f32
 	using u :: union
 	{
+		event : entity_event
 		bullet ::struct
 		{
 			dmg_val : f32
@@ -260,11 +288,6 @@ entity:struct
 	}
 	using u2 :: union
 	{
-		event :: struct
-		{
-			ev_type : event_type,
-			interact_idx : u32;
-		};
 		platform_idle_time : f32,
 		spear_on_col_with : *entity,
 		
@@ -316,10 +339,17 @@ inv_slot:struct
 {
 	item : inv_item,
 }
-TOTA_INV_ITEMS:const s32= 4;
+TOTA_INV_ITEMS:const s32= 3;
 inventory : struct
 {
 	items : [TOTA_INV_ITEMS]inv_slot,
+}
+enemy_info: struct
+{
+	state : behaviour_state
+	can_move : bool,
+	origin_pos : _vec,
+	target_pos : _vec
 }
 player_info: struct
 {

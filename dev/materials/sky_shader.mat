@@ -1,0 +1,58 @@
+uniform mat4 model
+uniform mat4 view
+uniform mat4 projection
+uniform v4 cam_pos
+uniform v4 horizon_color
+uniform v4 mid_horizon_color
+uniform v4 sky_color
+uniform v3 sun_dir
+
+cull(FACE_BACK)
+
+vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
+{
+    tex_coord = uv
+    aux_pos :v4=  model * v4(pos.xyz, 1.0)
+    aux_pos = aux_pos + cam_pos
+    aux_pos.w = 1.0
+    frag_pos = v3(aux_pos.xyz)
+    POSITION = projection * view * aux_pos
+}
+fragment:fn(tex_coord : v2, frag_pos : v3)
+{
+    dir :v3= frag_pos
+    dir = normalize(dir)
+
+    s :f32= 0.2
+
+
+    sun_dot :f32= clamp(dot(dir, sun_dir), -1.0, 1.0)
+
+
+    horizon_bigger_twilight :f32= (1.0 - smoothstep(0.0, 0.5, dir.y)) * 0.1
+
+    sun_twilight :f32= smoothstep(0.84, 0.9999, sun_dot)
+    actual_sun :f32= smoothstep(0.999, 0.9991, sun_dot)
+
+    dir.y = dir.y + 0.1
+    d :f32= clamp(dir.y, 0, 1.0)
+
+    mid_horizon_aux:v4= mix(v4(1.0, 0.0, 0.0, 1.0), mid_horizon_color, smoothstep(-1.0, 1.0, sun_dot))
+
+    col :v4= mix(horizon_color, mid_horizon_aux, smoothstep(0.1, 0.2, d))
+
+    aux_sky_color:v4 = sky_color * (1 - (dir.y+ 0.3))
+    col = mix(col, aux_sky_color, smoothstep(0.2, 0.4, d))
+
+    sun_twilight_col:v4=mix(mid_horizon_color, v4(1), smoothstep(0, 1.0, dir.y))
+
+
+    col = mix(col, sun_twilight_col, sun_twilight)
+    col = mix(col, v4(1.0, 1.0, 1.0, 1.0), actual_sun)
+
+    dark_side :f32= smoothstep(-1.6, 0.0, sun_dot)
+    col = col * dark_side
+
+
+    COLOR = col
+}

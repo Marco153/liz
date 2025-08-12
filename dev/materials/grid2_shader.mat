@@ -1,0 +1,23 @@
+uniform mat4 model
+uniform mat4 view
+uniform mat4 projection
+uniform v4 col
+uniform v4 cam_pos
+uniform sampler2d tex
+
+vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
+{
+    tex_coord = uv
+    aux_pos :v4=  model * v4(pos.xyz, 1.0)
+    frag_pos = v3(aux_pos.xyz)
+    aux_pos = aux_pos + cam_pos
+    POSITION = projection * view * aux_pos
+}
+fragment:fn(tex_coord : v2, frag_pos : v3)
+{
+    tex_col:v4 =  texture(tex, v2(frag_pos.x , frag_pos.z))
+    
+
+    COLOR = tex_col
+
+}

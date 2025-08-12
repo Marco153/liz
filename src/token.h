@@ -489,6 +489,7 @@ struct func_decl
 #define DECL_PTR_HAS_LEN  0x80
 #define DECL_IS_VAR_ARG  0x100
 #define DECL_SERIALIZABLE  0x200
+#define DECL_IS_USING  0x400
 
 struct decl2
 {
@@ -752,7 +753,7 @@ struct type_struct2
 			offset_to_str_tbl -= offsetof(type_data, name);
 
 			/*
-			if((*v)->name == "remove_from")
+			if((*v)->name == "en_info")
 			{
 				HERE()
 				own_std::string name = (*v)->type.strct->original_strct ? (*v)->type.strct->original_strct->name :"no name";
@@ -762,7 +763,6 @@ struct type_struct2
 
 			if (IS_FLAG_ON((*v)->flags, DECL_PTR_HAS_LEN))
 			{
-				var_ptr->flags = (*v)->flags;
 				var_ptr->decl_offset_for_ptr_len = (*v)->len_for_ptr->offset;
 			}
 			var_ptr->offset = (*v)->offset;
@@ -1362,6 +1362,7 @@ func_decl *type2::ChooseFuncOverload(lang_state *lang_stat, own_std::vector<type
 					matches = false;
 					break;
 				}
+				//i++;
 			}
 			if(matches)
 				return (*f);

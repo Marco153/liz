@@ -1,13 +1,23 @@
 uniform mat4 model
 uniform mat4 view
 uniform mat4 projection
+uniform v4 color
+uniform v4 cam_pos
+uniform sampler2d tex
+uniform sampler2d noise
 
-vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2)
+vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
 {
     tex_coord = uv
-    POSITION = projection * view * model  * v4(pos.xyz, 0.0)
+    aux_pos :v4=  model * v4(pos.xyz, 1.0)
+    frag_pos = v3(aux_pos.xyz)
+    aux_pos = aux_pos + cam_pos
+    POSITION = projection * view * aux_pos
 }
-fragment:fn(tex_coord : v2)
+fragment:fn(tex_coord : v2, frag_pos : v3)
 {
-    COLOR = v4(1.0, 0.0, 0.0, 1.0)
+    n  :v4=texture(noise, v2(-frag_pos.x + TIME * 0.12, frag_pos.z + TIME * 0.12))
+
+    tex_col:v4 =  texture(tex, v2(frag_pos.x + TIME * 0.1 + n.x, frag_pos.z + TIME * 0.1 + n.z))
+    COLOR = color * tex_col
 }

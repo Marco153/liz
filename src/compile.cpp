@@ -67,7 +67,7 @@ typedef long long s64;
 #define MEM_PTR_START_ADDR (STACK_PTR_START_THREAD2)
 #define MEM_PTR_MAX_ADDR 18008
 
-#define DATA_SECT_MAX 8048
+#define DATA_SECT_MAX 9048
 #define DATA_SECT_OFFSET 1024 * 1024 * 32
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
@@ -6547,6 +6547,7 @@ var_dbg *WasmSerializeSimpleVar(web_assembly_state* wasm_state, serialize_state*
 	var_ser->ptr = var->type.ptr;
 	var_ser->offset = var->offset;
 	var_ser->strct_flags = var->flags;
+	var_ser->flags = var->flags;
 	WasmSerializePushString(ser_state, &var->name, &var_ser->name);
 	return var_ser;
 }
@@ -7476,6 +7477,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		}
 
 		cur_var->decl = d;
+		d->flags = cur_var->flags;
 		cur_var++;
 	}
 
@@ -9715,7 +9717,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		{
 			dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
 		}
-		*ptr = dbg->lang_stat->bcs2_start + *reg_src_ptr;
+		*ptr = dbg->lang_stat->bcs2_start + (int)*reg_src_ptr;
 		*inc_ptr = false;
 	}break;
 	case INST_LEA:
@@ -10926,8 +10928,14 @@ void RunDbgFunc(lang_state* lang_stat, own_std::string func, long long* args, in
 void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl)
 {
 	char buffer[256];
+	auto lalloc = (linear_alloc *)__lang_globals.data;
+	lalloc->cur = 0;
 	//ImGui::Text("offset: %d", d->offset);
 	//ImGui::SameLine();
+	if (IS_FLAG_ON(d->flags, DECL_IS_GLOBAL))
+	{
+		base_ptr = GLOBALS_OFFSET + d->offset;
+	}
 	if (IS_FLAG_ON(d->flags, DECL_PTR_HAS_LEN))
 	{
 		if(ptr_decl > 0)
@@ -10975,9 +10983,16 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		auto original_addr = base_ptr;
 		while (ptr > 0)
 		{
+			if(base_ptr < -1 || base_ptr > dbg.mem_size)
+			{
+				snprintf(buffer, 64, "%s ptr val is invalid", d->name.c_str(), original_addr);
+				ImGui::Text(buffer);
+				return;
+			}
 			base_ptr = *(int*)&dbg.mem_buffer[base_ptr];
 			ptr--;
 		}
+
 
 		own_std::string name = d->name;
 		own_std::string ptr_str = "";
@@ -11131,6 +11146,11 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		int addr = offset;
 		offset = *(int*)&dbg.mem_buffer[offset];
 		auto ptr = (char*)&dbg.mem_buffer[offset];
+
+		if(offset < 0 || offset > dbg.mem_size)
+		{
+			ptr = "invalid address";
+		}
 		if (ptr == nullptr)
 		{
 			ptr = "";
@@ -11178,7 +11198,6 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		
 		if (ImGui::TreeNodeEx(buffer, flag))
 		{
-			auto lalloc = (linear_alloc *)__lang_globals.data;
 			auto len = clamp(d->type.ar_size, 0, 64);
 			for (int i = 0; i < len; i++)
 			{
@@ -11276,8 +11295,8 @@ void ImGuiPrintScopeVars(char *name, dbg_state &dbg, scope* cur_scp, int base_pt
 		decl2* d = *decl;
 		if (d->type.type == TYPE_STRUCT_TYPE || d->type.type == TYPE_UNION_TYPE)
 			continue;
-		if (IS_FLAG_OFF(d->flags, DECL_FROM_USING))
-			ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
+		//if (IS_FLAG_OFF(d->flags, DECL_FROM_USING))
+		ImGuiPrintVar(name, dbg, d, base_ptr + d->offset, d->type.ptr);
 	}
 }
 void WasmInterpPatchIrVal(ir_val* val, dbg_file_seriealize* file)
@@ -13267,21 +13286,31 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		{
 			//PreX64Deref(lang_stat, assign.to_assign.reg, assign.to_assign.deref - 1, ret);
 
+			int voffset = 0;
 			short reg = PRE_X64_RSP_REG;
 			char reg_sz = assign.to_assign.reg_sz;
-			int voffset = 0;
 			char deref = assign.to_assign.deref;
-
-			voffset = GetOnStackOffsetWithIrVal(lang_stat, &assign.to_assign);
-			
-			if (assign.to_assign.type == IR_TYPE_ON_STACK)
+			if(assign.to_assign.type == IR_TYPE_DECL && IS_FLAG_ON(assign.to_assign.decl->flags, DECL_IS_GLOBAL))
 			{
-				//GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false, 4);
-		//void GenX64AutomaticDeclDeref(lang_state* lang_stat, own_std::vector<byte_code>& ret, char deref, short *reg, int *voffset, char reg_sz, bool is_float, bool address, bool is_packed_float, bool decl_is_vector, short reg_dst = -1)
-				GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true, false, false);
+				ir_val_aux lhs;
+				GenX64DeclGlobal(lang_stat, ret, &lhs, assign.to_assign.decl->offset);
+				reg = lhs.reg;
+				voffset = 0;
 			}
 			else
-				GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true, assign.to_assign.decl->type.type == TYPE_VECTOR, false);
+			{
+
+				voffset = GetOnStackOffsetWithIrVal(lang_stat, &assign.to_assign);
+				
+				if (assign.to_assign.type == IR_TYPE_ON_STACK)
+				{
+					//GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, false, 4);
+			//void GenX64AutomaticDeclDeref(lang_state* lang_stat, own_std::vector<byte_code>& ret, char deref, short *reg, int *voffset, char reg_sz, bool is_float, bool address, bool is_packed_float, bool decl_is_vector, short reg_dst = -1)
+					GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true, false, false);
+				}
+				else
+					GenX64AutomaticDeclDeref(lang_stat, ret, deref, &reg, &voffset, reg_sz, false, true, assign.to_assign.decl->type.type == TYPE_VECTOR, false);
+			}
 
 
 			//GenX64ToIrValDecl2(lang_stat, ret, &lhs, &assign.lhs, false, 4);
@@ -13683,13 +13712,18 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				}break;
 				case IR_TYPE_DECL:
 				{
+					short reg = PRE_X64_RSP_REG;
+					int offset = assign.lhs.decl->offset;
 					if (IS_FLAG_ON(assign.lhs.decl->flags, DECL_IS_GLOBAL))
 					{
 						GenX64DeclGlobal(lang_stat, ret, &lhs, assign.lhs.decl->offset);
+						reg = lhs.reg;
+						offset = 0;
+
 					}
-					else
+					//else
 					{
-						GenX64PointLhs(lang_stat, ret, &lhs, PRE_X64_RSP_REG, 8, assign.lhs.decl->offset, assign.lhs.deref, assign.lhs.is_float);
+						GenX64PointLhs(lang_stat, ret, &lhs, reg, 8, offset, assign.lhs.deref, assign.lhs.is_float);
 					}
 				}break;
 				default:
@@ -15728,6 +15762,28 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					ret.make_count(ret.size() - 1);
 				}
 
+			}
+			else if(diff == 2)
+			{
+				byte_code *i1 = &ret.back() - 1;
+				byte_code *i2 = &ret.back();
+				if((i1->type == MOV_M || is_lea) &&
+					(i2->type == MOV_R) &&
+					i1->bin.lhs.reg != i2->bin.lhs.reg
+				)
+				{
+					i1->bin.lhs.reg = i2->bin.lhs.reg;
+					ret.make_count(ret.size() - 1);
+				}
+
+				else if((i1->type == ADD_R_2_R) &&
+					(i2->type == MOV_R) &&
+					i1->bin.lhs.reg == i2->bin.rhs.reg
+				)
+				{
+					//i1->bin.lhs.reg = i2->bin.lhs.reg;
+					//ret.make_count(ret.size() - 1);
+				}
 			}
 		}
 		// mov pxmm1, mem
@@ -17790,6 +17846,7 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 	}
 #endif
 	lang_stat->flags = PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
+	//HERE()
 
 	for(cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
 	{
@@ -18008,7 +18065,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
-	lang_stat->max_decl = 8500;
+	lang_stat->max_decl = 9500;
 	lang_stat->cur_decl = 0;
 	lang_stat->decl_arena = (decl2*)AllocMiscData(lang_stat, lang_stat->max_decl * sizeof(decl2));
 	//lang_stat->max_misc = 16 * 1024 * 1024;

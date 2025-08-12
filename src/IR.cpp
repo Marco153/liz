@@ -872,6 +872,27 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 					ref->ast = cur_arg;
 					arg = ref;
 				}
+				else if(cur_arg->lhs_tp.type == TYPE_F32)
+				{
+
+					ast_rep* ref = NewAst();
+					ref->type = AST_ADDRESS_OF;
+					ref->ast = cur_arg;
+
+					ast_rep* cast = NewAst();
+					cast->type = ast_type::AST_CAST;
+					cast->cast.type.type = TYPE_S32;
+					cast->cast.type.ptr = 1;
+					cast->cast.casted = ref;
+
+					ast_rep* deref = NewAst();
+					deref->type = ast_type::AST_DEREF;
+					deref->deref.times = 1;
+					deref->deref.exp = cast;
+					deref->deref.type = cast->cast.type;
+
+					arg = deref;
+				}
 
 				ast_rep* cast_to_s64 = NewAst();
 				cast_to_s64->type = AST_CAST;
@@ -1535,7 +1556,7 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 		GenStackThenIR(lang_stat, ast_bin->e_holder.expr[0], out, &ir.bin.lhs, &ir.bin.lhs);
 		MaybeUnspillRegisters(lang_stat, &had_spilled_reg, out);
 
-		if (ir.bin.lhs.ptr > 0)
+		if (ir.bin.lhs.ptr > 0 && ir.bin.lhs.deref == 0)
 		{
 			ir.bin.lhs.is_float = false;
 			ir.bin.lhs.is_packed_float = false;
@@ -2288,7 +2309,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			int cur_biggest = e->call.in_func->biggest_call_args;
 			lang_stat->cur_func->biggest_call_args = max(cur_biggest, e->call.args.size());
 
-			//BREAK(e->line_number == 739)
 			
 			int more_stack_vals = stack.size() - e->call.args.size();
 			if (more_stack_vals > 0)
@@ -2398,7 +2418,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				*/
 
 
-			//BREAK(e->line_number == 1327)
 			bool there_is_exps_in_stack = (j + 1) < exps.size();
 			// if is not last, we will move to some reg
 			if (there_is_exps_in_stack)
@@ -2941,7 +2960,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			char last_ptr = top->ptr;
 			bool is_int = e->cast.type.type == TYPE_U32 || e->cast.type.type == TYPE_S32 || e->cast.type.type == TYPE_S64 || e->cast.type.type == TYPE_U64;
 
-			//BREAK(e->line_number == 2772)
+			//BREAK(e->line_number == 1954)
 
 			if (is_int && top->is_float == true && top->ptr == 0)
 			{
@@ -3026,6 +3045,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.only_lhs = true;
 				ir.assign.lhs = *top;
 				ir.assign.lhs.is_float = false;
+				ir.assign.lhs.is_packed_float = false;
 				//ir.assign.lhs.deref = 0;
 
 				out->emplace_back(ir);
@@ -3094,7 +3114,12 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			else
 				top->ptr = e->cast.type.ptr * (last_ptr < 0 ? -1 : 1);
 			if (e->cast.type.type != TYPE_VECTOR)
-				top->is_float = e->cast.type.IsFloat();
+			{
+				if(last_ptr == 0)
+				{
+					top->is_float = e->cast.type.IsFloat();
+				}
+			}
 			else
 			{
 				top->is_float = true;
@@ -3289,6 +3314,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.assign.rhs.i = 0;
 
 				char prev_ptr = first->ptr;
+				char prev_sz = first->reg_sz;
 				ir.assign.rhs.type = IR_TYPE_INT;
 				bool added_final_ir = false;
 				bool last_was_static_ar = false;
@@ -3354,6 +3380,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 					}
 
 					prev_ptr = cur->ptr;
+					prev_sz = cur->reg_sz;
 					if (cur->type == IR_TYPE_DECL && cur->decl->type.type == TYPE_STR_LIT)
 						prev_ptr = 1;
 					stack.pop_back();
@@ -3386,6 +3413,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				val.is_packed_float = ir.assign.rhs.is_packed_float;
 				val.reg_sz = ir.assign.rhs.reg_sz;
 				val.is_unsigned = ir.assign.rhs.is_unsigned;
+				val.reg_sz = prev_sz;
 				if (ir.assign.lhs.is_packed_float && ir.assign.lhs.type == IR_TYPE_REG)
 				{
 					val.deref = -1;
@@ -3484,7 +3512,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 				top->type = IR_TYPE_REG;
 				top->reg_ex = 0;
-				top->reg = ir.assign.to_assign.reg;
 				if (top->ptr <= -1)
 				{
 					top->is_float = ir.assign.to_assign.is_float;
@@ -3494,6 +3521,13 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				top->reg_sz = min_sz;
 				top->ptr = 0;
 				top->deref = -1;
+
+				if(ir.assign.to_assign.type == IR_TYPE_REG && ir.assign.lhs.type == IR_TYPE_REG 
+					&& ir.assign.rhs.type == IR_TYPE_REG && ir.assign.to_assign.reg == ir.assign.rhs.reg)
+				{
+					ir.assign.to_assign.reg = ir.assign.lhs.reg;
+				}
+				top->reg = ir.assign.to_assign.reg;
 				out->emplace_back(ir);
 			}break;
 			}
@@ -4418,10 +4452,19 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 					GenStackThenIR(lang_stat, e, out, &ir.bin.lhs, &ir.bin.lhs);
 					//ir.bin.lhs.deref++;
 					ir.bin.rhs.type = IR_TYPE_INT;
-					ir.bin.rhs.i = 1;
-					ir.type = IR_CMP_NE;
+					if(ir.bin.lhs.ptr > 0)
+					{
+						ir.bin.rhs.i = 0;
+						ir.type = IR_CMP_EQ;
+						ir.bin.op = T_COND_EQ;
+					}
+					else
+					{
+						ir.bin.rhs.i = 1;
+						ir.type = IR_CMP_NE;
+						ir.bin.op = T_COND_NE;
+					}
 					ir.bin.it_is_jmp_if_true = false;
-					ir.bin.op = T_COND_NE;
 					out->emplace_back(ir);
 
                     //GetIRFromAst(lang_stat, e, out);

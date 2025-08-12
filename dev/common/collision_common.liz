@@ -74,4 +74,5 @@ collider : struct
 	_min : _vec
 	_max : _vec
 	data_ready : bool
+	no_rotation_ent : bool
 }

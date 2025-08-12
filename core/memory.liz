@@ -51,6 +51,10 @@ debug_break::fn macro()
 		__dbg_break;
 }
 
+new_ptr::fn macro(type: _expr)
+{
+	cast(*type)heap_alloc(globals.alloc, sizeof(type))
+}
 ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 {
 	(cast(*type)(cast(s64)ptr + cast(s64)offset * sizeof(type)))
@@ -524,9 +528,10 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 {
 	alloc.id = 0x1234;
+	aux := chunks_cap / 2
 	alloc.chunks_cap = chunks_cap;
-	alloc.hash_table_size = 35000;
-    all_chunks_sz:u64= sizeof(mem_chunk) * 35000;
+	alloc.hash_table_size = aux;
+    all_chunks_sz:u64= sizeof(mem_chunk) * aux;
 	if !alloc.all
 		alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
     memset(cast(*u8)alloc.all, 0, all_chunks_sz);

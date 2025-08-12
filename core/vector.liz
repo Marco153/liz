@@ -117,22 +117,44 @@ rotate_vector::fn(out : *_vec, v : *_vec, q : *_vec) {
 }
 PI :const f32= 3.141592
 // Helper function to convert degrees to radians
+RAD_TO_DEG :const f32= 57.295779
 radians_to_degree::fn macro(x : _expr)
 {
-    (x * 57.295779)
+    (x * RAD_TO_DEG)
 }
 degrees_to_radians::fn macro(x : _expr)
 {
     (x * PI / 180.0)
 }
 
+quaternion_to_euler::fn(q : *_vec) ! _vec
+{
+    angles : _vec=?;
+
+    // roll (x-axis rotation)
+    sinr_cosp := 2.0 * (q.w * q.x + q.y * q.z);
+    cosr_cosp:= 1.0 - 2.0 * (q.x * q.x + q.y * q.y);
+    angles.x = atan2(sinr_cosp, cosr_cosp);
+
+    // pitch (y-axis rotation)
+    sinp := sqrt(1.0 + 2.0 * (q.w * q.y - q.x * q.z));
+    cosp := sqrt(1.0 - 2.0 * (q.w * q.y - q.x * q.z));
+    angles.y = 2.0 * atan2(sinp, cosp) - PI / 2.0;
+
+    // yaw (z-axis rotation)
+    siny_cosp := 2.0 * (q.w * q.z + q.x * q.y);
+    cosy_cosp := 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+    angles.z = atan2(siny_cosp, cosy_cosp);
+
+    return angles;
+}
 
 euler_to_quaternion::fn(x:f32, y:f32, z:f32) !quaternion
 {
 	x = degrees_to_radians(x)
 	y = degrees_to_radians(y)
 	z = degrees_to_radians(z)
-	ret : quaternion = ?
+	ret : quaternion
     cr := cos(x * 0.5);
     sr := sin(x * 0.5);
     cp := cos(y * 0.5);
@@ -140,6 +162,7 @@ euler_to_quaternion::fn(x:f32, y:f32, z:f32) !quaternion
     cy := cos(z * 0.5);
     sy := sin(z * 0.5);
 
+	//__dbg_break
     q:= &ret.v;
     q.x = sr * cp * cy - cr * sp * sy;
     q.y = cr * sp * cy + sr * cp * sy;
@@ -153,12 +176,32 @@ sign ::fn(f : f32) ! f32
 	if f < 0.0 return -1.0;
 	return 1.0;
 }
+create_from_axis_angle::fn(xx:f32, yy:f32, zz:f32, a:f32) ! quaternion
+{
+	q : quaternion=?
+    // Here we calculate the sin( theta / 2) once for optimization
+    factor:f32 = sin( a / 2.0 );
+
+    // Calculate the x, y and z of the quaternion
+    q.v.x = xx * factor;
+    q.v.y = yy * factor;
+    q.v.z = zz * factor;
+
+    // Calcualte the w value by cos( theta / 2 )
+    q.v.w = cos( a / 2.0 );
+	normalize_quaternion(&q.v, &q.v)
+    return q
+}
 angle_on_axis::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! f32
 {
 	from := *a
 	to := *b
 
 	from -= *ref_up * dot_vec(ref_up, &from)
+	if dot_vec(&from, &from) < 0.00001
+	{
+		return 0.0
+	}
 	to -= *ref_up * dot_vec(ref_up, &to)
 
 	from = normalize_vec(&from)
@@ -213,19 +256,6 @@ look_at_quaternion::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! quaternion
 	ret.v.x = axis.x * s
 	ret.v.y = axis.y * s
 	ret.v.z = axis.z * s
-
-/*
-	d := angle_on_axis(a, b, ref_up)
-	if d == 0.0
-		return ret;
-	s := sin(d *0.5)
-	ret.v.x = ref_up.x * s
-	ret.v.y = ref_up.y * s
-	ret.v.z = ref_up.z * s
-	ret.v.w = cos(d *0.5)
-	*/
-
-
 
 	return ret
 }
@@ -530,10 +560,7 @@ dot_vec::fn x64(a : *_vec, b : *_vec) !f32
 }
 print_vec::fn(v : *_vec)
 {
-	printf("rx %, ", cast(s32)(v.x * 100.0))
-	printf("ry %, ", cast(s32)(v.y * 100.0))
-	printf("rz %, ", cast(s32)(v.z * 100.0))
-	printf("rw %\n", cast(s32)(v.w * 100.0))
+	printf("x {v.x}, y {v.y}, z {v.z}, w {v.w}\n")
 	//printf("ang %, dt %\n", cast(s32)(ang * 100.0), cast(s32)(dt * 100.0))
 }
 cross_vec::fn x64(a : *_vec, b : *_vec) !_vec

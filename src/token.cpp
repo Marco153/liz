@@ -65,6 +65,7 @@ bool CanAddToDataSect(enum_type2 tp)
 		case enum_type2::TYPE_ENUM:
 		case enum_type2::TYPE_F64:
 		case enum_type2::TYPE_F32:
+		case enum_type2::TYPE_VECTOR:
 		case enum_type2::TYPE_BOOL:
 		case enum_type2::TYPE_STRUCT:
 			return true;

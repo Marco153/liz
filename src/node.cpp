@@ -2837,6 +2837,9 @@ decl2* NewDecl(lang_state *lang_stat, own_std::string name, type2 tp)
 
 bool TemplTypeFromStruct(type2* in, type2* out, type2* arg, own_std::string target_templ_name)
 {
+	auto name_in = in->strct->name;
+	auto name_arg = arg->strct->name;
+	auto name_arg_original = arg->strct->original_strct->name;
 	if (arg->strct->original_strct && in->strct->name == arg->strct->original_strct->name)
 	{
 		int arg_strct_templs_count = in->strct->templates.size();
@@ -4206,6 +4209,7 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 				case enum_type2::TYPE_BOOL:
 				case enum_type2::TYPE_F32:
 				case enum_type2::TYPE_F64:
+				case enum_type2::TYPE_VOID:
 				case enum_type2::TYPE_STRUCT:
 				case enum_type2::TYPE_CHAR:
 				case enum_type2::TYPE_STR_LIT:
@@ -4486,6 +4490,10 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 	lang_stat->flags &= ~PSR_FLAGS_DECLARE_ONLY_TYPE_PARAMTS;
 	if (!DescendNameFinding(lang_stat, fnode->l->l->r, child_scp))
 	{
+		if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+		{
+			HERE();
+		}
 		lang_stat->flags = last_flags;
 		return false;
 	}
@@ -4793,6 +4801,7 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 			}
 
 
+
 			if (!found_decl)
 			{
 				func_decl *fdecl = f->new_func(5);
@@ -4814,6 +4823,7 @@ bool CheckIfTemplateOverloadHasFunc(lang_state* lang_stat, node* ncall, scope* s
 				tp.fdecl = fdecl;
 				decl2* new_decl = NewDecl(lang_stat, fname, tp);
 				new_decl->flags = DECL_NOT_DONE;
+				//fdecl->templates.clear();
 
 				fdecl->from_call = ncall;
 
@@ -5250,6 +5260,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	decl2* lhs;
 	type2 dummy_type;
 
+	//BREAK(ncall->t->line == 4177)
 	bool rhs_type_not_done_but_its_ptr = false;
 	if (ncall->r && !DescendNameFinding(lang_stat, ncall->r, scp))
 	{
@@ -5296,10 +5307,12 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			{
 				if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 				{
+					/*
 					REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 						VAR_ARGS("for some reason func '%s' was not done. \n it seems like that function reached up until this line %d", ncall->l->t->str.c_str(), lhs->type.fdecl->reached_nd->t->line)
 						);
-					ExitProcess(1);
+					*/
+					return false;
 				}
 				else
 					return false;
@@ -5315,7 +5328,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 					VAR_ARGS("func not found %s", ncall->l->t->str.c_str())
 					)
-				ExitProcess(1);
+				//ExitProcess(1);
+				return false;
 			}
 			else
 				return false;
@@ -5554,7 +5568,6 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				}
 			}
 				*/
-			//BREAK(ncall->t->line == 2781)
 			if (lhs->type.type == enum_type2::TYPE_OVERLOADED_FUNCS)
 			{
 				FOR_VEC(t, args)
@@ -5563,10 +5576,12 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				}
 
 
+				//BREAK(ncall->t->line == 613)
 				auto gotten_func = lhs->type.ChooseFuncOverload(lang_stat, &args_types);
 
-				if (!gotten_func)
+				//if (!gotten_func)
 				{
+					/*
 					if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 					{
 						REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
@@ -5575,7 +5590,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 						//ExitProcess(1);
 						return false;
 					}
-					else
+						*/
+					//else
 					{
 						//if (lhs->type.overload_funcs->templated)
 						//{
@@ -5630,7 +5646,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			}
 
 			// func instantiation
-			if (fdecl->templates.size() > 0)
+			if (fdecl->templates.size() > 0 && IS_FLAG_OFF(fdecl->flags, FUNC_DECL_INSTANTIATED))
 			{
 				scope* target_scope = fdecl->templates[0].scp;
 				own_std::vector<type2> templ_types;
@@ -6097,6 +6113,9 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	child_scp->flags |= SCOPE_INSIDE_FUNCTION;
 	child_scp->fdecl = fdecl;
 	ret_type->fdecl = fdecl;
+
+	//BREAK(n->t->line == 656)
+
 	if (IS_FLAG_ON(flags, FUNCTION_IS_DONE_FLAGS_ONLY_DECLARE_SCOPE_AND_FUNC))
 		return true;
 
@@ -7611,17 +7630,19 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		on_expr *on = n->on;
 
-		decl2 *d = DescendNameFinding(lang_stat, on->main, scp);
-		if(!d)
-			return nullptr;
-		
-		if(d->type.type == TYPE_STRUCT && IS_FLAG_OFF(n->flags, NODE_FLAGS_IS_PROCESSED))
+		if(!NameFindingGetType(lang_stat, on->main, scp, ret_type))
 		{
-			ASSERT(IS_FLAG_ON(d->type.strct->flags, TP_STRCT_ETRUCT))
+			return nullptr;
+		}
+		
+		
+		if(ret_type.type == TYPE_STRUCT && IS_FLAG_OFF(n->flags, NODE_FLAGS_IS_PROCESSED))
+		{
+			ASSERT(IS_FLAG_ON(ret_type.strct->flags, TP_STRCT_ETRUCT))
 			
 			FOR_VEC(cur_cond, on->exprs)
 			{
-				if(!NameFindingOnExprEtruct(lang_stat, d->type.strct, cur_cond->cond, scp, false))
+				if(!NameFindingOnExprEtruct(lang_stat, ret_type.strct, cur_cond->cond, scp, false))
 					return nullptr;
 				if (!DescendNameFinding(lang_stat, cur_cond->scp, scp))
 					return nullptr;
@@ -7631,7 +7652,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 			FOR_VEC(cur_cond, on->exprs)
 			{
-				NameFindingOnExprEtruct(lang_stat, d->type.strct, cur_cond->cond, scp, true);
+				NameFindingOnExprEtruct(lang_stat, ret_type.strct, cur_cond->cond, scp, true);
 			}
 		}
 		else
@@ -7859,6 +7880,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 			if (IS_FLAG_ON(n->r->flags, NODE_FLAGS_IS_PROCESSED))
 				return (decl2*)1;
+			
+			decl->flags |= DECL_IS_USING;
 
 			node* by_name_nd = nullptr;;
 			own_std::string by_name_str;
@@ -8777,6 +8800,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			const own_std::string &decl_name = n->l != nullptr ? n->l->t->str : own_std::to_string((long long)n);
 
 
+			//BREAK(n->t->line == 3599);
 			// creating a new node for an implied name
 			if (n->l == nullptr)
 			{
@@ -10035,8 +10059,10 @@ void DescendNodeExprOn(lang_state *lang_stat, scope *scp, node *n, type2 *ref_ty
 	else
 	{
 		type2 rhs = DescendNode(lang_stat, n, scp);
-		if(!CompareTypes(&rhs, ref_type))
+		if(!CompareTypes(ref_type, &rhs))
 		{
+			HERE()
+			CompareTypes(&rhs, ref_type);
 			ASSERT(false);
 		}
 	}
@@ -10075,6 +10101,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_ON:
 	{
+		//BREAK(n->t->line == 327)
 		ret_type = DescendNode(lang_stat, n->on->main, scp);
 
 		FOR_VEC(cur_cond, n->on->exprs)
@@ -10441,6 +10468,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 				}
 				ret_type.ptr = lhs_type.ptr;
 				ret_type.from_enum = lhs_type.strct->this_decl;
+				ret_type.e_decl = lhs_type.strct->this_decl;
 				return ret_type;
 			}
 
@@ -11065,9 +11093,9 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 							// return types mismatch
 							else
 							{
-								HERE()
-								ret_type = DescendNode(lang_stat, n->r, scp);
-								CompareTypes(&fdecl->ret_type, &ret_type, false);
+								//HERE()
+								//ret_type = DescendNode(lang_stat, n->r, scp);
+								//CompareTypes(&fdecl->ret_type, &ret_type, false);
 								REPORT_ERROR(n->t->line, n->t->line_offset, VAR_ARGS("return value mismatches with function return type.Expected %s, received %s\n\n%s\n...\n",
 									TypeToString(fdecl->ret_type).c_str(), TypeToString(ret_type).c_str(), GetFileLn(lang_stat, fdecl->func_node->t->line - 1)))
 							}

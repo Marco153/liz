@@ -1,5 +1,6 @@
 import "../../core";
 import "../common";
+import "../lang";
 
 
 DisableEnt::fn(ent : *entity)
@@ -109,21 +110,25 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 NewEnt::fn(ctx : *context, name : str_lit) ! *entity
 {
 	ent :*entity
-	for i in 0..globals.entities.max
+	i :u64=0
+	while i < globals.entities.max
 	{
 		ent = ptr_offset(globals.entities.start, i, entity);
 		if is_flag_off(ent.flags, ENTITY_IN_USE)
 		{
 			break
 		}
+		ent = nil
+		i++
 	}
 	ASSERT(ent)
 	memset(ent, 0, sizeof(entity));
+	ent.material_idx = -1
 	dyn_add(&ent.remove_from, ent_part_of.INSTANTIATED)
 	dyn_add(&ctx.ents, ent)
 	ent.flags = ENTITY_IN_USE
 	ent.color = _vec{1.0, 1.0, 1.0, 1.0};
-	ent.name = new_str_lit(ctx.alloc, name);
+	ent.name = new_str_lit(ctx.alloc, "{name}_idx{i}");
 	ent.size.x = 1.0;
 	ent.size.y = 1.0;
 	ent.size.z = 1.0;
@@ -140,6 +145,7 @@ NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
 {
 	*out_ent = NewEnt(ctx, "playable_ent");
 	mov_info: = cast(*player_info)heap_alloc(ctx.alloc, sizeof(player_info));
+	memset(mov_info, 0, sizeof(*mov_info))
 	out_ent.mov_info = mov_info;
 
 	//memset(*out_ent, 0, sizeof(entity));
@@ -171,6 +177,8 @@ NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
 	out_ent.color.w = 1.0;
 
 	mov_info: = cast(*player_info)heap_alloc(ctx.alloc, sizeof(player_info));
+	__dbg_break
+	
 	mov_info.trigger = trigger;
 	mov_info.trig_info.{
 		time = 0.2;
@@ -199,7 +207,6 @@ draw_terrain::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec, e : *entity)
 		draw.rot = e.rot
 		draw.cam_pos = cam_pos
 		draw.cam_rot = cam_rot
-		draw.perspective_mat = ctx.perspective_mat
 		draw.cam_forward = ctx.cam_forward_global
 		draw.ent_size.x = 1.0
 		draw.ent_size.y = 1.0
@@ -224,7 +231,6 @@ LookAtPlayerEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 		draw.rot = ent.rot
 		draw.cam_pos = cam_pos
 		draw.cam_rot = cam_rot
-		draw.perspective_mat = ctx.perspective_mat
 		draw.cam_forward = ctx.cam_forward_global
 		draw.ent_size = ent.size
 		memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
@@ -284,16 +290,19 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			__dbg_break
 		}
 		*/
+		//printf("will draw ent {ent.name}\n")
 		draw : draw_info3d
 		if is_flag_off(ent.flags, ENTITY_ONLY_COL)
 		{
+			//printf("name {ent.name}\n")
 			draw.model = ent.model
 			draw.pos = ent.pos
 			draw.rot = ent.rot
 			draw.cam_pos = cam_pos
 			draw.cam_rot = cam_rot
-			draw.perspective_mat = ctx.perspective_mat
 			draw.cam_forward = ctx.cam_forward_global
+			draw.sun_dir = ctx.sun_dir
+			draw.sun_color = ctx.sun_color
 			draw.ent_size = ent.size
 			memcpy(cast(*void)&draw.color, &ent.color, 4 * sizeof(f32));
 			memcpy(cast(*void)&draw.sec_color, &ent.sec_color, 4 * sizeof(f32));
@@ -315,6 +324,70 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 				draw.flags = draw.flags | DRAW_INFO_HAS_TEXTURE;
 				draw.texture_id = ent.tex_id
 			}
+			draw.name = ent.name
+			if(is_flag_on(ent.flags, ENTITY_CUSTOM_SHADER))
+			{
+				
+				draw.flags = draw.flags | DRAW_INFO_CUSTOM_SHADER
+				draw.flags = draw.flags & ~DRAW_INFO_HAS_TEXTURE
+				
+				m := ctx.materials[cast(u64)ent.material_idx]
+				inst := m.instances[cast(u64)ent.in_material_instance]
+
+				//printf("custom shader. shader id {m.shader_id}\n")
+
+				if m.cull_type != 0
+				{
+					SetCulling(m.cull_type)
+				}
+
+				draw.shader_id = m.shader_id
+				SetShader(draw.shader_id)
+
+				//a :lang_type_type
+				i := 0
+				for u in inst.uniforms
+				{
+					//a.type = cast(lang_type_type)u.type
+
+					on cast(lang_type_type)u.type
+					{
+					lang_type_type.SAMPLER2D
+					{
+						SetSampler2D(u.uniform_id, cast(u32)u.tex.id)
+					}
+					lang_type_type.V2
+					{
+						v := u.v
+						SetUniform2f(u.uniform_id, v.x, v.y)
+
+					}
+					lang_type_type.V3
+					{
+						v := u.v
+						SetUniform3f(u.uniform_id, v.x, v.y, v.z)
+
+					}
+					lang_type_type.V4
+					{
+						v := u.v
+						SetUniform4f(u.uniform_id, v.x, v.y, v.z, v.w)
+					}
+					lang_type_type.MAT4
+					{
+
+					}
+					default
+					{
+						aux :lang_type
+						aux.type = cast(lang_type_type)u.type
+						__dbg_break
+					}
+					}
+					i++
+				}
+			}
+
 			Draw3D(ctx.window, &draw);
 		}
 

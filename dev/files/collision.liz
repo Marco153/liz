@@ -890,6 +890,7 @@ add_body::fn(ctx : *context, ent : *entity)
 	ent.ents_in_collision.count = 16
 
 	ent.col = cast(*void)heap_alloc(ctx.alloc, sizeof(collider))
+	memset(ent.col, 0, sizeof(collider))
 	c1 := cast(*collider)ent.col
 	c1.type = col_type.CUBE
 	c1.ent = ent
@@ -1000,29 +1001,43 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 	}
 	col_type.CUBE
 	{
-		//memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
-		mat : mat4x4=?
-		q :quaternion=?
-		q.v = e.rot
-
-		//__dbg_break
-		//__dbg_break
-		a := cast(*f32)&mat
-		b := (e.pos + e.col_offset)
-		c := cast(*f32)&q.v
-		d := e.col_size
-		build_model_matrix(a, &b, c, &d)
-
+		final_pos := (e.pos + e.col_offset)
+		final_size := e.col_size
 		start := col.CUBE.verts[0]
 
-		for i in 0..8
+		if col.no_rotation_ent
 		{
-			v := ptr_offset(start, i, _vec)
-			v.w = 1.0
-			*v = mul_mat_vec(&mat, v)
-			v.w = 0.0
-			*_min = minPerComponent(_min, v)
-			*_max = maxPerComponent(_max, v)
+			for i in 0..8
+			{
+				v := ptr_offset(start, i, _vec)
+				*v = *v * final_size
+				*v += final_pos
+				*_min = minPerComponent(_min, v)
+				*_max = maxPerComponent(_max, v)
+			}
+		}
+		else
+		{
+			//memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
+			mat : mat4x4=?
+			q :quaternion=?
+			q.v = e.rot
+
+			//__dbg_break
+			//__dbg_break
+			a := cast(*f32)&mat
+			c := cast(*f32)&q.v
+			build_model_matrix(a, &final_pos, c, &final_size)
+
+			for i in 0..8
+			{
+				v := ptr_offset(start, i, _vec)
+				v.w = 1.0
+				*v = mul_mat_vec(&mat, v)
+				v.w = 0.0
+				*_min = minPerComponent(_min, v)
+				*_max = maxPerComponent(_max, v)
+			}
 		}
 	}
 	default
@@ -1040,11 +1055,14 @@ CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
 	{
 		*_min = col._min
 		*_max = col._max
-		//return;
+		return;
 	}
 
-
-	col.data_ready = true
+	if col.ent.is_static
+	{
+		col.data_ready = true
+		col.pos = col.ent.pos
+	}
 	if col.type == col_type.CUBE
 	{
 		memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
@@ -1389,6 +1407,7 @@ StepCol::fn(ctx : *context, dt : f32)
 		}	
 
 		//__dbg_break
+		//__dbg_break
 		c1 := cast(*collider)e.col
 		e.pos += e.vel * dt
 		c1.pos = e.pos
@@ -1406,12 +1425,6 @@ StepCol::fn(ctx : *context, dt : f32)
 			if e == e2 || e2.is_active == false || is_flag_on(e2.layer, LAYER_SINGLE_COLLISION_TEST) || is_flag_on(e.ignore_collision_with_layers, e2.layer) || is_flag_on(e2.ignore_collision_with_layers, e.layer)
 				continue;
 
-			if str_cmp(e.name, "player") && str_cmp(e2.name, "cube2") && IsMouseHeld(mouse_enum.RIGHT) && IsMouseHeld(mouse_enum.LEFT)
-			{
-				__dbg_break
-				printf("other_name {e2.name}\n")
-			}
-			
 			
 			c2 := cast(*collider)e2.col
 			c2.pos = e2.pos
@@ -1442,7 +1455,8 @@ StepCol::fn(ctx : *context, dt : f32)
 			{
 				
 				CopyVerts(c2, &m_aabb._min, &m_aabb._max)
-				c2.data_ready = false
+
+				//printf("name {e.name}\n")
 				
 				if aabbCheck3D(&m_aabb, &p_aabb) == false
 				{
@@ -1469,7 +1483,7 @@ StepCol::fn(ctx : *context, dt : f32)
 					}
 
 					gjk.aux_col.pos = e.pos
-					gjk.aux_col.pos += e.forward * r + ctx.up * 0.7
+					gjk.aux_col.pos += e.forward * r + ctx.up * 0.8
 					
 					if GJK(gjk, &gjk.aux_col, c2)
 					{
@@ -1526,9 +1540,13 @@ StepCol::fn(ctx : *context, dt : f32)
 }
 PhysicsUpdate::fn(ctx : *context, dt : f32)
 {
+	for e in ctx.bodies
+	{
+		c1 := cast(*collider)e.col
+		c1.no_rotation_ent = is_flag_on(e.flags, ENTITY_NO_ROTATION_ON_COLLISION)
+	}
 	steps := 2
 
-	dyn_clear(&globals.create_events)
 
 	dt = dt / cast(f32)steps
 	for i in 0..steps
@@ -1536,21 +1554,6 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 		StepCol(ctx, dt)
 	}
 
-	for ev in globals.create_events
-	{
-		on ev.type
-		{
-		create_event_etruct.CREATE_EMMITTER
-		{
-			ent := get_inactive_ent(ctx, &ctx.emmitters, INACTIVE_FLAGS_GET_FIRST_WHEN_NONE_FOUND)
-			ent.pos = ev.CREATE_EMMITTER.pos
-			ent.timer_deactivate = ev.CREATE_EMMITTER.timer_deactivate
-			ent.emmitter.p = ev.CREATE_EMMITTER.p
-			init_emmitter(ent)
-			dyn_add(&ctx.to_deactivate, ent)
-		}
-		}
-	}
 }
 
 
@@ -1905,15 +1908,93 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	
 	return true
 }
+RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
+{
+	found := false
+	dir := *end - *start
+	cur_dist := 99999.0
+	for it in ctx.ents
+	{
+		if it.model <= 1 || it.is_active == false || it.type == ent_type.PREVIEW_ENT || is_flag_on(it.layer, LAYER_IGNORE_RAYCAST)
+			continue;
+		
+		
+		out_verts_count:u32
+		out_indices_count:u32
+		
+		//__dbg_break
+		CopyDataFromModel(it.model, ctx.aux_vertices, ctx.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
+
+		mat : mat4x4=?
+		q :quaternion=?
+		q.v =it.rot
+
+		//__dbg_break
+		//__dbg_break
+		a := cast(*f32)&mat
+		b := (it.pos)
+		c := cast(*f32)&q.v
+		d := _vec{1.0, 1.0, 1.0, 1.0}
+		build_model_matrix(a, &b, c, &d)
+
+		start_pos := ctx.aux_vertices
+
+		_min : _vec=?
+		_max : _vec=?
+		for i in 0..out_verts_count
+		{
+			v := ptr_offset(start_pos, i, _vec)
+			v.w = 1.0
+			*v = mul_mat_vec(&mat, v)
+			//v.w = 0.0
+			_min = minPerComponent(&_min, v)
+			_max = maxPerComponent(&_max, v)
+		}
+
+		//__dbg_break
+		t :u64
+		while t < out_indices_count
+		{
+			info :verts_from_tri_info
+			info.t = t
+			get_verts_pos_from_tris(&info, cast(*u32)ctx.aux_indices, cast(*f32)ctx.aux_vertices, 4)
+			rinfo : raycast_info=?
+			rinfo.ray_origin = *start
+			rinfo.ray_dir = dir
+			rinfo.v0 = info.v1_out
+			rinfo.v1 = info.v2_out
+			rinfo.v2 = info.v3_out
+
+			if ray_triangle_intersect(&rinfo)
+			{
+				tri_pos := *start + dir * rinfo.t_out
+				dist_dir := *start - tri_pos
+				d.x = dot_vec(&dist_dir, &dist_dir)
+
+
+				//printf("is axis {e.name}\n")
+
+				if d.x < cur_dist
+				{
+					cur_dist = d.x
+					found = true
+					*collided = *it
+					cinfo.normal = info.cross
+					cinfo.ent = *it
+					cinfo.contact_point = tri_pos
+				}
+
+			}
+			t += 3
+		}
+	}
+	return found
+}
 Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
 {
 	dyn_clear(&ctx.broad_phase_ents);
 
 	len: = len_vec(&(*start - *end));
-	mean:_vec = ? ;
-	mean.x = (start.x + end.x) / 2.0;
-	mean.y = (start.y + end.y) / 2.0;
-	mean.z = (start.z + end.z) / 2.0;
 
 	sz:_vec = ? ;
 	sz.x = len * 2.0;
@@ -1947,7 +2028,7 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 		*/
 		c1.pos = e.pos;
 		dummy :_vec=?;
-		c1.data_ready = false
+
 		CopyVerts(c1, &dummy, &dummy);
 		
 		on c1.type
@@ -1990,6 +2071,7 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 					{
 						cur_dist = d
 						found = true
+						cinfo.ent = e
 						if is_axis && ent_is_axis || is_axis == false
 						{
 							*collided = e

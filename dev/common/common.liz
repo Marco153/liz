@@ -16,13 +16,16 @@ DRAW_INFO_TERRAIN:const s32 = 0x1000
 DRAW_INFO_ALWAYS_ON_FRONT:const s32 = 0x2000
 DRAW_INFO_NO_DEPTH_TEST:const s32 = 0x4000
 DRAW_INFO_NO_LIGHT:const s32 = 0x8000
+DRAW_INFO_CUSTOM_SHADER:const s32 = 0x10000
 
 END_OF_LAYERS :const s32= 0xbebad0;
 SCENE_NAME_NAME_MAX : const s32= 32;
 
 MASKING_DIAMETER :const f32=7.0;
 
-
+CULLING_BACK:const s32= 0x1
+CULLING_FRONT:const s32= 0x2
+CULLING_FRONT_BACK:const s32= 0x4
 
 linear_alloc :struct(T)
 {
@@ -73,6 +76,10 @@ particle_emmitter_base :struct
 }
 create_event_etruct:etruct
 {
+	BRIDGE_ROTATE(
+		ent_id : u32
+		rotation_cur : f32
+	),
 	CREATE_EMMITTER(
 		pos : _vec
 		timer_deactivate : f32
@@ -277,6 +284,12 @@ AssignStr::fn(str : *string, buffer : *u8, bsz : u32)
 	str.data.count = 0
 	dyn_add_data(&str.data, buffer, bsz);
 }
+AssignStr::fn(str : *string, rhs : *rel_string)
+{
+	str.data.count = 0
+	start := cast(*u8)(cast(u64)rhs + rhs.offset)
+	dyn_add_data(&str.data, start, cast(u32)rhs.count);
+}
 AssignStr::fn(str : *string, rhs : *string)
 {
 	str.data.count = 0
@@ -428,9 +441,13 @@ draw_info3d: struct
 
 	color_lerp : f32
 	sec_color : _vec
+
+	sun_dir : _vec
+	sun_color : _vec
 	
 
-	perspective_mat  : *f32
+	shader_id : u32
+	name  : str_lit
 }
 draw_info: struct
 {
@@ -554,6 +571,7 @@ key_enum : enum
 	KEY_E,
 	KEY_W,
 	KEY_I,
+	KEY_P,
 	KEY_ESCAPE,
 	KEY_SPACE,
 	KEY_F1,
@@ -570,10 +588,16 @@ key_enum : enum
 	KEY_F12,
 	KEY_ENTER,
 	KEY_K,
+	KEY_0,
 	KEY_1,
 	KEY_2,
 	KEY_3,
 	KEY_4,
+	KEY_5,
+	KEY_6,
+	KEY_7,
+	KEY_8,
+	KEY_9,
 }
 mesh_info:struct
 {
@@ -651,8 +675,40 @@ vertex_terrrain_modify:struct
 	mesh : *mesh_info
 }
 
+GetShaderUniform::fn(m : *material_info, name : str_lit) ! u64
+{
+	idx:u64
+	found := false
+	for u in m.uniforms
+	{
+		if u.name == name
+		{
+			found =true
+			break;
+		}
+		idx++
+	}
+	ASSERT(found)
+	return idx
 
-CompileShader::fn outsider(vertex_shader : str_lit, vs_len : u64, fragment_shader : str_lit, fs_len : u64) ! u32;
+}
+
+euler_to_quaternion2::fn outsider(x : f32, y : f32, z : f32, out : *_vec);
+quat_mul2::fn outsider(a : *_vec, b : *_vec, out : *_vec);
+
+CompileShader::fn outsider(vertex_shader : *char, vs_len : u64, fragment_shader : *char, fs_len : u64) ! u32;
+GetUniformLocation::fn outsider(shader_id : u32, name_str : *char, name_len : u32) ! u32;
+SetShader::fn outsider(shader_id : u32);
+
+SetUniform4f::fn outsider(uid : u32, x : f32, y : f32, z : f32, w : f32);
+SetUniform3f::fn outsider(uid : u32, x : f32, y : f32, z : f32);
+SetUniform2f::fn outsider(uid : u32, x : f32, y : f32);
+
+SetSampler2D::fn outsider(uid : u32, tex_id : u32);
+ValidateTextureSlot::fn outsider(shader_id : u32, name_str : *char, name_len : u32, slot : u32) ! u32;
+CopyDataFromModel::fn outsider(model : u32, verts_ptr : *_vec, verts_count : u32, indices_ptr : *u32, indices_count: u32, out_verts_count : *u32, out_indices_count : *u32);
+
+SetCulling::fn outsider(flags :u32);
 
 CreateThread::fn outsider(fn(u32, *void), *void)!u32;
 JoinThread::fn outsider(u32)!u32;
@@ -977,6 +1033,26 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 
 
 			}
+			else if cur_arg.type == type_enum.TYPE_F32
+
+			{
+				f := *cast(*f32)&cur_arg.val
+				lhs := cast(s32)f
+				rhs := cast(s32)((f - cast(f32)lhs)* 100.0)
+
+				
+
+				//if cast(s64)cur_arg.val == 32
+					//__dbg_break
+				num_ln: = num_2_str(cast(s64)lhs, aux_num_buffer, 8);
+				*ptr_offset(aux_num_buffer[0], num_ln, u8) = '.
+				num_ln2: = num_2_str(cast(s64)rhs, aux_num_buffer[num_ln + 1], 8);
+
+				memcpy(ptr_offset(buffer, buffer_idx, u8), aux_num_buffer, num_ln + num_ln2 + 1);
+				buffer_idx += num_ln + num_ln2 + 1;
+
+
+			}
 			else if cur_arg.type == type_enum.TYPE_U32 || cur_arg.type == type_enum.TYPE_S32 ||
 					cur_arg.type == type_enum.TYPE_U8 || cur_arg.type == type_enum.TYPE_S8 ||
 					cur_arg.type == type_enum.TYPE_U16 || cur_arg.type == type_enum.TYPE_S16 ||
@@ -1037,8 +1113,10 @@ printf::fn(format : str_lit, ...)
 	globals.temp_alloc.cur = prev_sz 
 }
 
-DECL_SERIALIZABLE:const s32= 0x200
+DECL_FROM_USING :const s32= 0x2
 DECL_PTR_HAS_LEN :const s32= 0x80
+DECL_SERIALIZABLE:const s32= 0x200
+DECL_IS_USING:const s32= 0x400
 
 TP_STRCT_ETRUCT:const s32= 0x10
 TP_STRCT_IS_DYN_ARRAY :const s32= 0x20
@@ -1456,9 +1534,11 @@ VecAssignmentToAst::fn(name : str_lit, rhs : *_vec)!*ast_rep
 	v := VecToAst(rhs)
 	return AssignmentToAst(name, v)
 }
-SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
+SerializeEnt::fn(ent : *entity, idx : u64, materials : *dyn_array(material_info)) ! *ast_rep
 {
+	al := globals.alloc
 	ret := new_ast2()
+
 	ret.type = ast_type.SCOPE
 	
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("flags", cast(s32)ent.flags))
@@ -1466,26 +1546,115 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 	{
 		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("idx", cast(s32)idx))
 	}
+	dyn_add(&ret.SCOPE.stmnts, StrLitAssignmentToAst("name", ent.name))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("pos", &ent.pos))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("size", &ent.size))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("pivot", &ent.pivot))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("col_size", &ent.col_size))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("col_offset", &ent.col_offset))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("rot", &ent.rot))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("color", &ent.color))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("sec_color", &ent.sec_color))
-	dyn_add(&ret.SCOPE.stmnts, StrLitAssignmentToAst("name", ent.name))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)ent.type))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("model", cast(s32)ent.model))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("hp", *cast(*s32)&ent.hp))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("layer", cast(s32)ent.layer))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_active", cast(s32)ent.is_active))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_trigger", cast(s32)ent.is_trigger))
+	//dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("material_idx", cast(s32)ent.material_idx))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_static", cast(s32)ent.is_static))
 	dyn_add(&ret.SCOPE.stmnts, ArrayU32AssignmentToAst("remove_from", cast(*dyn_array(u32))&ent.remove_from))
 	
 	if is_flag_on(ent.flags, ENTITY_HAS_TEXTURE)
 	{
 		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("tex_id", cast(s32)ent.tex_id))
+	}
+	if(is_flag_on(ent.flags, ENTITY_CUSTOM_SHADER))
+	{
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+		dyn_add(&scp.SCOPE.stmnts, S32AssignmentToAst("idx", cast(s32)ent.material_idx))
+
+		m := materials[cast(u64)ent.material_idx]
+		inst := m.instances[cast(u64)ent.in_material_instance]
+		prev_sz := globals.temp_alloc.cur
+		for i in 0..m.uniforms.count
+		{
+			globals.temp_alloc.cur = prev_sz 
+
+			u_with_name := m.uniforms[cast(u64)i]
+			u_with_val := inst.uniforms[cast(u64)i]
+			/*
+			if u_with_name.name == "sky_color"
+			{
+				__dbg_break
+			}
+			*/
+			on u_with_name.tp.type
+			{
+			lang_type_type.MAT4
+			{
+
+			}
+			lang_type_type.SAMPLER2D
+			{
+				dyn_add(&scp.SCOPE.stmnts, S32AssignmentToAst("{u_with_name.name}", cast(s32)u_with_val.tex.idx_on_array))
+			}
+			lang_type_type.V4, lang_type_type.V3, lang_type_type.V2
+			{
+				dyn_add(&scp.SCOPE.stmnts, VecAssignmentToAst("{u_with_name.name}", &u_with_val.v))
+			}
+			default
+			{
+				__dbg_break
+			}
+			}
+		}
+
+		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("material_idx", scp))
+	}
+	on ent.type
+	{
+	ent_type.EVENT
+	{
+		ev := &ent.event
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+
+		type_call := new_ast2()
+		type_call.type = ast_type.CALL
+
+		name_type := new_ast2()
+		name_type.type = ast_type.WORD
+
+		on ev.type
+		{
+		entity_event_type.BRIDGE_ROTATE
+		{
+			AssignStr(&name_type.WORD.str, "BRIDGE_ROTATE")
+			dyn_add(&type_call.CALL.args, S32AssignmentToAst("ent_id", cast(s32)ev.BRIDGE_ROTATE.ent_id))
+		}
+		default
+		{
+			__dbg_break
+		}
+		}
+		type_call.CALL.name = name_type
+
+		dyn_add(&scp.SCOPE.stmnts, AssignmentToAst("type", type_call))
+		dyn_add(&scp.SCOPE.stmnts, S32AssignmentToAst("one_time", cast(s32)ev.one_time))
+
+		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("event", scp))
+	}
+	ent_type.ENEMY
+	{
+		mov := ent.en_info
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+		dyn_add(&scp.SCOPE.stmnts, VecAssignmentToAst("origin_pos", &mov.origin_pos))
+
+		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("en_info", scp))
+	}
 	}
 	if ent.col
 	{
@@ -1628,9 +1797,46 @@ Serialize::fn(buffer : *dyn_array(char), type : *type_data, data : *void, tab : 
 	}
 	a := 0
 }
-shader_info :struct
+uniform_val:struct
 {
+	uniform_id : u32
+	type : u32
+	using u :: union
+	{
+		v : _vec
+		tex : texture_info
+	}
+}
+material_instance:struct
+{
+	uniforms : dyn_array(uniform_val)
+	ent : *entity
 
+}
+material_info :struct
+{
+	name : str_lit
+	shader_id : u32
+	uniforms : dyn_array(decl)
+	cull_type : u8
+	instances : dyn_array(material_instance)
+	
+}
+set_uniform_v4::fn(mat: *material_info, ent : *entity, u_name : str_lit, v : *_vec)
+{
+	inst :*material_instance= mat.instances[cast(u64)ent.in_material_instance]
+	idx :u64
+	for u in mat.uniforms
+	{
+		if u.name == u_name
+		{
+			break;
+		}
+		idx++
+	}
+
+	u_target := inst.uniforms[idx]
+	u_target.v = *v
 }
 TERRAIN_VERTEX_SIZE:const s32= 6
 
@@ -1639,6 +1845,7 @@ cos::fn outsider(f32) !f32;
 tanf::fn outsider(f32) !f32;
 asin::fn outsider(f32) !f32;
 acos::fn outsider(f32) !f32;
+atan2::fn outsider(f32, f32) !f32;
 
 ImGuiBegin::fn outsider(str_lit, open : *bool, flags : u32);
 ImGuiEnd::fn outsider();
@@ -1664,12 +1871,17 @@ ImGuiAddRect::fn outsider(this : *u8, min_x : f32, min_y : f32, max_x : f32, max
 ImGuiEnumCombo::fn outsider(enum_name : str_lit, line : u32, enum_var_addr : *u32) !bool;
 ImGuiInitTextEditor::fn outsider(name : str_lit);
 ImGuiRenderTextEditor::fn outsider();
+ImGuiShowV2::fn outsider(*_vec);
 ImGuiShowV3::fn outsider(*_vec);
 ImGuiShowV4::fn outsider(*_vec);
 ImGuiSetWindowFontScale::fn outsider(size : f32);
 ImGuiInputText::fn outsider(label : str_lit, buf : str_lit, buf_sz : u32);
 ImGuiInputInt::fn outsider(label : str_lit, int : *s32);
+ImGuiInputF32::fn outsider(label : str_lit, f : *f32);
+ImGuiDragInt::fn outsider(label : str_lit, int : *s32);
+ImGuiDragF32::fn outsider(label : str_lit, f : *f32);
 ImGuiCheckbox::fn outsider(label : str_lit, b : *bool) ! bool;
+ImGuiSeparator::fn outsider();
 
 HideCursor::fn outsider(bool);
 IsMouseOnGameWindow::fn outsider()!bool;
@@ -1739,10 +1951,14 @@ texture_info: struct
 {
 	name : str_lit,
 	data : *u8,
+	x_offset : u32
+	y_offset : u32
 	width : u32,
 	height : u32,
 	channels : u8,
 	id : u64,
+
+	idx_on_array: u32
 }
 masked_info : struct
 {
@@ -2176,6 +2392,10 @@ builtin_type_to_string::fn(tp : *lang_type)!str_lit
 {
 	on tp.type
 	{
+	lang_type_type.SAMPLER2D
+	{
+		return "sampler2D"
+	}
 	lang_type_type.V2
 	{
 		return "vec2"
@@ -2187,6 +2407,10 @@ builtin_type_to_string::fn(tp : *lang_type)!str_lit
 	lang_type_type.V4
 	{
 		return "vec4"
+	}
+	lang_type_type.F32
+	{
+		return "float"
 	}
 	lang_type_type.MAT4
 	{

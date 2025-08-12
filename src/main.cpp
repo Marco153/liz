@@ -1,6 +1,10 @@
 //#define USE_TEXT_EDITOR 
+#define RAD_TO_DEG 57.29577 
+#define DEG_TO_RAD  (3.14159265f / 180.0f)
 #define LINUX
 
+#include <AL/al.h>
+#include <AL/alc.h>
 #ifdef LINUX
 #include <pthread.h>
 #include <sys/mman.h>
@@ -70,6 +74,7 @@ enum key_enum
 	_KEY_E,
 	_KEY_W,
 	_KEY_I,
+	_KEY_P,
 	_KEY_ESCAPE,
 	_KEY_SPACE,
 	_KEY_F1,
@@ -86,15 +91,23 @@ enum key_enum
 	_KEY_F12,
 	_KEY_ENTER,
 	_KEY_K,
+	_KEY_0,
 	_KEY_1,
 	_KEY_2,
 	_KEY_3,
 	_KEY_4,
+	_KEY_5,
+	_KEY_6,
+	_KEY_7,
+	_KEY_8,
+	_KEY_9,
 };
 
 //#include <editor/TextEditor.cpp>
-#include <glad/glad.h> 
-#include <glad/glad.c> 
+#define GLEW_STATIC
+#include <GL/glew.h> 
+//#include <glad/glad.h> 
+//#include <glad/glad.c> 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "../include/GLFW/glfw3.h"
@@ -500,7 +513,6 @@ Mat4 mat4_lookAt(Vec3 eye, Vec3 center, Vec3 up) {
     return result;
 }
 void update_camera_direction(float yaw, float pitch, float roll, Vec3* front,  Vec3* up) {
-	auto DEG_TO_RAD = (3.14159265f / 180.0f);
 	// Calculate front vector from yaw and pitch (standard FPS camera)
     front->x = cosf(yaw * DEG_TO_RAD) * cosf(pitch * DEG_TO_RAD);
     front->y = sinf(pitch * DEG_TO_RAD);
@@ -552,7 +564,10 @@ struct model_info
 	int indicies;
 	int verts_size;
 
+	int vertex_stride;
+
 	float *vertices;
+	int *indices_data;
 	int model_verts_count;
 };
 struct texture_info
@@ -564,6 +579,8 @@ struct texture_raw
 {
 	char* name;
 	unsigned char* data;
+	int x_offset;
+	int y_offset;
 	int width;
 	int height;
 	char channels;
@@ -650,7 +667,18 @@ struct draw_info3d
 	float sec_color_b;
 	float sec_color_a;
 
-	unsigned long long perspective_mat;
+	float sun_dir_x;
+	float sun_dir_y;
+	float sun_dir_z;
+	float sun_dir_w;
+
+	float sun_color_x;
+	float sun_color_y;
+	float sun_color_z;
+	float sun_color_w;
+	int shader_id;
+
+	unsigned long long name_offset;
 };
 struct open_gl_state
 {
@@ -683,6 +711,9 @@ struct open_gl_state
 	float mouse_vel_x;
 	float mouse_vel_y;
 	int generated_meshes;
+
+	ALCdevice *al_device;
+	ALCcontext *al_ctx;
 
 	int buttons[TOTAL_KEYS];
 	float time_pressed[TOTAL_KEYS];
@@ -1101,6 +1132,12 @@ void Print(dbg_state* dbg)
 #define DRAW_INFO_ALWAYS_ON_FRONT 0x2000
 #define DRAW_INFO_NO_DEPTH_TEST 0x4000
 #define DRAW_INFO_NO_LIGHT 0x8000
+#define DRAW_INFO_CUSTOM_SHADER 0x10000
+
+
+#define CULLING_BACK 0x1
+#define CULLING_FRONT 0x2
+#define CULLING_FRONT_BACK 0x3
 enum class stencil_func
 {
 	EQUAL,
@@ -1163,6 +1200,56 @@ int GetTextureSlotId(open_gl_state* gl_state)
 	}
 	ASSERT(0);
 	return -1;
+}
+v4 euler_to_quaternion(float roll, float pitch, float yaw) {
+	roll = roll * DEG_TO_RAD;
+	pitch = pitch * DEG_TO_RAD;
+	yaw = yaw * DEG_TO_RAD;
+    float cr = cosf(roll * 0.5f);
+    float sr = sinf(roll * 0.5f);
+    float cp = cosf(pitch * 0.5f);
+    float sp = sinf(pitch * 0.5f);
+    float cy = cosf(yaw * 0.5f);
+    float sy = sinf(yaw * 0.5f);
+
+    v4 q;
+    q.x = sr * cp * cy - cr * sp * sy;
+    q.y = cr * sp * cy + sr * cp * sy;
+    q.z = cr * cp * sy - sr * sp * cy;
+    q.w = cr * cp * cy + sr * sp * sy;
+    return q;
+}
+v4 quat_mul(v4 q1, v4 q2) {
+    v4 result;
+    result.x = q1.w*q2.x + q1.x*q2.w + q1.y*q2.z - q1.z*q2.y;
+    result.y = q1.w*q2.y - q1.x*q2.z + q1.y*q2.w + q1.z*q2.x;
+    result.z = q1.w*q2.z + q1.x*q2.y - q1.y*q2.x + q1.z*q2.w;
+    result.w = q1.w*q2.w - q1.x*q2.x - q1.y*q2.y - q1.z*q2.z;
+    return result;
+}
+void quat_mul2(int thread_id, dbg_state* dbg){
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int a_ = *(int*)&dbg->mem_buffer[base_ptr + 8 ];
+	int b_ = *(int*)&dbg->mem_buffer[base_ptr + 16 ];
+	int c_ = *(int*)&dbg->mem_buffer[base_ptr + 24 ];
+
+	auto a_ptr = (v4 *)&dbg->mem_buffer[a_];
+	auto b_ptr = (v4 *)&dbg->mem_buffer[b_];
+	auto c_ptr = (v4 *)&dbg->mem_buffer[c_];
+
+	*c_ptr = quat_mul(*a_ptr, *b_ptr);
+}
+void euler_to_quaternion2(int thread_id, dbg_state* dbg){
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	float x = *(float*)&dbg->mem_buffer[base_ptr + 8 ];
+	float y = *(float*)&dbg->mem_buffer[base_ptr + 16 ];
+	float z = *(float*)&dbg->mem_buffer[base_ptr + 24 ];
+
+	int out_offset = *(int*)&dbg->mem_buffer[base_ptr + 32 ];
+
+	auto out = (v4 *)&dbg->mem_buffer[out_offset];
+	//HERE()
+	*out = euler_to_quaternion(x, y, z);
 }
 void Draw3DBase(int, dbg_state* dbg, draw_info3d *draw);
 void Draw3DTransparency(int thread_id, dbg_state* dbg)
@@ -1355,7 +1442,8 @@ void ScreenMouseToWorld(int thread_id, dbg_state* dbg)
 	*(((float *)ret) + 3) = 0.0f;
 }
 #define RAD_TO_DEG 57.29577
-#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("\ngl error %d\n", glGetError()); fflush(stdout); ExitProcess(1);}
+
+#define GL_CALL(call) call; if(glGetError() != GL_NO_ERROR) {printf("\ngl error %d, line %d\n", glGetError(), __LINE__); fflush(stdout); ExitProcess(1);}
 void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -1394,8 +1482,44 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 		cam_rot_z = *(float*)&dbg->mem_buffer[draw->cam_rot_addr + 8];
 	}
 	int shaderProgram = gl_state->shader_program3d;
+	char *name;
+	if(draw->name_offset)
+	{
+		name = (char*)&dbg->mem_buffer[draw->name_offset];
+	}
 	if (IS_FLAG_ON(draw->flags, DRAW_INFO_HAS_TEXTURE))
 	{
+		shaderProgram = gl_state->shader_program3d_tex;
+		glUseProgram(shaderProgram);
+		int error = glGetError();
+		/*
+		if(error != GL_NO_ERROR)
+		{
+			char buffer[64];
+			GLint linked = 0;
+			glGetProgramiv(shaderProgram, GL_LINK_STATUS, &linked);
+			if (!linked) {
+				char log[512];
+				glGetProgramInfoLog(shaderProgram, 512, NULL, (GLchar *) log);
+				printf("Link error: %s\n", buffer);
+			}
+			int count;
+			glGetProgramiv(shaderProgram, GL_ACTIVE_UNIFORMS, &count);
+			printf("Active Uniforms: %d\n", count);
+
+			int len;
+			int size;
+			int type;
+			for (int i = 0; i < count; i++)
+			{
+				glGetActiveUniform(shaderProgram, (GLuint)i, 64, &len, &size, (GLenum *)&type, buffer);
+
+				printf("Uniform #%d Type: %u Name: %s\n", i, type, buffer);
+			}
+			printf("\ngl error %d, line %d\n", error, __LINE__); fflush(stdout); ExitProcess(1);
+		}
+			*/
+
 		shaderProgram = gl_state->shader_program3d_tex;
 		glUseProgram(shaderProgram);
 		gl_state->tex_size = glGetUniformLocation(shaderProgram, "tex_size");
@@ -1410,9 +1534,15 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 		ASSERT(draw->texture_id < TOTAL_TEXTURES);
 		//draw->flags &= ~DRAW_INFO_HAS_TEXTURE;
 		texture_info* t = &gl_state->textures[draw->texture_id];
+
 		int sec_color = glGetUniformLocation(shaderProgram, "sec_color");
 		int sec_color_lerp = glGetUniformLocation(shaderProgram, "color_lerp");
-		GL_CALL(glUniform4f(sec_color, draw->sec_color_r, draw->sec_color_g, draw->sec_color_b, draw->sec_color_a));
+		glUniform4f(sec_color, draw->sec_color_r, draw->sec_color_g, draw->sec_color_b, draw->sec_color_a);
+		error = glGetError();
+		if(error != GL_NO_ERROR)
+		{
+			printf("\ngl error %d, line %d\n", error, __LINE__); fflush(stdout); ExitProcess(1);
+		}
 		GL_CALL(glUniform1f(sec_color_lerp, draw->lerp_color));
 
 		glBindTexture(GL_TEXTURE_2D, t->id);
@@ -1519,14 +1649,54 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 		glBindVertexArray(m->vao);
 		indicies_to_draw = m->indicies;
 	}
+	if (IS_FLAG_ON(draw->flags, DRAW_INFO_CUSTOM_SHADER))
+	{
+		shaderProgram = draw->shader_id;
+	}
+	else
+	{
+		glUseProgram(shaderProgram);
+		GL_CALL(GLint col = glGetUniformLocation(shaderProgram, "col"))
+		glUniform4f(col, draw->color_r, draw->color_g, draw->color_b, draw->color_a);
+	}
+
+	int error = glGetError();
+	if(error != GL_NO_ERROR)
+	{
+		char buffer[64];
+		GLint linked = 0;
+		glGetProgramiv(shaderProgram, GL_LINK_STATUS, &linked);
+		if (!linked) {
+			char log[512];
+			glGetProgramInfoLog(shaderProgram, 512, NULL, (GLchar *) log);
+			printf("Link error: %s\n", buffer);
+		}
+		int count;
+		glGetProgramiv(shaderProgram, GL_ACTIVE_UNIFORMS, &count);
+		printf("Active Uniforms: %d\n", count);
+		count = clamp(count, 0, 10);
+
+		int len;
+		int size;
+		int type;
+		for (int i = 0; i < count; i++)
+		{
+			glGetActiveUniform(shaderProgram, (GLuint)i, 64, &len, &size, (GLenum *)&type, buffer);
+
+			printf("Uniform #%d Type: %u Name: %s\n", i, type, buffer);
+		}
+		printf("\nshader idx %d, gl error %d, line %d\n", shaderProgram, error, __LINE__); fflush(stdout); ExitProcess(1);
+	}
 	// Uniform locations
     glUseProgram(shaderProgram);
-    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
-    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
-    GLint projLoc = glGetUniformLocation(shaderProgram, "projection");
-    GLint time_3d = glGetUniformLocation(shaderProgram, "time");
-    GLint rot_u = glGetUniformLocation(shaderProgram, "rot");
-    GLint col = glGetUniformLocation(shaderProgram, "col");
+    GL_CALL(GLint modelLoc = glGetUniformLocation(shaderProgram, "model"))
+    GL_CALL(GLint camPos = glGetUniformLocation(shaderProgram, "cam_pos"))
+    GL_CALL(GLint viewLoc = glGetUniformLocation(shaderProgram, "view"))
+    GL_CALL(GLint projLoc = glGetUniformLocation(shaderProgram, "projection"))
+    GL_CALL(GLint rot_u = glGetUniformLocation(shaderProgram, "rot"))
+    GL_CALL(GLint sun_dir = glGetUniformLocation(shaderProgram, "sun_dir"))
+    GL_CALL(GLint sun_color = glGetUniformLocation(shaderProgram, "sun_color"))
+    GLint time = glGetUniformLocation(shaderProgram, "TIME");
 
 
 	build_model_matrix(gl_state->model, 
@@ -1534,9 +1704,9 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 						(const float*)&draw->ent_rot_x,
 						(const Vec3*)&draw->ent_size_x);
 
-    gl_state->model[12] += -cam_pos_x;
-    gl_state->model[13] += -cam_pos_y;
-    gl_state->model[14] += -cam_pos_z;
+    //gl_state->model[12] += -cam_pos_x;
+    //gl_state->model[13] += -cam_pos_y;
+    //gl_state->model[14] += -cam_pos_z;
     gl_state->model[15] = 1.0f;
 
 	Vec3 cameraPos = {cam_pos_x, cam_pos_y, cam_pos_z};
@@ -1560,15 +1730,15 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
     gl_state->view[14] = 0.0;
 
 
-	float time [16 ];
-	time[0] = glfwGetTime();;
 	//printf("time %.3f\n", gl_state->last_time);
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, gl_state->model);
 	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gl_state->view);
 	glUniformMatrix4fv(projLoc, 1, GL_FALSE, gl_state->projection);
+	glUniform4f(camPos, -cam_pos_x, -cam_pos_y, -cam_pos_z, 1.0);
 	//glUniform4f(rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z, draw->ent_rot_w);
-	glUniform4f(rot_u, cam_rot_x, cam_rot_y, cam_rot_z, draw->ent_rot_w);
-	glUniform4f(col, draw->color_r, draw->color_g, draw->color_b, draw->color_a);
+	glUniform3f(sun_dir, draw->sun_dir_x, draw->sun_dir_y, draw->sun_dir_z);
+	glUniform4f(sun_color, draw->sun_color_x, draw->sun_color_y, draw->sun_color_z, draw->sun_color_w);
+	glUniform1f(time, glfwGetTime());
 
 
 	if(IS_FLAG_ON(draw->flags, DRAW_INFO_LINE))
@@ -1584,6 +1754,7 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 		//glBindVertexArray(gl_state->vao3d);
 		glDrawElements(GL_TRIANGLES, indicies_to_draw, GL_UNSIGNED_INT, 0);
 	}
+	glCullFace(GL_FRONT);
 
 }
 void Draw3D(int thread_id, dbg_state* dbg)
@@ -1653,6 +1824,7 @@ void Draw(int thread_id, dbg_state* dbg)
 		prog = gl_state->shader_program_no_texture;
 		//glDisable(GL_TEXTURE_2D);
 	}
+
 
 	glUseProgram(prog);
 	glBindVertexArray(vao);
@@ -1838,6 +2010,10 @@ int FromGameToGLFWKey(int in)
 	int key;
 	switch ((key_enum)in)
 	{
+	case _KEY_P:
+	{
+		key = GLFW_KEY_P;
+	}break;
 	case _KEY_I:
 	{
 		key = GLFW_KEY_I;
@@ -1982,6 +2158,10 @@ int FromGameToGLFWKey(int in)
 	{
 		key = GLFW_KEY_A;
 	}break;
+	case _KEY_0:
+	{
+		key = GLFW_KEY_0;
+	}break;
 	case _KEY_1:
 	{
 		key = GLFW_KEY_1;
@@ -1997,6 +2177,26 @@ int FromGameToGLFWKey(int in)
 	case _KEY_4:
 	{
 		key = GLFW_KEY_4;
+	}break;
+	case _KEY_5:
+	{
+		key = GLFW_KEY_5;
+	}break;
+	case _KEY_6:
+	{
+		key = GLFW_KEY_6;
+	}break;
+	case _KEY_7:
+	{
+		key = GLFW_KEY_7;
+	}break;
+	case _KEY_8:
+	{
+		key = GLFW_KEY_8;
+	}break;
+	case _KEY_9:
+	{
+		key = GLFW_KEY_9;
 	}break;
 	default:
 		ASSERT(0);
@@ -2248,6 +2448,15 @@ void ImGuiShowV4(int thread_id, dbg_state* dbg)
 	char buffer[128];
 	snprintf(buffer, 128, "##%p", v);
 	ImGui::DragFloat4(buffer, (float*)v, 0.5);
+}
+void ImGuiShowV2(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto v = (v3*)&dbg->mem_buffer[v_offset];
+	char buffer[128];
+	snprintf(buffer, 128, "##%p", v);
+	ImGui::DragFloat2(buffer, (float*)v, 0.5);
 }
 void ImGuiShowV3(int thread_id, dbg_state* dbg)
 {
@@ -3619,6 +3828,40 @@ void GoBackOneDir(own_std::string* dir)
 	*dir += '\\';
 }
 
+void ImGuiSeparator(int thread_id, dbg_state* dbg)
+{
+	ImGui::Separator();
+}
+void ImGuiDragInt(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int var_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	char* label = (char *)&dbg->mem_buffer[label_offset];
+	auto var_addr = (int *)&dbg->mem_buffer[var_offset];
+	ImGui::DragInt(label, var_addr);
+}
+void ImGuiDragF32(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int var_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	char* label = (char *)&dbg->mem_buffer[label_offset];
+	float* var_addr = (float *)&dbg->mem_buffer[var_offset];
+	ImGui::DragFloat(label, var_addr, 0.1);
+}
+void ImGuiInputF32(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int label_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int var_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	char* label = (char *)&dbg->mem_buffer[label_offset];
+	float* var_addr = (float *)&dbg->mem_buffer[var_offset];
+	ImGui::InputFloat(label, var_addr);
+}
 void ImGuiInputInt(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -4011,7 +4254,7 @@ int GenTexture2(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* s
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -4038,7 +4281,7 @@ int GenTexture(lang_state* lang_stat, open_gl_state* gl_state, unsigned char* sr
 	glBindTexture(GL_TEXTURE_2D, texture);
 	// set the texture wrapping/filtering options (on the currently bound texture object)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -4670,15 +4913,23 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 
     const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
 
+	model_info*m = &gl_state->models[free_idx];
+
     // Create vertex array (positions only for simplicity)
-    auto vertices = (float *)malloc(mesh->mNumVertices * 3 * sizeof(float));
+
+	m->vertex_stride = 5;
+	int stride = m->vertex_stride;
+    auto vertices = (float *)malloc(mesh->mNumVertices * stride * sizeof(float));
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
 		Vec3 *v = (Vec3 *)&mesh->mVertices[i].x;
 
 		*v = rotate(*v, Vec3(1.0, 0.0, 0.0), -3.1415 * 0.5) * 0.5;
-        vertices[i * 3 + 0] = mesh->mVertices[i].x;
-        vertices[i * 3 + 1] = mesh->mVertices[i].y;
-        vertices[i * 3 + 2] = mesh->mVertices[i].z;
+		*v = rotate(*v, Vec3(0.0, 1.0, 0.0), -3.1415);
+        vertices[i * stride + 0] = mesh->mVertices[i].x;
+        vertices[i * stride + 1] = mesh->mVertices[i].y;
+        vertices[i * stride + 2] = mesh->mVertices[i].z;
+        vertices[i * stride + 3] = mesh->mTextureCoords[0][i].x;
+        vertices[i * stride + 4] = mesh->mTextureCoords[0][i].y;
     }
 
     // Create index array
@@ -4704,18 +4955,17 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
     glBindVertexArray(VAO);
     
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * 3 * sizeof(float), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * stride * sizeof(float), vertices, GL_STATIC_DRAW);
     
     
-    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0));
+    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride * sizeof(float), (void*)0));
     glEnableVertexAttribArray(0);
-    //GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
-    //glEnableVertexAttribArray(1);
+    GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride * sizeof(float), (void*)(3 * sizeof(float))));
+    glEnableVertexAttribArray(1);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(int), indices, GL_STATIC_DRAW);
 	
-	model_info*m = &gl_state->models[free_idx];
 	m->vbo = VBO;
 	m->vao = VAO;
 	m->ebo = EBO;
@@ -4723,9 +4973,10 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 
 	m->model_verts_count = mesh->mNumVertices;
 	m->vertices = vertices;
+	m->indices_data = (int *)indices;
 
     //free(vertices);
-    free(indices);
+    //free(indices);
     aiReleaseImport(scene);
 
 
@@ -4766,6 +5017,47 @@ void ModelFarthestPoint(int thread_id, dbg_state* dbg)
 	memcpy(ret, p, 16);
 	memcpy(aux, p, 8);
 	*(((float *)ret) + 3) = 0.0f;
+}
+void CopyDataFromModel(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int verts_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int verts_count = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int indices_offset = *(int*)&dbg->mem_buffer[base_ptr + 32];
+	int indices_count = *(int*)&dbg->mem_buffer[base_ptr + 40];
+
+	int out_verts_offset = *(int*)&dbg->mem_buffer[base_ptr + 48];
+	int out_indices_offset = *(int*)&dbg->mem_buffer[base_ptr + 56];
+
+	int *out_verts = (int*)&dbg->mem_buffer[out_verts_offset];
+	int *out_indices = (int*)&dbg->mem_buffer[out_indices_offset];
+
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	model_info *m = &gl_state->models[model];
+
+	ASSERT(verts_count > m->model_verts_count)
+	ASSERT(indices_count > m->indicies)
+
+	int *verts_ptr = (int*)&dbg->mem_buffer[verts_offset];
+	int *indices_ptr = (int*)&dbg->mem_buffer[indices_offset];
+	int stride = m->vertex_stride;
+
+	for(int i = 0; i < m->model_verts_count; i++)
+	{
+		auto m_vert = &m->vertices[i * stride];
+		auto target_vert = (v4*)&verts_ptr[i * 4];
+		memcpy(target_vert, m_vert, 3 * 4);
+		//printf("vx %.3f, vy %.3f, vz %.3f\n", target_vert->x, target_vert->y, target_vert->z);
+		((v4*)target_vert)->w = 0.0;
+	}
+
+	memcpy(indices_ptr, m->indices_data, m->indicies * sizeof(int));
+
+	*out_verts = m->model_verts_count;
+	*out_indices = m->indicies;
 }
 void LoadModel(int thread_id, dbg_state* dbg)
 {
@@ -4832,10 +5124,13 @@ void LoadTexFolder(int thread_id, dbg_state* dbg)
 	{
 		u64 name;
 		u64 data;
+		u32 x_offset;
+		u32 y_offset;
 		u32 width;
 		u32 height;
 		u8 channels;
 		u64 idx;
+		u32 idx_on_array;
 	};
 	int total_pngs = 0;
 	FOR_VEC(name_ptr, file_names)
@@ -4912,6 +5207,7 @@ void LoadTexFolder(int thread_id, dbg_state* dbg)
 		cur_tex->height = tex_height;
 		cur_tex->channels = tex_channels;
 		cur_tex->idx = tex_idx;
+		cur_tex->idx_on_array = i;
 
 		cur_tex++;
 
@@ -5066,20 +5362,31 @@ void AssignSoundFolder(int thread_id, dbg_state* dbg)
 
 	auto gl_state = (open_gl_state*)dbg->data;
 	
-	///gl_state->texture_folder = name_str;
-	own_std::string work_dir = dbg->cur_func->from_file->path;
-	//MaybeAddBarToEndOfStr(&work_dir);
+
 
 	own_std::string sound_folder;
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path;
+	//MaybeAddBarToEndOfStr(&work_dir);
 	sound_folder = work_dir + name_str;
-	MaybeAddBarToEndOfStr(&(gl_state->texture_folder));
+	MaybeAddBarToEndOfStr(&sound_folder);
 
 	own_std::vector<char*> file_names;
 	GetFilesInDirectory((char *)sound_folder.c_str(), nullptr, &file_names);
 
+	char buffer[256];
+	int sz = sound_folder.size();
+	memcpy(buffer, sound_folder.data(), sz);
+	auto ar = &gl_state->sound->audio_clips_src;
+	ar->reserve(4);
+
 	FOR_VEC(str_ptr, file_names)
 	{
-		gl_state->sound->audio_clips_src.emplace_back(CreateNewAudioClip(*str_ptr));
+		snprintf(&buffer[sz], 256, "%s", *str_ptr);
+		ar->emplace_back(CreateNewAudioClip(buffer));
 	}
 
 	//ImageFolderToFile(gl_state->texture_folder);
@@ -5138,6 +5445,7 @@ void HandleDirFilenameAt(int thread_id, dbg_state *dbg)
 
 
 	memcpy(buffer, name, str_ln);
+	buffer[str_ln] = 0;
 }
 void HandleDirTotalFiles(int thread_id, dbg_state *dbg)
 {
@@ -5340,6 +5648,7 @@ int CompileShader(char* source, int type)
 	{
 		glGetShaderInfoLog(shader, 512, NULL, infoLog);
 		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+		ASSERT(false)
 	}
 	return shader;
 }
@@ -5370,7 +5679,6 @@ void SetIsEngine(int thread_id, dbg_state* dbg)
 	}
 
 
-	/*
 	GLuint fbo, texture, depthBuffer;
 
 	// Create and bind the framebuffer
@@ -5414,9 +5722,8 @@ void SetIsEngine(int thread_id, dbg_state* dbg)
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	// Set the list of draw buffers.
-	GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
-	glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
-	*/
+	//GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+	//glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
 
 }
 // Shader compilation helper
@@ -5428,8 +5735,10 @@ GLuint compileShader(GLenum type, const char* source) {
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (!success) {
         char info[512];
+		printf("shader: %s", source);
         glGetShaderInfoLog(shader, 512, NULL, info);
         std::cerr << "Shader error:\n" << info << std::endl;
+		ASSERT(false)
     }
     return shader;
 }
@@ -5450,6 +5759,141 @@ void perspective(float* mat, float fov, float aspect, float near, float far) {
     mat[14] = -(2 * far * near) / (far - near);
 }
 
+void ValidateTextureSlot(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int shader_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
+	int name_len = *(int *)&dbg->mem_buffer[base_ptr + 24];
+	int slot = *(int *)&dbg->mem_buffer[base_ptr + 32];
+
+	auto name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+
+	char prev_char = name_str[name_len];
+	name_str[name_len] = 0;
+	
+	glUseProgram(shader_id);
+	auto error = glGetError();
+	*ret = glGetUniformLocation(shader_id, name_str);
+	glUniform1i(*ret, slot);
+
+
+	/*
+	int count;
+	glGetProgramiv(shader_id, GL_ACTIVE_UNIFORMS, &count);
+	printf("Active Uniforms: %d\n", count);
+
+	char buffer[64];
+	int len;
+	int size;
+	int type;
+	for (int i = 0; i < count; i++)
+	{
+		glGetActiveUniform(shader_id, (GLuint)i, 64, &len, &size, (GLenum *)&type, buffer);
+
+		printf("Uniform #%d Type: %u Name: %s\n", i, type, buffer);
+	}
+		*/
+
+
+	name_str[name_len] = prev_char;
+}
+void _GetUniformLocation(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int shader_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
+	int name_len = *(int *)&dbg->mem_buffer[base_ptr + 24];
+
+	auto name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+
+	char prev_char = name_str[name_len];
+	name_str[name_len] = 0;
+	
+	glUseProgram(shader_id);
+	auto error = glGetError();
+	*ret = glGetUniformLocation(shader_id, name_str);
+
+
+	if(*ret == -1)
+	{
+		printf("uniform not found %s\n", name_str);
+		int count;
+		glGetProgramiv(shader_id, GL_ACTIVE_UNIFORMS, &count);
+		printf("Active Uniforms: %d\n", count);
+
+		char buffer[64];
+		int len;
+		int size;
+		int type;
+		for (int i = 0; i < count; i++)
+		{
+			glGetActiveUniform(shader_id, (GLuint)i, 64, &len, &size, (GLenum *)&type, buffer);
+
+			printf("Uniform #%d Type: %u Name: %s\n", i, type, buffer);
+		}
+	}
+
+
+	name_str[name_len] = prev_char;
+}
+void SetSampler2D(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int uid = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto tex_id = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	texture_info* t = &gl_state->textures[tex_id];
+
+	//printf("1d %d, 2d %d\n", tex_id, t->id);
+	glActiveTexture(GL_TEXTURE0 + uid);
+	glBindTexture(GL_TEXTURE_2D, t->id);
+	glActiveTexture(GL_TEXTURE0);
+	//glUniform4f(uid, v->x, v->y, v->z, v->w);
+}
+void SetUniform2f(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int uid = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto x = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	auto y = *(float*)&dbg->mem_buffer[base_ptr + 24];
+
+	glUniform2f(uid, x, y);
+}
+void SetUniform3f(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int uid = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto x = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	auto y = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	auto z = *(float*)&dbg->mem_buffer[base_ptr + 32];
+
+	glUniform3f(uid, x, y, z);
+}
+void SetUniform4f(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int uid = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto x = *(float*)&dbg->mem_buffer[base_ptr + 16];
+	auto y = *(float*)&dbg->mem_buffer[base_ptr + 24];
+	auto z = *(float*)&dbg->mem_buffer[base_ptr + 32];
+	auto w = *(float*)&dbg->mem_buffer[base_ptr + 40];
+
+	glUniform4f(uid, x, y, z, w);
+}
+void SetShader(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int shader_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+	glUseProgram(shader_id);
+}
 void CompileShader2(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -5470,13 +5914,13 @@ void CompileShader2(int thread_id, dbg_state* dbg)
 	prev_char = fs_str[fs_len];
 	fs_str[fs_len] = 0;
 	printf("compiling fragment shader:\n%s\n", fs_str);
-    GLuint fs = compileShader(GL_VERTEX_SHADER, fs_str);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fs_str);
 	fs_str[fs_len] = prev_char;
 
     int shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vs);
-    glAttachShader(shaderProgram, fs);
-    glLinkProgram(shaderProgram);
+    GL_CALL(glAttachShader(shaderProgram, vs))
+    GL_CALL(glAttachShader(shaderProgram, fs))
+    GL_CALL(glLinkProgram(shaderProgram))
 
 	auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
 	*ret = shaderProgram;
@@ -5495,9 +5939,9 @@ void Init3D(dbg_state* dbg)
 	out vec2 TexCoord;\n\
 	uniform mat4 model;\n\
 	uniform vec4 rot;\n\
+	uniform vec4 cam_pos;\n\
 	uniform mat4 view;\n\
 	uniform mat4 projection;\n\
-	uniform mat4 time;\n\
 	vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
 		// Extract quaternion components\n\
 		float w = q.w;\n\
@@ -5506,8 +5950,8 @@ void Init3D(dbg_state* dbg)
 		return v + 2.0 * cross(u, cross(u, v) + w * v);\n\
 	}\n\
 	void main() {\n\
-		float t = time[0][0];\n\
 		vec4 aux = model * vec4(aPos, 1.0);\n\
+		aux += cam_pos;\n\
 		fragPos = aux.xyz;\n\
 		gl_Position = projection * view * aux;\n\
 		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
@@ -5526,6 +5970,7 @@ void Init3D(dbg_state* dbg)
 	uniform mat4 view;\n\
 	uniform mat4 projection;\n\
 	uniform mat4 time;\n\
+	uniform vec4 cam_pos;\n\
 	vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
 		// Extract quaternion components\n\
 		float w = q.w;\n\
@@ -5536,6 +5981,7 @@ void Init3D(dbg_state* dbg)
 	void main() {\n\
 		float t = time[0][0];\n\
 		vec4 aux = model * vec4(aPos, 1.0);\n\
+		aux += cam_pos;\n\
 		fragPos = aux.xyz;\n\
 		gl_Position = projection * view * aux;\n\
 		vColor = vec4(vertexCol.xyz, 1.0);\n\
@@ -5575,16 +6021,18 @@ void Init3D(dbg_state* dbg)
 	uniform float color_lerp;\n\
 	uniform vec2 tex_size;\n\
 	uniform vec2 tex_offset;\n\
+	uniform vec3 sun_dir;\n\
+	uniform vec4 sun_color;\n\
 	uniform sampler2D tex;\n\
 	void main() {\n\
 		vec4 tex_col =  texture(tex, TexCoord);\n\
 		vec3 dx = dFdx(fragPos);\n\
 		vec3 dy = dFdy(fragPos);\n\
 		vec3 norm = normalize(cross(dx, dy));\n\
-		vec3 lightDir = normalize(vec3(-1.0, 0.5, 0.0));\n\
-		float d = max(dot(lightDir, norm), 0.2);\n\
+		vec3 lightDir = normalize(vec3(-0.5, 0.5, 0.0));\n\
+		float d = max(dot(sun_dir, norm), 0.2);\n\
 		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
-		FragColor *= col * vColor * tex_col;\n\
+		FragColor *= col * vColor * tex_col * sun_color;\n\
 		FragColor = (1.0 - color_lerp) * FragColor + color_lerp * sec_color;\n\
 	}\
 	";
@@ -5865,7 +6313,7 @@ void Init3D(dbg_state* dbg)
     loadIdentity(gl_state->view);
     loadIdentity(gl_state->projection);
 
-    perspective(gl_state->projection, 70.0f * (3.14159f / 180.0f), (float)gl_state->width / (float)gl_state->height, 0.1f, 500.0f);
+    perspective(gl_state->projection, 70.0f * (3.14159f / 180.0f), (float)gl_state->width / (float)gl_state->height, 0.01f, 500.0f);
     gl_state->view[14] = -5.0f;  // translate view back
     gl_state->view[13] = -1.0f;  // translate view back
     //gl_state->model[13] = -1.0f;  // translate view back
@@ -5949,6 +6397,88 @@ void HideCursor(int thread_id, dbg_state* dbg)
 #endif
 	}
 }
+void SetCulling(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int type = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	switch(type)
+	{
+	case CULLING_FRONT_BACK:
+	{
+		glCullFace(GL_FRONT_AND_BACK);
+	}break;
+	case CULLING_FRONT:
+	{
+		glCullFace(GL_FRONT);
+	}break;
+	case CULLING_BACK:
+	{
+		glCullFace(GL_BACK);
+	}break;
+	}
+}
+void APIENTRY glDebugOutput(GLenum source, GLenum type, GLuint id, 
+                            GLenum severity, GLsizei length,
+                            const GLchar* message, const void* userParam) {
+    // Ignore non-significant errors/warnings
+    if(id == 131169 || id == 131185 || id == 131218 || id == 131204) return;
+    
+    const char* src_str = [&]{
+        switch(source) {
+            case GL_DEBUG_SOURCE_API: return "API";
+            case GL_DEBUG_SOURCE_WINDOW_SYSTEM: return "Window System";
+            case GL_DEBUG_SOURCE_SHADER_COMPILER: return "Shader Compiler";
+            case GL_DEBUG_SOURCE_THIRD_PARTY: return "Third Party";
+            case GL_DEBUG_SOURCE_APPLICATION: return "Application";
+            default: return "Other";
+        }
+    }();
+    
+    const char* type_str = [&]{
+        switch(type) {
+            case GL_DEBUG_TYPE_ERROR: return "Error";
+            case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: return "Deprecated";
+            case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR: return "Undefined Behavior";
+            case GL_DEBUG_TYPE_PORTABILITY: return "Portability";
+            case GL_DEBUG_TYPE_PERFORMANCE: return "Performance";
+            case GL_DEBUG_TYPE_MARKER: return "Marker";
+            default: return "Other";
+        }
+    }();
+    
+    const char* severity_str = [&]{
+        switch(severity) {
+            case GL_DEBUG_SEVERITY_HIGH: return "High";
+            case GL_DEBUG_SEVERITY_MEDIUM: return "Medium";
+            case GL_DEBUG_SEVERITY_LOW: return "Low";
+            case GL_DEBUG_SEVERITY_NOTIFICATION: return "Notification";
+            default: return "";
+        }
+    }();
+    
+    fprintf(stderr, "[OpenGL DEBUG] %s: %s (%d) - %s\n", 
+            type_str, severity_str, id, message);
+    
+    if(severity == GL_DEBUG_SEVERITY_HIGH) {
+        // Breakpoint or abort for critical errors
+        #ifdef _MSC_VER
+        __debugbreak();
+        #else
+        raise(SIGTRAP);
+        #endif
+    }
+}
+void enableGLDebugging() {
+    GLint flags;
+    glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
+    if(flags & GL_CONTEXT_FLAG_DEBUG_BIT) {
+        glEnable(GL_DEBUG_OUTPUT);
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+        glDebugMessageCallback(glDebugOutput, nullptr);
+        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+    }
+}
 void OpenWindow(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -5986,6 +6516,26 @@ void OpenWindow(int thread_id, dbg_state* dbg)
 		return;
 	}
 
+	if (!gl_state->al_ctx)
+	{
+		// 1. Open default device and create context
+		ALCdevice *device = alcOpenDevice(NULL);
+		if (!device) { 
+			puts("Failed to open device"); return;
+			ASSERT(0)
+		}
+
+		ALCcontext *context = alcCreateContext(device, NULL);
+		if (!context || !alcMakeContextCurrent(context)) {
+			puts("Failed to set context");
+			ASSERT(0)
+			return;
+		}
+
+		gl_state->al_ctx = context;
+		gl_state->al_device = device;
+    }
+
 	GLFWwindow* window;
 
 	/* Initialize the library */
@@ -5997,9 +6547,11 @@ void OpenWindow(int thread_id, dbg_state* dbg)
 	gl_state->width = wnd_width;
 	gl_state->height = wnd_height;
 	/* Create a windowed mode window and its OpenGL context */
-	const char* glsl_version = "#version 330";
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+	const char* glsl_version = "#version 430";
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
 	//glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 	/*
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
@@ -6055,7 +6607,13 @@ void OpenWindow(int thread_id, dbg_state* dbg)
 	ImGui_ImplOpenGL3_Init(glsl_version);
 
 
-	int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+	// Single initialization call
+    GLenum err = glewInit();
+    if (err != GLEW_OK) {
+        // Handle error
+    }
+	//int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+	enableGLDebugging();
 
 	float vertices[] = {
 		// positions          // texture coords
@@ -6501,6 +7059,14 @@ void Asin(int thread_id, dbg_state* dbg)
 	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
 
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = asin(val);
+}
+void Atan2(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	float val = *(float*)&dbg->mem_buffer[base_ptr + 8];
+	float val2 = *(float*)&dbg->mem_buffer[base_ptr + 16];
+
+	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = atan2(val, val2);
 }
 void Acos(int thread_id, dbg_state* dbg)
 {
@@ -7099,6 +7665,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "tanf", (OutsiderFuncType)Tan);
 	AssignOutsiderFunc(&lang_stat, "cos", (OutsiderFuncType)Cos);
 	AssignOutsiderFunc(&lang_stat, "acos", (OutsiderFuncType)Acos);
+	AssignOutsiderFunc(&lang_stat, "atan2", (OutsiderFuncType)Atan2);
 	AssignOutsiderFunc(&lang_stat, "asin", (OutsiderFuncType)Asin);
 	AssignOutsiderFunc(&lang_stat, "dot_v3", (OutsiderFuncType)DotV3);
 	AssignOutsiderFunc(&lang_stat, "memcpy", (OutsiderFuncType)MemCpy);
@@ -7132,6 +7699,10 @@ int main(int argc, char* argv[])
 	//AssignOutsiderFunc(&lang_stat, "ImGuiInitTextEditor", (OutsiderFuncType)ImGuiInitTextEditor);
 	AssignOutsiderFunc(&lang_stat, "ImGuiInputText", (OutsiderFuncType)ImGuiInputText);
 	AssignOutsiderFunc(&lang_stat, "ImGuiInputInt", (OutsiderFuncType)ImGuiInputInt);
+	AssignOutsiderFunc(&lang_stat, "ImGuiInputF32", (OutsiderFuncType)ImGuiInputF32);
+	AssignOutsiderFunc(&lang_stat, "ImGuiDragInt", (OutsiderFuncType)ImGuiDragInt);
+	AssignOutsiderFunc(&lang_stat, "ImGuiSeparator", (OutsiderFuncType)ImGuiSeparator);
+	AssignOutsiderFunc(&lang_stat, "ImGuiDragF32", (OutsiderFuncType)ImGuiDragF32);
 	//AssignOutsiderFunc(&lang_stat, "ImGuiRenderTextEditor", (OutsiderFuncType)ImGuiRenderTextEditor);
 	AssignOutsiderFunc(&lang_stat, "ImGuiSetWindowFontScale", (OutsiderFuncType)ImGuiSetWindowFontScale);
 	AssignOutsiderFunc(&lang_stat, "ImGuiCheckbox", (OutsiderFuncType)ImGuiCheckbox);
@@ -7153,6 +7724,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScroll", (OutsiderFuncType)GetMouseScroll);
 	AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
+	AssignOutsiderFunc(&lang_stat, "ImGuiShowV2", (OutsiderFuncType)ImGuiShowV2);
 	AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
 	AssignOutsiderFunc(&lang_stat, "ImGuiShowV4", (OutsiderFuncType)ImGuiShowV4);
 	AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow", (OutsiderFuncType)IsMouseOnGameWindow);
@@ -7161,6 +7733,19 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "HideCursor", (OutsiderFuncType)HideCursor);
 
 	AssignOutsiderFunc(&lang_stat, "CompileShader", (OutsiderFuncType)CompileShader2);
+	AssignOutsiderFunc(&lang_stat, "GetUniformLocation", (OutsiderFuncType)_GetUniformLocation);
+	AssignOutsiderFunc(&lang_stat, "ValidateTextureSlot", (OutsiderFuncType)ValidateTextureSlot);
+	AssignOutsiderFunc(&lang_stat, "SetUniform4f", (OutsiderFuncType)SetUniform4f);
+	AssignOutsiderFunc(&lang_stat, "SetUniform3f", (OutsiderFuncType)SetUniform3f);
+	AssignOutsiderFunc(&lang_stat, "SetUniform2f", (OutsiderFuncType)SetUniform2f);
+	AssignOutsiderFunc(&lang_stat, "SetSampler2D", (OutsiderFuncType)SetSampler2D);
+	AssignOutsiderFunc(&lang_stat, "SetShader", (OutsiderFuncType)SetShader);
+	AssignOutsiderFunc(&lang_stat, "SetCulling", (OutsiderFuncType)SetCulling);
+
+	AssignOutsiderFunc(&lang_stat, "CopyDataFromModel", (OutsiderFuncType)CopyDataFromModel);
+
+	AssignOutsiderFunc(&lang_stat, "euler_to_quaternion2", (OutsiderFuncType)euler_to_quaternion2);
+	AssignOutsiderFunc(&lang_stat, "quat_mul2", (OutsiderFuncType)quat_mul2);
 	lang_stat.cur_decl = 0;
 
 	opts.wasm_dir = wasm_dir;

@@ -4726,7 +4726,7 @@ bool TemplatedStructMatches(lang_state* lang_stat, node* ncall, scope* scp, type
 bool TemplatedFuncMatchWithTypes(lang_state* lang_stat, node* ncall, scope* scp, own_std::vector<type2>* given_args, func_decl* fdecl)
 {
 	type2 dummy_type;
-	if (given_args->size() != given_args->size())
+	if (given_args->size() != fdecl->args.size())
 		return false;
 	int cur_given_arg = 0;
 
@@ -5358,9 +5358,17 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	//if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 //		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
 
-	own_std::vector<comma_ret> args;
-	if (ncall->r)
-		DescendComma(lang_stat, ncall->r, scp, args);
+	bool was_null = false;
+	if(!ncall->exprs)
+	{
+		was_null = true;
+		ncall->exprs = (own_std::vector<comma_ret> *)AllocMiscData(lang_stat, sizeof(own_std::vector<comma_ret>));
+	}
+	if (ncall->r && was_null)
+	{
+		DescendComma(lang_stat, ncall->r, scp, *ncall->exprs);
+	}
+	own_std::vector<comma_ret> &args = *ncall->exprs;
 
 	// struct instantiation
 	switch (lhs->type.type)

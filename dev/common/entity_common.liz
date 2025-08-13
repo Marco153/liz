@@ -254,6 +254,7 @@ entity:struct
 
 
 	axe : *axe_info,
+	in_chunks : dyn_array(*collision_chunk),
 	ents_in_collision : dyn_array(in_col_ent),
 	cl : *clip2,
 	clip_time : f32,

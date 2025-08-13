@@ -147,7 +147,10 @@ globals : global global_struct
 
 scene_file:struct
 {
-	session_id : u32
+	session_id : u32,
+	area_col_pos : _vec,
+	area_col_size : _vec,
+	chunk_width : f32
 }
 
 rel_string : struct

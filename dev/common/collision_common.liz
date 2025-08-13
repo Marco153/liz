@@ -76,3 +76,8 @@ collider : struct
 	data_ready : bool
 	no_rotation_ent : bool
 }
+
+collision_chunk:struct
+{
+	entities : dyn_array(*entity)
+}

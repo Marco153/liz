@@ -49,6 +49,9 @@ context: struct
 
 	sum_ :f32
 
+	area_col_pos : _vec
+	area_col_size : _vec
+
 	frames : *frame_info,
 	frames_max : u32,
 	cam_pos_global : *_vec,
@@ -58,6 +61,10 @@ context: struct
 	window:*u8,
 	can_move :bool,
 	white_color : _vec
+
+	chunk_width : f32
+	col_chunks : dyn_array(collision_chunk)
+	aux_col_chunks : dyn_array(*collision_chunk)
 
 	materials : dyn_array(material_info)
 
@@ -275,6 +282,7 @@ editor_window_enum:enum
 	PARTICLE,
 	GRID,
 	ENEMY,
+	AREA_COL,
 }
 
 perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
@@ -3375,6 +3383,12 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	ReadFile(file_name, file);
 	fl :=cast(*scene_file)file
 
+	ctx.area_col_pos = fl.area_col_pos
+	ctx.area_col_size = fl.area_col_size
+	ctx.chunk_width = fl.chunk_width
+
+	new_collision_chunks(ctx)
+
 	file = cast(str_lit)ptr_offset(file, sizeof(*fl), u8);
 	i :s64
 
@@ -3537,10 +3551,6 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 						}
 						lang_type_type.V2, lang_type_type.V3, lang_type_type.V4
 						{
-							if target_decl_u.name == "sky_color"
-							{
-								__dbg_break
-							}
 							aux_type_data.tp = type_enum.TYPE_VECTOR
 							a := *cur_ast.BIN.expr[1]
 							DeserializeEntVar(ctx, &aux_type_data, &target_u.v, a)
@@ -3658,38 +3668,16 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	out :string
 	fl:scene_file
 	fl.session_id = ctx.session_id
+	fl.area_col_pos = ctx.area_col_pos
+	fl.area_col_size = ctx.area_col_size
+	fl.chunk_width = ctx.chunk_width
 
 	InitMemAlloc(&ctx.per_scene_alloc, 16000)
 	dyn_add_data(&out.data, &fl, sizeof(fl));
 
-	PushStrLit(&out, "=")
 	prev_alloc := globals.alloc
 	globals.alloc = &ctx.per_scene_alloc
-	/*
-	for t in 0..ctx.textures
-	{
-		free_lang_stuff()
-		aux :string
-		tex_scp := new_ast2()
-		tex_scp.type = ast_type.SCOPE
-		if t.name == nil
-			__dbg_break;
 
-		dyn_add(&tex_scp.SCOPE.stmnts, StrLitAssignmentToAst("name", t.name))
-		dyn_add(&tex_scp.SCOPE.stmnts, S32AssignmentToAst("w", cast(s32)t.width))
-		dyn_add(&tex_scp.SCOPE.stmnts, S32AssignmentToAst("h", cast(s32)t.height))
-		dyn_add(&tex_scp.SCOPE.stmnts, S32AssignmentToAst("x_offset", cast(s32)t.x_offset))
-		dyn_add(&tex_scp.SCOPE.stmnts, S32AssignmentToAst("x_offset", cast(s32)t.y_offset))
-
-		ast_to_string(tex_scp, &aux)
-		
-		heap_free(aux.data.alloc, aux.data.data)
-		PushStrLit(&out, "\n ")
-
-		globals.temp_alloc.cur = 0
-
-	}
-	*/
 	for i in 0..globals.entities.max
 	{
 		globals.temp_alloc.cur = 0
@@ -3795,6 +3783,21 @@ set_bridge_pos::fn(ent : *entity)
 	c := cast(*collider)ent.col
 	c.data_ready = false
 }
+new_collision_chunks::fn(ctx : *context)
+{
+	chunk_width := ctx.chunk_width
+
+	x_width := cast(u32)(ctx.area_col_size.x / chunk_width) + 1
+	y_width := cast(u32)(ctx.area_col_size.y / chunk_width) + 1
+	z_width := cast(u32)(ctx.area_col_size.z / chunk_width) + 1
+
+	total_chunks := x_width * y_width * z_width
+
+	printf("{total_chunks} chunks created \n")
+
+	dyn_init2(&ctx.col_chunks, total_chunks, ctx.alloc)
+	ctx.col_chunks.count = ctx.col_chunks.cap
+}
 editor_window::fn(ctx : *context, out_ent : **entity)
 {
 	buffer:[128]char
@@ -3810,6 +3813,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 	cam_dir2 := cam_pos + dir * 5.0
 
 	cam_dir = cam_pos + dir * 2000.0
+
 
 	prev_sel := out_ent
 	aux_sel : *entity
@@ -3974,8 +3978,48 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		ctx.editor_wnd_type = editor_window_enum.GRID
 	}
 
+	ImGuiSameLine()
+	aux_bool =ctx.editor_wnd_type == editor_window_enum.AREA_COL
+	if ImGuiSelectable("area col", aux_bool, 40.0, 15.0)
+	{
+		ctx.editor_wnd_type = editor_window_enum.AREA_COL
+	}
+
 	on ctx.editor_wnd_type
 	{
+	editor_window_enum.AREA_COL
+	{
+		draw:draw_info3d
+
+		draw.model = 0
+		draw.pos = ctx.area_col_pos
+		draw.rot.w = 1.0
+		draw.cam_pos = &cam_pos
+		draw.cam_rot = &cam_rot
+		*draw.color[0] = 1.0
+		*draw.color[3] = 0.3
+		draw.cam_forward = ctx.cam_forward_global
+		draw.ent_size = ctx.area_col_size
+
+
+		draw.flags = DRAW_INFO_TRANSPARENT;
+		Draw3D(ctx.window, &draw);
+
+
+		ImGuiText("pos: ")
+		ImGuiSameLine()
+		ImGuiShowV3(&ctx.area_col_pos)
+		ImGuiText("size: ")
+		ImGuiSameLine()
+		ImGuiShowV3(&ctx.area_col_size)
+
+		ImGuiDragF32("chunk_width", &ctx.chunk_width)
+
+		if ImGuiSelectable("new", false, 20.0, 30.0)
+		{
+			new_collision_chunks(ctx)
+		}
+	}
 	editor_window_enum.GRID
 	{
 
@@ -4193,6 +4237,13 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				c1 := cast(*collider)out_ent.col
 				ImGuiShowV3(&c1.pos)
 			}
+			ImGuiText("pos: ")
+			ImGuiSameLine()
+			ImGuiShowV3(&out_ent.pos)
+			ImGuiText("size: ")
+			ImGuiSameLine()
+			ImGuiShowV3(&out_ent.size)
+
 			ImGuiText("color: ")
 			ImGuiSameLine()
 			ImGuiShowV4(&out_ent.color)
@@ -4247,9 +4298,6 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			ImGuiText("has col: {has_col}");
 			ImGuiCheckbox("active: ", &out_ent.is_active)
 			ImGuiCheckbox("static: ", &out_ent.is_static)
-			ImGuiText("pos: ")
-			ImGuiSameLine()
-			ImGuiShowV3(&out_ent.pos)
 			if ImGuiSelectable("materials", dummy_sel, 40.0, 15.0)
 			{
 				ctx.materials_wnd = true
@@ -5123,6 +5171,83 @@ raycast_get_pos::fn(ctx : *context, col : *collision) !bool
 	}
 	return found
 }
+get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, _min : *_vec, _max : *_vec, out_min : *_vec, out_max : *_vec)
+{
+	start_chunk_pos := ctx.area_col_pos - (ctx.area_col_size * 0.5)
+
+
+	chunk_width := ctx.chunk_width
+
+	x_width := (ctx.area_col_size.x / chunk_width) + 1.0
+	y_width := (ctx.area_col_size.y / chunk_width) + 1.0
+	z_width := (ctx.area_col_size.z / chunk_width) + 1.0
+
+
+	*out_min = (*_min - start_chunk_pos) / ctx.chunk_width
+	out_min.x = clamp(out_min.x, 0.0, x_width)
+	out_min.y = clamp(out_min.y, 0.0, y_width)
+	out_min.z = clamp(out_min.z, 0.0, z_width)
+
+	*out_max = (*_max - start_chunk_pos) / ctx.chunk_width
+	out_max.x = clamp(out_max.x, 0.0, x_width)
+	out_max.y = clamp(out_max.y, 0.0, y_width)
+	out_max.z = clamp(out_max.z, 0.0, z_width)
+
+}
+get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*collision_chunk))
+{
+	c1 := cast(*collider)e.col
+	min_rel_pos : _vec=?
+	max_rel_pos : _vec=?
+	get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
+
+	chunk_width := ctx.chunk_width
+	x_width := (ctx.area_col_size.x / chunk_width) + 1.0
+	y_width := (ctx.area_col_size.y / chunk_width) + 1.0
+	z_width := (ctx.area_col_size.z / chunk_width) + 1.0
+
+	pos_stride := max_rel_pos - min_rel_pos 
+
+	x_start := cast(s32)min_rel_pos.x
+	y_start := cast(s32)min_rel_pos.y
+	z_start := cast(s32)min_rel_pos.z
+
+	x_end := cast(s32)max_rel_pos.x + 1
+	y_end := cast(s32)max_rel_pos.y + 1
+	z_end := cast(s32)max_rel_pos.z + 1
+
+
+	for y in y_start..y_end
+	{
+		for z in z_start..z_end
+		{
+			for x in x_start..x_end
+			{
+				idx :=cast(u64)(x + (z * cast(s32)x_width) + (y * cast(s32)(z_width * x_width)))
+				cur := ctx.col_chunks[idx]
+
+				dyn_add(out, cur)
+			}
+		}
+	}
+}
+assign_bodies_to_chunks::fn(ctx : *context)
+{
+	for e_ in ctx.bodies
+	{
+		e := *e_
+		if !e.is_static continue;
+
+		dyn_clear(&ctx.aux_col_chunks)
+
+		get_chunks_close_to_ent(ctx, e, &ctx.aux_col_chunks)
+
+		for c in ctx.aux_col_chunks
+		{
+			dyn_add(&c.entities, e)
+		}
+	}
+}
 main_loop::fn(ctx : *context)
 {
 	val_tast := 5
@@ -5495,8 +5620,8 @@ main_loop::fn(ctx : *context)
 	
 	sel_action : select_action
 
-	SerializeAllEnt(ctx, "01")
-	DeserializeAllEnt(ctx, "01")
+	//SerializeAllEnt(ctx, "01")
+	DeserializeAllEnt(ctx, "02")
 
 
 
@@ -5530,9 +5655,17 @@ main_loop::fn(ctx : *context)
 	dyn_add(&ctx.drawable_ents, &ctx.grid_ent);
 
 
+	StepCol(ctx, 0.0)
+	assign_bodies_to_chunks(ctx)
+
 	while !ShouldClose(ctx.window)
 	{
 		//print_vec(&cam_pos)
+
+		start_chunk_pos := ctx.area_col_pos - (ctx.area_col_size * 0.5)
+
+		rel_pos := (ctx.player.pos - start_chunk_pos) / ctx.chunk_width
+		print_vec(&rel_pos)
 
 		/*
 		t :u64

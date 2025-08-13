@@ -3484,13 +3484,10 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 
 				if !var_type continue;
 
-/*
-				if str_cmp(ent.name, "block 1_idx67") && *name == "type"
+				if str_cmp(ent.name, "cube2")
 				{
-					__dbg_break
-					printf("idx67 type {cast(u32)ent.type}\n")
+					ctx.test_ent = ent
 				}
-				*/
 				data := ptr_offset(ent, var_type.offset + offset, u8)
 				if *name == "emmitter"
 				{
@@ -5194,19 +5191,16 @@ get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, _min : *_vec,
 	out_max.z = clamp(out_max.z, 0.0, z_width)
 
 }
-get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*collision_chunk))
+get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*collision_chunk), min_rel_pos : *_vec, max_rel_pos : *_vec)
 {
 	c1 := cast(*collider)e.col
-	min_rel_pos : _vec=?
-	max_rel_pos : _vec=?
-	get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
 
 	chunk_width := ctx.chunk_width
 	x_width := (ctx.area_col_size.x / chunk_width) + 1.0
 	y_width := (ctx.area_col_size.y / chunk_width) + 1.0
 	z_width := (ctx.area_col_size.z / chunk_width) + 1.0
 
-	pos_stride := max_rel_pos - min_rel_pos 
+	pos_stride := *max_rel_pos - *min_rel_pos 
 
 	x_start := cast(s32)min_rel_pos.x
 	y_start := cast(s32)min_rel_pos.y
@@ -5236,16 +5230,28 @@ assign_bodies_to_chunks::fn(ctx : *context)
 	for e_ in ctx.bodies
 	{
 		e := *e_
-		if !e.is_static continue;
+		c1 := cast(*collider)e.col
 
-		dyn_clear(&ctx.aux_col_chunks)
-
-		get_chunks_close_to_ent(ctx, e, &ctx.aux_col_chunks)
-
-		for c in ctx.aux_col_chunks
+		if !e.is_static
 		{
-			dyn_add(&c.entities, e)
+			c1.rel_chunk_max.x = -1.0
 		}
+		else
+		{
+			min_rel_pos : _vec=?
+			max_rel_pos : _vec=?
+			CopyVerts(c1, &min_rel_pos, &max_rel_pos)
+			dyn_clear(&ctx.aux_col_chunks)
+			
+			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
+			get_chunks_close_to_ent(ctx, e, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
+
+			for c in ctx.aux_col_chunks
+			{
+				dyn_add(&c.entities, e)
+			}
+		}
+
 	}
 }
 main_loop::fn(ctx : *context)
@@ -5495,8 +5501,8 @@ main_loop::fn(ctx : *context)
 	cube.tex_id = cast(u32)ctx.textures[ctx.grass_tex].id
 	cube.name = "ground"
 
-	test_e := new_enemy(ctx, &cube.pos, "en1")
 /*
+	test_e := new_enemy(ctx, &cube.pos, "en1")
 	test_e = new_enemy(ctx, &cube.pos, "en2")
 	test_e = new_enemy(ctx, &cube.pos, "en3")
 	test_e = new_enemy(ctx, &cube.pos, "en4")
@@ -5555,7 +5561,8 @@ main_loop::fn(ctx : *context)
 	sky := new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{500.5, 500.2, 500.5, 0.0}, false);
 	sky.name = "sky"
 	sky.is_trigger = true
-	sky.flags = sky.flags | ENTITY_CUSTOM_SHADER
+	sky.flags = sky.flags | ENTITY_CUSTOM_SHADER | ENTITY_DONT_FREE
+	sky.flags = sky.flags & ~ENTITY_SERIALIZE
 	sky.material_idx = find_shader(ctx, "sky_shader.mat")
 	sky.in_material_instance = new_material_instance(ctx, cast(u32)sky.material_idx, sky)
 
@@ -5660,28 +5667,6 @@ main_loop::fn(ctx : *context)
 
 	while !ShouldClose(ctx.window)
 	{
-		//print_vec(&cam_pos)
-
-		start_chunk_pos := ctx.area_col_pos - (ctx.area_col_size * 0.5)
-
-		rel_pos := (ctx.player.pos - start_chunk_pos) / ctx.chunk_width
-		print_vec(&rel_pos)
-
-		/*
-		t :u64
-		col_ : _vec
-		col_.x = 1.0
-		while t < out_indices_count
-		{
-			info :verts_from_tri_info
-			info.t = t
-			get_verts_pos_from_tris(&info, cast(*u32)ctx.aux_indices, cast(*f32)ctx.aux_vertices, 4)
-
-			draw_tri(ctx, &info.v3_out, &info.v2_out, &info.v1_out, &col_, 0)
-			t+=3
-		}
-		*/
-
 		//dt: = GetTime() - last_time;
 		dt: = 0.017;
 

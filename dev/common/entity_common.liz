@@ -87,6 +87,7 @@ ENTITY_ONLY_COL: const s32 = 0x400
 ENTITY_NO_LIGHT: const s32 = 0x1000
 ENTITY_CUSTOM_SHADER: const s32 = 0x2000
 ENTITY_NO_ROTATION_ON_COLLISION: const s32 = 0x4000
+ENTITY_ALREADY_DONE_IN_COLISION: const s32 = 0x8000
 
 LAYER_ENTITY_PLAYABLE:const s32 = 1;
 LAYER_PLAYER:const s32 = 2;
@@ -254,7 +255,7 @@ entity:struct
 
 
 	axe : *axe_info,
-	in_chunks : dyn_array(*collision_chunk),
+
 	ents_in_collision : dyn_array(in_col_ent),
 	cl : *clip2,
 	clip_time : f32,

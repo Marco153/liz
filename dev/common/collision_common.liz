@@ -73,8 +73,14 @@ collider : struct
 	pos : _vec
 	_min : _vec
 	_max : _vec
+	rel_chunk_min : _vec
+	rel_chunk_max : _vec
 	data_ready : bool
 	no_rotation_ent : bool
+
+	in_chunks : dyn_array(*collision_chunk),
+
+	ents_of_gotten_chunks : dyn_array(*entity),
 }
 
 collision_chunk:struct

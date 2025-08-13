@@ -139,7 +139,7 @@ dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *void, sz : u32)
 	}
 
 	dst: = cast(*void)(cast(u64)dyn.data + dyn.count * sizeof(T));
-	memcpy(dst, data, sz);
+	memcpy(dst, data, sz * sizeof(T));
 
 	dyn.count += sz;
 }

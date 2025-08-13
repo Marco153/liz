@@ -894,6 +894,9 @@ add_body::fn(ctx : *context, ent : *entity)
 	c1 := cast(*collider)ent.col
 	c1.type = col_type.CUBE
 	c1.ent = ent
+
+	c1.rel_chunk_min.x = -1.0
+	c1.rel_chunk_max.x = -1.0
 }
 
 remove_body::fn(ctx : *context, ent : *entity)
@@ -1379,6 +1382,15 @@ get_closest_terrain_meshes_chunk_cols::fn(ctx : *context, pos : *_vec, trn_ent :
 		//i++
 	}
 }
+cast_s32_and_compare_vecs::fn(a : *_vec, b : *_vec) ! bool
+{
+	if cast(s32)a.x != cast(s32)b.x || cast(s32)a.y != cast(s32)b.y ||
+		cast(s32)a.z != cast(s32)b.z
+	{
+		return false;
+	}
+	return true
+}
 StepCol::fn(ctx : *context, dt : f32)
 {
 	gjk := ctx.gjk
@@ -1407,7 +1419,6 @@ StepCol::fn(ctx : *context, dt : f32)
 		}	
 
 		//__dbg_break
-		//__dbg_break
 		c1 := cast(*collider)e.col
 		e.pos += e.vel * dt
 		c1.pos = e.pos
@@ -1418,13 +1429,56 @@ StepCol::fn(ctx : *context, dt : f32)
 		col : collision=?
 		mtv :_vec=?
 
+		aux_min : _vec=?
+		aux_max : _vec=?
 
-		for _e2 in ctx.bodies
+		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &aux_min, &aux_max)
+
+		if cast_s32_and_compare_vecs(&c1.rel_chunk_min, &aux_min) == false ||
+			cast_s32_and_compare_vecs(&c1.rel_chunk_max, &aux_max) == false
+		{
+			c1.rel_chunk_min = aux_min
+			c1.rel_chunk_max = aux_max
+
+			printf("new test \n")
+			dyn_clear(&ctx.aux_col_chunks)
+			get_chunks_close_to_ent(ctx, e, &ctx.aux_col_chunks, &aux_min, &aux_max)
+
+			// remove the ents from chunks
+			for c in c1.in_chunks
+			{
+				cur_i :u64
+				for cur_e in c.entities
+				{
+					if *cur_e == e
+					{
+						dyn_rem(&c.entities, cast(u32)cur_i)
+						break;
+					}
+					cur_i++
+				}
+			}
+
+			dyn_clear(&c1.in_chunks)
+			dyn_clear(&c1.ents_of_gotten_chunks)
+
+			for c in ctx.aux_col_chunks
+			{
+				dyn_add_data(&c1.ents_of_gotten_chunks, c.entities.data, cast(u32)c.entities.count)
+				dyn_add(&c.entities, e)
+				dyn_add(&c1.in_chunks, *c)
+			}
+		}
+
+
+		for _e2 in c1.ents_of_gotten_chunks
 		{
 			e2 := *_e2
-			if e == e2 || e2.is_active == false || is_flag_on(e2.layer, LAYER_SINGLE_COLLISION_TEST) || is_flag_on(e.ignore_collision_with_layers, e2.layer) || is_flag_on(e2.ignore_collision_with_layers, e.layer)
+			if e == e2 || e2.is_active == false || is_flag_on(e2.layer, LAYER_SINGLE_COLLISION_TEST) || is_flag_on(e.ignore_collision_with_layers, e2.layer) || is_flag_on(e2.ignore_collision_with_layers, e.layer) ||
+				is_flag_on(e2.flags, ENTITY_ALREADY_DONE_IN_COLISION)
 				continue;
 
+			e2.flags = e2.flags | ENTITY_ALREADY_DONE_IN_COLISION
 			
 			c2 := cast(*collider)e2.col
 			c2.pos = e2.pos
@@ -1534,7 +1588,11 @@ StepCol::fn(ctx : *context, dt : f32)
 
 			}
 		}
-
+		for _e2 in c1.ents_of_gotten_chunks
+		{
+			e2 := *_e2
+			e2.flags = e2.flags & ~ENTITY_ALREADY_DONE_IN_COLISION
+		}
 	}
 
 }

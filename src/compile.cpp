@@ -1010,7 +1010,7 @@ struct outsider_info
 	OutsiderFuncType func;
 };
 
-#define TOTAL_OUTSIDERS 128
+#define TOTAL_OUTSIDERS 256
 
 struct wasm_interp;
 
@@ -2860,6 +2860,7 @@ enum class handle_enum
 {
 	FILES_DIR,
 	THREAD,
+	FILE,
 };
 struct thread_creation
 {
@@ -2892,6 +2893,7 @@ struct handle_info
 	{
 		dir_files *dir;
 		thread_creation *th;
+		FILE *file;
 	};
 };
 #define TOTAL_HANDLES 16

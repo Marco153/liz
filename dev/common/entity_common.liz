@@ -21,6 +21,7 @@ ent_type:enum
 	GRID,
 	BRIDGE,
 	EVENT,
+	ITEM,
 	PREVIEW_ENT,
 }
 enemy_enum : enum
@@ -164,6 +165,7 @@ ent_part_of:enum
 	ANIMATION,
 	TO_DEACTIVATE,
 	PLAYABLE,
+	ITEMS,
 	EMMITTER,
 }
 
@@ -266,6 +268,7 @@ entity:struct
 	using u :: union
 	{
 		event : entity_event
+		item_type : inv_item
 		bullet ::struct
 		{
 			dmg_val : f32

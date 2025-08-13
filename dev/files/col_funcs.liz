@@ -96,6 +96,9 @@ enemy_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 		ent_a.on_ground = true
 	}
 }
+item_col_func::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+}
 player_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 	up : _vec
@@ -198,6 +201,12 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 		mov.platform_vel =  final_vel * ground_d
 		printf("enter\n")
 		print_vec(&ent_a.forward)
+	}
+	if ent_b.type == ent_type.ITEM
+	{
+		printf("item is {cast(u32)ent_b.item_type}\n")
+		*ent_a.mov_info.inv.items[cast(u64)ent_b.item_type - 1] = ent_b.item_type
+		DisableEnt(ent_b)
 	}
 }
 

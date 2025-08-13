@@ -62,6 +62,12 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
 			ASSERT(val)
 			a=0 
 		}
+		ent_part_of.ITEMS
+		{
+			val = RemoveEntFromAr(&ctx.items_ents, ent)
+			ASSERT(val)
+			a=0 
+		}
 		ent_part_of.PLAYABLE
 		{
 			val = RemoveEntFromAr(&ctx.playable_ents, ent)

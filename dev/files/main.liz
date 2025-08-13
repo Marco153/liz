@@ -200,6 +200,7 @@ context: struct
 	cols_to_res : dyn_array(collision_res),
 
 	to_draw : dyn_array(draw_info),
+	items_ents : dyn_array(*entity),
 	bodies : dyn_array(*entity),
 	broad_phase_ents : dyn_array(*entity),
 	narrow_phase_ents : dyn_array(contact_col),
@@ -283,6 +284,7 @@ editor_window_enum:enum
 	GRID,
 	ENEMY,
 	AREA_COL,
+	ITEMS,
 }
 
 perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
@@ -3417,6 +3419,11 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	for i2 in 0..globals.entities.max
 	{
 		ent := ptr_offset(globals.entities.start, i2, entity);
+		if str_cmp(ent.name, "item_idx79")
+		{
+			__dbg_break
+		}
+
 		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
 		{
 			DeleteEnt(ctx, ent)
@@ -3598,6 +3605,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 			}
 			//printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
 
+
 			i += ent_str_sz - 1
 			if is_flag_off(ent.flags, ENTITY_DONT_FREE)
 			{
@@ -3619,6 +3627,11 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 					ent_part_of.ANIMATION
 					{
 						dyn_add(&ctx.ents_with_clip, ent)
+					}
+					ent_part_of.ITEMS
+					{
+						dyn_add(&ctx.items_ents, ent)
+						ent.col_enter = item_col_func
 					}
 					ent_part_of.LOOK_AT_PLAYER
 					{
@@ -3688,10 +3701,25 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	prev_alloc := globals.alloc
 	globals.alloc = &ctx.per_scene_alloc
 
+	file_name = "../scenes/{file_name}"
+	out_file := OpenFile(file_name)
+	defer CloseFile(out_file)
+
+	WriteToFile(out_file, out.data.data, out.data.count)
+	cur_file_sz := out.data.count
+
+	out.data.count = 0
+
 	for i in 0..globals.entities.max
 	{
 		globals.temp_alloc.cur = 0
 		ent := ptr_offset(globals.entities.start, i, entity);
+		/*
+		if str_cmp(ent.name, "item_idx79")
+		{
+			__dbg_break
+		}
+		*/
 		printf("i is {i} name {ent.name}\n")
 		if is_flag_off(ent.flags, ENTITY_IN_USE)
 		{
@@ -3721,16 +3749,22 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 			heap_free(aux.data.alloc, aux.data.data)
 			PushStrLit(&out, "\n ")
 
+			SetFilePtr(out_file, cur_file_sz);
+
+			WriteToFile(out_file, out.data.data, out.data.count)
+
+			cur_file_sz += out.data.count
+
+			out.data.count = 0
+
 			globals.temp_alloc.cur = 0
 			//printf("str {out}\n")
 		}
 	}
 	globals.alloc = prev_alloc
 	out.data.count -= 2
-	printf("file name bef %", file_name)
-	file_name = "../scenes/{file_name}"
-	printf("file name aft {file_name}\n")
-	WriteFile(file_name, out.data.data, out.data.count)
+	printf("file name %", file_name)
+	//WriteFile(file_name, out.data.data, out.data.count)
 
 	heap_free(out.data.alloc, out.data.data)
 
@@ -3807,6 +3841,16 @@ new_collision_chunks::fn(ctx : *context)
 
 	dyn_init2(&ctx.col_chunks, total_chunks, ctx.alloc)
 	ctx.col_chunks.count = ctx.col_chunks.cap
+}
+items_func::fn(ctx : *context, dt : f32, selected_ent : *entity)
+{
+	for e_ in ctx.items_ents
+	{
+		e := *e_
+		if e == selected_ent continue;
+
+		e.pos.y = e.pos.w + sin(ctx.time_since_start) * 0.1
+	}
 }
 editor_window::fn(ctx : *context, out_ent : **entity)
 {
@@ -3995,6 +4039,14 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		ctx.editor_wnd_type = editor_window_enum.AREA_COL
 	}
 
+	ImGuiSameLine()
+	aux_bool =ctx.editor_wnd_type == editor_window_enum.ITEMS
+	if ImGuiSelectable("items", aux_bool, 40.0, 15.0)
+	{
+		ctx.editor_wnd_type = editor_window_enum.ITEMS
+	}
+
+
 	on ctx.editor_wnd_type
 	{
 	editor_window_enum.AREA_COL
@@ -4029,6 +4081,35 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		{
 			new_collision_chunks(ctx)
 		}
+	}
+	editor_window_enum.ITEMS
+	{
+		item_type:global inv_item
+		ImGuiEnumCombo("inv_item", __LINE__, cast(*u32)&item_type)
+
+
+		if IsKeyDown(key_enum.KEY_I) && item_type != inv_item.EMPTY
+		{
+			if raycast_get_pos(ctx, &col)
+			{
+				test_e := NewPlaneEnt(ctx, "item", &col.contact_point, &_vec{1.0, 1.0, 0.5})
+				test_e.type  = ent_type.ITEM
+
+				test_e.flags  = test_e.flags | ENTITY_HAS_TEXTURE
+				test_e.tex_id  = *ptr_offset(ctx.items_texs.tex_idxs, cast(u32)item_type - 1, u32)
+				test_e.pos -= col.normal;
+				test_e.pos.w = test_e.pos.y
+
+				test_e.item_type = item_type
+
+				test_e.is_trigger = true
+
+				dyn_add(&test_e.remove_from, ent_part_of.ITEMS)
+
+				dyn_add(&ctx.items_ents, test_e)
+			}
+		}
+
 	}
 	editor_window_enum.GRID
 	{
@@ -4176,7 +4257,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			sprintf(buffer, buffer.len, "{idx}: {e.name}")
 
 			dummy_sel = *out_ent == *e
-			if ImGuiSelectable(cast(str_lit)buffer, dummy_sel, 100.0, 15.0)
+			if ImGuiSelectable(cast(str_lit)buffer, dummy_sel, 150.0, 15.0)
 			{
 				*out_ent = *e
 			}
@@ -4356,7 +4437,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 				ImGuiCheckbox("one time: ", &ev.one_time)
 
-				ImGuiEnumCombo("event_type", __LINE__, cast(*u32)&ev.type)
+				ImGuiEnumCombo("entity_event_type", __LINE__, cast(*u32)&ev.type)
 				on ev.type
 				{
 				entity_event_type.BRIDGE_ROTATE
@@ -4533,16 +4614,16 @@ draw_inv_item::fn(ctx : *context, tex : u32, selected : bool, x : f32, y : f32)
 			
 		draw:draw_info;
 		
-		draw.pos.x = x + 0.02
-		draw.pos.y = y - 0.02
-		draw.ent_size.y = w - 0.02;
+		draw.pos.x = x
+		draw.pos.y = y
 		draw.ent_size.x = w
+		draw.ent_size.y = w
 		draw.cam_size = 1.0;
 		//draw.cam_pos = ctx.cam_pos_global;
 		draw.color = []f32{1.0, 1.0, 1.0, 1.0};
 		draw.texture_id = tex
-		draw.flags = DRAW_INFO_HAS_TEXTURE;
-		draw.pos.z = 0.5
+		draw.flags = DRAW_INFO_HAS_TEXTURE | DRAW_INFO_NO_DEPTH_TEST;
+		draw.pos.z = 0.01
 		Draw(ctx.window, &draw);
 	}
 }
@@ -4563,14 +4644,17 @@ draw_ui_gameplay::fn(ctx : *context, info : *player_info)
 	DrawSquare(ctx, -0.9, 0.9, stamina_w, 0.1, &col)
 	*/
 
+	x := -0.99
+
 	for it in info.inv.items
 	{
 		tex :u32=0
 		if it.item != inv_item.EMPTY
 		{
-			tex = *ptr_offset(ctx.items_texs.tex_idxs, cast(u32)it.item, u32)
+			tex = *ptr_offset(ctx.items_texs.tex_idxs, cast(u32)it.item - 1, u32)
 		}
-		draw_inv_item(ctx, tex, false, -0.99, 0.9)
+		draw_inv_item(ctx, tex, false, x, 0.9)
+		x += 0.103
 	}
 }
 NewPlaneEnt::fn(ctx : *context, name : str_lit, pos : *_vec, size : *_vec) ! *entity
@@ -5197,9 +5281,9 @@ get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, _min : *_vec,
 
 	chunk_width := ctx.chunk_width
 
-	x_width := (ctx.area_col_size.x / chunk_width) + 1.0
-	y_width := (ctx.area_col_size.y / chunk_width) + 1.0
-	z_width := (ctx.area_col_size.z / chunk_width) + 1.0
+	x_width := (ctx.area_col_size.x / chunk_width)
+	y_width := (ctx.area_col_size.y / chunk_width)
+	z_width := (ctx.area_col_size.z / chunk_width)
 
 
 	*out_min = (*_min - start_chunk_pos) / ctx.chunk_width
@@ -5239,10 +5323,17 @@ get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*colli
 		{
 			for x in x_start..x_end
 			{
+				/*
+				if x == 2 && y == 0 && z == 6
+				{
+					__dbg_break
+				}
+				*/
 				idx :=cast(u64)(x + (z * cast(s32)x_width) + (y * cast(s32)(z_width * x_width)))
 				cur := ctx.col_chunks[idx]
 
 				dyn_add(out, cur)
+				a := 0
 			}
 		}
 	}
@@ -5253,6 +5344,7 @@ assign_bodies_to_chunks::fn(ctx : *context)
 	{
 		e := *e_
 		c1 := cast(*collider)e.col
+		if !e.is_active continue;
 
 		if !e.is_static
 		{
@@ -5262,15 +5354,25 @@ assign_bodies_to_chunks::fn(ctx : *context)
 		{
 			min_rel_pos : _vec=?
 			max_rel_pos : _vec=?
+
+
+/*
+			if str_cmp(e.name, "block 1_idx63")
+			{
+				__dbg_break
+			}
+			*/
 			CopyVerts(c1, &min_rel_pos, &max_rel_pos)
 			dyn_clear(&ctx.aux_col_chunks)
 			
+
 			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
 			get_chunks_close_to_ent(ctx, e, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
 
 			for c in ctx.aux_col_chunks
 			{
 				dyn_add(&c.entities, e)
+				a:=0
 			}
 		}
 
@@ -5367,6 +5469,7 @@ main_loop::fn(ctx : *context)
 		//player_ent.mov_info.inv.items[1].item = inv_item.SHOCK
 	}
 
+	player_ent.type = ent_type.PLAYER
 	player_ent.dont_res_cols_with_layers = LAYER_ENEMY
 
 	player_ent.mov_info.speed = 4.5
@@ -5689,10 +5792,10 @@ main_loop::fn(ctx : *context)
 
 	while !ShouldClose(ctx.window)
 	{
-		dt: = GetTime() - last_time;
-		//dt: = 0.017;
+		dt_aux: = GetTime() - last_time;
+		dt: = 0.017;
 
-		//print_f32(dt)
+		//printf("dt {dt_aux}\n")
 
 		ctx.i_clicked = IsKeyDown(key_enum.KEY_I)
 		globals.timer = 0.0;
@@ -5836,9 +5939,16 @@ main_loop::fn(ctx : *context)
 						//printf("static {out_ent.is_static}, col {cast(u64)out_ent.col}, sel_mode {cast(u32)sel_action}, {ctx.frames_total}\n")
 						dy := dot_vec(&fw, &select_up) * -mvy
 						*pos_ptr += fw * (dx + dy) * 8.0
-						if out_ent.type == ent_type.BRIDGE
+						on out_ent.type
+						{
+						ent_type.BRIDGE
 						{
 							out_ent.vel = *pos_ptr
+						}
+						ent_type.ITEM
+						{
+							out_ent.pos.w = pos_ptr.y
+						}
 						}
 					}
 					select_action.SCALE_ONE_AXIS
@@ -5906,7 +6016,6 @@ main_loop::fn(ctx : *context)
 				}
 				if IsKeyDown(key_enum.KEY_DEL) && out_ent != nil
 				{
-
 					DeleteEnt(ctx, out_ent)
 					out_ent = nil
 					x_axis_ent.is_active = true
@@ -6333,6 +6442,7 @@ main_loop::fn(ctx : *context)
 		emmitters_func(ctx, dt)
 		DrawEnts(ctx, ctx.cam_pos_global, ctx.cam_rot_global)
 		LookAtPlayerEnts(ctx, ctx.cam_pos_global, ctx.cam_rot_global)
+		items_func(ctx, dt, out_ent)
 
 		if !ctx.editor_cam
 		{

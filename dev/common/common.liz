@@ -696,6 +696,7 @@ GetShaderUniform::fn(m : *material_info, name : str_lit) ! u64
 
 }
 
+
 euler_to_quaternion2::fn outsider(x : f32, y : f32, z : f32, out : *_vec);
 quat_mul2::fn outsider(a : *_vec, b : *_vec, out : *_vec);
 
@@ -1618,6 +1619,11 @@ SerializeEnt::fn(ent : *entity, idx : u64, materials : *dyn_array(material_info)
 	}
 	on ent.type
 	{
+	ent_type.ITEM
+	{
+		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("item_type", cast(s32)ent.item_type))
+
+	}
 	ent_type.EVENT
 	{
 		ev := &ent.event
@@ -1904,6 +1910,11 @@ GetFileSize::fn outsider(name : str_lit) ! s64;
 ReadFile::fn outsider(name : str_lit, buffer : *u8);
 WriteFile::fn outsider(name : str_lit, buffer : *u8, sz : u64);
 CopyTextureToBuffer::fn outsider(tex_id : u64, buffer : *u8, buffer_size : u64);
+
+OpenFile::fn outsider(name : str_lit) ! u32;
+SetFilePtr::fn outsider(handle : u32, offset : u64);
+WriteToFile::fn outsider(handle : u32, data : *void, offset : u64);
+CloseFile::fn outsider(handle : u32);
 
 IsKeyDown::fn outsider(key_enum) !bool;
 IsKeyHeld::fn outsider(key_enum) !bool;

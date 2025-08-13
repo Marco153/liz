@@ -1066,6 +1066,13 @@ CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
 		col.data_ready = true
 		col.pos = col.ent.pos
 	}
+	_min.x = 9999.9
+	_min.y = 9999.9
+	_min.z = 9999.9
+	
+	_max.x = -9999.9
+	_max.y = -9999.9
+	_max.z = -9999.9
 	if col.type == col_type.CUBE
 	{
 		memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
@@ -1440,7 +1447,6 @@ StepCol::fn(ctx : *context, dt : f32)
 			c1.rel_chunk_min = aux_min
 			c1.rel_chunk_max = aux_max
 
-			printf("new test \n")
 			dyn_clear(&ctx.aux_col_chunks)
 			get_chunks_close_to_ent(ctx, e, &ctx.aux_col_chunks, &aux_min, &aux_max)
 
@@ -1468,6 +1474,18 @@ StepCol::fn(ctx : *context, dt : f32)
 				dyn_add(&c.entities, e)
 				dyn_add(&c1.in_chunks, *c)
 			}
+
+			//printf("new test, total {c1.ents_of_gotten_chunks.count}\n")
+/*
+			clamped :s32= cast(s32)c1.ents_of_gotten_chunks.count
+			clamped = clampi(clamped, 0, 16)
+			for i in 0..clamped
+			{
+				cur_e := ptr_offset(c1.ents_of_gotten_chunks.data, i, *entity)
+
+				printf("name {cur_e.name}\n")
+			}
+			*/
 		}
 
 

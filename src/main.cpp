@@ -2414,30 +2414,68 @@ void ImGuiEnumCombo(int thread_id, dbg_state* dbg)
 		return;
 	}
 	ASSERT(e);
-	*var_addr = clamp(*var_addr, 0, e->type.enum_names->size() - 1);
-
-	if (*var_addr > 128 || *var_addr < 0)
-	{
-		ImGui::Text("value too high %d", *var_addr);
-		return;
-	}
 
 	bool clicked = false;
-	own_std::vector<char*>* ar = e->type.enum_names;
-	char buffer[32];
-	snprintf(buffer, 32, "type##%d_%d", (*ar), *var_addr);
-	if (ImGui::BeginCombo(buffer, (*ar)[*var_addr]))
+
+	if(e->type.type == TYPE_STRUCT_TYPE)
 	{
-		for (int i = 0; i < ar->size(); i++)
+		type_struct2 *strct = e->type.strct;
+		*var_addr = clamp(*var_addr, 0, strct->vars.size() - 1);
+
+		if (*var_addr > 128 || *var_addr < 0)
 		{
-			char* ptr = (*ar)[i];
-			if (ImGui::Selectable(ptr))
-			{
-				clicked = true;
-				*var_addr = i;
-			}
+			ImGui::Text("value too high %d", *var_addr);
+			return;
 		}
-		ImGui::EndCombo();
+		scope *strct_scp = strct->scp;
+
+		own_std::vector<decl2 *>* ar = &strct->scp->vars;
+		char buffer[128];
+		sprintf(buffer, "type##%d_%d", ar, var_addr);
+		decl2 *cur = (*ar)[*var_addr + 2];
+		sprintf(&buffer[64], "%.*s", cur->name.size(), cur->name.data());
+		if (ImGui::BeginCombo(buffer, &buffer[64]))
+		{
+			for (int i = 0; i < ar->size() - 2; i++)
+			{
+				decl2 *d = (*ar)[i + 2];
+				sprintf(buffer, "%.*s", d->name.size(), d->name.data());
+				if (ImGui::Selectable(buffer))
+				{
+					clicked = true;
+					*var_addr = i;
+				}
+			}
+			ImGui::EndCombo();
+		}
+
+	}
+	else
+	{
+		*var_addr = clamp(*var_addr, 0, e->type.enum_names->size() - 1);
+
+		if (*var_addr > 128 || *var_addr < 0)
+		{
+			ImGui::Text("value too high %d", *var_addr);
+			return;
+		}
+
+		own_std::vector<char*>* ar = e->type.enum_names;
+		char buffer[64];
+		snprintf(buffer, 64, "type##%d_%d", ar, var_addr);
+		if (ImGui::BeginCombo(buffer, (*ar)[*var_addr]))
+		{
+			for (int i = 0; i < ar->size(); i++)
+			{
+				char* ptr = (*ar)[i];
+				if (ImGui::Selectable(ptr))
+				{
+					clicked = true;
+					*var_addr = i;
+				}
+			}
+			ImGui::EndCombo();
+		}
 	}
 	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
 	*addr = clicked;
@@ -5481,6 +5519,87 @@ void HandleForGettingFilesInDir(int thread_id, dbg_state *dbg)
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
 
 }
+void CloseFile(int thread_id, dbg_state *dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int h = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int data_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int data_size = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	auto data = (void *)&dbg->mem_buffer[data_offset];
+
+	handle_info *hfile = &dbg->handles[h];
+	ASSERT(hfile->type == handle_enum::FILE)
+
+	fclose(hfile->file);
+	hfile->in_use = false;
+}
+void WriteToFile(int thread_id, dbg_state *dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int h = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int data_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int data_size = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	auto data = (void *)&dbg->mem_buffer[data_offset];
+
+	handle_info *hfile = &dbg->handles[h];
+	ASSERT(hfile->type == handle_enum::FILE)
+
+	fwrite(data, 1, data_size, hfile->file);
+}
+void SetFilePtr(int thread_id, dbg_state *dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int h = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	
+
+	handle_info *hfile = &dbg->handles[h];
+	ASSERT(hfile->type == handle_enum::FILE)
+
+	fseek(hfile->file, offset, SEEK_SET);
+}
+/*
+void TruncateFile(int thread_id, dbg_state *dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int h = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	int idx = GetFreeHandle(dbg);
+	handle_info *hfile = &dbg->handles[idx];
+	hfile->type = handle_enum::FILE;
+
+	ftruncate(hfile->file, offset);
+}
+*/
+void OpenFile(int thread_id, dbg_state *dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	
+	auto name = (char*)&dbg->mem_buffer[name_offset];
+
+	int idx = GetFreeHandle(dbg);
+	handle_info *hfile = &dbg->handles[idx];
+	hfile->type = handle_enum::FILE;
+
+	if(!dbg->cur_func)
+	{
+		dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+	}
+	own_std::string work_dir = dbg->cur_func->from_file->path + name;
+	FILE *file = fopen(work_dir.c_str(), "wb");
+	if (!file) {
+		printf("Failed to open %s ", name);
+        perror("Failed to open file");
+		ASSERT(0)
+        return;
+    }
+	hfile->file = file;
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
+}
 void AssignTexFolder(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -7633,6 +7752,11 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "PrintV3Int", (OutsiderFuncType)PrintV3Int);
 	AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
 
+
+	AssignOutsiderFunc(&lang_stat, "OpenFile", (OutsiderFuncType)OpenFile);
+	AssignOutsiderFunc(&lang_stat, "SetFilePtr", (OutsiderFuncType)SetFilePtr);
+	AssignOutsiderFunc(&lang_stat, "WriteToFile", (OutsiderFuncType)WriteToFile);
+	AssignOutsiderFunc(&lang_stat, "CloseFile", (OutsiderFuncType)CloseFile);
 
 	AssignOutsiderFunc(&lang_stat, "HandleForGettingFilesInDir", (OutsiderFuncType)HandleForGettingFilesInDir);
 	AssignOutsiderFunc(&lang_stat, "HandleDirFilenameAt", (OutsiderFuncType)HandleDirFilenameAt);

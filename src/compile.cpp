@@ -229,6 +229,7 @@ struct comp_time_type_info
 
 struct dbg_state;
 struct block_linked;
+struct linear_alloc;
 
 typedef void* (*FreeTypeFunc)(void* this_ptr, void* ptr);
 typedef void* (*AllocTypeFunc)(void* this_ptr, u64 sz);
@@ -241,6 +242,8 @@ struct global_variables_lang
 	void* data;
 	AllocTypeFunc alloc;
 	FreeTypeFunc free;
+
+	linear_alloc *temp_buffer;
 
 	block_linked* blocks;
 	int total_blocks;
@@ -2985,6 +2988,51 @@ enum print_num_type
 	PRINT_CHAR,
 };
 
+char *WasmNumToString2(dbg_state* dbg, int num, char limit = -1, print_num_type num_type = PRINT_INT)
+{
+	int bsize = 32;
+	char *buffer = linear_alloc_func(__lang_globals.temp_buffer, bsize);
+	if (num_type == PRINT_FLOAT)
+	{
+		float num_f = *(float*)&num;
+		if(limit == -1)
+			snprintf(buffer, bsize, "%.3f", num_f);
+		else 
+			// search how to arbitrary number of decimals in float
+			ASSERT(0)
+	}
+	else if (num_type == PRINT_CHAR)
+	{
+		char num_ch = (char)num;
+		snprintf(buffer, bsize, "0x%x %c", num_ch, num_ch);
+
+	}
+	else
+	{
+		switch (dbg->print_numbers_format)
+		{
+		case DBG_PRINT_DECIMAL:
+		{
+			if (limit == -1)
+				snprintf(buffer, bsize, "%d", num);
+			else
+				snprintf(buffer, bsize, "%0*d", limit, num);
+
+		}break;
+		case DBG_PRINT_HEX:
+		{
+			if (limit == -1)
+				snprintf(buffer, bsize, "0x%x", num);
+			else
+				snprintf(buffer, bsize, "0x%0*x", limit, num);
+
+		}break;
+		default:
+			ASSERT(0);
+		}
+	}
+	return buffer;
+}
 own_std::string WasmNumToString(dbg_state* dbg, int num, char limit = -1, print_num_type num_type = PRINT_INT)
 {
 	own_std::string ret = "";
@@ -9917,8 +9965,11 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	own_std::string str;
 	byte_code2* aux_bc = cur_bc;
 
+	__lang_globals.temp_buffer = (linear_alloc *)malloc(sizeof(linear_alloc));
+	__lang_globals.temp_buffer->init(1024 * 4);
+
 	linear_alloc lalloc = {};
-	lalloc.init(1024 * 32);
+	lalloc.init(1024 * 64);
 	printf("ret %p, addr %p, last %p, \n", dbg->return_stack_bc2_func.ar.start, lalloc.data, lalloc.data + lalloc.max);
 
 
@@ -10930,6 +10981,16 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 	char buffer[256];
 	auto lalloc = (linear_alloc *)__lang_globals.data;
 	lalloc->cur = 0;
+	__lang_globals.temp_buffer->cur = 0;
+
+	auto prev_alloc = __lang_globals.data;
+	auto prev_func = __lang_globals.alloc;
+	auto prev_func_free = __lang_globals.free;
+
+	__lang_globals.data = (void *)__lang_globals.temp_buffer;
+	__lang_globals.alloc = (AllocTypeFunc)linear_alloc_func; 
+	__lang_globals.free = (FreeTypeFunc)linear_free_stub;
+
 	//ImGui::Text("offset: %d", d->offset);
 	//ImGui::SameLine();
 	if (IS_FLAG_ON(d->flags, DECL_IS_GLOBAL))
@@ -11271,18 +11332,30 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			}
 		}
 
-		own_std::string name = d->name;
+		
 		if (d->type.ptr > 0)
 		{
-			name += own_std::string("(&") + WasmNumToString(&dbg, offset)+")";
+			sprintf(buffer, "%s(&%s)", d->name.c_str(), WasmNumToString2(&dbg, offset));
+			//name += own_std::string("(&") + WasmNumToString(&dbg, offset)+")";
+		}
+		else
+		{
+			sprintf(buffer, "%.*s", d->name.size(), d->name.data());
 		}
 		if (d->type.type == TYPE_CHAR)
 		{
 			ptype = PRINT_CHAR;
 		}
-		ImGui::Text("%s(&%d), %s, type: %s", name.c_str(), offset, WasmNumToString(&dbg, val, -1, ptype).c_str(), TypeToString(d->type).c_str());
+
+
+		ImGui::Text("%s(&%d), %s, type: %s", buffer, offset, WasmNumToString2(&dbg, val, -1, ptype), TypeToString(d->type).c_str());
 		//ImGui::Text("%s, %s", name.c_str(), WasmNumToString(&dbg, val, -1, ptype).c_str());
+
 	}
+
+	__lang_globals.data = prev_alloc;
+	__lang_globals.alloc = prev_func;
+	__lang_globals.free = prev_func_free;
 
 }
 

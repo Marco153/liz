@@ -2424,7 +2424,9 @@ void ImGuiEnumCombo(int thread_id, dbg_state* dbg)
 
 	bool clicked = false;
 	own_std::vector<char*>* ar = e->type.enum_names;
-	if (ImGui::BeginCombo("type##obj_type", (*ar)[*var_addr]))
+	char buffer[32];
+	snprintf(buffer, 32, "type##%d_%d", (*ar), *var_addr);
+	if (ImGui::BeginCombo(buffer, (*ar)[*var_addr]))
 	{
 		for (int i = 0; i < ar->size(); i++)
 		{

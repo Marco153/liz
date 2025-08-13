@@ -3122,6 +3122,18 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
 		dyn_add(&other.remove_from, ent_part_of.COLLIDER)
 		add_body(ctx, other)
 		c1 := cast(*collider)other.col
+		min_rel_pos : _vec=?
+		max_rel_pos : _vec=?
+		CopyVerts(c1, &min_rel_pos, &max_rel_pos)
+		dyn_clear(&ctx.aux_col_chunks)
+		
+		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
+		get_chunks_close_to_ent(ctx, other, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
+
+		for c in ctx.aux_col_chunks
+		{
+			dyn_add(&c.entities, other)
+		}
 	}
 	grid_shader := find_shader(ctx, "grid_shader.mat")
 
@@ -3133,6 +3145,7 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
 		other.in_material_instance = new_material_instance(ctx, cast(u32)grid_shader, other)
 	}
 	set_shader_uniform_sampler2d(ctx, other, "tex", ctx.textures[ctx.grid_tex])
+
 
 	return other
 }
@@ -4199,6 +4212,15 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				out_ent.type = aux_type
 				on aux_type
 				{
+				ent_type.EVENT
+				{
+					
+				}
+				ent_type.BRIDGE
+				{
+					out_ent.vel = out_ent.pos
+					out_ent.forward = out_ent.rot
+				}
 				ent_type.GRID
 				{
 					change_ent_to_grid = true
@@ -4334,7 +4356,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 				ImGuiCheckbox("one time: ", &ev.one_time)
 
-				ImGuiEnumCombo("event type", __LINE__, cast(*u32)&ev.type)
+				ImGuiEnumCombo("event_type", __LINE__, cast(*u32)&ev.type)
 				on ev.type
 				{
 				entity_event_type.BRIDGE_ROTATE
@@ -5667,8 +5689,8 @@ main_loop::fn(ctx : *context)
 
 	while !ShouldClose(ctx.window)
 	{
-		//dt: = GetTime() - last_time;
-		dt: = 0.017;
+		dt: = GetTime() - last_time;
+		//dt: = 0.017;
 
 		//print_f32(dt)
 
@@ -5802,6 +5824,7 @@ main_loop::fn(ctx : *context)
 							pos_ptr = &out_ent.col_offset
 							size_ptr = &out_ent.col_size
 						}
+
 					}
 
 					dist := len_vec(&(cam_pos - out_ent.pos))
@@ -5812,7 +5835,11 @@ main_loop::fn(ctx : *context)
 					{
 						//printf("static {out_ent.is_static}, col {cast(u64)out_ent.col}, sel_mode {cast(u32)sel_action}, {ctx.frames_total}\n")
 						dy := dot_vec(&fw, &select_up) * -mvy
-						*pos_ptr += fw * (dx + dy) * 4.0
+						*pos_ptr += fw * (dx + dy) * 8.0
+						if out_ent.type == ent_type.BRIDGE
+						{
+							out_ent.vel = *pos_ptr
+						}
 					}
 					select_action.SCALE_ONE_AXIS
 					{
@@ -5840,6 +5867,10 @@ main_loop::fn(ctx : *context)
 						q : quaternion=?
 						q.v = out_ent.rot
 						out_ent.rot = (q * euler_to_quaternion(fw.x, fw.y, fw.z)).v
+						if out_ent.type == ent_type.BRIDGE
+						{
+							out_ent.forward = out_ent.rot
+						}
 					}
 					select_action.SCALE
 					{
@@ -6373,7 +6404,7 @@ main:: fn(){
 	euler_to_quaternion2(-8.103, 0.0, 8.103, &q_aux2)
 	ctx: context
 	AssignCtxAddr(&ctx);
-	InitMemAlloc(&ctx.main_alloc, 56000);
+	InitMemAlloc(&ctx.main_alloc, 66000);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;

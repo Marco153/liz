@@ -1721,13 +1721,17 @@ tests::fn(ret : *u32)
 	if ret_val != 12
 		debug_break();
 	i = 0
+	
+	i = cast(s32)default_args_test(0)
+	if i != 7
+		debug_break();
+
+	i = cast(s32)default_args_test(1, c = 1)
+
+	if i != 5
+		debug_break();
 
 
-
-
-
-
-	//i = default_args_test(1, c = 1)
 	i = 0
 
 }

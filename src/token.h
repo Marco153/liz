@@ -491,7 +491,6 @@ struct func_decl
 #define DECL_IS_VAR_ARG  0x100
 #define DECL_SERIALIZABLE  0x200
 #define DECL_IS_USING  0x400
-#define DECL_CAN_IGNORE_IN_FIND_IDENTIFIER  0x800
 
 struct decl2
 {

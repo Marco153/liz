@@ -95,6 +95,7 @@ char* std_str_to_heap(lang_state*, own_std::string* str);
 #define PSR_FLAGS_ON_ARRAY 0x400000
 #define PSR_FLAGS_DONT_ADD_TO_FUNC_VARS 0x800000
 #define PSR_FLAGS_ON_ETRUCT 0x1000000
+#define PSR_FLAGS_RETURN_CALL_ARGS_FROM_SCP 0x2000000
 
 
 #define PREC_SEMI_COLON 0
@@ -3026,7 +3027,6 @@ own_std::vector<decl2*> DescendTemplatesToDecl(lang_state *lang_stat, node* n, s
 
 
 #define FIND_IDENT_FLAGS_RET_IDENT_EVEN_NOT_DONE 1
-#define FIND_IDENT_FLAGS_DONT_IGNORE_DECL 2
 
 decl2* FindIdentifier(own_std::string &name, scope* scp, type2* ret_type, int flags)
 {     
@@ -3058,6 +3058,17 @@ decl2* FindIdentifier(own_std::string &name, scope* scp, type2* ret_type, int fl
 	__lang_globals.find_ident_timer += GetTimerMSFloat(&tm);
 
 #endif
+	if(IS_FLAG_ON(scp->flags, SCOPE_RETURN_CALL_ARGS_FROM_SCP) && scp->call_args.size() > 0)
+	{
+		auto last = scp->call_args.back();
+		FOR_VEC(d, last)
+		{
+			if((*d)->name == name)
+			{
+				return *d;
+			}
+		}
+	}
 
 	if (decl == nullptr)
 		return nullptr;
@@ -3092,10 +3103,6 @@ decl2* FindIdentifier(own_std::string &name, scope* scp, type2* ret_type, int fl
 		*ret_type = decl->type.type_def_decl->type;
 	else
 		*ret_type = decl->type;
-	if (IS_FLAG_ON(decl->flags, DECL_CAN_IGNORE_IN_FIND_IDENTIFIER) && IS_FLAG_OFF(flags, FIND_IDENT_FLAGS_DONT_IGNORE_DECL))
-	{
-		return nullptr;
-	}
 	return decl;
 }
 int max2(int a, int b)
@@ -5300,19 +5307,32 @@ void CreateTemplateInstantiationName(own_std::string &name, own_std::vector<comm
 
 node *ContructTreeFromArgs(lang_state *lang_stat, node *args_nd, own_std::vector<node *> &sorted_args, int idx)
 {
-	if(CMP_NTYPE_BIN(args_nd, T_COMMA))
+	if(idx == 0)
 	{
-		args_nd->l = ContructTreeFromArgs(lang_stat, args_nd, sorted_args, idx - 1);
+		node *n = sorted_args[idx];
+		memcpy(args_nd, n, sizeof(node));
+		return args_nd;
+	}
+	else if(CMP_NTYPE_BIN(args_nd, T_COMMA))
+	{
+		args_nd->l = ContructTreeFromArgs(lang_stat, args_nd->l, sorted_args, idx - 1);
 		args_nd->r = sorted_args[idx];
 		return args_nd;
 	}
 	else
 	{
 		node *nd = new_node(lang_stat, args_nd->t);
-		args_nd->l = ContructTreeFromArgs(lang_stat, nd, sorted_args, idx - 1);
+		node *ret = new_node(lang_stat, args_nd->t);
+		//memcpy(ret, args_nd, sizeof(node));
 
-		args_nd->r = sorted_args[idx];
-		return nd;
+
+		ret->t = (token2 *)AllocMiscData(lang_stat, sizeof(token2));
+		ret->type = N_BINOP;
+		ret->t->type = T_COMMA;
+		ret->l = ContructTreeFromArgs(lang_stat, nd, sorted_args, idx - 1);
+
+		ret->r = sorted_args[idx];
+		return ret;
 
 	}
 }
@@ -5355,9 +5375,10 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl, own_std
 				}
 			}
 			ASSERT(d)
+			//args should only be assigned once
 			ASSERT(sorted_args[d->func_arg_idx] == nullptr)
-			ASSERT(d->to_assign_value)
-			sorted_args[d->func_arg_idx] = d->to_assign_value;
+			//ASSERT(d->to_assign_value)
+			sorted_args[d->func_arg_idx] = t->n->r;
 
 		}
 	}
@@ -5372,7 +5393,7 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl, own_std
 		}
 		i++;
 	}
-	memcpy(ncall->r, ContructTreeFromArgs(lang_stat, ncall->r, sorted_args, fdecl->args.size() - 1), sizeof(node));
+	ncall->r = ContructTreeFromArgs(lang_stat, ncall->r, sorted_args, fdecl->args.size() - 1);
 }
 
 //$CallNode
@@ -5386,15 +5407,28 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	struct defer_strct
 	{
 		scope *_scp;
+		func_decl *f;
+		lang_state *lang_stat;
+
+		void *prev_start;
 		int prev_count;
-		defer_strct(scope *scp)
+
+		bool can_do_stuff;
+		defer_strct(scope *scp, func_decl *func, lang_state *l)
 		{
 			_scp = scp;
-			prev_count = scp->vars.size();
+			f = func;
+			can_do_stuff = false;
+			lang_stat = l;
 		}
 		~defer_strct()
 		{
-			_scp->vars.make_count(prev_count);
+			if(can_do_stuff)
+			{
+				_scp->call_args.pop_back();
+			}
+			lang_stat->flags &= ~PSR_FLAGS_ON_FUNC_CALL;
+
 		}
 	};
 	
@@ -5466,12 +5500,20 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 	
 	
-	defer_strct dfr(scp);
-	BREAK(lhs->name == "default_args_test")
-	//BREAK(ncall->t->line == 574)
+	//BREAK(ncall->t->line == 670)
+	defer_strct dfr(scp, lhs->type.fdecl, lang_stat);
+	lang_stat->flags |= PSR_FLAGS_ON_FUNC_CALL;
+	//printf("on call %.*s, line %d\n", lhs->name.size(), lhs->name.data(), ncall->t->line);
 	if(lhs->type.type == TYPE_FUNC && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_TEMPLATED))
 	{
 		//scp->vars.insert(scp->vars.end(), lhs->type.fdecl->args.begin(), lhs->type.fdecl->args.end());
+		//scp->call_args.insert(scp->call_args.lhs->type.fdecl->args.begin(), lhs->type.fdecl->args.end());
+		//BREAK(ncall->t->line == 512)
+		scp->call_args.make_count(scp->call_args.size() + 1);
+		own_std::vector<decl2 *> *ar = &scp->call_args.back();
+		ar->clear();
+		ar->insert(ar->end(), lhs->type.fdecl->args.begin(), lhs->type.fdecl->args.end());
+		dfr.can_do_stuff = true;
 	}
 
 
@@ -5540,7 +5582,9 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		if (!is_var_args)
 		{
 			int required_args_count = lhs->type.fdecl->args.size();
-			if (required_args_count != args.size() && lhs->type.type != TYPE_OVERLOADED_FUNCS)
+			if (required_args_count != args.size() && lhs->type.type != TYPE_OVERLOADED_FUNCS 
+				&& IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_HAS_DEFAULT_ARGUMENTS)
+			)
 			{
 				auto fdecl = lhs->type.fdecl;
 				int func_ln = fdecl->func_node->t->line - 1;
@@ -5697,10 +5741,16 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					t->decl.type = t->;
 				*/
 			}
-			if(has_arg_assignment || IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_HAS_DEFAULT_ARGUMENTS))
+			bool same_number_of_args = args.size() == lhs->type.fdecl->args.size();
+			if(has_arg_assignment || IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_HAS_DEFAULT_ARGUMENTS) && !same_number_of_args)
 			{
-				HERE()
 				MaybeSortArgs(lang_stat, ncall, lhs->type.fdecl, &args);
+				args.clear();
+				DescendComma(lang_stat, ncall->r, scp, args);
+				FOR_VEC(t, args)
+				{
+					t->decl.type = DescendNode(lang_stat, t->n, scp);
+				}
 			}
 
 			bool is_templated_overload_so_no_need_to_get_templ_types = false;
@@ -8785,7 +8835,19 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			// %EQUAL
 		case tkn_type2::T_EQUAL:
 		{
-			decl2* lhs = DescendNameFinding(lang_stat, n->l, scp);
+			decl2 *lhs;
+			if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_ON_FUNC_CALL))
+			{
+				scp->flags |= SCOPE_RETURN_CALL_ARGS_FROM_SCP;
+				lhs = DescendNameFinding(lang_stat, n->l, scp);
+				scp->flags &= ~SCOPE_RETURN_CALL_ARGS_FROM_SCP;
+			}
+			else
+			{
+				lhs = DescendNameFinding(lang_stat, n->l, scp);
+
+			}
+
 			decl2* rhs = DescendNameFinding(lang_stat, n->r, scp);
 			if (n->l != nullptr && !lhs)
 				return nullptr;

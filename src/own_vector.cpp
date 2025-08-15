@@ -550,7 +550,7 @@ namespace own_std
 
 			T* b = (T*)__lang_globals.alloc(__lang_globals.data, (len + 1) * sizeof(T));
 #endif
-			memset(b, 0, ar.length * sizeof(T));
+			memset(b, 0, (len + 1) * sizeof(T));
 
 			ar.start = b;
 			ar.end = b;
@@ -624,6 +624,10 @@ namespace own_std
 			memcpy(ar.start, start, count * sizeof(T));
 		}
 
+		void set_data(T *new_one)
+		{
+			ar.start = new_one;
+		}
 		T* end() const
 		{
 			return begin() + ar.count;

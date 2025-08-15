@@ -417,7 +417,7 @@ AssignSoundFolder::fn outsider(str_lit);
 AssignModelFolder::fn outsider(str_lit);
 PlayAudio::fn outsider(str_lit, volume : f32, speed : f32);
 GetAudioHandle::fn outsider(str_lit) ! u32;
-PlayAudioByHandle::fn outsider(u32, volume : f32, speed : f32);
+PlayAudioByHandle::fn outsider(u32, volume : f32=1.0, speed : f32 = 1.0);
 
 Max::fn(a : s32, b : s32) !s32
 {
@@ -2341,7 +2341,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	if mov.step_timer > 1.0
 	{
 		idx := cast(u64)cast(u32)(Rand01() * 2.0)
-		PlayAudioByHandle(*ctx.step_audio_idxs[idx], 1.0, 1.0)
+		PlayAudioByHandle(*ctx.step_audio_idxs[idx])
 		mov.step_timer = 0.0
 	}
 	if mov.just_hit_ground && player_ent.vel.y < -8.0

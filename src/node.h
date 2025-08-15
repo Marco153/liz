@@ -336,6 +336,7 @@ enum msg_type
 #define SCOPE_IS_GLOBAL   4
 #define SCOPE_SERIALIZED   8
 #define SCOPE_SKIP_SERIALIZATION   16
+#define SCOPE_RETURN_CALL_ARGS_FROM_SCP   32
 
  enum scp_type
  {
@@ -365,6 +366,7 @@ struct scope
 {
 	scope *parent;
 	own_std::vector<decl2 *> vars;
+	own_std::vector<own_std::vector<decl2 *>> call_args;
 	std::unordered_map<own_std::string, decl2 *> vars_map;
 	own_std::vector<scope *> children;
 	own_std::vector<ast_rep *> defered;

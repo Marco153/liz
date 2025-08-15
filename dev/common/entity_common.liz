@@ -378,12 +378,15 @@ player_info: struct
 	max_y_cam_pos : f32
 	min_y_cam_pos : f32
 
+	step_timer : f32
+
 	on_getting_to_back_pos : bool
 	on_rotating_cam:bool
 	gravity_vel : _vec,
 	platform_vel : _vec,
 	platform : *entity,
 	trigger : *entity,
+	just_hit_ground : bool
 	
 	up_col : bool
 	down_col : bool

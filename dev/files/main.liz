@@ -52,6 +52,7 @@ context: struct
 	area_col_pos : _vec
 	area_col_size : _vec
 
+	step_audio_idxs : [2]u32
 	frames : *frame_info,
 	frames_max : u32,
 	cam_pos_global : *_vec,
@@ -414,7 +415,9 @@ AssignCtxAddr::fn outsider(*context);
 AssignTexFolder::fn outsider(str_lit);
 AssignSoundFolder::fn outsider(str_lit);
 AssignModelFolder::fn outsider(str_lit);
-PlayAudio::fn outsider(str_lit);
+PlayAudio::fn outsider(str_lit, volume : f32, speed : f32);
+GetAudioHandle::fn outsider(str_lit) ! u32;
+PlayAudioByHandle::fn outsider(u32, volume : f32, speed : f32);
 
 Max::fn(a : s32, b : s32) !s32
 {
@@ -2333,6 +2336,18 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	cam_pos := *ctx.cam_pos_global
 	cam_rot := *ctx.cam_rot_global
 	//printf("up col {mov.up_col}\n")
+
+
+	if mov.step_timer > 1.0
+	{
+		idx := cast(u64)cast(u32)(Rand01() * 2.0)
+		PlayAudioByHandle(*ctx.step_audio_idxs[idx], 1.0, 1.0)
+		mov.step_timer = 0.0
+	}
+	if mov.just_hit_ground && player_ent.vel.y < -8.0
+	{
+		PlayAudio("step_fall.flac", 1.0, 1.0)
+	}
 	if mov.up_col == false && mov.down_col
 	{
 	}
@@ -2474,6 +2489,18 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			if !mov.exhausted
 			{
 				speed = speed * 1.8
+				if on_ground
+				{
+					mov.step_timer += *dt * 2.0;
+				}
+			}
+		}
+
+		if on_ground
+		{
+			if absf(mov.h) > 0.1 || absf(mov.v) > 0.1
+			{
+				mov.step_timer += *dt * 2.0
 			}
 		}
 		if IsKeyDown(key_enum.KEY_JMP) && (on_ground && mov.jmp.time_off_ground == 0.0 || mov.jmp.time_off_ground <= 0.5)
@@ -2836,6 +2863,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	mov.down_col = false
 	mov.col_in_stay = false
 	mov.up_col = false
+	mov.just_hit_ground = false
 }
 
 MESH_WIDTH :const s32= 33
@@ -5423,7 +5451,6 @@ main_loop::fn(ctx : *context)
 	ctx.aux_indices_sz = ctx.aux_vertices_sz * 3
 	ctx.aux_indices = cast(*u32)GetMem(ctx.aux_indices_sz * sizeof(u32))
 
-
 	for i in 0..total_fl
 	{
 		globals.temp_alloc.cur =  0
@@ -5787,6 +5814,7 @@ main_loop::fn(ctx : *context)
 	dyn_add(&ctx.drawable_ents, &ctx.grid_ent);
 
 
+	//PlayAudio("01.flac", 1.0, 1.0);
 	StepCol(ctx, 0.0)
 	assign_bodies_to_chunks(ctx)
 
@@ -6514,7 +6542,7 @@ main:: fn(){
 	euler_to_quaternion2(-8.103, 0.0, 8.103, &q_aux2)
 	ctx: context
 	AssignCtxAddr(&ctx);
-	InitMemAlloc(&ctx.main_alloc, 66000);
+	InitMemAlloc(&ctx.main_alloc, 76000);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
@@ -6623,6 +6651,9 @@ main:: fn(){
 	AssignTexFolder("../images");
 	AssignSoundFolder("../sound");
 	LoadTexFolder("../images", &ctx.textures);
+
+	ctx.step_audio_idxs[0] = GetAudioHandle("step1.flac")
+	ctx.step_audio_idxs[1] = GetAudioHandle("step2.flac")
 	
 	ctx.white_tex = load_tex(&ctx, "white.png", 0, 0, 32, 32)
 	ctx.grass_tex = load_tex(&ctx, "grass.png", 0, 0, 32, 32)
@@ -6662,6 +6693,9 @@ main:: fn(){
 	*ctx.curtain[1] = 0.0;
 	*ctx.curtain[2] = 0.0;
 	*ctx.curtain[3] = 0.0;
+
+
 	main_loop(&ctx);
+
 
 }

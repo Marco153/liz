@@ -157,6 +157,7 @@ int GetTypeSize(type2 *tp)
 		case enum_type2::TYPE_U64_TYPE:
 		case enum_type2::TYPE_S64_TYPE:
 		case enum_type2::TYPE_F64_TYPE:
+		case enum_type2::TYPE_FUNC_TYPE:
 		case enum_type2::TYPE_U64:
 		case enum_type2::TYPE_S64:
 		case enum_type2::TYPE_F64:

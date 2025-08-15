@@ -1010,7 +1010,7 @@ struct outsider_info
 	OutsiderFuncType func;
 };
 
-#define TOTAL_OUTSIDERS 256
+#define TOTAL_OUTSIDERS 258
 
 struct wasm_interp;
 

@@ -183,6 +183,7 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	if dot_vec(&col.normal, &up) > 0.5
 	{
 		ent_a.on_ground = true
+		ent_a.mov_info.just_hit_ground = true
 	}
 	if ent_a.state == entity_state.SURF
 	{

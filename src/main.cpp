@@ -3,8 +3,6 @@
 #define DEG_TO_RAD  (3.14159265f / 180.0f)
 #define LINUX
 
-#include <AL/al.h>
-#include <AL/alc.h>
 #ifdef LINUX
 #include <pthread.h>
 #include <sys/mman.h>
@@ -119,6 +117,8 @@ enum key_enum
 #endif
 #include <X11/Xlib.h>
 #include <X11/extensions/Xfixes.h> 
+#include <portaudio/include/portaudio.h>
+
 
 struct v4
 {
@@ -551,9 +551,10 @@ void update_camera_direction(float yaw, float pitch, float roll, Vec3* front,  V
 
 struct AudioClip;
 struct sound_state;
+struct open_gl_state;
 void GetMem(int, dbg_state* dbg);
 
-AudioClip* CreateNewAudioClip(char* name);
+AudioClip* CreateNewAudioClip(open_gl_state *, char* name);
 
 struct model_info
 {
@@ -706,14 +707,19 @@ struct open_gl_state
 	int tex_offset;
 	int pos_u;
 
+	u64 audio_frames;
+
 	float mouse_last_x;
 	float mouse_last_y;
 	float mouse_vel_x;
 	float mouse_vel_y;
 	int generated_meshes;
 
-	ALCdevice *al_device;
-	ALCcontext *al_ctx;
+	//ALCdevice *al_device;
+	//ALCcontext *al_ctx;
+
+	PaStream *pa_stream;
+
 
 	int buttons[TOTAL_KEYS];
 	float time_pressed[TOTAL_KEYS];
@@ -799,6 +805,8 @@ class XAudioClass;
 struct AudioClip
 {
 	own_std::string name;
+	own_std::string short_name;
+
 	own_std::vector<short> buffer;
 	float time;
 };
@@ -808,14 +816,17 @@ struct AudioClipQueued
 	unsigned int cur_idx;
 
 	int flags;
+	float volume;
+	float speed;
 };
 struct sound_state
 {
 	int samples_per_sec = 44100;
-	int samples_in_buffer = 1;
 	int hz = 440;
 	unsigned long long running_idx = 0;
 	char* harmonics_buffer;
+	short white_noise[256];
+	short white_noise_cur_idx;
 #ifdef LINUX
 #else
 	IXAudio2SourceVoice* pSourceVoice;
@@ -1248,7 +1259,6 @@ void euler_to_quaternion2(int thread_id, dbg_state* dbg){
 	int out_offset = *(int*)&dbg->mem_buffer[base_ptr + 32 ];
 
 	auto out = (v4 *)&dbg->mem_buffer[out_offset];
-	//HERE()
 	*out = euler_to_quaternion(x, y, z);
 }
 void Draw3DBase(int, dbg_state* dbg, draw_info3d *draw);
@@ -2333,7 +2343,6 @@ void IsKeyDown(int thread_id, dbg_state* dbg)
 
 	if (IS_FLAG_ON(gl_state->buttons[key], KEY_DOWN) || IS_FLAG_ON(gl_state->buttons[key], KEY_RECENTLY_DOWN))
 	{
-		//if(keyo == _KEY_1) HERE();
 		key = FromGameToGLFWKey(keyo);
 		*addr = 1;
 		gl_state->buttons[key] &= ~KEY_RECENTLY_DOWN;
@@ -4888,7 +4897,6 @@ void CreateMesh(int thread_id, dbg_state* dbg)
 	
 
 	int free_idx = -1;
-	//HERE()
 	auto gl_state = (open_gl_state*)dbg->data;
 
 	char buffer[64];
@@ -4908,7 +4916,6 @@ void CreateMesh(int thread_id, dbg_state* dbg)
 }
 void UpdateModel(int thread_id, dbg_state* dbg)
 {
-	//HERE()
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int model = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int verts_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
@@ -5377,6 +5384,8 @@ void FromGamePlayAudio(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	float volume = *(float *)&dbg->mem_buffer[base_ptr + 16];
+	float speed = *(float *)&dbg->mem_buffer[base_ptr + 24];
 	char *name_str = (char *)&dbg->mem_buffer[name_offset];
 	auto gl_state = (open_gl_state*)dbg->data;
 	AudioClip* clip = nullptr;
@@ -5390,10 +5399,47 @@ void FromGamePlayAudio(int thread_id, dbg_state* dbg)
 	}
 	ASSERT(clip);
 	AudioClipQueued q = {};
+	q.volume = volume;
+	q.speed = speed;
 	q.clip = clip;
 	gl_state->sound->audio_clips_to_play.emplace_back(q);
 }
 
+void PlayAudioByHandle(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int audio_clip = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	float volume = *(float *)&dbg->mem_buffer[base_ptr + 16];
+	float speed = *(float *)&dbg->mem_buffer[base_ptr + 24];
+	auto gl_state = (open_gl_state*)dbg->data;
+	AudioClip* clip = gl_state->sound->audio_clips_src[audio_clip];
+	ASSERT(clip);
+	AudioClipQueued q = {};
+	q.volume = volume;
+	q.speed = speed;
+	q.clip = clip;
+	gl_state->sound->audio_clips_to_play.emplace_back(q);
+}
+void GetAudioHandle(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int name_offset = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	char *name_str = (char *)&dbg->mem_buffer[name_offset];
+
+	auto gl_state = (open_gl_state*)dbg->data;
+	auto sound = gl_state->sound;
+	
+	int i = 0;
+	for(; i < gl_state->sound->audio_clips_src.size(); i++)
+	{
+		if(sound->audio_clips_src[i]->name == name_str)
+		{
+			break;
+		}
+	}
+
+	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = i;
+}
 void AssignSoundFolder(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -5426,7 +5472,9 @@ void AssignSoundFolder(int thread_id, dbg_state* dbg)
 	FOR_VEC(str_ptr, file_names)
 	{
 		snprintf(&buffer[sz], 256, "%s", *str_ptr);
-		ar->emplace_back(CreateNewAudioClip(buffer));
+		AudioClip * clip = CreateNewAudioClip(gl_state, buffer);
+		clip->name = own_std::string(*str_ptr);
+		ar->emplace_back(clip);
 	}
 
 	//ImageFolderToFile(gl_state->texture_folder);
@@ -6600,6 +6648,96 @@ void enableGLDebugging() {
         glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
     }
 }
+static int audio_callback(
+    const void *input, void *output,
+    unsigned long frameCount,
+    const PaStreamCallbackTimeInfo *timeInfo,
+    PaStreamCallbackFlags statusFlags,
+    void *userData
+) {
+	short *out = (short*)output;
+	auto gl_state = (open_gl_state *)userData;
+	auto sound = gl_state->sound;
+
+	// 1. Clear output buffer (safe memset)
+	memset(out, 0, frameCount * sizeof(short) * 2); // Stereo = 2 channels
+
+	// 2. Mix audio clips
+	int active_clips = 0;
+	FOR_VEC(it, sound->audio_clips_to_play) {
+		if (!it->clip || it->clip->buffer.empty()) continue;
+		active_clips++;
+	}
+
+	float mul = 1.0f / active_clips;
+
+	int i = 0;
+	FOR_VEC(it, sound->audio_clips_to_play) {
+		AudioClip* clip_ptr = it->clip;
+		/**/
+		if (!clip_ptr || clip_ptr->buffer.empty()) {
+			//sound->audio_clips_to_play.remove(i);
+			continue;
+		}
+
+		short* src_buffer = clip_ptr->buffer.data();
+		const size_t buffer_size = clip_ptr->buffer.size();
+
+		for (int s = 0; s < frameCount; s++) {
+			if ((it->cur_idx + 1) >= buffer_size) break;
+
+			out[s*2]   += src_buffer[it->cur_idx]   * it->volume * mul;
+			out[s*2+1] += src_buffer[it->cur_idx+1] * it->volume * mul;
+
+			it->cur_idx += static_cast<int>(2 * it->speed);
+		}
+
+		/*
+		if (it->cur_idx + 1 >= buffer_size) {
+			sound->audio_clips_to_play.remove(i);
+		} else {
+			i++;
+		}
+			*/
+	}
+	out = (short*)output;
+	//HERE()
+	static float b0, b1, b2, filtered = 0;
+	float cutoffFreq = 50.0f;  // Adjust to taste (lower = darker)
+	float rc = 1.0f / (2.0f * M_PI * cutoffFreq);
+	float dt = 1.0f / 44100.0f;  // Sample rate
+	float alpha = dt / (rc + dt);
+
+	for (int i = 0; i < frameCount; i++)
+	{
+		// Generate white noise
+		float white = (rand() / (float)RAND_MAX) * 2.0f - 1.0f;
+		
+		// Apply pink noise filter (Paul Kellet's method)
+		b0 = 0.99886f * b0 + white * 0.0555179f;
+		b1 = 0.99332f * b1 + white * 0.0750759f;
+		b2 = 0.96900f * b2 + white * 0.1538520f;
+		float pink = b0 + b1 + b2 + white * 0.5362f;
+		pink *= 0.11f; // Compensation gain
+		filtered = filtered + alpha * (pink - filtered);
+
+		
+		*out++ += filtered * 32767 * 0.5; // Left
+		*out++ += filtered * 32767 * 0.5; // Right
+	}
+	i = 0;
+	FOR_VEC(it, sound->audio_clips_to_play)
+	{
+		AudioClip* clip_ptr = it->clip;
+		if (it->cur_idx >= clip_ptr->buffer.size())
+		{
+			sound->audio_clips_to_play.remove(i);
+		}
+		i++;
+	}
+
+    return paContinue;  // Return `paComplete` to stop
+}
 void OpenWindow(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -6611,6 +6749,12 @@ void OpenWindow(int thread_id, dbg_state* dbg)
 	auto gl_state = (open_gl_state*)dbg->data;
 	gl_state->mouse_vel_x = 0.0;
 	gl_state->mouse_vel_y = 0.0;
+
+	for(int i = 0; i < 256; i++)
+	{
+		auto r = (std::rand() % 65536 - 32768);
+		gl_state->sound->white_noise[i] = r;
+	}
 	if (!gl_state->is_engine)
 	{
 		gl_state->scene_srceen_width = wnd_width;
@@ -6637,24 +6781,37 @@ void OpenWindow(int thread_id, dbg_state* dbg)
 		return;
 	}
 
-	if (!gl_state->al_ctx)
+	if (!gl_state->pa_stream)
 	{
-		// 1. Open default device and create context
-		ALCdevice *device = alcOpenDevice(NULL);
-		if (!device) { 
-			puts("Failed to open device"); return;
-			ASSERT(0)
-		}
 
-		ALCcontext *context = alcCreateContext(device, NULL);
-		if (!context || !alcMakeContextCurrent(context)) {
-			puts("Failed to set context");
-			ASSERT(0)
-			return;
-		}
+		int err = Pa_Initialize();
 
-		gl_state->al_ctx = context;
-		gl_state->al_device = device;
+		PaStreamParameters outputParams = {
+			.device = Pa_GetDefaultOutputDevice(),
+			.channelCount = 2,          // Stereo
+			.sampleFormat = paInt16,  // 32-bit float samples
+			.suggestedLatency = 0.05,  // 50ms latency
+			.hostApiSpecificStreamInfo = NULL
+		};
+
+		err = Pa_OpenStream(
+			&gl_state->pa_stream,
+			NULL,          // No input
+			&outputParams,
+			44100,         // Sample rate
+			256,           // Frames per buffer
+			paClipOff,     // No clipping
+			audio_callback,    // Callback function
+			gl_state       // Passed to callback
+		);
+		if (err != paNoError) { 
+			fprintf(stderr, "PortAudio error: %s\n", Pa_GetErrorText(err)); 
+			Pa_Terminate(); 
+			ASSERT(0)
+			return; 
+		}
+		Pa_StartStream(gl_state->pa_stream);
+
     }
 
 	GLFWwindow* window;
@@ -7431,7 +7588,6 @@ void _SuspendThread(int thread_id, dbg_state* dbg)
 	int th_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
 
 	handle_info *h = &dbg->handles[th_id];
-	//HERE()
 	SuspendThread(h->th, dbg);
 }
 void _JoinThread(int thread_id, dbg_state* dbg)
@@ -7480,8 +7636,8 @@ void _CreateThread(int thread_id, dbg_state* dbg)
 }
 void Rand01(int thread_id, dbg_state* dbg)
 {
-	auto r = ((unsigned int)rand()) % 2000;
-	double f = (double)r / 2000;
+	auto r = ((unsigned int)rand()) % 20000;
+	double f = (double)r / 20000;
 	*(float*)&dbg->mem_buffer[RET_1_REG * 8] = f;
 }
 
@@ -7540,7 +7696,7 @@ void* realloc_own(char* ptr, int size, mem_alloc* alloc)
 	heap_free(alloc, ptr);
 	return ret;
 }
-AudioClip* CreateNewAudioClip(char* name)
+AudioClip* CreateNewAudioClip(open_gl_state *gl_state, char* name)
 {
 	if (!fileExists(name)) {
 		std::cerr << "File could not be opened or does not exist: " << name << std::endl;
@@ -7550,8 +7706,10 @@ AudioClip* CreateNewAudioClip(char* name)
 
 	auto ret = (AudioClip *)__lang_globals.alloc(__lang_globals.data, sizeof(AudioClip));
 	memset(ret, 0, sizeof(AudioClip));
-	ret->name = name;
+	//ret->name = name;
 	memset(&ret->buffer, 0, sizeof(own_std::vector<int>));
+
+
 
 	unsigned int channels;
 	unsigned int sampleRate;
@@ -7782,9 +7940,12 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "IsMouseDown", (OutsiderFuncType)IsMouseDown);
 	AssignOutsiderFunc(&lang_stat, "IsMouseDoubleClick", (OutsiderFuncType)IsMouseDoubleClick);
 
-	AssignOutsiderFunc(&lang_stat, "ScreenRatio", (OutsiderFuncType)ScreenRatio);
 	AssignOutsiderFunc(&lang_stat, "AssignSoundFolder", (OutsiderFuncType)AssignSoundFolder);
 	AssignOutsiderFunc(&lang_stat, "PlayAudio", (OutsiderFuncType)FromGamePlayAudio);
+	AssignOutsiderFunc(&lang_stat, "GetAudioHandle", (OutsiderFuncType)GetAudioHandle);
+	AssignOutsiderFunc(&lang_stat, "PlayAudioByHandle", (OutsiderFuncType)PlayAudioByHandle);
+
+	AssignOutsiderFunc(&lang_stat, "ScreenRatio", (OutsiderFuncType)ScreenRatio);
 	//AssignOutsiderFunc(&lang_stat, "DebuggerCommand", (OutsiderFuncType)DebuggerCommand);
 	AssignOutsiderFunc(&lang_stat, "ScreenMouseToWorld", (OutsiderFuncType)ScreenMouseToWorld);
 	AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
@@ -7877,6 +8038,8 @@ int main(int argc, char* argv[])
 	opts.wasm_dir = wasm_dir;
 	opts.folder_name = folder_name;
 
+	new(&sound)sound_state();
+	sound.audio_clips_to_play.reserve(32);
 	if (!opts.release)
 	{
 		long long args[] = { 0 };

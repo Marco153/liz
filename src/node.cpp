@@ -5260,19 +5260,21 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	decl2* lhs;
 	type2 dummy_type;
 
-	//BREAK(ncall->t->line == 4177)
-	bool rhs_type_not_done_but_its_ptr = false;
-	if (ncall->r && !DescendNameFinding(lang_stat, ncall->r, scp))
+	struct defer_strct
 	{
-		if (ncall->r->type != N_BINOP && NameFindingGetType(lang_stat, ncall->r, scp, dummy_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE | NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE))
+		scope *_scp;
+		int prev_count;
+		defer_strct(scope *scp)
 		{
-			if (dummy_type.ptr > 0)
-				rhs_type_not_done_but_its_ptr = true;
+			_scp = scp;
+			prev_count = scp->vars.size();
 		}
-
-		if(!rhs_type_not_done_but_its_ptr)
-			return false;
-	}
+		~defer_strct()
+		{
+			_scp->vars.make_count(prev_count);
+		}
+	};
+	
 
 	//	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
 	//		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
@@ -5335,15 +5337,35 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				return false;
 		}
 
-		if (ncall->r && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && !DescendNameFinding(lang_stat, ncall->r, scp) && !rhs_type_not_done_but_its_ptr)
-		{
-			//	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
-			//		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
-			return false;
-		}
 	}
 	else
 		lhs = decl_func;
+
+	
+	
+	defer_strct dfr(scp);
+	//scp->vars.insert(scp->vars.end(), lhs->type.fdecl->args.begin(), lhs->type.fdecl->args.end());
+
+	//BREAK(ncall->t->line == 4177)
+
+	bool rhs_type_not_done_but_its_ptr = false;
+	if (ncall->r && !DescendNameFinding(lang_stat, ncall->r, scp))
+	{
+		if (ncall->r->type != N_BINOP && NameFindingGetType(lang_stat, ncall->r, scp, dummy_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE | NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE))
+		{
+			if (dummy_type.ptr > 0)
+				rhs_type_not_done_but_its_ptr = true;
+		}
+
+		if(!rhs_type_not_done_but_its_ptr)
+			return false;
+	}
+	if (ncall->r && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO) && !DescendNameFinding(lang_stat, ncall->r, scp) && !rhs_type_not_done_but_its_ptr)
+	{
+		//	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
+		//		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
+		return false;
+	}
 
 	if (lang_stat->cur_func && IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_X64) && lhs && lhs->type.type == TYPE_FUNC && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_X64 | FUNC_DECL_MACRO | FUNC_DECL_INTERNAL))
 	{

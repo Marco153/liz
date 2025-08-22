@@ -73,6 +73,11 @@ ast_type :etruct
 	EMPTY,
 	STATS(
 	),
+	CAST(
+		lhs : *ast_rep
+		rhs : *ast_rep
+		type : lang_type
+	),
 	UNIFORM(
 		type : *ast_rep
 		name : *ast_rep
@@ -175,6 +180,10 @@ node_type :etruct
 		un:*node,
 		op : u32,
 		right_assoc:bool,
+	),
+	CAST(
+		lhs:*node,
+		rhs:*node,
 	),
 	BIN(
 		lhs:*node,
@@ -337,6 +346,7 @@ TOTAL_REGS :const s32= 8
 LANG_STAT_FLAGS_PRS_BREAK_WHEN_HEAD_IS_WORD :const s32=1
 LANG_STAT_FLAGS_PRS_IN_IF_COND :const s32=2
 LANG_STAT_FLAGS_REPORT_UNDECLARED :const s32=4
+LANG_STAT_FLAGS_IMPLIED_STMNT :const s32=8
 
 LANG_STAT_FLAGS_IR_IN_CALL :const s32=1
 LANG_STAT_FLAGS_IR_IN_EQUAL :const s32=2
@@ -413,6 +423,7 @@ parse_scope::fn(pinfo : *parse_info) !*node
 {
 	ret :*node=?
 	peek := peek_tkn(pinfo)
+	eat_new_line(pinfo)
 
 	if peek.type == token_type.OPEN_CURLY
 	{
@@ -453,6 +464,7 @@ parse_item::fn (pinfo : *parse_info) ! *node
 		ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_CURLY)
 
 		ret = new_n
+		pinfo.lang_stat.flags = pinfo.lang_stat.flags | LANG_STAT_FLAGS_IMPLIED_STMNT
 	}
 	else if cur_tkn.type == token_type.EXCLAMATION
 	{
@@ -469,6 +481,13 @@ parse_item::fn (pinfo : *parse_info) ! *node
 		ret.UNOP.un = parse_item(pinfo)
 		ret.UNOP.op = cast(u32)cur_tkn.type
 		ret.UNOP.right_assoc = true
+	}
+	else if cur_tkn.type == token_type.MUL
+	{
+		ret = new_node(cur_tkn)
+		ret.type = node_type.UNOP
+		ret.UNOP.un = parse_item(pinfo)
+		ret.UNOP.op = cast(u32)cur_tkn.type
 	}
 	else if cur_tkn.type == token_type.DOLAR
 	{
@@ -581,12 +600,19 @@ parse_item::fn (pinfo : *parse_info) ! *node
 			ret.type = node_type.WHILE
 			ret.WHILE.cond = parse_cond(pinfo)
 			ret.WHILE.scp_nd = parse_scope(pinfo)
+
 		}
 		else if cur_tkn.WORD.str == "uniform"
 		{
 			ret.type = node_type.UNIFORM
 			ret.UNIFORM.type = parse_item(pinfo)
 			ret.UNIFORM.name = parse_item(pinfo)
+		}
+		else if cur_tkn.WORD.str == "cast"
+		{
+			ret.type = node_type.CAST
+			ret.CAST.lhs = parse_item(pinfo)
+			ret.CAST.rhs = parse(pinfo, cast(u32)999, parser_op.DIFF)
 		}
 		else if cur_tkn.WORD.str == "if"
 		{
@@ -907,6 +933,10 @@ parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
 		}
 		cur_prec :u32
 		cond_true := false
+		bin_prec :u32=?
+		is_bin_val:= is_bin(cast(u32)peek.type, &bin_prec)
+		is_implied_stmnt := is_flag_on(lang_stat.flags, LANG_STAT_FLAGS_IMPLIED_STMNT)
+
 		if is_un(peek, &cur_prec)
 		{
 			cond_true = get_op_cmp(prec, cur_prec, operation)
@@ -926,8 +956,9 @@ parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
 				return ret
 			}
 		}
-		else if is_bin(cast(u32)peek.type, &cur_prec)
+		else if is_bin_val 
 		{
+			cur_prec = bin_prec
 			cond_true = get_op_cmp(prec, cur_prec, parser_op.LESS_EQ)
 			if cond_true
 			{
@@ -1044,10 +1075,16 @@ parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
 				return ret.BIN.lhs
 			return ret;
 		}
-		else 
+		else
 			__dbg_break;
 
+
 		new_top := new_node(peek)
+		if is_implied_stmnt && !is_bin_val
+		{
+			new_top.BIN.op = cast(u32)op_prec_enum.NEW_LINE
+			lang_stat.flags = lang_stat.flags & ~LANG_STAT_FLAGS_IMPLIED_STMNT
+		}
 		new_top.type = node_type.BIN
 		new_top.BIN.lhs = ret;
 
@@ -1680,6 +1717,7 @@ lget_type_size::fn(tp : *lang_type) !u32
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.U32 || cast(u32)tp.tp == cast(u32)lang_type_type.S32
 		return 4;
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.U64 || cast(u32)tp.tp == cast(u32)lang_type_type.S64
+		|| cast(u32)tp.tp == cast(u32)lang_type_type.FUNC_DECL
 		return 8;
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.STRUCT
 	{
@@ -1969,6 +2007,12 @@ parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_re
 		ret.STRUCT.st = new_struct()
 
 	}
+	else if n.type == node_type.CAST
+	{
+		ret.type = ast_type.CAST
+		ret.CAST.lhs = parse_node_to_ast(lang_stat, n.CAST.lhs, scp)
+		ret.CAST.rhs = parse_node_to_ast(lang_stat, n.CAST.rhs, scp)
+	}
 	else if n.type == node_type.UNIFORM
 	{
 		ret.type = ast_type.UNIFORM
@@ -2055,6 +2099,20 @@ descend_find_type::fn(lang_stat : *lang_state, ast : *ast_rep, scp : *scope, tp 
 
 			tp.ptr = cast(u8)ptr
 
+		}
+		if ast.UNOP.op == cast(u32)token_type.MUL
+		{
+			if !descend_find_type(lang_stat, ast.UNOP.un, scp, tp)
+				return false
+
+			next := ast.UNOP.un
+
+			while next.type == ast_type.UNOP && next.UNOP.op == cast(u32)token_type.MUL
+			{
+				ASSERT(tp.ptr > 0)
+				tp.ptr++
+				next = next.UNOP.un
+			}
 		}
 		else
 		{
@@ -2408,6 +2466,13 @@ descend_name_finding::fn(lang_stat : *lang_state, ast : *ast_rep, scp: *scope, o
 	else if ast.type == ast_type.INT
 	{
 
+	}
+	else if ast.type == ast_type.CAST
+	{
+		if !descend_find_type(lang_stat, ast.CAST.lhs, scp, &ast.CAST.type)
+			return false
+		if !descend_name_finding(lang_stat, ast.CAST.rhs, scp, nil)
+			return false
 	}
 	else if ast.type == ast_type.INDEX
 	{

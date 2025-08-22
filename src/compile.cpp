@@ -10955,6 +10955,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 void RunDbgFunc(lang_state* lang_stat, own_std::string func, long long* args, int total_args)
 {
 	int mem_size = BUFFER_MEM_MAX;
+	printf("buffer mb %d\n", BUFFER_MEM_MAX / 1024 / 1024);
 	auto buffer = (unsigned char*)AllocMiscData(lang_stat, mem_size + 16);
 	auto  start = buffer;
 
@@ -11548,7 +11549,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	auto scp_pre = (scope_dbg*)(data + file->scopes_sect);
 	scope* root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, false);
 	root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, true);
-	own_std::string scp_pre_str = PrintScpPre(data + file->scopes_sect, scp_pre);
+	//own_std::string scp_pre_str = PrintScpPre(data + file->scopes_sect, scp_pre);
 
 	//printf("\nscop 3:\n%s", root->Print(0).c_str());
 
@@ -12952,11 +12953,18 @@ int GetOnStackOffsetWithIrVal(lang_state* lang_stat, ir_val* ir)
 		ret = ir->decl->offset;
 	return ret;
 }
-void GenX64DeclGlobal(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux* aux, int offset)
+void GenX64DeclGlobal(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux* aux, int offset, char reg_dst = -1)
 {
 	byte_code bc;
 	aux->type = IR_TYPE_REG;
-	aux->reg = AllocReg(lang_stat);
+	if(reg_dst != -1)
+	{
+		aux->reg = reg_dst;
+	}
+	else
+	{
+		aux->reg = AllocReg(lang_stat);
+	}
 	aux->voffset = 0;
 	bc.type = MOV_I;
 	bc.bin.lhs.reg = aux->reg;
@@ -12984,7 +12992,7 @@ void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, 
 	if (ir->type == IR_TYPE_DECL && IS_FLAG_ON(ir->decl->flags, DECL_IS_GLOBAL))
 	{
 		decl_is_global = true;
-		GenX64DeclGlobal(lang_stat, ret, aux, ir->decl->offset);
+		GenX64DeclGlobal(lang_stat, ret, aux, ir->decl->offset, reg_dst);
 
 	}
 
@@ -13360,6 +13368,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		case IR_TYPE_DECL:
 		{
 			//PreX64Deref(lang_stat, assign.to_assign.reg, assign.to_assign.deref - 1, ret);
+			//BREAK(line == 3939 && ir->idx == 239)
 
 			int voffset = 0;
 			short reg = PRE_X64_RSP_REG;
@@ -13368,7 +13377,12 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			if(assign.to_assign.type == IR_TYPE_DECL && IS_FLAG_ON(assign.to_assign.decl->flags, DECL_IS_GLOBAL))
 			{
 				ir_val_aux lhs;
-				GenX64DeclGlobal(lang_stat, ret, &lhs, assign.to_assign.decl->offset);
+				reg = assign.to_assign.reg;
+				if(assign.lhs.type == IR_TYPE_RET_REG)
+				{
+					reg = AllocReg(lang_stat);
+				}
+				GenX64DeclGlobal(lang_stat, ret, &lhs, assign.to_assign.decl->offset, reg);
 				reg = lhs.reg;
 				voffset = 0;
 			}
@@ -14669,7 +14683,7 @@ void GenX64ByteCodeFromStr(lang_state* lang_stat,
 					bc.rel.type = REL_DATA;
 					bc.rel.offset = lang_stat->data_sect.size();
 					bc.rel.reg_dst = dummy_op.reg;
-					InsertIntoDataSect(lang_stat, (char *) t->str.c_str(), t->str.size() + 1);
+					//InsertIntoDataSect(lang_stat, (char *) t->str.c_str(), t->str.size() + 1);
 					t++;
 				}
 				else
@@ -15694,6 +15708,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 				ret.emplace_back(byte_code(rel_type::REL_FUNC, (char*)ir->call.fdecl->name.c_str(), (int)0, (char)0, ir->call.fdecl));
 				ret.back().ir = (ir_rep *)(long long)cur_line;
+				AllocSpecificReg(lang_stat, 0);
 			}
 		}break;
 		case IR_CAST_F32_TO_INT:

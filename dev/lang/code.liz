@@ -74,6 +74,7 @@ machine : struct
 	calls : dyn_array(call_rel),
 	outsiders : dyn_array(u32),
 	cur_func : *func_decl
+	bcs : dyn_array(byte_code)
 }
 
 bc_aux_val: struct
@@ -102,6 +103,7 @@ gen_ir_reg_bc::fn(out_ar : *dyn_array(byte_code), val : *ir_val, out : *bc_aux_v
 	while deref > 0
 	{
 		bc.tp = bc_type.MOV_M_2_R
+		bc.op = cast(u16)token_type.EQUAL
 		//bc.bin.lhs.r = val.REG.r
 		//bc.bin.rhs.r = val.REG.r
 		dyn_add(out_ar, &bc)
@@ -397,6 +399,11 @@ ir_to_bc::fn(mach : *machine, irs : *dyn_array(ir_rep), out : *dyn_array(byte_co
 				dyn_add(out, &bc)
 			}
 		}
+		else if ir.type == ir_type.RET
+		{
+			bc.tp = bc_type.RET
+			dyn_add(out, &bc)
+		}
 		else if ir.type == ir_type.CAST_INT_2_INT
 		{
 			bc.tp = bc_type.MOVZX_R_2_R
@@ -564,7 +571,11 @@ get_expression_val::fn{ T }(dst : T, src : T, op : u32) !T
 		return dst - src;
 	}
 	else
+	{
+		t :token_type
+		t = cast(token_type)op
 		__dbg_break;
+	}
 	return 0
 }
 do_operation_on_ptr_s::fn(dst : *s64, src : s64, op : u32, sz : u8)
@@ -936,6 +947,7 @@ print_reg::fn(m : *machine, r : u16, sz : u8)
 }
 print_bc::fn(bc : *byte_code, m : *machine)
 {
+	globals.temp_alloc.cur = 0
 	reg_dst := bc.r & 0xf
 	reg_src := (bc.r >> 4) & 0xf
 	mem_offset := bc.mem_offset
@@ -943,19 +955,30 @@ print_bc::fn(bc : *byte_code, m : *machine)
 	num := cast(s64)bc.i
 	sz := cast(u8)((bc.r >> 8) & 0x3)
 
-	if bc.tp == bc_type.CMP_I_2_R
+	if bc.tp == bc_type.MOV_I_2_M || bc.tp == bc_type.ADD_I_2_M ||
+			bc.tp == bc_type.SUB_I_2_M
 	{
-		printf("cmp r%, %;", reg_dst, num)
+		print_inst(bc.op)
+		printf(" [r% + %], %; ", reg_dst, mem_offset, num)
+		print_mem(m, reg_dst, mem_offset, sz)
+		printf("; ")
 		print_reg(m, reg_dst, sz)
 	}
-	else if bc.tp == bc_type.JL
+	else if bc.tp == bc_type.MOVZX_R_2_R
 	{
-		printf("jl %", num)
+		printf("movzx r%, r%; ", reg_dst, reg_src)
+		print_reg(m, reg_dst, sz)
+		printf(", ")
+		print_reg(m, reg_src, sz)
 	}
-	else if bc.tp == bc_type.JE
+	else if bc.tp == bc_type.MOV_R_2_R || bc.tp == bc_type.ADD_R_2_R ||
+			bc.tp == bc_type.SUB_R_2_R
 	{
-		printf("je %", num)
-
+		print_inst(bc.op)
+		printf(" r%, r%; ", reg_dst, reg_src)
+		print_reg(m, reg_dst, sz)
+		printf(", ")
+		print_reg(m, reg_src, sz)
 	}
 	else if bc.tp == bc_type.MOV_I_2_R || bc.tp == bc_type.ADD_I_2_R ||
 			bc.tp == bc_type.SUB_I_2_R
@@ -982,6 +1005,38 @@ print_bc::fn(bc : *byte_code, m : *machine)
 		printf(", ")
 		print_mem(m, reg_src, mem_offset, sz)
 	}
+	else if bc.tp == bc_type.CMP_I_2_R
+	{
+		printf("cmp r%, %;", reg_dst, num)
+		print_reg(m, reg_dst, sz)
+	}
+	else if bc.tp == bc_type.JL
+	{
+		printf("jl %", num)
+	}
+	else if bc.tp == bc_type.JNE
+	{
+		printf("jne %", num)
+	}
+	else if bc.tp == bc_type.JMP
+	{
+		printf("jmp %\n", num)
+	}
+	else if bc.tp == bc_type.JGE
+	{
+		printf("jge %", num)
+
+	}
+	else if bc.tp == bc_type.JLE
+	{
+		printf("jle %", num)
+
+	}
+	else if bc.tp == bc_type.JE
+	{
+		printf("je %", num)
+
+	}
 	else if bc.tp == bc_type.CALL_OUTSIDER
 	{
 		printf("call_outsider %", num)
@@ -994,29 +1049,6 @@ print_bc::fn(bc : *byte_code, m : *machine)
 	{
 		printf("cmp [r% + %], %; ", reg_dst, mem_offset, num)
 		print_mem(m, reg_dst, mem_offset, sz)
-	}
-	else if bc.tp == bc_type.MOV_I_2_M || bc.tp == bc_type.ADD_I_2_M ||
-			bc.tp == bc_type.SUB_I_2_M
-	{
-		print_inst(bc.op)
-		printf(" [r% + %], %; ", reg_dst, mem_offset, num)
-		print_mem(m, reg_dst, mem_offset, sz)
-	}
-	else if bc.tp == bc_type.MOVZX_R_2_R
-	{
-		printf("movzx r%, r%; ", reg_dst, reg_src)
-		print_reg(m, reg_dst, sz)
-		printf(", ")
-		print_reg(m, reg_src, sz)
-	}
-	else if bc.tp == bc_type.MOV_R_2_R || bc.tp == bc_type.ADD_R_2_R ||
-			bc.tp == bc_type.SUB_R_2_R
-	{
-		print_inst(bc.op)
-		printf(" r%, r%; ", reg_dst, reg_src)
-		print_reg(m, reg_dst, sz)
-		printf(", ")
-		print_reg(m, reg_src, sz)
 	}
 	else if bc.tp == bc_type.RET
 	{
@@ -1036,8 +1068,8 @@ print_bc::fn(bc : *byte_code, m : *machine)
 	{
 		__dbg_break
 	}
-	printf(" rsp ")
-	print_reg(m, RSP_REG, sz)
+	//printf(" rsp ")
+	//print_reg(m, RSP_REG, sz)
 	printf("\n")
 	globals.temp_alloc.cur = 0
 }
@@ -1067,4 +1099,61 @@ bc_logic :: fn(m : *machine, bcs : *dyn_array(byte_code), start : u32)
 	}
 	//printf("\n")
 
+}
+compile_str_to_machine::fn(m : *machine, str : str_lit)
+{
+	tkns : dyn_array(token)
+	irs : dyn_array(ir_rep)
+
+	lang_stat :lang_state
+
+	pinfo :parse_info
+	pinfo.tkns = &tkns
+
+	globals.scope_alloc.cur = 1
+
+	root :*scope= new_scope(nil)
+
+
+	Tokenize(&tkns, str)
+	globals.nodes_alloc.cur = 0
+	globals.ast_alloc.cur = 0
+
+	nd :*node= parse_all(&pinfo)
+	ast :*ast_rep= parse_node_to_ast(&lang_stat, nd, root)
+
+	out_decl : *decl
+	done := false
+	for i in 0..5
+	{
+		if descend_name_finding(&lang_stat, ast, root, &out_decl)
+		{
+			break;
+		}
+	}
+
+	lang_stat.flags = LANG_STAT_FLAGS_REPORT_UNDECLARED
+
+	descend_name_finding(&lang_stat, ast, root, &out_decl)
+
+	buffer:[8396]u8
+	//memset(buffer, 0, sizeof(buffer))
+	ast_to_ir(&lang_stat, ast, root, &irs)
+	ir_to_bc(m, &irs, &m.bcs)
+
+	dyn_init2(&m.data, 8300, globals.alloc)
+	//m.data.data = buffer
+	m.data.count = m.data.cap
+	rbp := get_reg(m, RBP_REG)
+	*rbp = 1024
+
+	rsp := get_reg(m, RSP_REG)
+	*rsp = 1024
+
+/*
+	*buffer[2000] = 1
+	__dbg_break
+	bc_logic(m, &m.bcs, 0)
+	__dbg_break
+	*/
 }

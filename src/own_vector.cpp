@@ -64,8 +64,8 @@ namespace own_std
 			}
 			else
 			{
-				memcpy(buffer, data_, sz);
-				memcpy(buffer + sz, data_ + offset + sz, len - (offset + sz));
+				memcpy(buffer, data_, offset);
+				memcpy(buffer + offset, data_ + offset + sz, len - (offset + sz));
 			}
 			__lang_globals.free(__lang_globals.data, data_);
 			data_ = buffer;

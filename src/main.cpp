@@ -4217,10 +4217,10 @@ void CheckOpenGLError(const char* stmt, const char* fname, int line)
 #else
 #define GL_CHECK(stmt) stmt
 #endif
-void UpdateTexture(dbg_state* dbg)
+void UpdateTexture(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
-	int base_ptr = *(int*)GetRegValPtr(0, dbg, STACK_PTR_REG);
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int tex_id = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int x_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int y_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
@@ -4234,7 +4234,7 @@ void UpdateTexture(dbg_state* dbg)
 	glBindTexture(GL_TEXTURE_2D, t->id);
 	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
 	GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, x_offset, y_offset, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data_ptr));
-	stbi_write_png("dbg_img.png", width, height, 4, data_ptr, width * 4);
+	//stbi_write_png("dbg_img.png", width, height, 4, data_ptr, width * 4);
 
 	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData.data());
 
@@ -4264,10 +4264,9 @@ void CopyTextureToBuffer(dbg_state* dbg)
 	stbi_write_png("dbg_img.png", width, height, 4, buffer_ptr, width * 4);
 
 }
-int GenRawTexture(dbg_state* dbg)
+int GenRawTexture(int thread_id, dbg_state* dbg)
 {
-	auto gl_state = (open_gl_state*)dbg->data;
-	int base_ptr = *(int*)GetRegValPtr(0, dbg, STACK_PTR_REG);
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int sz_x = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int sz_y = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	unsigned int texture;
@@ -4287,6 +4286,7 @@ int GenRawTexture(dbg_state* dbg)
 
 	//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
 	//stbi_write_png("dbg_img.png", width, height, 4, src, width * 4);
+	auto gl_state = (open_gl_state*)dbg->data;
 	int idx = GetTextureSlotId(gl_state);
 	texture_info* tex = &gl_state->textures[idx];
 	tex->id = texture;
@@ -4294,6 +4294,7 @@ int GenRawTexture(dbg_state* dbg)
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
 
 	heap_free((mem_alloc*)__lang_globals.data, (char*)src);
+	*(u64*)&dbg->mem_buffer[RET_1_REG * 8] = idx;
 
 	return idx;
 }
@@ -5411,6 +5412,8 @@ void PlayAudioByHandle(int thread_id, dbg_state* dbg)
 	int audio_clip = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	float volume = *(float *)&dbg->mem_buffer[base_ptr + 16];
 	float speed = *(float *)&dbg->mem_buffer[base_ptr + 24];
+
+	printf("vol: %.3f, speed: %.3f\n", volume, speed);
 	auto gl_state = (open_gl_state*)dbg->data;
 	AudioClip* clip = gl_state->sound->audio_clips_src[audio_clip];
 	ASSERT(clip);
@@ -6669,7 +6672,7 @@ static int audio_callback(
 		active_clips++;
 	}
 
-	float mul = 1.0f / active_clips;
+	float mul = 1.0f;
 
 	int i = 0;
 	FOR_VEC(it, sound->audio_clips_to_play) {
@@ -6708,6 +6711,7 @@ static int audio_callback(
 	float dt = 1.0f / 44100.0f;  // Sample rate
 	float alpha = dt / (rc + dt);
 
+	/*
 	for (int i = 0; i < frameCount; i++)
 	{
 		// Generate white noise
@@ -6725,6 +6729,7 @@ static int audio_callback(
 		*out++ += filtered * 32767 * 0.5; // Left
 		*out++ += filtered * 32767 * 0.5; // Right
 	}
+		*/
 	i = 0;
 	FOR_VEC(it, sound->audio_clips_to_play)
 	{

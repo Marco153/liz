@@ -52,6 +52,7 @@ context: struct
 	area_col_pos : _vec
 	area_col_size : _vec
 
+
 	step_audio_idxs : [2]u32
 	frames : *frame_info,
 	frames_max : u32,
@@ -77,6 +78,9 @@ context: struct
 	bullets : dyn_array(*entity)
 
 	items_texs : clip,
+
+	abcd_texs : clip,
+	screen_tex_id : u32
 
 	character_texs : clip,
 	shock_small_texs : clip,
@@ -131,7 +135,9 @@ context: struct
 	
 	spear_clip : *clip2,
 
+
 	*/
+	computer_screen_tex_buffer : *u8
 	ent_collider_modify : bool
 
 	gjk : *gjk_state
@@ -252,7 +258,11 @@ context: struct
 	test_ent : *entity
 
 	cur_preview_idx : u8
+
+	mach : machine
 }
+
+
 INACTIVE_FLAGS_GET_FIRST_WHEN_NONE_FOUND:const s32= 1
 get_inactive_ent::fn(ctx : *context, ar : *dyn_array(*entity), flags : u32) ! *entity
 {
@@ -3447,10 +3457,6 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	for i2 in 0..globals.entities.max
 	{
 		ent := ptr_offset(globals.entities.start, i2, entity);
-		if str_cmp(ent.name, "item_idx79")
-		{
-			__dbg_break
-		}
 
 		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
 		{
@@ -3650,6 +3656,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 						{
 							ent.playable_func = enemy_mov
 							ent.col_stay = enemy_collision_stay
+							ent.en_info.origin_pos = ent.pos
 						}
 					}
 					ent_part_of.ANIMATION
@@ -3928,7 +3935,12 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		if IsMouseDown(mouse_enum.LEFT) && IsKeyHeld(key_enum.KEY_SHIFT)
 		{
 			start_pos = point
+			//__dbg_break
 			aux_ent = new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
+			aux_ent.tex_id = ctx.screen_tex_id
+			tinfo :texture_info
+			tinfo.id = ctx.screen_tex_id
+			set_shader_uniform_sampler2d(ctx, aux_ent, "tex", &tinfo)
 			c1 := cast(*collider)aux_ent.col
 			c1.data_ready = false
 			aux_ent.rot = ctx.grid_ent.vel
@@ -4598,7 +4610,7 @@ enemy_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 	}
 
 	prev_y := ent.vel.y
-	ent.vel = dir + ent.impact_vel
+	ent.vel = dir * 4.0 + ent.impact_vel
 	ent.vel.y += prev_y + -1.0
 	ent.sec_color.w = 1.0
 
@@ -5406,10 +5418,38 @@ assign_bodies_to_chunks::fn(ctx : *context)
 
 	}
 }
+copy_region_to_buffer::fn(ctx : *context, dst : *void, x_offset : u32, y_offset : u32, src_width : u32, src_height : u32, dst_width: u32, dst_height: u32, data : *u8)
+{
+	dst_offset :u64= x_offset * 4 + y_offset * dst_width * 4;
+	src_offset :u64= 0;
+	sz: = cast(u64)src_width * 4;
+	//printf("xoffset %, yoffset %, src_offset %\n", x_offset, y_offset, src_offset);
+	for h in 0..src_height
+	{
+		memcpy(ptr_offset(dst, dst_offset, u8), ptr_offset(data, src_offset, u8), sz);
+		src_offset += src_width * 4;
+		dst_offset += dst_width * 4;
+	}
+}
+update_screen_texture::fn(ctx : *context, m : *machine)
+{
+	buffer : [8 * 8]u32
+	memset(buffer, 0xff, 8 * 8 * 4)
+	memset(ctx.computer_screen_tex_buffer, 0, 256 * 256 * 4)
+
+	t : texture_info=?
+	id := ctx.screen_tex_id
+
+	for i in 0..4
+	{
+		copy_region_to_buffer(ctx, ctx.computer_screen_tex_buffer, cast(u32)i * 8 , 0, 8, 8, 256, 256, cast(*u8)buffer[0])
+	}
+	UpdateTexture(id, 0, 0, 256, 256, ctx.computer_screen_tex_buffer)
+
+}
 main_loop::fn(ctx : *context)
 {
-	val_tast := 5
-	//render_thread_id := CreateThread(render_thread, ctx)
+	ctx.computer_screen_tex_buffer = heap_alloc(ctx.alloc, 256 * 256 * 4)
 
 	ctx.cur_model_selected_idx = -1
 	ctx.session_id = cast(u32)(Rand01() * 1000.0)
@@ -5460,6 +5500,20 @@ main_loop::fn(ctx : *context)
 		//AssignStr(&mat.name, cast(str_lit)ctx.save_scene_buffer[0])
 	}
 
+	compile_str_to_machine(&ctx.mach, 
+"main:fn()\{
+	i:u64
+	while i < 8
+	\{
+		*cast(*u8)0[$i + 4000] = 67
+		i + 1
+	\}
+	if *cast(*u8)0[2000] == 1
+	\{
+		*cast(*u8)0[4003] = 68
+	\}
+\}")
+
 
 	//using ctx;
 	draw:draw_info3d;
@@ -5474,6 +5528,8 @@ main_loop::fn(ctx : *context)
 	other_block :_vec;
 	other_block.x = 5.0;
 	other_block.y = 0.0;
+
+	globals.cam_pos = &cam_pos
 
 	ctx.cam_pos_global = &cam_pos;
 	cam_pos.z = 5.0
@@ -5818,8 +5874,26 @@ main_loop::fn(ctx : *context)
 	StepCol(ctx, 0.0)
 	assign_bodies_to_chunks(ctx)
 
+	
+	ctx.screen_tex_id = GenRawTexture(256, 256)
+
 	while !ShouldClose(ctx.window)
 	{
+
+		rsp := get_reg(&ctx.mach, RSP_REG)
+		*rsp = 1024
+		rbp := get_reg(&ctx.mach, RBP_REG)
+		*rbp = 1024
+		*cast(*u64)ctx.mach.data[*rsp] = 0
+		*cast(*bool)ctx.mach.data[2000] = IsKeyHeld(key_enum.KEY_P)
+
+		//val_t := *cast(*u32)ctx.mach.data[4000]
+
+		//printf("val is {val_t}\n")
+
+
+
+		bc_logic(&ctx.mach, &ctx.mach.bcs, 0)
 		dt_aux: = GetTime() - last_time;
 		dt: = 0.017;
 
@@ -6171,8 +6245,7 @@ main_loop::fn(ctx : *context)
 					}
 					else
 					{
-
-						cube.tex_id = cast(u32)ctx.textures[ctx.grass_tex].id
+						cube.tex_id = ctx.screen_tex_id
 					}
 				}
 				if IsMouseUp(mouse_enum.LEFT)
@@ -6467,6 +6540,7 @@ main_loop::fn(ctx : *context)
 		//WaitThread(render_thread_id)
 		//ResumeThread(render_thread_id)
 
+		update_screen_texture(ctx, &ctx.mach)
 		emmitters_func(ctx, dt)
 		DrawEnts(ctx, ctx.cam_pos_global, ctx.cam_rot_global)
 		LookAtPlayerEnts(ctx, ctx.cam_pos_global, ctx.cam_rot_global)
@@ -6542,7 +6616,7 @@ main:: fn(){
 	euler_to_quaternion2(-8.103, 0.0, 8.103, &q_aux2)
 	ctx: context
 	AssignCtxAddr(&ctx);
-	InitMemAlloc(&ctx.main_alloc, 76000);
+	InitMemAlloc(&ctx.main_alloc, 108600);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
@@ -6654,6 +6728,9 @@ main:: fn(){
 
 	ctx.step_audio_idxs[0] = GetAudioHandle("step1.flac")
 	ctx.step_audio_idxs[1] = GetAudioHandle("step2.flac")
+
+	globals.item_pick_sound_handle = GetAudioHandle("item_pick.flac")
+	globals.magic_hit_sound_handle = GetAudioHandle("item_hit.flac")
 	
 	ctx.white_tex = load_tex(&ctx, "white.png", 0, 0, 32, 32)
 	ctx.grass_tex = load_tex(&ctx, "grass.png", 0, 0, 32, 32)
@@ -6676,6 +6753,7 @@ main:: fn(){
 	shock_medium_clip: = CreateAnim(&ctx, 0, 3, ctx.shock_medium_texs.tex_idxs, ctx.shock_medium_texs.total_texs);
 
 	LoadClip("items.png", 0, 0, 16, 16, 2, 1.0, &ctx.items_texs);
+	LoadClip("abcd.png", 0, 0, 6, 8, 26, 1.0, &ctx.abcd_texs);
 
 	idle_clip.loop = true
 	walk_clip.loop = true

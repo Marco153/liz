@@ -31,6 +31,7 @@ ir_val : struct
 
 ir_type : etruct
 {
+	NONE,
 	CAST_INT_2_INT(
 		lhs : ir_val,
 		rhs : ir_val,
@@ -56,6 +57,8 @@ ir_type : etruct
 		line : u32
 	),
 	END_STMNT,
+
+	RET,
 
 	BEGIN_IF,
 	END_IF,
@@ -177,6 +180,7 @@ alloc_reg::fn(lang_stat: *lang_state) !u8
 }
 add_ir::fn(out : *dyn_array(ir_rep), ir : *ir_rep, ast: *ast_rep)
 {
+	ASSERT(ir.type != ir_type.NONE)
 	ir.ast = ast
 	dyn_add(out, ir)
 }
@@ -247,10 +251,28 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 						idx: = cast(u64)ir.BIN.lhs.REG.r
 						* lang_stat.reg_types[idx] = ir.BIN.rhs.ltype
 						ret.ltype = ir.BIN.rhs.ltype
+						//ir.BIN.lhs.deref++;
+
 					}
 				}
+				if ir.BIN.lhs.type == ir_val_type.MEM && ir.BIN.rhs.type == ir_val_type.MEM
+				{
+					ir2 : ir_rep
+					ir2.type = ir_type.BIN
+					ir2.BIN.op = cast(u32)token_type.EQUAL
+					ir2.BIN.lhs.type = ir_val_type.REG
+					ir2.BIN.lhs.REG.r = alloc_reg(lang_stat)
+					ir2.BIN.lhs.sz = 8
+					ir2.BIN.rhs = ir.BIN.rhs
+					add_ir(out, &ir2, ast)
 
-				ir.BIN.lhs.ltype.ptr--
+					ir.BIN.rhs = ir2.BIN.lhs
+				}
+
+				if ir.BIN.lhs.ltype.ptr > 0
+				{
+					ir.BIN.lhs.ltype.ptr--
+				}
 
 				if !type_check(lang_stat, &ir.BIN.lhs.ltype, &ir.BIN.rhs.ltype)
 				{
@@ -334,14 +356,14 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 		else if ast.BIN.op == cast(u32)token_type.COLON
 		{
 			ret = ast_to_ir(lang_stat, *ast.BIN.expr[0], scp, out)
+			ast_to_ir(lang_stat, *ast.BIN.expr[1], scp, out)
 		}
-		else// if ast.BIN.op == cast(u32)token_type.NEW_LINE
+		else
 		{
-			//__dbg_break
 			ret = ast_to_ir(lang_stat, *ast.BIN.expr[0], scp, out)
 			if check_decl_in_lhs(lang_stat, &ret)
 			{
-				__dbg_break
+				//__dbg_break
 			}
 			i := 0
 			//__dbg_break
@@ -386,6 +408,10 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 					else if ast.BIN.op == cast(u32)token_type.COND_LE
 						ast.BIN.op = cast(u32)token_type.COND_GT
 					ir.is_and_like_cond = true
+				}
+				if ret.ptr > 0
+				{
+					ret.deref = ret.ptr
 				}
 				ir.BIN.op = ast.BIN.op
 				ir.BIN.lhs = ret
@@ -494,41 +520,19 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 				__dbg_break
 			}
 			*/
-			ir.type = ir_type.BIN
-			ir.BIN.op = cast(u32)token_type.EQUAL
-			ir.BIN.lhs.type = ir_val_type.REG
-			ir.BIN.lhs.REG.r = alloc_reg(lang_stat)
-			ir.BIN.lhs.sz = 8
 
-			ASSERT(ret.type != ir_val_type.INT)
-
-			ir.BIN.rhs = ret
-
-			ltp = ret.ltype
-
-			if ltp.tp == lang_type_type.INT
-			{
-				ltp.tp = lang_type_type.S64
-			}
-
-			if ir.BIN.rhs.type == ir_val_type.REG
-			{
-				r := ret.REG.r
-				ir.BIN.rhs.type = ir_val_type.MEM
-				ir.BIN.rhs.MEM.mem_offset = 0
-			}
-
-			ret = ir.BIN.lhs
-
-			ret.ltype = ltp
-
+			ret.deref--;
 			if ret.ltype.ptr > 0
 			{
 				ret.ltype.ptr--
 			}
 
-			add_ir(out, &ir, ast)
+			//add_ir(out, &ir, ast)
 
+		}
+		else if  ast.UNOP.op == cast(u32)token_type.MUL 
+		{
+			ret.deref++;
 		}
 		else if ast.UNOP.op == cast(u32)token_type.DOLAR
 		{
@@ -542,7 +546,10 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 			ltp = ret.ltype
 			if ltp.tp != lang_type_type.INT
 			{
-				ltp.ptr--
+				if ltp.ptr > 0
+				{
+					ltp.ptr--
+				}
 			}
 			else
 			{
@@ -552,6 +559,7 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 			ret = ir.BIN.lhs
 			ret.ltype = ltp
 
+			add_ir(out, &ir, ast)
 
 		}
 		else
@@ -559,15 +567,21 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 			__dbg_break
 		}
 
-		add_ir(out, &ir, ast)
 	}
 	else if ast.type == ast_type.INDEX
 	{
 		lhs = ast_to_ir(lang_stat, ast.INDEX.lhs, scp, out)
 
-		if lhs.type != ir_val_type.REG
+		if lhs.type == ir_val_type.INT
 		{
-			__dbg_break
+			ir.type = ir_type.BIN
+			ir.BIN.op = cast(u32)token_type.EQUAL
+			ir.BIN.lhs.type = ir_val_type.REG
+			ir.BIN.lhs.REG.r = alloc_reg(lang_stat)
+			ir.BIN.lhs.sz = 8
+			ir.BIN.rhs = lhs
+			add_ir(out, &ir, ast)
+			lhs = ir.BIN.lhs
 		}
 
 		rhs = ast_to_ir(lang_stat, ast.INDEX.rhs, scp, out)
@@ -598,6 +612,7 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 	}
 	else if ast.type == ast_type.IF
 	{
+
 		if_idx := begin_block(cast(u32)ir_type.BEGIN_IF, out)
 
 		sub_if_idx := begin_block(cast(u32)ir_type.BEGIN_SUB_IF, out)
@@ -636,11 +651,20 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 		{
 			st_idx := begin_block(cast(u32)ir_type.BEGIN_STMNT, out)
 			out[cast(u64)st_idx].BEGIN_STMNT.line = s.t.line
-
-			ast_to_ir(lang_stat, *s, ast.SCOPE.scp, out)
+			if is_ast_bin(*s, cast(u32)token_type.COLON) == false
+			{
+				ast_to_ir(lang_stat, *s, ast.SCOPE.scp, out)
+			}
 
 			end_block(cast(u32)ir_type.END_STMNT, st_idx, out)
 		}
+	}
+	else if ast.type == ast_type.CAST
+	{
+		ret = ast_to_ir(lang_stat, ast.CAST.rhs, scp, out)
+		ret.ltype = ast.CAST.type
+		ret.deref = 0;
+		ret.ptr = ret.ltype.ptr
 	}
 	else if ast.type == ast_type.INT
 	{
@@ -650,6 +674,18 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 		//if ret.INT.num == 3
 			//__dbg_break;
 		ret.sz = 4
+	}
+	else if ast.type == ast_type.FUNC
+	{
+		ast_to_ir(lang_stat, ast.FUNC.scp_ast, scp, out)
+		last := dyn_last(&ast.FUNC.scp_ast.SCOPE.stmnts)
+		if last == nil || last.type != ast_type.RET
+		{
+			ir.type = ir_type.END_STACK
+			ir.END_STACK.fdecl = lang_stat.cur_func
+			add_ir(out, &ir, ast)
+		}
+
 	}
 	else if ast.type == ast_type.WORD
 	{
@@ -672,7 +708,7 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 			ret.MEM.mem_offset = d.offset
 			ret.ltype = d.tp
 			ret.sz = cast(u8)lget_type_size(&d.tp)
-			ret.ltype.ptr = 1
+			ret.ltype.ptr = 0
 		}
 	}
 	else

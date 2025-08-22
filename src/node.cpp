@@ -1262,6 +1262,7 @@ node* node_iter::parse_expr()
 	case tkn_type2::T_STR_LIT:
 	{
 		n->type = node_type::N_STR_LIT;
+		n->t = cur_tkn;
 		int i = 0;
 
 		auto peek = peek_tkn();
@@ -1292,6 +1293,8 @@ node* node_iter::parse_expr()
 					str.erase(clamped, 1);
 					ref_str.pop_back();
 					ref_str += '{';
+					continue;
+
 				}
 				else
 				{
@@ -1312,6 +1315,7 @@ node* node_iter::parse_expr()
 				str.erase(clamped, 1);
 				ref_str.pop_back();
 				ref_str += '}';
+				continue;
 			}
 			else
 			{
@@ -1320,6 +1324,7 @@ node* node_iter::parse_expr()
 			}
 			i++;
 		}
+		n->t->str = ref_str;
 
 		if (args.size() > 0)
 		{
@@ -5503,12 +5508,12 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	//BREAK(ncall->t->line == 670)
 	defer_strct dfr(scp, lhs->type.fdecl, lang_stat);
 	lang_stat->flags |= PSR_FLAGS_ON_FUNC_CALL;
+	//BREAK(lhs->type.fdecl->name == "PlayAudioByHandle")
 	//printf("on call %.*s, line %d\n", lhs->name.size(), lhs->name.data(), ncall->t->line);
-	if(lhs->type.type == TYPE_FUNC && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_TEMPLATED))
+	if((lhs->type.type == TYPE_FUNC || lhs->type.type == TYPE_FUNC_EXTERN) && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_TEMPLATED))
 	{
 		//scp->vars.insert(scp->vars.end(), lhs->type.fdecl->args.begin(), lhs->type.fdecl->args.end());
 		//scp->call_args.insert(scp->call_args.lhs->type.fdecl->args.begin(), lhs->type.fdecl->args.end());
-		//BREAK(ncall->t->line == 512)
 		scp->call_args.make_count(scp->call_args.size() + 1);
 		own_std::vector<decl2 *> *ar = &scp->call_args.back();
 		ar->clear();
@@ -5742,6 +5747,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				*/
 			}
 			bool same_number_of_args = args.size() == lhs->type.fdecl->args.size();
+			//BREAK(lhs->type.fdecl->name == "PlayAudioByHandle")
 			if(has_arg_assignment || IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_HAS_DEFAULT_ARGUMENTS) && !same_number_of_args)
 			{
 				MaybeSortArgs(lang_stat, ncall, lhs->type.fdecl, &args);
@@ -6024,29 +6030,6 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				//ASSERT(var_arg_strct);
 
 			int var_args_arg_start = fdecl_arg_idx;
-
-			// in var_args
-			/*
-			for (int i = fdecl->args.size(); i < args.size(); i++)
-			{
-				auto a = &args[i];
-				// inserting something like
-				// new_var_arg(a, ptr, get_type_data(a))
-				char code[128];
-				auto var_args_call_nd = CreateNewVarArgCall(lang_stat, a->n, a->n, a->decl.type.ptr, ncall);
-
-				memcpy(a->n, var_args_call_nd, sizeof(node));
-
-				if (!DescendNameFinding(lang_stat, a->n, scp))
-				{
-					ASSERT(false);
-				}
-
-
-				//scp->fdecl->call_strcts_val_sz += var_arg_strct->type.strct->size;
-				fdecl_arg_idx++;
-			}
-			*/
 
 			if (fdecl->ret_type.type == TYPE_STRUCT && fdecl->ret_type.ptr == 0)
 				scp->fdecl->per_stmnt_strct_val_sz += fdecl->ret_type.strct->size;
@@ -10990,6 +10973,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			if (fdecl->name == "sizeof")
 			{
 				ret_type.type = TYPE_INT;
+				//BREAK(n->t->line == 1133)
 				ret_type.i = GetTypeSize(&args[0].decl.type);
 			}
 			else if (fdecl->name == "GetTypeData")

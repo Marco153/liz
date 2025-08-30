@@ -5257,6 +5257,8 @@ void LoadTexFolder(int thread_id, dbg_state* dbg)
 		cur_tex->idx = tex_idx;
 		cur_tex->idx_on_array = i;
 
+		printf("img name %s, data_off %d, width %d\n", name, cur_tex->data, cur_tex->width);
+
 		cur_tex++;
 
 		i++;
@@ -6079,13 +6081,13 @@ void CompileShader2(int thread_id, dbg_state* dbg)
 
 	char prev_char = vs_str[vs_len];
 	vs_str[vs_len] = 0;
-	printf("compiling vertex shader:\n%s\n", vs_str);
+	//printf("compiling vertex shader:\n%s\n", vs_str);
     GLuint vs = compileShader(GL_VERTEX_SHADER, vs_str);
 	vs_str[vs_len] = prev_char;
 
 	prev_char = fs_str[fs_len];
 	fs_str[fs_len] = 0;
-	printf("compiling fragment shader:\n%s\n", fs_str);
+	//printf("compiling fragment shader:\n%s\n", fs_str);
     GLuint fs = compileShader(GL_FRAGMENT_SHADER, fs_str);
 	fs_str[fs_len] = prev_char;
 

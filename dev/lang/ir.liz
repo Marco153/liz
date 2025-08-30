@@ -663,6 +663,7 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 	{
 		ret = ast_to_ir(lang_stat, ast.CAST.rhs, scp, out)
 		ret.ltype = ast.CAST.type
+		ret.sz = cast(u8)lget_type_size(&ast.CAST.type)
 		ret.deref = 0;
 		ret.ptr = ret.ltype.ptr
 	}
@@ -677,6 +678,12 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 	}
 	else if ast.type == ast_type.FUNC
 	{
+		cur_addr:u32
+		for d in ast.FUNC.fdecl.vars
+		{
+			d.offset = cast(s32)cur_addr
+			cur_addr += lget_type_size(&d.tp)
+		}
 		ast_to_ir(lang_stat, ast.FUNC.scp_ast, scp, out)
 		last := dyn_last(&ast.FUNC.scp_ast.SCOPE.stmnts)
 		if last == nil || last.type != ast_type.RET
@@ -685,6 +692,7 @@ ast_to_ir::fn(lang_stat: *lang_state, ast : *ast_rep, scp : *scope, out : *dyn_a
 			ir.END_STACK.fdecl = lang_stat.cur_func
 			add_ir(out, &ir, ast)
 		}
+
 
 	}
 	else if ast.type == ast_type.WORD

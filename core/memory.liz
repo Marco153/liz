@@ -139,6 +139,17 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 }
 MEM_TYPE: const s32 = 0;
 
+memset32::fn x64(dst : *void, val : u32, sz : u64) !void
+{
+	ASSERT(cast(u64)dst > 128);
+	i:u64 = 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u32) = val;
+		i++;
+	}
+
+}
 #if MEM_TYPE == 0
 {
 	memset::fn outsider(dst : *void, val : u8, sz : u64) !void;

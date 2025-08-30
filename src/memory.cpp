@@ -377,12 +377,12 @@ unsigned char *PlatformGetMem(unsigned int sz, int flags)
 
 void InitMemAlloc(mem_alloc *alloc)
 {
-    long long all_chunks_sz = alloc->chunks_cap * sizeof(mem_chunk);
-    long long chunks_total_size = alloc->chunks_cap * BYTES_PER_CHUNK;
+    long long mem_chunks_size = 32000000 * sizeof(mem_chunk);
+    long long raw_mem_size = alloc->chunks_cap * BYTES_PER_CHUNK;
 	long long in_use_hash_sz = alloc->in_use.hash_table_size * sizeof(heap_hash::inner);
 	long long unallocated_sz = UNALLOCATED_BUFFER_ITEMS * 8;
 
-	long long total_size = all_chunks_sz + chunks_total_size + in_use_hash_sz + unallocated_sz;
+	long long total_size = mem_chunks_size + raw_mem_size + in_use_hash_sz + unallocated_sz;
 
 
 	char* start = nullptr;
@@ -393,6 +393,7 @@ void InitMemAlloc(mem_alloc *alloc)
 	else
 		start = alloc->main_buffer;
 	char* buffer = start;
+	printf("total memory %dmb\n", total_size / 1024 / 1024);
 	memset(start, 0, total_size);
 
 	alloc->main_buffer = start;
@@ -400,14 +401,14 @@ void InitMemAlloc(mem_alloc *alloc)
 
 	alloc->all = (mem_chunk*)buffer;
 
-	buffer += all_chunks_sz;
+	buffer += mem_chunks_size;
 
 	alloc->probable_unallocated = (mem_chunk**)(buffer);
 
 	buffer += unallocated_sz;
 
 	alloc->buffer = (char*)buffer;
-	buffer += chunks_total_size;
+	buffer += raw_mem_size;
 	
 	alloc->in_use.data = (heap_hash::inner*)buffer;
 
@@ -416,7 +417,7 @@ void InitMemAlloc(mem_alloc *alloc)
     mem_chunk *free = GetUnallocatedChunk(alloc);
 	//alloc->in_use.reserve(HASH_TABLE_SIZE);
 
-	free->size = chunks_total_size / BYTES_PER_CHUNK;
+	free->size = raw_mem_size / BYTES_PER_CHUNK;
     free->addr = alloc->buffer;
 
 

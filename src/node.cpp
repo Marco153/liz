@@ -288,7 +288,7 @@ char* AllocMiscData(lang_state *lang_stat, int sz)
 char* std_str_to_heap2(own_std::string* str)
 {
 	int sz = str->size();
-	auto buffer = (char*)malloc(sz);
+	auto buffer = (char*)malloc(sz + 1);
 	memcpy(buffer, str->data(), sz);
 	buffer[sz] = 0;
 	return buffer;
@@ -5748,7 +5748,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			}
 			bool same_number_of_args = args.size() == lhs->type.fdecl->args.size();
 			//BREAK(lhs->type.fdecl->name == "PlayAudioByHandle")
-			if(has_arg_assignment || IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_HAS_DEFAULT_ARGUMENTS) && !same_number_of_args)
+			if(lhs->type.type != TYPE_OVERLOADED_FUNCS && 
+				(has_arg_assignment || IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_HAS_DEFAULT_ARGUMENTS) && !same_number_of_args))
 			{
 				MaybeSortArgs(lang_stat, ncall, lhs->type.fdecl, &args);
 				args.clear();

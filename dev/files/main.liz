@@ -98,6 +98,8 @@ context: struct
 	grid_tex : u64
 	grid_transparent_tex : u64
 
+	abcd_tex_info_idx : u32
+
 	y_axis_ent : *entity
 
 	/*
@@ -5431,20 +5433,93 @@ copy_region_to_buffer::fn(ctx : *context, dst : *void, x_offset : u32, y_offset 
 		dst_offset += dst_width * 4;
 	}
 }
+unpack_color::fn(col : u8) ! u32
+{
+	ret : u32
+
+	brightness := cast(u32)(col >> 6)
+	brightness_final :u32
+	//brightness = brightness
+	r := cast(u32)(col & 3)
+	g := cast(u32)((col >> 2) & 3)
+	b := cast(u32)((col >> 4) & 3)
+
+	if brightness == 0
+	{
+		r = 0
+		g = 0
+		b = 0
+	}
+	else
+	{
+		brightness_final = (3 * 255) / brightness
+
+		if r != 0
+			r = (3 * 255) / r;
+
+		if g != 0
+			g = (3 * 255) / g;
+
+		if b != 0
+			b = (3 * 255) / b;
+
+		brightness = 3 - brightness
+		r_part := r / 4;
+		g_part := g / 4;
+		b_part := b / 4;
+
+		r = r - (brightness * r_part)
+		g = g - (brightness * g_part)
+		b = b - (brightness * b_part)
+	}
+	ret = cast(u32)r | ((cast(u32)g) << 8)
+	ret = ret | ((cast(u32)b) << 16)
+	ret = ret | ((cast(u32)brightness_final) << 24)
+	return ret
+}
 update_screen_texture::fn(ctx : *context, m : *machine)
 {
 	buffer : [8 * 8]u32
-	memset(buffer, 0xff, 8 * 8 * 4)
-	memset(ctx.computer_screen_tex_buffer, 0, 256 * 256 * 4)
+	letter_width := 6
+	letter_height := 8
+	//memset(ctx.computer_screen_tex_buffer, 0, 256 * 256 * 4)
 
-	t : texture_info=?
+	t : *texture_info=ctx.textures[cast(u64)ctx.abcd_tex_info_idx]
 	id := ctx.screen_tex_id
 
 	for i in 0..4
 	{
+		info := *cast(*u32)ctx.mach.data[4000 + cast(u64)i * 4]
+		letter := cast(u32)cast(u16)info
+		letter_col := cast(u8)(info >> 16)
+		background_col := cast(u8)(info >> 24)
+		letter_idx := letter - cast(u32)'a
+
+		unpacked_letter_color := unpack_color(letter_col)
+		unpacked_background_color := unpack_color(background_col)
+
+		memset32(buffer[0], unpacked_background_color, 8 * 8)
+
+		letter_src := ptr_offset(t.data, letter_idx * cast(u32)letter_width * 4, u8)
+		for y in 0..letter_height
+		{
+			for x in 0..letter_width
+			{
+				cur_src_col := ptr_offset(letter_src, x * 4 + y * cast(s64)t.width * 4, u8)
+				cur_dst_col := ptr_offset(buffer[0], x * 4 + y * 8 * 4, u8)
+				cur_src_col32 := *cast(*u32)cur_src_col
+				if cur_src_col32 != 0
+				{
+					ASSERT(cast(u64)cur_dst_col < 56000)
+					*cast(*u32)cur_dst_col = unpacked_letter_color
+				}
+			}
+		}
+
 		copy_region_to_buffer(ctx, ctx.computer_screen_tex_buffer, cast(u32)i * 8 , 0, 8, 8, 256, 256, cast(*u8)buffer[0])
 	}
 	UpdateTexture(id, 0, 0, 256, 256, ctx.computer_screen_tex_buffer)
+	//__dbg_break
 
 }
 main_loop::fn(ctx : *context)
@@ -5500,20 +5575,35 @@ main_loop::fn(ctx : *context)
 		//AssignStr(&mat.name, cast(str_lit)ctx.save_scene_buffer[0])
 	}
 
+/*
 	compile_str_to_machine(&ctx.mach, 
 "main:fn()\{
 	i:u64
+	i = 0
 	while i < 8
 	\{
-		*cast(*u8)0[$i + 4000] = 67
+		cur :u32
+		cur = i
+		cur * 4
+		r0 = 400
+		*@(*d)($cur +4000)=0
+		*@(*w)($cur +4000)=97
+		
+		*cast(*u8)0[$cur + 2 + 4000] = 204
+		*cast(*u8)0[$cur + 3 + 4000] = 131
 		i + 1
 	\}
 	if *cast(*u8)0[2000] == 1
 	\{
-		*cast(*u8)0[4003] = 68
+		*cast(*u32)0[4004] = 0
+
+		*cast(*u16)0[4004] = 98
+		*cast(*u8)0[4006] = 255
+		*cast(*u8)0[4007] = 131
 	\}
 \}")
 
+*/
 
 	//using ctx;
 	draw:draw_info3d;
@@ -5880,6 +5970,7 @@ main_loop::fn(ctx : *context)
 	while !ShouldClose(ctx.window)
 	{
 
+/*
 		rsp := get_reg(&ctx.mach, RSP_REG)
 		*rsp = 1024
 		rbp := get_reg(&ctx.mach, RBP_REG)
@@ -5891,9 +5982,17 @@ main_loop::fn(ctx : *context)
 
 		//printf("val is {val_t}\n")
 
-
-
 		bc_logic(&ctx.mach, &ctx.mach.bcs, 0)
+		*/
+
+		for i2 in 0..4
+		{
+			val := *cast(*u32)ptr_offset(ctx.mach.data.data, 4000 + i2 * 4, u8)
+			printf("i{i2} is {val}, ")
+
+		}
+		printf("\n")
+
 		dt_aux: = GetTime() - last_time;
 		dt: = 0.017;
 
@@ -6772,8 +6871,18 @@ main:: fn(){
 	*ctx.curtain[2] = 0.0;
 	*ctx.curtain[3] = 0.0;
 
+	i := 0
+	for t in ctx.textures
+	{
+		if str_cmp(t.name, "abcd.png")
+		{
+			break
+		}
+		i++
+	}
+
+	ctx.abcd_tex_info_idx = cast(u32)i
+
 
 	main_loop(&ctx);
-
-
 }

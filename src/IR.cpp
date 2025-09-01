@@ -2960,7 +2960,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			char last_ptr = top->ptr;
 			bool is_int = e->cast.type.type == TYPE_U32 || e->cast.type.type == TYPE_S32 || e->cast.type.type == TYPE_S64 || e->cast.type.type == TYPE_U64;
 
-			//BREAK(e->line_number == 1954)
+			//HERE();
 
 			if (is_int && top->is_float == true && top->ptr == 0)
 			{
@@ -2985,6 +2985,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.bin.lhs.deref = -1;
 				ir.bin.lhs.reg_sz = GetTypeSize(&e->cast.type);
 				ir.bin.lhs.reg_sz = clamp(ir.bin.lhs.reg_sz, 1, 8);
+				ir.bin.lhs.is_unsigned = IsUnsigned(e->cast.type.type);
 				if (top->type == IR_TYPE_REG)
 					ir.bin.lhs.reg = top->reg;
 				else
@@ -3084,6 +3085,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 						ir.bin.lhs.reg = AllocReg(lang_stat);
 
 					ir.bin.rhs = *top;
+					ir.bin.lhs.is_unsigned = IsUnsigned(e->cast.type.type);
 					out->emplace_back(ir);
 					*top = ir.bin.lhs;
 				}

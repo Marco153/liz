@@ -218,6 +218,7 @@ T GetTagVal(own_std::vector<tag_strct<T>>* ar, long long target_tag)
 char* GetFuncBasedOnAddr(unsigned long long offset);
 func_decl *IsThereAFunction(lang_state *lang_stat, char *name)
 {
+	
 	FOR_VEC(it, lang_stat->global_funcs)
 	{
 		auto f = *it;
@@ -296,7 +297,7 @@ char* std_str_to_heap2(own_std::string* str)
 char* std_str_to_heap(lang_state *lang_stat, own_std::string* str)
 {
 	int sz = str->size();
-	auto buffer = (char*)AllocMiscData(lang_stat, sz);
+	auto buffer = (char*)AllocMiscData(lang_stat, sz + 1);
 	memcpy(buffer, str->data(), sz);
 	buffer[sz] = 0;
 	return buffer;
@@ -1138,7 +1139,8 @@ node* node_iter::parse_str(own_std::string& str, int* i, int start_line)
 
 		end++;
 	}
-	own_std::string new_str = str.substr(*i + 1, end);
+	int next = *i + 1;
+	own_std::string new_str = str.substr(next, end - next);
 
 	*i = end;
 
@@ -1146,7 +1148,9 @@ node* node_iter::parse_str(own_std::string& str, int* i, int start_line)
 	auto new_tkns = (own_std::vector<token2> *) __lang_globals.alloc(__lang_globals.data, sz_tkns);
 	memset(new_tkns, 0, sz_tkns);
 
-	Tokenize2((char*)std_str_to_heap(lang_stat, &new_str), new_str.size(), new_tkns);
+
+	char *aux = (char*)std_str_to_heap(lang_stat, &new_str);
+	Tokenize2(aux, new_str.size(), new_tkns);
 	FOR_VEC(t, *new_tkns)
 	{
 		t->line += start_line - 1;
@@ -5828,6 +5832,37 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 									REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 										VAR_ARGS("no func for this")
 									);
+									own_std::string str;
+									FOR_VEC(a, args_types)
+									{
+										str += TypeToString(*a);
+										str += ", ";
+									}
+									str.pop_back();
+									str.pop_back();
+
+									printf("given types are (%s)\n", str.c_str());
+
+									str = "";
+									//HERE()
+
+									FOR_VEC(_f, lhs->type.overload_funcs->fdecls)
+									{
+										func_decl *f = *_f;
+										if (IS_FLAG_ON(f->flags, FUNC_DECL_INSTANTIATED))
+											continue;
+										dummy_type.type = TYPE_FUNC;
+										dummy_type.fdecl = f;
+
+										str += TypeToString(dummy_type);
+										str += "\n";
+
+									}
+									str.pop_back();
+
+
+									printf("\nbut available overloads are:\n %s\n", str.c_str());
+
 								}
 								return false;
 							}
@@ -9030,6 +9065,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				// another func with the same name found
 			if (decl_exist && decl_exist->type.type == enum_type2::TYPE_FUNC && decl_exist->decl_nd != n)
 			{
+				//BREAK(n->t->line == 335)
 				//raise(SIGTRAP);
 				ASSERT(decl_exist->decl_nd);
 				if (decl_exist->decl_nd->type == N_OP_OVERLOAD)
@@ -9557,7 +9593,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						case node_type::N_FUNC_DECL:
 						{
 							// "forward declaring" the function in case of recursion
-							if (cnode->fdecl == nullptr && cnode->flags == 0)
+							if (cnode->fdecl == nullptr)
 							{
 							
 								cnode->fdecl = (func_decl*)AllocMiscData(lang_stat, sizeof(func_decl));

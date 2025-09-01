@@ -4227,13 +4227,41 @@ void UpdateTexture(int thread_id, dbg_state* dbg)
 	int width = *(int*)&dbg->mem_buffer[base_ptr + 32];
 	int height = *(int*)&dbg->mem_buffer[base_ptr + 40];
 	int data = *(int*)&dbg->mem_buffer[base_ptr + 48];
+	int type = *(int*)&dbg->mem_buffer[base_ptr + 54];
 	auto data_ptr = (char*)&dbg->mem_buffer[data];
 
 	texture_info* t = &gl_state->textures[tex_id];
+	GLenum internalFormat;
+	GLenum format;
+	GLenum pixelType;
+	switch(type)
+	{
+	case 0: // 1 channel, 8-bit
+		internalFormat = GL_R8;
+		format = GL_RED;
+		pixelType = GL_UNSIGNED_BYTE;
+		break;
+
+	case 1: // 1 channel, 16-bit
+		internalFormat = GL_R16;
+		format = GL_RED;
+		pixelType = GL_UNSIGNED_SHORT;
+		break;
+
+	case 3: // 4 channels, 8-bit
+		internalFormat = GL_RGBA8;
+		format = GL_RGBA;
+		pixelType = GL_UNSIGNED_BYTE;
+		break;
+
+	default:
+		ASSERT(false);
+		break;
+	}
 
 	glBindTexture(GL_TEXTURE_2D, t->id);
-	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
-	GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, x_offset, y_offset, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data_ptr));
+	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, pixelType, NULL));
+	GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, x_offset, y_offset, width, height, format, pixelType, data_ptr));
 	//stbi_write_png("dbg_img.png", width, height, 4, data_ptr, width * 4);
 
 	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData.data());
@@ -4269,19 +4297,66 @@ int GenRawTexture(int thread_id, dbg_state* dbg)
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	int sz_x = *(int*)&dbg->mem_buffer[base_ptr + 8];
 	int sz_y = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int type = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int filter = *(int*)&dbg->mem_buffer[base_ptr + 32];
 	unsigned int texture;
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	if(filter == 0)
+	{
+		filter = GL_NEAREST;
+	}
+	if(filter == 1)
+	{
+		filter = GL_LINEAR;
+	}
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
 
 
-	auto src = (unsigned char*)AllocMiscData(dbg->lang_stat, sz_x * sz_y * 4);
+	GLenum internalFormat;
+	GLenum format;
+	GLenum pixelType;
+	type++;
+	auto src = (unsigned char*)AllocMiscData(dbg->lang_stat, sz_x * sz_y * type);
+	type--;
+	switch(type)
+	{
+	case 0:
+		internalFormat = GL_R8;
+		format = GL_RED;
+		pixelType = GL_UNSIGNED_BYTE;
+		break;
+
+	case 1:
+		internalFormat = GL_RG8;
+		format = GL_RG;
+		pixelType = GL_UNSIGNED_BYTE;
+		break;
+
+	case 2:
+		internalFormat = GL_RGB8;
+		format = GL_RGB;
+		pixelType = GL_UNSIGNED_BYTE;
+		break;
+
+	case 3: // 4 channels, 8-bit
+		internalFormat = GL_RGBA8;
+		format = GL_RGBA;
+		pixelType = GL_UNSIGNED_BYTE;
+		break;
+
+	default:
+		ASSERT(false);
+		break;
+	}
 	//memset(src, 0xffffff, 4 * 512);
 	//glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz_x, sz_y, 0, GL_RGBA, GL_UNSIGNED_BYTE, src));
+
+
+	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, sz_x, sz_y, 0, format, GL_UNSIGNED_BYTE, src));
 	//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
 
 	//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
@@ -4860,10 +4935,14 @@ int HasModel(dbg_state *dbg, own_std::string &name, int *free_idx)
 }
 struct create_mesh_info
 {
-	long long verts_offset;
+	u64 verts_offset;
 	int verts_count;
-	long long tris_offset;
+
+	u64 tris_offset;
 	int tris_count;
+
+	u64 attribs_offset;
+	int attribs_count;
 };
 
 void CreateMesh(int thread_id, dbg_state* dbg)
@@ -4874,6 +4953,7 @@ void CreateMesh(int thread_id, dbg_state* dbg)
 	auto minfo = (create_mesh_info *)&dbg->mem_buffer[create_mesh_offset];
 	auto verts = (float *)&dbg->mem_buffer[minfo->verts_offset];
 	auto inds = (int *)&dbg->mem_buffer[minfo->tris_offset];
+	auto attribs = (u64 *)&dbg->mem_buffer[minfo->attribs_offset];
 
     GLuint VAO, VBO, EBO;
     glGenVertexArrays(1, &VAO);
@@ -4882,17 +4962,47 @@ void CreateMesh(int thread_id, dbg_state* dbg)
 
     glBindVertexArray(VAO);
     
-	int vertex_size = sizeof(float) * 6;
-
+	int vertex_size = 0;
+	for(int i = 0; i < minfo->attribs_count; i++)
+	{
+		u8 type = attribs[i] & 0xff;
+		u8 count = (attribs[i] >> 8) & 0xff;
+		switch(type)
+		{
+		case 0:
+		{
+			vertex_size += sizeof(float) * count;
+		}break;
+		default:
+		{
+			ASSERT(false)
+		}
+		}
+	}
+	u32 cur = 0;
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, minfo->verts_count * vertex_size, verts, GL_DYNAMIC_DRAW);
-    
-    
-    GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertex_size, (void*)0));
-    glEnableVertexAttribArray(0);
-    GL_CALL(glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertex_size, (void*)(3 * sizeof(float))));
-    glEnableVertexAttribArray(1);
+	for(int i = 0; i < minfo->attribs_count; i++)
+	{
+		u8 type = attribs[i] & 0xff;
+		u8 count = (attribs[i] >> 8) & 0xff;
 
+		switch(type)
+		{
+		case 0:
+		{
+			GL_CALL(glVertexAttribPointer(i, count, GL_FLOAT, GL_FALSE, vertex_size, (void*)cur));
+			cur += sizeof(float) * count;
+		}break;
+		default:
+		{
+			ASSERT(false)
+		}
+		}
+		glEnableVertexAttribArray(i);
+	}
+
+    
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, minfo->tris_count * sizeof(int), inds, GL_DYNAMIC_DRAW);
 	
@@ -7156,7 +7266,11 @@ void GetMem(int thread_id, dbg_state* dbg)
 		int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
 	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
 	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] += sz;
-	ASSERT((addr + sz) < DATA_SECT_OFFSET);
+	if((addr + sz) > DATA_SECT_OFFSET)
+	{
+		printf("GetMem: not enough space for %db,%dmb\n", sz, sz / 1024 / 1024);
+		ASSERT(false)
+	}
 	//*max += sz;
 
 	*(long long*)&dbg->mem_buffer[RET_1_REG * 8] = addr;

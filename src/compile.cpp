@@ -68,7 +68,7 @@ typedef long long s64;
 #define MEM_PTR_MAX_ADDR 18008
 
 #define DATA_SECT_MAX 10048
-#define DATA_SECT_OFFSET 1024 * 1024 * 32
+#define DATA_SECT_OFFSET 1024 * 1024 * 300
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
 #define STACK_PTR_REG 10
@@ -2240,7 +2240,6 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		if (gen_state->cur_func->name == "dyn_array_f32[]")
 		{
 			auto sz = gen_state->cur_func->wasm_stmnts.size();
-			HERE()
 		}
 			*/
 #ifdef WASM_DBG
@@ -9043,7 +9042,7 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 	// byte to dword
 	case 0x2:
 	{
-		*(u8 *)dst_ptr = *(u8 *)src_ptr;
+		*(u32 *)dst_ptr = *(u8 *)src_ptr;
 	}break;
 	// dword to byte
 	case 0x20:
@@ -11014,7 +11013,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			d->type.ptr--;
 			int tp_sz = GetTypeSize(&d->type);
 			d->flags &= ~DECL_PTR_HAS_LEN;
-			len = clamp(len, 0, 90);
+			len = clamp(len, 0, 128);
 			for (int i = 0; i < len; i++)
 			{
 				int cur_addr = addr + i * tp_sz;
@@ -11262,7 +11261,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 		
 		if (ImGui::TreeNodeEx(buffer, flag))
 		{
-			auto len = clamp(d->type.ar_size, 0, 64);
+			auto len = clamp(d->type.ar_size, 0, 128);
 			for (int i = 0; i < len; i++)
 			{
 				int prev_size = lalloc->cur;
@@ -14850,6 +14849,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 				bc.type = MOV_M_2_SSE;
 				bc.bin.lhs.reg = float_reg;
+				float_reg++;
 				bc.bin.lhs.reg_sz = 4;
 			}
 			else
@@ -14907,6 +14907,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		ir_rep* cur_ir = ir;
 		cur_ir->start = ret.size();
 		byte_code bc;
+		//BREAK(ir->idx == 58)
 		/*
 		if (cur_line == 293 && IsExecutableIr(ir))
 		{
@@ -14918,10 +14919,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		ir_val_aux lhs = {};
 		ir_val_aux rhs = {};
 		ir_val_aux dst = {};
-		if(break_here)
-		{
-			HERE()
-		}
 		switch (ir->type)
 		{
 		case IR_STACK_END:
@@ -14995,6 +14992,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		}break;
 		case IR_RET:
 		{
+			//BREAK(cur_line == 2477)
 			if (!ir->ret.no_ret_val)
 			{
 				switch (ir->ret.assign.lhs.type)
@@ -16960,6 +16958,21 @@ void AssertFuncByteCode(lang_state* lang_stat)
 	lang_stat->cur_file = new unit_file();
 	lang_stat->cur_file->funcs_scp = NewScope(lang_stat, nullptr);
 
+
+	val = ExecuteString(&info, "\
+		start::fn(a : s32) ! s32{\n\
+			val :u64\n\
+			tris := &val\n\
+			__dbg_break\n\
+			idx :=  *cast(*_vec)cast(*f32)(cast(s64)tris + cast(s64)(a * a))\n\
+			return 1;\n\
+		}\n\
+		", 0);
+	HERE();
+
+	ASSERT(val == 1)
+
+
 		val = ExecuteString(&info, "\
 		start::fn(a : s32) ! s32{\n\
 			d := 0;\n\
@@ -16975,6 +16988,8 @@ void AssertFuncByteCode(lang_state* lang_stat)
 		}\n\
 		", 1);
 	ASSERT(val == 1)
+
+
 
 	val = ExecuteString(&info, "start::fn(a : s32) ! s32{\n\
 		d := 2;\n\
@@ -17936,7 +17951,6 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 	}
 #endif
 	lang_stat->flags = PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
-	//HERE()
 
 	for(cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
 	{

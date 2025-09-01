@@ -144,7 +144,7 @@ void CreateRegToReg(byte_code *bc, char byte_op, char word_op, machine_code *ret
 
 	bool dst_rex = IS_FLAG_ON(reg_dst, 0x80);
 	bool src_rex = IS_FLAG_ON(reg_src, 0x80);
-	AddPreMemInsts(bc->bin.lhs.reg_sz, byte_op, word_op, ((char)src_rex) | ((char)dst_rex <<1), ret->code, true);
+	AddPreMemInsts(bc->bin.lhs.reg_sz, byte_op, word_op, ((char)src_rex) | ((char)dst_rex <<1), ret->code, false);
 
 	reg_dst &= 0xf;
 	reg_src &= 0xf;
@@ -1332,7 +1332,6 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			bc->bin.lhs.reg = 4;
 
 			// movss xmm4, mem
-			//HERE()
 			CreateMemToSSE(&*bc, 0x10, &ret);
 
 			bc->bin.rhs = last_rhs;
@@ -1652,6 +1651,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
 			src &= 0xf;
 
+			// push rax
+			ret.code.emplace_back(0x50);
 			
 			// moving dst to rax
 			bc->bin.lhs.reg = 0;
@@ -1673,6 +1674,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			bc->bin.rhs.reg = 0;
 			if (bc->bin.lhs.reg != bc->bin.rhs.reg)
 				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
+			//pop rax
+			ret.code.emplace_back(0x58);
 
 		}break;
 		case MUL_M_2_R:

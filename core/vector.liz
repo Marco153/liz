@@ -328,6 +328,28 @@ sqrt::fn x64(a : f32) !f32
 {
 	return __sqrt(a);
 }
+mix::fn(a : f32, b : f32, t: f32) ! f32
+{
+	return a *(1.0 - t) + b * t
+}
+mix::fn(a : *_vec, b : *_vec, t: f32) ! _vec
+{
+	ret : _vec=?
+	ret.x = a.x *(1.0 - t) + b.x * t
+	ret.y = a.y *(1.0 - t) + b.y * t
+	ret.z = a.z *(1.0 - t) + b.z * t
+	ret.w = a.w *(1.0 - t) + b.w * t
+	return ret
+}
+floor::fn(x:f32) ! f32
+ {
+    i := cast(s32)x;
+	if x < 0.0 && x != cast(f32)i
+	{
+		return cast(f32)i - 1.0
+	}
+	return cast(f32)i
+}
 
 clampu64::fn x64(val :u64, min : u64, max : u64) !u64
 {

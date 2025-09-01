@@ -252,6 +252,10 @@ namespace own_std
 		}
 		string substr(u64 idx, s64 size)
 		{
+			if(size == 0)
+			{
+				return "";
+			}
 			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			string new_one;
 			if (size == -1)

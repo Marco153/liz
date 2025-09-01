@@ -5,17 +5,20 @@ uniform v4 col
 uniform v4 cam_pos
 uniform v3 sun_dir
 uniform v4 sun_color
+uniform v2 terrain_size
 uniform sampler2d tex
+uniform sampler2d heightmap
 
-vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
+vertex:fn(pos : v3, vert_col : v3) ! (frag_pos : v3)
 {
-    tex_coord = uv
     aux_pos :v4=  model * v4(pos.xyz, 1.0)
+    prev_y :f32=aux_pos.y
+    aux_pos.y = texture(heightmap, v2(aux_pos.x/terrain_size.x, aux_pos.z/terrain_size.y)).x * 32.0
     frag_pos = v3(aux_pos.xyz)
     aux_pos = aux_pos + cam_pos
     POSITION = projection * view * aux_pos
 }
-fragment:fn(tex_coord : v2, frag_pos : v3)
+fragment:fn(frag_pos : v3)
 {
     dx:v3 = dFdx(frag_pos)
     dy:v3 = dFdy(frag_pos)

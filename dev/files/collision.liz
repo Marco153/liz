@@ -974,6 +974,10 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 {
 	on col.type 
 	{
+	col_type.TRIANGLE
+	{
+		
+	}
 	col_type.CAPSULE
 	{
 		r := col.CAPSULE.radius * 1.2
@@ -1089,13 +1093,12 @@ verts_from_tri_info:struct
 	cross : _vec, 
 	t : u64
 }
-get_verts_pos_from_tris::fn(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
+get_verts_pos_from_tris::fn x64(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
 {
 		t := info.t
 		idx :=  cast(u64)*ptr_offset(tris, t, u32)
 		*cast(*_vec)&info.v1_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
 		info.v1_out.w = 0.0
-
 
 		idx = *ptr_offset(tris, t + 1, u32)
 		*cast(*_vec)&info.v2_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
@@ -1105,11 +1108,14 @@ get_verts_pos_from_tris::fn(info : *verts_from_tri_info, tris : *u32, verts : *f
 
 		idx = *ptr_offset(tris, t + 2, u32)
 
+
 		*cast(*_vec)&info.v3_out = *cast(*_vec)ptr_offset(verts, idx * stride, f32)
 		info.v3_out.w = 0.0
 
+
 		tri_edge1 := info.v2_out - info.v1_out
 		tri_edge2 := info.v3_out - info.v1_out
+
 		
 		info.cross = cross_vec(&tri_edge1, &tri_edge2)
 		info.cross = normalize_vec(&info.cross)
@@ -1126,6 +1132,7 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 
 	count := tris.count
 	col : collision=?
+	
 	while t < count
 	{
 		_v1 :_vec=?
@@ -1140,8 +1147,9 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 		cross :_vec=?
 		cross.w = 0.0
 
-		info :verts_from_tri_info=?
+		info :verts_from_tri_info
 		info.t = t
+		globals.temp_alloc.cur = 0
 		get_verts_pos_from_tris(&info, tris.data, verts.data, TERRAIN_VERTEX_SIZE)
 		_v1 = info.v1_out
 		_v2 = info.v2_out
@@ -1153,8 +1161,10 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 		dir := e.pos - _v1
 		dist := dot_vec(&dir, &dir)
 		//__dbg_break
+		//globals.test_i++
 		if dist < 70.0
 		{
+			//__dbg_break
 			_v2 += e2.pos + cpos
 
 			_v3 += e2.pos + cpos
@@ -1206,6 +1216,7 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 		}
 		t += 3
 	}
+	//printf("tri is {globals.test_i}\n")
 }
 add_pos_to_verts::fn(trn : *terrain_info, ch : *chunk_col_info, pos : *_vec)
 {
@@ -1342,7 +1353,7 @@ aabbCheck3D::fn x64(a: *aabb, b: *aabb) ! bool
 }
 
 // Collision check function taking pointer to AABBs
-aabbCheck::fn(a: *aabb, b: *aabb) ! bool
+aabbCheck::fn x64(a: *aabb, b: *aabb) ! bool
 {
     // Check for overlap on each axis
 	a_minx := (a._min.x <= b._max.x)
@@ -1406,7 +1417,7 @@ StepCol::fn(ctx : *context, dt : f32)
 	for _e in ctx.bodies
 	{
 		e := *_e
-		if e.is_static || e.is_active == false
+		if e.is_static || e.is_active == false || e.type == ent_type.TERRAIN
 			continue;
 
 		for in_col in e.ents_in_collision
@@ -1506,6 +1517,9 @@ StepCol::fn(ctx : *context, dt : f32)
 
 			if e2.type == ent_type.TERRAIN
 			{
+				gjk.col1 = c1
+				gjk.col2 = c2
+				//__dbg_break
 				can_break := false
 				if IsKeyDown(key_enum.KEY_F1)
 					can_break = true;
@@ -1701,10 +1715,13 @@ get_chunk_on_pos ::fn(trn : *terrain_info, pos_s : s32) ! *chunk_col_info
 	ch_y :u32= (pos >> 24) & 0xff
 
 	midx := cast(u64)(mesh_y * trn.size + mesh_x)
+	//__dbg_break
+	midx = clamp(midx, 0, trn.meshes.count - 1)
 
 	mesh := trn.meshes[cast(u64)midx]
 
 	chidx := cast(u64)ch_y * trn.chunks_col_per_row + ch_x
+	chidx = clamp(chidx, 0, mesh.chunks.count - 1)
 
 	return mesh.chunks[chidx]
 }
@@ -1737,21 +1754,26 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	found_tri := false;
 
 	radius := 10.0
+	chunks_in_radius :=  cast(u32)radius / trn.chunks_col_window_size
+
 
 	globals.trn = terrain
 
 	chunks_together_width :u32
+	m_aabb :aabb
+
+	trn_width := cast(f32)trn.width
+	
 	for m in trn.meshes
 	{
-		m_aabb :aabb = ?
-		p_aabb :aabb = ?
+		p_aabb :aabb
 
 		m_aabb._min = m.pos + terrain.pos
 		m_aabb._min.y = m_aabb._min.z
 		
 		m_aabb._max = m_aabb._min
-		m_aabb._max.x += cast(f32)trn.width
-		m_aabb._max.y += cast(f32)trn.width
+		m_aabb._max.x += trn_width
+		m_aabb._max.y += trn_width
 
 		p_aabb._min.x = minf(aux_start.x, aux_end.x)
 		p_aabb._min.y = minf(aux_start.z, aux_end.z)
@@ -1825,12 +1847,11 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 							rinfo.v2 = _v3
 							if ray_triangle_intersect(&rinfo)
 							{
-								//printf("tri found {t}\n")
+								printf("tri found {t}\n")
 								globals.chunk = ch
 								//__dbg_break
 
 								tri_pos = *start + dir * rinfo.t_out
-								chunks_in_radius :=  cast(u32)radius / trn.chunks_col_window_size
 
 								h := chunks_in_radius*4
 								w := chunks_in_radius*4
@@ -1981,6 +2002,7 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 
 		UpdateModel(m.model, m.verts.data)
 	}
+	printf("hit\n")
 	
 	return true
 }

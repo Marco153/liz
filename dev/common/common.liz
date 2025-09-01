@@ -667,6 +667,9 @@ terrain_info : struct
 	chunks_col_window_size:u32
 	tris_per_unit:f32
 	size : u32
+	tex: *texture_info
+
+	height_max : f32
 }
 create_mesh_info:struct
 {
@@ -674,6 +677,9 @@ create_mesh_info:struct
 	total_verts : u32
 	tris : *u32
 	total_tris : u32
+
+	attribs : *u32
+	total_attribs : u32
 }
 vertex_terrrain_modify:struct
 {
@@ -1851,7 +1857,12 @@ set_uniform_v4::fn(mat: *material_info, ent : *entity, u_name : str_lit, v : *_v
 	u_target := inst.uniforms[idx]
 	u_target.v = *v
 }
-TERRAIN_VERTEX_SIZE:const s32= 6
+terrain_vert_info:struct
+{
+	pos : v3
+	col : v3
+}
+TERRAIN_VERTEX_SIZE:const s32= sizeof(terrain_vert_info) / 4
 
 sin::fn outsider(f32) !f32;
 cos::fn outsider(f32) !f32;
@@ -1931,11 +1942,25 @@ IsMouseDown::fn outsider(mouse_enum) !bool;
 
 GetMouseScroll::fn outsider() !s8;
 
+
+gen_texture_filter:enum
+{
+	NEAREST,
+	LINEAR,
+}
+gen_texture_type:enum
+{
+	R,
+	RG,
+	RGB,
+	RGBA,
+}
+
 LoadTexFolder::fn outsider(str_lit, *dyn_array(texture_info));
 LoadSceneFolder::fn outsider(str_lit, *dyn_array(*u8));
-GenRawTexture::fn outsider(u32, u32) !u32;
+GenRawTexture::fn outsider(w:u32, h:u32, type:gen_texture_type, filter:gen_texture_filter) !u32;
 FreeTexture::fn outsider(u64);
-UpdateTexture::fn outsider(tex_id : u64, x_offset : u32, y_offset : u32, width : u32, height : u32, data : *u8);
+UpdateTexture::fn outsider(tex_id : u64, x_offset : u32, y_offset : u32, width : u32, height : u32, data : *u8, format : u8);
 LoadTex::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! u32;
 LoadTexEx::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, u_type : u32, v_type : u32) ! u32;
 
@@ -2137,7 +2162,7 @@ NewEntSpriteSheet::fn(alloc: *mem_alloc, grid_x : u32, grid_y : u32, pixels_per_
 	out.grid_x = grid_x;
 	out.grid_y = grid_y;
 	out.pixels_per_width = cast(u8)pixels_per_width;
-	out.tex_id = GenRawTexture(grid_x * pixels_per_width, grid_y * pixels_per_width);
+	out.tex_id = GenRawTexture(grid_x * pixels_per_width, grid_y * pixels_per_width, gen_texture_type.RGBA, gen_texture_filter.NEAREST);
 	sz: = grid_x * grid_y;
 	dyn_init2(&out.cells, sz, alloc);
 	out.cells.count = sz;
@@ -2207,7 +2232,69 @@ is_ast_num::fn(n : *ast_rep, num : s32) ! bool
 {
 	return n.type == ast_type.INT && n.INT.num == num
 }
+WrapCoord::fn(coord:s32, size:s32)!s32
+{
+	aux := ((coord % size) + size)
+	return  aux % size;
+}
 
+sample_texture_bilinear::fn(tex : *texture_info, u : f32, v : f32) ! _vec
+{
+	width:=cast(f32)tex.width
+	height:=cast(f32)tex.height
+	 // Normalize UV (wrap repeat)
+    u = u - floor(u);
+    v = v - floor(v);
+
+    // Scale to texture space
+    x := u * (width  - 1.0);
+    y := v * (height - 1.0);
+
+    x0 := cast(s32)floor(x);
+    y0 := cast(s32)floor(y);
+    x1 := x0 + 1;
+    y1 := y0 + 1;
+
+    // Wrap or clamp coordinates
+    x0 = WrapCoord(x0, cast(s32)width)
+    x1 = WrapCoord(x1, cast(s32)width)
+    y0 = WrapCoord(y0, cast(s32)height)
+    y1 = WrapCoord(y1, cast(s32)height)
+
+    tx := cast(f32)(x - floor(x))
+    ty := cast(f32)(y - floor(y))
+
+    GetPixel::fn(thispx:s32, thispy:s32, thistex : *texture_info)!_vec
+	{
+		ret:_vec=?
+        idx:= (thispy * cast(s32)thistex.width + thispx)
+
+		on thistex.channels
+		{
+		1
+		{
+			ptr := cast(u32)*ptr_offset(thistex.data, idx, u8)
+            ret.x = cast(f32)ptr / 255.0
+		}
+		default
+		{
+			__dbg_break
+		}
+		}
+		return ret
+    };
+
+    c00 := GetPixel(x0, y0, tex);
+    c10 := GetPixel(x1, y0, tex);
+    c01 := GetPixel(x0, y1, tex);
+    c11 := GetPixel(x1, y1, tex);
+
+    // Bilinear interpolation
+    c0:= mix(&c00, &c10, tx);
+    c1:= mix(&c01, &c11, tx);
+    return mix(&c0, &c1, ty);
+
+}
 
 
 

@@ -312,6 +312,12 @@ custom_shader_setting::fn(ctx : *context, ent : *entity, draw : *draw_info3d)
 		{
 			SetSampler2D(u.uniform_id, cast(u32)u.tex.id)
 		}
+		lang_type_type.F32
+		{
+			v := u.v
+			SetUniform1f(u.uniform_id, v.x)
+
+		}
 		lang_type_type.V2
 		{
 			v := u.v

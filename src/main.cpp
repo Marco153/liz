@@ -73,6 +73,13 @@ enum key_enum
 	_KEY_W,
 	_KEY_I,
 	_KEY_P,
+	_KEY_Z,
+	_KEY_X,
+	_KEY_C,
+	_KEY_V,
+	_KEY_B,
+	_KEY_N,
+	_KEY_M,
 	_KEY_ESCAPE,
 	_KEY_SPACE,
 	_KEY_F1,
@@ -2020,6 +2027,34 @@ int FromGameToGLFWKey(int in)
 	int key;
 	switch ((key_enum)in)
 	{
+	case _KEY_Z:
+	{
+		key = GLFW_KEY_Z;
+	}break;
+	case _KEY_X:
+	{
+		key = GLFW_KEY_X;
+	}break;
+	case _KEY_C:
+	{
+		key = GLFW_KEY_C;
+	}break;
+	case _KEY_V:
+	{
+		key = GLFW_KEY_V;
+	}break;
+	case _KEY_B:
+	{
+		key = GLFW_KEY_B;
+	}break;
+	case _KEY_N:
+	{
+		key = GLFW_KEY_N;
+	}break;
+	case _KEY_M:
+	{
+		key = GLFW_KEY_M;
+	}break;
 	case _KEY_P:
 	{
 		key = GLFW_KEY_P;
@@ -4227,31 +4262,65 @@ void UpdateTexture(int thread_id, dbg_state* dbg)
 	int width = *(int*)&dbg->mem_buffer[base_ptr + 32];
 	int height = *(int*)&dbg->mem_buffer[base_ptr + 40];
 	int data = *(int*)&dbg->mem_buffer[base_ptr + 48];
-	int type = *(int*)&dbg->mem_buffer[base_ptr + 54];
+	int type = *(int*)&dbg->mem_buffer[base_ptr + 56];
+	int size = *(int*)&dbg->mem_buffer[base_ptr + 64];
 	auto data_ptr = (char*)&dbg->mem_buffer[data];
 
 	texture_info* t = &gl_state->textures[tex_id];
 	GLenum internalFormat;
 	GLenum format;
 	GLenum pixelType;
+	//HERE()
+	switch(size)
+	{
+	case 0:
+	{
+		pixelType = GL_UNSIGNED_BYTE;
+	}break;
+	case 1:
+	{
+		pixelType = GL_UNSIGNED_SHORT;
+	}break;
+	case 2:
+	{
+		pixelType = GL_UNSIGNED_INT;
+	}break;
+	default:
+	ASSERT(false)
+	}
+
 	switch(type)
 	{
 	case 0: // 1 channel, 8-bit
-		internalFormat = GL_R8;
+		switch(size)
+		{
+		case 0:
+		{
+			internalFormat = GL_R8;
+		}break;
+		case 1:
+		{
+			internalFormat = GL_R16;
+		}break;
+		case 2:
+		{
+			internalFormat = GL_R32I;
+		}break;
+		default:
+		ASSERT(false)
+		}
+
 		format = GL_RED;
-		pixelType = GL_UNSIGNED_BYTE;
 		break;
 
 	case 1: // 1 channel, 16-bit
 		internalFormat = GL_R16;
 		format = GL_RED;
-		pixelType = GL_UNSIGNED_SHORT;
 		break;
 
 	case 3: // 4 channels, 8-bit
 		internalFormat = GL_RGBA8;
 		format = GL_RGBA;
-		pixelType = GL_UNSIGNED_BYTE;
 		break;
 
 	default:
@@ -4262,7 +4331,14 @@ void UpdateTexture(int thread_id, dbg_state* dbg)
 	glBindTexture(GL_TEXTURE_2D, t->id);
 	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, pixelType, NULL));
 	GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, x_offset, y_offset, width, height, format, pixelType, data_ptr));
+	/*
+	for(int i= 0; i < 32;i++)
+	{
+		printf("vals is %d\n", *((short *)data_ptr + i));
+	}
+		*/
 	//stbi_write_png("dbg_img.png", width, height, 4, data_ptr, width * 4);
+	//HERE()
 
 	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData.data());
 
@@ -4299,6 +4375,7 @@ int GenRawTexture(int thread_id, dbg_state* dbg)
 	int sz_y = *(int*)&dbg->mem_buffer[base_ptr + 16];
 	int type = *(int*)&dbg->mem_buffer[base_ptr + 24];
 	int filter = *(int*)&dbg->mem_buffer[base_ptr + 32];
+	int size = *(int*)&dbg->mem_buffer[base_ptr + 40];
 	unsigned int texture;
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
@@ -4316,36 +4393,66 @@ int GenRawTexture(int thread_id, dbg_state* dbg)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
 
 
-	GLenum internalFormat;
-	GLenum format;
-	GLenum pixelType;
+	GLenum internalFormat = 0;
+	GLenum format = 0;
+	GLenum pixelType = 0;
+	//HERE()
+	switch(size)
+	{
+	case 0:
+	{
+		pixelType = GL_UNSIGNED_BYTE;
+	}break;
+	case 1:
+	{
+		pixelType = GL_UNSIGNED_SHORT;
+	}break;
+	case 2:
+	{
+		pixelType = GL_UNSIGNED_INT;
+	}break;
+	default:
+	ASSERT(false)
+	}
 	type++;
-	auto src = (unsigned char*)AllocMiscData(dbg->lang_stat, sz_x * sz_y * type);
+	auto src = (unsigned char*)AllocMiscData(dbg->lang_stat, sz_x * sz_y * (type * (1<<pixelType)));
 	type--;
 	switch(type)
 	{
 	case 0:
-		internalFormat = GL_R8;
+		switch(size)
+		{
+		case 0:
+		{
+			internalFormat = GL_R8;
+		}break;
+		case 1:
+		{
+			internalFormat = GL_R16;
+		}break;
+		case 2:
+		{
+			internalFormat = GL_R32I;
+		}break;
+		default:
+		ASSERT(false)
+		}
 		format = GL_RED;
-		pixelType = GL_UNSIGNED_BYTE;
 		break;
 
 	case 1:
 		internalFormat = GL_RG8;
 		format = GL_RG;
-		pixelType = GL_UNSIGNED_BYTE;
 		break;
 
 	case 2:
 		internalFormat = GL_RGB8;
 		format = GL_RGB;
-		pixelType = GL_UNSIGNED_BYTE;
 		break;
 
 	case 3: // 4 channels, 8-bit
 		internalFormat = GL_RGBA8;
 		format = GL_RGBA;
-		pixelType = GL_UNSIGNED_BYTE;
 		break;
 
 	default:
@@ -4356,11 +4463,12 @@ int GenRawTexture(int thread_id, dbg_state* dbg)
 	//glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
 
-	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, sz_x, sz_y, 0, format, GL_UNSIGNED_BYTE, src));
+	GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, sz_x, sz_y, 0, format, pixelType, src));
 	//GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
 
 	//GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
-	//stbi_write_png("dbg_img.png", width, height, 4, src, width * 4);
+	//stbi_write_png("dbg_img.png", sz_x, sz_y, 4, src, sz_x * 2);
+	//HERE()
 	auto gl_state = (open_gl_state*)dbg->data;
 	int idx = GetTextureSlotId(gl_state);
 	texture_info* tex = &gl_state->textures[idx];
@@ -4980,13 +5088,16 @@ void CreateMesh(int thread_id, dbg_state* dbg)
 		}
 	}
 	u32 cur = 0;
+	v4 *col = (v4 *)&verts[3];
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, minfo->verts_count * vertex_size, verts, GL_DYNAMIC_DRAW);
+	
 	for(int i = 0; i < minfo->attribs_count; i++)
 	{
 		u8 type = attribs[i] & 0xff;
 		u8 count = (attribs[i] >> 8) & 0xff;
 
+		glEnableVertexAttribArray(i);
 		switch(type)
 		{
 		case 0:
@@ -4999,13 +5110,25 @@ void CreateMesh(int thread_id, dbg_state* dbg)
 			ASSERT(false)
 		}
 		}
-		glEnableVertexAttribArray(i);
 	}
 
     
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, minfo->tris_count * sizeof(int), inds, GL_DYNAMIC_DRAW);
 	
+
+	/*
+	GLint stride0, stride1;
+	glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &stride0);
+	glGetVertexAttribiv(1, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &stride1);
+	printf("stride loc0=%d, loc1=%d\n", stride0, stride1);
+
+	GLint offset0, offset1;
+	glGetVertexAttribPointerv(0, GL_VERTEX_ATTRIB_ARRAY_POINTER, (GLvoid**)&offset0);
+	glGetVertexAttribPointerv(1, GL_VERTEX_ATTRIB_ARRAY_POINTER, (GLvoid**)&offset1);
+	printf("offset loc0=%d, loc1=%d\n", offset0, offset1);
+	*/
+
 
 	int free_idx = -1;
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -5289,6 +5412,7 @@ void LoadTexFolder(int thread_id, dbg_state* dbg)
 		u8 channels;
 		u64 idx;
 		u32 idx_on_array;
+		u32 channel_size;
 	};
 	int total_pngs = 0;
 	FOR_VEC(name_ptr, file_names)
@@ -6140,6 +6264,14 @@ void SetSampler2D(int thread_id, dbg_state* dbg)
 	glBindTexture(GL_TEXTURE_2D, t->id);
 	glActiveTexture(GL_TEXTURE0);
 	//glUniform4f(uid, v->x, v->y, v->z, v->w);
+}
+void SetUniform1f(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int uid = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	auto x = *(float*)&dbg->mem_buffer[base_ptr + 16];
+
+	glUniform1f(uid, x);
 }
 void SetUniform2f(int thread_id, dbg_state* dbg)
 {
@@ -8146,6 +8278,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "SetUniform4f", (OutsiderFuncType)SetUniform4f);
 	AssignOutsiderFunc(&lang_stat, "SetUniform3f", (OutsiderFuncType)SetUniform3f);
 	AssignOutsiderFunc(&lang_stat, "SetUniform2f", (OutsiderFuncType)SetUniform2f);
+	AssignOutsiderFunc(&lang_stat, "SetUniform1f", (OutsiderFuncType)SetUniform1f);
 	AssignOutsiderFunc(&lang_stat, "SetSampler2D", (OutsiderFuncType)SetSampler2D);
 	AssignOutsiderFunc(&lang_stat, "SetShader", (OutsiderFuncType)SetShader);
 	AssignOutsiderFunc(&lang_stat, "SetCulling", (OutsiderFuncType)SetCulling);

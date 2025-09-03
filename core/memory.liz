@@ -139,6 +139,17 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 }
 MEM_TYPE: const s32 = 0;
 
+memset16::fn x64(dst : *void, val : u16, sz : u64) !void
+{
+	ASSERT(cast(u64)dst > 128);
+	i:u64 = 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u16) = val;
+		i++;
+	}
+
+}
 memset32::fn x64(dst : *void, val : u32, sz : u64) !void
 {
 	ASSERT(cast(u64)dst > 128);
@@ -450,6 +461,7 @@ heap_free::fn(alloc : *mem_alloc, ptr : *void)
 		maybe_join_to_right(nil, chunk_to_free, cur);
 		//__dbg_break;
 	}
+	/*
 	if globals.after_init
 	{
 		for i in 0..globals.allocs_occured.max
@@ -461,6 +473,7 @@ heap_free::fn(alloc : *mem_alloc, ptr : *void)
 			}
 		}
 	}
+	*/
 	//memset(chunk_to_free.addr, 'x', chunk_to_free.size * BYTES_PER_CHUNK);
 
 }

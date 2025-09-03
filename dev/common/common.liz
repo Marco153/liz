@@ -579,6 +579,13 @@ key_enum : enum
 	KEY_W,
 	KEY_I,
 	KEY_P,
+	KEY_Z,
+	KEY_X,
+	KEY_C,
+	KEY_V,
+	KEY_B,
+	KEY_N,
+	KEY_M,
 	KEY_ESCAPE,
 	KEY_SPACE,
 	KEY_F1,
@@ -669,12 +676,13 @@ terrain_info : struct
 	size : u32
 	tex: *texture_info
 
-	height_max : f32
+	amplitude : f32
 }
 create_mesh_info:struct
 {
 	verts : *f32
 	total_verts : u32
+
 	tris : *u32
 	total_tris : u32
 
@@ -684,7 +692,10 @@ create_mesh_info:struct
 vertex_terrrain_modify:struct
 {
 	vidx : u64
+	x : u32
+	y : u32
 	dir : f32
+	duplicated: bool
 	mesh : *mesh_info
 }
 
@@ -717,6 +728,7 @@ SetShader::fn outsider(shader_id : u32);
 SetUniform4f::fn outsider(uid : u32, x : f32, y : f32, z : f32, w : f32);
 SetUniform3f::fn outsider(uid : u32, x : f32, y : f32, z : f32);
 SetUniform2f::fn outsider(uid : u32, x : f32, y : f32);
+SetUniform1f::fn outsider(uid : u32, x : f32);
 
 SetSampler2D::fn outsider(uid : u32, tex_id : u32);
 ValidateTextureSlot::fn outsider(shader_id : u32, name_str : *char, name_len : u32, slot : u32) ! u32;
@@ -1053,6 +1065,11 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 				f := *cast(*f32)&cur_arg.val
 				lhs := cast(s32)f
 				rhs := cast(s32)((f - cast(f32)lhs)* 100.0)
+
+				if rhs < 0
+				{
+					rhs = rhs * -1
+				}
 
 				
 
@@ -1860,9 +1877,10 @@ set_uniform_v4::fn(mat: *material_info, ent : *entity, u_name : str_lit, v : *_v
 terrain_vert_info:struct
 {
 	pos : v3
-	col : v3
+	col : _vec
 }
 TERRAIN_VERTEX_SIZE:const s32= sizeof(terrain_vert_info) / 4
+TERRAIN_WIDTH:const s32= 8
 
 sin::fn outsider(f32) !f32;
 cos::fn outsider(f32) !f32;
@@ -1948,6 +1966,13 @@ gen_texture_filter:enum
 	NEAREST,
 	LINEAR,
 }
+gen_texture_size:enum
+{
+	BYTE,
+	WORD,
+	DWORD,
+	QWORD,
+}
 gen_texture_type:enum
 {
 	R,
@@ -1958,9 +1983,9 @@ gen_texture_type:enum
 
 LoadTexFolder::fn outsider(str_lit, *dyn_array(texture_info));
 LoadSceneFolder::fn outsider(str_lit, *dyn_array(*u8));
-GenRawTexture::fn outsider(w:u32, h:u32, type:gen_texture_type, filter:gen_texture_filter) !u32;
+GenRawTexture::fn outsider(w:u32, h:u32, type:gen_texture_type, filter:gen_texture_filter, size:gen_texture_size) !u32;
 FreeTexture::fn outsider(u64);
-UpdateTexture::fn outsider(tex_id : u64, x_offset : u32, y_offset : u32, width : u32, height : u32, data : *u8, format : u8);
+UpdateTexture::fn outsider(tex_id : u64, x_offset : u32, y_offset : u32, width : u32, height : u32, data : *u8, format : u8, size : gen_texture_size);
 LoadTex::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! u32;
 LoadTexEx::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, u_type : u32, v_type : u32) ! u32;
 
@@ -2002,6 +2027,7 @@ texture_info: struct
 	id : u64,
 
 	idx_on_array: u32
+	channel_size : gen_texture_size
 }
 masked_info : struct
 {
@@ -2156,13 +2182,17 @@ aux_cell_info:struct
 };
 
 
+get_tex_pixel_stride::fn(tex : *texture_info)!u32
+{
+	return cast(u32)tex.channels * (cast(u32)1 <<(cast(u32)tex.channel_size))
+}
 NewEntSpriteSheet::fn(alloc: *mem_alloc, grid_x : u32, grid_y : u32, pixels_per_width : u32, out : *layer_sprites) 
 {
 	ASSERT(out)
 	out.grid_x = grid_x;
 	out.grid_y = grid_y;
 	out.pixels_per_width = cast(u8)pixels_per_width;
-	out.tex_id = GenRawTexture(grid_x * pixels_per_width, grid_y * pixels_per_width, gen_texture_type.RGBA, gen_texture_filter.NEAREST);
+	out.tex_id = GenRawTexture(grid_x * pixels_per_width, grid_y * pixels_per_width, gen_texture_type.RGBA, gen_texture_filter.NEAREST, gen_texture_size.BYTE);
 	sz: = grid_x * grid_y;
 	dyn_init2(&out.cells, sz, alloc);
 	out.cells.count = sz;
@@ -2238,6 +2268,45 @@ WrapCoord::fn(coord:s32, size:s32)!s32
 	return  aux % size;
 }
 
+get_pixel_idx::fn(thispx:s32, thispy:s32, thistex : *texture_info)! u32
+{
+	channels_size:=cast(s32)get_tex_pixel_stride(thistex)
+	return cast(u32)((thispy * cast(s32)thistex.width + thispx) * channels_size)
+}
+GetPixel::fn(thispx:s32, thispy:s32, thistex : *texture_info)! _vec
+{
+	ret:_vec=?
+	idx:= get_pixel_idx(thispx, thispy, thistex)
+
+	on thistex.channels
+	{
+	1
+	{
+		on thistex.channel_size
+		{
+		gen_texture_size.BYTE
+		{
+			ptr := cast(u32)*ptr_offset(thistex.data, idx, u8)
+			ret.x = cast(f32)ptr / 255.0
+		}
+		gen_texture_size.WORD
+		{
+			ptr := cast(u32)*cast(*u16)ptr_offset(thistex.data, idx, u8)
+			ret.x = cast(f32)ptr / 65000.0
+		}
+		default
+		{
+			__dbg_break
+		}
+		}
+	}
+	default
+	{
+		__dbg_break
+	}
+	}
+	return ret
+}
 sample_texture_bilinear::fn(tex : *texture_info, u : f32, v : f32) ! _vec
 {
 	width:=cast(f32)tex.width
@@ -2264,25 +2333,6 @@ sample_texture_bilinear::fn(tex : *texture_info, u : f32, v : f32) ! _vec
     tx := cast(f32)(x - floor(x))
     ty := cast(f32)(y - floor(y))
 
-    GetPixel::fn(thispx:s32, thispy:s32, thistex : *texture_info)!_vec
-	{
-		ret:_vec=?
-        idx:= (thispy * cast(s32)thistex.width + thispx)
-
-		on thistex.channels
-		{
-		1
-		{
-			ptr := cast(u32)*ptr_offset(thistex.data, idx, u8)
-            ret.x = cast(f32)ptr / 255.0
-		}
-		default
-		{
-			__dbg_break
-		}
-		}
-		return ret
-    };
 
     c00 := GetPixel(x0, y0, tex);
     c10 := GetPixel(x1, y0, tex);

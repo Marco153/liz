@@ -63,6 +63,7 @@ context: struct
 	window:*u8,
 	can_move :bool,
 	white_color : _vec
+	red_color : _vec
 
 	chunk_width : f32
 	col_chunks : dyn_array(collision_chunk)
@@ -264,6 +265,11 @@ context: struct
 	mach : machine
 
 	terrain_tex : texture_info
+	aux_terrain_tex : *u32
+	
+	tedit:terrain_edit
+
+	on_custom_grid : bool
 }
 
 
@@ -454,14 +460,38 @@ DrawSquare::fn(ctx : *context, x : f32, y : f32, w : f32, h : f32, col : *_vec)
 	draw.flags = DRAW_INFO_NO_SCREEN_RATIO | DRAW_INFO_NO_DEPTH_TEST
 	Draw(ctx.window, &draw)
 }
-DrawText::fn(ctx : *context)
+DrawText::fn(ctx : *context, str : str_lit, x : f32, y : f32, color:*_vec, sz : f32=1.0)
 {
-	if ctx.to_draw.count == 0
+	ln := str_ln(str)
+
+	if ln == 0
 		return;
-	for d in ctx.to_draw
+	draw : draw_info
+
+	cursor_x:f32=0.0
+	cursor_y:f32=0.0
+
+	w := 0.05 * sz
+	h := 0.06 * sz
+
+	for i in 0..ln
 	{
-		Draw(ctx.window, d);
-		
+		memcpy(&draw.color, color, 16)
+		draw.pos.x = cursor_x + x
+		draw.pos.y = cursor_y + y
+		draw.pos.z = 0.09;
+		draw.ent_size.x = w;
+		draw.ent_size.y = h;
+		draw.flags = DRAW_INFO_HAS_TEXTURE;
+
+		idx :=*ptr_offset(str, i, u8) - cast(u8)' 
+		ch_idx := *ptr_offset(ctx.abcd_texs.tex_idxs, idx, u32)
+
+		draw.texture_id = ch_idx
+		draw.cam_size = 1.0;
+
+		cursor_x += w
+		Draw(ctx.window, &draw);
 	}
 }
 
@@ -655,13 +685,7 @@ ChangeState::fn(e : *entity, state : entity_state)
 	}
 }
 
-clamp ::fn(v : u64, _min :u64, _max : u64) ! u64
-{
-	if v <= _min return _min;
-	if v >= _max return _max;
-	return v;
-}
-clamp ::fn(v : f32, _min :f32, _max : f32) ! f32
+clamp ::fn{T}(v : T, _min :T, _max : T) ! T
 {
 	if v <= _min return _min;
 	if v >= _max return _max;
@@ -2981,7 +3005,7 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 	pos_xf:=cast(f32)pos_x
 	pos_yf:=cast(f32)pos_y
 
-	max_size := 1024.0
+	max_size := cast(f32)trn.width*cast(f32)trn.size
 	part_max := cast(f32)trn.width/max_size
 
 	//printf("px {aux_x}, py {aux_y}\n")
@@ -2991,12 +3015,12 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 	{
 		aux_y := pos_yf / max_size
 		
-		py := cast(f32)y / cast(f32)MESH_WIDTH
+		py := cast(f32)y / cast(f32)(MESH_WIDTH -1)
 		aux_y += py * part_max
 
 		for x in 0..MESH_WIDTH
 		{
-			px := cast(f32)x / cast(f32)MESH_WIDTH
+			px := cast(f32)x / cast(f32)(MESH_WIDTH -1)
 
 			aux_x := pos_xf / max_size
 			aux_x += px * part_max
@@ -3005,22 +3029,22 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 			v := aux_y
 			//__dbg_break
 
-			perlin := sample_texture_bilinear(trn.tex, u, v).x * 32.0
+			perlin := sample_texture_bilinear(trn.tex, u, v).x * trn.amplitude
 			globals.temp_alloc.cur = 0
-			//printf("val is {py * size}\n")
+			//printf("val is {perlin}\n")
 
 			idx := cast(u64)y * MESH_WIDTH * TERRAIN_VERTEX_SIZE + cast(u64)x * TERRAIN_VERTEX_SIZE
 			*verts[idx] = cast(f32)px * size
 			*verts[idx + 1] = perlin
 			*verts[idx + 2] = py * size
 
-			//ASSERT(perlin >= 0.0)
-			_v:=*cast(*_vec)verts[idx]
-			if x < 8
-			{
-				//print_vec(&_v)
-			}
-			//__dbg_break
+			vert_col :=cast(*_vec) verts[idx + 3]
+			vert_col.x = 1.0
+			vert_col.y = 1.0
+			vert_col.z = 1.0
+			vert_col.w = 0.0
+
+
 		}
 		//printf("\n")
 	}
@@ -3185,14 +3209,14 @@ create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_qu
 	dyn_add(&mesh.chunks, &chunk)
 }
 
-generate_terrain::fn(ctx : *context, e : *entity)
+generate_terrain::fn(ctx : *context, e : *entity, chunks_per_side : u32)
 {
 	terrain := e.terrain
 	globals.alloc = &ctx.terrain_alloc
 	ctx.alloc = &ctx.terrain_alloc
 	init_tri_terrain(terrain)
 	trn :*terrain_info= e.terrain
-	trn.size = 8
+	trn.size = chunks_per_side
 	i := 0
 	//__dbg_break
 
@@ -3961,6 +3985,20 @@ items_func::fn(ctx : *context, dt : f32, selected_ent : *entity)
 		e.pos.y = e.pos.w + sin(ctx.time_since_start) * 0.1
 	}
 }
+terrain_brush_type:enum
+{
+	SMOOTH,
+	ROUGH
+}
+terrain_edit:struct
+{
+	brush : terrain_brush_type
+	force : f32
+	brush_size :f32
+	terrain_height_max : f32
+	terrain_height_min : f32
+
+}
 editor_window::fn(ctx : *context, out_ent : **entity)
 {
 	buffer:[128]char
@@ -4009,7 +4047,6 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		if IsMouseDown(mouse_enum.LEFT) && IsKeyHeld(key_enum.KEY_SHIFT)
 		{
 			start_pos = point
-			//__dbg_break
 			aux_ent = new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
 			aux_ent.tex_id = ctx.screen_tex_id
 			tinfo :texture_info
@@ -4023,6 +4060,10 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			q:quaternion
 			//__dbg_break
 			q.v = aux_ent.rot
+			if q.v.x == 0.0 && q.v.y == 0.0 && q.v.z == 0.0
+			{
+				q.v.w = 1.0
+			}
 			rel_up := q * _vec{0.0, 1.0, 0.0}
 
 			dot := dot_vec(&rel_up, &n)
@@ -4064,7 +4105,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		}
 		if IsMouseHeld(mouse_enum.LEFT) && aux_ent != nil
 		{
-
+			
 			to_point := point - start_pos
 			dot_x := dot_vec(&relative_forward, &to_point)
 			dot_z := dot_vec(&relative_right, &to_point)
@@ -4088,14 +4129,17 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		{
 			if raycast_get_pos(ctx, &col)
 			{
-				print_vec(&col.contact_point)
 				ctx.grid_ent.pos = col.contact_point + col.normal * -0.001
 				ctx.grid_ent.vel = col.ent.rot
 			}
 			else
 			{
 				ctx.grid_ent.pos = normalize_vec(&cam_dir) * cam_pos.y + cam_pos
+				ctx.grid_ent.forward.x = 0.0
+				ctx.grid_ent.forward.y = 1.0
+				ctx.grid_ent.forward.z = 0.0
 			}
+			ctx.on_custom_grid = true
 		}
 		if IsKeyDown(key_enum.KEY_LCTRL)
 		{
@@ -4161,6 +4205,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 	}
 
 
+	assign_new_height := false
 	on ctx.editor_wnd_type
 	{
 	editor_window_enum.AREA_COL
@@ -4395,7 +4440,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		ImGuiEndChild()
 		ImGuiSameLine()
 
-		ImGuiBeginChild("selected", 300.0, 500.0)
+		ImGuiBeginChild("selected", 400.0, 500.0)
 
 		if *out_ent
 		{
@@ -4423,7 +4468,16 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				ent_type.WATER
 				{
 					out_ent.tex_id = cast(u32)ctx.textures[ctx.water_tex].id
-					out_ent.flags = out_ent.flags | ENTITY_TRANSPARENT
+					water_shader := find_shader(ctx, "water_shader.mat")
+
+					out_ent.flags = out_ent.flags | ENTITY_CUSTOM_SHADER
+					if out_ent.material_idx != water_shader
+					{
+						out_ent.material_idx = water_shader
+						out_ent.in_material_instance = new_material_instance(ctx, cast(u32)water_shader, *out_ent)
+					}
+					set_shader_uniform_sampler2d(ctx, *out_ent, "tex", ctx.textures[ctx.water_tex])
+					//out_ent.flags = out_ent.flags | ENTITY_TRANSPARENT
 					out_ent.color.x = 1.0
 					out_ent.color.y = 1.0
 					out_ent.color.z = 1.0
@@ -4560,6 +4614,32 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				}
 				}
 			}
+			ent_type.TERRAIN
+			{
+				ImGuiSeparator()
+				ImGuiText("brush type: ")
+				ImGuiEnumCombo("terrain_brush_type", __LINE__, cast(*u32)&ctx.tedit.brush)
+				ImGuiDragF32("force", &ctx.tedit.force)
+
+				ImGuiDragF32("terrain height max", &ctx.tedit.terrain_height_max)
+
+				ImGuiSameLine()
+
+				trn := out_ent.terrain
+				if ImGuiSelectable("set", dummy_sel, 40.0, 15.0)
+				{
+					h:= cast(u16)cast(u32)ctx.tedit.terrain_height_max
+					memset16(ctx.terrain_tex.data, h, ctx.terrain_tex.width * ctx.terrain_tex.height)
+					UpdateTexture(ctx.terrain_tex.id, 0, 0, ctx.terrain_tex.width, ctx.terrain_tex.height, 
+									ctx.terrain_tex.data, ctx.terrain_tex.channels - 1, ctx.terrain_tex.channel_size)
+					printf("count {trn.meshes.count}\n")
+					assign_new_height = true
+				}
+				ImGuiDragF32("terrain height min", &ctx.tedit.terrain_height_min)
+
+				ImGuiDragF32("brush size", &ctx.tedit.brush_size)
+				
+			}
 			ent_type.BRIDGE
 			{
 				ImGuiSeparator()
@@ -4601,6 +4681,31 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		}
 		set_shader_uniform_sampler2d(ctx, *out_ent, "tex", ctx.textures[ctx.grid_tex])
 		
+	}
+
+	if IsKeyHeld(key_enum.KEY_ESCAPE) || ctx.editor_wnd_type != editor_window_enum.GRID
+	{
+		ctx.on_custom_grid = false
+	}
+	if assign_new_height
+	{
+		trn := out_ent.terrain
+		h:= cast(u32)ctx.tedit.terrain_height_max
+		hf := (cast(f32)h/65000.0) * trn.amplitude
+		for m in trn.meshes
+		{
+			printf("count {m.verts.count}\n")
+			v :u64
+			while v < m.verts.count
+			{
+				cur := cast(*terrain_vert_info)ptr_offset(m.verts.data, v, u32)
+				cur.pos.y = hf
+				//printf("here {i}\n")
+				globals.temp_alloc.cur = 0
+				v += TERRAIN_VERTEX_SIZE
+			}
+			UpdateModel(m.model, m.verts.data)
+		}
 	}
 }
 change_preview_col_idx::fn(ctx : *context, new_val : u8)
@@ -5341,6 +5446,17 @@ set_shader_uniform_sampler2d::fn(ctx : *context, ent : *entity, name : str_lit, 
 
 	target_u.tex = *tex
 }
+set_shader_uniform1f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32)
+{
+	ASSERT(ent.material_idx >= 0)
+	m := ctx.materials[cast(u64)ent.material_idx]
+	u_idx := GetShaderUniform(m, name)
+	inst := m.instances[cast(u64)ent.in_material_instance]
+
+	target_u := inst.uniforms[u_idx]
+
+	target_u.v.x = x
+}
 set_shader_uniform2f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32, y : f32)
 {
 	ASSERT(ent.material_idx >= 0)
@@ -5386,6 +5502,18 @@ raycast_get_pos::fn(ctx : *context, col : *collision) !bool
 		}
 		found = true
 	}
+	/*
+	if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
+	{
+		aux_dist := len_vec(&(cam_pos - col.contact_point))
+
+		if aux_dist < shortest_dist 
+		{
+			*col = aux_col
+		}
+		found = true
+	}
+	*/
 	return found
 }
 get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, _min : *_vec, _max : *_vec, out_min : *_vec, out_max : *_vec)
@@ -5589,13 +5717,127 @@ update_screen_texture::fn(ctx : *context, m : *machine)
 
 		copy_region_to_buffer(ctx, ctx.computer_screen_tex_buffer, cast(u32)i * 8 , 0, 8, 8, 256, 256, cast(*u8)buffer[0])
 	}
-	UpdateTexture(id, 0, 0, 256, 256, ctx.computer_screen_tex_buffer, 3)
+	UpdateTexture(id, 0, 0, 256, 256, ctx.computer_screen_tex_buffer, 3, gen_texture_size.BYTE)
 	//__dbg_break
 
 }
+update_terrain_for_visualization::fn(ctx : *context, terrain : *terrain_info, assign_tex : bool)
+{
+	for vtx in ctx.vertex_terrain
+	{
+		verts := &vtx.mesh.verts
+		idx := get_pixel_idx(cast(s32)vtx.x, cast(s32)vtx.y, &ctx.terrain_tex)
+		force := vtx.dir
+		out_pixel := ptr_offset(ctx.terrain_tex.data, idx, u8)
+
+		cur_val := *cast(*u16)out_pixel
+		cur_val = cast(u16)clamp(cast(s32)cur_val + cast(s32)(force * ctx.tedit.force), cast(s32)ctx.tedit.terrain_height_min, 65000)
+		if !vtx.duplicated && assign_tex
+		{
+			*cast(*u16)out_pixel = cur_val
+		}
+
+
+		m := vtx.mesh
+		vt := cast(*terrain_vert_info)m.verts[vtx.vidx]
+		vt.pos.y = (cast(f32)cur_val/65000.0) * terrain.amplitude
+		vt.col.x = 1.0
+		vt.col.y = 1.0
+		vt.col.z = 1.0
+		vt.col.w = force * 0.5
+
+	}
+
+	UpdateTexture(ctx.terrain_tex.id, 0, 0, ctx.terrain_tex.width, ctx.terrain_tex.height, 
+					ctx.terrain_tex.data, ctx.terrain_tex.channels - 1, ctx.terrain_tex.channel_size)
+
+	for mi in ctx.mesh_added_aux
+	{
+		m := terrain.meshes[cast(u64)*mi]
+		vi :u64
+		verts := &m.verts
+		count := m.verts.count
+		//__dbg_break
+		UpdateModel(m.model, m.verts.data)
+	}
+	for vtx in ctx.vertex_terrain
+	{
+		verts := &vtx.mesh.verts
+		m := vtx.mesh
+		vt := cast(*terrain_vert_info)m.verts[vtx.vidx]
+		vt.col.w = 0.0
+
+	}
+}
+radial_item:struct
+{
+	name : str_lit
+	idx : u32
+}
+draw_radial_menu::fn(ctx : *context, x : f32, y : f32, out : *u32, total : u32, items : *radial_item)
+{
+	start :_vec
+	start.x = x
+	start.y = y
+	mx := GetMouseNormalizedPosX();
+	my := GetMouseNormalizedPosY();
+	mouse :_vec
+	mouse.x = mx
+	mouse.y = -my
+	dir_to_mouse := mouse - start
+	dir_to_mouse = normalize_vec(&dir_to_mouse)
+
+	//__dbg_break
+	max_items := 8.0
+
+	part := 1.0/max_items
+
+	part_as_angle := part * PI * 2.0
+	mouse_angle := atan2(dir_to_mouse.x, dir_to_mouse.y)
+	printf("ma {mouse_angle}\n")
+	
+	for i in 0..total
+	{
+		p := cast(f32)i/max_items
+		cur := ptr_offset(items, i, radial_item)
+
+		fx := x + cos(p * PI * 2.0) * 0.5
+		fy := y + sin(p * PI * 2.0) * 0.5
+
+		dir_to_item :_vec
+		dir_to_item.x = fx
+		dir_to_item.y = fy
+		dir_to_item = normalize_vec(&dir_to_item)
+
+		item_angle := atan2(dir_to_item.x, dir_to_item.y)
+		item_angle += part_as_angle * 0.5
+		item_angle_min := item_angle - part_as_angle
+
+		if (mouse_angle < item_angle) && (mouse_angle > item_angle_min)
+		{
+			*out = cast(u32)i
+		}
+
+		col := ctx.white_color
+		if *out == cast(u32)i
+		{
+			col = ctx.red_color
+		}
+
+
+		DrawText(ctx, cur.name, fx, fy, &col, sz= 0.7)
+	}
+}
 main_loop::fn(ctx : *context)
 {
+	brush_items_radial : [2]radial_item
+	brush_items_radial[0].name = "smooth"
+	brush_items_radial[0].idx = 0
+	brush_items_radial[1].name = "rough"
+	brush_items_radial[1].idx = 1
+
 	ctx.computer_screen_tex_buffer = heap_alloc(ctx.alloc, 256 * 256 * 4)
+
 
 	ctx.cur_model_selected_idx = -1
 	ctx.session_id = cast(u32)(Rand01() * 1000.0)
@@ -5820,11 +6062,13 @@ main_loop::fn(ctx : *context)
 	other.size.x = 1.0
 	terrain.width = MESH_WIDTH - 1
 	terrain.height = MESH_WIDTH - 1
+	terrain.amplitude = 256.0
 	trn_ent := other
 	
 	str :string
 
-	generate_terrain(ctx, other)
+	total_chunks := TERRAIN_WIDTH
+	generate_terrain(ctx, other, cast(u32)total_chunks)
 
 
 	mx := 0.0
@@ -6002,13 +6246,17 @@ main_loop::fn(ctx : *context)
 
 
 
+	ctx.red_color.x = 1.0
+	ctx.red_color.y = 0.0
+	ctx.red_color.z = 0.0
+	ctx.red_color.w = 1.0
+
 	ctx.white_color.x = 1.0
 	ctx.white_color.y = 1.0
 	ctx.white_color.z = 1.0
 	ctx.white_color.w = 1.0
 	//dyn_add(&test_e.remove_from, ent_part_of.LOOK_AT_PLAYER)
 
-	//print_vec(&player_ent.vel)
 	out_verts_count:u32
 	out_indices_count:u32
 	ctx.sun_color = _vec{1.0, 0.6, 0.3, 1.0}
@@ -6042,7 +6290,7 @@ main_loop::fn(ctx : *context)
 
 	}
 
-	ctx.screen_tex_id = GenRawTexture(256, 256, gen_texture_type.RGBA, gen_texture_filter.NEAREST)
+	ctx.screen_tex_id = GenRawTexture(256, 256, gen_texture_type.RGBA, gen_texture_filter.NEAREST, gen_texture_size.BYTE)
 
 	trn_ent.flags = trn_ent.flags | ENTITY_CUSTOM_SHADER
 	trn_ent.material_idx = find_shader(ctx, "terrain_shader.mat")
@@ -6050,6 +6298,9 @@ main_loop::fn(ctx : *context)
 	set_shader_uniform_sampler2d(ctx, trn_ent, "tex", ctx.textures[ctx.grid_transparent_tex])
 	set_shader_uniform_sampler2d(ctx, trn_ent, "heightmap", &ctx.terrain_tex)
 	set_shader_uniform2f(ctx, trn_ent, "terrain_size", cast(f32)ctx.terrain_tex.width, cast(f32)ctx.terrain_tex.height)
+	set_shader_uniform1f(ctx, trn_ent, "amplitude", cast(f32)terrain.amplitude)
+
+	cam_dir_terrain :_vec
 
 	while !ShouldClose(ctx.window)
 	{
@@ -6090,13 +6341,18 @@ main_loop::fn(ctx : *context)
 		
 		curmx := GetMouseScreenPosX();
 		curmy := GetMouseScreenPosY();
+		dir := ScreenMouseToWorld(screenmx, screenmy)
+		
+		//dir.y = -dir.y
+		cam_dir := cam_pos + dir * 20.0
+		cam_dir2 := cam_pos + dir * 5.0
+
+		cam_dir = cam_pos + dir * 2000.0
 
 		ctx.dt = dt
 		last_time = GetTime();
 		ctx.time_since_start += dt
-		//print_f32(dt)
 
-		//print_vec(&cam_forward)
 
 		ClearBackground(0.2, 0.5, 0.8);
 
@@ -6193,7 +6449,6 @@ main_loop::fn(ctx : *context)
 
 				if axis_sel_ent
 				{
-					//print_vec(&axis_sel_ent.forward)
 					fw := axis_sel_ent.forward 
 
 					dx := dot_vec(&fw, &select_right) * mvx
@@ -6258,7 +6513,6 @@ main_loop::fn(ctx : *context)
 						dx = -dx
 						dy := dot_vec(&fw, &select_up) * mvy
 						fw = fw * RAD_TO_DEG * (dx + dy)
-						print_vec(&fw)
 						q : quaternion=?
 						q.v = out_ent.rot
 						out_ent.rot = (q * euler_to_quaternion(fw.x, fw.y, fw.z)).v
@@ -6374,13 +6628,6 @@ main_loop::fn(ctx : *context)
 				if IsKeyDown(key_enum.KEY_I)
 				{
 					
-					dir := ScreenMouseToWorld(screenmx, screenmy)
-					
-					//dir.y = -dir.y
-					cam_dir := cam_pos + dir * 20.0
-					cam_dir2 := cam_pos + dir * 5.0
-
-					cam_dir = cam_pos + dir * 2000.0
 
 					dyn_clear(&ctx.vertex_terrain)
 					prev_sel := out_ent
@@ -6435,16 +6682,10 @@ main_loop::fn(ctx : *context)
 				{
 					axis_sel_ent = nil
 				}
-				if IsMouseDown(mouse_enum.LEFT) && ctx.editor_wnd_type != editor_window_enum.GRID
+
+				if IsMouseDown(mouse_enum.LEFT) && ctx.editor_wnd_type != editor_window_enum.GRID && 
+				 	!IsKeyHeld(key_enum.KEY_LCTRL)
 				{
-					dir := ScreenMouseToWorld(screenmx, screenmy)
-					
-					//dir.y = -dir.y
-					cam_dir := cam_pos + dir * 20.0
-					cam_dir2 := cam_pos + dir * 5.0
-
-					cam_dir = cam_pos + dir * 2000.0
-
 					dyn_clear(&ctx.vertex_terrain)
 					prev_sel := out_ent
 					aux_sel : *entity
@@ -6453,7 +6694,7 @@ main_loop::fn(ctx : *context)
 				
 					if RaycastWithNonBodies(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
 					{
-						printf("hit {aux_sel_from_non_bodies.name}\n")
+						//printf("hit {aux_sel_from_non_bodies.name}\n")
 						shortest_dist = len_vec(&(cam_pos - col.contact_point))
 					}
 					if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
@@ -6461,6 +6702,8 @@ main_loop::fn(ctx : *context)
 						aux_dist := len_vec(&(cam_pos - col.contact_point))
 						if aux_dist < shortest_dist || aux_sel.type == ent_type.AXIS
 						{
+							
+							shortest_dist = aux_dist
 							aux_sel_from_non_bodies = nil
 							x_axis_ent.is_active = true
 							y_axis_ent.is_active = true
@@ -6490,9 +6733,17 @@ main_loop::fn(ctx : *context)
 							}
 						}
 					}
+					if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
+					{
+						aux_dist := len_vec(&(cam_pos - col.contact_point))
+						if aux_dist < shortest_dist
+						{
+							out_ent = trn_ent
+						}
+					}
 					else if aux_sel_from_non_bodies == nil
 					{
-						if out_ent
+						if out_ent != nil && out_ent.type != ent_type.TERRAIN
 						{
 							memcpy(&out_ent.color, &prev_select_ent_col, 16)
 							out_ent = nil
@@ -6507,50 +6758,79 @@ main_loop::fn(ctx : *context)
 					{
 						out_ent = aux_sel_from_non_bodies
 					}
-					//RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
 				}
-				if IsKeyHeld(key_enum.KEY_0){
-					sz : _vec
-					sz.x = 1.0
-					sz.y = 1.0
-					sz.z = 1.0
-					dir := ScreenMouseToWorld(screenmx, screenmy)
-					
-					//dir.y = -dir.y
-					cam_dir := cam_pos + dir * 20.0
-					cam_dir2 := cam_pos + dir * 5.0
 
-					//draw_vertex(ctx, &cam_dir, &sz, &cam_pos, &cam_rot)
-					cam_dir = cam_pos + dir * 2000.0
-
-					dyn_clear(&ctx.vertex_terrain)
-					RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent)
-					for vtx in ctx.vertex_terrain
+				if IsKeyHeld(key_enum.KEY_ALT)
+				{
+					if IsKeyHeld(key_enum.KEY_X)
 					{
-						verts := &vtx.mesh.verts
-						vec_pos := cast(*_vec)verts[vtx.vidx]
-						vec_pos.y += vtx.dir
+						DrawText(ctx, "{ctx.tedit.force}", -0.2, 0.0, &ctx.white_color, 0.7)
+					}
+					else if IsKeyHeld(key_enum.KEY_C)
+					{
+						draw_radial_menu(ctx, 0.0, 0.0, cast(*u32)&ctx.tedit.brush, brush_items_radial.len, brush_items_radial[0])
+					}
+					if IsMouseHeld(mouse_enum.LEFT)
+					{
+						if IsKeyHeld(key_enum.KEY_Z)
+						{
+							ctx.tedit.brush_size += mvx * 10.0
+							if ctx.tedit.brush_size < 1.1
+							{
+								ctx.tedit.brush_size = 1.1
+							}
+						}
+						if IsKeyHeld(key_enum.KEY_X)
+						{
+							ctx.tedit.force += mvx * 10.0
+						}
+					}
+					dyn_clear(&ctx.vertex_terrain)
+					if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
+					{
+						out_ent = trn_ent
+					}
+					update_terrain_for_visualization(ctx, terrain, false)
+
+					if IsKeyHeld(key_enum.KEY_V)
+					{
+						idx := get_pixel_idx(cast(s32)col.contact_point.x, cast(s32)col.contact_point.z, &ctx.terrain_tex)
+						dst := ptr_offset(ctx.terrain_tex.data, idx, u8)
+						ctx.tedit.terrain_height_max = cast(f32)cast(s32)*ptr_offset(dst, 0, u16)
+						//draw_radial_menu(ctx, 0.0, 0.0, cast(*u32)&ctx.tedit.brush, brush_items_radial.len, brush_items_radial[0])
 					}
 				}
-				if IsMouseUp(mouse_enum.RIGHT)
+				else if !ctx.on_custom_grid &&  axis_sel_ent == nil && (out_ent == nil || out_ent.type == ent_type.TERRAIN)
 				{
-					for mi in ctx.mesh_added_aux
+					cam_dir_terrain = cam_dir
+					if IsMouseHeld(mouse_enum.LEFT)
 					{
-						m := terrain.meshes[cast(u64)*mi]
-						vi :u64
-						verts := &m.verts
-						count := m.verts.count
-						//__dbg_break
-						while vi < count
+						dyn_clear(&ctx.vertex_terrain)
+						if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent, &col)
 						{
-							vec_col := cast(*_vec)verts[vi + 3]
-							vec_col.x = 1.0
-							vec_col.y = 1.0
-							vec_col.z = 1.0
-
-							vi += 6
+							out_ent = trn_ent
 						}
-						UpdateModel(m.model, m.verts.data)
+						update_terrain_for_visualization(ctx, terrain, true)
+					}
+					if IsMouseUp(mouse_enum.LEFT)
+					{
+						for vtx in ctx.vertex_terrain
+						{
+							verts := &vtx.mesh.verts
+							m := vtx.mesh
+							vt := cast(*terrain_vert_info)m.verts[vtx.vidx]
+							vt.col.w = 0.0
+
+						}
+						for mi in ctx.mesh_added_aux
+						{
+							m := terrain.meshes[cast(u64)*mi]
+							vi :u64
+							verts := &m.verts
+							count := m.verts.count
+							//__dbg_break
+							UpdateModel(m.model, m.verts.data)
+						}
 					}
 				}
 			}
@@ -6572,7 +6852,6 @@ main_loop::fn(ctx : *context)
 
 			cam_pos = player_ent.pos
 			sky.pos = player_ent.pos
-			//print_f32(GetMouseVelX())
 			
 
 
@@ -6857,6 +7136,8 @@ main:: fn(){
 	q_aux2 :_vec
 	euler_to_quaternion2(-8.103, 0.0, 8.103, &q_aux2)
 	ctx: context
+	ctx.tedit.force = 16.0
+	ctx.tedit.brush_size = 16.0
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.main_alloc, 258600);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
@@ -6866,32 +7147,38 @@ main:: fn(){
 	window := OpenWindow(1000, 1000);
 
 	//__dbg_break
+	total_chunks := TERRAIN_WIDTH
 	bytes_per_mesh := MESH_WIDTH * MESH_WIDTH * 3
-	total_chunks := 8
 	terrain_bytes_total := cast(u32)(bytes_per_mesh * total_chunks * total_chunks)
 	tris_per_chunk := (MESH_WIDTH - 1) * (MESH_WIDTH - 1) * 6 * 4
 	terrain_tris := cast(u32)(tris_per_chunk * total_chunks * total_chunks)
 
 	InitMemAlloc(&ctx.terrain_alloc, terrain_bytes_total + terrain_tris);
 
-	ctx.terrain_tex.width = 1024
-	ctx.terrain_tex.height = 1024
-	ctx.terrain_tex.data = heap_alloc(ctx.alloc, ctx.terrain_tex.width * ctx.terrain_tex.height)
+	ctx.terrain_tex.width = cast(u32)total_chunks * (MESH_WIDTH - 1)
+	ctx.terrain_tex.height = cast(u32)total_chunks * (MESH_WIDTH - 1)
+	ctx.terrain_tex.channels = 1
+	ctx.terrain_tex.channel_size = gen_texture_size.WORD
+	channels_size := get_tex_pixel_stride(&ctx.terrain_tex)
+	ctx.terrain_tex.data = heap_alloc(ctx.alloc, ctx.terrain_tex.width * ctx.terrain_tex.height * channels_size)
+	ctx.aux_terrain_tex = heap_alloc(ctx.alloc, ctx.terrain_tex.width * ctx.terrain_tex.height)
+
 	for y in 0..ctx.terrain_tex.height
 	{
 		py := cast(f32)y / cast(f32)ctx.terrain_tex.height
 		for x in 0..ctx.terrain_tex.width
 		{
 			px := cast(f32)x / cast(f32)ctx.terrain_tex.width
-			p:=Perlin2D(px * 16.0, py * 16.0, 1.0, 2)
-			idx := cast(u32)(y * cast(s64)ctx.terrain_tex.width + x)
-			p = (p * 255.0)
-			*ptr_offset(ctx.terrain_tex.data, idx, u8) = cast(u8)cast(u32)p
+			p:=Perlin2D(px * 8.0, py * 8.0, 1.0, 2)
+			idx := get_pixel_idx(cast(s32)x, cast(s32)y, &ctx.terrain_tex)
+			//p = (p * 15000.0)
+			p = 0.0
+			dst := ptr_offset(ctx.terrain_tex.data, idx, u8)
+			*cast(*u16)dst = cast(u16)cast(u32)p
 		}
 	}
-	ctx.terrain_tex.id = GenRawTexture(ctx.terrain_tex.width, ctx.terrain_tex.height, gen_texture_type.R, gen_texture_filter.NEAREST)
-	ctx.terrain_tex.channels = 1
-	UpdateTexture(ctx.terrain_tex.id, 0, 0, ctx.terrain_tex.width, ctx.terrain_tex.height, ctx.terrain_tex.data, ctx.terrain_tex.channels - 1)
+	ctx.terrain_tex.id = GenRawTexture(ctx.terrain_tex.width, ctx.terrain_tex.height, gen_texture_type.R, gen_texture_filter.NEAREST, ctx.terrain_tex.channel_size)
+	UpdateTexture(ctx.terrain_tex.id, 0, 0, ctx.terrain_tex.width, ctx.terrain_tex.height, ctx.terrain_tex.data, ctx.terrain_tex.channels - 1, ctx.terrain_tex.channel_size)
 
 	ctx.window = window;
 
@@ -7015,7 +7302,7 @@ main:: fn(){
 	shock_medium_clip: = CreateAnim(&ctx, 0, 3, ctx.shock_medium_texs.tex_idxs, ctx.shock_medium_texs.total_texs);
 
 	LoadClip("items.png", 0, 0, 16, 16, 2, 1.0, &ctx.items_texs);
-	LoadClip("abcd.png", 0, 0, 6, 8, 26, 1.0, &ctx.abcd_texs);
+	LoadClip("abcd.png", 0, 0, 6, 8, 92, 1.0, &ctx.abcd_texs);
 
 	idle_clip.loop = true
 	walk_clip.loop = true

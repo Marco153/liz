@@ -1,5 +1,6 @@
 typedef unsigned long long u64;
 typedef unsigned int u32;
+typedef unsigned short u16;
 typedef unsigned char u8;
 typedef long long s64;
 
@@ -2554,6 +2555,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 			switch (cur_ir->bin.rhs.reg_sz)
 			{
 			case 1:
+			case 2:
 			case 4:
 			case 8:
 			{
@@ -9034,7 +9036,15 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 		*dst_ptr = *(long long*)src_ptr;
 	}break;
 	*/
+	case 0x1:
+	{
+		*(u16 *)dst_ptr = *(u8*)src_ptr;
+	}break;
 	// dword to qword
+	case 0x12:
+	{
+		*(u32 *)dst_ptr = *(unsigned short*)src_ptr;
+	}break;
 	case 0x23:
 	{
 		*dst_ptr = *(u32*)src_ptr;
@@ -10106,6 +10116,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		if(dbg->thread == nullptr)
 		{
 			Bc2Logic(0, dbg, (byte_code2**)&dbg->mem_buffer[RIP_REG * 8], &inc_ptr, &valid, offset);
+			auto a= 0;
 		}
 		else
 		{
@@ -14012,6 +14023,9 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				byte_code_enum base_inst;
 				switch (assign.op)
 				{
+				case T_MINUS:
+					base_inst = SUB_SSE_2_SSE;
+					break;
 				case T_PLUS:
 					base_inst = ADD_SSE_2_SSE;
 					break;
@@ -18169,7 +18183,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	lang_stat->cur_nd = 0;
 	lang_stat->node_arena = (node*)AllocMiscData(lang_stat, lang_stat->max_nd * sizeof(node));
 
-	lang_stat->max_decl = 9500;
+	lang_stat->max_decl = 16500;
 	lang_stat->cur_decl = 0;
 	lang_stat->decl_arena = (decl2*)AllocMiscData(lang_stat, lang_stat->max_decl * sizeof(decl2));
 	//lang_stat->max_misc = 16 * 1024 * 1024;

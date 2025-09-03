@@ -1132,6 +1132,7 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 
 	count := tris.count
 	col : collision=?
+	up :=_vec{0.0, 1.0, 0.0}
 	
 	while t < count
 	{
@@ -1162,7 +1163,9 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 		dist := dot_vec(&dir, &dir)
 		//__dbg_break
 		//globals.test_i++
-		if dist < 70.0
+		up_dot := 1.0 + (1.0 - dot_vec(&cross, &up))
+		up_dot = up_dot * 2.0
+		if dist < (70.0 * up_dot)
 		{
 			//__dbg_break
 			_v2 += e2.pos + cpos
@@ -1725,7 +1728,7 @@ get_chunk_on_pos ::fn(trn : *terrain_info, pos_s : s32) ! *chunk_col_info
 
 	return mesh.chunks[chidx]
 }
-RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *entity) !bool
+RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *entity, col : *collision) !bool
 {
 	a := *start
 	b := *end
@@ -1753,8 +1756,9 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	tri_pos :_vec
 	found_tri := false;
 
-	radius := 10.0
+	radius := ctx.tedit.brush_size
 	chunks_in_radius :=  cast(u32)radius / trn.chunks_col_window_size
+
 
 
 	globals.trn = terrain
@@ -1763,6 +1767,7 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	m_aabb :aabb
 
 	trn_width := cast(f32)trn.width
+	memset(ctx.aux_terrain_tex, 0, ctx.terrain_tex.width * ctx.terrain_tex.height)
 	
 	for m in trn.meshes
 	{
@@ -1847,7 +1852,6 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 							rinfo.v2 = _v3
 							if ray_triangle_intersect(&rinfo)
 							{
-								printf("tri found {t}\n")
 								globals.chunk = ch
 								//__dbg_break
 
@@ -1855,6 +1859,11 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 
 								h := chunks_in_radius*4
 								w := chunks_in_radius*4
+								col.contact_point = tri_pos
+								ab := rinfo.v1 - rinfo.v0
+								ac := rinfo.v2 - rinfo.v0
+								col.normal = cross_vec(&ab, &ac)
+								
 								
 								if (chunks_in_radius % 2) != 0
 								{
@@ -1972,37 +1981,55 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 		{
 			vpos := *cast(*_vec)m.verts[v]
 			vpos += m.pos
+			prev := vpos.w
 			vpos.w = 0.0
+
 			dir = tri_pos - vpos
+
+			vpos.w = prev
+
 			d := dot_vec(&dir, &dir)
 			dist := absf(d)
 			//printf("dist is {ch.verts_mesh_idx}\n")
 			if dist < (radius * radius)
 			{
-				//__dbg_break
 				dist = sqrt(dist)
 				vinfo:vertex_terrrain_modify=?
 				vinfo.vidx = v
 				vinfo.mesh = m
+				vaux := v / TERRAIN_VERTEX_SIZE
 				
-				vinfo.dir = (radius - dist)/radius
-				/*
-				vx := cur_v % vertices_per_row
-				vy := cur_v / vertices_per_row
-				is_in_limit := vy == 0 || vy == (vertices_per_row - 1)
-				if is_in_limit
+				vinfo.x = cast(u32)vpos.x
+				vinfo.y = cast(u32)vpos.z
+				idx := vinfo.y * ctx.terrain_tex.width + vinfo.x
+				dst := ptr_offset(ctx.aux_terrain_tex, idx, u8)
+				if *dst == 0
 				{
-					vinfo.dir = vinfo.dir *0.8
+					vinfo.duplicated = false
+					on ctx.tedit.brush
+					{
+					terrain_brush_type.SMOOTH
+					{
+						vinfo.dir = clamp((radius - dist)/radius, 0.0, 1.0)
+					}
+					terrain_brush_type.ROUGH
+					{
+						vinfo.dir = 1.0
+					}
+					}
+					*dst = 1
 				}
-				*/
+				else
+				{
+					vinfo.duplicated = true
+				}
 				dyn_add(&ctx.vertex_terrain, &vinfo)
 			}
 			v += TERRAIN_VERTEX_SIZE
 		}
 
-		UpdateModel(m.model, m.verts.data)
+		//UpdateModel(m.model, m.verts.data)
 	}
-	printf("hit\n")
 	
 	return true
 }

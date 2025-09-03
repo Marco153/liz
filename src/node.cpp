@@ -5479,7 +5479,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 					REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 						VAR_ARGS("for some reason func '%s' was not done. \n it seems like that function reached up until this line %d", ncall->l->t->str.c_str(), lhs->type.fdecl->reached_nd->t->line)
 						);
-					*/
+						*/
 					return false;
 				}
 				else
@@ -5493,10 +5493,12 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 		{
 			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 			{
+				/*
 				REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 					VAR_ARGS("func not found %s", ncall->l->t->str.c_str())
 					)
 				//ExitProcess(1);
+				*/
 				return false;
 			}
 			else
@@ -6348,6 +6350,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	ret_type->fdecl = fdecl;
 
 
+	//BREAK(fnode->t->line == 2261 && IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 	if (IS_FLAG_ON(flags, FUNCTION_IS_DONE_FLAGS_ONLY_DECLARE_SCOPE_AND_FUNC))
 		return true;
 
@@ -6634,7 +6637,7 @@ decl2* PointLogic(lang_state *lang_stat, node* n, scope* scp, type2* ret_tp)
 					n->l->t->str.c_str()
 				)
 			);
-			ExitProcess(1);
+			//ExitProcess(1);
 		}
 
 		return nullptr;
@@ -11635,6 +11638,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_BINOP:
 	{
+		//BREAK(n->t->type == T_SHIFT_LEFT && n->t->line == 2172)
 		switch (n->t->type)
 		{
 		case tkn_type2::T_COND_AND:

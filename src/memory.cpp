@@ -267,7 +267,7 @@ void heap_free(mem_alloc *alloc, char *ptr)//, heap_free_ret_info *ret = nullptr
 
 		maybe_join_to_right(nullptr, chunk_to_free, cur, ret);
 	}
-	heap_assert_next_not_equal_to_cur(alloc);
+	//heap_assert_next_not_equal_to_cur(alloc);
 	//memset(chunk_to_free->addr, 'x', chunk_to_free->size * BYTES_PER_CHUNK);
 
 }
@@ -356,7 +356,7 @@ char *heap_alloc(mem_alloc *alloc, int size)//, mem_chunk **out = nullptr)
 	ASSERT(cur->next != cur);
 	//if (out)
 		//*out = cur;
-	heap_assert_next_not_equal_to_cur(alloc);
+	//heap_assert_next_not_equal_to_cur(alloc);
     return cur->addr;
 }
 

@@ -881,4 +881,8 @@ DoTwoLinesIntersect::fn x64(startA : *_vec, endA : *_vec, startB : *_vec, endB :
 	return false;
 }
 
+lerp::fn(a : *_vec, b : *_vec, t : f32) ! _vec
+{
+	return *a * (1.0 - t)  + *b * t
+}
 

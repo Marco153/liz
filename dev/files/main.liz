@@ -52,6 +52,8 @@ context: struct
 	area_col_pos : _vec
 	area_col_size : _vec
 
+	line_shader : u32
+
 
 	step_audio_idxs : [2]u32
 	frames : *frame_info,
@@ -69,7 +71,6 @@ context: struct
 	col_chunks : dyn_array(collision_chunk)
 	aux_col_chunks : dyn_array(*collision_chunk)
 
-	materials : dyn_array(material_info)
 
 	all_axis_ent :*entity
 	all_axis_col :*collider
@@ -270,6 +271,12 @@ context: struct
 	tedit:terrain_edit
 
 	on_custom_grid : bool
+	on_contructing_path : bool
+
+	path_ents : dyn_array(*entity)
+	materials : dyn_array(material_info)
+
+	can_deactivate_path_ents : bool
 }
 
 
@@ -1632,7 +1639,9 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, flags : u
 	draw : draw_info3d
 	draw.flags =  DRAW_INFO_LINE;
 	draw.pos = *start
+	draw.pos.w = 0.0
 	draw.ent_size = *end
+	draw.ent_size.w = 0.0
 	memcpy(draw.color, col, 4 * 4);
 	draw.cam_pos = ctx.cam_pos_global;
 	draw.cam_rot = ctx.cam_rot_global;
@@ -1642,6 +1651,14 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, flags : u
 		draw.flags = draw.flags | DRAW_INFO_NO_PROJ
 
 	}
+	draw.flags = draw.flags | DRAW_INFO_CUSTOM_SHADER
+	m := ctx.materials[cast(u64)ctx.line_shader]
+	draw.shader_id = m.shader_id
+
+	SetShader(m.shader_id)
+	loc := GetUniformLocation(m.shader_id, cast(*char)"col", 3)
+
+	SetUniform4f(loc, col.x, col.y, col.z, col.w)
 	Draw3D(ctx.window, &draw)
 	if is_flag_on(flags, DRAW_LINE_TIP)
 	{
@@ -1866,7 +1883,7 @@ _draw_col ::fn(ctx : *context, c : *collider)
 	}
 	}
 }
-VIEW_COL_METHOD:const s32= 1
+VIEW_COL_METHOD:const s32= 0
 draw_aabb::fn(ctx : *context, _min : *_vec, _max : *_vec)
 {
 	_v1 := *_min
@@ -1900,7 +1917,7 @@ draw_aabb::fn(ctx : *context, _min : *_vec, _max : *_vec)
 }
 view_collision ::fn(ccc : u32)
 {
-	return;
+	return
 	curmx := GetMouseNormalizedPosX();
 	curmy := GetMouseNormalizedPosY();
 
@@ -1986,6 +2003,8 @@ view_collision ::fn(ccc : u32)
 	#if VIEW_COL_METHOD == 0
 	{
 		target_face :u64= gjk.closest_face
+		draw_line(ctx, &globals.ray_origin, &globals.ray_end, &col, 0)
+		draw_tri(ctx, &globals.tri_v3, &globals.tri_v2, &globals.tri_v1, &col, 0)
 		if IsKeyHeld(key_enum.KEY_1) && c2.type == col_type.CUBE
 		{
 			t:u64
@@ -3538,6 +3557,11 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	ctx.area_col_size = fl.area_col_size
 	ctx.chunk_width = fl.chunk_width
 
+	if ctx.chunk_width != 16.0
+	{
+		ctx.chunk_width = 16.0
+	}
+
 	new_collision_chunks(ctx)
 
 	file = cast(str_lit)ptr_offset(file, sizeof(*fl), u8);
@@ -3988,6 +4012,7 @@ items_func::fn(ctx : *context, dt : f32, selected_ent : *entity)
 terrain_brush_type:enum
 {
 	SMOOTH,
+	PATH,
 	ROUGH
 }
 terrain_edit:struct
@@ -3998,6 +4023,203 @@ terrain_edit:struct
 	terrain_height_max : f32
 	terrain_height_min : f32
 
+	path_width : f32
+
+}
+point_in_square :: fn(P : *_vec, A : *_vec, B : *_vec, C : *_vec, D : *_vec) ! bool
+{
+	_P := *P
+    _A := *A
+    _B := *B
+    _C := *C
+    _D := *D
+
+	aux1 := _B - _A
+	aux2 := _P - _A
+	c := cross_vec(&aux1, &aux2)
+    c1 : f32 = c.y
+
+	aux1 = _C - _B
+	aux2 = _P - _B
+	c = cross_vec(&aux1, &aux2)
+    c2 : f32 = c.y
+
+	aux1 = _D - _C
+	aux2 = _P - _C
+	c = cross_vec(&aux1, &aux2)
+    c3 : f32 = c.y
+
+	aux1 = _A - _D
+	aux2 = _P - _D
+	c = cross_vec(&aux1, &aux2)
+    c4 : f32 = c.y
+
+    all_non_neg := (c1 >= 0.0 && c2 >= 0.0 && c3 >= 0.0 && c4 >= 0.0)
+    all_non_pos := (c1 <= 0.0 && c2 <= 0.0 && c3 <= 0.0 && c4 <= 0.0)
+
+    if (all_non_neg || all_non_pos) {
+        return true
+    }
+
+    return false
+}
+set_path_on_terrain::fn(ctx : *context, trn : *entity)
+{
+	max_dist := 0.0
+	start_pos := ctx.path_ents[0].pos
+	all_pos:_vec
+
+	for e in ctx.path_ents
+	{
+		all_pos += e.pos
+	}
+	all_pos = all_pos / cast(f32)cast(s32)ctx.path_ents.count
+
+	start_pos = all_pos
+	end_pos := start_pos
+
+	for e in ctx.path_ents
+	{
+		dir := e.pos - start_pos
+		dist := len_vec(&dir)
+		
+		if dist > max_dist
+		{
+			max_dist = dist
+		}
+	}
+
+	col : collision=?
+
+	start_pos.y += 500.0
+	end_pos.y -= 500.0
+	ctx.tedit.brush_size = max_dist + ctx.tedit.brush_size
+
+	
+	if !RaycastWithTerrain(ctx, &start_pos, &end_pos, trn, &col)
+	{
+		// we should be on the terrain
+		__dbg_break
+	}
+	terrain := trn.terrain
+	i :u64= 0
+	count := ctx.path_ents.count - 1
+	height_ratio := 65000 / terrain.amplitude
+
+	while i < count
+	{
+		//__dbg_break
+		cur := ctx.path_ents[i]
+		next := ctx.path_ents[i + 1]
+
+		cpos := cur.pos
+		npos := next.pos
+		cur_cross := cur.vel
+		next_cross := next.vel
+
+		steep_diff := npos.y - cpos.y
+
+		A := cpos - cur_cross
+		B := cpos + cur_cross
+		C := npos + next_cross
+		D := npos - next_cross
+
+		AB := B - A
+		CD := D - C
+
+		A.y = 0.0
+		B.y = 0.0
+		C.y = 0.0
+		D.y = 0.0
+
+		if dot_vec(&AB, &CD) > 0.0
+		{
+			aux := C
+			C = D
+			D = aux
+			printf("yep i{i}\n")
+
+		}
+
+		dir := next.pos - cur.pos
+		dir_len := len_vec(&dir)
+		og_dir := dir
+		dir = normalize_vec(&dir)
+		dir.y = 0.0
+
+
+		//__dbg_break
+		for vtx in ctx.vertex_terrain
+		{
+			vpos :_vec
+			vpos.x = cast(f32)vtx.x
+			vpos.z = cast(f32)vtx.y
+			m := vtx.mesh
+			/*vt := cast(*terrain_vert_info)m.verts[vtx.vidx]
+			//vt.pos.y = (cast(f32)cur_val/65000.0) * terrain.amplitude
+			vt.col.x = 1.0
+			vt.col.y = 1.0
+			vt.col.z = 1.0
+			vt.col.w = 0.5
+			*/
+
+			if !point_in_square (&vpos, &A, &B, &C, &D)
+			{
+				continue
+			}
+			
+			to_vpos := vpos - cpos
+
+			d:= dot_vec(&dir, &to_vpos)
+
+			d = d / dir_len
+			steep := steep_diff * d + cpos.y
+			vt := cast(*terrain_vert_info)m.verts[vtx.vidx]
+			vt.pos.y = steep
+			steep = steep * height_ratio
+
+			/*printf("\nd {d}, steep {steep}, len {dir_len}, i {i}\n")
+			printf("cpos:")
+			print_vec(&cpos)
+			printf("npos:")
+			print_vec(&npos)
+			printf("dir:")
+			print_vec(&og_dir)
+			printf("vpos:")
+			print_vec(&vpos)
+			
+			*/
+
+
+			globals.temp_alloc.cur = 0
+
+			idx := get_pixel_idx(cast(s32)vtx.x, cast(s32)vtx.y, &ctx.terrain_tex)
+			force := vtx.dir
+			out_pixel := ptr_offset(ctx.terrain_tex.data, idx, u8)
+
+			val := cast(u16)clamp(cast(s32)steep, 0, 65000)
+			if !vtx.duplicated
+			{
+				*cast(*u16)out_pixel = val
+			}
+		}
+		i++
+	}
+	UpdateTexture(ctx.terrain_tex.id, 0, 0, ctx.terrain_tex.width, ctx.terrain_tex.height, 
+					ctx.terrain_tex.data, ctx.terrain_tex.channels - 1, ctx.terrain_tex.channel_size)
+	dyn_clear(&ctx.vertex_terrain)
+
+
+/*
+	for mi in ctx.mesh_added_aux
+	{
+		m := terrain.meshes[cast(u64)*mi]
+		vi :u64
+		verts := &m.verts
+		//__dbg_break
+		UpdateModel(m.model, m.verts.data)
+	}
+	*/
 }
 editor_window::fn(ctx : *context, out_ent : **entity)
 {
@@ -4206,6 +4428,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 
 	assign_new_height := false
+	set_path := false
 	on ctx.editor_wnd_type
 	{
 	editor_window_enum.AREA_COL
@@ -4638,6 +4861,14 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				ImGuiDragF32("terrain height min", &ctx.tedit.terrain_height_min)
 
 				ImGuiDragF32("brush size", &ctx.tedit.brush_size)
+
+				if ctx.tedit.brush == terrain_brush_type.PATH
+				{
+					if ImGuiSelectable("set path", dummy_sel, 50.0, 15.0)
+					{
+						set_path = true
+					}
+				}
 				
 			}
 			ent_type.BRIDGE
@@ -4683,10 +4914,24 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		
 	}
 
-	if IsKeyHeld(key_enum.KEY_ESCAPE) || ctx.editor_wnd_type != editor_window_enum.GRID
+	if IsKeyDown(key_enum.KEY_ESCAPE)
+	{
+		ctx.on_custom_grid = false
+		ctx.on_contructing_path = false
+		ctx.can_deactivate_path_ents = true
+
+		ctx.editor_wnd_type = editor_window_enum.ENTS
+	}
+	if ctx.on_contructing_path && ctx.on_custom_grid
+	{
+		ctx.on_custom_grid = false
+		ctx.editor_wnd_type = editor_window_enum.ENTS
+	}
+	if  ctx.editor_wnd_type != editor_window_enum.GRID
 	{
 		ctx.on_custom_grid = false
 	}
+
 	if assign_new_height
 	{
 		trn := out_ent.terrain
@@ -4706,6 +4951,10 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			}
 			UpdateModel(m.model, m.verts.data)
 		}
+	}
+	if set_path
+	{
+		set_path_on_terrain(ctx, *out_ent)
 	}
 }
 change_preview_col_idx::fn(ctx : *context, new_val : u8)
@@ -5731,7 +5980,7 @@ update_terrain_for_visualization::fn(ctx : *context, terrain : *terrain_info, as
 		out_pixel := ptr_offset(ctx.terrain_tex.data, idx, u8)
 
 		cur_val := *cast(*u16)out_pixel
-		cur_val = cast(u16)clamp(cast(s32)cur_val + cast(s32)(force * ctx.tedit.force), cast(s32)ctx.tedit.terrain_height_min, 65000)
+		cur_val = cast(u16)clamp(cast(s32)cur_val + cast(s32)(force * ctx.tedit.force), cast(s32)ctx.tedit.terrain_height_min, cast(s32)ctx.tedit.terrain_height_max)
 		if !vtx.duplicated && assign_tex
 		{
 			*cast(*u16)out_pixel = cur_val
@@ -5794,7 +6043,6 @@ draw_radial_menu::fn(ctx : *context, x : f32, y : f32, out : *u32, total : u32, 
 
 	part_as_angle := part * PI * 2.0
 	mouse_angle := atan2(dir_to_mouse.x, dir_to_mouse.y)
-	printf("ma {mouse_angle}\n")
 	
 	for i in 0..total
 	{
@@ -5803,6 +6051,7 @@ draw_radial_menu::fn(ctx : *context, x : f32, y : f32, out : *u32, total : u32, 
 
 		fx := x + cos(p * PI * 2.0) * 0.5
 		fy := y + sin(p * PI * 2.0) * 0.5
+		//__dbg_break
 
 		dir_to_item :_vec
 		dir_to_item.x = fx
@@ -5815,11 +6064,11 @@ draw_radial_menu::fn(ctx : *context, x : f32, y : f32, out : *u32, total : u32, 
 
 		if (mouse_angle < item_angle) && (mouse_angle > item_angle_min)
 		{
-			*out = cast(u32)i
+			*out = cur.idx
 		}
 
 		col := ctx.white_color
-		if *out == cast(u32)i
+		if *out == cast(u32)cur.idx
 		{
 			col = ctx.red_color
 		}
@@ -5830,11 +6079,15 @@ draw_radial_menu::fn(ctx : *context, x : f32, y : f32, out : *u32, total : u32, 
 }
 main_loop::fn(ctx : *context)
 {
-	brush_items_radial : [2]radial_item
+	brush_items_radial : [3]radial_item
 	brush_items_radial[0].name = "smooth"
-	brush_items_radial[0].idx = 0
+	brush_items_radial[0].idx = cast(u32)terrain_brush_type.SMOOTH
+
 	brush_items_radial[1].name = "rough"
-	brush_items_radial[1].idx = 1
+	brush_items_radial[1].idx = cast(u32)terrain_brush_type.ROUGH
+
+	brush_items_radial[2].name = "path"
+	brush_items_radial[2].idx = cast(u32)terrain_brush_type.PATH
 
 	ctx.computer_screen_tex_buffer = heap_alloc(ctx.alloc, 256 * 256 * 4)
 
@@ -5919,6 +6172,7 @@ main_loop::fn(ctx : *context)
 */
 
 	//using ctx;
+	ctx.line_shader = cast(u32)find_shader(ctx, "line_shader.mat")
 	draw:draw_info3d;
 	draw2d:draw_info;
 	//AssignCamStuff(scn, &draw);
@@ -5952,7 +6206,7 @@ main_loop::fn(ctx : *context)
 		c1.CAPSULE.radius = 0.2
 		c1.CAPSULE.height = 1.7
 		//player_ent.mov_info.inv.items[0].item = inv_item.EXPLOSION_GEM
-		//player_ent.mov_info.inv.items[1].item = inv_item.SHOCK
+		player_ent.mov_info.inv.items[1].item = inv_item.SHOCK
 	}
 
 	player_ent.type = ent_type.PLAYER
@@ -6034,7 +6288,7 @@ main_loop::fn(ctx : *context)
 
 	player_ent.flags = player_ent.flags | ENTITY_3D
 	player_ent.pos.x = 8.0
-	player_ent.pos.y = 76.0
+	player_ent.pos.y = 3.0
 	player_ent.pos.z = 9.0
 
 	player_ent.mov_info.stamina = 1.0
@@ -6172,24 +6426,6 @@ main_loop::fn(ctx : *context)
 	cube.name = "cube2"
 	cube.rot = euler_to_quaternion(10.0, 45.0, 0.0).v
 
-	sky := new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{500.5, 500.2, 500.5, 0.0}, false);
-	sky.name = "sky"
-	sky.is_trigger = true
-	sky.flags = sky.flags | ENTITY_CUSTOM_SHADER | ENTITY_DONT_FREE
-	sky.flags = sky.flags & ~ENTITY_SERIALIZE
-	sky.material_idx = find_shader(ctx, "sky_shader.mat")
-	sky.in_material_instance = new_material_instance(ctx, cast(u32)sky.material_idx, sky)
-
-
-
-
-	mat :=ctx.materials[cast(u64)sky.material_idx]
-	//rgb(232, 255, 215)
-	//rgb(235, 214, 251)
-	//rgb(255, 203, 97)
-	set_uniform_v4(mat, sky, "horizon_color", &_vec{233.0/255.0, 91.0/255.0, 111.0/255.0, 1.0})
-	set_uniform_v4(mat, sky, "mid_horizon_color", &_vec{255.0/255.0, 203.0/255.0, 97.0/255.0, 1.0})
-	set_uniform_v4(mat, sky, "sky_color", &_vec{235.0/255.0, 214.0/255.0, 251.0/255.0, 1.0})
 
 	ctx.preview_ent = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{1.0, 1.0, 1.0, 0.0}, false);
 	ctx.preview_ent.flags = ctx.preview_ent.flags | ENTITY_DONT_FREE
@@ -6241,9 +6477,27 @@ main_loop::fn(ctx : *context)
 	
 	sel_action : select_action
 
-	//SerializeAllEnt(ctx, "01")
-	DeserializeAllEnt(ctx, "02")
+	SerializeAllEnt(ctx, "01")
+	DeserializeAllEnt(ctx, "01")
 
+	sky := new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{500.5, 500.2, 500.5, 0.0}, false);
+	sky.name = "sky"
+	sky.is_trigger = true
+	sky.flags = sky.flags | ENTITY_CUSTOM_SHADER | ENTITY_DONT_FREE
+	sky.flags = sky.flags & ~ENTITY_SERIALIZE
+	sky.material_idx = find_shader(ctx, "sky_shader.mat")
+	sky.in_material_instance = new_material_instance(ctx, cast(u32)sky.material_idx, sky)
+
+
+
+
+	mat :=ctx.materials[cast(u64)sky.material_idx]
+	//rgb(232, 255, 215)
+	//rgb(235, 214, 251)
+	//rgb(255, 203, 97)
+	set_uniform_v4(mat, sky, "horizon_color", &_vec{233.0/255.0, 91.0/255.0, 111.0/255.0, 1.0})
+	set_uniform_v4(mat, sky, "mid_horizon_color", &_vec{255.0/255.0, 203.0/255.0, 97.0/255.0, 1.0})
+	set_uniform_v4(mat, sky, "sky_color", &_vec{235.0/255.0, 214.0/255.0, 251.0/255.0, 1.0})
 
 
 	ctx.red_color.x = 1.0
@@ -6627,8 +6881,6 @@ main_loop::fn(ctx : *context)
 
 				if IsKeyDown(key_enum.KEY_I)
 				{
-					
-
 					dyn_clear(&ctx.vertex_terrain)
 					prev_sel := out_ent
 					aux_sel : *entity
@@ -6644,6 +6896,15 @@ main_loop::fn(ctx : *context)
 						point = col.contact_point
 					}
 					if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+					{
+						aux_dist := len_vec(&(cam_pos - col.contact_point))
+
+						if aux_dist < shortest_dist 
+						{
+							point = col.contact_point
+						}
+					}
+					if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
 					{
 						aux_dist := len_vec(&(cam_pos - col.contact_point))
 
@@ -6676,6 +6937,19 @@ main_loop::fn(ctx : *context)
 					else
 					{
 						cube.tex_id = ctx.screen_tex_id
+					}
+					if ctx.on_contructing_path
+					{
+						//cube.flags = cube.flags | ENTITY_ALWAYS_ON_FRONT
+						cube.pos += -col.normal
+						printf("on path \n")
+						if ctx.path_ents.count == 0
+						{
+							cube.size = cube.size * 2.0
+						}
+						dyn_add(&ctx.path_ents, cube)
+						c1 := cast(*collider)cube.col
+						CopyVerts(c1, &dir, &dir)
 					}
 				}
 				if IsMouseUp(mouse_enum.LEFT)
@@ -6733,7 +7007,7 @@ main_loop::fn(ctx : *context)
 							}
 						}
 					}
-					if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
+					else if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
 					{
 						aux_dist := len_vec(&(cam_pos - col.contact_point))
 						if aux_dist < shortest_dist
@@ -6769,6 +7043,18 @@ main_loop::fn(ctx : *context)
 					else if IsKeyHeld(key_enum.KEY_C)
 					{
 						draw_radial_menu(ctx, 0.0, 0.0, cast(*u32)&ctx.tedit.brush, brush_items_radial.len, brush_items_radial[0])
+						if ctx.tedit.brush == terrain_brush_type.PATH
+						{
+							for e in ctx.path_ents
+							{
+								e.is_active = true
+							}
+							ctx.on_contructing_path = true
+						}
+						else
+						{
+							ctx.can_deactivate_path_ents = true
+						}
 					}
 					if IsMouseHeld(mouse_enum.LEFT)
 					{
@@ -6800,7 +7086,7 @@ main_loop::fn(ctx : *context)
 						//draw_radial_menu(ctx, 0.0, 0.0, cast(*u32)&ctx.tedit.brush, brush_items_radial.len, brush_items_radial[0])
 					}
 				}
-				else if !ctx.on_custom_grid &&  axis_sel_ent == nil && (out_ent == nil || out_ent.type == ent_type.TERRAIN)
+				else if !ctx.on_contructing_path && !ctx.on_custom_grid &&  axis_sel_ent == nil && (out_ent == nil || out_ent.type == ent_type.TERRAIN)
 				{
 					cam_dir_terrain = cam_dir
 					if IsMouseHeld(mouse_enum.LEFT)
@@ -6831,6 +7117,86 @@ main_loop::fn(ctx : *context)
 							//__dbg_break
 							UpdateModel(m.model, m.verts.data)
 						}
+					}
+				}
+				else if ctx.on_contructing_path
+				{
+					i :u64
+					limit := ctx.path_ents.count
+					next :*entity
+					//dir : _vec
+					//cross :_vec
+					path_width_start:_vec
+					path_width_end:_vec
+					pwidth_half := ctx.tedit.path_width * 0.5
+					prev_dir:_vec
+					prev_cross:_vec
+
+					while i < limit
+					{
+						if limit == 1
+							break;
+						cur := ctx.path_ents[i]
+
+
+						if i == 0 
+						{
+							
+							next = *ctx.path_ents[i + 1]
+							dir = next.pos - cur.pos
+							cross = cross_vec(&ctx.up, &dir)
+							cross = normalize_vec(&cross)
+							cross = cross * pwidth_half
+
+							prev_cross = cross
+							prev_dir = dir
+
+							path_width_start = cur.pos - cross
+							path_width_end = cur.pos + cross
+
+							draw_line(ctx, &path_width_start, &path_width_end, &ctx.white_color, 0)
+							draw_line(ctx, &cur.pos, &next.pos, &ctx.white_color, 0)
+						}
+						else if (i + 1) == limit
+						{
+							cross = cross_vec(&prev_dir, &ctx.up)
+							cross = normalize_vec(&cross)
+							cross = cross * pwidth_half
+
+							path_width_start = cur.pos - cross
+							path_width_end = cur.pos + cross
+
+							draw_line(ctx, &path_width_start, &path_width_end, &ctx.white_color, 0)
+
+						}
+						else
+						{
+							next = *ctx.path_ents[i + 1]
+
+							dir = next.pos - cur.pos
+							d := dot_vec(&normalize_vec(&dir), &normalize_vec(&prev_dir))
+
+							cross = cross_vec(&dir, &ctx.up)
+
+							half_dir := lerp(&-dir, &prev_dir, 0.5)
+
+							cross = lerp(&half_dir, &cross, d)
+
+							cross = normalize_vec(&cross)
+							cross = cross * pwidth_half
+
+							prev_cross = cross
+							prev_dir = dir
+
+							path_width_start = cur.pos - cross
+							path_width_end = cur.pos + cross
+
+							draw_line(ctx, &cur.pos, &next.pos, &ctx.white_color, 0)
+							draw_line(ctx, &path_width_start, &path_width_end, &ctx.white_color, 0)
+						}
+						cross.y = 0.0
+						cur.vel = cross
+						i++
 					}
 				}
 			}
@@ -7082,6 +7448,15 @@ main_loop::fn(ctx : *context)
 		my = my / 500.0
 		EndFrame(ctx.window);
 		ctx.frames_total++;
+
+		if ctx.can_deactivate_path_ents
+		{
+			for e in ctx.path_ents
+			{
+				e.is_active = false
+			}
+			ctx.can_deactivate_path_ents = false
+		}
 	}
 }
 
@@ -7138,6 +7513,8 @@ main:: fn(){
 	ctx: context
 	ctx.tedit.force = 16.0
 	ctx.tedit.brush_size = 16.0
+	ctx.tedit.path_width = 10.0
+	ctx.tedit.terrain_height_max = 65000.0
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.main_alloc, 258600);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
@@ -7177,7 +7554,7 @@ main:: fn(){
 			*cast(*u16)dst = cast(u16)cast(u32)p
 		}
 	}
-	ctx.terrain_tex.id = GenRawTexture(ctx.terrain_tex.width, ctx.terrain_tex.height, gen_texture_type.R, gen_texture_filter.NEAREST, ctx.terrain_tex.channel_size)
+	ctx.terrain_tex.id = GenRawTexture(ctx.terrain_tex.width, ctx.terrain_tex.height, gen_texture_type.R, gen_texture_filter.LINEAR, ctx.terrain_tex.channel_size)
 	UpdateTexture(ctx.terrain_tex.id, 0, 0, ctx.terrain_tex.width, ctx.terrain_tex.height, ctx.terrain_tex.data, ctx.terrain_tex.channels - 1, ctx.terrain_tex.channel_size)
 
 	ctx.window = window;
@@ -7332,7 +7709,6 @@ main:: fn(){
 	}
 
 	ctx.abcd_tex_info_idx = cast(u32)i
-
 
 	main_loop(&ctx);
 }

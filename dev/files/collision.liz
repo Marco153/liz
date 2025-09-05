@@ -1093,7 +1093,7 @@ verts_from_tri_info:struct
 	cross : _vec, 
 	t : u64
 }
-get_verts_pos_from_tris::fn x64(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
+get_verts_pos_from_tris::fn(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
 {
 		t := info.t
 		idx :=  cast(u64)*ptr_offset(tris, t, u32)
@@ -1164,7 +1164,7 @@ ChunkCol::fn(gjk : *gjk_state, c1 : *collider, c2 : *collider, chunk : *chunk_co
 		//__dbg_break
 		//globals.test_i++
 		up_dot := 1.0 + (1.0 - dot_vec(&cross, &up))
-		up_dot = up_dot * 2.0
+		up_dot = up_dot * 3.0
 		if dist < (70.0 * up_dot)
 		{
 			//__dbg_break
@@ -1484,6 +1484,10 @@ StepCol::fn(ctx : *context, dt : f32)
 
 			for c in ctx.aux_col_chunks
 			{
+				if c.entities.count == 0
+				{
+					continue
+				}
 				dyn_add_data(&c1.ents_of_gotten_chunks, c.entities.data, cast(u32)c.entities.count)
 				dyn_add(&c.entities, e)
 				dyn_add(&c1.in_chunks, *c)
@@ -1542,7 +1546,6 @@ StepCol::fn(ctx : *context, dt : f32)
 			}
 			else
 			{
-				
 				CopyVerts(c2, &m_aabb._min, &m_aabb._max)
 
 				//printf("name {e.name}\n")
@@ -1739,6 +1742,8 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 
 	trn :*terrain_info= terrain.terrain
 	dyn_clear(&ctx.terrain_chunks_to_col)
+	dyn_clear(&ctx.vertex_terrain)
+	dyn_clear(&ctx.mesh_added_aux)
 
 	//__dbg_break
 	aux_end := *end
@@ -1757,9 +1762,8 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	found_tri := false;
 
 	radius := ctx.tedit.brush_size
+
 	chunks_in_radius :=  cast(u32)radius / trn.chunks_col_window_size
-
-
 
 	globals.trn = terrain
 
@@ -2153,6 +2157,17 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 		*/
 		c1.pos = e.pos;
 		dummy :_vec=?;
+		/*
+		if IsKeyHeld(key_enum.KEY_Z) && str_cmp(e.name, "block 1_idx56")
+		{
+			gjk := cast(*gjk_state)globals.gjk
+			gjk.col1 = c1
+			gjk.col2 = c1
+			globals.ray_origin = *start
+			globals.ray_end = *end
+			__dbg_break;
+		}
+		*/
 
 		CopyVerts(c1, &dummy, &dummy);
 		
@@ -2177,6 +2192,10 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 				rinfo.v0 = info.v1_out + c_offset
 				rinfo.v1 = info.v2_out + c_offset
 				rinfo.v2 = info.v3_out + c_offset
+
+				globals.tri_v1 = rinfo.v0
+				globals.tri_v2 = rinfo.v1
+				globals.tri_v3 = rinfo.v2
 
 				if ray_triangle_intersect(&rinfo)
 				{
@@ -2205,6 +2224,13 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 						cinfo.normal = info.cross
 						cinfo.contact_point = tri_pos
 						aux_ent = e
+						/*
+						printf("cube hit {e.name}\n")
+						if IsKeyHeld(key_enum.KEY_Z) && str_cmp(e.name, "block 1_idx56")
+						{
+							__dbg_break
+						}
+						*/
 					}
 
 				}

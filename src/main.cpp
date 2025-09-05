@@ -1601,13 +1601,11 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 	if(IS_FLAG_ON(draw->flags, DRAW_INFO_LINE | DRAW_INFO_NO_PROJ))
 	{
 		
+		if (IS_FLAG_ON(draw->flags, DRAW_INFO_CUSTOM_SHADER))
+		{
+			shaderProgram = draw->shader_id;
+		}
 		float line[6];
-		draw->pos_x -= cam_pos_x;
-		draw->pos_y -= cam_pos_y;
-		draw->pos_z -= cam_pos_z;
-		draw->ent_size_x -= cam_pos_x;
-		draw->ent_size_y -= cam_pos_y;
-		draw->ent_size_z -= cam_pos_z;
 		memcpy(&line[0], &draw->pos_x, 12);
 		memcpy(&line[3], &draw->ent_size_x, 12);
 		shaderProgram = gl_state->shader_program3d_line;
@@ -1621,6 +1619,7 @@ void Draw3DBase(int thread_id, dbg_state* dbg, draw_info3d *draw)
 		glBindBuffer(GL_ARRAY_BUFFER, gl_state->vbo3d_line);
 
 		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(line), line);
+		glLineWidth(4.0);
 
 	}
 	else if(IS_FLAG_ON(draw->flags, DRAW_INFO_TRIANGLE))

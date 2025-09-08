@@ -256,12 +256,12 @@ namespace own_std
 			{
 				return "";
 			}
-			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			string new_one;
 			if (size == -1)
 			{
 				size = len - idx;
 			}
+			char* buffer = (char*)__lang_globals.alloc(__lang_globals.data, size);
 			memcpy(buffer, data_ + idx, size);
 			new_one.data_ = buffer;
 			new_one.len = size;

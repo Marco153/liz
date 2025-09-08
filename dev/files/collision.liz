@@ -17,19 +17,19 @@ find_support::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider, dir : *_v
 {
 	#if DBG_COL == 0
 	{
-		 return find_furthest_point(col1, dir) - find_furthest_point(col2, &(-*dir))
+		 return find_furthest_point(col1, &col1.ent.pos, dir) - find_furthest_point(col2, &col2.ent.pos, &(-*dir))
 	}
 	else
 	{
-		sup1 := find_furthest_point(col1, dir)
-		sup2 := find_furthest_point(col2, &(-*dir))
+		sup1 := find_furthest_point(col1, &col1.ent.pos, dir)
+		sup2 := find_furthest_point(col2, &col2.ent.pos, &(-*dir))
 		gjk.sup1 = sup1
 		gjk.sup2 = sup2
 		return sup1 - sup2
 	}
 
 }
-find_furthest_point::fn x64(col : *collider, dir : *_vec) ! _vec
+find_furthest_point::fn x64(col : *collider, world_pos : *_vec, dir : *_vec) ! _vec
 {
 	on col.type
 	{
@@ -44,7 +44,7 @@ find_furthest_point::fn x64(col : *collider, dir : *_vec) ! _vec
 		else
 			result.y -= col.CAPSULE.height *0.5;
 
-        return result + col.pos; //convert support to world spac
+        return result + (col.pos + *world_pos); //convert support to world spac
 	}
 	SPHERE
 	{
@@ -83,7 +83,7 @@ find_furthest_point::fn x64(col : *collider, dir : *_vec) ! _vec
 		cur_idx :u64= 0
 		for v in col.CUBE.verts
 		{
-			aux := *v - col.pos
+			aux := *v - (col.pos + *world_pos)
 			proj:= dot_vec(dir, &aux);
 			if proj > _max
 			{
@@ -894,6 +894,7 @@ add_body::fn(ctx : *context, ent : *entity)
 	c1 := cast(*collider)ent.col
 	c1.type = col_type.CUBE
 	c1.ent = ent
+	c1.size = ent.size
 
 	c1.rel_chunk_min.x = -1.0
 	c1.rel_chunk_max.x = -1.0
@@ -1008,8 +1009,8 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 	}
 	col_type.CUBE
 	{
-		final_pos := (e.pos + e.col_offset)
-		final_size := e.col_size
+		final_pos := (e.pos + col.pos)
+		final_size := col.size
 		start := col.CUBE.verts[0]
 
 		if col.no_rotation_ent
@@ -1068,7 +1069,7 @@ CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
 	if col.ent.is_static
 	{
 		col.data_ready = true
-		col.pos = col.ent.pos
+		//col.pos = col.ent.pos
 	}
 	_min.x = 9999.9
 	_min.y = 9999.9
@@ -1093,7 +1094,7 @@ verts_from_tri_info:struct
 	cross : _vec, 
 	t : u64
 }
-get_verts_pos_from_tris::fn(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
+get_verts_pos_from_tris::fn x64(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
 {
 		t := info.t
 		idx :=  cast(u64)*ptr_offset(tris, t, u32)
@@ -1412,6 +1413,86 @@ cast_s32_and_compare_vecs::fn(a : *_vec, b : *_vec) ! bool
 	}
 	return true
 }
+check_maybe_resolve_collision::fn(ctx : *context, gjk : *gjk_state, e : *entity, e2 : *entity, dt : f32, c1 : *collider, c2 : *collider, p_aabb : *aabb)
+{
+	m_aabb :aabb = ?
+	col : collision=?
+	mtv : _vec=?
+	CopyVerts(c2, &m_aabb._min, &m_aabb._max)
+
+	//printf("name {e.name}\n")
+	
+	if aabbCheck3D(&m_aabb, p_aabb) == false
+	{
+		return
+	}
+
+	//__dbg_break
+	if is_flag_on(e.layer, LAYER_ENTITY_PLAYABLE)
+	{
+		//ASSERT(e != nil)
+		//ASSERT(e.mov_info != nil)
+
+		r :=c1.CAPSULE.radius
+		gjk.aux_col.type = col_type.SPHERE
+		gjk.aux_col.SPHERE.radius = r
+		gjk.aux_col.pos = e.pos
+		gjk.aux_col.pos += e.forward * r * 2.0 + -ctx.up * 0.5
+		gjk.aux_col.ent = e
+		
+		if GJK(gjk, &gjk.aux_col, c2)
+		{
+			e.mov_info.down_col = true
+			e.mov_info.ent_col = e2
+		}
+
+		gjk.aux_col.pos = e.pos
+		gjk.aux_col.pos += e.forward * r + ctx.up * 0.8
+		
+		if GJK(gjk, &gjk.aux_col, c2)
+		{
+			e.mov_info.up_col = true
+			if is_flag_off(e.dont_res_cols_with_layers, e2.layer) && is_flag_off(e2.dont_res_cols_with_layers, e.layer)
+				mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], &gjk.aux_col, c2, &col);
+			
+			col.normal = col.normal * -1.0
+			e.mov_info.up_col_norm = col.normal
+		}
+	}
+
+	if !GJK(gjk, c1, c2)
+	{
+		return
+	}
+	if is_flag_off(e.dont_res_cols_with_layers, e2.layer) && is_flag_off(e2.dont_res_cols_with_layers, e.layer)
+		mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col);
+	else
+	{
+		mtv.x = 0.0
+		mtv.y = 0.0
+		mtv.z = 0.0
+		mtv.w = 0.0
+	}
+	
+	col.normal = col.normal * -1.0
+	if !EntIsInCollision(e, e2, &col)
+	{
+		if e.col_enter != nil
+		{
+			e.col_enter(e, e2, &col);
+		}
+	}
+	if e.col_stay != nil
+	{
+		e.col_stay(e, e2, &col);
+	}
+	if e.is_trigger == false && e2.is_trigger == false
+	{
+		e.pos -= mtv
+		//c1.data_ready = false
+		//CopyVerts(c1, &p_aabb._min, &p_aabb._max)
+	}
+}
 StepCol::fn(ctx : *context, dt : f32)
 {
 	gjk := ctx.gjk
@@ -1442,7 +1523,7 @@ StepCol::fn(ctx : *context, dt : f32)
 		//__dbg_break
 		c1 := cast(*collider)e.col
 		e.pos += e.vel * dt
-		c1.pos = e.pos
+		//c1.pos = e.pos
 		m_aabb :aabb = ?
 		p_aabb :aabb = ?
 
@@ -1514,10 +1595,11 @@ StepCol::fn(ctx : *context, dt : f32)
 				is_flag_on(e2.flags, ENTITY_ALREADY_DONE_IN_COLISION)
 				continue;
 
+
 			e2.flags = e2.flags | ENTITY_ALREADY_DONE_IN_COLISION
 			
 			c2 := cast(*collider)e2.col
-			c2.pos = e2.pos
+			//c2.pos = e2.pos
 
 
 			in_col :bool= false
@@ -1546,84 +1628,11 @@ StepCol::fn(ctx : *context, dt : f32)
 			}
 			else
 			{
-				CopyVerts(c2, &m_aabb._min, &m_aabb._max)
-
-				//printf("name {e.name}\n")
-				
-				if aabbCheck3D(&m_aabb, &p_aabb) == false
+				check_maybe_resolve_collision(ctx, gjk, e, e2, dt, c1, c2, &p_aabb)
+				for c in c2.children
 				{
-					continue
+					check_maybe_resolve_collision(ctx, gjk, e, e2, dt, c1, *c, &p_aabb)
 				}
-
-				//__dbg_break
-				if is_flag_on(e.layer, LAYER_ENTITY_PLAYABLE)
-				{
-					//ASSERT(e != nil)
-					//ASSERT(e.mov_info != nil)
-
-					r :=c1.CAPSULE.radius
-					gjk.aux_col.type = col_type.SPHERE
-					gjk.aux_col.SPHERE.radius = r
-					gjk.aux_col.pos = e.pos
-					gjk.aux_col.pos += e.forward * r * 2.0 + -ctx.up * 0.5
-					gjk.aux_col.ent = e
-					
-					if GJK(gjk, &gjk.aux_col, c2)
-					{
-						e.mov_info.down_col = true
-						e.mov_info.ent_col = e2
-					}
-
-					gjk.aux_col.pos = e.pos
-					gjk.aux_col.pos += e.forward * r + ctx.up * 0.8
-					
-					if GJK(gjk, &gjk.aux_col, c2)
-					{
-						e.mov_info.up_col = true
-						if is_flag_off(e.dont_res_cols_with_layers, e2.layer) && is_flag_off(e2.dont_res_cols_with_layers, e.layer)
-							mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], &gjk.aux_col, c2, &col);
-						
-						col.normal = col.normal * -1.0
-						e.mov_info.up_col_norm = col.normal
-					}
-				}
-
-				if GJK(gjk, c1, c2)
-				{
-					in_col = true
-				}
-			}
-			if in_col
-			{
-				if is_flag_off(e.dont_res_cols_with_layers, e2.layer) && is_flag_off(e2.dont_res_cols_with_layers, e.layer)
-					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
-				else
-				{
-					mtv.x = 0.0
-					mtv.y = 0.0
-					mtv.z = 0.0
-					mtv.w = 0.0
-				}
-				
-				col.normal = col.normal * -1.0
-				if !EntIsInCollision(e, e2, &col)
-				{
-					if e.col_enter != nil
-					{
-						e.col_enter(e, e2, &col);
-					}
-				}
-				if e.col_stay != nil
-				{
-					e.col_stay(e, e2, &col);
-				}
-				if e.is_trigger == false && e2.is_trigger == false
-				{
-					e.pos -= mtv
-					//c1.data_ready = false
-					//CopyVerts(c1, &p_aabb._min, &p_aabb._max)
-				}
-
 			}
 		}
 		for _e2 in c1.ents_of_gotten_chunks
@@ -2052,6 +2061,7 @@ RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*coll
 		out_indices_count:u32
 		
 		//__dbg_break
+		
 		CopyDataFromModel(it.model, ctx.aux_vertices, ctx.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
 
 		mat : mat4x4=?
@@ -2119,6 +2129,78 @@ RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*coll
 	}
 	return found
 }
+ray_agains_collider::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity, e : *entity, is_axis : *bool, cur_dist : *f32, found : *bool, c1 : *collider) ! bool
+{
+	//c1.pos = e.pos;
+	dir := *end - *start
+
+	dummy :_vec=?;
+	CopyVerts(c1, &dummy, &dummy);
+
+	aux_found := false
+	
+	on c1.type
+	{
+	col_type.CUBE
+	{
+		globals.trn = e
+		globals.ray_origin = *start
+		globals.ray_end = *end
+		//__dbg_break
+		t :u64
+		while t < 36
+		{
+			info :verts_from_tri_info=?
+			info.t = t
+			get_verts_pos_from_tris(&info, cast(*u32)globals.cube_tris, cast(*f32)c1.CUBE.verts[0], 4)
+			rinfo : raycast_info=?
+			rinfo.ray_origin = *start
+			rinfo.ray_dir = dir
+			c_offset := c1.ent.col_offset
+			rinfo.v0 = info.v1_out + c_offset
+			rinfo.v1 = info.v2_out + c_offset
+			rinfo.v2 = info.v3_out + c_offset
+
+			globals.tri_v1 = rinfo.v0
+			globals.tri_v2 = rinfo.v1
+			globals.tri_v3 = rinfo.v2
+
+			if ray_triangle_intersect(&rinfo)
+			{
+				tri_pos := *start + dir * rinfo.t_out
+				dist_dir := *start - tri_pos
+				d := dot_vec(&dist_dir, &dist_dir)
+
+
+				//printf("is axis {e.name}\n")
+
+				ent_is_axis := e.type == ent_type.AXIS
+				if ent_is_axis
+				{
+					*is_axis = true
+				}
+				if d < *cur_dist
+				{
+					*cur_dist = d
+					*found = true
+					cinfo.ent = e
+					if *is_axis && ent_is_axis || *is_axis == false
+					{
+						*collided = e
+						//printf("got {e.name}, is_axis {is_axis}, ent_is_axis {ent_is_axis}\n")
+					}
+					cinfo.normal = info.cross
+					cinfo.contact_point = tri_pos
+					aux_found = true
+				}
+
+			}
+			t += 3
+		}
+	}
+	}
+	return aux_found
+}
 Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
 {
 	dyn_clear(&ctx.broad_phase_ents);
@@ -2129,13 +2211,13 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 	sz.x = len * 2.0;
 	sz.y = len * 2.0;
 	zero:_vec;
-	dir := *end - *start
 	cur_dist := 99999.0
 	found := false
 	aux_ent : *entity
 	i:= 0
 	is_axis := false
 
+	
 	for it in ctx.bodies
 	{
 		i++
@@ -2145,18 +2227,21 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 			continue;
 		e := *it
 		
-		c1 := cast(*collider)it.col
-
-		/*
-		if c1 == nil
+		c1 := cast(*collider)e.col
+		ray_agains_collider(ctx, start, end, cinfo, layers_to_ignore, collided, e, &is_axis, &cur_dist, &found, c1)
+		for c in c1.children
 		{
-			printf("no collder raycast\n")
-			printf("{e.name}\n")
-			ASSERT(0)
+			if ray_agains_collider(ctx, start, end, cinfo, layers_to_ignore, collided, e, &is_axis, &cur_dist, &found, *c)
+			{
+				//printf("found\n")
+				*collided = ctx.aux_col_ent
+				ctx.aux_col_ent.parent_col = e
+				ctx.aux_col_ent.pos = e.pos + c.pos
+				ctx.aux_col_ent.size = c.size
+				ctx.aux_col_ent.col = *c
+			}
 		}
-		*/
-		c1.pos = e.pos;
-		dummy :_vec=?;
+
 		/*
 		if IsKeyHeld(key_enum.KEY_Z) && str_cmp(e.name, "block 1_idx56")
 		{
@@ -2169,75 +2254,6 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 		}
 		*/
 
-		CopyVerts(c1, &dummy, &dummy);
-		
-		on c1.type
-		{
-		col_type.CUBE
-		{
-			globals.trn = e
-			globals.ray_origin = *start
-			globals.ray_end = *end
-			//__dbg_break
-			t :u64
-			while t < 36
-			{
-				info :verts_from_tri_info=?
-				info.t = t
-				get_verts_pos_from_tris(&info, cast(*u32)globals.cube_tris, cast(*f32)c1.CUBE.verts[0], 4)
-				rinfo : raycast_info=?
-				rinfo.ray_origin = *start
-				rinfo.ray_dir = dir
-				c_offset := c1.ent.col_offset
-				rinfo.v0 = info.v1_out + c_offset
-				rinfo.v1 = info.v2_out + c_offset
-				rinfo.v2 = info.v3_out + c_offset
-
-				globals.tri_v1 = rinfo.v0
-				globals.tri_v2 = rinfo.v1
-				globals.tri_v3 = rinfo.v2
-
-				if ray_triangle_intersect(&rinfo)
-				{
-					tri_pos := *start + dir * rinfo.t_out
-					dist_dir := *start - tri_pos
-					d := dot_vec(&dist_dir, &dist_dir)
-
-
-					//printf("is axis {e.name}\n")
-
-					ent_is_axis := e.type == ent_type.AXIS
-					if ent_is_axis
-					{
-						is_axis = true
-					}
-					if d < cur_dist
-					{
-						cur_dist = d
-						found = true
-						cinfo.ent = e
-						if is_axis && ent_is_axis || is_axis == false
-						{
-							*collided = e
-							//printf("got {e.name}, is_axis {is_axis}, ent_is_axis {ent_is_axis}\n")
-						}
-						cinfo.normal = info.cross
-						cinfo.contact_point = tri_pos
-						aux_ent = e
-						/*
-						printf("cube hit {e.name}\n")
-						if IsKeyHeld(key_enum.KEY_Z) && str_cmp(e.name, "block 1_idx56")
-						{
-							__dbg_break
-						}
-						*/
-					}
-
-				}
-				t += 3
-			}
-		}
-		}
 	}
 	return found;
 }

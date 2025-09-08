@@ -393,7 +393,7 @@ operator * x64(a : *mat4x4, b : *mat4x4) !mat4x4
                 // Row-major access: [row][col] = row*4 + col
                 sum += *a.vals[row*4 + k] * *b.vals[k*4 + col];
             }
-            result.vals[row*4 + col] = sum;
+            *result.vals[row*4 + col] = sum;
         }
     }
     

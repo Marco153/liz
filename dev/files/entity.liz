@@ -141,8 +141,6 @@ NewEnt::fn(ctx : *context, name : str_lit) ! *entity
 	ent.col_size.x = 1.0;
 	ent.col_size.y = 1.0;
 	ent.col_size.z = 1.0;
-	ent.tex_size_x = 1.0;
-	ent.tex_size_y = 1.0;
 	ent.rot = euler_to_quaternion(0.0, 0.0, 0.0).v
 	
 	return ent;
@@ -446,10 +444,6 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			//__dbg_break;
 			draw.flags = DRAW_INFO_HAS_TEXTURE;
 			draw.texture_id = ent.tex_id;
-			draw.tex_size_x = ent.tex_size_x;
-			draw.tex_size_y = ent.tex_size_y;
-			draw.tex_offset_x = ent.tex_offset_x;
-			draw.tex_offset_y = ent.tex_offset_y;
 		}
 		if is_flag_on(ent.flags, ENTITY_IS_MASKED)
 		{

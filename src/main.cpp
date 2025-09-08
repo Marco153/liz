@@ -552,7 +552,7 @@ void update_camera_direction(float yaw, float pitch, float roll, Vec3* front,  V
 
 #define TOTAL_KEYS   (GLFW_KEY_LAST + 3)
 #define TOTAL_TEXTURES   256
-#define TOTAL_MODELS   128
+#define TOTAL_MODELS   2000
 
 #define DOUBLE_CLICK_MAX_TIME 0.2
 
@@ -577,6 +577,8 @@ struct model_info
 	float *vertices;
 	int *indices_data;
 	int model_verts_count;
+
+	Vec3 size;
 };
 struct texture_info
 {
@@ -805,6 +807,31 @@ struct open_gl_state
 	own_std::vector<Buffer*>ed_buffers;
 	*/
 	own_std::vector<RatedStuff<int>> rated_files;
+
+	float cube_verts[8][3] = {
+		{-0.5f, -0.5f, -0.5f}, // 0
+		{ 0.5f, -0.5f, -0.5f}, // 1
+		{ 0.5f,  0.5f, -0.5f}, // 2
+		{-0.5f,  0.5f, -0.5f}, // 3
+		{-0.5f, -0.5f,  0.5f}, // 4
+		{ 0.5f, -0.5f,  0.5f}, // 5
+		{ 0.5f,  0.5f,  0.5f}, // 6
+		{-0.5f,  0.5f,  0.5f}  // 7
+	};
+	int cubeIndices[36] = {
+		// Bottom face
+		0, 4, 5,  0, 5, 1,
+		// Front face
+		0, 1, 2,  0, 2, 3,
+		// Back face
+		4, 6, 5,  4, 7, 6,
+		// Left face
+		0, 3, 7,  0, 7, 4,
+		// Right face
+		1, 5, 6,  1, 6, 2,
+		// Top face
+		3, 2, 6,  3, 6, 7
+	};
 };
 
 class XAudioClass;
@@ -4958,6 +4985,7 @@ int GetMem(int thread_id, dbg_state* dbg, int sz)
 
 	GetMem(thread_id, dbg);
 	int offset = *(int*)&dbg->mem_buffer[RET_1_REG * 8];
+	printf("GetMem: cur %dmb, sz %dmb, offset %dmb\n", offset / 1024 / 1024, sz / 1024 / 1024, (offset + sz)  / 1024 / 1024);
 
 	*(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG) += 16;
 	return offset;
@@ -5080,6 +5108,10 @@ void CreateMesh(int thread_id, dbg_state* dbg)
 		{
 			vertex_size += sizeof(float) * count;
 		}break;
+		case 1:
+		{
+			vertex_size += sizeof(char) * count;
+		}break;
 		default:
 		{
 			ASSERT(false)
@@ -5099,10 +5131,17 @@ void CreateMesh(int thread_id, dbg_state* dbg)
 		glEnableVertexAttribArray(i);
 		switch(type)
 		{
+		// float type
 		case 0:
 		{
 			GL_CALL(glVertexAttribPointer(i, count, GL_FLOAT, GL_FALSE, vertex_size, (void*)cur));
 			cur += sizeof(float) * count;
+		}break;
+		//  type
+		case 1:
+		{
+			GL_CALL(glVertexAttribPointer(i, count, GL_BYTE, GL_FALSE, vertex_size, (void*)cur));
+			cur += sizeof(char) * count;
 		}break;
 		default:
 		{
@@ -5200,17 +5239,30 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 	m->vertex_stride = 5;
 	int stride = m->vertex_stride;
     auto vertices = (float *)malloc(mesh->mNumVertices * stride * sizeof(float));
+	float max_x = 0.0;
+	float max_y = 0.0;
+	float max_z = 0.0;
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
 		Vec3 *v = (Vec3 *)&mesh->mVertices[i].x;
 
+
 		*v = rotate(*v, Vec3(1.0, 0.0, 0.0), -3.1415 * 0.5) * 0.5;
 		*v = rotate(*v, Vec3(0.0, 1.0, 0.0), -3.1415);
+
+		max_x = max(max_x, abs(v->x));
+		max_y = max(max_y, abs(v->y));
+		max_z = max(max_z, abs(v->z));
+
         vertices[i * stride + 0] = mesh->mVertices[i].x;
         vertices[i * stride + 1] = mesh->mVertices[i].y;
         vertices[i * stride + 2] = mesh->mVertices[i].z;
         vertices[i * stride + 3] = mesh->mTextureCoords[0][i].x;
         vertices[i * stride + 4] = mesh->mTextureCoords[0][i].y;
     }
+
+	m->size.x = max_x * 0.5;
+	m->size.y = max_y * 0.5;
+	m->size.z = max_z * 0.5;
 
     // Create index array
     unsigned int index_count = mesh->mNumFaces * 3;
@@ -5295,7 +5347,7 @@ void ModelFarthestPoint(int thread_id, dbg_state* dbg)
 	
 	auto p = (Vec3 *)&m->vertices[idx * vert_size];
 	memcpy(ret, p, 16);
-	memcpy(aux, p, 8);
+	memcpy(aux, p, 12);
 	*(((float *)ret) + 3) = 0.0f;
 }
 void CopyDataFromModel(int thread_id, dbg_state* dbg)
@@ -5318,26 +5370,47 @@ void CopyDataFromModel(int thread_id, dbg_state* dbg)
 
 	model_info *m = &gl_state->models[model];
 
-	ASSERT(verts_count > m->model_verts_count)
-	ASSERT(indices_count > m->indicies)
 
 	int *verts_ptr = (int*)&dbg->mem_buffer[verts_offset];
 	int *indices_ptr = (int*)&dbg->mem_buffer[indices_offset];
 	int stride = m->vertex_stride;
 
-	for(int i = 0; i < m->model_verts_count; i++)
+	if(m->model_verts_count > 64)
 	{
-		auto m_vert = &m->vertices[i * stride];
-		auto target_vert = (v4*)&verts_ptr[i * 4];
-		memcpy(target_vert, m_vert, 3 * 4);
-		//printf("vx %.3f, vy %.3f, vz %.3f\n", target_vert->x, target_vert->y, target_vert->z);
-		((v4*)target_vert)->w = 0.0;
+		for(int i = 0; i < 8; i++)
+		{
+			auto m_vert = &gl_state->cube_verts[i];
+			auto target_vert = (v4*)&verts_ptr[i * 4];
+			memcpy(target_vert, m_vert, 3 * 4);
+			target_vert->x *= m->size.x;
+			target_vert->y *= m->size.y;
+			target_vert->z *= m->size.z;
+			//printf("vx %.3f, vy %.3f, vz %.3f\n", target_vert->x, target_vert->y, target_vert->z);
+			((v4*)target_vert)->w = 0.0;
+		}
+
+		memcpy(indices_ptr, gl_state->cubeIndices, 36 * sizeof(int));
+
+		*out_verts = 8;
+		*out_indices = 36;
 	}
+	else
+	{
 
-	memcpy(indices_ptr, m->indices_data, m->indicies * sizeof(int));
+		for(int i = 0; i < m->model_verts_count; i++)
+		{
+			auto m_vert = &m->vertices[i * stride];
+			auto target_vert = (v4*)&verts_ptr[i * 4];
+			memcpy(target_vert, m_vert, 3 * 4);
+			//printf("vx %.3f, vy %.3f, vz %.3f\n", target_vert->x, target_vert->y, target_vert->z);
+			((v4*)target_vert)->w = 0.0;
+		}
 
-	*out_verts = m->model_verts_count;
-	*out_indices = m->indicies;
+		memcpy(indices_ptr, m->indices_data, m->indicies * sizeof(int));
+
+		*out_verts = m->model_verts_count;
+		*out_indices = m->indicies;
+	}
 }
 void LoadModel(int thread_id, dbg_state* dbg)
 {
@@ -7397,7 +7470,10 @@ void GetMem(int thread_id, dbg_state* dbg)
 		int addr = *(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR];
 	//int *max = (int*)&dbg->mem_buffer[MEM_PTR_MAX_ADDR];
 	*(int*)&dbg->mem_buffer[MEM_PTR_CUR_ADDR] += sz;
-	if((addr + sz) > DATA_SECT_OFFSET)
+
+	u64 max = DATA_SECT_OFFSET;
+	printf("GetMem: cur %dmb, sz %dmb, offset %dmb\n", addr / 1024 / 1024, sz / 1024 / 1024, (addr + sz)  / 1024 / 1024);
+	if((addr + sz) > max)
 	{
 		printf("GetMem: not enough space for %db,%dmb\n", sz, sz / 1024 / 1024);
 		ASSERT(false)

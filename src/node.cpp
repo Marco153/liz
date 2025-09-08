@@ -11983,6 +11983,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			else
 			{
 				ret_type = ltp;
+
 				if(ltp.type == TYPE_VECTOR && ltp.ptr == 0 && n->r->type == N_STRUCT_CONSTRUCTION && n->t->type == T_EQUAL)
 				{
 					node* call = MakeMemCpyCall(lang_stat, n->l, n->r, n, FLOAT_REG_SIZE_BYTES);

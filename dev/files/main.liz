@@ -277,6 +277,8 @@ context: struct
 	materials : dyn_array(material_info)
 
 	can_deactivate_path_ents : bool
+
+	aux_col_ent : *entity
 }
 
 
@@ -2784,11 +2786,10 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			c1 := cast(*collider)player_ent.col
 			ASSERT(c1.type == col_type.CAPSULE)
 			r := c1.CAPSULE.radius
-			c1.pos = player_ent.pos
-			c1.pos += player_ent.forward *r * 2.0 + ctx.up * 1.4
+			c1.pos = player_ent.forward *r * 2.0 + ctx.up * 1.4
 			c2 := cast(*collider)mov.ent_col.col
 			c2.type = col_type.CUBE
-			c2.pos = mov.ent_col.pos
+			//c2.pos = mov.ent_col.pos
 			c2.ent = mov.ent_col
 			dummy : _vec
 			CopyVerts(c2, &dummy, &dummy)
@@ -2802,11 +2803,11 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
 				
 				col.normal = col.normal * -1.0
-				mov.slerp_end = c1.pos
+				mov.slerp_end = player_ent.pos
 			}
 			else
 			{
-				mov.slerp_end = c1.pos
+				mov.slerp_end = player_ent.pos
 			}
 
 			mov.slerp_timer = 0.0
@@ -2964,7 +2965,7 @@ make_chunk_idx_within_mesh::fn(mesh_x : u8, mesh_y : u8, chunk_x : u8, chunk_y :
 	ret = cast(s32)(cast(u32)mesh_x | (cast(u32)mesh_y << 8))
 	if(mesh_y >= 16)
 	{
-		__dbg_break
+		//__dbg_break
 	}
 	ret = ret | cast(s32)((cast(u32)chunk_x << 16) | (cast(u32)chunk_y << 24))
 	return ret;
@@ -2975,6 +2976,9 @@ create_mesh::fn(minfo : *create_mesh_info, type : *type_data) ! u32
 	ASSERT(type.entries < 16)
 	for i in 0..type.entries 
 	{
+		// offset 0 is the type
+		// offset 1 is how of this type there is on this
+
 		cur := ptr_offset(type, 1 + i, type_data)
 		*aux[cast(u64)i] = 0
 		cur_aux := ptr_offset(aux[0], i * 8, u8)
@@ -2983,6 +2987,16 @@ create_mesh::fn(minfo : *create_mesh_info, type : *type_data) ! u32
 		if cur.tp == cast(u32)type_enum.TYPE_VECTOR
 		{
 			*ptr_offset(cur_aux, 1, u8) = 4
+		}
+		else if cur.tp == cast(u32)type_enum.TYPE_F32
+		{
+			*ptr_offset(cur_aux, 0, u8) = 0
+			*ptr_offset(cur_aux, 1, u8) = 1
+		}
+		else if cur.tp == cast(u32)type_enum.TYPE_U8
+		{
+			*ptr_offset(cur_aux, 0, u8) = 1
+			*ptr_offset(cur_aux, 1, u8) = 1
 		}
 		else if cur.tp == cast(u32)type_enum.TYPE_STRUCT
 		{
@@ -3011,7 +3025,7 @@ create_mesh::fn(minfo : *create_mesh_info, type : *type_data) ! u32
 	return CreateMesh(minfo)
 }
 
-generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
+generate_mesh::fn(ctx : *context, trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 {
 	ASSERT((MESH_WIDTH % 2) == 1)
 	verts:[MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE]f32
@@ -3057,7 +3071,7 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 			*verts[idx + 1] = perlin
 			*verts[idx + 2] = py * size
 
-			vert_col :=cast(*_vec) verts[idx + 3]
+			vert_col :=cast(*_vec) verts[idx + 6]
 			vert_col.x = 1.0
 			vert_col.y = 1.0
 			vert_col.z = 1.0
@@ -3073,7 +3087,10 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 	m.pos.x = cast(f32)pos_x
 	m.pos.z = cast(f32)pos_y
 
-	dyn_add_data(&m.verts, cast(*f32)verts, MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE * 4)
+
+	total_bytes := cast(u32)MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE * 4
+	m.verts.data = cast(*f32)LinearGet(&globals.terrain_alloc, total_bytes)
+	memcpy(m.verts.data, verts, total_bytes)
 	m.verts.count = MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE
 
 	//dyn_add_data(&trn.tris, cast(*f32)tris[0], cast(u32)tris.count * 4)
@@ -3112,6 +3129,12 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 
 
 	tris_per_unit_u64 := cast(u64)tris_per_unit
+	sz_type := sizeof(*m.chunks.data)
+	_total_bytes := (total_chunks_cols * total_chunks_cols + 1) * sz_type
+
+	m.chunks.data = cast(*chunk_col_info)LinearGet(&globals.terrain_alloc, cast(u32)_total_bytes)
+	m.chunks.alloc = ctx.alloc
+	m.chunks.cap = cast(u64)(_total_bytes / sz_type)
 	dyn_add(&trn.meshes, &m)
 	last_mesh_idx := cast(u32)trn.meshes.count - 1
 
@@ -3120,6 +3143,7 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 	lastm :*mesh_info= ptr_offset(trn.meshes.data, cast(u64)last_mesh_idx, mesh_info)
 	size_u32 := cast(u32)size
 
+	//__dbg_break
 	for y in 0..total_chunks_cols
 	{
 		for x in 0..total_chunks_cols
@@ -3129,7 +3153,15 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 			start_y := cast(u64)y * tris_per_unit_u64
 			end_x := cast(u64)x * tris_per_unit_u64 + tris_per_unit_u64
 			end_y := cast(u64)y * tris_per_unit_u64 + tris_per_unit_u64
-			create_chunk_col_for_terrain(trn, last_mesh_idx, start_x, start_y, end_x, end_y)
+			/*
+			if x == 7 && y == 7
+			{
+				__dbg_break
+			}
+			printf("on col chunk x {x}, y {y}\n")
+			globals.temp_alloc.cur = 0
+			*/
+			create_chunk_col_for_terrain(ctx, trn, last_mesh_idx, start_x, start_y, end_x, end_y)
 
 			last_chunk := dyn_last(&lastm.chunks)
 
@@ -3181,7 +3213,7 @@ generate_mesh::fn(trn : *terrain_info, pos_x : u32, pos_y : u32) ! u32
 	
 	return ret
 }
-create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_quad : u64, start_y_quad : u64, end_x_quad : u64, end_y_quad : u64 )
+create_chunk_col_for_terrain::fn(ctx : *context, trn : *terrain_info, mesh_idx : u32, start_x_quad : u64, start_y_quad : u64, end_x_quad : u64, end_y_quad : u64 )
 {
 
 	mesh :*mesh_info= trn.meshes[cast(u64)mesh_idx]
@@ -3195,12 +3227,26 @@ create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_qu
 	chunk.left_neighbor = -1
 	chunk.right_neighbor = -1
 	count := trn.tris.count
+
+	diffy := end_y_quad - start_y_quad
+	diffx := end_x_quad - start_x_quad
+
+	diffx++
+	//diffy++
+
+	total_bytes := diffx * diffy * 6 * 4
+	chunk.tris.data = LinearGet(&globals.terrain_alloc, cast(u32)total_bytes)
+	chunk.tris.alloc = ctx.alloc
+	chunk.tris.cap = total_bytes / 4
+
 	tris := &trn.tris
 	tst := 0
 	if tst == 0
 	{
+		aux_y:=0
 		for y in start_y_quad..end_y_quad
 		{
+			aux_x:=0
 			for x in start_x_quad..end_x_quad
 			{
 				start_x := x * 6
@@ -3212,7 +3258,9 @@ create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_qu
 				dyn_add(&chunk.tris, *tris[start_x + start_y + 3])
 				dyn_add(&chunk.tris, *tris[start_x + start_y + 4])
 				dyn_add(&chunk.tris, *tris[start_x + start_y + 5])
+				aux_x++
 			}
+			aux_y++
 		}
 	}
 	else
@@ -3225,17 +3273,72 @@ create_chunk_col_for_terrain::fn(trn : *terrain_info, mesh_idx : u32, start_x_qu
 			t += 3
 		}
 	}
+	//__dbg_break
 	dyn_add(&mesh.chunks, &chunk)
 }
 
+calculate_normals::fn(terrain : *terrain_info)
+{
+	tris_data := terrain.tris[0]
+	for m in terrain.meshes
+	{
+		t :u64
+		count := terrain.tris.count
+		verts_data := m.verts[0]
+		while t < count
+		{
+			info :verts_from_tri_info=?
+			info.t = t
+			get_verts_pos_from_tris(&info, tris_data, verts_data, TERRAIN_VERTEX_SIZE)
+			info.cross = -info.cross
+
+			tri := cast(u64)*terrain.tris[t]
+			tri = tri * TERRAIN_VERTEX_SIZE
+			vt := cast(*terrain_vert_info)m.verts[tri]
+
+			vn := cast(*_vec)&vt.normal
+			prev := vn.w
+
+			*vn += info.cross
+			vn.w = prev
+			
+			t += 3
+		}
+	}
+	for m in terrain.meshes
+	{
+		t :u64
+		count := terrain.tris.count
+		verts_data := m.verts[0]
+		while t < count
+		{
+			tri := cast(u64)*terrain.tris[t]
+			tri = tri * TERRAIN_VERTEX_SIZE
+			vt := cast(*terrain_vert_info)m.verts[tri]
+
+			vn := cast(*_vec)&vt.normal
+			prev := vn.w
+
+			*vn = *vn / 3.0
+
+			vn.w = prev
+			
+			t += 3
+		}
+	}
+
+}
 generate_terrain::fn(ctx : *context, e : *entity, chunks_per_side : u32)
 {
 	terrain := e.terrain
 	globals.alloc = &ctx.terrain_alloc
 	ctx.alloc = &ctx.terrain_alloc
+
 	init_tri_terrain(terrain)
 	trn :*terrain_info= e.terrain
 	trn.size = chunks_per_side
+
+
 	i := 0
 	//__dbg_break
 
@@ -3244,7 +3347,7 @@ generate_terrain::fn(ctx : *context, e : *entity, chunks_per_side : u32)
 	{
 		for x in 0..trn.size
 		{
-			generate_mesh(terrain, cast(u32)x * (terrain.width - 1), cast(u32)y * (terrain.width - 1))
+			generate_mesh(ctx, terrain, cast(u32)x * (terrain.width - 1), cast(u32)y * (terrain.width - 1))
 		}
 	}
 	//__dbg_break
@@ -3252,6 +3355,13 @@ generate_terrain::fn(ctx : *context, e : *entity, chunks_per_side : u32)
 	globals.alloc = &ctx.main_alloc
 	ctx.alloc = &ctx.main_alloc
 
+	calculate_normals(terrain)
+	for m in terrain.meshes
+	{
+		verts := &m.verts
+		//__dbg_break
+		UpdateModel(m.model, m.verts.data)
+	}
 }
 
 print_mov :: fn(mov : *entity)
@@ -3279,17 +3389,21 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
 		dyn_add(&other.remove_from, ent_part_of.COLLIDER)
 		add_body(ctx, other)
 		c1 := cast(*collider)other.col
+		c1.size = other.size
 		min_rel_pos : _vec=?
 		max_rel_pos : _vec=?
 		CopyVerts(c1, &min_rel_pos, &max_rel_pos)
 		dyn_clear(&ctx.aux_col_chunks)
 		
-		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
-		get_chunks_close_to_ent(ctx, other, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
-
-		for c in ctx.aux_col_chunks
+		if ctx.col_chunks.count > 0
 		{
-			dyn_add(&c.entities, other)
+			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
+			get_chunks_close_to_ent(ctx, other, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
+
+			for c in ctx.aux_col_chunks
+			{
+				dyn_add(&c.entities, other)
+			}
 		}
 	}
 	grid_shader := find_shader(ctx, "grid_shader.mat")
@@ -3750,6 +3864,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 
 						c := cast(*collider)ent.col
 						c.type = cast(col_type)st.BIN.expr[1].INT.num
+
 					}
 
 				}
@@ -3835,6 +3950,23 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 			
 		}
 		i++
+	}
+
+
+	for ent in ctx.bodies
+	{
+		c1 := cast(*collider)ent.col
+		min_vec:_vec=?
+		max_vec:_vec=?
+		CopyVerts(c1, &min_vec, &max_vec)
+		c1.size = ent.size
+		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_vec, &max_vec)
+		get_chunks_close_to_ent(ctx, *ent, &ctx.aux_col_chunks, &min_vec, &max_vec)
+
+		for c in ctx.aux_col_chunks
+		{
+			dyn_add(&c.entities, *ent)
+		}
 	}
 }
 free_lang_stuff::fn()
@@ -4210,7 +4342,7 @@ set_path_on_terrain::fn(ctx : *context, trn : *entity)
 	dyn_clear(&ctx.vertex_terrain)
 
 
-/*
+	calculate_normals(terrain)
 	for mi in ctx.mesh_added_aux
 	{
 		m := terrain.meshes[cast(u64)*mi]
@@ -4219,7 +4351,6 @@ set_path_on_terrain::fn(ctx : *context, trn : *entity)
 		//__dbg_break
 		UpdateModel(m.model, m.verts.data)
 	}
-	*/
 }
 editor_window::fn(ctx : *context, out_ent : **entity)
 {
@@ -4578,6 +4709,10 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 		if ctx.cur_model_selected_idx != -1
 		{
+			ctx.preview_ent.size.x = 1.0
+			ctx.preview_ent.size.y = 1.0
+			ctx.preview_ent.size.z = 1.0
+
 			aux_sel_from_non_bodies : *entity
 			shortest_dist : f32 = 9999.0
 		
@@ -4595,6 +4730,17 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				point = col.contact_point
 				hit = true
 			}
+			if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, *out_ent, &col)
+			{
+				aux_dist := len_vec(&(cam_pos - col.contact_point))
+
+				if aux_dist < shortest_dist 
+				{
+					point = col.contact_point
+					hit = true
+				}
+				
+			}
 			if hit
 			{
 				
@@ -4606,8 +4752,12 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 				inv := col.normal
 				vert:= ModelFarthestPoint(cast(u32)m.model, &inv)
+				print_vec(&vert)
 				d := dot_vec(&vert, &inv)
-				ctx.preview_ent.pos += inv * d * -1.0
+				if IsKeyHeld(key_enum.KEY_LCTRL)
+				{
+					ctx.preview_ent.pos += inv * d * -1.0
+				}
 
 			}
 			else
@@ -4721,13 +4871,31 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				ImGuiText(cast(str_lit)buffer[0])
 
 			}
+			ImGuiSeparator()
+			ImGuiText("collider: ")
 			if out_ent.col
 			{
+				c1 := cast(*collider)out_ent.col
 				ImGuiText("col_pos:")
 				ImGuiSameLine();
-				c1 := cast(*collider)out_ent.col
 				ImGuiShowV3(&c1.pos)
+				ImGuiText("children:")
+				aux_1 : _vec=?
+				aux_2 : _vec=?
+				for ch in c1.children
+				{
+					ImGuiText("pos:")
+					ImGuiSameLine();
+					ImGuiShowV3(&ch.pos)
+					ImGuiText("size:")
+					ImGuiSameLine();
+					ImGuiShowV3(&ch.size)
+					
+					ch.data_ready = false
+					CopyVerts(*ch, &aux_1, &aux_2)
+				}
 			}
+			ImGuiSeparator()
 			ImGuiText("pos: ")
 			ImGuiSameLine()
 			ImGuiShowV3(&out_ent.pos)
@@ -6017,6 +6185,7 @@ update_terrain_for_visualization::fn(ctx : *context, terrain : *terrain_info, as
 		vt.col.w = 0.0
 
 	}
+
 }
 radial_item:struct
 {
@@ -6122,12 +6291,11 @@ main_loop::fn(ctx : *context)
 	LinearInit(&globals.entities, ctx.alloc, 128)
 	LinearInit(&globals.str_alloc, ctx.alloc, 128)
 	LinearInit(&globals.allocs_occured, ctx.alloc, 32)
-	LinearInit(&globals.temp_alloc, ctx.alloc, 1024)
-	LinearInit(&globals.nodes_alloc, ctx.alloc, 512)
+	LinearInit(&globals.nodes_alloc, ctx.alloc, 1024)
 	LinearInit(&globals.ast_alloc, ctx.alloc, 512)
 	LinearInit(&globals.scope_alloc, ctx.alloc, 32)
 
-	ctx.aux_vertices_sz = 300
+	ctx.aux_vertices_sz = 500
 	ctx.aux_vertices = cast(*_vec)GetMem(ctx.aux_vertices_sz * 3* sizeof(_vec))
 	ctx.aux_indices_sz = ctx.aux_vertices_sz * 3
 	ctx.aux_indices = cast(*u32)GetMem(ctx.aux_indices_sz * sizeof(u32))
@@ -6272,7 +6440,6 @@ main_loop::fn(ctx : *context)
 	ctx.draw_col = false;
 	//ctx.draw_origin = true;
 
-	//__dbg_break
 	layers : dyn_array(*layer_sprites);
 	dyn_init2(&layers, 8, ctx.alloc);
 	ctx.layers_ptr = &layers;
@@ -6288,7 +6455,7 @@ main_loop::fn(ctx : *context)
 
 	player_ent.flags = player_ent.flags | ENTITY_3D
 	player_ent.pos.x = 8.0
-	player_ent.pos.y = 3.0
+	player_ent.pos.y = 75.0
 	player_ent.pos.z = 9.0
 
 	player_ent.mov_info.stamina = 1.0
@@ -6322,6 +6489,13 @@ main_loop::fn(ctx : *context)
 	str :string
 
 	total_chunks := TERRAIN_WIDTH
+	tris_per_chunk := TERRAIN_TRIS_SIZE
+	terrain.tris.data = LinearGet(&globals.terrain_alloc, cast(u32)tris_per_chunk)
+	terrain.tris.alloc = ctx.alloc
+	terrain.tris.cap = cast(u64)tris_per_chunk / 4
+	terrain.meshes.data = cast(*mesh_info)LinearGet(&globals.terrain_alloc, TERRAIN_MESHES_SIZE)
+	terrain.meshes.alloc = ctx.alloc
+	terrain.meshes.cap = TERRAIN_MESHES_SIZE / sizeof(mesh_info)
 	generate_terrain(ctx, other, cast(u32)total_chunks)
 
 
@@ -6516,8 +6690,11 @@ main_loop::fn(ctx : *context)
 	ctx.sun_color = _vec{1.0, 0.6, 0.3, 1.0}
 	ctx.sun_dir = normalize_vec(&_vec{0.5, 0.2, 0.5, 0.0})
 	
-	//__dbg_break
 	//CopyDataFromModel(2, ctx.aux_vertices, ctx.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
+
+	ctx.aux_col_ent = NewEnt(ctx, "aux_col_ent")
+	ctx.aux_col_ent.flags = ctx.aux_col_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
+	ctx.aux_col_ent.type = ent_type.AUX_COL_ENT
 
 	ctx.grid_ent = NewEnt(ctx, "grid_ent")
 	ctx.grid_ent.flags = ctx.grid_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
@@ -6550,6 +6727,8 @@ main_loop::fn(ctx : *context)
 	trn_ent.material_idx = find_shader(ctx, "terrain_shader.mat")
 	trn_ent.in_material_instance = new_material_instance(ctx, cast(u32)trn_ent.material_idx, trn_ent)
 	set_shader_uniform_sampler2d(ctx, trn_ent, "tex", ctx.textures[ctx.grid_transparent_tex])
+	set_shader_uniform_sampler2d(ctx, trn_ent, "tex2", ctx.textures[ctx.grass_tex])
+	set_shader_uniform_sampler2d(ctx, trn_ent, "tex3", ctx.textures[ctx.water_tex])
 	set_shader_uniform_sampler2d(ctx, trn_ent, "heightmap", &ctx.terrain_tex)
 	set_shader_uniform2f(ctx, trn_ent, "terrain_size", cast(f32)ctx.terrain_tex.width, cast(f32)ctx.terrain_tex.height)
 	set_shader_uniform1f(ctx, trn_ent, "amplitude", cast(f32)terrain.amplitude)
@@ -6581,6 +6760,11 @@ main_loop::fn(ctx : *context)
 		}
 		printf("\n")
 		*/
+
+		if ctx.grid_ent.col != nil
+		{
+			__dbg_break
+		}
 
 		dt_aux: = GetTime() - last_time;
 		dt: = 0.017;
@@ -6626,6 +6810,7 @@ main_loop::fn(ctx : *context)
 
 		if IsKeyDown(key_enum.KEY_F1)
 		{
+			ctx.can_deactivate_path_ents = true
 			ctx.editor_cam = !ctx.editor_cam 
 			change_select_ent_col = true
 
@@ -6709,7 +6894,7 @@ main_loop::fn(ctx : *context)
 					pos_ptr := &out_ent.pos
 					size_ptr := &out_ent.size
 
-					if ctx.cur_preview_idx > 0
+					if ctx.cur_preview_idx > 0 && out_ent.type != ent_type.AUX_COL_ENT
 					{
 						if is_flag_on(out_ent.flags, ENTITY_ONLY_COL) && ctx.cur_preview_idx == 2
 						{
@@ -6800,6 +6985,14 @@ main_loop::fn(ctx : *context)
 
 					}
 					}
+					if out_ent.type == ent_type.AUX_COL_ENT
+					{
+						c1 := cast(*collider)out_ent.col
+
+						print_vec(&out_ent.pos)
+						c1.pos = out_ent.pos - out_ent.parent_col.pos
+						c1.size = out_ent.size
+					}
 				}
 
 				if out_ent.is_static && out_ent.col
@@ -6859,23 +7052,6 @@ main_loop::fn(ctx : *context)
 							y_axis_ent.pos.y += offset
 							z_axis_ent.pos.z += offset
 						}
-						if ctx.ent_collider_modify
-						{
-							draw.model = 0
-							draw.pos = out_ent.pos + out_ent.col_offset
-							draw.ent_size = out_ent.col_size * 1.001
-							draw.cam_forward = &cam_forward
-							draw.cam_pos = &cam_pos
-							draw.cam_rot = &cam_rot
-							draw.rot = out_ent.rot
-							draw.flags = DRAW_INFO_TRANSPARENT
-							*draw.color[0] = 1.0
-							*draw.color[1] = 0.0
-							*draw.color[2] = 0.0
-							*draw.color[3] = 0.5
-							Draw3D(ctx.window, &draw)
-							//printf("drawing\n")
-						}
 					}
 				}
 
@@ -6904,7 +7080,7 @@ main_loop::fn(ctx : *context)
 							point = col.contact_point
 						}
 					}
-					if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
+					if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent, &col)
 					{
 						aux_dist := len_vec(&(cam_pos - col.contact_point))
 
@@ -6915,41 +7091,59 @@ main_loop::fn(ctx : *context)
 					}
 
 					n:=ctx.grid_ent.forward
-					denom := dot_vec(&n, &dir)
-					t := dot_vec(&n, &(cam_pos - ctx.grid_ent.pos)) / denom
-					point = cam_pos - dir * t
-
-					cube = new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
-
-					new_rot := quaternion_to_euler(&ctx.grid_ent.rot)
-					cube.rot = euler_to_quaternion(0.0, radians_to_degree(new_rot.y), 0.0).v
-
-
-					if ctx.cur_model_selected_idx != -1
+					if ctx.on_custom_grid
 					{
-						m :*model_info= ctx.models[cast(u64)ctx.cur_model_selected_idx]
-						cube.name = new_str_lit(ctx.alloc, m.name)
-						cube.pos = ctx.preview_ent.pos
-						cube.model = m.model
-						cube.pos = ctx.preview_ent.pos
-						cube.flags = cube.flags & ~(ENTITY_HAS_TEXTURE)
+						denom := dot_vec(&n, &dir)
+						t := dot_vec(&n, &(cam_pos - ctx.grid_ent.pos)) / denom
+						point = cam_pos - dir * t
+					}
+					if ctx.cur_preview_idx == 1 && aux_sel != nil
+					{
+						printf("creting a new collider\n")
+						new_col := new_ptr(collider)
+						memset(new_col, 0, sizeof(collider))
+						new_col.type = col_type.CUBE
+						new_col.ent = aux_sel
+						new_col.size.x = 1.0
+						new_col.size.y = 1.0
+						new_col.size.z = 1.0
+						c1 := cast(*collider)aux_sel.col
+						dyn_add(&c1.children, new_col)
 					}
 					else
 					{
-						cube.tex_id = ctx.screen_tex_id
-					}
-					if ctx.on_contructing_path
-					{
-						//cube.flags = cube.flags | ENTITY_ALWAYS_ON_FRONT
-						cube.pos += -col.normal
-						printf("on path \n")
-						if ctx.path_ents.count == 0
+						cube = new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
+
+						new_rot := quaternion_to_euler(&ctx.grid_ent.rot)
+						cube.rot = euler_to_quaternion(0.0, radians_to_degree(new_rot.y), 0.0).v
+
+
+						if ctx.cur_model_selected_idx != -1
 						{
-							cube.size = cube.size * 2.0
+							m :*model_info= ctx.models[cast(u64)ctx.cur_model_selected_idx]
+							cube.name = new_str_lit(ctx.alloc, m.name)
+							cube.pos = ctx.preview_ent.pos
+							cube.model = m.model
+							cube.pos = ctx.preview_ent.pos
+							cube.flags = cube.flags & ~(ENTITY_HAS_TEXTURE)
 						}
-						dyn_add(&ctx.path_ents, cube)
-						c1 := cast(*collider)cube.col
-						CopyVerts(c1, &dir, &dir)
+						else
+						{
+							cube.tex_id = ctx.screen_tex_id
+						}
+						if ctx.on_contructing_path
+						{
+							//cube.flags = cube.flags | ENTITY_ALWAYS_ON_FRONT
+							cube.pos += -col.normal
+							printf("on path \n")
+							if ctx.path_ents.count == 0
+							{
+								cube.size = cube.size * 2.0
+							}
+							dyn_add(&ctx.path_ents, cube)
+							c1 := cast(*collider)cube.col
+							CopyVerts(c1, &dir, &dir)
+						}
 					}
 				}
 				if IsMouseUp(mouse_enum.LEFT)
@@ -7032,8 +7226,10 @@ main_loop::fn(ctx : *context)
 					{
 						out_ent = aux_sel_from_non_bodies
 					}
+					printf("out ent is {out_ent.name}\n")
 				}
 
+				//printf("path {ctx.on_contructing_path}, customgrid {ctx.on_custom_grid}, out {cast(u64)out_ent}, tp {cast(u32)out_ent.type}\n")
 				if IsKeyHeld(key_enum.KEY_ALT)
 				{
 					if IsKeyHeld(key_enum.KEY_X)
@@ -7053,6 +7249,7 @@ main_loop::fn(ctx : *context)
 						}
 						else
 						{
+							ctx.on_contructing_path = false
 							ctx.can_deactivate_path_ents = true
 						}
 					}
@@ -7089,6 +7286,7 @@ main_loop::fn(ctx : *context)
 				else if !ctx.on_contructing_path && !ctx.on_custom_grid &&  axis_sel_ent == nil && (out_ent == nil || out_ent.type == ent_type.TERRAIN)
 				{
 					cam_dir_terrain = cam_dir
+					//printf("will try {ctx.frames_total}\n")
 					if IsMouseHeld(mouse_enum.LEFT)
 					{
 						dyn_clear(&ctx.vertex_terrain)
@@ -7100,6 +7298,7 @@ main_loop::fn(ctx : *context)
 					}
 					if IsMouseUp(mouse_enum.LEFT)
 					{
+						calculate_normals(terrain)
 						for vtx in ctx.vertex_terrain
 						{
 							verts := &vtx.mesh.verts
@@ -7199,6 +7398,39 @@ main_loop::fn(ctx : *context)
 						i++
 					}
 				}
+			}
+			if ctx.ent_collider_modify && out_ent != nil
+			{
+				draw.model = 0
+				draw.pos = out_ent.pos + out_ent.col_offset
+				if out_ent.type == ent_type.AUX_COL_ENT
+				{
+					draw.ent_size = out_ent.size * 1.001
+				}
+				else
+				{
+					draw.ent_size = out_ent.col_size * 1.001
+				}
+				draw.cam_forward = &cam_forward
+				draw.cam_pos = &cam_pos
+				draw.cam_rot = &cam_rot
+				draw.rot = out_ent.rot
+				draw.flags = DRAW_INFO_TRANSPARENT
+				*draw.color[0] = 1.0
+				*draw.color[1] = 0.0
+				*draw.color[2] = 0.0
+				*draw.color[3] = 0.5
+				Draw3D(ctx.window, &draw)
+
+				c1 := cast(*collider)out_ent.col
+				//printf("total children {c1.children.count}\n")
+				for ch in c1.children
+				{
+					draw.pos = out_ent.pos + out_ent.col_offset + ch.pos
+					draw.ent_size = ch.size
+					Draw3D(ctx.window, &draw)
+				}
+				//printf("drawing\n")
 			}
 			
 		}
@@ -7348,7 +7580,18 @@ main_loop::fn(ctx : *context)
 		}
 		if ctx.editor_wnd
 		{
+			prev_ent := out_ent
+			if out_ent.type == ent_type.AUX_COL_ENT
+			{
+				out_ent = out_ent.parent_col
+			}
 			editor_window(ctx, &out_ent)
+
+			if prev_ent.type == ent_type.AUX_COL_ENT
+			{
+				out_ent = prev_ent
+			}
+
 		}
 		
 		if change_select_ent_col && out_ent != nil
@@ -7491,6 +7734,10 @@ find_tex::fn(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, w:u32, 
 	}
 	return -1
 }
+TERRAIN_TRIS_SIZE :const s32=(MESH_WIDTH ) * (MESH_WIDTH) * 6 * 4
+TERRAIN_MESHES_SIZE :const s32= sizeof(mesh_info) * (TERRAIN_WIDTH * TERRAIN_WIDTH + 1)
+TERRAIN_CHUNKS_COL_SIZE :const s32= sizeof(mesh_info) * TERRAIN_WIDTH * TERRAIN_WIDTH
+
 UpdateEntsWithClips::fn(ctx : *context, dt : f32)
 {
 	if ctx.ents_with_clip.count == 0
@@ -7516,29 +7763,44 @@ main:: fn(){
 	ctx.tedit.path_width = 10.0
 	ctx.tedit.terrain_height_max = 65000.0
 	AssignCtxAddr(&ctx);
+	InitMemAlloc(&ctx.terrain_alloc, 10);
 	InitMemAlloc(&ctx.main_alloc, 258600);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
 	ctx.coroutines.alloc = ctx.alloc;
 	window := OpenWindow(1000, 1000);
+	ctx.chunk_width = 16.0
+
+	LinearInit(&globals.temp_alloc, ctx.alloc, 1024)
 
 	//__dbg_break
+	bytes_per_mesh := MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE * 4
 	total_chunks := TERRAIN_WIDTH
-	bytes_per_mesh := MESH_WIDTH * MESH_WIDTH * 3
 	terrain_bytes_total := cast(u32)(bytes_per_mesh * total_chunks * total_chunks)
-	tris_per_chunk := (MESH_WIDTH - 1) * (MESH_WIDTH - 1) * 6 * 4
-	terrain_tris := cast(u32)(tris_per_chunk * total_chunks * total_chunks)
+	tris_per_chunk := TERRAIN_TRIS_SIZE
 
-	InitMemAlloc(&ctx.terrain_alloc, terrain_bytes_total + terrain_tris);
+	terrain_tris := cast(u32)(tris_per_chunk )
 
 	ctx.terrain_tex.width = cast(u32)total_chunks * (MESH_WIDTH - 1)
 	ctx.terrain_tex.height = cast(u32)total_chunks * (MESH_WIDTH - 1)
 	ctx.terrain_tex.channels = 1
 	ctx.terrain_tex.channel_size = gen_texture_size.WORD
 	channels_size := get_tex_pixel_stride(&ctx.terrain_tex)
-	ctx.terrain_tex.data = heap_alloc(ctx.alloc, ctx.terrain_tex.width * ctx.terrain_tex.height * channels_size)
-	ctx.aux_terrain_tex = heap_alloc(ctx.alloc, ctx.terrain_tex.width * ctx.terrain_tex.height)
+	heightmap_bytes := ctx.terrain_tex.width * ctx.terrain_tex.height * channels_size
+	aux_heightmap_bytes := ctx.terrain_tex.width * ctx.terrain_tex.height * channels_size
+
+	terrain_textures_bytes := ctx.terrain_tex.width * ctx.terrain_tex.height + 1024 * 1024 * 40
+
+
+	total_terrain_bytes := terrain_bytes_total + terrain_tris + heightmap_bytes + terrain_textures_bytes + TERRAIN_MESHES_SIZE
+	globals.terrain_alloc.start = cast(*u8)GetMem(total_terrain_bytes)
+	globals.terrain_alloc.max = total_terrain_bytes
+	printf("terrain alloc size {total_terrain_bytes/ 1024 / 1024}mb\n")
+
+
+	ctx.terrain_tex.data = LinearGet(&globals.terrain_alloc, heightmap_bytes)
+	ctx.aux_terrain_tex = LinearGet(&globals.terrain_alloc, aux_heightmap_bytes)
 
 	for y in 0..ctx.terrain_tex.height
 	{

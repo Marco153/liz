@@ -100,6 +100,7 @@ global_struct : struct
 	nodes_alloc : linear_alloc(node),
 	ast_alloc : linear_alloc(ast_rep),
 	scope_alloc : linear_alloc(scope),
+	terrain_alloc : linear_alloc(u8),
 
 	after_init : bool,
 
@@ -1877,7 +1878,9 @@ set_uniform_v4::fn(mat: *material_info, ent : *entity, u_name : str_lit, v : *_v
 terrain_vert_info:struct
 {
 	pos : v3
+	normal : v3
 	col : _vec
+	texs: f32
 }
 TERRAIN_VERTEX_SIZE:const s32= sizeof(terrain_vert_info) / 4
 TERRAIN_WIDTH:const s32= 8

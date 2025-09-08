@@ -364,7 +364,7 @@ void FreeMemAlloc(mem_alloc* alloc)
 {
 	//VirtualFree(alloc->main_buffer, 0, MEM_RELEASE);
 }
-unsigned char *PlatformGetMem(unsigned int sz, int flags)
+unsigned char *PlatformGetMem(u64 sz, int flags)
 {
 	printf("size is %d\n", sz);
 #ifdef LINUX 
@@ -377,7 +377,7 @@ unsigned char *PlatformGetMem(unsigned int sz, int flags)
 
 void InitMemAlloc(mem_alloc *alloc)
 {
-    long long mem_chunks_size = 32000000 * sizeof(mem_chunk);
+    long long mem_chunks_size = 41000000 * sizeof(mem_chunk);
     long long raw_mem_size = alloc->chunks_cap * BYTES_PER_CHUNK;
 	long long in_use_hash_sz = alloc->in_use.hash_table_size * sizeof(heap_hash::inner);
 	long long unallocated_sz = UNALLOCATED_BUFFER_ITEMS * 8;

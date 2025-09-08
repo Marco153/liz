@@ -8,9 +8,12 @@ uniform v4 sun_color
 uniform v2 terrain_size
 uniform f32 amplitude
 uniform sampler2d tex
+uniform sampler2d tex2
+uniform sampler2d tex3
+uniform sampler2d tex4
 uniform sampler2d heightmap
 
-vertex:fn(pos : v3, vert_col : v4) ! (frag_pos : v3, out_vert_col : v4)
+vertex:fn(pos : v3, normal : v3, vert_col : v4) ! (frag_pos : v3, out_vert_col : v4, fnorm : v3)
 {
     aux_pos :v4=  model * v4(pos.xyz, 1.0)
     prev_y :f32=aux_pos.y
@@ -19,25 +22,36 @@ vertex:fn(pos : v3, vert_col : v4) ! (frag_pos : v3, out_vert_col : v4)
     aux_pos = aux_pos + cam_pos
     POSITION = projection * view * aux_pos
     out_vert_col = vert_col
+    fnorm = normal
 }
-fragment:fn(frag_pos : v3, out_vert_col : v4)
+fragment:fn(frag_pos : v3, out_vert_col : v4, fnorm : v3)
 {
-    dx:v3 = dFdx(frag_pos)
-    dy:v3 = dFdy(frag_pos)
-    norm:v3= normalize(cross(dx, dy))
-
     dir_to_frag_world :v3= frag_pos - -cam_pos.xyz
     dir_to_frag :v3= normalize(dir_to_frag_world)
 
-    
+    uv_x :v2= frag_pos.zy
+    uv_y :v2= frag_pos.xz
+    uv_z :v2= frag_pos.xy
 
-    tex_col_vertical_z:v4 =  texture(tex, v2(frag_pos.z , frag_pos.y))
-    tex_col_vertical_x:v4 =  texture(tex, v2(frag_pos.x , frag_pos.y))
-    tex_col_vertical:v4 =  tex_col_vertical_z
-    tex_col_horizontal:v4 =  texture(tex, v2(frag_pos.z , frag_pos.x))
+    norm:v3 = normalize(fnorm)
 
+    adjusted_normal :v3=abs(norm)
+    den:f32=(adjusted_normal.x + adjusted_normal.y + adjusted_normal.z)
+    weights:v3=adjusted_normal/den
 
-    sum_tex_col:v4= tex_col_horizontal
+    tex1_col_x:v4=texture(tex3, uv_x)
+    tex1_col_y:v4=texture(tex3, uv_y)
+    tex1_col_z:v4=texture(tex3, uv_z)
+
+    tex2_col_x:v4=texture(tex2, uv_x)
+    tex2_col_y:v4=texture(tex2, uv_y)
+    tex2_col_z:v4=texture(tex2, uv_z)
+
+    sum_tex_col:v4= tex1_col_x * weights.x + tex1_col_y * weights.y + tex1_col_z * weights.z
+    sum_tex2col:v4= tex2_col_x * weights.x + tex2_col_y * weights.y + tex2_col_z * weights.z
+
+    up_dot :f32=dot(adjusted_normal, vec3(0, 1, 0))
+    sum_tex_col = mix(sum_tex_col, sum_tex2col, 1-up_dot)
 
     sum_tex_col.x = clamp(sum_tex_col.x, 0, 1)
     sum_tex_col.y = clamp(sum_tex_col.y, 0, 1)
@@ -48,13 +62,12 @@ fragment:fn(frag_pos : v3, out_vert_col : v4)
 
 
     reflection_dot :f32= 1 - abs(dot(norm, dir_to_frag))
-    reflection_dot = reflection_dot 
 
     col1 :v4= vec4(vec3(1.0, 1.0, 1.0) * d, 1.0) * col * sum_tex_col * sun_color
 
     fog:f32= length(dir_to_frag_world)
 
-    aux_color :v4= mix(col1, sun_color, smoothstep(0.0, 2.0, reflection_dot))
+    aux_color :v4= mix(col1, sun_color, smoothstep(0.0, 3.0, reflection_dot))
     aux_color = mix(aux_color, sun_color, smoothstep(10, 300, fog))
 
 

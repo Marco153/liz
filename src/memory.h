@@ -11,7 +11,7 @@ struct mem_chunk
 {
     mem_chunk *next;
     mem_chunk *prev;
-    int size;
+    u64 size;
     int flags;
     char *addr;
 };
@@ -27,7 +27,7 @@ struct heap_hash
 		void* value;
 	};
 	inner *data;
-	unsigned int hash_table_size = (32 * 1024 * 1024);
+	unsigned int hash_table_size = (64 * 1024 * 1024);
 	unsigned int used;
 
 	void Clear()
@@ -121,7 +121,7 @@ struct mem_alloc
     heap_hash in_use;
     mem_chunk *all;
     mem_chunk **probable_unallocated;
-	unsigned int chunks_cap =(1024 * 1024 * 64);
+	unsigned int chunks_cap =(1024 * 1024 * 256);
 
 	char* main_buffer;
 };

@@ -898,6 +898,32 @@ add_body::fn(ctx : *context, ent : *entity)
 
 	c1.rel_chunk_min.x = -1.0
 	c1.rel_chunk_max.x = -1.0
+
+
+	//c1 := cast(*collider)other.col
+	c1.size = ent.size
+	min_rel_pos : _vec=?
+	max_rel_pos : _vec=?
+	CopyVerts(c1, &min_rel_pos, &max_rel_pos)
+	dyn_clear(&ctx.aux_col_chunks)
+	
+	if ent.is_active == false return
+
+	if ctx.col_chunks.count > 0
+	{
+		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
+		get_chunks_close_to_ent(ctx, ent, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
+
+		for c in ctx.aux_col_chunks
+		{
+			for e in c.entities
+			{
+				if e.is_static continue
+				e.flags = e.flags | ENTITY_COL_CHUNK_WAS_MODIFIED
+			}
+			dyn_add(&c.entities, ent)
+		}
+	}
 }
 
 remove_body::fn(ctx : *context, ent : *entity)
@@ -1534,10 +1560,15 @@ StepCol::fn(ctx : *context, dt : f32)
 		aux_min : _vec=?
 		aux_max : _vec=?
 
+		if str_cmp(e.name, "player") && IsKeyDown(key_enum.KEY_JMP)
+		{
+			__dbg_break
+		}
 		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &aux_min, &aux_max)
 
 		if cast_s32_and_compare_vecs(&c1.rel_chunk_min, &aux_min) == false ||
-			cast_s32_and_compare_vecs(&c1.rel_chunk_max, &aux_max) == false
+			cast_s32_and_compare_vecs(&c1.rel_chunk_max, &aux_max) == false ||
+			is_flag_on(e.flags, ENTITY_COL_CHUNK_WAS_MODIFIED)
 		{
 			c1.rel_chunk_min = aux_min
 			c1.rel_chunk_max = aux_max
@@ -1575,16 +1606,7 @@ StepCol::fn(ctx : *context, dt : f32)
 			}
 
 			//printf("new test, total {c1.ents_of_gotten_chunks.count}\n")
-/*
-			clamped :s32= cast(s32)c1.ents_of_gotten_chunks.count
-			clamped = clampi(clamped, 0, 16)
-			for i in 0..clamped
-			{
-				cur_e := ptr_offset(c1.ents_of_gotten_chunks.data, i, *entity)
-
-				printf("name {cur_e.name}\n")
-			}
-			*/
+			e.flags = e.flags & ~ENTITY_COL_CHUNK_WAS_MODIFIED
 		}
 
 
@@ -1599,6 +1621,7 @@ StepCol::fn(ctx : *context, dt : f32)
 			e2.flags = e2.flags | ENTITY_ALREADY_DONE_IN_COLISION
 			
 			c2 := cast(*collider)e2.col
+
 			//c2.pos = e2.pos
 
 
@@ -1772,7 +1795,15 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 
 	radius := ctx.tedit.brush_size
 
+	//printf("here3{trn.chunks_col_window_size}\n")
+	if trn.chunks_col_window_size == 0
+	{
+		printf("trn.chunks_col_window_size is 0\n")
+		__dbg_break
+	}
+
 	chunks_in_radius :=  cast(u32)radius / trn.chunks_col_window_size
+	//printf("here4\n")
 
 	globals.trn = terrain
 
@@ -2135,7 +2166,8 @@ ray_agains_collider::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*colli
 	dir := *end - *start
 
 	dummy :_vec=?;
-	CopyVerts(c1, &dummy, &dummy);
+	dummy2 :_vec=?;
+	CopyVerts(c1, &dummy, &dummy2);
 
 	aux_found := false
 	
@@ -2229,16 +2261,19 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 		
 		c1 := cast(*collider)e.col
 		ray_agains_collider(ctx, start, end, cinfo, layers_to_ignore, collided, e, &is_axis, &cur_dist, &found, c1)
-		for c in c1.children
+		if is_axis == false
 		{
-			if ray_agains_collider(ctx, start, end, cinfo, layers_to_ignore, collided, e, &is_axis, &cur_dist, &found, *c)
+			for c in c1.children
 			{
-				//printf("found\n")
-				*collided = ctx.aux_col_ent
-				ctx.aux_col_ent.parent_col = e
-				ctx.aux_col_ent.pos = e.pos + c.pos
-				ctx.aux_col_ent.size = c.size
-				ctx.aux_col_ent.col = *c
+				if ray_agains_collider(ctx, start, end, cinfo, layers_to_ignore, collided, e, &is_axis, &cur_dist, &found, *c)
+				{
+					//printf("found\n")
+					*collided = ctx.aux_col_ent
+					ctx.aux_col_ent.parent_col = e
+					ctx.aux_col_ent.pos = e.pos + c.pos
+					ctx.aux_col_ent.size = c.size
+					ctx.aux_col_ent.col = *c
+				}
 			}
 		}
 

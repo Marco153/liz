@@ -3388,23 +3388,6 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
 	{
 		dyn_add(&other.remove_from, ent_part_of.COLLIDER)
 		add_body(ctx, other)
-		c1 := cast(*collider)other.col
-		c1.size = other.size
-		min_rel_pos : _vec=?
-		max_rel_pos : _vec=?
-		CopyVerts(c1, &min_rel_pos, &max_rel_pos)
-		dyn_clear(&ctx.aux_col_chunks)
-		
-		if ctx.col_chunks.count > 0
-		{
-			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
-			get_chunks_close_to_ent(ctx, other, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
-
-			for c in ctx.aux_col_chunks
-			{
-				dyn_add(&c.entities, other)
-			}
-		}
 	}
 	grid_shader := find_shader(ctx, "grid_shader.mat")
 
@@ -3774,10 +3757,6 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 
 				if !var_type continue;
 
-				if str_cmp(ent.name, "cube2")
-				{
-					ctx.test_ent = ent
-				}
 				data := ptr_offset(ent, var_type.offset + offset, u8)
 				if *name == "emmitter"
 				{
@@ -3874,6 +3853,10 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 				}
 
 			}
+			if str_cmp(ent.name, "ground")
+			{
+				ctx.test_ent = ent
+			}
 			//printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
 
 
@@ -3953,21 +3936,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	}
 
 
-	for ent in ctx.bodies
-	{
-		c1 := cast(*collider)ent.col
-		min_vec:_vec=?
-		max_vec:_vec=?
-		CopyVerts(c1, &min_vec, &max_vec)
-		c1.size = ent.size
-		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_vec, &max_vec)
-		get_chunks_close_to_ent(ctx, *ent, &ctx.aux_col_chunks, &min_vec, &max_vec)
-
-		for c in ctx.aux_col_chunks
-		{
-			dyn_add(&c.entities, *ent)
-		}
-	}
+	assign_bodies_to_chunks(ctx)
 }
 free_lang_stuff::fn()
 {
@@ -4730,21 +4699,23 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				point = col.contact_point
 				hit = true
 			}
-			if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, *out_ent, &col)
+			if out_ent.type == ent_type.TERRAIN
 			{
-				aux_dist := len_vec(&(cam_pos - col.contact_point))
-
-				if aux_dist < shortest_dist 
+				if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, *out_ent, &col)
 				{
-					point = col.contact_point
-					hit = true
+					printf("here2\n")
+					aux_dist := len_vec(&(cam_pos - col.contact_point))
+
+					if aux_dist < shortest_dist 
+					{
+						point = col.contact_point
+						hit = true
+					}
+					
 				}
-				
 			}
 			if hit
 			{
-				
-				
 				m :*model_info= ctx.models[cast(u64)ctx.cur_model_selected_idx]
 				ctx.preview_ent.model = cast(u32)m.model
 				ctx.preview_ent.is_active = true
@@ -4752,7 +4723,6 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 				inv := col.normal
 				vert:= ModelFarthestPoint(cast(u32)m.model, &inv)
-				print_vec(&vert)
 				d := dot_vec(&vert, &inv)
 				if IsKeyHeld(key_enum.KEY_LCTRL)
 				{
@@ -4872,7 +4842,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 			}
 			ImGuiSeparator()
-			ImGuiText("collider: ")
+			ImGuiText("collider:")
 			if out_ent.col
 			{
 				c1 := cast(*collider)out_ent.col
@@ -5012,7 +4982,6 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				ImGuiEnumCombo("terrain_brush_type", __LINE__, cast(*u32)&ctx.tedit.brush)
 				ImGuiDragF32("force", &ctx.tedit.force)
 
-				ImGuiDragF32("terrain height max", &ctx.tedit.terrain_height_max)
 
 				ImGuiSameLine()
 
@@ -5026,6 +4995,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 					printf("count {trn.meshes.count}\n")
 					assign_new_height = true
 				}
+				ImGuiDragInt("chunks_col_window_size", cast(*s32)&trn.chunks_col_window_size)
 				ImGuiDragF32("terrain height min", &ctx.tedit.terrain_height_min)
 
 				ImGuiDragF32("brush size", &ctx.tedit.brush_size)
@@ -5367,7 +5337,6 @@ init_emmitter_particle::fn(emm : *particle_emmitter, p : *particle_pos_sz_vel, e
 	rot_rand := rand * 360.0
 
 	aux_cross := euler_to_quaternion(rot_rand * n.x, rot_rand * n.y, rot_rand * n.z) * cross
-	//print_vec(&p.vel)
 
 	p.pos = e.pos
 	p.time = emm.particle_lifetime
@@ -6737,6 +6706,8 @@ main_loop::fn(ctx : *context)
 
 	while !ShouldClose(ctx.window)
 	{
+		aux_c := cast(*collider)ctx.test_ent.col
+		//printf("col is  {terrain.chunks_col_window_size}\n")
 /*
 
 		rsp := get_reg(&ctx.mach, RSP_REG)
@@ -6987,9 +6958,9 @@ main_loop::fn(ctx : *context)
 					}
 					if out_ent.type == ent_type.AUX_COL_ENT
 					{
+						//__dbg_break
 						c1 := cast(*collider)out_ent.col
 
-						print_vec(&out_ent.pos)
 						c1.pos = out_ent.pos - out_ent.parent_col.pos
 						c1.size = out_ent.size
 					}
@@ -7057,61 +7028,68 @@ main_loop::fn(ctx : *context)
 
 				if IsKeyDown(key_enum.KEY_I)
 				{
-					dyn_clear(&ctx.vertex_terrain)
-					prev_sel := out_ent
-					aux_sel : *entity
-					aux_sel_from_non_bodies : *entity
-					shortest_dist : f32 = 9999.0
-				
-					point : _vec
-
-					if RaycastWithNonBodies(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
+					if ctx.cur_preview_idx == 1 && out_ent != nil
 					{
-						printf("hit {aux_sel_from_non_bodies.name}\n")
-						shortest_dist = len_vec(&(cam_pos - col.contact_point))
-						point = col.contact_point
-					}
-					if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
-					{
-						aux_dist := len_vec(&(cam_pos - col.contact_point))
-
-						if aux_dist < shortest_dist 
+						if out_ent.col == nil
 						{
-							point = col.contact_point
+							add_body(ctx, out_ent);
 						}
-					}
-					if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent, &col)
-					{
-						aux_dist := len_vec(&(cam_pos - col.contact_point))
-
-						if aux_dist < shortest_dist 
-						{
-							point = col.contact_point
-						}
-					}
-
-					n:=ctx.grid_ent.forward
-					if ctx.on_custom_grid
-					{
-						denom := dot_vec(&n, &dir)
-						t := dot_vec(&n, &(cam_pos - ctx.grid_ent.pos)) / denom
-						point = cam_pos - dir * t
-					}
-					if ctx.cur_preview_idx == 1 && aux_sel != nil
-					{
 						printf("creting a new collider\n")
 						new_col := new_ptr(collider)
 						memset(new_col, 0, sizeof(collider))
 						new_col.type = col_type.CUBE
-						new_col.ent = aux_sel
+						new_col.ent = out_ent
 						new_col.size.x = 1.0
 						new_col.size.y = 1.0
 						new_col.size.z = 1.0
-						c1 := cast(*collider)aux_sel.col
+						c1 := cast(*collider)out_ent.col
 						dyn_add(&c1.children, new_col)
 					}
 					else
 					{
+						dyn_clear(&ctx.vertex_terrain)
+						prev_sel := out_ent
+						aux_sel : *entity
+						aux_sel_from_non_bodies : *entity
+						shortest_dist : f32 = 9999.0
+					
+						point : _vec
+
+						closest :*entity
+						if RaycastWithNonBodies(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
+						{
+							printf("hit {aux_sel_from_non_bodies.name}\n")
+							shortest_dist = len_vec(&(cam_pos - col.contact_point))
+							point = col.contact_point
+							closest = aux_sel_from_non_bodies
+						}
+						if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+						{
+							aux_dist := len_vec(&(cam_pos - col.contact_point))
+
+							if aux_dist < shortest_dist 
+							{
+								point = col.contact_point
+								closest = aux_sel
+							}
+						}
+						if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent, &col)
+						{
+							aux_dist := len_vec(&(cam_pos - col.contact_point))
+
+							if aux_dist < shortest_dist 
+							{
+								point = col.contact_point
+							}
+						}
+
+						n:=ctx.grid_ent.forward
+						if ctx.on_custom_grid
+						{
+							denom := dot_vec(&n, &dir)
+							t := dot_vec(&n, &(cam_pos - ctx.grid_ent.pos)) / denom
+							point = cam_pos - dir * t
+						}
 						cube = new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
 
 						new_rot := quaternion_to_euler(&ctx.grid_ent.rot)
@@ -7154,6 +7132,7 @@ main_loop::fn(ctx : *context)
 				if IsMouseDown(mouse_enum.LEFT) && ctx.editor_wnd_type != editor_window_enum.GRID && 
 				 	!IsKeyHeld(key_enum.KEY_LCTRL)
 				{
+
 					dyn_clear(&ctx.vertex_terrain)
 					prev_sel := out_ent
 					aux_sel : *entity
@@ -7165,6 +7144,7 @@ main_loop::fn(ctx : *context)
 						//printf("hit {aux_sel_from_non_bodies.name}\n")
 						shortest_dist = len_vec(&(cam_pos - col.contact_point))
 					}
+					printf("prev y {aux_c._min.y}\n")
 					if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
 					{
 						aux_dist := len_vec(&(cam_pos - col.contact_point))
@@ -7226,7 +7206,7 @@ main_loop::fn(ctx : *context)
 					{
 						out_ent = aux_sel_from_non_bodies
 					}
-					printf("out ent is {out_ent.name}\n")
+					//printf("out ent is {out_ent.name}\n")
 				}
 
 				//printf("path {ctx.on_contructing_path}, customgrid {ctx.on_custom_grid}, out {cast(u64)out_ent}, tp {cast(u32)out_ent.type}\n")

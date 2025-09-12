@@ -82,7 +82,7 @@ collider : struct
 	in_chunks : dyn_array(*collision_chunk),
 
 	ents_of_gotten_chunks : dyn_array(*entity),
-	children : dyn_array(*collider),
+	//children : dyn_array(*collider),
 }
 
 collision_chunk:struct

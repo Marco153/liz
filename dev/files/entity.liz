@@ -264,10 +264,18 @@ DrawEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 {
 	if ctx.drawable_ents.count == 0
 		return;
+
+	dyn_clear(&ctx.transparent_ents)
+
 	for e in ctx.drawable_ents
 	{
 		if e.is_active == false
 			continue
+		if is_flag_on(e.flags, ENTITY_TRANSPARENT)
+		{
+			dyn_add(&ctx.transparent_ents, e)
+			continue
+		}
 
 		if(e.type == ent_type.TERRAIN)
 		{
@@ -277,6 +285,10 @@ DrawEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 		{
 			DrawEntity(ctx, *e, cam_pos, cam_rot);
 		}
+	}
+	for e in ctx.transparent_ents
+	{
+		DrawEntity(ctx, *e, cam_pos, cam_rot);
 	}
 	Draw3DTransparency(ctx.window);
 }
@@ -392,7 +404,7 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			}
 			if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))
 			{
-				draw.flags = draw.flags | DRAW_INFO_TRANSPARENT;
+				draw.flags = draw.flags | DRAW_INFO_TRANSPARENT2;
 			}
 			if(is_flag_on(ent.flags, ENTITY_HAS_TEXTURE))
 			{
@@ -400,6 +412,7 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 				draw.texture_id = ent.tex_id
 			}
 			draw.name = ent.name
+
 			if(is_flag_on(ent.flags, ENTITY_CUSTOM_SHADER))
 			{
 				custom_shader_setting(ctx, ent, &draw)
@@ -444,6 +457,10 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			//__dbg_break;
 			draw.flags = DRAW_INFO_HAS_TEXTURE;
 			draw.texture_id = ent.tex_id;
+			//draw.tex_size_x = ent.tex_size_x;
+			//draw.tex_size_y = ent.tex_size_y;
+			//draw.tex_offset_x = ent.tex_offset_x;
+			//draw.tex_offset_y = ent.tex_offset_y;
 		}
 		if is_flag_on(ent.flags, ENTITY_IS_MASKED)
 		{

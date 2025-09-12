@@ -8,7 +8,7 @@ DRAW_INFO_STENCIL_TEST:const s32 = 16;
 DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER:const s32 = 32;
 DRAW_INFO_LINE:const s32 = 64;
 DRAW_INFO_TRANSPARENT:const s32 = 128;
-// 256 is used for an internal transparency stuff
+DRAW_INFO_TRANSPARENT2:const s32 = 256;
 DRAW_INFO_TRIANGLE:const s32 = 512;
 DRAW_INFO_NO_PROJ:const s32 = 1024;
 DRAW_INFO_DBG_BREAK:const s32 = 0x800
@@ -1067,6 +1067,11 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 				lhs := cast(s32)f
 				rhs := cast(s32)((f - cast(f32)lhs)* 100.0)
 
+				negative := false
+				if rhs < 0 && lhs == 0
+				{
+					negative = true
+				}
 				if rhs < 0
 				{
 					rhs = rhs * -1
@@ -1076,7 +1081,12 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 
 				//if cast(s64)cur_arg.val == 32
 					//__dbg_break
-				num_ln: = num_2_str(cast(s64)lhs, aux_num_buffer, 16);
+				num_ln: = num_2_str(cast(s64)lhs, aux_num_buffer[0], 16);
+				if negative
+				{
+					*ptr_offset(buffer, buffer_idx, u8) = '-
+					buffer_idx++
+				}
 				*ptr_offset(aux_num_buffer[0], num_ln, u8) = '.
 				num_ln2: = num_2_str(cast(s64)rhs, aux_num_buffer[num_ln + 1], 16);
 
@@ -1693,10 +1703,21 @@ SerializeEnt::fn(ent : *entity, idx : u64, materials : *dyn_array(material_info)
 		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("en_info", scp))
 	}
 	}
-	if ent.col
+	if ent.cols.count > 0
 	{
-		c := cast(*collider)ent.col
-		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("col", cast(s32)c.type))
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+		for c in ent.cols
+		{
+			cur_scp := new_ast2()
+			cur_scp.type = ast_type.SCOPE
+			dyn_add(&cur_scp.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)c.type))
+			dyn_add(&cur_scp.SCOPE.stmnts, VecAssignmentToAst("pos", &c.pos))
+			dyn_add(&cur_scp.SCOPE.stmnts, VecAssignmentToAst("size", &c.size))
+
+			dyn_add(&scp.SCOPE.stmnts, cur_scp)
+		}
+		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("cols", scp))
 	}
 
 

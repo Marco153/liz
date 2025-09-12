@@ -16,6 +16,8 @@ vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
 fragment:fn(tex_coord : v2, frag_pos : v3)
 {
     tex_col:v4 =  texture(tex, v2(frag_pos.x , frag_pos.z))
+
+    if tex_col.a < 0.1 discard
     
 
     COLOR = tex_col

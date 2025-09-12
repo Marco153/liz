@@ -882,6 +882,34 @@ DrawCols::fn(ctx : *context)
 	}
 }
 
+add_body_to_chunks::fn(ctx : *context, ent : *entity)
+{
+	min_rel_pos : _vec=?
+	max_rel_pos : _vec=?
+	
+	if ctx.col_chunks.count > 0
+	{
+		for c in ent.cols 
+		{
+			CopyVerts(*c, &min_rel_pos, &max_rel_pos)
+			dyn_clear(&ctx.aux_col_chunks)
+
+			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c._min, &c._max, &min_rel_pos, &max_rel_pos)
+			get_chunks_close_to_ent(ctx, ent, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
+
+			for ch in ctx.aux_col_chunks
+			{
+				for e in ch.entities
+				{
+					if e.is_static continue
+					e.flags = e.flags | ENTITY_COL_CHUNK_WAS_MODIFIED
+				}
+				dyn_add(&ch.entities, ent)
+			}
+		}
+	}
+
+}
 add_body::fn(ctx : *context, ent : *entity)
 {
 	dyn_add(&ctx.bodies, &ent);
@@ -889,41 +917,24 @@ add_body::fn(ctx : *context, ent : *entity)
 	dyn_init(&ent.ents_in_collision, 16);
 	ent.ents_in_collision.count = 16
 
-	ent.col = cast(*void)heap_alloc(ctx.alloc, sizeof(collider))
-	memset(ent.col, 0, sizeof(collider))
-	c1 := cast(*collider)ent.col
+	col := new_ptr(collider)
+	memset(col, 0, sizeof(collider))
+	dyn_add(&ent.cols, col)
+	c1 := col
 	c1.type = col_type.CUBE
 	c1.ent = ent
-	c1.size = ent.size
+	c1.size.x = 1.0
+	c1.size.y = 1.0
+	c1.size.z = 1.0
+	
 
 	c1.rel_chunk_min.x = -1.0
 	c1.rel_chunk_max.x = -1.0
 
-
-	//c1 := cast(*collider)other.col
-	c1.size = ent.size
-	min_rel_pos : _vec=?
-	max_rel_pos : _vec=?
-	CopyVerts(c1, &min_rel_pos, &max_rel_pos)
-	dyn_clear(&ctx.aux_col_chunks)
 	
 	if ent.is_active == false return
 
-	if ctx.col_chunks.count > 0
-	{
-		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
-		get_chunks_close_to_ent(ctx, ent, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
-
-		for c in ctx.aux_col_chunks
-		{
-			for e in c.entities
-			{
-				if e.is_static continue
-				e.flags = e.flags | ENTITY_COL_CHUNK_WAS_MODIFIED
-			}
-			dyn_add(&c.entities, ent)
-		}
-	}
+	add_body_to_chunks(ctx, ent)
 }
 
 remove_body::fn(ctx : *context, ent : *entity)
@@ -948,7 +959,10 @@ remove_body::fn(ctx : *context, ent : *entity)
 
 	heap_free(ent.ents_in_collision.alloc, ent.ents_in_collision.data);
 
-	heap_free(ctx.alloc, ent.col)
+	for c in ent.cols
+	{
+		heap_free(ctx.alloc, *c)
+	}
 }
 
 EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
@@ -1035,8 +1049,23 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 	}
 	col_type.CUBE
 	{
-		final_pos := (e.pos + col.pos)
-		final_size := col.size
+		p := col.pos
+		p.x = p.x * e.size.x
+		p.y = p.y * e.size.y
+		p.z = p.z * e.size.z
+		q :quaternion=?
+		q.v = e.rot
+
+		p = q * p
+
+
+		sz := col.size
+		sz.x = sz.x * e.size.x
+		sz.y = sz.y * e.size.y
+		sz.z = sz.z * e.size.z
+		final_pos := (e.pos + p)
+
+		final_size := sz
 		start := col.CUBE.verts[0]
 
 		if col.no_rotation_ent
@@ -1054,8 +1083,6 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 		{
 			//memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
 			mat : mat4x4=?
-			q :quaternion=?
-			q.v = e.rot
 
 			//__dbg_break
 			//__dbg_break
@@ -1454,6 +1481,7 @@ check_maybe_resolve_collision::fn(ctx : *context, gjk : *gjk_state, e : *entity,
 	}
 
 	//__dbg_break
+	/*
 	if is_flag_on(e.layer, LAYER_ENTITY_PLAYABLE)
 	{
 		//ASSERT(e != nil)
@@ -1485,6 +1513,7 @@ check_maybe_resolve_collision::fn(ctx : *context, gjk : *gjk_state, e : *entity,
 			e.mov_info.up_col_norm = col.normal
 		}
 	}
+	*/
 
 	if !GJK(gjk, c1, c2)
 	{
@@ -1547,7 +1576,7 @@ StepCol::fn(ctx : *context, dt : f32)
 		}	
 
 		//__dbg_break
-		c1 := cast(*collider)e.col
+		c1 := *e.cols[0]
 		e.pos += e.vel * dt
 		//c1.pos = e.pos
 		m_aabb :aabb = ?
@@ -1560,10 +1589,6 @@ StepCol::fn(ctx : *context, dt : f32)
 		aux_min : _vec=?
 		aux_max : _vec=?
 
-		if str_cmp(e.name, "player") && IsKeyDown(key_enum.KEY_JMP)
-		{
-			__dbg_break
-		}
 		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &aux_min, &aux_max)
 
 		if cast_s32_and_compare_vecs(&c1.rel_chunk_min, &aux_min) == false ||
@@ -1620,7 +1645,7 @@ StepCol::fn(ctx : *context, dt : f32)
 
 			e2.flags = e2.flags | ENTITY_ALREADY_DONE_IN_COLISION
 			
-			c2 := cast(*collider)e2.col
+			c2 := *e2.cols[0]
 
 			//c2.pos = e2.pos
 
@@ -1651,8 +1676,7 @@ StepCol::fn(ctx : *context, dt : f32)
 			}
 			else
 			{
-				check_maybe_resolve_collision(ctx, gjk, e, e2, dt, c1, c2, &p_aabb)
-				for c in c2.children
+				for c in e2.cols
 				{
 					check_maybe_resolve_collision(ctx, gjk, e, e2, dt, c1, *c, &p_aabb)
 				}
@@ -1670,7 +1694,7 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 {
 	for e in ctx.bodies
 	{
-		c1 := cast(*collider)e.col
+		c1 := e.cols[0]
 		c1.no_rotation_ent = is_flag_on(e.flags, ENTITY_NO_ROTATION_ON_COLLISION)
 	}
 	steps := 2
@@ -2259,20 +2283,27 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 			continue;
 		e := *it
 		
-		c1 := cast(*collider)e.col
-		ray_agains_collider(ctx, start, end, cinfo, layers_to_ignore, collided, e, &is_axis, &cur_dist, &found, c1)
-		if is_axis == false
+		for c in e.cols
 		{
-			for c in c1.children
+			if ray_agains_collider(ctx, start, end, cinfo, layers_to_ignore, collided, e, &is_axis, &cur_dist, &found, *c)
 			{
-				if ray_agains_collider(ctx, start, end, cinfo, layers_to_ignore, collided, e, &is_axis, &cur_dist, &found, *c)
+				//printf("found\n")
+				*collided = e
+				if is_axis 
 				{
-					//printf("found\n")
+					return true
+				}
+				if ctx.cur_preview_idx == 1
+				{
 					*collided = ctx.aux_col_ent
+
 					ctx.aux_col_ent.parent_col = e
-					ctx.aux_col_ent.pos = e.pos + c.pos
-					ctx.aux_col_ent.size = c.size
-					ctx.aux_col_ent.col = *c
+					ctx.aux_col_ent.pos = e.pos + c.pos * e.size
+					ctx.aux_col_ent.size = c.size * e.size
+					ctx.aux_col_ent.aux_col = *c
+
+					dyn_clear(&ctx.aux_col_ent.cols)
+					dyn_add(&ctx.aux_col_ent.cols, *c)
 				}
 			}
 		}

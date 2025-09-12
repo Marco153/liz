@@ -234,6 +234,7 @@ entity:struct
 	{
 		hp : f32,
 		bridge_rot : f32,
+		aux_col : *collider
 	}
 	collided_entered : bool,
 	col_enter : fn(*entity, *entity, *collision),
@@ -241,7 +242,7 @@ entity:struct
 	col_exit : fn(*entity, *entity, *collision),
 	playable_func : fn(*void, *entity, *f32),
 	
-	col : *void,
+	cols : dyn_array(*collider)
 	emmitter : *particle_emmitter
 
 	on_ground : bool,

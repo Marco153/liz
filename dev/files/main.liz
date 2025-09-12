@@ -72,7 +72,7 @@ context: struct
 	aux_col_chunks : dyn_array(*collision_chunk)
 
 
-	all_axis_ent :*entity
+	//all_axis_ent :*entity
 	all_axis_col :*collider
 
 	i_clicked : bool
@@ -224,6 +224,7 @@ context: struct
 	objs_with_camera_mov : dyn_array(*entity),
 	ents_think : dyn_array(*entity),
 	emmitters : dyn_array(*entity),
+	transparent_ents : dyn_array(*entity),
 
 	textures : dyn_array(texture_info),
 	models : dyn_array(model_info),
@@ -279,6 +280,7 @@ context: struct
 	can_deactivate_path_ents : bool
 
 	aux_col_ent : *entity
+	model_farthes_vert :  _vec
 }
 
 
@@ -1999,8 +2001,8 @@ view_collision ::fn(ccc : u32)
 
 	globals.temp_alloc.cur = 0
 
-	c1 := cast(*collider)e1.col
-	c2 := cast(*collider)e2.col
+	c1 := *e1.cols[0]
+	c2 := *e2.cols[0]
 
 	#if VIEW_COL_METHOD == 0
 	{
@@ -2716,7 +2718,6 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 					dyn_add(&ctx.to_deactivate, ent)
 					dyn_add(&ctx.to_deactivate, ctx.shock_ent_emmitter)
 					dyn_add(&ctx.to_deactivate, ctx.shock_ent)
-					//printf("col name {aux_sel.name}\n")
 
 				}
 			}
@@ -2733,7 +2734,9 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				//dir := euler_to_quaternion(radians_to_degree(cam_rot.x), radians_to_degree(cam_rot.y), 0.0) * *ctx.cam_aux_forward_global
 				b.size.x = 0.2
 				b.size.y = 0.2
-				b.col_size = b.size
+				b.col_size.x = 1.0
+				b.col_size.y = 1.0
+				b.col_size.z = 1.0
 
 				b.timer_deactivate =  3.0
 				dyn_add(&ctx.to_deactivate, b)
@@ -2783,11 +2786,11 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		{
 			//__dbg_break
 			ASSERT(mov.ent_col)
-			c1 := cast(*collider)player_ent.col
+			c1 := *player_ent.cols[0]
 			ASSERT(c1.type == col_type.CAPSULE)
 			r := c1.CAPSULE.radius
 			c1.pos = player_ent.forward *r * 2.0 + ctx.up * 1.4
-			c2 := cast(*collider)mov.ent_col.col
+			c2 := *mov.ent_col.cols[0]
 			c2.type = col_type.CUBE
 			//c2.pos = mov.ent_col.pos
 			c2.ent = mov.ent_col
@@ -3373,7 +3376,9 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
 	other := NewEnt(ctx, "block 1")
 	other.pos = *pos
 	other.size = *size
-	other.col_size = *size
+	other.col_size.x = 1.0
+	other.col_size.y = 1.0
+	other.col_size.z = 1.0
 	other.flags = other.flags | ENTITY_3D | ENTITY_HAS_TEXTURE | ENTITY_SERIALIZE
 	other.flags = other.flags & ~ENTITY_TRANSPARENT
 	dyn_add(&ctx.drawable_ents, other)
@@ -3410,11 +3415,17 @@ new_axis_ent::fn(ctx : *context, name : str_lit, sz : *_vec, col : *_vec) ! *ent
 	ret.is_trigger = true
 	ret.type = ent_type.AXIS
 	ret.flags = ret.flags | ENTITY_ALWAYS_ON_FRONT | ENTITY_3D | ENTITY_DONT_FREE | ENTITY_TRANSPARENT
+	ret.col_size.x = 1.0
+	ret.col_size.y = 1.0
+	ret.col_size.z = 1.0
 	ret.size = *sz
-	ret.col_size = *sz
 	memcpy(&ret.color, col, 16)
 	dyn_add(&ctx.drawable_ents, ret)
 	add_body(ctx, ret)
+
+	ret.cols[0].size.x = 1.0
+	ret.cols[0].size.y = 1.0
+	ret.cols[0].size.z = 1.0
 
 	return ret
 }
@@ -3835,17 +3846,53 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 					memset(ent.en_info, 0, sizeof(enemy_info))
 					DeserializeEntVar(ctx, GetTypeData(enemy_info), ent.en_info , *st.BIN.expr[1])
 				}
-				else if *name == "col"
+				else if *name == "cols"
 				{
-					if  ent.col == nil
+					if  ent.cols.count == 0
 					{
-						add_body(ctx, ent);
+						scps := st.BIN.expr[1]
+						dyn_add(&ctx.bodies, &ent);
+						ent.ents_in_collision.alloc = ctx.alloc;
+						dyn_init(&ent.ents_in_collision, 16);
+						ent.ents_in_collision.count = 16
 
-						c := cast(*collider)ent.col
-						c.type = cast(col_type)st.BIN.expr[1].INT.num
+						ASSERT(scps.type == ast_type.SCOPE)
 
+						for s in scps.SCOPE.stmnts
+						{
+							col := new_ptr(collider)
+							memset(col, 0, sizeof(collider))
+							col.ent = ent
+							dyn_add(&ent.cols, col)
+
+							ASSERT(s.type == ast_type.SCOPE)
+							ASSERT(is_ast_bin(*s.SCOPE.stmnts[0], cast(u32)token_type.SEMI_COLON))
+
+							sts := s.SCOPE.stmnts[0]
+
+							for cur_st in sts.BIN.expr
+							{
+
+								name = &cur_st.BIN.expr[0].WORD.str
+								
+								col_t :*type_data= GetTypeData(collider)
+								var_type = find_var(ctx, col_t, name, &offset)
+
+								if !var_type continue;
+								if var_type.name == "type"
+								{
+									col.type = cast(col_type)cur_st.BIN.expr[1].INT.num
+								}
+								else
+								{
+									data = ptr_offset(col, var_type.offset + offset, u8)
+
+									DeserializeEntVar(ctx, var_type, data, *cur_st.BIN.expr[1])
+								}
+							}
+						}
 					}
-
+					add_body_to_chunks(ctx, ent)
 				}
 				else
 				{
@@ -4082,7 +4129,7 @@ set_bridge_pos::fn(ent : *entity)
 	ent.rot = (q2 * q).v
 	dir_to_pivot := ent.pivot - rotated_pivot
 	ent.pos = ent.vel + dir_to_pivot
-	c := cast(*collider)ent.col
+	c := *ent.cols[0]
 	c.data_ready = false
 }
 new_collision_chunks::fn(ctx : *context)
@@ -4374,7 +4421,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			tinfo :texture_info
 			tinfo.id = ctx.screen_tex_id
 			set_shader_uniform_sampler2d(ctx, aux_ent, "tex", &tinfo)
-			c1 := cast(*collider)aux_ent.col
+			c1 := aux_ent.cols[0]
 			c1.data_ready = false
 			aux_ent.rot = ctx.grid_ent.vel
 
@@ -4399,11 +4446,6 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 				sum_:f32= ctx.sum_
 				aux_n :_vec=relative_forward
-				/*
-				aux_n.x = radians_to_degree(relative_forward.x * diff)
-				aux_n.y = radians_to_degree(relative_forward.y * diff)
-				aux_n.z = radians_to_degree(relative_forward.z * diff)
-				*/
 				q.v = aux_ent.rot
 
 				quat := create_from_axis_angle(aux_n.x, aux_n.y, aux_n.z, diff)
@@ -4442,7 +4484,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			//aux_ent.size.z = aux_ent.size.z* 0.5
 
 			aux_ent.col_size = aux_ent.size
-			c1 := cast(*collider)aux_ent.col
+			c1 := aux_ent.cols[0]
 			c1.data_ready = false
 			//aux_ent.size.z = absf(point.z - start_pos.z)
 			//aux_ent.size.z = clamp(aux_ent.size.z, 1.0, aux_ent.size.z)
@@ -4843,20 +4885,22 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			}
 			ImGuiSeparator()
 			ImGuiText("collider:")
-			if out_ent.col
+
+			ImGuiText("col offset:")
+			ImGuiSameLine();
+			ImGuiShowV3(&out_ent.col_offset)
+
+			if out_ent.cols.count > 0
 			{
-				c1 := cast(*collider)out_ent.col
-				ImGuiText("col_pos:")
-				ImGuiSameLine();
-				ImGuiShowV3(&c1.pos)
 				ImGuiText("children:")
 				aux_1 : _vec=?
 				aux_2 : _vec=?
-				for ch in c1.children
+				for ch in out_ent.cols
 				{
 					ImGuiText("pos:")
 					ImGuiSameLine();
 					ImGuiShowV3(&ch.pos)
+
 					ImGuiText("size:")
 					ImGuiSameLine();
 					ImGuiShowV3(&ch.size)
@@ -4923,7 +4967,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			}
 			globals.temp_alloc.cur = 0
 			ImGuiText(out_ent.name)
-			has_col := out_ent.col != nil
+			has_col := out_ent.cols.count > 0
 			ImGuiText("has col: {has_col}");
 			ImGuiCheckbox("active: ", &out_ent.is_active)
 			ImGuiCheckbox("static: ", &out_ent.is_static)
@@ -5277,7 +5321,10 @@ NewPlaneEnt::fn(ctx : *context, name : str_lit, pos : *_vec, size : *_vec) ! *en
 
 	ret.pos = *pos
 	ret.size = *size
-	ret.col_size = *size
+	ret.col_size.x = 1.0
+	ret.col_size.y = 1.0
+	ret.col_size.z = 1.0
+	ret.cols[0].size = *size
 	ret.color.x = 1.0
 	ret.color.y = 1.0
 	ret.color.z = 1.0
@@ -5316,7 +5363,7 @@ new_enemy::fn(ctx : *context, pos : *_vec, name : str_lit) ! *entity
 	//test_e.dont_res_cols_with_layers = LAYER_PLAYER
 	//test_e.ignore_collision_with_layers = LAYER_ENEMY
 
-	c1 := cast(*collider)test_e.col
+	c1 := test_e.cols[0]
 	test_e.flags = test_e.flags | ENTITY_NO_ROTATION_ON_COLLISION
 	//c1.type = col_type.SPHERE
 	//c1.SPHERE.radius = 2.0
@@ -5927,7 +5974,7 @@ get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, _min : *_vec,
 }
 get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*collision_chunk), min_rel_pos : *_vec, max_rel_pos : *_vec)
 {
-	c1 := cast(*collider)e.col
+	c1 := *e.cols[0]
 
 	chunk_width := ctx.chunk_width
 	x_width := (ctx.area_col_size.x / chunk_width) + 1.0
@@ -5971,7 +6018,7 @@ assign_bodies_to_chunks::fn(ctx : *context)
 	for e_ in ctx.bodies
 	{
 		e := *e_
-		c1 := cast(*collider)e.col
+		c1 := *e.cols[0]
 		if !e.is_active continue;
 
 		if !e.is_static
@@ -6338,7 +6385,7 @@ main_loop::fn(ctx : *context)
 
 	player_ent:*entity=NewPlayerEnt(ctx, "player");
 	{
-		c1 := cast(*collider)player_ent.col
+		c1 := player_ent.cols[0]
 		c1.type = col_type.CAPSULE
 		c1.CAPSULE.radius = 0.2
 		c1.CAPSULE.height = 1.7
@@ -6359,7 +6406,7 @@ main_loop::fn(ctx : *context)
 	for i in 0..total_bullets
 	{
 		e := NewPlaneEnt(ctx, "bullet{i}", &ctx.up, &bullet_sz)
-		c := cast(*collider)e.col
+		c := e.cols[0]
 		c.type = col_type.SPHERE
 		c.SPHERE.radius = 0.4
 
@@ -6593,12 +6640,17 @@ main_loop::fn(ctx : *context)
 
 	ctx.y_axis_ent = y_axis_ent
 
+/*
 	all_axis_ent := new_axis_ent(ctx, "all_axis", &_vec{0.5, 0.5, 0.5}, &_vec{1.0, 1.0, 1.0, 0.5})
+	all_axis_ent.vel.x = 1.0
+	all_axis_ent.vel.y = 1.0
+	all_axis_ent.vel.z = 1.0
 	//all_axis_ent.type = ent_type.AXIS_ALL
 
 	ctx.all_axis_ent = all_axis_ent
 	globals.all_axis_ent = all_axis_ent
-	globals.all_axis_col = cast(*collider)all_axis_ent.col
+	globals.all_axis_col = *all_axis_ent.cols[0]
+	*/
 
 	x_axis_ent.forward.x = 1.0
 
@@ -6606,10 +6658,12 @@ main_loop::fn(ctx : *context)
 
 	z_axis_ent.forward.z = 1.0
 
+/*
 	all_axis_ent.forward.z = 1.0
 	all_axis_ent.forward.y = 1.0
 	all_axis_ent.forward.x = 1.0
-	ctx.all_axis_col = cast(*collider)all_axis_ent.col
+	ctx.all_axis_col = *all_axis_ent.cols[0]
+	*/
 
 	start_selected_pos :_vec
 
@@ -6622,6 +6676,21 @@ main_loop::fn(ctx : *context)
 
 	SerializeAllEnt(ctx, "01")
 	DeserializeAllEnt(ctx, "01")
+	
+	ctx.grid_ent = NewEnt(ctx, "grid_ent")
+	ctx.grid_ent.flags = ctx.grid_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
+	ctx.grid_ent.flags = ctx.grid_ent.flags & ~ENTITY_HAS_TEXTURE
+	ctx.grid_ent.is_active = true
+	ctx.grid_ent.model = 1
+	ctx.grid_ent.forward = _vec{0.0, 1.0, 0.0}
+	ctx.grid_ent.material_idx = find_shader(ctx, "grid2_shader.mat")
+	ctx.grid_ent.in_material_instance = new_material_instance(ctx, cast(u32)ctx.grid_ent.material_idx, ctx.grid_ent)
+	set_shader_uniform_sampler2d(ctx, ctx.grid_ent, "tex", ctx.textures[ctx.grid_transparent_tex])
+	ctx.grid_ent.size.x = 10.0
+	ctx.grid_ent.size.y = 10.0
+	ctx.grid_ent.rot = euler_to_quaternion(90.0, 0.0, 0.0).v
+	ctx.grid_ent.layer = LAYER_IGNORE_RAYCAST
+	dyn_add(&ctx.drawable_ents, &ctx.grid_ent);
 
 	sky := new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{500.5, 500.2, 500.5, 0.0}, false);
 	sky.name = "sky"
@@ -6664,20 +6733,8 @@ main_loop::fn(ctx : *context)
 	ctx.aux_col_ent = NewEnt(ctx, "aux_col_ent")
 	ctx.aux_col_ent.flags = ctx.aux_col_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
 	ctx.aux_col_ent.type = ent_type.AUX_COL_ENT
+	ctx.aux_col_ent.is_active = false
 
-	ctx.grid_ent = NewEnt(ctx, "grid_ent")
-	ctx.grid_ent.flags = ctx.grid_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
-	ctx.grid_ent.is_active = true
-	ctx.grid_ent.model = 1
-	ctx.grid_ent.forward = _vec{0.0, 1.0, 0.0}
-	ctx.grid_ent.material_idx = find_shader(ctx, "grid2_shader.mat")
-	ctx.grid_ent.in_material_instance = new_material_instance(ctx, cast(u32)ctx.grid_ent.material_idx, ctx.grid_ent)
-	set_shader_uniform_sampler2d(ctx, ctx.grid_ent, "tex", ctx.textures[ctx.grid_transparent_tex])
-	ctx.grid_ent.size.x = 10.0
-	ctx.grid_ent.size.y = 10.0
-	ctx.grid_ent.rot = euler_to_quaternion(90.0, 0.0, 0.0).v
-	ctx.grid_ent.layer = LAYER_IGNORE_RAYCAST
-	dyn_add(&ctx.drawable_ents, &ctx.grid_ent);
 
 
 	//PlayAudio("01.flac", 1.0, 1.0);
@@ -6704,10 +6761,15 @@ main_loop::fn(ctx : *context)
 
 	cam_dir_terrain :_vec
 
+	on_click_dir :_vec
+	on_click_pos :_vec
+	on_click_ent_pos :_vec
+	on_click_ent_pos_add :_vec
+	on_click_ent_size :_vec
+
 	while !ShouldClose(ctx.window)
 	{
-		aux_c := cast(*collider)ctx.test_ent.col
-		//printf("col is  {terrain.chunks_col_window_size}\n")
+		//aux_c := *ctx.test_ent.cols[0]
 /*
 
 		rsp := get_reg(&ctx.mach, RSP_REG)
@@ -6732,7 +6794,7 @@ main_loop::fn(ctx : *context)
 		printf("\n")
 		*/
 
-		if ctx.grid_ent.col != nil
+		if ctx.grid_ent.cols.count > 0
 		{
 			__dbg_break
 		}
@@ -6790,7 +6852,7 @@ main_loop::fn(ctx : *context)
 				x_axis_ent.is_active = false
 				y_axis_ent.is_active = false
 				z_axis_ent.is_active = false
-				all_axis_ent.is_active = false
+				//all_axis_ent.is_active = false
 				
 				change_preview_col_idx(ctx, 0)
 
@@ -6816,6 +6878,8 @@ main_loop::fn(ctx : *context)
 				mvx := GetMouseVelX() * dt
 				mvy := GetMouseVelY() * dt
 				cam_mov_editor(ctx, mvx, mvy)
+				sel_fw := axis_sel_ent.forward 
+
 				if IsKeyDown(key_enum.KEY_P)
 				{
 					player_ent.pos = cam_pos
@@ -6823,13 +6887,14 @@ main_loop::fn(ctx : *context)
 				if IsKeyDown(key_enum.KEY_1)
 				{
 					sel_action = select_action.MOV
-					all_axis_ent.is_active = false
+					//all_axis_ent.is_active = false
 				}
 				if IsKeyDown(key_enum.KEY_2)
 				{
 					if sel_action == select_action.SCALE_ONE_AXIS
 					{
 						sel_action = select_action.SCALE_ONE_AXIS2
+						
 					}
 					else if sel_action == select_action.SCALE_ONE_AXIS2
 					{
@@ -6839,13 +6904,13 @@ main_loop::fn(ctx : *context)
 					{
 						sel_action = select_action.SCALE_ONE_AXIS
 					}
-					all_axis_ent.is_active = true
+					//all_axis_ent.is_active = true
 
 				}
 				if IsKeyDown(key_enum.KEY_3)
 				{
 					sel_action = select_action.SCALE
-					all_axis_ent.is_active = true
+					//all_axis_ent.is_active = true
 				}
 				if IsKeyDown(key_enum.KEY_4)
 				{
@@ -6854,41 +6919,56 @@ main_loop::fn(ctx : *context)
 				if IsKeyDown(key_enum.KEY_5)
 				{
 					sel_action = select_action.ROT
-					all_axis_ent.is_active = false
+					//all_axis_ent.is_active = false
 				}
 
 				if axis_sel_ent
 				{
-					fw := axis_sel_ent.forward 
+					local_fw := axis_sel_ent.vel 
+					global_fw := axis_sel_ent.forward 
+					print_vec(&local_fw)
 
-					dx := dot_vec(&fw, &select_right) * mvx
+					dx := dot_vec(&local_fw, &select_right) * mvx
 					pos_ptr := &out_ent.pos
 					size_ptr := &out_ent.size
 
-					if ctx.cur_preview_idx > 0 && out_ent.type != ent_type.AUX_COL_ENT
+					prev_ent := out_ent
+					if ctx.cur_preview_idx == 0 && out_ent.type == ent_type.AUX_COL_ENT
 					{
-						if is_flag_on(out_ent.flags, ENTITY_ONLY_COL) && ctx.cur_preview_idx == 2
-						{
-							pos_ptr = &out_ent.pos
-							size_ptr = &out_ent.col_size
-						}
-						else
-						{
-							pos_ptr = &out_ent.col_offset
-							size_ptr = &out_ent.col_size
-						}
-
+						out_ent = out_ent.parent_col
 					}
 
 					dist := len_vec(&(cam_pos - out_ent.pos))
 					mul := 2.0 + dist
+					n :_vec
+					up_vec := ctx.up
+					if dot_vec(&ctx.up, &local_fw) > 0.99
+					{
+						up_vec = _vec{1.0, 0.0, 0.0}
+					}
+
+					n = cross_vec(&up_vec, &local_fw)
+
+					denom := dot_vec(&n, &dir)
+					if denom >= 0.001
+					{
+						denom = 1.0
+					}
+					printf("denom {denom}\n")
+					aux_pos := on_click_pos - cam_pos
+
+					t := dot_vec(&n, &(aux_pos)) / denom
+					final_pos := cam_pos + dir * t
+					to_pos := final_pos - on_click_pos
+
 					on sel_action
 					{
 					select_action.MOV
 					{
-						//printf("static {out_ent.is_static}, col {cast(u64)out_ent.col}, sel_mode {cast(u32)sel_action}, {ctx.frames_total}\n")
-						dy := dot_vec(&fw, &select_up) * -mvy
-						*pos_ptr += fw * (dx + dy) * 8.0
+						to_pos_dot := dot_vec(&local_fw, &to_pos)
+						final_pos = on_click_pos + local_fw * to_pos_dot
+						diff_pos := final_pos - on_click_ent_pos 
+						*pos_ptr = on_click_ent_pos + diff_pos
 						on out_ent.type
 						{
 						ent_type.BRIDGE
@@ -6903,72 +6983,89 @@ main_loop::fn(ctx : *context)
 					}
 					select_action.SCALE_ONE_AXIS
 					{
-						dx = -dx
-						dy := dot_vec(&fw, &select_up) * mvy
-						fw = fw * 0.5
+						to_pos_dot := dot_vec(&local_fw, &to_pos)
+						final_pos = on_click_pos + local_fw * to_pos_dot
+						diff_pos := final_pos - on_click_ent_pos 
 
-						*pos_ptr -= fw * (dx + dy) * mul
-						*size_ptr -= fw * (dx + dy) * mul * 2.0
+						len := len_vec(&diff_pos)
 
+						*pos_ptr = on_click_ent_pos + diff_pos
 
-						if ctx.cur_preview_idx == 0
-						{
-							//out_ent.col_offset -= fw * (dx + dy) * mul
-							out_ent.col_size -= fw * (dx + dy) * mul * 2.0
-						}
+						sz := axis_sel_ent.forward * len * 2.0
+						sz = sz * sign(to_pos_dot)
+						//printf("f {len}\n")
+						print_vec(&sz)
+
+						*size_ptr = on_click_ent_size + sz
 
 					}
 					select_action.ROT
 					{
 						dx = -dx
-						dy := dot_vec(&fw, &select_up) * mvy
-						fw = fw * RAD_TO_DEG * (dx + dy)
+						dy := dot_vec(&local_fw, &select_up) * mvy
+						local_fw = local_fw * RAD_TO_DEG * (dx + dy)
 						q : quaternion=?
 						q.v = out_ent.rot
-						out_ent.rot = (q * euler_to_quaternion(fw.x, fw.y, fw.z)).v
+						out_ent.rot = (euler_to_quaternion(local_fw.x, local_fw.y, local_fw.z) * q).v
 						if out_ent.type == ent_type.BRIDGE
 						{
 							out_ent.forward = out_ent.rot
 						}
+						for c in out_ent.cols
+						{
+							c.data_ready = false
+						}
 					}
 					select_action.SCALE
 					{
-						dy := dot_vec(&fw, &select_up) * -mvy
+						dy := dot_vec(&local_fw, &select_up) * -mvy
 
-						*size_ptr += fw * (dx + dy) * mul * 2.0
+						*size_ptr += local_fw * (dx + dy) * mul * 2.0
 						if ctx.cur_preview_idx == 0
 						{
-							out_ent.col_size += fw * (dx + dy) * mul * 2.0
+							out_ent.col_size += local_fw * (dx + dy) * mul * 2.0
 						}
 
 					}
 					select_action.SCALE_ONE_AXIS2
 					{
-						dy := dot_vec(&fw, &select_up) * -mvy
-						fw = fw * 0.5
+						to_pos_dot := -dot_vec(&local_fw, &to_pos)
+						final_pos = on_click_pos + local_fw * to_pos_dot
+						diff_pos := final_pos - on_click_ent_pos 
+						*pos_ptr = on_click_ent_pos - diff_pos
 
-						*pos_ptr += fw * (dx + dy) * mul
-						*size_ptr -= fw * (dx + dy) * mul * 2.0
-						if ctx.cur_preview_idx == 0
-						{
-							out_ent.col_size -= fw * (dx + dy) * mul * 2.0
-						}
-
+						*size_ptr = on_click_ent_size + diff_pos * 2.0
+						
 					}
+					}
+					if out_ent != prev_ent
+					{
+						out_ent = prev_ent
 					}
 					if out_ent.type == ent_type.AUX_COL_ENT
 					{
-						//__dbg_break
-						c1 := cast(*collider)out_ent.col
+						parent := out_ent.parent_col
+						p := out_ent.pos
+						p.x = (p.x - parent.pos.x)/parent.size.x
+						p.y = (p.y - parent.pos.y)/parent.size.y
+						p.z = (p.z - parent.pos.z)/parent.size.z
+						out_ent.aux_col.pos = p 
 
-						c1.pos = out_ent.pos - out_ent.parent_col.pos
-						c1.size = out_ent.size
+						sz := out_ent.size
+						print_vec(&sz)
+						sz.x = sz.x /parent.size.x
+						sz.y = sz.y /parent.size.y
+						sz.z = sz.z /parent.size.z
+						print_vec(&sz)
+						out_ent.aux_col.size = sz
+
+
 					}
 				}
 
-				if out_ent.is_static && out_ent.col
+				if out_ent.is_static && out_ent.cols.count > 0 
 				{
-					c1 := cast(*collider)out_ent.col
+					c1 := *out_ent.cols[0]
 					c1.data_ready = false
 				}
 				if IsKeyDown(key_enum.KEY_DEL) && out_ent != nil
@@ -6978,7 +7075,7 @@ main_loop::fn(ctx : *context)
 					x_axis_ent.is_active = true
 					y_axis_ent.is_active = true
 					z_axis_ent.is_active = true
-					all_axis_ent.is_active = true
+					//all_axis_ent.is_active = true
 				}
 				if out_ent
 				{
@@ -7008,21 +7105,43 @@ main_loop::fn(ctx : *context)
 						
 						z_axis_ent.pos = out_ent.pos
 						
-						all_axis_ent.pos = out_ent.pos
+						//all_axis_ent.pos = out_ent.pos
 
 						offset := 1.0
+						x_axis_offset:_vec
+						y_axis_offset:_vec
+						z_axis_offset:_vec
+						
+						x_axis_offset.x = 1.0
+						y_axis_offset.y = 1.0
+						z_axis_offset.z = 1.0
+
+						q :quaternion=?
+						q.v = out_ent.rot
+
+
+						x_axis_offset = q * x_axis_offset
+						y_axis_offset = q * y_axis_offset
+						z_axis_offset = q * z_axis_offset
+
 						if sel_action == select_action.SCALE_ONE_AXIS2
 						{
-							x_axis_ent.pos.x -= offset
-							y_axis_ent.pos.y -= offset
-							z_axis_ent.pos.z -= offset
+							x_axis_ent.pos += x_axis_offset
+							y_axis_ent.pos += y_axis_offset
+							z_axis_ent.pos += z_axis_offset
 						}
 						else
 						{
-							x_axis_ent.pos.x += offset
-							y_axis_ent.pos.y += offset
-							z_axis_ent.pos.z += offset
+							x_axis_ent.pos -= x_axis_offset
+							y_axis_ent.pos -= y_axis_offset
+							z_axis_ent.pos -= z_axis_offset
 						}
+						x_axis_ent.vel = x_axis_offset
+						y_axis_ent.vel = y_axis_offset
+						z_axis_ent.vel = z_axis_offset
+						x_axis_ent.rot = out_ent.rot
+						y_axis_ent.rot = out_ent.rot
+						z_axis_ent.rot = out_ent.rot
 					}
 				}
 
@@ -7030,7 +7149,12 @@ main_loop::fn(ctx : *context)
 				{
 					if ctx.cur_preview_idx == 1 && out_ent != nil
 					{
-						if out_ent.col == nil
+						prev_ent := out_ent
+						if out_ent.type == ent_type.AUX_COL_ENT
+						{
+							out_ent = out_ent.parent_col
+						}
+						if out_ent.cols.count == 0
 						{
 							add_body(ctx, out_ent);
 						}
@@ -7042,8 +7166,11 @@ main_loop::fn(ctx : *context)
 						new_col.size.x = 1.0
 						new_col.size.y = 1.0
 						new_col.size.z = 1.0
-						c1 := cast(*collider)out_ent.col
-						dyn_add(&c1.children, new_col)
+						dyn_add(&out_ent.cols, new_col)
+						if prev_ent.type == ent_type.AUX_COL_ENT
+						{
+							out_ent = prev_ent
+						}
 					}
 					else
 					{
@@ -7119,7 +7246,7 @@ main_loop::fn(ctx : *context)
 								cube.size = cube.size * 2.0
 							}
 							dyn_add(&ctx.path_ents, cube)
-							c1 := cast(*collider)cube.col
+							c1 := *cube.cols[0]
 							CopyVerts(c1, &dir, &dir)
 						}
 					}
@@ -7144,7 +7271,6 @@ main_loop::fn(ctx : *context)
 						//printf("hit {aux_sel_from_non_bodies.name}\n")
 						shortest_dist = len_vec(&(cam_pos - col.contact_point))
 					}
-					printf("prev y {aux_c._min.y}\n")
 					if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
 					{
 						aux_dist := len_vec(&(cam_pos - col.contact_point))
@@ -7159,10 +7285,13 @@ main_loop::fn(ctx : *context)
 
 							select_right = cross_vec(&dir, &ctx.up)
 							select_up = cross_vec(&select_right, &dir)
+							on_click_dir = dir
 
 							if aux_sel.type != ent_type.AXIS
 							{
-
+								on_click_ent_pos = aux_sel.pos
+								on_click_ent_size = aux_sel.size
+								on_click_pos = aux_sel.pos
 								out_ent = aux_sel
 								if prev_sel != nil
 								{
@@ -7178,7 +7307,21 @@ main_loop::fn(ctx : *context)
 							else
 							{
 								axis_sel_ent = aux_sel
+								sel_fw = axis_sel_ent.forward
+								if out_ent.model > 1
+								{
+									ctx.model_farthes_vert = ModelFarthestPoint(cast(u32)out_ent.model, &sel_fw)
+									ctx.model_farthes_vert.y = dot_vec(&ctx.model_farthes_vert, &sel_fw)
+								}
 							}
+
+							if out_ent.type != ent_type.AXIS
+							{
+								on_click_ent_pos = out_ent.pos
+								on_click_ent_size = out_ent.size
+								on_click_pos = out_ent.pos
+							}
+
 						}
 					}
 					else if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
@@ -7200,13 +7343,12 @@ main_loop::fn(ctx : *context)
 						x_axis_ent.is_active = false
 						y_axis_ent.is_active = false
 						z_axis_ent.is_active = false
-						all_axis_ent.is_active = false
+						//all_axis_ent.is_active = false
 					}
 					if aux_sel_from_non_bodies != nil && aux_sel == nil
 					{
 						out_ent = aux_sel_from_non_bodies
 					}
-					//printf("out ent is {out_ent.name}\n")
 				}
 
 				//printf("path {ctx.on_contructing_path}, customgrid {ctx.on_custom_grid}, out {cast(u64)out_ent}, tp {cast(u32)out_ent.type}\n")
@@ -7381,34 +7523,48 @@ main_loop::fn(ctx : *context)
 			}
 			if ctx.ent_collider_modify && out_ent != nil
 			{
-				draw.model = 0
-				draw.pos = out_ent.pos + out_ent.col_offset
+
+				//c1 := *out_ent.cols[0]
+				//printf("total children {c1.children.count}\n")
+				prev_ent := out_ent
 				if out_ent.type == ent_type.AUX_COL_ENT
 				{
-					draw.ent_size = out_ent.size * 1.001
+					out_ent = out_ent.parent_col
 				}
-				else
+				for ch in out_ent.cols
 				{
-					draw.ent_size = out_ent.col_size * 1.001
-				}
-				draw.cam_forward = &cam_forward
-				draw.cam_pos = &cam_pos
-				draw.cam_rot = &cam_rot
-				draw.rot = out_ent.rot
-				draw.flags = DRAW_INFO_TRANSPARENT
-				*draw.color[0] = 1.0
-				*draw.color[1] = 0.0
-				*draw.color[2] = 0.0
-				*draw.color[3] = 0.5
-				Draw3D(ctx.window, &draw)
 
-				c1 := cast(*collider)out_ent.col
-				//printf("total children {c1.children.count}\n")
-				for ch in c1.children
-				{
-					draw.pos = out_ent.pos + out_ent.col_offset + ch.pos
-					draw.ent_size = ch.size
+					sz := out_ent.size 
+					sz.x = sz.x * ch.size.x
+					sz.y = sz.y * ch.size.y
+					sz.z = sz.z * ch.size.z
+
+					p := out_ent.size 
+					p.x = p.x * ch.pos.x
+					p.y = p.y * ch.pos.y
+					p.z = p.z * ch.pos.z
+
+					q : quaternion=?
+					q.v = out_ent.rot
+
+					draw.ent_size = out_ent.col_size * 1.001 * sz
+					draw.pos = q * p
+					draw.pos = out_ent.pos + out_ent.col_offset + draw.pos
+
+					draw.cam_forward = &cam_forward
+					draw.cam_pos = &cam_pos
+					draw.cam_rot = &cam_rot
+					draw.rot = out_ent.rot
+					draw.flags = DRAW_INFO_TRANSPARENT
+					*draw.color[0] = 1.0
+					*draw.color[1] = 0.0
+					*draw.color[2] = 0.0
+					*draw.color[3] = 0.5
 					Draw3D(ctx.window, &draw)
+				}
+				if prev_ent.type == ent_type.AUX_COL_ENT
+				{
+					out_ent = prev_ent
 				}
 				//printf("drawing\n")
 			}

@@ -4507,9 +4507,6 @@ fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_
 	next_pos_kf := b.pos[pos_next_kf_idx]
 	val_diff := next_pos_kf.time - cur_pos_kf.time
 
-	cur_rot_kf := b.rot[rot_kf_idx]
-	next_rot_kf := b.rot[rot_next_kf_idx]
-
 	final_pos :_vec
 	final_rot :_vec
 	mat_ptr := ptr_offset(out_matrices, 16 * b.id, f32)
@@ -4522,13 +4519,34 @@ fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_
 		diff_pos := next_pos_kf.val - cur_pos_kf.val 
 		final_pos = cur_pos_kf.val + diff_pos * p
 
-		final_rot = quaternion_slerp(&cur_rot_kf.val, &next_rot_kf.val, p)
 	}
 	else
 	{
 		final_pos = cur_pos_kf.val
+	}
+	cur_rot_kf := b.rot[rot_kf_idx]
+	next_rot_kf := b.rot[rot_next_kf_idx]
+
+	val_diff = next_rot_kf.time - cur_rot_kf.time
+
+
+	if val_diff != 0.0
+	{
+		p := (ctx.anim_timer - (cur_rot_kf.time - 1.0)) / val_diff
+		final_rot = quaternion_slerp(&cur_rot_kf.val, &next_rot_kf.val, p)
+		if b.id == 2
+		{
+			printf("\nid {b.id}, time {ctx.anim_timer}, p {p}, cur {cur_rot_kf.time}\n")
+			print_vec(&cur_rot_kf.val)
+			print_vec(&next_rot_kf.val)
+			print_vec(&final_rot)
+		}
+	}
+	else
+	{
 		final_rot = cur_rot_kf.val
 	}
+
 
 	anim_local:mat4x4;
 

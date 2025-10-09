@@ -565,6 +565,7 @@ AudioClip* CreateNewAudioClip(open_gl_state *, char* name);
 
 struct bone
 {
+	int idx;
 	own_std::string name;
 	bone *parent;
 	aiMatrix4x4 offset;
@@ -5543,6 +5544,43 @@ void GetBoneMatrices(int thread_id, dbg_state* dbg)
 	memcpy(local_mat_out_ptr, &bone->local_matrix, 64);
 	memcpy(inv_local_mat_out_ptr, &bone->inv_local_matrix, 64);
 }
+void GetBoneChildrenLen(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int bone_id = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int out_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	int *out = (int*)&dbg->mem_buffer[out_offset];
+
+	model_info *m = &gl_state->models[model_idx];
+
+	bone *b = &m->all[bone_id];
+
+	auto aux = GetRegValPtr(thread_id, dbg, RET_1_REG);
+	*aux = b->children.size();
+
+}
+void GetBoneChildrenData(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int bone_id = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int out_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	int *out = (int*)&dbg->mem_buffer[out_offset];
+
+	model_info *m = &gl_state->models[model_idx];
+
+	bone *b = &m->all[bone_id];
+
+	for(int i = 0; i < b->children.size();i++)
+	{
+		out[i] = b->children[i]->idx;
+	}
+}
 void GetBoneKeyframesData(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -5697,6 +5735,7 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 
 			std::string str(b->mName.C_Str());
 			bone *cur_bone = &all[bones_added];
+			cur_bone->idx = bones_added;
 			cur_bone->parent = nullptr;
 			cur_bone->name = b->mName.C_Str();
 			cur_bone->offset = b->mOffsetMatrix;
@@ -8926,6 +8965,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "SetSampler2D", (OutsiderFuncType)SetSampler2D);
 	AssignOutsiderFunc(&lang_stat, "SetShader", (OutsiderFuncType)SetShader);
 
+	AssignOutsiderFunc(&lang_stat, "GetBoneChildrenData", (OutsiderFuncType)GetBoneChildrenData);
+	AssignOutsiderFunc(&lang_stat, "GetBoneChildrenLen", (OutsiderFuncType)GetBoneChildrenLen);
 	AssignOutsiderFunc(&lang_stat, "GetBoneKeyframesLen", (OutsiderFuncType)GetBoneKeyframesLen);
 	AssignOutsiderFunc(&lang_stat, "GetBoneKeyframesData", (OutsiderFuncType)GetBoneKeyframesData);
 	AssignOutsiderFunc(&lang_stat, "GetModelBonesLen", (OutsiderFuncType)GetModelBonesLen);

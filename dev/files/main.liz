@@ -4495,6 +4495,70 @@ find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32) ! u64
 	ret--
 	return ret
 }
+fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4)
+{
+
+	pos_kf_idx := find_keyframe(&b.pos, ctx.anim_timer)
+	pos_next_kf_idx := clamp(pos_kf_idx + 1, 0, b.pos.count - 1)
+
+	rot_kf_idx := find_keyframe(&b.rot, ctx.anim_timer)
+	rot_next_kf_idx := clamp(rot_kf_idx + 1, 0, b.rot.count - 1)
+
+	cur_pos_kf := b.pos[pos_kf_idx]
+	next_pos_kf := b.pos[pos_next_kf_idx]
+	val_diff := next_pos_kf.time - cur_pos_kf.time
+
+	cur_rot_kf := b.rot[rot_kf_idx]
+	next_rot_kf := b.rot[rot_next_kf_idx]
+
+	final_pos :_vec
+	final_rot :_vec
+	mat_ptr := ptr_offset(out_matrices, 16 * b.id, f32)
+	//q :=euler_to_quaternion(0.0, 0.0, 0.0)
+
+	if val_diff > 0.0
+	{
+		p := (ctx.anim_timer - cur_pos_kf.time) / val_diff
+
+		diff_pos := next_pos_kf.val - cur_pos_kf.val 
+		final_pos = cur_pos_kf.val + diff_pos * p
+
+		final_rot = quaternion_slerp(&cur_rot_kf.val, &next_rot_kf.val, p)
+	}
+	else
+	{
+		final_pos = cur_pos_kf.val
+		final_rot = cur_rot_kf.val
+	}
+	if b.id ==0
+	{
+		final_rot.x = 0.0
+		final_rot.y = 0.0
+		final_rot.z = 0.0
+		final_rot.w = 1.0
+	}
+
+	anim_local:mat4x4;
+
+	rot_mat :mat4x4
+	pos_mat :mat4x4
+	q:quaternion
+	q.v = final_rot
+	
+
+	build_rotation_matrix(&rot_mat, &q)
+	build_translation_matrix(&pos_mat, &final_pos)
+
+	anim_local = pos_mat * rot_mat
+	anim_local = *parent_mat * anim_local
+
+	offset :=  anim_local * b.local_matrix
+	memcpy(mat_ptr, &offset, sizeof(mat4x4));
+	for ch in b.children
+	{
+		fill_bones(ctx, out_matrices, *ch, &offset)
+	}
+}
 editor_window::fn(ctx : *context, out_ent : **entity)
 {
 	buffer:[128]char
@@ -5369,163 +5433,8 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		bone3_mat :mat4x4=?
 
 		identity_matrix4x4(cast(*f32)&bone3_mat)
-
-
-		i := 0
-		cur_mat : mat4x4
-		identity_matrix4x4(cast(*f32)&cur_mat)
-		cur_pos:_vec
-		cur_rot:_vec
-		cur_rot.w = 1.0
-
 		//__dbg_break
-		was_pressed := false
-		for b in ctx.model_anim.bones_anim
-		{
-			pos_kf_idx := find_keyframe(&b.pos, ctx.anim_timer)
-			pos_next_kf_idx := clamp(pos_kf_idx + 1, 0, b.pos.count - 1)
-
-			rot_kf_idx := find_keyframe(&b.rot, ctx.anim_timer)
-			rot_next_kf_idx := clamp(rot_kf_idx + 1, 0, b.rot.count - 1)
-
-			cur_pos_kf := b.pos[pos_kf_idx]
-			next_pos_kf := b.pos[pos_next_kf_idx]
-			val_diff := next_pos_kf.time - cur_pos_kf.time
-
-			cur_rot_kf := b.rot[rot_kf_idx]
-			next_rot_kf := b.rot[rot_next_kf_idx]
-
-			final_pos :_vec
-			final_rot :_vec
-			mat_ptr := ptr_offset(matrices, 16 * i, f32)
-			//q :=euler_to_quaternion(0.0, 0.0, 0.0)
-
-			if val_diff > 0.0
-			{
-				p := (ctx.anim_timer - cur_pos_kf.time) / val_diff
-
-				diff_pos := next_pos_kf.val - cur_pos_kf.val 
-				final_pos = cur_pos_kf.val + diff_pos * p
-
-				final_rot = quaternion_slerp(&cur_rot_kf.val, &next_rot_kf.val, p)
-			}
-			else
-			{
-				final_pos = cur_pos_kf.val
-				final_rot = cur_rot_kf.val
-			}
-			if i ==0
-			{
-				final_rot.x = 0.0
-				final_rot.y = 0.0
-				final_rot.z = 0.0
-				final_rot.w = 1.0
-			}
-			prev_pos := cur_pos
-			cur_pos = cur_pos + final_pos
-			dir = cur_pos - prev_pos
-			cur_pos = prev_pos
-			
-
-
-/*
-			if !IsKeyHeld(key_enum.KEY_3)
-			{
-			}
-			*/
-
-			if IsKeyHeld(key_enum.KEY_2) || was_pressed
-			{
-				ident :_vec
-				ident.w = 1.0
-				if i == 0
-				{
-					final_rot = euler_to_quaternion(ctx.bone1_rot.x, 0.0, 0.0).v
-				}
-				if i == 1
-				{
-					final_rot = euler_to_quaternion(ctx.bone1_rot.y, 0.0, 0.0).v
-				}
-				if i == 2
-				{
-					final_rot = euler_to_quaternion(ctx.bone1_rot.z, 0.0, 0.0).v
-				}
-			}
-			if IsKeyHeld(key_enum.KEY_1)
-			{
-				
-				was_pressed = true
-				__dbg_break
-			}
-			q : quaternion
-			q2 : quaternion
-			q.v = cur_rot
-			q2.v = final_rot
-			prev_rot := cur_rot
-			cur_rot = (q * q2).v
-
-			q.v = prev_rot
-
-			dir = q * dir
-			cur_pos = cur_pos + dir
-
-			// Local animation transform
-			anim_local:mat4x4;
-
-			rot_mat :mat4x4
-			pos_mat :mat4x4
-			q.v = final_rot
-			
-			/*
-			final_rot.x = 0.0
-			final_rot.y = 0.0
-			final_rot.z = 0.0
-			final_rot.w = 1.0
-			zero : _vec
-			origin := b.inv_local_matrix * zero
-			test_pos := test_pos - zero
-			*/
-
-			build_rotation_matrix(&rot_mat, &q)
-			build_translation_matrix(&pos_mat, &final_pos)
-
-			anim_local = pos_mat * rot_mat
-			anim_local = cur_mat * anim_local
-
-			offset :=  anim_local * b.local_matrix
-			memcpy(mat_ptr, &offset, sizeof(mat4x4));
-			//rot_inverted :mat4x4 
-			//InvertMatrix(cast(*f32)&rot_mat, cast(*f32)&rot_inverted)
-			cur_mat = offset
-			//cur_mat = cur_mat * rot_inverted
-
-
-			//decompose_matrix4x4(&cur_mat, &test_pos, &test_rot, &test_scale)
-
-			
-			//build_model_matrix(mat_ptr, &final_pos, cast(*f32)&final_rot, &ctx.bone1_scale)
-
-/*
-			draw : draw_info3d
-
-			draw.model = 0
-			draw.pos = cur_pos
-			draw.rot = prev_rot
-			draw.cam_pos = &cam_pos
-			draw.cam_rot = &cam_rot
-			draw.cam_forward = ctx.cam_aux_forward_global
-			draw.ent_size = ctx.bone1_scale
-
-			*draw.color[0] = 1.0
-			*draw.color[1] = 1.0
-			*draw.color[2] = 1.0
-			*draw.color[3] = 1.0
-
-			draw.flags = draw.flags | DRAW_INFO_NO_LIGHT
-			Draw3D(ctx.window, &draw);
-			*/
-			i++
-		}
+		fill_bones(ctx, matrices, ctx.model_anim.bones_anim[0], &bone3_mat)
 	}
 }
 change_preview_col_idx::fn(ctx : *context, new_val : u8)
@@ -6889,6 +6798,7 @@ main_loop::fn(ctx : *context)
 				GetBoneKeyframesLen(m.model, cast(u32)i2, &num_pos, &num_scales, &num_rot);
 
 				cur_banim := m.bones_anim[cast(u64)i2]
+				cur_banim.id = cast(u64)i2
 				dyn_init2(&cur_banim.pos, num_pos, ctx.alloc)
 				dyn_init2(&cur_banim.scales, num_scales, ctx.alloc)
 				dyn_init2(&cur_banim.rot, num_rot, ctx.alloc)
@@ -6899,6 +6809,28 @@ main_loop::fn(ctx : *context)
 
 				GetBoneKeyframesData(m.model, cast(u32)i2, cur_banim.pos[0], cur_banim.scales[0], cur_banim.rot[0])
 				GetBoneMatrices(m.model, cast(u32)i2, cast(*f32)&cur_banim.local_matrix, cast(*f32)&cur_banim.inv_local_matrix)
+			}
+			for i2 in 0..num_bones
+			{
+				total:u32
+				total = GetBoneChildrenLen(m.model, cast(u32)i2)
+
+				if total ==0 
+					continue
+				bones_idxs:[16]u32
+				GetBoneChildrenData(m.model, cast(u32)i2, bones_idxs[0])
+
+				cur_banim := m.bones_anim[cast(u64)i2]
+				dyn_init2(&cur_banim.children, total, ctx.alloc)
+				//cur_banim.children.count = total
+				for i3 in 0..total
+				{
+					idx := cast(u64)*bones_idxs[cast(u64)i3]
+					other := m.bones_anim[idx]
+					dyn_add(&cur_banim.children, other)
+				}
+
+				
 			}
 		}
 		//dyn_add(&globals.models, &m)

@@ -1950,6 +1950,9 @@ acos::fn outsider(f32) !f32;
 atan2::fn outsider(f32, f32) !f32;
 
 GetModelBonesLen::fn outsider(model : u32)!u32;
+
+GetBoneChildrenLen::fn outsider(model : u32, bone_id : u32)!u32;
+GetBoneChildrenData::fn outsider(model : u32, bone_id : u32, out : *u32);
 GetBoneKeyframesLen::fn outsider(model : u32, bone_id : u32, positions : *u32, scales : *u32, rotations : *u32);
 GetBoneKeyframesData::fn outsider(model : u32, bone_id : u32, positions : *keyframe_psr, scales : *keyframe_psr, rotations : *keyframe_psr);
 GetBoneMatrices::fn outsider(model : u32, bone_id : u32, local_mat : *f32, inv_local_mat  : *f32);
@@ -2085,9 +2088,12 @@ keyframe_psr:struct
 }
 bone_animation:struct
 {
+	id : u64
 	pos : dyn_array(keyframe_psr)
 	scales : dyn_array(keyframe_psr)
 	rot : dyn_array(keyframe_psr)
+
+	children : dyn_array(*bone_animation)
 
 	local_matrix : mat4x4
 	inv_local_matrix : mat4x4

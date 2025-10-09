@@ -106,6 +106,7 @@ global_struct : struct
 
 	timer : f32,
 	alloc : *mem_alloc,
+	perm_alloc : *mem_alloc,
 	args : rel_array(var_arg)
 
 	cube_verts : [8]_vec
@@ -137,6 +138,7 @@ global_struct : struct
 	chunk : *chunk_col_info
 	chunks_ar : *dyn_array(*chunk_col_info)
 	create_events : dyn_array(create_event_info)
+	//models : dyn_array(model_info),
 	h : u32
 	w : u32
 
@@ -147,6 +149,7 @@ global_struct : struct
 	magic_hit_sound_handle : u32
 
 	cam_pos : *_vec
+	assets : dyn_array(asset_info)
 }
 globals : global global_struct
 
@@ -726,6 +729,9 @@ CompileShader::fn outsider(vertex_shader : *char, vs_len : u64, fragment_shader 
 GetUniformLocation::fn outsider(shader_id : u32, name_str : *char, name_len : u32) ! u32;
 SetShader::fn outsider(shader_id : u32);
 
+InvertMatrix::fn outsider(src : *f32, dst : *f32);
+
+SetUniformMatrices4x4::fn outsider(uid : u32, count : u32, data : *void);
 SetUniform4f::fn outsider(uid : u32, x : f32, y : f32, z : f32, w : f32);
 SetUniform3f::fn outsider(uid : u32, x : f32, y : f32, z : f32);
 SetUniform2f::fn outsider(uid : u32, x : f32, y : f32);
@@ -734,6 +740,7 @@ SetUniform1f::fn outsider(uid : u32, x : f32);
 SetSampler2D::fn outsider(uid : u32, tex_id : u32);
 ValidateTextureSlot::fn outsider(shader_id : u32, name_str : *char, name_len : u32, slot : u32) ! u32;
 CopyDataFromModel::fn outsider(model : u32, verts_ptr : *_vec, verts_count : u32, indices_ptr : *u32, indices_count: u32, out_verts_count : *u32, out_indices_count : *u32);
+GetInfoFromModel::fn outsider(model : u32, out_verts_count : *u32, out_indices_count : *u32);
 
 SetCulling::fn outsider(flags :u32);
 
@@ -1535,6 +1542,23 @@ VecToAst::fn(v : *_vec)!*ast_rep
 
 	return ret
 }
+AssetIndexAssignmentToAst::fn(name : str_lit, idx : *asset_index)!*ast_rep
+{
+	scp := new_ast2()
+
+	scp.type = ast_type.SCOPE
+
+	cid := &globals.assets[cast(u64)idx.asset_idx].cid
+
+	buffer:[13]char
+	memcpy(buffer[0], &cid.name, 12)
+	*buffer[13] = cast(char)0
+
+	dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("name", cast(str_lit)buffer[0]))
+	dyn_add(&scp.SCOPE.stmnts, S32AssignmentToAst("a_type", cast(s32)cid.id.a_type))
+
+	return AssignmentToAst(name, scp)
+}
 S32AssignmentToAst::fn(name : str_lit, rhs : s32)!*ast_rep
 {
 	num := new_ast2()
@@ -1576,7 +1600,7 @@ VecAssignmentToAst::fn(name : str_lit, rhs : *_vec)!*ast_rep
 	v := VecToAst(rhs)
 	return AssignmentToAst(name, v)
 }
-SerializeEnt::fn(ent : *entity, idx : u64, materials : *dyn_array(material_info)) ! *ast_rep
+SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 {
 	al := globals.alloc
 	ret := new_ast2()
@@ -1598,7 +1622,6 @@ SerializeEnt::fn(ent : *entity, idx : u64, materials : *dyn_array(material_info)
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("color", &ent.color))
 	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("sec_color", &ent.sec_color))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)ent.type))
-	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("model", cast(s32)ent.model))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("hp", *cast(*s32)&ent.hp))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("layer", cast(s32)ent.layer))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_active", cast(s32)ent.is_active))
@@ -1607,17 +1630,22 @@ SerializeEnt::fn(ent : *entity, idx : u64, materials : *dyn_array(material_info)
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_static", cast(s32)ent.is_static))
 	dyn_add(&ret.SCOPE.stmnts, ArrayU32AssignmentToAst("remove_from", cast(*dyn_array(u32))&ent.remove_from))
 	
+	aux_ast :*ast_rep
+	aux_ast = AssetIndexAssignmentToAst("model", &ent.model)
+	dyn_add(&ret.SCOPE.stmnts, aux_ast)
 	if is_flag_on(ent.flags, ENTITY_HAS_TEXTURE)
 	{
-		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("tex_id", cast(s32)ent.tex_id))
+		aux_ast = AssetIndexAssignmentToAst("tex_id", &ent.tex_id)
+		dyn_add(&ret.SCOPE.stmnts, aux_ast)
 	}
 	if(is_flag_on(ent.flags, ENTITY_CUSTOM_SHADER))
 	{
 		scp := new_ast2()
 		scp.type = ast_type.SCOPE
-		dyn_add(&scp.SCOPE.stmnts, S32AssignmentToAst("idx", cast(s32)ent.material_idx))
+		aux_ast = AssetIndexAssignmentToAst("idx", &ent.material_idx)
+		dyn_add(&scp.SCOPE.stmnts, aux_ast)
 
-		m := materials[cast(u64)ent.material_idx]
+		m := get_material_ptr(&ent.material_idx)
 		inst := m.instances[cast(u64)ent.in_material_instance]
 		prev_sz := globals.temp_alloc.cur
 		for i in 0..m.uniforms.count
@@ -1634,13 +1662,17 @@ SerializeEnt::fn(ent : *entity, idx : u64, materials : *dyn_array(material_info)
 			*/
 			on u_with_name.tp.type
 			{
+			lang_type_type.STATIC_ARRAY
+			{
+
+			}
 			lang_type_type.MAT4
 			{
 
 			}
 			lang_type_type.SAMPLER2D
 			{
-				dyn_add(&scp.SCOPE.stmnts, S32AssignmentToAst("{u_with_name.name}", cast(s32)u_with_val.tex.idx_on_array))
+				dyn_add(&scp.SCOPE.stmnts, AssetIndexAssignmentToAst("{u_with_name.name}", &u_with_val.tex))
 			}
 			lang_type_type.V4, lang_type_type.V3, lang_type_type.V2
 			{
@@ -1859,10 +1891,14 @@ uniform_val:struct
 {
 	uniform_id : u32
 	type : u32
+
+	is_array : bool
+	array_sz : u32
 	using u :: union
 	{
 		v : _vec
-		tex : texture_info
+		tex : asset_index
+		data : *void
 	}
 }
 material_instance:struct
@@ -1913,6 +1949,14 @@ asin::fn outsider(f32) !f32;
 acos::fn outsider(f32) !f32;
 atan2::fn outsider(f32, f32) !f32;
 
+GetModelBonesLen::fn outsider(model : u32)!u32;
+GetBoneKeyframesLen::fn outsider(model : u32, bone_id : u32, positions : *u32, scales : *u32, rotations : *u32);
+GetBoneKeyframesData::fn outsider(model : u32, bone_id : u32, positions : *keyframe_psr, scales : *keyframe_psr, rotations : *keyframe_psr);
+GetBoneMatrices::fn outsider(model : u32, bone_id : u32, local_mat : *f32, inv_local_mat  : *f32);
+ModelHasAnim::fn outsider(model : u32) ! bool;
+
+ImGuiPushID::fn outsider(id:u32);
+ImGuiPopID::fn outsider();
 ImGuiBegin::fn outsider(str_lit, open : *bool, flags : u32);
 ImGuiEnd::fn outsider();
 ImGuiBeginChild::fn outsider(str_lit, f32, f32);
@@ -2034,10 +2078,26 @@ FreeSheet::fn(alloc : *mem_alloc,l : *layer_sprites)
 	heap_free(l.cells.alloc, l);
 	FreeTexture(l.tex_id);
 }
+keyframe_psr:struct
+{
+	time : f32
+	val : _vec
+}
+bone_animation:struct
+{
+	pos : dyn_array(keyframe_psr)
+	scales : dyn_array(keyframe_psr)
+	rot : dyn_array(keyframe_psr)
+
+	local_matrix : mat4x4
+	inv_local_matrix : mat4x4
+}
 model_info: struct
 {
 	name : str_lit,
 	model : u32
+
+	bones_anim : dyn_array(bone_animation)
 }
 texture_info: struct
 {
@@ -2579,9 +2639,21 @@ builtin_type_to_string::fn(tp : *lang_type)!str_lit
 	{
 		return "vec2"
 	}
+	lang_type_type.S32
+	{
+		return "int"
+	}
+	lang_type_type.U32
+	{
+		return "uint"
+	}
 	lang_type_type.V3
 	{
 		return "vec3"
+	}
+	lang_type_type.IV4
+	{
+		return "ivec4"
 	}
 	lang_type_type.V4
 	{
@@ -2594,6 +2666,10 @@ builtin_type_to_string::fn(tp : *lang_type)!str_lit
 	lang_type_type.MAT4
 	{
 		return "mat4"
+	}
+	default
+	{
+		__dbg_break
 	}
 	}
 }

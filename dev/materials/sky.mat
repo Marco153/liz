@@ -1,11 +1,11 @@
-uniform mat4 model
-uniform mat4 view
-uniform mat4 projection
-uniform v4 cam_pos
-uniform v4 horizon_color
-uniform v4 mid_horizon_color
-uniform v4 sky_color
-uniform v3 sun_dir
+model:uniform mat4 
+view:uniform mat4 
+projection:uniform mat4 
+cam_pos:uniform v4 
+horizon_color:uniform v4 
+mid_horizon_color:uniform v4 
+sky_color:uniform v4 
+sun_dir:uniform v3 
 
 cull(FACE_BACK)
 

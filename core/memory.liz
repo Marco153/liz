@@ -100,8 +100,7 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 		i++;
 	}
 }
-//memcpy::fn outsider(dst : *void, src : *void, sz : u64) !void;
-memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
+memcmp::fn x64(dst : *void, src : *void, sz : u64) !bool
 {
 	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
@@ -132,10 +131,51 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 		*/
 		while i < sz
 		{
-			*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
+			a :=*ptr_offset(dst, i, u8) 
+			b :=*ptr_offset(src, i, u8) 
+			if a != b
+			{
+				return false
+			}
 			i++;
 		}
 	//}
+	return true
+}
+//memcpy::fn outsider(dst : *void, src : *void, sz : u64) !void;
+memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
+{
+	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
+	i:u64 = 0;
+	if (sz % 16) == 0
+	{
+		total := sz / 16
+
+		while i < total
+		{
+			*ptr_offset(dst, i, _vec) = *ptr_offset(src, i, _vec);
+			i++
+		}
+	}
+	else if (sz % 8) == 0
+	{
+		total := sz / 8
+
+		while i < total
+		{
+			*ptr_offset(dst, i, u64) = *ptr_offset(src, i, u64);
+			i++
+		}
+
+	}
+	else
+	{
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
+			i++;
+		}
+	}
 }
 MEM_TYPE: const s32 = 0;
 
@@ -1176,7 +1216,7 @@ tests::fn(ret : *u32)
 	if fsum < 3.9 || fsum > 4.1
 		debug_break();
 
-	chunk: = mem_chunk{ next: nil, prev : cast(*mem_chunk)7 };
+	chunk: = mem_chunk{ next= nil, prev = cast(*mem_chunk)7 };
 	if cast(u64)chunk.prev != 7
 		debug_break();
 

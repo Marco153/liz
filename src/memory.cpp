@@ -171,7 +171,7 @@ void heap_free(mem_alloc *alloc, char *ptr)//, heap_free_ret_info *ret = nullptr
     mem_chunk *chunk_to_free = (mem_chunk *)alloc->in_use.Get(ptr);
     alloc->in_use.Remove(ptr);
     auto cur = alloc->head_free;
-	memset(ptr, 0xcc, 1);
+	//memset(ptr, 0xcc, 1);
 	
 	
 	// in case the chunk to free is in a higher address want

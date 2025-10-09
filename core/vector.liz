@@ -127,6 +127,71 @@ degrees_to_radians::fn macro(x : _expr)
     (x * PI / 180.0)
 }
 
+quaternion_slerp::fn(a : *_vec, b : *_vec, t : f32) ! _vec
+{
+    out : _vec = ?;
+
+    // dot product
+    cosTheta := a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z;
+
+    // copy b because we may negate it (shortest path)
+    bcopy : _vec = ?;
+    bcopy.w = b.w;
+    bcopy.x = b.x;
+    bcopy.y = b.y;
+    bcopy.z = b.z;
+
+    if (cosTheta < 0.0) {
+        bcopy.w = -bcopy.w;
+        bcopy.x = -bcopy.x;
+        bcopy.y = -bcopy.y;
+        bcopy.z = -bcopy.z;
+        cosTheta = -cosTheta;
+    }
+
+    // If quaternions are very close, use linear interpolation (and normalize)
+    if (cosTheta > 0.9995) {
+        out.w = a.w + t * (bcopy.w - a.w);
+        out.x = a.x + t * (bcopy.x - a.x);
+        out.y = a.y + t * (bcopy.y - a.y);
+        out.z = a.z + t * (bcopy.z - a.z);
+
+        // normalize
+        len := sqrt(out.w*out.w + out.x*out.x + out.y*out.y + out.z*out.z);
+        if (len > 0.0) {
+            inv := 1.0 / len;
+            out.w = out.w * inv;
+            out.x = out.x * inv;
+            out.y = out.y * inv;
+            out.z = out.z * inv;
+        }
+        return out;
+    }
+
+    // Standard SLERP
+    theta := acos(cosTheta);
+    sinTheta := sqrt(1.0 - cosTheta * cosTheta);
+
+    w1 := sin((1.0 - t) * theta) / sinTheta;
+    w2 := sin(t * theta) / sinTheta;
+
+    out.w = a.w * w1 + bcopy.w * w2;
+    out.x = a.x * w1 + bcopy.x * w2;
+    out.y = a.y * w1 + bcopy.y * w2;
+    out.z = a.z * w1 + bcopy.z * w2;
+
+    // result should already be normalized, but normalize defensively
+    len2 := sqrt(out.w*out.w + out.x*out.x + out.y*out.y + out.z*out.z);
+    if (len2 > 0.0) {
+        inv2 := 1.0 / len2;
+        out.w = out.w * inv2;
+        out.x = out.x * inv2;
+        out.y = out.y * inv2;
+        out.z = out.z * inv2;
+    }
+
+    return out;
+}
 quaternion_to_euler::fn(q : *_vec) ! _vec
 {
     angles : _vec=?;
@@ -175,6 +240,70 @@ sign ::fn(f : f32) ! f32
 {
 	if f < 0.0 return -1.0;
 	return 1.0;
+}
+decompose_matrix4x4::fn(m : *mat4x4, out_pos : *_vec, out_rot : *_vec, out_scale : *_vec)
+{
+	// --- Translation ---
+	out_pos.x = *m.vals[3][0]
+	out_pos.y = *m.vals[3][1]
+	out_pos.z = *m.vals[3][2]
+
+	// --- Scale ---
+	x_axis : _vec = _vec{ *m.vals[0][0], *m.vals[0][1], *m.vals[0][2], 0.0 }
+	y_axis : _vec = _vec{ *m.vals[1][0], *m.vals[1][1], *m.vals[1][2], 0.0 }
+	z_axis : _vec = _vec{ *m.vals[2][0], *m.vals[2][1], *m.vals[2][2], 0.0 }
+
+	out_scale.x = len_vec(&x_axis)
+	out_scale.y = len_vec(&y_axis)
+	out_scale.z = len_vec(&z_axis)
+
+	// --- Normalize the rotation matrix part (remove scale) ---
+	x_axis = x_axis / out_scale.x
+	y_axis = y_axis / out_scale.y
+	z_axis = z_axis / out_scale.z
+
+	// Rotation matrix
+	r00 := x_axis.x; r01 := y_axis.x; r02 := z_axis.x
+	r10 := x_axis.y; r11 := y_axis.y; r12 := z_axis.y
+	r20 := x_axis.z; r21 := y_axis.z; r22 := z_axis.z
+
+	trace := r00 + r11 + r22
+	q : _vec=? // quaternion
+
+	if trace > 0.0
+	{
+		s := sqrt(trace + 1.0) * 2.0
+		q.w = 0.25 * s
+		q.x = (r21 - r12) / s
+		q.y = (r02 - r20) / s
+		q.z = (r10 - r01) / s
+	}
+	else if (r00 > r11) && (r00 > r22)
+	{
+		s := sqrt(1.0 + r00 - r11 - r22) * 2.0
+		q.w = (r21 - r12) / s
+		q.x = 0.25 * s
+		q.y = (r01 + r10) / s
+		q.z = (r02 + r20) / s
+	}
+	else if (r11 > r22)
+	{
+		s := sqrt(1.0 + r11 - r00 - r22) * 2.0
+		q.w = (r02 - r20) / s
+		q.x = (r01 + r10) / s
+		q.y = 0.25 * s
+		q.z = (r12 + r21) / s
+	}
+	else
+	{
+		s := sqrt(1.0 + r22 - r00 - r11) * 2.0
+		q.w = (r10 - r01) / s
+		q.x = (r02 + r20) / s
+		q.y = (r12 + r21) / s
+		q.z = 0.25 * s
+	}
+
+	normalize_quaternion(&q, out_rot)
 }
 create_from_axis_angle::fn(xx:f32, yy:f32, zz:f32, a:f32) ! quaternion
 {
@@ -258,6 +387,77 @@ look_at_quaternion::fn(a : *_vec, b : *_vec, ref_up : *_vec) ! quaternion
 	ret.v.z = axis.z * s
 
 	return ret
+}
+identity_matrix4x4 ::fn x64(out_matrix : *f32)
+{
+	aux := ptr_offset(out_matrix, 0, _vec)
+	aux.x = 1.0
+	aux.y = 0.0
+	aux.z = 0.0
+	aux.w = 0.0
+
+	aux = ptr_offset(out_matrix, 1, _vec)
+	aux.x = 0.0
+	aux.y = 1.0
+	aux.z = 0.0
+	aux.w = 0.0
+
+	aux = ptr_offset(out_matrix, 2, _vec)
+	aux.x = 0.0
+	aux.y = 0.0
+	aux.z = 1.0
+	aux.w = 0.0
+	 
+	aux = ptr_offset(out_matrix, 3, _vec)
+	aux.x = 0.0
+	aux.y = 0.0
+	aux.z = 0.0
+	aux.w = 1.0
+}
+build_translation_matrix::fn(m: *mat4x4, t: *_vec)
+{
+	*m.vals[0] = 1.0; *m.vals[1] = 0.0; *m.vals[2] = 0.0; *m.vals[3] = t.x;
+	*m.vals[4] = 0.0; *m.vals[5] = 1.0; *m.vals[6] = 0.0; *m.vals[7] = t.y;
+	*m.vals[8] = 0.0; *m.vals[9] = 0.0; *m.vals[10] = 1.0; *m.vals[11] = t.z;
+	*m.vals[12] = 0.0; *m.vals[13] = 0.0; *m.vals[14] = 0.0; *m.vals[15] = 1.0;
+}
+build_rotation_matrix::fn(m: *mat4x4, q: *quaternion)
+{
+	x := q.v.x;
+	y := q.v.y;
+	z := q.v.z;
+	w := q.v.w;
+
+	*m.vals[0] = 1.0 - 2.0 * (y * y + z * z);
+	*m.vals[1] = 2.0 * (x * y - z * w);
+	*m.vals[2] = 2.0 * (x * z + y * w);
+	*m.vals[3] = 0.0;
+
+	*m.vals[4] = 2.0 * (x * y + z * w);
+	*m.vals[5] = 1.0 - 2.0 * (x * x + z * z);
+	*m.vals[6] = 2.0 * (y * z - x * w);
+	*m.vals[7] = 0.0;
+
+	*m.vals[8] = 2.0 * (x * z - y * w);
+	*m.vals[9] = 2.0 * (y * z + x * w);
+	*m.vals[10] = 1.0 - 2.0 * (x * x + y * y);
+	*m.vals[11] = 0.0;
+
+	*m.vals[12] = 0.0;
+	*m.vals[13] = 0.0;
+	*m.vals[14] = 0.0;
+	*m.vals[15] = 1.0;
+}
+transpose::fn(out : *f32, m : *f32)
+{
+	// row, col indexing: out[col * 4 + row] = m[row * 4 + col]
+	for row in 0..4
+	{
+		for col in 0..4
+		{
+			*ptr_offset(out, col * 4 + row, f32) = *ptr_offset(m, row * 4 + col, f32)
+		}
+	}
 }
 build_model_matrix ::fn x64(out_matrix : *f32, position : *_vec, q : *f32, scale : *_vec) 
 {
@@ -380,22 +580,41 @@ operator * x64(a : *mat4x4, b : *mat4x4) !mat4x4
 {
     result : mat4x4=?;
     
-    for row_S in 0..4
-	{
-		row := cast(u64)row_S
-        for col_S in 0..4
-		{
-			col := cast(u64)col_S
-            sum := 0.0;
-            for k_S in 0..4
-			{
-				k := cast(u64)k_S
-                // Row-major access: [row][col] = row*4 + col
-                sum += *a.vals[row*4 + k] * *b.vals[k*4 + col];
-            }
-            *result.vals[row*4 + col] = sum;
-        }
-    }
+	 // Load A matrix elements (row-major)
+    a00 := *a.vals[0];  a01 := *a.vals[1];  a02 := *a.vals[2];  a03 := *a.vals[3];
+    a10 := *a.vals[4];  a11 := *a.vals[5];  a12 := *a.vals[6];  a13 := *a.vals[7];
+    a20 := *a.vals[8];  a21 := *a.vals[9];  a22 := *a.vals[10]; a23 := *a.vals[11];
+    a30 := *a.vals[12]; a31 := *a.vals[13]; a32 := *a.vals[14]; a33 := *a.vals[15];
+
+    // Load B matrix elements (row-major)
+    b00 := *b.vals[0];  b01 := *b.vals[1];  b02 := *b.vals[2];  b03 := *b.vals[3];
+    b10 := *b.vals[4];  b11 := *b.vals[5];  b12 := *b.vals[6];  b13 := *b.vals[7];
+    b20 := *b.vals[8];  b21 := *b.vals[9];  b22 := *b.vals[10]; b23 := *b.vals[11];
+    b30 := *b.vals[12]; b31 := *b.vals[13]; b32 := *b.vals[14]; b33 := *b.vals[15];
+
+    // Row 0
+    *result.vals[0]  = a00*b00 + a01*b10 + a02*b20 + a03*b30;
+    *result.vals[1]  = a00*b01 + a01*b11 + a02*b21 + a03*b31;
+    *result.vals[2]  = a00*b02 + a01*b12 + a02*b22 + a03*b32;
+    *result.vals[3]  = a00*b03 + a01*b13 + a02*b23 + a03*b33;
+
+    // Row 1
+    *result.vals[4]  = a10*b00 + a11*b10 + a12*b20 + a13*b30;
+    *result.vals[5]  = a10*b01 + a11*b11 + a12*b21 + a13*b31;
+    *result.vals[6]  = a10*b02 + a11*b12 + a12*b22 + a13*b32;
+    *result.vals[7]  = a10*b03 + a11*b13 + a12*b23 + a13*b33;
+
+    // Row 2
+    *result.vals[8]  = a20*b00 + a21*b10 + a22*b20 + a23*b30;
+    *result.vals[9]  = a20*b01 + a21*b11 + a22*b21 + a23*b31;
+    *result.vals[10] = a20*b02 + a21*b12 + a22*b22 + a23*b32;
+    *result.vals[11] = a20*b03 + a21*b13 + a22*b23 + a23*b33;
+
+    // Row 3
+    *result.vals[12] = a30*b00 + a31*b10 + a32*b20 + a33*b30;
+    *result.vals[13] = a30*b01 + a31*b11 + a32*b21 + a33*b31;
+    *result.vals[14] = a30*b02 + a31*b12 + a32*b22 + a33*b32;
+    *result.vals[15] = a30*b03 + a31*b13 + a32*b23 + a33*b33;
     
     return result;
 }

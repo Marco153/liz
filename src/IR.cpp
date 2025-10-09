@@ -4097,6 +4097,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *
 		switch (rhs_ast->type)
 		{
 		case AST_CAST:
+		case AST_ADDRESS_OF:
 		case AST_DEREF:
 		case AST_CALL:
 		{

@@ -52,7 +52,7 @@ context: struct
 	area_col_pos : _vec
 	area_col_size : _vec
 
-	line_shader : u32
+	line_shader : asset_index
 
 
 	step_audio_idxs : [2]u32
@@ -82,7 +82,7 @@ context: struct
 	items_texs : clip,
 
 	abcd_texs : clip,
-	screen_tex_id : u32
+	screen_tex_id : asset_index
 
 	character_texs : clip,
 	shock_small_texs : clip,
@@ -95,10 +95,10 @@ context: struct
 
 	dt : f32
 
-	ball_tex : u64
-	water_tex : u64
-	grid_tex : u64
-	grid_transparent_tex : u64
+	ball_tex : asset_index
+	water_tex : asset_index
+	grid_tex : asset_index
+	grid_transparent_tex : asset_index
 
 	abcd_tex_info_idx : u32
 
@@ -163,10 +163,10 @@ context: struct
 	perspective_mat : [4 * 4]f32
 	
 	
-	grass_tex : u64
-	aim_tex : u64
-	white_tex : u64
-	circle_tex : u64
+	grass_tex : asset_index
+	aim_tex : asset_index
+	white_tex : asset_index
+	circle_tex : asset_index
 	waypoints:dyn_array(waypoint)
 
 	cutscene_idx : u32,
@@ -227,7 +227,6 @@ context: struct
 	transparent_ents : dyn_array(*entity),
 
 	textures : dyn_array(texture_info),
-	models : dyn_array(model_info),
 
 
 	ents_with_clip : dyn_array(*entity),
@@ -236,9 +235,11 @@ context: struct
 
 	textures_wnd :bool
 	materials_wnd :bool
-	selected_tex :u32
-	selected_tex_ref :*u32
-	selected_material :u32
+	models_wnd :bool
+	selected_tex :asset_index
+	selected_tex_ref :*asset_index
+	selected_model :asset_index
+	selected_material :asset_index
 
 	draw_col :bool,
 	draw_origin :bool,
@@ -275,12 +276,29 @@ context: struct
 	on_contructing_path : bool
 
 	path_ents : dyn_array(*entity)
-	materials : dyn_array(material_info)
 
 	can_deactivate_path_ents : bool
 
 	aux_col_ent : *entity
 	model_farthes_vert :  _vec
+	materials_count : u32
+	models_count : u32
+
+	cam_dist : f32
+	cam_rot_val : _vec
+
+	vert_pos : _vec
+
+	bone1_pos : _vec
+	bone1_rot : _vec
+	bone1_scale : _vec
+	bone2_pos : _vec
+	bone2_rot : _vec
+	bone2_scale : _vec
+
+	matrices_inst : *f32
+	model_anim : *model_info
+	anim_timer : f32
 }
 
 
@@ -316,6 +334,7 @@ editor_window_enum:enum
 	GRID,
 	ENEMY,
 	AREA_COL,
+	TEST_ANIM,
 	ITEMS,
 }
 
@@ -936,7 +955,7 @@ NewAxeEnt::fn(ctx : *context) ! *entity
 	add_body(ctx, axe_ent);
 	axe_ent.flags = ENTITY_HAS_TEXTURE | ENTITY_DONT_FREE;
 	axe_ent.layer = LAYER_TRIGGER
-	axe_ent.tex_id = cast(u32)ctx.axe_tex;
+	//axe_ent.tex_id = cast(u32)ctx.axe_tex;
 	axe_ent.is_active = true;
 	axe_ent.axe = cast(*axe_info)heap_alloc(ctx.alloc, sizeof(axe_info));
 	axe_ent.pivot.x = 0.5;
@@ -955,6 +974,8 @@ NewPlayerEnt::fn(ctx : *context, name : str_lit) ! *entity
 	player_ent.flags = player_ent.flags | ENTITY_DONT_FREE | ENTITY_SERIALIZE;
 	//player_ent.mov_info.axe_ent = NewAxeEnt(ctx);
 	
+	dyn_add(&ctx.drawable_ents, player_ent)
+	player_ent.model.asset_idx = ASSETS_MODELS_OFFSET
 	
 	player_ent.layer = LAYER_ENTITY_PLAYABLE | LAYER_PLAYER
 	player_ent.dont_res_cols_with_layers = LAYER_ENTITY_PLAYABLE;
@@ -1656,11 +1677,10 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, flags : u
 
 	}
 	draw.flags = draw.flags | DRAW_INFO_CUSTOM_SHADER
-	m := ctx.materials[cast(u64)ctx.line_shader]
-	draw.shader_id = m.shader_id
+	draw.shader_id = get_id_of_material(&ctx.line_shader)
 
-	SetShader(m.shader_id)
-	loc := GetUniformLocation(m.shader_id, cast(*char)"col", 3)
+	SetShader(draw.shader_id)
+	loc := GetUniformLocation(draw.shader_id, cast(*char)"col", 3)
 
 	SetUniform4f(loc, col.x, col.y, col.z, col.w)
 	Draw3D(ctx.window, &draw)
@@ -1679,9 +1699,9 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, flags : u
 cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 {
 	axis : _vec
-	axis.z = 0.0
-	axis.x = 0.0
 	axis.y = 1.0
+	axis.x = 0.0
+	axis.z = 0.0
 	aux_forward := ctx.cam_aux_forward_global
 	cam_forward := ctx.cam_forward_global
 	cam_pos := ctx.cam_pos_global
@@ -1723,20 +1743,20 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 	actual_forward := aux_rot * *cam_forward
 	if IsKeyHeld(key_enum.KEY_A)
 	{
-		*cam_pos -= cross * dt * speed
+		*cam_pos += cross * dt * speed
 
 	}
 	if IsKeyHeld(key_enum.KEY_D)
 	{
-		*cam_pos += cross * dt * speed
+		*cam_pos -= cross * dt * speed
 	}
 	if IsKeyHeld(key_enum.KEY_W)
 	{
-		*cam_pos += actual_forward * dt * speed
+		*cam_pos -= actual_forward * dt * speed
 	}
 	if IsKeyHeld(key_enum.KEY_S)
 	{
-		*cam_pos -= actual_forward * dt * speed
+		*cam_pos += actual_forward * dt * speed
 	}
 	
 
@@ -2400,7 +2420,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	//OpenLocalsWindow(__LINE__)
 	player_ent := ctx.player
 	forward := &player_ent.forward
-	cross := cross_vec(&ctx.up, ctx.cam_forward_global)
+	cross := cross_vec(&ctx.up, aux_forward)
 	mov := player_ent.mov_info
 	on_ground := player_ent.on_ground
 	grav := &mov.gravity_vel
@@ -2496,7 +2516,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	ab := (absf(mov.v) + absf(mov.h))
 	weight := clamp(ab - 1.0, 0.0, 1.0) + 1.0
-	actual_forward := *ctx.cam_forward_global * mov.v + cross * mov.h
+	actual_forward := *aux_forward * mov.v + cross * mov.h
 	actual_forward = actual_forward / weight
 	if mov.on_getting_to_back_pos
 	{
@@ -2729,7 +2749,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				b.col_enter = bullet_collision_enter
 				b.bullet.dmg_val = 10.0
 				b.ignore_collision_with_layers = LAYER_PLAYER
-				b.tex_id = cast(u32)ctx.textures[ctx.ball_tex].id
+				b.tex_id = ctx.ball_tex
 				b.pos = cam_pos
 				//dir := euler_to_quaternion(radians_to_degree(cam_rot.x), radians_to_degree(cam_rot.y), 0.0) * *ctx.cam_aux_forward_global
 				b.size.x = 0.2
@@ -3282,6 +3302,7 @@ create_chunk_col_for_terrain::fn(ctx : *context, trn : *terrain_info, mesh_idx :
 
 calculate_normals::fn(terrain : *terrain_info)
 {
+	return
 	tris_data := terrain.tris[0]
 	for m in terrain.meshes
 	{
@@ -3385,6 +3406,7 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
 	//dyn_add(&ctx.ents, other)
 	other.is_active = true
 	other.is_static = true
+	other.model.asset_idx = ASSETS_MODELS_OFFSET
 
 	dyn_add(&other.remove_from, ent_part_of.DRAWABLE)
 	//dyn_add(&other.remove_from, ent_part_of.INSTANTIATED)
@@ -3394,16 +3416,16 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
 		dyn_add(&other.remove_from, ent_part_of.COLLIDER)
 		add_body(ctx, other)
 	}
-	grid_shader := find_shader(ctx, "grid_shader.mat")
+	grid_shader := find_shader(ctx, "grid.mat")
 
 	other.flags = other.flags | ENTITY_CUSTOM_SHADER
 
-	if other.material_idx != grid_shader
+	if other.material_idx.asset_idx != grid_shader.asset_idx
 	{
 		other.material_idx = grid_shader
-		other.in_material_instance = new_material_instance(ctx, cast(u32)grid_shader, other)
+		other.in_material_instance = new_material_instance(ctx, &grid_shader, other)
 	}
-	set_shader_uniform_sampler2d(ctx, other, "tex", ctx.textures[ctx.grid_tex])
+	set_shader_uniform_sampler2d(ctx, other, "tex", &ctx.grid_tex)
 
 
 	return other
@@ -3650,9 +3672,37 @@ parse_event_ast::fn(ctx : *context, ast : *ast_rep, ent : *entity)
 	}
 
 }
+cid_from_ast::fn(ctx : *context, ast : *ast_rep) ! custom_id
+{
+	ASSERT(ast.type == ast_type.SCOPE)
+	bin := ast.SCOPE.stmnts[0]
+	ASSERT(is_ast_bin(*bin, cast(u32)token_type.SEMI_COLON))
+
+	ret :custom_id
+	for st in bin.BIN.expr
+	{
+		lhs := st.BIN.expr[0]
+		rhs := st.BIN.expr[1]
+		name :*string= &lhs.WORD.str
+		if *name == "name"
+		{
+			ASSERT(rhs.type == ast_type.STR_LIT)
+			memcpy(ret.name[0], rhs.STR_LIT.str.data.data, rhs.STR_LIT.str.data.count)
+		}
+		else if *name == "a_type"
+		{
+			ret.id.a_type = cast(u8)rhs.INT.num
+		}
+		else
+		{
+			__dbg_break
+		}
+	}
+	return ret
+}
 DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 {
-
+	buffer:[13]char
 	file_name = "../scenes/{file_name}"
 	fl_sz: = GetFileSize(file_name);
 	if fl_sz == -1
@@ -3694,10 +3744,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 			ent.flags = 0;
 		}
 	}
-	for m in ctx.materials
-	{
-		dyn_clear(&m.instances)
-	}
+	clear_material_instances()
 
 	while i < fl_sz
 	{
@@ -3777,6 +3824,20 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 				{
 					parse_event_ast(ctx, *st.BIN.expr[1], ent)
 				}
+				else if *name == "model"
+				{
+					//__dbg_break
+					cid := cid_from_ast(ctx, *st.BIN.expr[1])
+					memcpy(buffer[0], cid.name, 12)
+					find_asset(ctx, cast(str_lit)buffer[0], &ent.model)
+				}
+				else if *name == "tex_id"
+				{
+					//__dbg_break
+					cid := cid_from_ast(ctx, *st.BIN.expr[1])
+					memcpy(buffer[0], cid.name, 12)
+					find_asset(ctx, cast(str_lit)buffer[0], &ent.tex_id)
+				}
 				else if *name == "material_idx"
 				{
 					ASSERT(st.BIN.expr[1].type == ast_type.SCOPE)
@@ -3784,12 +3845,20 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 					ent.flags = ent.flags | ENTITY_CUSTOM_SHADER
 
 					cur_stmnts := &st.BIN.expr[1].SCOPE.stmnts[0].BIN.expr
-					m_idx := cur_stmnts[0].BIN.expr[1].INT.num
-					mat := ctx.materials[cast(u64)m_idx]
 
-					ent.material_idx = cast(s32)m_idx
+					m_idx_name := cur_stmnts[0].BIN.expr[0]
+					m_idx_scp := cur_stmnts[0].BIN.expr[1]
+					ASSERT(m_idx_name.type == ast_type.WORD && m_idx_name.WORD.str == "idx")
 
-					ent.in_material_instance = new_material_instance(ctx, cast(u32)m_idx, ent)
+					cid := cid_from_ast(ctx, *m_idx_scp)
+					memcpy(buffer[0], cid.name, 12)
+
+					find_asset(ctx, cast(str_lit)buffer[0], &ent.material_idx, start=ASSETS_MATERIALS_OFFSET)
+
+					mat := get_material_ptr(&ent.material_idx)
+
+
+					ent.in_material_instance = new_material_instance(ctx, &ent.material_idx, ent)
 
 					inst := mat.instances[cast(u64)ent.in_material_instance]
 
@@ -3819,11 +3888,11 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 						{
 						lang_type_type.SAMPLER2D
 						{
+							//__dbg_break
 							aux_type_data.tp = type_enum.TYPE_U32
-
-							int_val := cur_ast.BIN.expr[1]
-							ASSERT(int_val.type == ast_type.INT)
-							target_u.tex = *ctx.textures[cast(u64)int_val.INT.num]
+							cid = cid_from_ast(ctx, *cur_ast.BIN.expr[1])
+							memcpy(buffer[0], cid.name, 12)
+							find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex)
 
 						}
 						lang_type_type.V2, lang_type_type.V3, lang_type_type.V4
@@ -3982,7 +4051,6 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 		i++
 	}
 
-
 	assign_bodies_to_chunks(ctx)
 }
 free_lang_stuff::fn()
@@ -4046,7 +4114,7 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 			aux :string
 			cur_al:=globals.alloc
 
-			ast := SerializeEnt(ent, cast(u64)i, &ctx.materials)
+			ast := SerializeEnt(ent, cast(u64)i)
 			
 			ast_to_string(ast, &aux)
 			PushStrLit(&out, "({aux.data.count})")
@@ -4079,44 +4147,88 @@ show_material_instance_uniforms::fn(ctx : *context, mat : *material_info, inst :
 	prev_sz:=globals.temp_alloc.cur
 	idx :u64
 
+	//printf("here, max {inst.uniforms.count}")
 	for u in inst.uniforms
 	{
 		globals.temp_alloc.cur = prev_sz
 		u_with_name := mat.uniforms[idx]
 		ImGuiText("{u_with_name.name}:")
-		on cast(lang_type_type)u.type
+		//printf("cur {idx}\n")
+		if u.is_array
 		{
-		lang_type_type.V2
-		{
-			ImGuiShowV2(&u.v)
-		}
-		lang_type_type.V3
-		{
-			ImGuiShowV2(&u.v)
-		}
-		lang_type_type.V4
-		{
-			ImGuiSameLine()
-			ImGuiShowV4(&u.v)
-		}
-		lang_type_type.SAMPLER2D
-		{
-			ImGuiSameLine()
-			x := ImGuiGetCursorPosX()
-			y := ImGuiGetCursorPosY()
-			selected := false
-			if ImGuiSelectable("##mat{cast(u32)y}", selected, 32.0, 32.0)
+			on cast(lang_type_type)u.type
 			{
-				ctx.selected_tex_ref = cast(*u32)&u.tex.id
-				ctx.textures_wnd = true
+			lang_type_type.MAT4
+			{
+				start := u.data
+				for i in 0..u.array_sz
+				{
+					ImGuiPushID(cast(u32)i)
+					
+					ImGuiText("[{i}]:")
+					cur:= ptr_offset(start, 0, _vec)
+					ImGuiShowV4(cur)
+
+					cur = ptr_offset(cur, 1, _vec)
+					ImGuiShowV4(cur)
+
+					cur = ptr_offset(cur, 1, _vec)
+					ImGuiShowV4(cur)
+
+					cur = ptr_offset(cur, 1, _vec)
+					ImGuiShowV4(cur)
+
+					ImGuiPopID()
+					
+					start = ptr_offset(start, 64, u8)
+				}
 			}
-			ImGuiSetCursorPos(x, y)
-			ImGuiImage(u.tex.id, 32.0, 32.0)
+			default
+			{
+				__dbg_break
+			}
+			}
 		}
+		else
+		{
+			on cast(lang_type_type)u.type
+			{
+			lang_type_type.V2
+			{
+				ImGuiShowV2(&u.v)
+			}
+			lang_type_type.V3
+			{
+				ImGuiShowV2(&u.v)
+			}
+			lang_type_type.V4
+			{
+				ImGuiSameLine()
+				ImGuiShowV4(&u.v)
+			}
+			lang_type_type.SAMPLER2D
+			{
+				ImGuiSameLine()
+				x := ImGuiGetCursorPosX()
+				y := ImGuiGetCursorPosY()
+				selected := false
+				if ImGuiSelectable("##mat{cast(u32)y}", selected, 32.0, 32.0)
+				{
+					ctx.selected_tex_ref = &u.tex
+					ctx.textures_wnd = true
+				}
+				ImGuiSetCursorPos(x, y)
+				a :=  globals.assets[cast(u64)u.tex.asset_index]
+				id := a.TEXTURE_ARRAY.texs[cast(u64)u.tex.offset].id
+				//printf("index {u.tex.asset_index}, offset {u.tex.offset}\n")
+				ImGuiImage(id, 32.0, 32.0)
+			}
+			}
 		}
 
 		idx++
 	}
+	//printf("here2\n")
 
 }
 set_bridge_pos::fn(ent : *entity)
@@ -4159,6 +4271,7 @@ items_func::fn(ctx : *context, dt : f32, selected_ent : *entity)
 }
 terrain_brush_type:enum
 {
+	NONE,
 	SMOOTH,
 	PATH,
 	ROUGH
@@ -4368,6 +4481,20 @@ set_path_on_terrain::fn(ctx : *context, trn : *entity)
 		UpdateModel(m.model, m.verts.data)
 	}
 }
+find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32) ! u64
+{
+	ret : u64
+	for k in *ar
+	{
+		ret++
+		if k.time > time
+		{
+			break
+		}
+	}
+	ret--
+	return ret
+}
 editor_window::fn(ctx : *context, out_ent : **entity)
 {
 	buffer:[128]char
@@ -4418,9 +4545,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			start_pos = point
 			aux_ent = new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
 			aux_ent.tex_id = ctx.screen_tex_id
-			tinfo :texture_info
-			tinfo.id = ctx.screen_tex_id
-			set_shader_uniform_sampler2d(ctx, aux_ent, "tex", &tinfo)
+			set_shader_uniform_sampler2d(ctx, aux_ent, "tex", &ctx.screen_tex_id)
 			c1 := aux_ent.cols[0]
 			c1.data_ready = false
 			aux_ent.rot = ctx.grid_ent.vel
@@ -4569,10 +4694,95 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 	}
 
 
+	ImGuiSameLine()
+	aux_bool =ctx.editor_wnd_type == editor_window_enum.TEST_ANIM
+	if ImGuiSelectable("anim", aux_bool, 40.0, 15.0)
+	{
+		ctx.editor_wnd_type = editor_window_enum.TEST_ANIM
+	}
+
 	assign_new_height := false
 	set_path := false
+	set_bones_anim := false
+	model_changed := false
 	on ctx.editor_wnd_type
 	{
+	editor_window_enum.TEST_ANIM
+	{
+		if ctx.matrices_inst == nil
+		{
+			mat_idx :asset_index
+			if find_asset(ctx, "skin.mat", &mat_idx, start=ASSETS_MATERIALS_OFFSET)
+			{
+				mat := &globals.assets[cast(u64)mat_idx.asset_idx].MATERIAL.mat
+				mod_idx :asset_index
+				find_asset(ctx, "bones.fbx", &mod_idx, start=ASSETS_MODELS_OFFSET)
+				mod := &globals.assets[cast(u64)mod_idx.asset_idx].MODEL.mod
+				ctx.model_anim = mod
+
+				idx :u64
+				for u in mat.uniforms
+				{
+					if u.name == "bones"
+					{
+						break;
+					}
+					idx++
+				}
+				ctx.matrices_inst = cast(*f32)mat.instances[0].uniforms[idx].data
+			}
+		}
+		set_bones_anim = true
+		ImGuiDragF32("anim_timer", &ctx.anim_timer)
+
+		ImGuiText("b1_pos:")
+		ImGuiSameLine();
+		ImGuiShowV3(&ctx.bone1_pos)
+
+		ImGuiText("b1_rot:")
+		ImGuiSameLine();
+		ImGuiShowV3(&ctx.bone1_rot)
+
+		ImGuiText("b1_scale:")
+		ImGuiSameLine();
+		ImGuiShowV3(&ctx.bone1_scale)
+
+
+		ImGuiText("b2_pos:")
+		ImGuiSameLine();
+		ImGuiShowV3(&ctx.bone2_pos)
+
+		ImGuiText("b2_rot:")
+		ImGuiSameLine();
+		ImGuiShowV3(&ctx.bone2_rot)
+
+		ImGuiText("b2_scale:")
+		ImGuiSameLine();
+		ImGuiShowV3(&ctx.bone2_scale)
+
+		start := ctx.bone1_pos
+		end := ctx.bone2_pos
+		draw_line(ctx, &start, &end, &ctx.white_color, 0)
+
+
+	
+
+
+		z :_vec
+		z.z = 2.0
+
+		z = euler_to_quaternion(ctx.bone2_rot.x, ctx.bone2_rot.y, ctx.bone2_rot.z) * z 
+		start = ctx.bone2_pos
+		end = start + z
+
+		draw_line(ctx, &start, &end, &ctx.white_color, 0)
+
+		sz :_vec
+		sz.x = 0.5
+		sz.y = 0.5
+		sz.z = 0.5
+		draw_vertex(ctx, &end, &sz, &cam_pos, &cam_rot)
+	}
 	editor_window_enum.AREA_COL
 	{
 		draw:draw_info3d
@@ -4620,7 +4830,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				test_e.type  = ent_type.ITEM
 
 				test_e.flags  = test_e.flags | ENTITY_HAS_TEXTURE
-				test_e.tex_id  = *ptr_offset(ctx.items_texs.tex_idxs, cast(u32)item_type - 1, u32)
+				//test_e.tex_id  = *ptr_offset(ctx.items_texs.tex_idxs, cast(u32)item_type - 1, u32)
 				test_e.pos -= col.normal;
 				test_e.pos.w = test_e.pos.y
 
@@ -4708,9 +4918,11 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 	{
 		idx :s32
 		
-		for m in ctx.models
+		for i in 0..ctx.models_count
 		{
 			selected := idx == ctx.cur_model_selected_idx
+			a := globals.assets[cast(u64)idx + ASSETS_MODELS_OFFSET]
+			m := &a.MODEL.mod
 			if ImGuiSelectable(m.name, selected, 140.0, 15.0)
 			{
 				ctx.cur_model_selected_idx = cast(s32)idx
@@ -4745,7 +4957,6 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			{
 				if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, *out_ent, &col)
 				{
-					printf("here2\n")
 					aux_dist := len_vec(&(cam_pos - col.contact_point))
 
 					if aux_dist < shortest_dist 
@@ -4753,13 +4964,14 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 						point = col.contact_point
 						hit = true
 					}
-					
 				}
 			}
 			if hit
 			{
-				m :*model_info= ctx.models[cast(u64)ctx.cur_model_selected_idx]
-				ctx.preview_ent.model = cast(u32)m.model
+				idx = ctx.cur_model_selected_idx + ASSETS_MODELS_OFFSET
+				a := globals.assets[cast(u64)idx]
+				m :*model_info= &a.MODEL.mod
+				ctx.preview_ent.model.asset_idx = cast(u32)idx
 				ctx.preview_ent.is_active = true
 				ctx.preview_ent.pos = point
 
@@ -4852,16 +5064,16 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				}
 				ent_type.WATER
 				{
-					out_ent.tex_id = cast(u32)ctx.textures[ctx.water_tex].id
-					water_shader := find_shader(ctx, "water_shader.mat")
+					out_ent.tex_id = ctx.water_tex
+					water_shader := find_shader(ctx, "water.mat")
 
 					out_ent.flags = out_ent.flags | ENTITY_CUSTOM_SHADER
-					if out_ent.material_idx != water_shader
+					if out_ent.material_idx.asset_idx != water_shader.asset_idx
 					{
 						out_ent.material_idx = water_shader
-						out_ent.in_material_instance = new_material_instance(ctx, cast(u32)water_shader, *out_ent)
+						out_ent.in_material_instance = new_material_instance(ctx, &water_shader, *out_ent)
 					}
-					set_shader_uniform_sampler2d(ctx, *out_ent, "tex", ctx.textures[ctx.water_tex])
+					set_shader_uniform_sampler2d(ctx, *out_ent, "tex", &ctx.water_tex)
 					//out_ent.flags = out_ent.flags | ENTITY_TRANSPARENT
 					out_ent.color.x = 1.0
 					out_ent.color.y = 1.0
@@ -4897,6 +5109,12 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				aux_2 : _vec=?
 				for ch in out_ent.cols
 				{
+					if ImGuiSelectable("assign mesh", aux_bool, 80.0, 15.0)
+					{
+						ctx.models_wnd = true
+						model_changed = true
+					}
+					
 					ImGuiText("pos:")
 					ImGuiSameLine();
 					ImGuiShowV3(&ch.pos)
@@ -4958,7 +5176,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 				{
 					ASSERT(found == false)
 					t:temporarily_not_serialize_info
-					ast := SerializeEnt(*out_ent, cast(u64)idx, &ctx.materials)
+					ast := SerializeEnt(*out_ent, cast(u64)idx)
 					
 					ast_to_string(ast, &t.str)
 
@@ -4978,7 +5196,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			ImGuiSameLine()
 			if ImGuiSelectable("compile", dummy_sel, 40.0, 15.0)
 			{
-				if out_ent.material_idx != -1
+				if out_ent.material_idx.asset_idx != -1
 				{
 					_compile_shader = true
 				}
@@ -4991,9 +5209,9 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 			}
 			ImGuiSeparator()
 			ImGuiText("material:")
-			if out_ent.material_idx != -1
+			if out_ent.material_idx.asset_idx != -1
 			{
-				m := ctx.materials[cast(u64)out_ent.material_idx]
+				m := get_material_ptr(&out_ent.material_idx)
 				inst := m.instances[cast(u64)out_ent.in_material_instance]
 
 				show_material_instance_uniforms(ctx, m, inst)
@@ -5039,7 +5257,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 					printf("count {trn.meshes.count}\n")
 					assign_new_height = true
 				}
-				ImGuiDragInt("chunks_col_window_size", cast(*s32)&trn.chunks_col_window_size)
+				ImGuiDragF32("terrain height max", &ctx.tedit.terrain_height_max)
 				ImGuiDragF32("terrain height min", &ctx.tedit.terrain_height_min)
 
 				ImGuiDragF32("brush size", &ctx.tedit.brush_size)
@@ -5075,24 +5293,28 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 
 	if _compile_shader
 	{
-		m := ctx.materials[cast(u64)out_ent.material_idx]
+		m := get_material_ptr(&out_ent.material_idx)
 		inst := m.instances[cast(u64)out_ent.in_material_instance]
 		mat := compile_shader(ctx, m.name, m)
-		new_material_instance(ctx, cast(u32)out_ent.material_idx, *out_ent)
+		new_material_instance(ctx, &out_ent.material_idx, *out_ent)
 		// materials uniforms
+	}
+	if model_changed
+	{
+		//__dbg_break
 	}
 	if change_ent_to_grid
 	{
-		grid_shader := find_shader(ctx, "grid_shader.mat")
+		grid_shader := find_shader(ctx, "grid.mat")
 
 		out_ent.flags = out_ent.flags | ENTITY_CUSTOM_SHADER
 
-		if out_ent.material_idx != grid_shader
+		if out_ent.material_idx.asset_idx != grid_shader.asset_idx
 		{
 			out_ent.material_idx = grid_shader
-			out_ent.in_material_instance = new_material_instance(ctx, cast(u32)grid_shader, *out_ent)
+			out_ent.in_material_instance = new_material_instance(ctx, &grid_shader, *out_ent)
 		}
-		set_shader_uniform_sampler2d(ctx, *out_ent, "tex", ctx.textures[ctx.grid_tex])
+		set_shader_uniform_sampler2d(ctx, *out_ent, "tex", &ctx.grid_tex)
 		
 	}
 
@@ -5137,6 +5359,173 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 	if set_path
 	{
 		set_path_on_terrain(ctx, *out_ent)
+
+	}
+	if set_bones_anim
+	{
+		matrices :=ctx.matrices_inst
+		bone1_mat :mat4x4=?
+		bone2_mat :mat4x4=?
+		bone3_mat :mat4x4=?
+
+		identity_matrix4x4(cast(*f32)&bone3_mat)
+
+
+		i := 0
+		cur_mat : mat4x4
+		identity_matrix4x4(cast(*f32)&cur_mat)
+		cur_pos:_vec
+		cur_rot:_vec
+		cur_rot.w = 1.0
+
+		//__dbg_break
+		was_pressed := false
+		for b in ctx.model_anim.bones_anim
+		{
+			pos_kf_idx := find_keyframe(&b.pos, ctx.anim_timer)
+			pos_next_kf_idx := clamp(pos_kf_idx + 1, 0, b.pos.count - 1)
+
+			rot_kf_idx := find_keyframe(&b.rot, ctx.anim_timer)
+			rot_next_kf_idx := clamp(rot_kf_idx + 1, 0, b.rot.count - 1)
+
+			cur_pos_kf := b.pos[pos_kf_idx]
+			next_pos_kf := b.pos[pos_next_kf_idx]
+			val_diff := next_pos_kf.time - cur_pos_kf.time
+
+			cur_rot_kf := b.rot[rot_kf_idx]
+			next_rot_kf := b.rot[rot_next_kf_idx]
+
+			final_pos :_vec
+			final_rot :_vec
+			mat_ptr := ptr_offset(matrices, 16 * i, f32)
+			//q :=euler_to_quaternion(0.0, 0.0, 0.0)
+
+			if val_diff > 0.0
+			{
+				p := (ctx.anim_timer - cur_pos_kf.time) / val_diff
+
+				diff_pos := next_pos_kf.val - cur_pos_kf.val 
+				final_pos = cur_pos_kf.val + diff_pos * p
+
+				final_rot = quaternion_slerp(&cur_rot_kf.val, &next_rot_kf.val, p)
+			}
+			else
+			{
+				final_pos = cur_pos_kf.val
+				final_rot = cur_rot_kf.val
+			}
+			if i ==0
+			{
+				final_rot.x = 0.0
+				final_rot.y = 0.0
+				final_rot.z = 0.0
+				final_rot.w = 1.0
+			}
+			prev_pos := cur_pos
+			cur_pos = cur_pos + final_pos
+			dir = cur_pos - prev_pos
+			cur_pos = prev_pos
+			
+
+
+/*
+			if !IsKeyHeld(key_enum.KEY_3)
+			{
+			}
+			*/
+
+			if IsKeyHeld(key_enum.KEY_2) || was_pressed
+			{
+				ident :_vec
+				ident.w = 1.0
+				if i == 0
+				{
+					final_rot = euler_to_quaternion(ctx.bone1_rot.x, 0.0, 0.0).v
+				}
+				if i == 1
+				{
+					final_rot = euler_to_quaternion(ctx.bone1_rot.y, 0.0, 0.0).v
+				}
+				if i == 2
+				{
+					final_rot = euler_to_quaternion(ctx.bone1_rot.z, 0.0, 0.0).v
+				}
+			}
+			if IsKeyHeld(key_enum.KEY_1)
+			{
+				
+				was_pressed = true
+				__dbg_break
+			}
+			q : quaternion
+			q2 : quaternion
+			q.v = cur_rot
+			q2.v = final_rot
+			prev_rot := cur_rot
+			cur_rot = (q * q2).v
+
+			q.v = prev_rot
+
+			dir = q * dir
+			cur_pos = cur_pos + dir
+
+			// Local animation transform
+			anim_local:mat4x4;
+
+			rot_mat :mat4x4
+			pos_mat :mat4x4
+			q.v = final_rot
+			
+			/*
+			final_rot.x = 0.0
+			final_rot.y = 0.0
+			final_rot.z = 0.0
+			final_rot.w = 1.0
+			zero : _vec
+			origin := b.inv_local_matrix * zero
+			test_pos := test_pos - zero
+			*/
+
+			build_rotation_matrix(&rot_mat, &q)
+			build_translation_matrix(&pos_mat, &final_pos)
+
+			anim_local = pos_mat * rot_mat
+			anim_local = cur_mat * anim_local
+
+			offset :=  anim_local * b.local_matrix
+			memcpy(mat_ptr, &offset, sizeof(mat4x4));
+			//rot_inverted :mat4x4 
+			//InvertMatrix(cast(*f32)&rot_mat, cast(*f32)&rot_inverted)
+			cur_mat = offset
+			//cur_mat = cur_mat * rot_inverted
+
+
+			//decompose_matrix4x4(&cur_mat, &test_pos, &test_rot, &test_scale)
+
+			
+			//build_model_matrix(mat_ptr, &final_pos, cast(*f32)&final_rot, &ctx.bone1_scale)
+
+/*
+			draw : draw_info3d
+
+			draw.model = 0
+			draw.pos = cur_pos
+			draw.rot = prev_rot
+			draw.cam_pos = &cam_pos
+			draw.cam_rot = &cam_rot
+			draw.cam_forward = ctx.cam_aux_forward_global
+			draw.ent_size = ctx.bone1_scale
+
+			*draw.color[0] = 1.0
+			*draw.color[1] = 1.0
+			*draw.color[2] = 1.0
+			*draw.color[3] = 1.0
+
+			draw.flags = draw.flags | DRAW_INFO_NO_LIGHT
+			Draw3D(ctx.window, &draw);
+			*/
+			i++
+		}
 	}
 }
 change_preview_col_idx::fn(ctx : *context, new_val : u8)
@@ -5368,7 +5757,7 @@ new_enemy::fn(ctx : *context, pos : *_vec, name : str_lit) ! *entity
 	//c1.type = col_type.SPHERE
 	//c1.SPHERE.radius = 2.0
 
-	test_e.tex_id = *ptr_offset(ctx.character_texs.tex_idxs, 0, u32)
+	//test_e.tex_id = *ptr_offset(ctx.character_texs.tex_idxs, 0, u32)
 	
 	return test_e
 
@@ -5489,7 +5878,7 @@ emmitters_func::fn(ctx : *context, dt : f32)
 				*draw.color[3] = 1.0
 
 				draw.flags = draw.flags | DRAW_INFO_NO_LIGHT | DRAW_INFO_HAS_TEXTURE;
-				draw.texture_id = cast(u32)ctx.textures[ctx.white_tex].id
+				draw.texture_id = get_id_of_texture_asset(&ctx.white_tex)
 				Draw3D(ctx.window, &draw);
 				
 				if p.time < 0.0
@@ -5608,7 +5997,16 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 	for un in lang_stat.uniforms
 	{
 		globals.temp_alloc.cur = prev_size
-		PushStrLit(&uniforms, "uniform {builtin_type_to_string(&un.tp)} {un.name};\n")
+		if un.tp.type == lang_type_type.STATIC_ARRAY
+		{
+			sz := un.tp.STATIC_ARRAY.sz
+			tp := un.tp.STATIC_ARRAY.type
+			PushStrLit(&uniforms, "uniform {builtin_type_to_string(tp)} {un.name}[{sz}];\n")
+		}
+		else
+		{
+			PushStrLit(&uniforms, "uniform {builtin_type_to_string(&un.tp)} {un.name};\n")
+		}
 	}
 	PushStrLit(&uniforms, "uniform float TIME;\n")
 
@@ -5665,13 +6063,24 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 	}
 	shader := CompileShader(vs.data.data, vs.data.count, fs.data.data, fs.data.count)
 	printf("compiled shader {shader} \n")
-	ret := ctx.materials.count
 	if !mat
 	{
-		aux : material_info
+		empty_idx := find_empty_asset(ASSETS_MATERIALS_OFFSET)
 
-		dyn_add(&ctx.materials, &aux)
-		mat = dyn_last(&ctx.materials)
+		empty_a:asset_index
+		empty_a.asset_idx = cast(u32)empty_idx
+
+		//__dbg_break
+
+		a := globals.assets[empty_idx]
+		a.cid.id.a_type = cast(u8)cast(u32)asset_type.MATERIAL
+		a.type = asset_type.MATERIAL
+		ln := str_ln(file_name_original)
+		ASSERT(ln < 12)
+		
+		memcpy(&a.cid.name, file_name_original, ln)
+
+		mat = get_material_ptr(&empty_a)
 		mat.name = new_str_lit(ctx.alloc, file_name_original)
 	}
 	else
@@ -5707,6 +6116,12 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 		memcpy(&new_u, *u, sizeof(decl))
 		memset(&new_u.name, 0, sizeof(new_u.name))
 		AssignStr(&new_u.name, &u.name)
+		if u.tp.type == lang_type_type.STATIC_ARRAY
+		{
+			new_u.tp.STATIC_ARRAY.type = cast(*lang_type)heap_alloc(globals.perm_alloc, sizeof(lang_type))
+			*new_u.tp.STATIC_ARRAY.type = *u.tp.STATIC_ARRAY.type
+			//new_u.array_sz = u.type.STATIC_ARRAY.SZ
+		}
 		dyn_add(&mat.uniforms, &new_u)
 		a:= 0
 	}
@@ -5719,14 +6134,16 @@ imgui_window:struct
 	name : str_lit, 
 	items : u32, 
 	items_per_line : u32, 
-	selected_ref : *u32
+	selected_ref : *void
 	window_bool : *bool
 	item_width : f32
 	item_height : f32
 	_out_ent : *entity
 	ptr : *void
 	func : fn(ctx : *context, info : *imgui_window, id : u32),
-	apply : fn(ctx : *context, info : *imgui_window)
+	apply : fn(ctx : *context, info : *imgui_window),
+	get_idx : fn(ctx : *context, info : *imgui_window) ! u32,
+	set_val : fn(ctx : *context, info : *imgui_window, id : u32)
 }
 imgui_show_window_grid::fn(ctx : *context, out_ent : *entity, info : *imgui_window)
 {
@@ -5737,15 +6154,25 @@ imgui_show_window_grid::fn(ctx : *context, out_ent : *entity, info : *imgui_wind
 	ImGuiBeginChild("{info.name}child", 200.0, 200.0)
 	apply := false
 	image_width := 32.0
+	if(info.get_idx == nil || info.set_val == nil)
+	{
+		printf("get_idx or set_val is nil\n")
+		__dbg_break
+	}
+	printf("here max{info.items}\n")
 	for i in 0..info.items
 	{
 		globals.temp_alloc.cur = 0
+		selected := info.get_idx(ctx, info) == cast(u32)i
+		//ImGuiSetCursorPos(x, y)
 		x := ImGuiGetCursorPosX()
 		y := ImGuiGetCursorPosY()
-		selected := *info.selected_ref == cast(u32)i
+		start_x := x
+		//printf("cur is {i}\n")
+
 		if ImGuiSelectable("##{info.name}{i}", selected, info.item_width, info.item_height)
 		{
-			*info.selected_ref = cast(u32)i
+			info.set_val(ctx, info, cast(u32)i)
 		}
 		
 		//printf("mod {cast(u32)i % items_per_line}, i is {i}")
@@ -5754,16 +6181,20 @@ imgui_show_window_grid::fn(ctx : *context, out_ent : *entity, info : *imgui_wind
 		{
 			info.func(ctx, info, cast(u32)i)
 			ImGuiSameLine()
+			//x += info.item_width * 2.0
 		}
 		else
 		{
 			info.func(ctx, info, cast(u32)i)
+			if i != 0
+				y += info.item_height
+				//x = start_x
 
 		}
 		//printf("\n")
 	}
 	ImGuiEndChild()
-	if ImGuiSelectable("change tex", false, 60.0, 15.0)
+	if ImGuiSelectable("change", false, 80.0, 15.0)
 	{
 		apply = true
 	}
@@ -5771,11 +6202,12 @@ imgui_show_window_grid::fn(ctx : *context, out_ent : *entity, info : *imgui_wind
 	if out_ent != nil && apply
 	{
 		info.apply(ctx, info)
+		*info.window_bool = false
 	}
 }
-new_material_instance::fn(ctx : *context, mat_id : u32, ent : *entity) ! u32
+new_material_instance::fn(ctx : *context, mat_id : *asset_index, ent : *entity) ! u32
 {
-	m := ctx.materials[cast(u64)mat_id]
+	m := get_material_ptr(mat_id)
 	inst :*material_instance
 	inst_id :u32
 	ent.flags = ent.flags | ENTITY_CUSTOM_SHADER
@@ -5821,30 +6253,44 @@ new_material_instance::fn(ctx : *context, mat_id : u32, ent : *entity) ! u32
 			un_val.v.w = 1.0
 		}
 		}
+		if u.tp.type == lang_type_type.STATIC_ARRAY
+		{
+			sz := lget_type_size(u.tp.STATIC_ARRAY.type) * u.tp.STATIC_ARRAY.sz
+			un_val.is_array = true
+			un_val.type = cast(u32)u.tp.STATIC_ARRAY.type.type
+			un_val.array_sz = u.tp.STATIC_ARRAY.sz
+			un_val.data = heap_alloc(globals.alloc, sz)
+
+			if un_val.type == cast(u32)lang_type_type.MAT4
+			{
+				for i in 0..un_val.array_sz
+				{
+					cur := ptr_offset(un_val.data, i * 16, f32)
+
+					identity_matrix4x4(cur)
+				}
+			}
+		}
 		dyn_add(&inst.uniforms, &un_val)
 	}
 
 
 	return inst_id
 }
-find_shader::fn(ctx : *context, name : str_lit) ! s32
+find_shader::fn(ctx : *context, name : str_lit) ! asset_index
 {
-	idx := 0
-	for sh in ctx.materials
+	ret : asset_index
+	if find_asset(ctx, name, &ret, start=ASSETS_MATERIALS_OFFSET)
 	{
-		if str_cmp(sh.name, name)
-		{
-			return idx
-		}
-		idx++
+		return ret
 	}
 	ASSERT(0)
-	return 0
+	return ret
 }
 set_shader_uniform4f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32, y : f32, z : f32, w : f32)
 {
-	ASSERT(ent.material_idx >= 0)
-	m := ctx.materials[cast(u64)ent.material_idx]
+	ASSERT(ent.material_idx.asset_idx >= 0)
+	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
 	inst := m.instances[cast(u64)ent.in_material_instance]
 
@@ -5857,8 +6303,8 @@ set_shader_uniform4f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32,
 }
 set_shader_uniform3f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32, y : f32, z : f32)
 {
-	ASSERT(ent.material_idx >= 0)
-	m := ctx.materials[cast(u64)ent.material_idx]
+	ASSERT(ent.material_idx.asset_idx >= 0)
+	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
 	inst := m.instances[cast(u64)ent.in_material_instance]
 
@@ -5868,10 +6314,10 @@ set_shader_uniform3f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32,
 	target_u.v.y = y
 	target_u.v.z = z
 }
-set_shader_uniform_sampler2d::fn(ctx : *context, ent : *entity, name : str_lit, tex : *texture_info)
+set_shader_uniform_sampler2d::fn(ctx : *context, ent : *entity, name : str_lit, tex : *asset_index)
 {
-	ASSERT(ent.material_idx >= 0)
-	m := ctx.materials[cast(u64)ent.material_idx]
+	ASSERT(ent.material_idx.asset_idx >= 0)
+	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
 	inst := m.instances[cast(u64)ent.in_material_instance]
 
@@ -5881,8 +6327,8 @@ set_shader_uniform_sampler2d::fn(ctx : *context, ent : *entity, name : str_lit, 
 }
 set_shader_uniform1f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32)
 {
-	ASSERT(ent.material_idx >= 0)
-	m := ctx.materials[cast(u64)ent.material_idx]
+	ASSERT(ent.material_idx.asset_idx >= 0)
+	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
 	inst := m.instances[cast(u64)ent.in_material_instance]
 
@@ -5892,8 +6338,8 @@ set_shader_uniform1f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32)
 }
 set_shader_uniform2f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32, y : f32)
 {
-	ASSERT(ent.material_idx >= 0)
-	m := ctx.materials[cast(u64)ent.material_idx]
+	ASSERT(ent.material_idx.asset_idx >= 0)
+	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
 	inst := m.instances[cast(u64)ent.in_material_instance]
 
@@ -6013,6 +6459,48 @@ get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*colli
 		}
 	}
 }
+assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
+{
+	c1 := *ent.cols[0]
+	tri_idx:u64
+	info := &c1.MESH.info
+	while tri_idx < info.tris_count
+	{
+		tri1 := ptr_offset(info.tris, tri_idx, u32)
+		tri2 := ptr_offset(info.tris, tri_idx + 1, u32)
+		tri3 := ptr_offset(info.tris, tri_idx + 2, u32)
+		
+		v1 := ptr_offset(info.verts, tri1, _vec)
+		v2 := ptr_offset(info.verts, tri2, _vec)
+		_v3 := ptr_offset(info.verts, tri3, _vec)
+
+		min_v := minPerComponent(v1, v2)
+		min_v = minPerComponent(&min_v, _v3)
+
+		max_v := minPerComponent(v1, v2)
+		max_v = minPerComponent(&max_v, _v3)
+
+		dyn_clear(&ctx.aux_col_chunks)
+
+		rel_min_v :_vec
+		rel_max_v :_vec
+
+		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &min_v, &max_v, &rel_min_v, &rel_max_v)
+		get_chunks_close_to_ent(ctx, ent, &ctx.aux_col_chunks, &rel_min_v, &rel_max_v)
+
+
+		for c in ctx.aux_col_chunks
+		{
+			tri_info : triangle_info
+			tri_info.ent = ent
+			tri_info.info = &c1.MESH.info
+			tri_info.tri_idx = cast(u32)tri_idx
+			dyn_add(&c.tris, &tri_info)
+			a:=0
+		}
+		tri_idx += 3
+	}
+}
 assign_bodies_to_chunks::fn(ctx : *context)
 {
 	for e_ in ctx.bodies
@@ -6024,6 +6512,10 @@ assign_bodies_to_chunks::fn(ctx : *context)
 		if !e.is_static
 		{
 			c1.rel_chunk_max.x = -1.0
+		}
+		else if c1.type == col_type.MESH
+		{
+			assign_mesh_to_chunks(ctx, e)
 		}
 		else
 		{
@@ -6150,7 +6642,7 @@ update_screen_texture::fn(ctx : *context, m : *machine)
 
 		copy_region_to_buffer(ctx, ctx.computer_screen_tex_buffer, cast(u32)i * 8 , 0, 8, 8, 256, 256, cast(*u8)buffer[0])
 	}
-	UpdateTexture(id, 0, 0, 256, 256, ctx.computer_screen_tex_buffer, 3, gen_texture_size.BYTE)
+	UpdateTexture(get_id_of_texture_asset(&id), 0, 0, 256, 256, ctx.computer_screen_tex_buffer, 3, gen_texture_size.BYTE)
 	//__dbg_break
 
 }
@@ -6262,8 +6754,70 @@ draw_radial_menu::fn(ctx : *context, x : f32, y : f32, out : *u32, total : u32, 
 		DrawText(ctx, cur.name, fx, fy, &col, sz= 0.7)
 	}
 }
+get_cam_final_pos::fn(ctx : *context, dt : f32) ! _vec
+{
+}
+gameplay_cam::fn(ctx : *context, dt : f32)
+{
+	cam_forward := ctx.cam_forward_global
+	cam_rot_val := &ctx.cam_rot_val
+	mouse_sense := 0.4
+
+	vely := GetMouseVelY() * dt * mouse_sense
+	velx := GetMouseVelX() * dt * mouse_sense
+
+	cam_rot_val.x -= velx
+	cam_rot_val.y += vely
+	
+	cam_rot_val.y = clamp(cam_rot_val.y, -1.4, 1.4)
+	z :_vec
+	z.z = -1.0
+
+	aux := euler_to_quaternion(0.0 , radians_to_degree(cam_rot_val.x), 0.0) * z
+	h := aux
+	*ctx.cam_aux_forward_global = h
+
+	right := cross_vec(&h, &ctx.up)
+	q := create_from_axis_angle(right.x, right.y, right.z, cam_rot_val.y)
+	aux = q * aux
+
+	*cam_forward = aux
+
+	p_pos := ctx.player.pos
+
+	dir := *cam_forward * ctx.cam_dist
+	final_pos := p_pos + dir
+
+	cam_pos := ctx.cam_pos_global
+	*cam_pos = final_pos
+
+	angy := angle_on_axis(&z, cam_forward, &ctx.up)
+	angx := angle_on_axis(&h, cam_forward, &right)
+
+
+	ctx.cam_rot_global.x = -angx
+	ctx.cam_rot_global.y = angy + PI
+	//test := create_from_axis_angle(1.0, 0.0, 0.0, dir.x).v
+	//*ctx.cam_rot_global = test
+
+	//printf("angx {angx}, angy {angy}\n")
+	//print_vec(cam_forward)
+}
 main_loop::fn(ctx : *context)
 {
+	globals.perm_alloc = ctx.alloc
+	ctx.bone1_scale.x = 1.0
+	ctx.bone1_scale.y = 1.0
+	ctx.bone1_scale.z = 1.0
+
+	//ctx.bone1_rot.x = 1.0
+
+	ctx.bone2_scale.x = 1.0
+	ctx.bone2_scale.y = 1.0
+	ctx.bone2_scale.z = 1.0
+
+	ctx.bone2_rot.w = 1.0
+
 	brush_items_radial : [3]radial_item
 	brush_items_radial[0].name = "smooth"
 	brush_items_radial[0].idx = cast(u32)terrain_brush_type.SMOOTH
@@ -6286,14 +6840,70 @@ main_loop::fn(ctx : *context)
 	hidx := HandleForGettingFilesInDir("../models")
 	total_fl := HandleDirTotalFiles(hidx)
 
+	aux_idx := find_empty_asset(ASSETS_MODELS_OFFSET)
+	aux_idx = find_empty_asset(ASSETS_MODELS_OFFSET)
+	model_ := globals.assets[ASSETS_MODELS_OFFSET]
+	model_.MODEL.mod.model = 0
+	memcpy(model_.cid.name[0], "cube", str_ln("cube"))
+
+	model_ = globals.assets[ASSETS_MODELS_OFFSET + 1]
+	memcpy(model_.cid.name[0], "plane", str_ln("plane"))
+	model_.MODEL.mod.model = 1
+
 	for i in 0..total_fl
 	{
 		HandleDirFilenameAt(hidx, cast(u32)i, ctx.save_scene_buffer[0], 64)
-		m :model_info
+
+		empty_idx := find_empty_asset(ASSETS_MODELS_OFFSET)
+
+		empty_a:asset_index
+		empty_a.asset_idx = cast(u32)empty_idx
+
+		//__dbg_break
+
+		a := globals.assets[empty_idx]
+		a.cid.id.a_type = cast(u8)cast(u32)asset_type.MODEL
+		a.type = asset_type.MODEL
+		ln := str_ln(cast(str_lit)ctx.save_scene_buffer[0])
+		ASSERT(ln < 12)
+		memcpy(&a.cid.name, cast(str_lit)ctx.save_scene_buffer[0], ln)
+
+
+		m := get_model_ptr(&empty_a)
 		m.model = LoadModel(cast(str_lit)ctx.save_scene_buffer[0])
 		m.name = new_str_lit(ctx.alloc, cast(str_lit)ctx.save_scene_buffer[0])
-		dyn_add(&ctx.models, &m)
+
+		if ModelHasAnim(m.model)
+		{
+			num_bones := GetModelBonesLen(m.model)
+
+			dyn_init2(&m.bones_anim, num_bones, ctx.alloc)
+			m.bones_anim.count = num_bones
+
+			num_pos : u32
+			num_scales : u32
+			num_rot : u32
+
+			for i2 in 0..num_bones
+			{
+				GetBoneKeyframesLen(m.model, cast(u32)i2, &num_pos, &num_scales, &num_rot);
+
+				cur_banim := m.bones_anim[cast(u64)i2]
+				dyn_init2(&cur_banim.pos, num_pos, ctx.alloc)
+				dyn_init2(&cur_banim.scales, num_scales, ctx.alloc)
+				dyn_init2(&cur_banim.rot, num_rot, ctx.alloc)
+
+				cur_banim.pos.count = num_pos
+				cur_banim.scales.count = num_scales
+				cur_banim.rot.count = num_rot
+
+				GetBoneKeyframesData(m.model, cast(u32)i2, cur_banim.pos[0], cur_banim.scales[0], cur_banim.rot[0])
+				GetBoneMatrices(m.model, cast(u32)i2, cast(*f32)&cur_banim.local_matrix, cast(*f32)&cur_banim.inv_local_matrix)
+			}
+		}
+		//dyn_add(&globals.models, &m)
 	}
+	ctx.models_count = total_fl + 2
 	hidx = HandleForGettingFilesInDir("../materials")
 	total_fl = HandleDirTotalFiles(hidx)
 
@@ -6308,7 +6918,7 @@ main_loop::fn(ctx : *context)
 	LinearInit(&globals.str_alloc, ctx.alloc, 128)
 	LinearInit(&globals.allocs_occured, ctx.alloc, 32)
 	LinearInit(&globals.nodes_alloc, ctx.alloc, 1024)
-	LinearInit(&globals.ast_alloc, ctx.alloc, 512)
+	LinearInit(&globals.ast_alloc, ctx.alloc, 1024)
 	LinearInit(&globals.scope_alloc, ctx.alloc, 32)
 
 	ctx.aux_vertices_sz = 500
@@ -6324,6 +6934,7 @@ main_loop::fn(ctx : *context)
 
 		//AssignStr(&mat.name, cast(str_lit)ctx.save_scene_buffer[0])
 	}
+	ctx.materials_count = total_fl
 
 /*
 	compile_str_to_machine(&ctx.mach, 
@@ -6356,7 +6967,7 @@ main_loop::fn(ctx : *context)
 */
 
 	//using ctx;
-	ctx.line_shader = cast(u32)find_shader(ctx, "line_shader.mat")
+	ctx.line_shader = find_shader(ctx, "line.mat")
 	draw:draw_info3d;
 	draw2d:draw_info;
 	//AssignCamStuff(scn, &draw);
@@ -6388,7 +6999,7 @@ main_loop::fn(ctx : *context)
 		c1 := player_ent.cols[0]
 		c1.type = col_type.CAPSULE
 		c1.CAPSULE.radius = 0.2
-		c1.CAPSULE.height = 1.7
+		c1.CAPSULE.height = 1.5
 		//player_ent.mov_info.inv.items[0].item = inv_item.EXPLOSION_GEM
 		player_ent.mov_info.inv.items[1].item = inv_item.SHOCK
 	}
@@ -6504,6 +7115,7 @@ main_loop::fn(ctx : *context)
 	
 	str :string
 
+/*
 	total_chunks := TERRAIN_WIDTH
 	tris_per_chunk := TERRAIN_TRIS_SIZE
 	terrain.tris.data = LinearGet(&globals.terrain_alloc, cast(u32)tris_per_chunk)
@@ -6512,7 +7124,8 @@ main_loop::fn(ctx : *context)
 	terrain.meshes.data = cast(*mesh_info)LinearGet(&globals.terrain_alloc, TERRAIN_MESHES_SIZE)
 	terrain.meshes.alloc = ctx.alloc
 	terrain.meshes.cap = TERRAIN_MESHES_SIZE / sizeof(mesh_info)
-	generate_terrain(ctx, other, cast(u32)total_chunks)
+	//generate_terrain(ctx, other, cast(u32)total_chunks)
+	*/
 
 
 	mx := 0.0
@@ -6556,8 +7169,23 @@ main_loop::fn(ctx : *context)
 	
 	cube :*entity
 	cube = new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{40.0, 1.0, 40.0}, true);
-	cube.tex_id = cast(u32)ctx.textures[ctx.grass_tex].id
+	//__dbg_break
+	cube.tex_id = ctx.grass_tex
 	cube.name = "ground"
+
+	test_anim := new_cube(ctx, &_vec{15.0, 73.0, 10.0}, &_vec{40.0, 1.0, 40.0}, false);
+
+	test_anim.material_idx = find_shader(ctx, "skin.mat")
+	test_anim.flags = test_anim.flags | ENTITY_CUSTOM_SHADER
+	test_anim.in_material_instance = new_material_instance(ctx, &test_anim.material_idx, test_anim)
+	test_anim.name = "bones"
+	test_anim.size.x = 1.0
+	test_anim.size.y = 1.0
+	test_anim.size.z = 1.0
+	test_anim.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
+
+	find_asset(ctx, "bones.fbx", &test_anim.model)
+
 
 /*
 	test_e := new_enemy(ctx, &cube.pos, "en1")
@@ -6595,24 +7223,24 @@ main_loop::fn(ctx : *context)
 	dyn_add(&ctx.ents_with_clip, ctx.shock_ent)
 	ctx.shock_ent.cl = ctx.shock_small_clip
 	ctx.shock_ent.is_static = true
-	ctx.shock_ent.model = 1
+	ctx.shock_ent.model.asset_idx = ASSETS_MODELS_OFFSET + 1
 
 	ctx.shock_ent_emmitter = NewEnt(ctx, "shock_emmiter")
 	ctx.shock_ent_emmitter.flags = ctx.shock_ent_emmitter.flags | ENTITY_3D | ENTITY_HAS_TEXTURE | ENTITY_DONT_FREE | ENTITY_NO_LIGHT
 	ctx.shock_ent_emmitter.flags = ctx.shock_ent_emmitter.flags | ENTITY_TRANSPARENT
 	dyn_add(&ctx.drawable_ents, ctx.shock_ent_emmitter)
 	//dyn_add(&ctx.ents_with_clip, ctx.shock_ent_emmitter)
-	ctx.shock_ent_emmitter.tex_id = cast(u32)ctx.textures[ctx.ball_tex].id
+	ctx.shock_ent_emmitter.tex_id = ctx.ball_tex
 	ctx.shock_ent_emmitter.is_static = true
-	ctx.shock_ent_emmitter.model = 1
+	ctx.shock_ent_emmitter.model.asset_idx = ASSETS_MODELS_OFFSET + 1
 
 
 	cube = new_cube(ctx, &_vec{5.0, 70.5, 10.0}, &_vec{10.5, 8.0, 0.5}, true);
-	cube.tex_id = cast(u32)ctx.textures[ctx.grass_tex].id
+	cube.tex_id = ctx.grass_tex
 	cube.name = "cube1"
 	
 	cube = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{10.5, 5.2, 1.5, 0.0}, true);
-	cube.tex_id = cast(u32)ctx.textures[ctx.grass_tex].id
+	cube.tex_id = ctx.grass_tex
 	cube.name = "cube2"
 	cube.rot = euler_to_quaternion(10.0, 45.0, 0.0).v
 
@@ -6681,15 +7309,16 @@ main_loop::fn(ctx : *context)
 	ctx.grid_ent.flags = ctx.grid_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
 	ctx.grid_ent.flags = ctx.grid_ent.flags & ~ENTITY_HAS_TEXTURE
 	ctx.grid_ent.is_active = true
-	ctx.grid_ent.model = 1
+	ctx.grid_ent.model.asset_idx = ASSETS_MODELS_OFFSET + 1
 	ctx.grid_ent.forward = _vec{0.0, 1.0, 0.0}
-	ctx.grid_ent.material_idx = find_shader(ctx, "grid2_shader.mat")
-	ctx.grid_ent.in_material_instance = new_material_instance(ctx, cast(u32)ctx.grid_ent.material_idx, ctx.grid_ent)
-	set_shader_uniform_sampler2d(ctx, ctx.grid_ent, "tex", ctx.textures[ctx.grid_transparent_tex])
+	ctx.grid_ent.material_idx = find_shader(ctx, "grid2.mat")
+	ctx.grid_ent.in_material_instance = new_material_instance(ctx, &ctx.grid_ent.material_idx, ctx.grid_ent)
+	set_shader_uniform_sampler2d(ctx, ctx.grid_ent, "tex", &ctx.grid_transparent_tex)
 	ctx.grid_ent.size.x = 10.0
 	ctx.grid_ent.size.y = 10.0
 	ctx.grid_ent.rot = euler_to_quaternion(90.0, 0.0, 0.0).v
 	ctx.grid_ent.layer = LAYER_IGNORE_RAYCAST
+	ctx.grid_ent.is_active = false
 	dyn_add(&ctx.drawable_ents, &ctx.grid_ent);
 
 	sky := new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{500.5, 500.2, 500.5, 0.0}, false);
@@ -6697,13 +7326,13 @@ main_loop::fn(ctx : *context)
 	sky.is_trigger = true
 	sky.flags = sky.flags | ENTITY_CUSTOM_SHADER | ENTITY_DONT_FREE
 	sky.flags = sky.flags & ~ENTITY_SERIALIZE
-	sky.material_idx = find_shader(ctx, "sky_shader.mat")
-	sky.in_material_instance = new_material_instance(ctx, cast(u32)sky.material_idx, sky)
+	sky.material_idx = find_shader(ctx, "sky.mat")
+	sky.in_material_instance = new_material_instance(ctx, &sky.material_idx, sky)
 
 
 
 
-	mat :=ctx.materials[cast(u64)sky.material_idx]
+	mat := get_material_ptr(&sky.material_idx)
 	//rgb(232, 255, 215)
 	//rgb(235, 214, 251)
 	//rgb(255, 203, 97)
@@ -6747,15 +7376,15 @@ main_loop::fn(ctx : *context)
 
 	}
 
-	ctx.screen_tex_id = GenRawTexture(256, 256, gen_texture_type.RGBA, gen_texture_filter.NEAREST, gen_texture_size.BYTE)
+	//ctx.screen_tex_id = GenRawTexture(256, 256, gen_texture_type.RGBA, gen_texture_filter.NEAREST, gen_texture_size.BYTE)
 
 	trn_ent.flags = trn_ent.flags | ENTITY_CUSTOM_SHADER
-	trn_ent.material_idx = find_shader(ctx, "terrain_shader.mat")
-	trn_ent.in_material_instance = new_material_instance(ctx, cast(u32)trn_ent.material_idx, trn_ent)
-	set_shader_uniform_sampler2d(ctx, trn_ent, "tex", ctx.textures[ctx.grid_transparent_tex])
-	set_shader_uniform_sampler2d(ctx, trn_ent, "tex2", ctx.textures[ctx.grass_tex])
-	set_shader_uniform_sampler2d(ctx, trn_ent, "tex3", ctx.textures[ctx.water_tex])
-	set_shader_uniform_sampler2d(ctx, trn_ent, "heightmap", &ctx.terrain_tex)
+	trn_ent.material_idx = find_shader(ctx, "terrain.mat")
+	trn_ent.in_material_instance = new_material_instance(ctx, &trn_ent.material_idx, trn_ent)
+	set_shader_uniform_sampler2d(ctx, trn_ent, "tex", &ctx.grid_transparent_tex)
+	set_shader_uniform_sampler2d(ctx, trn_ent, "tex2", &ctx.grass_tex)
+	set_shader_uniform_sampler2d(ctx, trn_ent, "tex3", &ctx.water_tex)
+	//set_shader_uniform_sampler2d(ctx, trn_ent, "heightmap", &ctx.terrain_tex)
 	set_shader_uniform2f(ctx, trn_ent, "terrain_size", cast(f32)ctx.terrain_tex.width, cast(f32)ctx.terrain_tex.height)
 	set_shader_uniform1f(ctx, trn_ent, "amplitude", cast(f32)terrain.amplitude)
 
@@ -6766,6 +7395,10 @@ main_loop::fn(ctx : *context)
 	on_click_ent_pos :_vec
 	on_click_ent_pos_add :_vec
 	on_click_ent_size :_vec
+
+	trn_ent.is_active = false
+
+	ctx.cam_dist = 5.0
 
 	while !ShouldClose(ctx.window)
 	{
@@ -6926,7 +7559,6 @@ main_loop::fn(ctx : *context)
 				{
 					local_fw := axis_sel_ent.vel 
 					global_fw := axis_sel_ent.forward 
-					print_vec(&local_fw)
 
 					dx := dot_vec(&local_fw, &select_right) * mvx
 					pos_ptr := &out_ent.pos
@@ -6948,18 +7580,24 @@ main_loop::fn(ctx : *context)
 					}
 
 					n = cross_vec(&up_vec, &local_fw)
+					//printf("\n")
 
 					denom := dot_vec(&n, &dir)
-					if denom >= 0.001
+					if denom <= 0.001
 					{
-						denom = 1.0
+						//denom = 1.0
 					}
-					printf("denom {denom}\n")
+
+
 					aux_pos := on_click_pos - cam_pos
 
 					t := dot_vec(&n, &(aux_pos)) / denom
 					final_pos := cam_pos + dir * t
 					to_pos := final_pos - on_click_pos
+					//printf("denom {denom}, t {t}\n")
+
+					//printf("t {t}\n")
+
 
 					on sel_action
 					{
@@ -6967,6 +7605,7 @@ main_loop::fn(ctx : *context)
 					{
 						to_pos_dot := dot_vec(&local_fw, &to_pos)
 						final_pos = on_click_pos + local_fw * to_pos_dot
+						draw_line(ctx, &out_ent.pos, &final_pos, &ctx.white_color, 0)
 						diff_pos := final_pos - on_click_ent_pos 
 						*pos_ptr = on_click_ent_pos + diff_pos
 						on out_ent.type
@@ -6994,7 +7633,6 @@ main_loop::fn(ctx : *context)
 						sz := axis_sel_ent.forward * len * 2.0
 						sz = sz * sign(to_pos_dot)
 						//printf("f {len}\n")
-						print_vec(&sz)
 
 						*size_ptr = on_click_ent_size + sz
 
@@ -7032,8 +7670,8 @@ main_loop::fn(ctx : *context)
 						to_pos_dot := -dot_vec(&local_fw, &to_pos)
 						final_pos = on_click_pos + local_fw * to_pos_dot
 						diff_pos := final_pos - on_click_ent_pos 
-						*pos_ptr = on_click_ent_pos - diff_pos
 
+						*pos_ptr = on_click_ent_pos - diff_pos
 						*size_ptr = on_click_ent_size + diff_pos * 2.0
 						
 					}
@@ -7052,11 +7690,9 @@ main_loop::fn(ctx : *context)
 						out_ent.aux_col.pos = p 
 
 						sz := out_ent.size
-						print_vec(&sz)
 						sz.x = sz.x /parent.size.x
 						sz.y = sz.y /parent.size.y
 						sz.z = sz.z /parent.size.z
-						print_vec(&sz)
 						out_ent.aux_col.size = sz
 
 
@@ -7126,15 +7762,15 @@ main_loop::fn(ctx : *context)
 
 						if sel_action == select_action.SCALE_ONE_AXIS2
 						{
-							x_axis_ent.pos += x_axis_offset
-							y_axis_ent.pos += y_axis_offset
-							z_axis_ent.pos += z_axis_offset
-						}
-						else
-						{
 							x_axis_ent.pos -= x_axis_offset
 							y_axis_ent.pos -= y_axis_offset
 							z_axis_ent.pos -= z_axis_offset
+						}
+						else
+						{
+							x_axis_ent.pos += x_axis_offset
+							y_axis_ent.pos += y_axis_offset
+							z_axis_ent.pos += z_axis_offset
 						}
 						x_axis_ent.vel = x_axis_offset
 						y_axis_ent.vel = y_axis_offset
@@ -7225,10 +7861,12 @@ main_loop::fn(ctx : *context)
 
 						if ctx.cur_model_selected_idx != -1
 						{
-							m :*model_info= ctx.models[cast(u64)ctx.cur_model_selected_idx]
+							idx := cast(u64)ctx.cur_model_selected_idx + ASSETS_MODELS_OFFSET
+							a := globals.assets[idx]
+							m := &a.MODEL.mod
 							cube.name = new_str_lit(ctx.alloc, m.name)
 							cube.pos = ctx.preview_ent.pos
-							cube.model = m.model
+							cube.model.asset_idx = cast(u32)idx
 							cube.pos = ctx.preview_ent.pos
 							cube.flags = cube.flags & ~(ENTITY_HAS_TEXTURE)
 						}
@@ -7308,9 +7946,10 @@ main_loop::fn(ctx : *context)
 							{
 								axis_sel_ent = aux_sel
 								sel_fw = axis_sel_ent.forward
-								if out_ent.model > 1
+								if out_ent.model.asset_idx > 1
 								{
-									ctx.model_farthes_vert = ModelFarthestPoint(cast(u32)out_ent.model, &sel_fw)
+									id := get_id_of_model(&out_ent.model)
+									ctx.model_farthes_vert = ModelFarthestPoint(cast(u32)id, &sel_fw)
 									ctx.model_farthes_vert.y = dot_vec(&ctx.model_farthes_vert, &sel_fw)
 								}
 							}
@@ -7560,7 +8199,34 @@ main_loop::fn(ctx : *context)
 					*draw.color[1] = 0.0
 					*draw.color[2] = 0.0
 					*draw.color[3] = 0.5
-					Draw3D(ctx.window, &draw)
+
+					if ch.type == col_type.MESH
+					{
+						t:u64
+						verts := ch.MESH.info.verts
+						tris := ch.MESH.info.tris
+						color : _vec
+						color.x = 1.0
+						color.w = 1.0
+
+						while t < ch.MESH.info.tris_count
+						{
+							t1 := cast(u64)*ptr_offset(tris, t, u32)
+							t2 := cast(u64)*ptr_offset(tris, t + 1, u32)
+							t3 := cast(u64)*ptr_offset(tris, t + 2, u32)
+							_v1 := *ptr_offset(verts, t1, _vec)
+							_v2 := *ptr_offset(verts, t2, _vec)
+							_v3 := *ptr_offset(verts, t3, _vec)
+
+							draw_tri(ctx, &_v3, &_v2, &_v1, &color, 0)
+							t+= 3
+						}
+					}
+					else
+					{
+						Draw3D(ctx.window, &draw)
+					}
+
 				}
 				if prev_ent.type == ent_type.AUX_COL_ENT
 				{
@@ -7573,23 +8239,25 @@ main_loop::fn(ctx : *context)
 		else
 		{
 			
+			/*
 			mouse_sense := 0.4
 			cam_rot.x -= GetMouseVelY() * dt * mouse_sense
 			max_rot_x := 75.0 * (3.14159 / 180.0)
 			cam_rot.x = clamp(cam_rot.x, -max_rot_x, max_rot_x)
 			cam_rot.y -= GetMouseVelX() * dt * mouse_sense
 			cam_forward = euler_to_quaternion(0.0 , radians_to_degree(cam_rot.y), 0.0) * aux_forward
+			*/
 			
-			player_ent.forward = cam_forward
+			player_mov(ctx, &-aux_forward, &dt)
 
-			player_mov(ctx, &aux_forward, &dt)
-
-			cam_pos = player_ent.pos
+			//cam_pos = player_ent.pos
 			sky.pos = player_ent.pos
+
+			gameplay_cam(ctx, dt)
+			player_ent.forward = aux_forward
 			
 
-
-
+/*
 			double_pi := PI * 2.0
 			if cam_rot.y > double_pi
 			{
@@ -7602,6 +8270,7 @@ main_loop::fn(ctx : *context)
 				cam_rot.y = diff
 			}
 			
+			*/
 
 			playble_ents_logic(ctx, &dt)
 			to_deactivate_func(ctx, dt)
@@ -7655,6 +8324,88 @@ main_loop::fn(ctx : *context)
 		{
 			ctx.editor_wnd = !ctx.editor_wnd
 		}
+		if ctx.models_wnd
+		{
+			
+			info:imgui_window=?
+			info.
+			{
+				name = "models"
+				items = cast(u32)ctx.models_count
+				items_per_line = 4
+				selected_ref = &ctx.selected_model
+				window_bool = &ctx.models_wnd
+
+				item_width = 50.0
+				item_height = 32.0
+
+				_out_ent = out_ent
+				func = fn(ctx : *context, info : *imgui_window, id : u32){
+					//printf("on here id {id}\n")
+					a := globals.assets[cast(u64)id + ASSETS_MODELS_OFFSET]
+					m := &a.MODEL.mod
+					ImGuiText("{m.name}")
+				}
+				get_idx = fn(ctx : *context, info : *imgui_window) ! u32
+				{
+					return ctx.selected_model.asset_idx - ASSETS_MODELS_OFFSET
+				}
+				set_val = fn(ctx : *context, info : *imgui_window, id : u32)
+				{
+					ctx.selected_model.asset_idx = id + ASSETS_MODELS_OFFSET
+				}
+				func = fn(ctx : *context, info : *imgui_window, id : u32){
+					//printf("on here id {id}\n")
+					a := globals.assets[cast(u64)id + ASSETS_MODELS_OFFSET]
+					m := &a.MODEL.mod
+					ImGuiText("{m.name}")
+				}
+				apply = fn(ctx : *context, info : *imgui_window)
+				{
+					c := *info._out_ent.cols[0]
+					new_mesh_info:=false
+					model_verts_count:u32
+					model_tris_count:u32
+					m := get_model_ptr(&ctx.selected_model)
+					GetInfoFromModel(m.model, &model_verts_count, &model_tris_count)
+					if c.type == col_type.MESH
+					{
+						if model_verts_count != c.MESH.info.verts_count || model_tris_count != c.MESH.info.tris_count
+						{
+							new_mesh_info = true
+						}
+					}
+					else
+					{
+						new_mesh_info = true
+					}
+					c.type = col_type.MESH
+
+					if new_mesh_info
+					{
+						c.MESH.info.verts = cast(*_vec)heap_alloc(ctx.alloc, model_verts_count * 16)
+						c.MESH.info.verts_count = model_verts_count
+
+						c.MESH.info.tris = cast(*u32)heap_alloc(ctx.alloc, sizeof(u32)*model_tris_count)
+						c.MESH.info.tris_count = model_tris_count
+						c.data_ready = false
+
+						minfo := &c.MESH.info
+
+						minfo.model_idx = get_id_of_model(&ctx.selected_model)
+
+						CopyDataFromModel(cast(u32)minfo.model_idx, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)
+
+						aux1 : _vec
+						aux2 : _vec
+						CopyVerts(c, &aux1, &aux2)
+					}
+					printf("mesh changed\n")
+					assign_mesh_to_chunks(ctx, info._out_ent)
+				}
+			}
+			imgui_show_window_grid(ctx, out_ent, &info)
+		}
 		if ctx.materials_wnd
 		{
 			
@@ -7662,7 +8413,7 @@ main_loop::fn(ctx : *context)
 			info.
 			{
 				name = "materials"
-				items = cast(u32)ctx.materials.count
+				items = cast(u32)ctx.materials_count
 				items_per_line = 4
 				selected_ref = &ctx.selected_material
 				window_bool = &ctx.materials_wnd
@@ -7673,13 +8424,22 @@ main_loop::fn(ctx : *context)
 				_out_ent = out_ent
 				func = fn(ctx : *context, info : *imgui_window, id : u32){
 					//printf("on here id {id}\n")
-					m := ctx.materials[cast(u64)id]
+					a := globals.assets[cast(u64)id + ASSETS_MATERIALS_OFFSET]
+					m := &a.MATERIAL.mat
 					ImGuiText("{m.name}")
+				}
+				get_idx = fn(ctx : *context, info : *imgui_window) ! u32
+				{
+					return ctx.selected_material.asset_idx - ASSETS_MATERIALS_OFFSET
+				}
+				set_val = fn(ctx : *context, info : *imgui_window, id : u32)
+				{
+					ctx.selected_material.asset_idx = id + ASSETS_MATERIALS_OFFSET
 				}
 				apply = fn(ctx : *context, info : *imgui_window)
 				{
-					info._out_ent.material_idx = cast(s32)ctx.selected_material
-					info._out_ent.in_material_instance = new_material_instance(ctx, ctx.selected_material, info._out_ent)
+					info._out_ent.material_idx = ctx.selected_material
+					info._out_ent.in_material_instance = new_material_instance(ctx, &ctx.selected_material, info._out_ent)
 					info._out_ent.flags = info._out_ent.flags | ENTITY_CUSTOM_SHADER
 					//printf("ent midx s {info._out_ent.material_idx}\n")
 				}
@@ -7702,12 +8462,30 @@ main_loop::fn(ctx : *context)
 				ptr = ctx.selected_tex_ref
 				func = fn(ctx : *context, info : *imgui_window, id : u32)
 				{
-					t := ctx.textures[cast(u64)id]
-					ImGuiImage(t.id, 64.0, 64.0)
+					a := globals.assets[cast(u64)id + ASSETS_TEXTURES_OFFSET]
+					if a.TEXTURE_ARRAY.texs.count > 0
+					{
+						t := a.TEXTURE_ARRAY.texs[0]
+						ImGuiImage(t.id, 64.0, 64.0)
+					}
+					else
+					{
+						a = globals.assets[cast(u64)ctx.white_tex.asset_idx]
+						t := a.TEXTURE_ARRAY.texs[0]
+						ImGuiImage(t.id, 64.0, 64.0)
+					}
+				}
+				get_idx = fn(ctx : *context, info : *imgui_window) ! u32
+				{
+					return ctx.selected_tex.asset_idx - ASSETS_TEXTURES_OFFSET
+				}
+				set_val = fn(ctx : *context, info : *imgui_window, id : u32)
+				{
+					ctx.selected_tex.asset_idx = id + ASSETS_TEXTURES_OFFSET
 				}
 				apply = fn(ctx : *context, info : *imgui_window)
 				{
-					*cast(*u32)info.ptr = ctx.selected_tex
+					*cast(*asset_index)info.ptr = ctx.selected_tex
 					info._out_ent.flags = info._out_ent.flags | ENTITY_HAS_TEXTURE
 				}
 			}
@@ -7839,36 +8617,96 @@ main_loop::fn(ctx : *context)
 	}
 }
 
-load_tex::fn(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! u32
+find_empty_asset::fn(idx : u64) ! u64
 {
-	found := find_tex(ctx, name, x_offset, y_offset, sp_width, sp_height)
-	if found != -1
+	ret : u64
+	while ret < ASSETS_MAX
 	{
-		return cast(u32)found
+		cur_idx := (ret + idx) % ASSETS_MAX
+		cur_asset := globals.assets[cur_idx]
+		if cur_asset.in_use == false
+		{
+			memset(cur_asset, 0, sizeof(asset_info))
+			cur_asset.in_use = true
+			return cur_idx
+		}
+		ret++
 	}
-	tex : texture_info
+	ASSERT(false)
+	return -1
+}
+load_tex::fn(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! asset_index
+{
+	ret :asset_index
+	found := find_asset(ctx, name, &ret)
+	if found
+	{
+		return ret
+	}
+	empty_idx := find_empty_asset(ASSETS_TEXTURES_OFFSET)
+	a := globals.assets[empty_idx]
+	a.cid.id.a_type = cast(u8)cast(u32)asset_type.TEXTURE_ARRAY
+
+	ln := str_ln(name)
+	ASSERT(ln < 12)
+	
+	memcpy(a.cid.name, name, ln)
+
+	tex :texture_info
 	tex.id = LoadTex(name, x_offset, y_offset, sp_width, sp_height)
 	tex.x_offset = x_offset
 	tex.y_offset = y_offset
 	tex.width = sp_width
 	tex.height = sp_height
 	tex.idx_on_array = cast(u32)(ctx.textures.count - 1)
-	dyn_add(&ctx.textures, &tex)
 
-	return tex.idx_on_array
+	a.in_use = true
+
+
+
+	ret.asset_idx = cast(u32)empty_idx
+	dyn_add(&a.TEXTURE_ARRAY.texs, &tex)
+
+	return ret
 }
-find_tex::fn(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, w:u32, h:u32) ! s32
+clear_material_instances::fn()
 {
 	idx :u32
-	for t in ctx.textures
+
+	while idx < ASSETS_MAX
 	{
-		if str_cmp(t.name, name) && t.width == w && t.height == h && t.x_offset == x_offset && t.y_offset == y_offset
+		cur := cast(u64)ASSETS_MATERIALS_OFFSET + idx
+		cur = cur % ASSETS_MAX
+		cur_asset :=globals.assets[cur]
+		if cur_asset.type == asset_type.MATERIAL
 		{
-			return cast(s32)idx
+			dyn_clear(&cur_asset.MATERIAL.mat.instances)
 		}
+
 		idx++
 	}
-	return -1
+}
+find_asset::fn(ctx : *context, name:str_lit, out : *asset_index, start : u64 = 0) ! bool
+{
+	idx :u32
+	aux_buffer:[13]char
+	ln: =str_ln(name)
+
+	while idx < ASSETS_MAX
+	{
+		cur := start + idx
+		cur = cur % ASSETS_MAX
+		cur_asset :=globals.assets[cur]
+
+		if memcmp(name, cur_asset.cid.name, ln)
+		{
+			out.asset_idx = cast(u32)cur
+			return true
+		}
+
+		idx++
+	}
+	return false
 }
 TERRAIN_TRIS_SIZE :const s32=(MESH_WIDTH ) * (MESH_WIDTH) * 6 * 4
 TERRAIN_MESHES_SIZE :const s32= sizeof(mesh_info) * (TERRAIN_WIDTH * TERRAIN_WIDTH + 1)
@@ -7908,6 +8746,9 @@ main:: fn(){
 	window := OpenWindow(1000, 1000);
 	ctx.chunk_width = 16.0
 
+	dyn_init2(&globals.assets, ASSETS_MAX, ctx.alloc)
+	globals.assets.count = ASSETS_MAX
+
 	LinearInit(&globals.temp_alloc, ctx.alloc, 1024)
 
 	//__dbg_break
@@ -7930,6 +8771,7 @@ main:: fn(){
 
 
 	total_terrain_bytes := terrain_bytes_total + terrain_tris + heightmap_bytes + terrain_textures_bytes + TERRAIN_MESHES_SIZE
+	/*
 	globals.terrain_alloc.start = cast(*u8)GetMem(total_terrain_bytes)
 	globals.terrain_alloc.max = total_terrain_bytes
 	printf("terrain alloc size {total_terrain_bytes/ 1024 / 1024}mb\n")
@@ -7954,6 +8796,7 @@ main:: fn(){
 	}
 	ctx.terrain_tex.id = GenRawTexture(ctx.terrain_tex.width, ctx.terrain_tex.height, gen_texture_type.R, gen_texture_filter.LINEAR, ctx.terrain_tex.channel_size)
 	UpdateTexture(ctx.terrain_tex.id, 0, 0, ctx.terrain_tex.width, ctx.terrain_tex.height, ctx.terrain_tex.data, ctx.terrain_tex.channels - 1, ctx.terrain_tex.channel_size)
+	*/
 
 	ctx.window = window;
 
@@ -8020,7 +8863,7 @@ main:: fn(){
 	dyn_init2(&ctx.drawable_ents, 4, ctx.alloc);
 	dyn_init2(&ctx.axe_ents, 4, ctx.alloc);
 	dyn_init2(&ctx.ents_with_clip, 4, ctx.alloc);
-	dyn_init2(&ctx.materials, 4, ctx.alloc);
+	//dyn_init2(&ctx.materials, 4, ctx.alloc);
 
 	//scn.items.alloc = ctx.alloc;
 	/*
@@ -8050,6 +8893,12 @@ main:: fn(){
 	AssignSoundFolder("../sound");
 	LoadTexFolder("../images", &ctx.textures);
 
+	for t in ctx.textures
+	{
+		//dummy:asset_index
+		load_tex(&ctx, t.name, 0, 0, 0, 0)
+	}
+
 	ctx.step_audio_idxs[0] = GetAudioHandle("step1.flac")
 	ctx.step_audio_idxs[1] = GetAudioHandle("step2.flac")
 
@@ -8062,10 +8911,10 @@ main:: fn(){
 	ctx.ball_tex = load_tex(&ctx, "ball.png", 0, 0, 32, 32)
 	ctx.water_tex = load_tex(&ctx, "water.png", 0, 0, 32, 32)
 	ctx.grid_tex = load_tex(&ctx, "grid.png", 0, 0, 32, 32)
-	ctx.grid_transparent_tex = load_tex(&ctx, "transparent_grid.png", 0, 0, 32, 32)
+	ctx.grid_transparent_tex = load_tex(&ctx, "tr_grid.png", 0, 0, 32, 32)
 
 
-	LoadClip("character.png", 0, 0, 64, 64, 3, 1.0, &ctx.character_texs);
+	LoadClip("char.png", 0, 0, 64, 64, 3, 1.0, &ctx.character_texs);
 
 	LoadClip("shock.png", 0, 0, 64, 32, 4, 1.0, &ctx.shock_small_texs);
 	LoadClip("shock.png", 0, 0, 128, 32, 4, 1.0, &ctx.shock_medium_texs);
@@ -8108,5 +8957,6 @@ main:: fn(){
 
 	ctx.abcd_tex_info_idx = cast(u32)i
 
+	ASSERT(sizeof(custom_id)==16)
 	main_loop(&ctx);
 }

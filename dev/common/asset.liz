@@ -1,0 +1,81 @@
+import "../../core";
+
+ASSETS_TEXTURES_OFFSET:const s32=0
+ASSETS_MATERIALS_OFFSET:const s32=128
+ASSETS_MODELS_OFFSET:const s32=256
+ASSETS_MAX:const s32=1024
+asset_type:etruct
+{
+    TEXTURE_ARRAY(
+        texs : dyn_array(texture_info)
+    ),
+    MODEL(
+        mod : model_info
+    ),
+    MATERIAL(
+        mat : material_info
+    ),
+}
+asset_info:struct
+{
+    in_use : bool,
+    cid : custom_id
+    using type : asset_type
+}
+cid_info :struct
+{
+    a_type : u8
+    not_used : u8
+    not_used2 : u16
+}
+custom_id:struct
+{
+    id : cid_info
+    name : [12]char
+}
+asset_index:struct
+{
+    asset_idx : u32
+    offset : u32
+}
+
+cmp_cid::fn x64(cid : *custom_id, cid2 : *custom_id)!bool
+{
+    cid1_part1 := *ptr_offset(cid, 0, u64)
+    cid1_part2 := *ptr_offset(cid, 1, u64)
+    cid2_part1 := *ptr_offset(cid2, 0, u64)
+    cid2_part2 := *ptr_offset(cid2, 1, u64)
+
+    if cid1_part1 != cid2_part1 || cid1_part2 != cid2_part2
+    {
+        return false
+    }
+    return true
+}
+get_model_ptr::fn(cid : *asset_index) !*model_info
+{
+    a := globals.assets[cast(u64)cid.asset_idx]
+    ASSERT(a.type == asset_type.MODEL)
+    return &a.MODEL.mod
+}
+get_material_ptr::fn(cid : *asset_index) !*material_info
+{
+    a := globals.assets[cast(u64)cid.asset_idx]
+    ASSERT(a.type == asset_type.MATERIAL)
+    return &a.MATERIAL.mat
+}
+get_id_of_model::fn(cid : *asset_index) !u32
+{
+    a := globals.assets[cast(u64)cid.asset_idx]
+    return cast(u32)a.MODEL.mod.model
+}
+get_id_of_material::fn(cid : *asset_index) !u32
+{
+    a := globals.assets[cast(u64)cid.asset_idx]
+    return cast(u32)a.MATERIAL.mat.shader_id
+}
+get_id_of_texture_asset::fn(cid : *asset_index) !u32
+{
+    a := globals.assets[cast(u64)cid.asset_idx]
+    return cast(u32)a.TEXTURE_ARRAY.texs[cast(u64)cid.offset].id
+}

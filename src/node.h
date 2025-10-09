@@ -465,6 +465,8 @@ struct unit_file
 	scope *funcs_scp;
 	node *s;
 
+	node *arrived_at_node;
+
 	int file_dbg_idx;
 
 	bool is_done;
@@ -534,7 +536,7 @@ struct import_strct
 		// searching import scopes vars
 		FOR_VEC(var, imp_scp->vars)
 		{
-			if ((*var)->name == name)
+			if ((*var)->name == (own_std::string &)name)
 				return *var;
 		}
 		return nullptr;

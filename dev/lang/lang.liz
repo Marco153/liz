@@ -80,7 +80,6 @@ ast_type :etruct
 	),
 	UNIFORM(
 		type : *ast_rep
-		name : *ast_rep
 		d : *decl
 	),
 	WORD_SCOPE(
@@ -106,6 +105,7 @@ ast_type :etruct
 	INDEX(
 		lhs : *ast_rep
 		rhs : *ast_rep
+		type : lang_type
 	),
 	UNOP(
 		un : *ast_rep,
@@ -174,7 +174,6 @@ node_type :etruct
 	),
 	UNIFORM(
 		type : *node
-		name : *node
 	),
 	UNOP(
 		un:*node,
@@ -259,6 +258,8 @@ lang_type_type : etruct
 	V3_TYPE,
 	V4,
 	V4_TYPE,
+	IV4,
+	IV4_TYPE,
 
 	MAT4,
 
@@ -276,6 +277,11 @@ lang_type_type : etruct
 	U64,
 	U64_TYPE,
 	INT_TYPES_END,
+
+	STATIC_ARRAY(
+		type : *lang_type
+		sz : u32
+	),
 
 	STRUCT(
 		st : *struct_decl
@@ -300,6 +306,7 @@ lang_type : struct
 	using tp : lang_type_type,
 	ptr : u8,
 	reg_in_use : bool
+	is_uniform : bool
 }
 decl : struct
 {
@@ -374,6 +381,7 @@ parse_info : struct
 	tkns : *dyn_array(token)
 	cur_tkn : u64,
 	lang_stat : *lang_state,
+	cur_bin_nd :*node
 }
 
 parse_all ::fn (pinfo : *parse_info) ! *node
@@ -606,7 +614,6 @@ parse_item::fn (pinfo : *parse_info) ! *node
 		{
 			ret.type = node_type.UNIFORM
 			ret.UNIFORM.type = parse_item(pinfo)
-			ret.UNIFORM.name = parse_item(pinfo)
 		}
 		else if cur_tkn.WORD.str == "cast"
 		{
@@ -685,15 +692,27 @@ parse_item::fn (pinfo : *parse_info) ! *node
 	{
 		indx := new_node(cur_tkn)
 		indx.type = node_type.INDEX
-		indx.INDEX.lhs = ret
-
-		peek = peek_tkn(pinfo)
-
-		if peek.type != token_type.CLOSE_BRACKETS
+		if pinfo.cur_bin_nd && is_node_bin(pinfo.cur_bin_nd, cast(u32) token_type.COLON)
 		{
-			indx.INDEX.rhs = parse(pinfo, cast(u32)op_prec_enum.AUX, parser_op.GREATER_EQ)
+			peek = peek_tkn(pinfo)
+			indx.INDEX.lhs = parse(pinfo, cast(u32)op_prec_enum.AUX, parser_op.GREATER_EQ)
+
+			ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_BRACKETS)
+
+			indx.INDEX.rhs = parse_item(pinfo)
 		}
-		ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_BRACKETS)
+		else
+		{
+			indx.INDEX.lhs = ret
+
+			peek = peek_tkn(pinfo)
+
+			if peek.type != token_type.CLOSE_BRACKETS
+			{
+				indx.INDEX.rhs = parse(pinfo, cast(u32)op_prec_enum.AUX, parser_op.GREATER_EQ)
+			}
+			ExpectTkn(pinfo.tkns, &pinfo.cur_tkn, cast(u32)token_type.CLOSE_BRACKETS)
+		}
 		ret = indx
 	}
 	else
@@ -1003,6 +1022,7 @@ parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
 			{
 				return ret.BIN.lhs
 			}
+			pinfo.cur_bin_nd = ret
 
 			ret.BIN.rhs = parse(pinfo, cur_prec, cond)
 
@@ -1219,6 +1239,14 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 			{
 				PushStrLit(out, " = ")
 				//*out
+			}
+			else if ast.BIN.op == cast(u32)token_type.COND_EQ
+			{
+				PushStrLit(out, " == ")
+			}
+			else if ast.BIN.op == cast(u32)token_type.COND_NE
+			{
+				PushStrLit(out, " != ")
 			}
 			else if ast.BIN.op == cast(u32)token_type.COND_GE
 			{
@@ -1719,6 +1747,13 @@ lget_type_size::fn(tp : *lang_type) !u32
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.U64 || cast(u32)tp.tp == cast(u32)lang_type_type.S64
 		|| cast(u32)tp.tp == cast(u32)lang_type_type.FUNC_DECL
 		return 8;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.MAT4
+		return 64;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.STATIC_ARRAY
+	{
+		sz := tp.STATIC_ARRAY.sz
+		return lget_type_size(tp.STATIC_ARRAY.type) * sz
+	}
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.STRUCT
 	{
 		return tp.STRUCT.st.sz
@@ -1975,6 +2010,11 @@ parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_re
 			ret.type = ast_type.TYPE
 			ret.TYPE.tp.tp = lang_type_type.V3
 		}
+		else if (n.WORD.str == "iv4")
+		{
+			ret.type = ast_type.TYPE
+			ret.TYPE.tp.tp = lang_type_type.IV4
+		}
 		else if (n.WORD.str == "v4")
 		{
 			ret.type = ast_type.TYPE
@@ -2017,7 +2057,7 @@ parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_re
 	{
 		ret.type = ast_type.UNIFORM
 		ret.UNIFORM.type = parse_node_to_ast(lang_stat, n.UNIFORM.type, scp)
-		ret.UNIFORM.name = parse_node_to_ast(lang_stat, n.UNIFORM.name, scp)
+		//ret.UNIFORM.name = parse_node_to_ast(lang_stat, n.UNIFORM.name, scp)
 		//d : = declare_decl_to_scp(lang_stat, scp, &ret.UNIFORM.name.WORD.str, &ret.UNIFORM.type.TYPE.tp)
 		//ret.UNIFORM.d = d
 	}
@@ -2059,6 +2099,34 @@ descend_find_type::fn(lang_stat : *lang_state, ast : *ast_rep, scp : *scope, tp 
 	{
 		*tp = ast.TYPE.tp
 	}
+	else if ast.type == ast_type.INDEX
+	{
+		if !descend_name_finding(lang_stat, ast.INDEX.lhs, scp, nil)
+		{
+			return false
+		}
+		if ast.INDEX.type.STATIC_ARRAY.type == nil
+		{
+			ast.INDEX.type.type = lang_type_type.STATIC_ARRAY
+			ast.INDEX.type.STATIC_ARRAY.type = new_ptr(lang_type)
+			*tp = ast.INDEX.type
+		}
+		if !descend_find_type(lang_stat, ast.INDEX.rhs, scp, tp.STATIC_ARRAY.type)
+		{
+			return false
+		}
+		ASSERT(ast.INDEX.lhs.type == ast_type.INT)
+		tp.STATIC_ARRAY.sz = cast(u32)ast.INDEX.lhs.INT.num
+		ast.INDEX.type = *tp
+	}
+	else if ast.type == ast_type.UNIFORM
+	{
+		if !descend_find_type(lang_stat, ast.UNIFORM.type, scp, tp)
+		{
+			return false
+		}
+		tp.is_uniform = true
+	}
 	else if ast.type == ast_type.WORD
 	{
 		//__dbg_break
@@ -2072,7 +2140,7 @@ descend_find_type::fn(lang_stat : *lang_state, ast : *ast_rep, scp : *scope, tp 
 		if d.tp.tp == lang_type_type.STRUCT
 		{
 			tp.type = lang_type_type.STRUCT
-			tp.STRUCT = d.tp.STRUCT.st
+			tp.STRUCT.st = d.tp.STRUCT.st
 		}
 		else
 		{
@@ -2337,7 +2405,12 @@ descend_name_finding::fn(lang_stat : *lang_state, ast : *ast_rep, scp: *scope, o
 			if !descend_find_type(lang_stat, *ast.BIN.expr[1], scp, &tp)
 				return false
 
-			declare_decl_to_scp(lang_stat, scp, &lhs.WORD.str, &tp)
+			d = declare_decl_to_scp(lang_stat, scp, &lhs.WORD.str, &tp)
+
+			if d.tp.is_uniform
+			{
+				dyn_add(&lang_stat.uniforms, d)
+			}
 		}
 		else if ast.BIN.op == cast(u32)token_type.EQUAL
 		{
@@ -2476,23 +2549,20 @@ descend_name_finding::fn(lang_stat : *lang_state, ast : *ast_rep, scp: *scope, o
 	}
 	else if ast.type == ast_type.INDEX
 	{
-		if !descend_name_finding(lang_stat, ast.WHILE.cond, scp, nil)
+		if !descend_name_finding(lang_stat, ast.INDEX.lhs, scp, nil)
 			return false
-		if !descend_name_finding(lang_stat, ast.WHILE.scp_ast, scp, nil)
+		if !descend_name_finding(lang_stat, ast.INDEX.rhs, scp, nil)
 			return false
 	}
 	else if ast.type == ast_type.UNIFORM
 	{
-		d := find_identifier(&ast.UNIFORM.name.WORD.str, scp)
-		if d
-			return true
 		if !descend_find_type(lang_stat, ast.UNIFORM.type, scp, &tp)
 		{
 			// we should know what uniform type it is firt pass, it should be a builtin
 			__dbg_break
 		}
-		d = declare_decl_to_scp(lang_stat, scp, &ast.UNIFORM.name.WORD.str, &tp)
-		dyn_add(&lang_stat.uniforms, d)
+		//d = declare_decl_to_scp(lang_stat, scp, &ast.UNIFORM.name.WORD.str, &tp)
+		//dyn_add(&lang_stat.uniforms, d)
 	}
 	else if ast.type == ast_type.FUNC
 	{

@@ -804,7 +804,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		{
 			ASSERT(lhs->type == rhs->type)
 		}
-		else if (lhs->type != rhs->type)
+		else if (lhs->type != rhs->type && !(lhs->type == TYPE_STRUCT && rhs->type == TYPE_STRUCT_TYPE))
 			return false;
 
 		if (lhs->type == enum_type2::TYPE_STRUCT)
@@ -4536,7 +4536,6 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node* fnode, scope* 
 	decl2* normal_func_first_arg_decl_with_using = nullptr;
 
 	type2 dummy_type;
-	//BREAK(fnode->t->line == 875)
 	FOR_VEC(t, args)
 	{
 		if (t->type == COMMA_VAR_ARGS)
@@ -5511,10 +5510,8 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 
 	
 	
-	//BREAK(ncall->t->line == 670)
 	defer_strct dfr(scp, lhs->type.fdecl, lang_stat);
 	lang_stat->flags |= PSR_FLAGS_ON_FUNC_CALL;
-	//BREAK(lhs->type.fdecl->name == "PlayAudioByHandle")
 	//printf("on call %.*s, line %d\n", lhs->name.size(), lhs->name.data(), ncall->t->line);
 	if((lhs->type.type == TYPE_FUNC || lhs->type.type == TYPE_FUNC_EXTERN) && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_TEMPLATED))
 	{
@@ -5753,7 +5750,6 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				*/
 			}
 			bool same_number_of_args = args.size() == lhs->type.fdecl->args.size();
-			//BREAK(lhs->type.fdecl->name == "PlayAudioByHandle")
 			if(lhs->type.type != TYPE_OVERLOADED_FUNCS && 
 				(has_arg_assignment || IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_HAS_DEFAULT_ARGUMENTS) && !same_number_of_args))
 			{
@@ -6350,7 +6346,6 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	ret_type->fdecl = fdecl;
 
 
-	//BREAK(fnode->t->line == 2261 && IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 	if (IS_FLAG_ON(flags, FUNCTION_IS_DONE_FLAGS_ONLY_DECLARE_SCOPE_AND_FUNC))
 		return true;
 
@@ -7832,6 +7827,9 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 	char msg_hdr[256];
 	scope* scp = given_scp;
 	type2 ret_type;
+	
+	if(lang_stat->cur_file)
+		lang_stat->cur_file->arrived_at_node = n;
 
 	//memset(&msg, 0, sizeof(msg));
 	/*
@@ -9068,7 +9066,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				// another func with the same name found
 			if (decl_exist && decl_exist->type.type == enum_type2::TYPE_FUNC && decl_exist->decl_nd != n)
 			{
-				//BREAK(n->t->line == 335)
 				//raise(SIGTRAP);
 				ASSERT(decl_exist->decl_nd);
 				if (decl_exist->decl_nd->type == N_OP_OVERLOAD)
@@ -9183,6 +9180,10 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					if (!NameFindingGetType(lang_stat, n->r, scp, ret_type, flags_to_get_type))
 					{
 						bool found = false;
+						if(n->r->t->line == 24)
+						{
+							HERE()
+						}
 						if (NameFindingGetType(lang_stat, n->r, scp, ret_type, flags_to_get_type | NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE))
 						{
 							if (ret_type.ptr > 0)
@@ -9335,7 +9336,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						ret_type.strct->this_decl = decl_exist;
 					}
 
-
 					auto tstrct = snode->tstrct;
 					tstrct->strct_node = snode;
 					tstrct->scp = child_scp;
@@ -9405,7 +9405,26 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 									scope* new_struct_scp = GetScopeFromParent(lang_stat, c->n->r, child_scp);
 									cur_strct->scp = new_struct_scp;
 									if (!DescendNameFinding(lang_stat, c->n->r, new_struct_scp))
+									{
+										/*
+										if(n->t->line == 7)
+										{
+											printf("arrived at etruct line %d, %s\n", c->n->r->t->line, c->n->l->t->str.c_str());
+											//HERE()
+										}
+											*/
 										return nullptr;
+									}
+									else
+									{
+										/*
+										if(n->t->line == 7)
+										{
+											printf("assets is done %s\n", n->l->t->str.c_str());
+											//HERE()
+										}
+											*/
+									}
 									auto a = 0;
 								}
 								else if (c->n->type == N_IDENTIFIER)
@@ -9449,6 +9468,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 									//c->n->tstrct->ToTypeSect()
 									c->n->tstrct->ToTypeSect(lang_stat, &lang_stat->type_sect, &lang_stat->type_sect_str_tbl_sz);
+
+									tstrct->biggest_type = max(tstrct->biggest_type, st->biggest_type);
 								}
 								else
 								{
@@ -9481,7 +9502,28 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 							if (!DescendNameFinding(lang_stat, snode->r->r, child_scp))
 							{
 								lang_stat->flags &= ~PSR_FLAGS_DONT_ADD_TO_FUNC_VARS;
+								/*
+								if(n->t->line == 19)
+								{
+									printf("arrived at line %d, %s\n", lang_stat->cur_file->arrived_at_node->t->line, n->l->t->str.c_str());
+									DescendNameFinding(lang_stat, snode->r->r, child_scp);
+
+									//HERE()
+								}
+									*/
 								return nullptr;
+							}
+							else
+							{
+								/*
+								if(n->t->line == 94 || n->t->line == 19)
+								{
+									//HERE()
+									printf("done at line %d, %s\n", lang_stat->cur_file->arrived_at_node->t->line, n->l->t->str.c_str());
+									//HERE()
+								}
+									*/
+
 							}
 							lang_stat->flags &= ~PSR_FLAGS_DONT_ADD_TO_FUNC_VARS;
 							INSERT_VEC((tstrct->vars), child_scp->vars);
@@ -9653,8 +9695,9 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 						if (colon == nullptr)
 						{
+							/*
 #ifdef DEBUG_NAME
-							if (decl_name == "main")
+							if (decl_name == (const char *)"main")
 							{
 								//lang_stat->not_found_nd = n;
 								//lang_stat->not_founds.emplace_back(plang_stat->not_found_nd);
@@ -9662,6 +9705,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 								auto st = FindIdentifier(str, scp, &ret_type);
 							}
 #endif
+								*/
 							colon = FindIdentifier(n->l->t->str, scp, &ret_type, NM_FND_TP_RETURN_EVEN_IDENT_NOT_DONE);
 							if (colon && colon->type.type == TYPE_FUNC)
 							{
@@ -11013,7 +11057,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			if (fdecl->name == "sizeof")
 			{
 				ret_type.type = TYPE_INT;
-				//BREAK(n->t->line == 1133)
 				ret_type.i = GetTypeSize(&args[0].decl.type);
 			}
 			else if (fdecl->name == "GetTypeData")
@@ -11638,7 +11681,6 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_BINOP:
 	{
-		//BREAK(n->t->type == T_SHIFT_LEFT && n->t->line == 2172)
 		switch (n->t->type)
 		{
 		case tkn_type2::T_COND_AND:
@@ -11995,6 +12037,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 					{
 						return ltp;
 					}
+					
 					auto op_func = ltp.strct->FindOpOverload(lang_stat, overload_op::ASSIGN_OP, n);
 					bool is_same_strct = rtp.type == enum_type2::TYPE_STRUCT && rtp.strct->name == ltp.strct->name;
 
@@ -12016,7 +12059,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 						{
 							if(n->r->type != N_QUESTION_MARK && n->t->type == T_EQUAL)
 							{
-								if(CompareTypes(&ltp, &rtp))
+								if(!CompareTypes(&ltp, &rtp))
 								{
 									ReportTypeMismatch(lang_stat, n->t, &ltp, &rtp);
 								}
@@ -12145,7 +12188,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		}break;
 		case tkn_type2::T_COLON:
 		{
-			// if type was not ommited
+			// if type was non ommited
 			type2 rtp;
 			if (n->r)
 			{

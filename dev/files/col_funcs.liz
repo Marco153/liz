@@ -45,7 +45,7 @@ spear_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 			}
 		}
 		ent_a.cl = nil;
-		ent_a.tex_id = ent_a.spear_idle_tex_idx;
+		//ent_a.tex_id = ent_a.spear_idle_tex_idx;
 		ent_a.is_static = true;
 	}
 	if ent_b.type != ent_type.PLAYER && !ent_b.is_trigger
@@ -212,7 +212,7 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	if ent_b.type == ent_type.ITEM
 	{
 		printf("item is {cast(u32)ent_b.item_type}\n")
-		*ent_a.mov_info.inv.items[cast(u64)ent_b.item_type - 1] = ent_b.item_type
+		//*ent_a.mov_info.inv.items[cast(u64)ent_b.item_type - 1] = ent_b.item_type
 		DisableEnt(ent_b)
 		PlayAudioByHandle(globals.item_pick_sound_handle)
 	}

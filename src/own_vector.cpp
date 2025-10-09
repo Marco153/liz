@@ -375,13 +375,6 @@ namespace own_std
 
 			return memcmp(data_, other.data_, len) == 0;
 		}
-		bool operator ==(const string other) const
-		{
-			if (len != other.len)
-				return false;
-
-			return memcmp(data_, other.data_, len) == 0;
-		}
 		bool operator ==(string& other)
 		{
 			if (len != other.len)
@@ -621,7 +614,7 @@ namespace own_std
 		{
 			u64 count = end - start;
 
-			regrow(count);
+			regrow(count * 2);
 			ar.count = count;
 			ar.end += count;
 
@@ -732,11 +725,11 @@ namespace own_std
 		{
 			u64 a = at - ar.start;
 			ASSERT(a >= 0 && a <= this->ar.count && ar.start != nullptr)
-				u64 other_len = end - start;
+			u64 other_len = end - start;
 
 			if ((ar.count + other_len) >= ar.length)
 			{
-				regrow(ar.count + other_len);
+				regrow((ar.count + other_len) * 2);
 			}
 			ar.count += other_len;
 			ar.end += other_len;

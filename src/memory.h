@@ -124,6 +124,18 @@ struct mem_alloc
 	unsigned int chunks_cap =(1024 * 1024 * 256);
 
 	char* main_buffer;
+	 // Safe ctor: initialize members explicitly
+    mem_alloc()
+      : buffer(nullptr),
+        head_free(nullptr),
+        in_use(),                 // default-construct heap_hash safely
+        all(nullptr),
+        probable_unallocated(nullptr),
+        chunks_cap(1024u * 1024u * 256u),
+        main_buffer(nullptr)
+    {
+        // avoid any memset(this, ...) here
+    }
 };
 void InitMemAlloc(mem_alloc* alloc);
 void FreeMemAlloc(mem_alloc* alloc);

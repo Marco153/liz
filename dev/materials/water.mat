@@ -1,10 +1,10 @@
-uniform mat4 model
-uniform mat4 view
-uniform mat4 projection
-uniform v4 color
-uniform v4 cam_pos
-uniform sampler2d tex
-uniform sampler2d noise
+model:uniform mat4 
+view:uniform mat4 
+projection:uniform mat4 
+color:uniform v4 
+cam_pos:uniform v4 
+tex:uniform sampler2d 
+noise:uniform sampler2d 
 
 vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
 {

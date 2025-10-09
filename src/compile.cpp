@@ -68,7 +68,7 @@ typedef long long s64;
 #define MEM_PTR_START_ADDR (STACK_PTR_START_THREAD2)
 #define MEM_PTR_MAX_ADDR 18008
 
-#define DATA_SECT_MAX 10048
+#define DATA_SECT_MAX 11048
 #define DATA_SECT_OFFSET 1024 * 1024 * 1000
 #define BUFFER_MEM_MAX (DATA_SECT_OFFSET + DATA_SECT_MAX)
 
@@ -7080,7 +7080,7 @@ void WasmSerializePushString(serialize_state* ser_state, own_std::string* name, 
 {
 	out->name_on_string_sect = ser_state->string_sect.size();
 	out->name_len = name->size();
-	ASSERT(out->name_len <= 128 && out->name_on_string_sect < 100000 && out->name_on_string_sect >= 0);
+	ASSERT(out->name_len <= 128 && out->name_on_string_sect >= 0);
 	ser_state->string_sect.insert(ser_state->string_sect.end(), (unsigned char *)name->data(), (unsigned char *)(name->data() + name->size()));
 }
 void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char>& code, own_std::vector<byte_code2> &bcs2)
@@ -9027,7 +9027,6 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 {
 	switch (sz)
 	{
-		/*
 	// weird qword to qword, but necessary for the moment
 	// because the way casting works with point is somewhat hacky
 	// the code that generates this cast probably is at IR.cpp CAST: case in GinIRFromStack func
@@ -9035,7 +9034,6 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 	{
 		*dst_ptr = *(long long*)src_ptr;
 	}break;
-	*/
 	case 0x1:
 	{
 		*(u16 *)dst_ptr = *(u8*)src_ptr;
@@ -11158,21 +11156,38 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 
 			if (ptr_decl == 0)
 			{
-				snprintf(buffer, 64, "%s (&%d) %s##%d",  name.c_str(), base_ptr, buffer_in, base_ptr);
-				ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
-				if (d->type.strct->scp->vars.size() > 0)
+				if (d->type.strct->name == "mat4x4")
 				{
-					auto first = d->type.strct->scp->vars[0];
-					if (first && first->type.type == TYPE_ENUM)
+					snprintf(buffer, 64, "%s (&%d) %s##%d",  name.c_str(), base_ptr, buffer_in, base_ptr);
+					ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+					if (ImGui::TreeNodeEx(buffer, flag))
 					{
-						ImGuiPrintVar((char*)d->name.c_str(), dbg, first, base_ptr + first->offset, 0);
-						ImGui::SameLine();
+						float *addr = (float*)&dbg.mem_buffer[base_ptr];
+						ImGui::DragFloat4("0", addr);
+						ImGui::DragFloat4("1", &addr[4]);
+						ImGui::DragFloat4("2", &addr[8]);
+						ImGui::DragFloat4("3", &addr[12]);
+						ImGui::TreePop();  // This is required at the end of the if block
 					}
 				}
-				if (ImGui::TreeNodeEx(buffer, flag))
+				else
 				{
-					ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, base_ptr);
-					ImGui::TreePop();  // This is required at the end of the if block
+					snprintf(buffer, 64, "%s (&%d) %s##%d",  name.c_str(), base_ptr, buffer_in, base_ptr);
+					ImGuiTreeNodeFlags flag = ImGuiTreeNodeFlags_OpenOnArrow;
+					if (d->type.strct->scp->vars.size() > 0)
+					{
+						auto first = d->type.strct->scp->vars[0];
+						if (first && first->type.type == TYPE_ENUM)
+						{
+							ImGuiPrintVar((char*)d->name.c_str(), dbg, first, base_ptr + first->offset, 0);
+							ImGui::SameLine();
+						}
+					}
+					if (ImGui::TreeNodeEx(buffer, flag))
+					{
+						ImGuiPrintScopeVars(buffer, dbg, d->type.strct->scp, base_ptr);
+						ImGui::TreePop();  // This is required at the end of the if block
+					}
 				}
 			}
 			else
@@ -17966,6 +17981,7 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 #endif
 	lang_stat->flags = PSR_FLAGS_REPORT_UNDECLARED_IDENTS;
 
+	printf("name finding parsing report undeclared %d, find ident %d\n", GetTimerMS(&tmr), (u32)__lang_globals.find_ident_timer);
 	for(cur_f = 0; cur_f < lang_stat->files.size(); cur_f++)
 	{
 		auto f = lang_stat->files[cur_f];
@@ -18129,8 +18145,10 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 			}
 		}
 	}
+	printf("added some funcs to wasm_state %d\n", GetTimerMS(&tmr));
 
     GenWasm(&wasm_state);
+	printf("generated final code %d\n", GetTimerMS(&tmr));
 	/*
 	FOR_VEC(i1, lang_stat->files)
 	{

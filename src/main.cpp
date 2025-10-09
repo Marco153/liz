@@ -563,6 +563,17 @@ void GetMem(int, dbg_state* dbg);
 
 AudioClip* CreateNewAudioClip(open_gl_state *, char* name);
 
+struct bone
+{
+	own_std::string name;
+	bone *parent;
+	aiMatrix4x4 offset;
+	aiMatrix4x4 to_parent;
+	aiMatrix4x4 local_matrix;
+	aiMatrix4x4 inv_local_matrix;
+	own_std::vector<bone *> children;
+	aiNodeAnim *keyframes;
+};
 struct model_info
 {
 	own_std::string name;
@@ -579,6 +590,9 @@ struct model_info
 	int model_verts_count;
 
 	Vec3 size;
+	std::unordered_map<std::string, int> bones;
+	bone all[16];
+	aiScene *scene;
 };
 struct texture_info
 {
@@ -1283,6 +1297,147 @@ void quat_mul2(int thread_id, dbg_state* dbg){
 	auto c_ptr = (v4 *)&dbg->mem_buffer[c_];
 
 	*c_ptr = quat_mul(*a_ptr, *b_ptr);
+}
+
+void InvertMatrix(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int src_offset = *(int*)&dbg->mem_buffer[base_ptr + 8 ];
+	int dst_offset = *(int*)&dbg->mem_buffer[base_ptr + 16 ];
+
+	float *src_data = (float*)&dbg->mem_buffer[src_offset];
+	float *dst_data = (float*)&dbg->mem_buffer[dst_offset];
+
+	const Mat4& m=(const Mat4&)*src_data;
+    Mat4 inv;
+    const float* a = m.m;
+
+    inv.m[0] =   a[5] * a[10] * a[15] - 
+                 a[5] * a[11] * a[14] - 
+                 a[9] * a[6] * a[15] + 
+                 a[9] * a[7] * a[14] +
+                 a[13] * a[6] * a[11] - 
+                 a[13] * a[7] * a[10];
+
+    inv.m[4] =  -a[4] * a[10] * a[15] + 
+                 a[4] * a[11] * a[14] + 
+                 a[8] * a[6] * a[15] - 
+                 a[8] * a[7] * a[14] - 
+                 a[12] * a[6] * a[11] + 
+                 a[12] * a[7] * a[10];
+
+    inv.m[8] =   a[4] * a[9] * a[15] - 
+                 a[4] * a[11] * a[13] - 
+                 a[8] * a[5] * a[15] + 
+                 a[8] * a[7] * a[13] + 
+                 a[12] * a[5] * a[11] - 
+                 a[12] * a[7] * a[9];
+
+    inv.m[12] = -a[4] * a[9] * a[14] + 
+                 a[4] * a[10] * a[13] +
+                 a[8] * a[5] * a[14] - 
+                 a[8] * a[6] * a[13] - 
+                 a[12] * a[5] * a[10] + 
+                 a[12] * a[6] * a[9];
+
+    inv.m[1] =  -a[1] * a[10] * a[15] + 
+                 a[1] * a[11] * a[14] + 
+                 a[9] * a[2] * a[15] - 
+                 a[9] * a[3] * a[14] - 
+                 a[13] * a[2] * a[11] + 
+                 a[13] * a[3] * a[10];
+
+    inv.m[5] =   a[0] * a[10] * a[15] - 
+                 a[0] * a[11] * a[14] - 
+                 a[8] * a[2] * a[15] + 
+                 a[8] * a[3] * a[14] + 
+                 a[12] * a[2] * a[11] - 
+                 a[12] * a[3] * a[10];
+
+    inv.m[9] =  -a[0] * a[9] * a[15] + 
+                 a[0] * a[11] * a[13] + 
+                 a[8] * a[1] * a[15] - 
+                 a[8] * a[3] * a[13] - 
+                 a[12] * a[1] * a[11] + 
+                 a[12] * a[3] * a[9];
+
+    inv.m[13] =  a[0] * a[9] * a[14] - 
+                 a[0] * a[10] * a[13] - 
+                 a[8] * a[1] * a[14] + 
+                 a[8] * a[2] * a[13] + 
+                 a[12] * a[1] * a[10] - 
+                 a[12] * a[2] * a[9];
+
+    inv.m[2] =   a[1] * a[6] * a[15] - 
+                 a[1] * a[7] * a[14] - 
+                 a[5] * a[2] * a[15] + 
+                 a[5] * a[3] * a[14] + 
+                 a[13] * a[2] * a[7] - 
+                 a[13] * a[3] * a[6];
+
+    inv.m[6] =  -a[0] * a[6] * a[15] + 
+                 a[0] * a[7] * a[14] + 
+                 a[4] * a[2] * a[15] - 
+                 a[4] * a[3] * a[14] - 
+                 a[12] * a[2] * a[7] + 
+                 a[12] * a[3] * a[6];
+
+    inv.m[10] =  a[0] * a[5] * a[15] - 
+                 a[0] * a[7] * a[13] - 
+                 a[4] * a[1] * a[15] + 
+                 a[4] * a[3] * a[13] + 
+                 a[12] * a[1] * a[7] - 
+                 a[12] * a[3] * a[5];
+
+    inv.m[14] = -a[0] * a[5] * a[14] + 
+                 a[0] * a[6] * a[13] + 
+                 a[4] * a[1] * a[14] - 
+                 a[4] * a[2] * a[13] - 
+                 a[12] * a[1] * a[6] + 
+                 a[12] * a[2] * a[5];
+
+    inv.m[3] =  -a[1] * a[6] * a[11] + 
+                 a[1] * a[7] * a[10] + 
+                 a[5] * a[2] * a[11] - 
+                 a[5] * a[3] * a[10] - 
+                 a[9] * a[2] * a[7] + 
+                 a[9] * a[3] * a[6];
+
+    inv.m[7] =   a[0] * a[6] * a[11] - 
+                 a[0] * a[7] * a[10] - 
+                 a[4] * a[2] * a[11] + 
+                 a[4] * a[3] * a[10] + 
+                 a[8] * a[2] * a[7] - 
+                 a[8] * a[3] * a[6];
+
+    inv.m[11] = -a[0] * a[5] * a[11] + 
+                 a[0] * a[7] * a[9] + 
+                 a[4] * a[1] * a[11] - 
+                 a[4] * a[3] * a[9] - 
+                 a[8] * a[1] * a[7] + 
+                 a[8] * a[3] * a[5];
+
+    inv.m[15] =  a[0] * a[5] * a[10] - 
+                 a[0] * a[6] * a[9] - 
+                 a[4] * a[1] * a[10] + 
+                 a[4] * a[2] * a[9] + 
+                 a[8] * a[1] * a[6] - 
+                 a[8] * a[2] * a[5];
+
+    float det = a[0] * inv.m[0] + a[1] * inv.m[4] + a[2] * inv.m[8] + a[3] * inv.m[12];
+
+    if (det == 0) {
+        std::cerr << "Matrix inversion failed, determinant is zero.\n";
+		memcpy(dst_data, &m, 64);
+    }
+
+    det = 1.0f / det;
+
+    for (int i = 0; i < 16; i++) {
+        inv.m[i] *= det;
+    }
+
+	memcpy(dst_data, &inv, 64);
 }
 void euler_to_quaternion2(int thread_id, dbg_state* dbg){
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -2550,14 +2705,25 @@ void ImGuiEnumCombo(int thread_id, dbg_state* dbg)
 	bool* addr = (bool*)&dbg->mem_buffer[RET_1_REG * 8];
 	*addr = clicked;
 }
+void ImGuiPopID(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	ImGui::PopID();
+}
+void ImGuiPushID(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	auto id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	ImGui::PushID(id);
+}
 void ImGuiShowV4(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 	auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
 	auto v = (v3*)&dbg->mem_buffer[v_offset];
 	char buffer[128];
-	snprintf(buffer, 128, "##%p", v);
-	ImGui::DragFloat4(buffer, (float*)v, 0.5);
+	snprintf(buffer, 128, "##%p%d", v, v_offset);
+	ImGui::DragFloat4(buffer, (float*)v, 0.1);
 }
 void ImGuiShowV2(int thread_id, dbg_state* dbg)
 {
@@ -2566,7 +2732,7 @@ void ImGuiShowV2(int thread_id, dbg_state* dbg)
 	auto v = (v3*)&dbg->mem_buffer[v_offset];
 	char buffer[128];
 	snprintf(buffer, 128, "##%p", v);
-	ImGui::DragFloat2(buffer, (float*)v, 0.5);
+	ImGui::DragFloat2(buffer, (float*)v, 0.1);
 }
 void ImGuiShowV3(int thread_id, dbg_state* dbg)
 {
@@ -2575,7 +2741,7 @@ void ImGuiShowV3(int thread_id, dbg_state* dbg)
 	auto v = (v3*)&dbg->mem_buffer[v_offset];
 	char buffer[128];
 	snprintf(buffer, 128, "##%p", v);
-	ImGui::DragFloat3(buffer, (float*)v, 0.5);
+	ImGui::DragFloat3(buffer, (float*)v, 0.1);
 }
 void ImGuiSetCursorPos(int thread_id, dbg_state* dbg)
 {
@@ -4008,6 +4174,7 @@ void ImGuiImage(int thread_id, dbg_state* dbg)
 
 	auto gl_state = (open_gl_state*)dbg->data;
 	texture_info* t = &gl_state->textures[id];
+	//printf("ImGuiImage id is %d, glid is %d\n", id, t->id);
 	ImGui::Image((ImTextureID)(intptr_t)t->id, ImVec2(sz_x, sz_y), ImVec2(0, 1), ImVec2(1, 0));
 
 }
@@ -5202,6 +5369,268 @@ void UpdateModel(int thread_id, dbg_state* dbg)
 
 	glBufferSubData(GL_ARRAY_BUFFER, 0, m->verts_size, verts);
 }
+void print_row(float *row, int t)
+{
+	for(int i = 0;i < t;i++)
+	{
+		printf(" ");
+	}
+	printf("%.3f, %.3f, %.3f, %.3f\n", row[0], row[1], row[2], row[3]);
+}
+void print_aimatrix4x4(aiMatrix4x4 *m, int t)
+{
+	print_row(&m->a1, t);
+	print_row(&m->b1, t);
+	print_row(&m->c1, t);
+	print_row(&m->d1, t);
+}
+#define ADD_TAB(t)\
+	for(int i = 0;i < t;i++)\
+	{\
+		printf(" ");\
+	}
+void PrintBone(bone *b, int t)
+{
+	ADD_TAB(t)
+
+	printf("name: %s\n", b->name.c_str());
+
+	ADD_TAB(t)
+	printf("offset:\n");
+	print_aimatrix4x4(&b->offset, t);
+
+	ADD_TAB(t)
+	printf("to_parent:\n");
+	print_aimatrix4x4(&b->to_parent, t);
+	
+	ADD_TAB(t)
+	printf("final_transform:\n");
+	print_aimatrix4x4(&b->local_matrix, t);
+
+	/*
+	ADD_TAB(t)
+	printf("pos: (%.3f, %.3f, %.3f)\n", b->pos.x, b->pos.y, b->pos.z);
+
+	ADD_TAB(t)
+	printf("scale: (%.3f, %.3f, %.3f, %.3f)\n", b->scale.x, b->scale.y, b->scale.z, b->scale.w);
+
+	ADD_TAB(t)
+	printf("rot: (%.3f, %.3f, %.3f, %.3f)\n", b->rot.x, b->rot.y, b->rot.z, b->rot.w);
+	*/
+	for(int i = 0;i < t;i++)
+	{
+		printf(" ");
+	}
+	/*
+	if(b->parent)
+	{
+		printf("to_parent:\n");
+		print_aimatrix4x4(&b->to_parent, t);
+	}
+	FOR_VEC(ch, b->children)
+	{
+		PrintBone(*ch, t+2);
+	}
+		*/
+
+	FOR_VEC(ch, b->children)
+	{
+		PrintBone(*ch, t + 2);
+
+	}
+}
+void PrintNode(aiNode *n, int t)
+{
+	for(int i = 0;i < t;i++)
+	{
+		printf(" ");
+	}
+
+	printf("--name: %s--\n", n->mName.C_Str());
+
+	for(int i = 0;i < t;i++)
+	{
+		printf(" ");
+	}
+	printf("to_parent:\n");
+	print_aimatrix4x4(&n->mTransformation, t);
+	/*
+	if(b->parent)
+	{
+		printf("to_parent:\n");
+		print_aimatrix4x4(&b->to_parent, t);
+	}
+	FOR_VEC(ch, b->children)
+	{
+		PrintBone(*ch, t+2);
+	}
+		*/
+
+	for(int i = 0; i < n->mNumChildren;i++)
+	{
+		PrintNode(n->mChildren[i], t + 2);
+	}
+}
+void FillBone(bone *b, aiNode *nd, std::unordered_map<std::string, int> *bones, bone *all, aiMatrix4x4 *given_mat)
+{
+	b->to_parent = nd->mTransformation;
+	*given_mat = *given_mat * b->offset;
+	for(int i = 0; i < nd->mNumChildren;i++)
+	{
+		aiNode *cur = nd->mChildren[i];
+		if(bones->find(cur->mName.C_Str()) != bones->end())
+		{
+			int idx = (*bones)[cur->mName.C_Str()];
+
+			bone *child = &all[idx];
+			child->local_matrix = child->offset;
+			Mat4 aux = Inverse((const Mat4 &)child->local_matrix);
+			memcpy(&child->inv_local_matrix, &aux, 64);
+			b->children.emplace_back(child);
+			FillBone(child, cur, bones, all, given_mat);
+		}
+	}
+}
+void GetModelBonesLen(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int bones_out = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	model_info *m = &gl_state->models[model_idx];
+	auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+	ASSERT(m->scene)
+	ASSERT(m->scene->HasAnimations())
+	*ret = m->bones.size();
+}
+void ModelHasAnim(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	model_info *m = &gl_state->models[model_idx];
+	auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+	if(m->scene)
+	{
+		*ret = m->scene->HasAnimations();
+		return;
+	}
+	*ret = 0 ;
+}
+void GetBoneMatrices(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int bone_id = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int local_mat_out = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int inv_local_mat_out = *(int*)&dbg->mem_buffer[base_ptr + 32];
+
+	int *local_mat_out_ptr = (int*)&dbg->mem_buffer[local_mat_out];
+	int *inv_local_mat_out_ptr = (int*)&dbg->mem_buffer[inv_local_mat_out];
+
+	model_info *m = &gl_state->models[model_idx];
+	aiScene *scene = m->scene;
+	ASSERT(scene)
+	ASSERT(scene->HasAnimations())
+
+	aiAnimation *cur_anim = scene->mAnimations[0];
+
+	auto bone = &m->all[bone_id];
+
+	memcpy(local_mat_out_ptr, &bone->local_matrix, 64);
+	memcpy(inv_local_mat_out_ptr, &bone->inv_local_matrix, 64);
+}
+void GetBoneKeyframesData(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int bone_id = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int pos_out = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int scales_out = *(int*)&dbg->mem_buffer[base_ptr + 32];
+	int rot_out = *(int*)&dbg->mem_buffer[base_ptr + 40];
+
+	int *pos_out_ptr = (int*)&dbg->mem_buffer[pos_out];
+	int *scales_out_ptr = (int*)&dbg->mem_buffer[scales_out];
+	int *rot_out_ptr = (int*)&dbg->mem_buffer[rot_out];
+
+	model_info *m = &gl_state->models[model_idx];
+	aiScene *scene = m->scene;
+	ASSERT(scene)
+	ASSERT(scene->HasAnimations())
+
+
+	// psr means p-osition, s-cale, r-otation
+	struct keyframe_psr
+	{
+		float time;
+		v4 val;
+	};
+
+	auto bone_aux = &m->all[bone_id];
+
+	aiNodeAnim *bone = bone_aux->keyframes;
+	//HERE()
+	for(int i = 0; i < bone->mNumPositionKeys;i++)
+	{
+		auto cur_dst = ((keyframe_psr*)pos_out_ptr)+i;
+		auto cur_src = &bone->mPositionKeys[i];
+		cur_dst->time = cur_src->mTime;
+		memcpy(&cur_dst->val, &cur_src->mValue, 12);
+		auto a = 0;
+	}
+	for(int i = 0; i < bone->mNumScalingKeys;i++)
+	{
+		auto cur_dst = ((keyframe_psr*)scales_out_ptr)+i;
+		auto cur_src = &bone->mScalingKeys[i];
+		cur_dst->time = cur_src->mTime;
+		memcpy(&cur_dst->val, &cur_src->mValue, 12);
+	}
+	for(int i = 0; i < bone->mNumRotationKeys;i++)
+	{
+		auto cur_dst = ((keyframe_psr*)rot_out_ptr)+i;
+		auto cur_src = &bone->mRotationKeys[i];
+		cur_dst->time = cur_src->mTime;
+		cur_dst->val.x = cur_src->mValue.x;
+		cur_dst->val.y = cur_src->mValue.y;
+		cur_dst->val.z = cur_src->mValue.z;
+		cur_dst->val.w = cur_src->mValue.w;
+	}
+}
+void GetBoneKeyframesLen(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int bone_id = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int pos_out = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int scales_out = *(int*)&dbg->mem_buffer[base_ptr + 32];
+	int rot_out = *(int*)&dbg->mem_buffer[base_ptr + 40];
+
+	int *pos_out_ptr = (int*)&dbg->mem_buffer[pos_out];
+	int *scales_out_ptr = (int*)&dbg->mem_buffer[scales_out];
+	int *rot_out_ptr = (int*)&dbg->mem_buffer[rot_out];
+
+	model_info *m = &gl_state->models[model_idx];
+	aiScene *scene = m->scene;
+	ASSERT(scene)
+	ASSERT(scene->HasAnimations())
+
+	auto bone_aux = &m->all[bone_id];
+
+	aiNodeAnim *bone = bone_aux->keyframes;
+
+	*pos_out_ptr = bone->mNumPositionKeys;
+	*scales_out_ptr = bone->mNumScalingKeys;
+	*rot_out_ptr = bone->mNumRotationKeys;
+}
+void loadIdentity(float* mat) {
+    std::fill(mat, mat + 16, 0.0f);
+    mat[0] = mat[5] = mat[10] = mat[15] = 1.0f;
+}
 void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -5232,13 +5661,135 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 
     const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
 
+
 	model_info*m = &gl_state->models[free_idx];
+	new(m)model_info();
+	std::unordered_map<std::string, int> &bones=m->bones;
+	bone *all = m->all;
 
-    // Create vertex array (positions only for simplicity)
+	m->scene = (aiScene *)scene;
+	
+	int stride = 5;
 
-	m->vertex_stride = 5;
-	int stride = m->vertex_stride;
-    auto vertices = (float *)malloc(mesh->mNumVertices * stride * sizeof(float));
+
+	int number_of_bone_ids_per_vertex = 4;
+	if(mesh->HasBones())
+	{
+		//HERE()
+		// 4 for bones ids, 4 for weights
+		stride += number_of_bone_ids_per_vertex + 4;
+	}
+
+	m->vertex_stride = stride;
+	
+	int size = mesh->mNumVertices * stride * sizeof(float);
+    auto vertices = (float *)AllocMiscData(dbg->lang_stat, size);
+	memset(vertices, 0, size);
+
+	if(mesh->HasBones())
+	{
+		int bones_added = 0; 
+
+
+		for(int i = 0; i < mesh->mNumBones;i++)
+		{
+			aiBone *b = mesh->mBones[i];
+
+			std::string str(b->mName.C_Str());
+			bone *cur_bone = &all[bones_added];
+			cur_bone->parent = nullptr;
+			cur_bone->name = b->mName.C_Str();
+			cur_bone->offset = b->mOffsetMatrix;
+			
+			for(int v = 0; v < b->mNumWeights; v++)
+			{
+				aiVertexWeight vw = b->mWeights[v];
+				int vert_idx = vw.mVertexId * stride;
+
+				//find empty bone id slot
+				int empty_slot = -1;
+				int *cur_vert = (int *)&vertices[vert_idx];
+				int *cur_empty_slot = (int *)&vertices[vert_idx + 5];
+				for(int v = 0; v < number_of_bone_ids_per_vertex; v++)
+				{
+					if(*cur_empty_slot == 0)
+					{
+						empty_slot = v + 1;
+						break;
+					}
+					cur_empty_slot++;
+				}
+
+				ASSERT(empty_slot != -1)
+
+				*cur_empty_slot = i + 1;
+				*(float *)&cur_empty_slot[number_of_bone_ids_per_vertex] = vw.mWeight;
+			}
+
+			bones[str] = bones_added;
+
+			bones_added++;
+		}
+		//HERE()
+		aiBone root;
+		root.mName = all[0].name.c_str();
+		auto cur_bone_nd = (aiNode *)scene->mRootNode->findBoneNode(&root);
+
+		bone *cur = &all[0];
+		aiMatrix4x4 identity;
+		loadIdentity((float *)&identity);
+		FillBone(cur, cur_bone_nd, &bones, all, &identity);
+		PrintBone(cur, 0);
+
+		for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+			int vert_idx = i * stride;
+			v4 *cur = (v4 *)&vertices[vert_idx + 5 + number_of_bone_ids_per_vertex];
+			auto total = cur->x + cur->y + cur->z + cur->w;
+
+			cur->x /= total;
+			cur->y /= total;
+			cur->z /= total;
+			cur->w /= total;
+		}
+		//ASSERT(0)
+	}
+	if(scene->HasAnimations())
+	{
+		for(int i= 0; i < scene->mNumAnimations; i++)
+		{
+			aiAnimation *cur_anim = scene->mAnimations[i];
+			for(int a = 0; a < cur_anim->mNumChannels; a++)
+			{
+				aiNodeAnim *nd_anim = cur_anim->mChannels[a];
+				printf("ndanim_name: %s, duration\n", nd_anim->mNodeName.C_Str(), cur_anim->mDuration/cur_anim->mTicksPerSecond);
+				auto str = nd_anim->mNodeName.C_Str();
+				if(bones.find(str) != bones.end())
+				{
+					int id  = bones[str];
+					all[id].keyframes = nd_anim;
+					printf("positions\n");
+					for(int pos_k = 0; pos_k < nd_anim->mNumPositionKeys; pos_k++)
+					{
+						aiVectorKey p = nd_anim->mPositionKeys[pos_k];
+						printf("key time: %.3f, pos: (%.3f, %.3f, %.3f)\n", p.mTime, p.mValue.x, p.mValue.y, p.mValue.z);
+
+					}
+					printf("-----");
+
+					printf("rotations\n");
+					for(int pos_k = 0; pos_k < nd_anim->mNumRotationKeys; pos_k++)
+					{
+						aiQuatKey p = nd_anim->mRotationKeys[pos_k];
+						printf("key time: %.3f, pos: (%.3f, %.3f, %.3f, %.3f)\n", p.mTime, p.mValue.x, p.mValue.y, p.mValue.z, p.mValue.w);
+					}
+					printf("-----");
+				}
+			}
+		}
+		//HERE()
+	}
+
+
 	float max_x = 0.0;
 	float max_y = 0.0;
 	float max_z = 0.0;
@@ -5246,8 +5797,8 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 		Vec3 *v = (Vec3 *)&mesh->mVertices[i].x;
 
 
-		*v = rotate(*v, Vec3(1.0, 0.0, 0.0), -3.1415 * 0.5) * 0.5;
-		*v = rotate(*v, Vec3(0.0, 1.0, 0.0), -3.1415);
+		//*v = rotate(*v, Vec3(1.0, 0.0, 0.0), -3.1415 * 0.5) * 0.5;
+		//*v = rotate(*v, Vec3(0.0, 1.0, 0.0), -3.1415);
 
 		max_x = max(max_x, abs(v->x));
 		max_y = max(max_y, abs(v->y));
@@ -5270,10 +5821,12 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
     for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
         const struct aiFace *face = &mesh->mFaces[i];
         if (face->mNumIndices != 3) continue; // skip non-triangles
-        indices[i * 3 + 0] = face->mIndices[2];
+        indices[i * 3 + 0] = face->mIndices[0];
         indices[i * 3 + 1] = face->mIndices[1];
-        indices[i * 3 + 2] = face->mIndices[0];
+        indices[i * 3 + 2] = face->mIndices[2];
     }
+
+
 
 
     printf("Loaded mesh: %d vertices, %d indices\n", mesh->mNumVertices, index_count);
@@ -5294,6 +5847,13 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
     glEnableVertexAttribArray(0);
     GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride * sizeof(float), (void*)(3 * sizeof(float))));
     glEnableVertexAttribArray(1);
+	if(mesh->HasBones())
+	{
+		glVertexAttribIPointer(2, 4, GL_INT, stride * sizeof(float), (void*)(5 * sizeof(float)));
+		glEnableVertexAttribArray(2);
+		GL_CALL(glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride * sizeof(float), (void*)(9 * sizeof(float))));
+		glEnableVertexAttribArray(3);
+	}
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_count * sizeof(int), indices, GL_STATIC_DRAW);
@@ -5309,7 +5869,7 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 
     //free(vertices);
     //free(indices);
-    aiReleaseImport(scene);
+    //aiReleaseImport(scene);
 
 
 	*(int*)&dbg->mem_buffer[RET_1_REG * 8] = free_idx;
@@ -5350,6 +5910,24 @@ void ModelFarthestPoint(int thread_id, dbg_state* dbg)
 	memcpy(aux, p, 12);
 	*(((float *)ret) + 3) = 0.0f;
 }
+void GetInfoFromModel(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int out_verts_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int out_indices_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+
+	int *out_verts = (int*)&dbg->mem_buffer[out_verts_offset];
+	int *out_indices = (int*)&dbg->mem_buffer[out_indices_offset];
+
+
+	auto gl_state = (open_gl_state*)dbg->data;
+
+	model_info *m = &gl_state->models[model];
+
+	*out_verts = m->model_verts_count;
+	*out_indices= m->indicies;
+}
 void CopyDataFromModel(int thread_id, dbg_state* dbg)
 {
 	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -5375,42 +5953,19 @@ void CopyDataFromModel(int thread_id, dbg_state* dbg)
 	int *indices_ptr = (int*)&dbg->mem_buffer[indices_offset];
 	int stride = m->vertex_stride;
 
-	if(m->model_verts_count > 64)
+	for(int i = 0; i < m->model_verts_count; i++)
 	{
-		for(int i = 0; i < 8; i++)
-		{
-			auto m_vert = &gl_state->cube_verts[i];
-			auto target_vert = (v4*)&verts_ptr[i * 4];
-			memcpy(target_vert, m_vert, 3 * 4);
-			target_vert->x *= m->size.x;
-			target_vert->y *= m->size.y;
-			target_vert->z *= m->size.z;
-			//printf("vx %.3f, vy %.3f, vz %.3f\n", target_vert->x, target_vert->y, target_vert->z);
-			((v4*)target_vert)->w = 0.0;
-		}
-
-		memcpy(indices_ptr, gl_state->cubeIndices, 36 * sizeof(int));
-
-		*out_verts = 8;
-		*out_indices = 36;
+		auto m_vert = &m->vertices[i * stride];
+		auto target_vert = (v4*)&verts_ptr[i * 4];
+		memcpy(target_vert, m_vert, 3 * 4);
+		//printf("vx %.3f, vy %.3f, vz %.3f\n", target_vert->x, target_vert->y, target_vert->z);
+		((v4*)target_vert)->w = 0.0;
 	}
-	else
-	{
 
-		for(int i = 0; i < m->model_verts_count; i++)
-		{
-			auto m_vert = &m->vertices[i * stride];
-			auto target_vert = (v4*)&verts_ptr[i * 4];
-			memcpy(target_vert, m_vert, 3 * 4);
-			//printf("vx %.3f, vy %.3f, vz %.3f\n", target_vert->x, target_vert->y, target_vert->z);
-			((v4*)target_vert)->w = 0.0;
-		}
+	memcpy(indices_ptr, m->indices_data, m->indicies * sizeof(int));
 
-		memcpy(indices_ptr, m->indices_data, m->indicies * sizeof(int));
-
-		*out_verts = m->model_verts_count;
-		*out_indices = m->indicies;
-	}
+	*out_verts = m->model_verts_count;
+	*out_indices = m->indicies;
 }
 void LoadModel(int thread_id, dbg_state* dbg)
 {
@@ -6159,51 +6714,6 @@ void SetIsEngine(int thread_id, dbg_state* dbg)
 	}
 
 
-	GLuint fbo, texture, depthBuffer;
-
-	// Create and bind the framebuffer
-	glGenFramebuffers(1, &fbo);
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-	gl_state->frame_buffer = fbo;
-
-	// Create the texture to render to
-	glGenTextures(1, &texture);
-	glBindTexture(GL_TEXTURE_2D, texture);
-	gl_state->frame_buffer_tex = texture;
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 
-		gl_state->scene_srceen_width, 
-		gl_state->scene_srceen_height, 
-		0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr
-	);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-	// Attach the texture to the framebuffer's color attachment
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-
-	// Create and attach a depth buffer (optional, for 3D scenes)
-	glGenRenderbuffers(1, &depthBuffer);
-	glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 
-		gl_state->scene_srceen_width,
-		gl_state->scene_srceen_height
-	);
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuffer);
-
-	auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-
-	// Check framebuffer completeness
-	if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
-		printf("Error: Framebuffer is not complete!\n");
-		ASSERT(false);
-	}
-
-	// Unbind the framebuffer for now
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-	// Set the list of draw buffers.
-	//GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
-	//glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
 
 }
 // Shader compilation helper
@@ -6224,10 +6734,6 @@ GLuint compileShader(GLenum type, const char* source) {
 }
 
 // Matrix utility (replace with glm in serious projects)
-void loadIdentity(float* mat) {
-    std::fill(mat, mat + 16, 0.0f);
-    mat[0] = mat[5] = mat[10] = mat[15] = 1.0f;
-}
 
 void perspective(float* mat, float fov, float aspect, float near, float far) {
     float tanHalfFov = tanf(fov / 2);
@@ -6327,7 +6833,6 @@ void SetSampler2D(int thread_id, dbg_state* dbg)
 	int uid = *(int *)&dbg->mem_buffer[base_ptr + 8];
 	auto tex_id = *(int*)&dbg->mem_buffer[base_ptr + 16];
 
-
 	auto gl_state = (open_gl_state*)dbg->data;
 	texture_info* t = &gl_state->textures[tex_id];
 
@@ -6336,6 +6841,15 @@ void SetSampler2D(int thread_id, dbg_state* dbg)
 	glBindTexture(GL_TEXTURE_2D, t->id);
 	glActiveTexture(GL_TEXTURE0);
 	//glUniform4f(uid, v->x, v->y, v->z, v->w);
+}
+void SetUniformMatrices4x4(int thread_id, dbg_state* dbg)
+{
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int uid = *(int *)&dbg->mem_buffer[base_ptr + 8];
+	int count = *(int *)&dbg->mem_buffer[base_ptr + 16];
+	auto data_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	auto data = (float*)&dbg->mem_buffer[data_offset];
+	glUniformMatrix4fv(uid, count, true, data);
 }
 void SetUniform1f(int thread_id, dbg_state* dbg)
 {
@@ -6817,6 +7331,53 @@ void Init3D(dbg_state* dbg)
 	// load and generate the texture
 	int width, height, nrChannels;
 	*/
+
+
+	GLuint fbo, texture, depthBuffer;
+
+	// Create and bind the framebuffer
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	gl_state->frame_buffer = fbo;
+
+	// Create the texture to render to
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	gl_state->frame_buffer_tex = texture;
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 
+		gl_state->width, 
+		gl_state->height, 
+		0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr
+	);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	// Attach the texture to the framebuffer's color attachment
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+	// Create and attach a depth buffer (optional, for 3D scenes)
+	glGenRenderbuffers(1, &depthBuffer);
+	glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 
+		gl_state->width,
+		gl_state->height
+	);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthBuffer);
+
+	auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+	// Check framebuffer completeness
+	if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
+		printf("Error: Framebuffer is not complete!\n");
+		ASSERT(false);
+	}
+
+	// Unbind the framebuffer for now
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+	// Set the list of draw buffers.
+	//GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+	//glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
 }
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 {
@@ -8072,10 +8633,14 @@ AudioClip* CreateNewAudioClip(open_gl_state *gl_state, char* name)
 
 int main(int argc, char* argv[])
 {
-	lang_state lang_stat;
+	auto ttt = 0;
 	mem_alloc alloc;
 	alloc.main_buffer = nullptr;
 	InitMemAlloc(&alloc);
+
+	auto stat = (lang_state *)malloc(sizeof(lang_state));
+	lang_state &lang_stat = *stat;
+
 	InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free, &alloc);
 
 #ifdef LINUX
@@ -8339,6 +8904,9 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "UpdateTexture", (OutsiderFuncType)UpdateTexture);
 	AssignOutsiderFunc(&lang_stat, "GetMouseScroll", (OutsiderFuncType)GetMouseScroll);
 	AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
+	AssignOutsiderFunc(&lang_stat, "ImGuiPushID", (OutsiderFuncType)ImGuiPushID);
+	AssignOutsiderFunc(&lang_stat, "ImGuiPopID", (OutsiderFuncType)ImGuiPopID);
+	AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
 	AssignOutsiderFunc(&lang_stat, "ImGuiShowV2", (OutsiderFuncType)ImGuiShowV2);
 	AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
 	AssignOutsiderFunc(&lang_stat, "ImGuiShowV4", (OutsiderFuncType)ImGuiShowV4);
@@ -8354,11 +8922,21 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "SetUniform3f", (OutsiderFuncType)SetUniform3f);
 	AssignOutsiderFunc(&lang_stat, "SetUniform2f", (OutsiderFuncType)SetUniform2f);
 	AssignOutsiderFunc(&lang_stat, "SetUniform1f", (OutsiderFuncType)SetUniform1f);
+	AssignOutsiderFunc(&lang_stat, "SetUniformMatrices4x4", (OutsiderFuncType)SetUniformMatrices4x4);
 	AssignOutsiderFunc(&lang_stat, "SetSampler2D", (OutsiderFuncType)SetSampler2D);
 	AssignOutsiderFunc(&lang_stat, "SetShader", (OutsiderFuncType)SetShader);
-	AssignOutsiderFunc(&lang_stat, "SetCulling", (OutsiderFuncType)SetCulling);
+
+	AssignOutsiderFunc(&lang_stat, "GetBoneKeyframesLen", (OutsiderFuncType)GetBoneKeyframesLen);
+	AssignOutsiderFunc(&lang_stat, "GetBoneKeyframesData", (OutsiderFuncType)GetBoneKeyframesData);
+	AssignOutsiderFunc(&lang_stat, "GetModelBonesLen", (OutsiderFuncType)GetModelBonesLen);
+	AssignOutsiderFunc(&lang_stat, "GetBoneMatrices", (OutsiderFuncType)GetBoneMatrices);
+	AssignOutsiderFunc(&lang_stat, "ModelHasAnim", (OutsiderFuncType)ModelHasAnim);
 
 	AssignOutsiderFunc(&lang_stat, "CopyDataFromModel", (OutsiderFuncType)CopyDataFromModel);
+	AssignOutsiderFunc(&lang_stat, "GetInfoFromModel", (OutsiderFuncType)GetInfoFromModel);
+	AssignOutsiderFunc(&lang_stat, "InvertMatrix", (OutsiderFuncType)InvertMatrix);
+
+	AssignOutsiderFunc(&lang_stat, "SetCulling", (OutsiderFuncType)SetCulling);
 
 	AssignOutsiderFunc(&lang_stat, "euler_to_quaternion2", (OutsiderFuncType)euler_to_quaternion2);
 	AssignOutsiderFunc(&lang_stat, "quat_mul2", (OutsiderFuncType)quat_mul2);

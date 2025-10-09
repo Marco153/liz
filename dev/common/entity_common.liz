@@ -215,9 +215,9 @@ entity:struct
 	pivot : _vec,
 	color : _vec,
 	vel : _vec,
-	model : u32
 	flags : u32,
-	tex_id : u32,
+	model : asset_index
+	tex_id : asset_index
 
 	
 
@@ -254,7 +254,7 @@ entity:struct
 	can_start_combo : bool,
 	normal_col : _vec
 
-	material_idx : s32
+	material_idx : asset_index
 	in_material_instance : u32
 
 	layer : u32,

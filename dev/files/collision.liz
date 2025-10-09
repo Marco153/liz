@@ -1011,8 +1011,27 @@ maxPerComponent::fn x64(a: *_vec, b: *_vec) ! _vec
 	ret.w = maxf(a.w, b.w)
     return ret
 }
-CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec)
+CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec, mesh_verts : *_vec)
 {
+	p := col.pos
+	p.x = p.x * e.size.x
+	p.y = p.y * e.size.y
+	p.z = p.z * e.size.z
+	q :quaternion=?
+	q.v = e.rot
+
+	p = q * p
+
+
+	sz := col.size
+	sz.x = sz.x * e.size.x
+	sz.y = sz.y * e.size.y
+	sz.z = sz.z * e.size.z
+	final_pos := (e.pos + p)
+
+	final_size := sz
+	mat : mat4x4=?
+
 	on col.type 
 	{
 	col_type.TRIANGLE
@@ -1047,25 +1066,29 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 		_max.z = e.pos.z + r
 		_max.w = 0.0
 	}
+	col_type.MESH
+	{
+		a := cast(*f32)&mat
+		c := cast(*f32)&q.v
+		build_model_matrix(a, &final_pos, c, &final_size)
+
+		minfo := col.MESH.info
+		start := mesh_verts
+		//prev_ptr := minfo.tris
+		//prev_val := *minfo.tris
+		for i in 0..minfo.verts_count
+		{
+			v := ptr_offset(start, i, _vec)
+			v.w = 1.0
+			*v = mul_mat_vec(&mat, v)
+			v.w = 0.0
+			*_min = minPerComponent(_min, v)
+			*_max = maxPerComponent(_max, v)
+		}
+		
+	}
 	col_type.CUBE
 	{
-		p := col.pos
-		p.x = p.x * e.size.x
-		p.y = p.y * e.size.y
-		p.z = p.z * e.size.z
-		q :quaternion=?
-		q.v = e.rot
-
-		p = q * p
-
-
-		sz := col.size
-		sz.x = sz.x * e.size.x
-		sz.y = sz.y * e.size.y
-		sz.z = sz.z * e.size.z
-		final_pos := (e.pos + p)
-
-		final_size := sz
 		start := col.CUBE.verts[0]
 
 		if col.no_rotation_ent
@@ -1082,7 +1105,6 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 		else
 		{
 			//memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
-			mat : mat4x4=?
 
 			//__dbg_break
 			//__dbg_break
@@ -1124,6 +1146,18 @@ CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
 		col.data_ready = true
 		//col.pos = col.ent.pos
 	}
+
+	mesh_verts : *_vec
+
+	if col.type == col_type.MESH
+	{
+		minfo := &col.MESH.info
+		printf("is mesh copyverts\n")
+		m := minfo.model_idx
+		CopyDataFromModel(cast(u32)m, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)
+
+		mesh_verts = col.MESH.info.verts
+	}
 	_min.x = 9999.9
 	_min.y = 9999.9
 	_min.z = 9999.9
@@ -1135,7 +1169,7 @@ CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
 	{
 		memcpy(col.CUBE.verts[0], globals.cube_verts[0], 16 * 8)
 	}
-	CopyVertsActual(col, col.ent, _min, _max)
+	CopyVertsActual(col, col.ent, _min, _max, mesh_verts)
 }
 //solve_col::fn(e : *entity, )
 
@@ -1687,6 +1721,57 @@ StepCol::fn(ctx : *context, dt : f32)
 			e2 := *_e2
 			e2.flags = e2.flags & ~ENTITY_ALREADY_DONE_IN_COLISION
 		}
+
+		for ch in ctx.aux_col_chunks
+		{
+			
+			for tri in ch.tris
+			{
+				
+				info :verts_from_tri_info
+				info.t = tri.tri_idx
+				get_verts_pos_from_tris(&info, tri.info.tris, cast(*f32)tri.info.verts, 4)
+
+				_v1 := info.v1_out
+				_v2 := info.v2_out
+				_v3 := info.v3_out
+				cross := info.cross
+				gjk.aux_col.type = col_type.TRIANGLE
+				gjk.aux_col.TRIANGLE.verts[0] = _v1
+				gjk.aux_col.TRIANGLE.verts[1] = _v2
+				gjk.aux_col.TRIANGLE.verts[2] = _v3
+
+				gjk.aux_col.TRIANGLE.normal = cross
+
+				//if t == 375
+					//__dbg_break;
+				
+				/*
+				if chunk.verts_mesh_idx == 2 && c1.ent.pos.z >= 34.0
+				{
+					__dbg_break
+				}
+				*/
+				if GJK(gjk, c1, &gjk.aux_col)
+				{
+					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, &gjk.aux_col, &col)
+					e.pos -= mtv
+
+					col.normal = col.normal * -1.0
+					if !EntIsInCollision(e, tri.ent, &col)
+					{
+						if e.col_enter != nil
+						{
+							e.col_enter(e, tri.ent, &col);
+						}
+					}
+					if e.col_stay != nil
+					{
+						e.col_stay(e, tri.ent, &col);
+					}
+				}
+			}
+		}
 	}
 
 }
@@ -1823,7 +1908,7 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	if trn.chunks_col_window_size == 0
 	{
 		printf("trn.chunks_col_window_size is 0\n")
-		__dbg_break
+		return false
 	}
 
 	chunks_in_radius :=  cast(u32)radius / trn.chunks_col_window_size
@@ -2108,7 +2193,7 @@ RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*coll
 	cur_dist := 99999.0
 	for it in ctx.ents
 	{
-		if it.model <= 1 || it.is_active == false || it.type == ent_type.PREVIEW_ENT || is_flag_on(it.layer, LAYER_IGNORE_RAYCAST)
+		if it.model.asset_idx <= 257 || it.is_active == false || it.type == ent_type.PREVIEW_ENT || is_flag_on(it.layer, LAYER_IGNORE_RAYCAST)
 			continue;
 		
 		
@@ -2117,7 +2202,16 @@ RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*coll
 		
 		//__dbg_break
 		
-		CopyDataFromModel(it.model, ctx.aux_vertices, ctx.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
+		model_verts_count:u32
+		model_tris_count:u32
+		m := get_id_of_model(&it.model)
+		printf("name {it.name}, idx {it.model.asset_idx}, gl id {m}\n")
+		GetInfoFromModel(m, &model_verts_count, &model_tris_count)
+		if model_verts_count > ctx.aux_vertices_sz
+		{
+			continue
+		}
+		CopyDataFromModel(m, ctx.aux_vertices, ctx.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
 
 		mat : mat4x4=?
 		q :quaternion=?
@@ -2197,6 +2291,10 @@ ray_agains_collider::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*colli
 	
 	on c1.type
 	{
+	col_type.MESH
+	{
+
+	}
 	col_type.CUBE
 	{
 		globals.trn = e

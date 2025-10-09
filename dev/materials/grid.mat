@@ -1,11 +1,11 @@
-uniform mat4 model
-uniform mat4 view
-uniform mat4 projection
-uniform v4 col
-uniform v4 cam_pos
-uniform v3 sun_dir
-uniform v4 sun_color
-uniform sampler2d tex
+model:uniform mat4 
+view:uniform mat4 
+projection:uniform mat4 
+col:uniform v4 
+cam_pos:uniform v4 
+sun_dir:uniform v3 
+sun_color:uniform v4 
+tex:uniform sampler2d 
 
 vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
 {

@@ -1,17 +1,17 @@
-uniform mat4 model
-uniform mat4 view
-uniform mat4 projection
-uniform v4 col
-uniform v4 cam_pos
-uniform v3 sun_dir
-uniform v4 sun_color
-uniform v2 terrain_size
-uniform f32 amplitude
-uniform sampler2d tex
-uniform sampler2d tex2
-uniform sampler2d tex3
-uniform sampler2d tex4
-uniform sampler2d heightmap
+model:uniform mat4 
+view:uniform mat4 
+projection:uniform mat4 
+col:uniform v4 
+cam_pos:uniform v4 
+sun_dir:uniform v3 
+sun_color:uniform v4 
+terrain_size:uniform v2 
+amplitude:uniform f32 
+tex:uniform sampler2d 
+tex2:uniform sampler2d 
+tex3:uniform sampler2d 
+tex4:uniform sampler2d 
+heightmap:uniform sampler2d 
 
 vertex:fn(pos : v3, normal : v3, vert_col : v4) ! (frag_pos : v3, out_vert_col : v4, fnorm : v3)
 {

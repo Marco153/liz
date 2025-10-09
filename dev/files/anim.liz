@@ -103,7 +103,7 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		}
 		else if tm.type == timeline_type.TEXTURE
 		{
-			e.tex_id = cur_kf.tex_id;
+			//e.tex_id = cur_kf.tex_id;
 		}
 		else
 			__dbg_break;

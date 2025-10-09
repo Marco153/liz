@@ -69,6 +69,10 @@
         "typeinfo": "cpp",
         "valarray": "cpp",
         "variant": "cpp",
-        "portaudio.h": "c"
+        "portaudio.h": "c",
+        "condition_variable": "cpp",
+        "list": "cpp",
+        "set": "cpp",
+        "mutex": "cpp"
     }
 }

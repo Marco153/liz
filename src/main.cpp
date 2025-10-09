@@ -567,13 +567,14 @@ struct bone
 {
 	int idx;
 	own_std::string name;
-	bone *parent;
+	int parent;
 	aiMatrix4x4 offset;
 	aiMatrix4x4 to_parent;
 	aiMatrix4x4 local_matrix;
 	aiMatrix4x4 inv_local_matrix;
-	own_std::vector<bone *> children;
+	own_std::vector<int> children;
 	aiNodeAnim *keyframes;
+	aiBone *b;
 };
 struct model_info
 {
@@ -592,7 +593,8 @@ struct model_info
 
 	Vec3 size;
 	std::unordered_map<std::string, int> bones;
-	bone all[16];
+	own_std::vector<bone> all;
+	own_std::vector<int> roots;
 	aiScene *scene;
 };
 struct texture_info
@@ -5390,7 +5392,7 @@ void print_aimatrix4x4(aiMatrix4x4 *m, int t)
 	{\
 		printf(" ");\
 	}
-void PrintBone(bone *b, int t)
+void PrintBone(model_info *m, bone *b, int t)
 {
 	ADD_TAB(t)
 
@@ -5436,7 +5438,7 @@ void PrintBone(bone *b, int t)
 
 	FOR_VEC(ch, b->children)
 	{
-		PrintBone(*ch, t + 2);
+		PrintBone(m, &m->all[*ch], t + 2);
 
 	}
 }
@@ -5484,13 +5486,39 @@ void FillBone(bone *b, aiNode *nd, std::unordered_map<std::string, int> *bones, 
 			int idx = (*bones)[cur->mName.C_Str()];
 
 			bone *child = &all[idx];
+			child->parent = b->idx;
 			child->local_matrix = child->offset;
 			Mat4 aux = Inverse((const Mat4 &)child->local_matrix);
 			memcpy(&child->inv_local_matrix, &aux, 64);
-			b->children.emplace_back(child);
+			b->children.emplace_back(child->idx);
 			FillBone(child, cur, bones, all, given_mat);
 		}
 	}
+}
+void GetModelBonesRootsLen(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+
+	model_info *m = &gl_state->models[model_idx];
+	auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+	ASSERT(m->scene)
+	ASSERT(m->scene->HasAnimations())
+	*ret = m->roots.size();
+}
+void GetModelBonesRootsData(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int out_offset = *(int*)&dbg->mem_buffer[base_ptr + 16];
+
+	int *out = (int*)&dbg->mem_buffer[out_offset];
+
+	model_info *m = &gl_state->models[model_idx];
+
+	memcpy(out, m->roots.data(), m->roots.size() * 4);
 }
 void GetModelBonesLen(int thread_id, dbg_state* dbg)
 {
@@ -5578,7 +5606,8 @@ void GetBoneChildrenData(int thread_id, dbg_state* dbg)
 
 	for(int i = 0; i < b->children.size();i++)
 	{
-		out[i] = b->children[i]->idx;
+		bone *cur = &m->all[b->children[i]];
+		out[i] = cur->idx;
 	}
 }
 void GetBoneKeyframesData(int thread_id, dbg_state* dbg)
@@ -5703,7 +5732,6 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 	model_info*m = &gl_state->models[free_idx];
 	new(m)model_info();
 	std::unordered_map<std::string, int> &bones=m->bones;
-	bone *all = m->all;
 
 	m->scene = (aiScene *)scene;
 	
@@ -5734,11 +5762,13 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 			aiBone *b = mesh->mBones[i];
 
 			std::string str(b->mName.C_Str());
-			bone *cur_bone = &all[bones_added];
-			cur_bone->idx = bones_added;
-			cur_bone->parent = nullptr;
-			cur_bone->name = b->mName.C_Str();
-			cur_bone->offset = b->mOffsetMatrix;
+			bone cur_bone;
+			cur_bone.b = b;
+			cur_bone.idx = bones_added;
+			cur_bone.parent = -1;
+			cur_bone.name = b->mName.C_Str();
+			cur_bone.offset = b->mOffsetMatrix;
+			m->all.emplace_back(cur_bone);
 			
 			for(int v = 0; v < b->mNumWeights; v++)
 			{
@@ -5771,14 +5801,36 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 		}
 		//HERE()
 		aiBone root;
-		root.mName = all[0].name.c_str();
+		root.mName = m->all[0].name.c_str();
 		auto cur_bone_nd = (aiNode *)scene->mRootNode->findBoneNode(&root);
 
-		bone *cur = &all[0];
+		bone *cur = &m->all[0];
 		aiMatrix4x4 identity;
 		loadIdentity((float *)&identity);
-		FillBone(cur, cur_bone_nd, &bones, all, &identity);
-		PrintBone(cur, 0);
+		cur->local_matrix = cur->offset;
+		FillBone(cur, cur_bone_nd, &bones, m->all.data(), &identity);
+		PrintBone(m, cur, 0);
+
+		for(int i = 1; i < bones_added; i++)
+		{
+			cur = &m->all[i];
+			if(cur->parent != -1)
+				continue;
+			cur_bone_nd = (aiNode *)scene->mRootNode->findBoneNode(cur->b);
+
+			loadIdentity((float *)&identity);
+			cur->local_matrix = cur->offset;
+			FillBone(cur, cur_bone_nd, &bones, m->all.data(), &identity);
+			PrintBone(m, cur, 0);
+			
+		}
+		for(int i = 0; i < bones_added; i++)
+		{
+			cur = &m->all[i];
+			if(cur->parent != -1)
+				continue;
+			m->roots.emplace_back(cur->idx);
+		}
 
 		for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
 			int vert_idx = i * stride;
@@ -5805,7 +5857,8 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 				if(bones.find(str) != bones.end())
 				{
 					int id  = bones[str];
-					all[id].keyframes = nd_anim;
+					bone *cur_b = &m->all[id];
+					cur_b->keyframes = nd_anim;
 					printf("positions\n");
 					for(int pos_k = 0; pos_k < nd_anim->mNumPositionKeys; pos_k++)
 					{
@@ -8970,6 +9023,8 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetBoneKeyframesLen", (OutsiderFuncType)GetBoneKeyframesLen);
 	AssignOutsiderFunc(&lang_stat, "GetBoneKeyframesData", (OutsiderFuncType)GetBoneKeyframesData);
 	AssignOutsiderFunc(&lang_stat, "GetModelBonesLen", (OutsiderFuncType)GetModelBonesLen);
+	AssignOutsiderFunc(&lang_stat, "GetModelBonesRootsLen", (OutsiderFuncType)GetModelBonesRootsLen);
+	AssignOutsiderFunc(&lang_stat, "GetModelBonesRootsData", (OutsiderFuncType)GetModelBonesRootsData);
 	AssignOutsiderFunc(&lang_stat, "GetBoneMatrices", (OutsiderFuncType)GetBoneMatrices);
 	AssignOutsiderFunc(&lang_stat, "ModelHasAnim", (OutsiderFuncType)ModelHasAnim);
 

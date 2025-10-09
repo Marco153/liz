@@ -1951,6 +1951,9 @@ atan2::fn outsider(f32, f32) !f32;
 
 GetModelBonesLen::fn outsider(model : u32)!u32;
 
+GetModelBonesRootsLen::fn outsider(model : u32)!u32;
+GetModelBonesRootsData::fn outsider(model : u32, out : *u32);
+
 GetBoneChildrenLen::fn outsider(model : u32, bone_id : u32)!u32;
 GetBoneChildrenData::fn outsider(model : u32, bone_id : u32, out : *u32);
 GetBoneKeyframesLen::fn outsider(model : u32, bone_id : u32, positions : *u32, scales : *u32, rotations : *u32);
@@ -2104,6 +2107,7 @@ model_info: struct
 	model : u32
 
 	bones_anim : dyn_array(bone_animation)
+	roots : dyn_array(*bone_animation)
 }
 texture_info: struct
 {

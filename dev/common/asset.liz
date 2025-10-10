@@ -3,11 +3,15 @@ import "../../core";
 ASSETS_TEXTURES_OFFSET:const s32=0
 ASSETS_MATERIALS_OFFSET:const s32=128
 ASSETS_MODELS_OFFSET:const s32=256
+ASSETS_CLIPS_OFFSET:const s32=384
 ASSETS_MAX:const s32=1024
 asset_type:etruct
 {
     TEXTURE_ARRAY(
         texs : dyn_array(texture_info)
+    ),
+    CLIP(
+        cl : clip3d
     ),
     MODEL(
         mod : model_info
@@ -51,6 +55,12 @@ cmp_cid::fn x64(cid : *custom_id, cid2 : *custom_id)!bool
         return false
     }
     return true
+}
+get_clip_ptr::fn(cid : *asset_index) !*clip3d
+{
+    a := globals.assets[cast(u64)cid.asset_idx]
+    ASSERT(a.type == asset_type.CLIP)
+    return &a.CLIP.cl
 }
 get_model_ptr::fn(cid : *asset_index) !*model_info
 {

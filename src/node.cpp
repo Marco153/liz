@@ -2057,6 +2057,12 @@ node* node_iter::parse_(int prec, parser_cond pcond)
 	{
 
 		auto tkn = peek_tkn();
+		/*
+		if(tkn->line == 18 && tkn->type == T_WORD && tkn->str == "uniforms")
+		{
+			HERE()
+		}
+			*/
 		auto tt = peek_tkn();
 		auto peek = peek_tkn();
 		int cur_prec = 0;
@@ -8675,6 +8681,8 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						else
 							return nullptr;
 					}
+
+					NameFindingGetType(lang_stat, n, scp, ret_type);
 				}break;
 				default:
 					// cannot index this type

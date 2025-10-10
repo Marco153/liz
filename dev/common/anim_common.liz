@@ -51,6 +51,11 @@ timeline : struct
 	ent : *entity,
 	time_since_stopped : f32,
 }
+clip3d: struct
+{
+	start : f32
+	end : f32
+}
 clip2: struct
 {
 	tms : dyn_array(timeline),

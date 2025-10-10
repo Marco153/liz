@@ -198,6 +198,11 @@ particle_emmitter:struct
 	total:u32
 	using p : particle_emmitter_base
 }
+clip_type:enum
+{
+	C2D,
+	C3D,
+}
 entity:struct
 {
 	type : ent_type,
@@ -257,6 +262,8 @@ entity:struct
 	material_idx : asset_index
 	in_material_instance : u32
 
+	matrices_ptr : *f32
+
 	layer : u32,
 	dont_res_cols_with_layers : u32,
 	ignore_collision_with_layers : u32,
@@ -265,7 +272,13 @@ entity:struct
 	axe : *axe_info,
 
 	ents_in_collision : dyn_array(in_col_ent),
-	cl : *clip2,
+	c_type :clip_type
+	using clip_union::union
+	{
+		cl : *clip2,
+	}
+	cl3d : asset_index,
+
 	clip_time : f32,
 	clip_done : bool,
 	thoughts : *thinking

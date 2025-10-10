@@ -1625,6 +1625,7 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("hp", *cast(*s32)&ent.hp))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("layer", cast(s32)ent.layer))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_active", cast(s32)ent.is_active))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("c_type", cast(s32)ent.c_type))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_trigger", cast(s32)ent.is_trigger))
 	//dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("material_idx", cast(s32)ent.material_idx))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_static", cast(s32)ent.is_static))
@@ -1632,6 +1633,9 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 	
 	aux_ast :*ast_rep
 	aux_ast = AssetIndexAssignmentToAst("model", &ent.model)
+	dyn_add(&ret.SCOPE.stmnts, aux_ast)
+
+	aux_ast = AssetIndexAssignmentToAst("cl3d", &ent.cl3d)
 	dyn_add(&ret.SCOPE.stmnts, aux_ast)
 	if is_flag_on(ent.flags, ENTITY_HAS_TEXTURE)
 	{

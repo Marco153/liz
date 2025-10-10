@@ -219,6 +219,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp)
 	case node_type::N_INDEX:
     {
         ret->type = AST_INDEX;
+		BREAK(n->t->line == 18)
 		ret->index.type = AST_INDEX_TP_NORMAL;
 		ret->index.lhs_type = DescendNode(lang_stat, n->l, scp);
 		ret->index.lhs = AstFromNode(lang_stat, n->l, scp);

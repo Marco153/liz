@@ -5402,6 +5402,7 @@ void PrintBone(model_info *m, bone *b, int t)
 	printf("offset:\n");
 	print_aimatrix4x4(&b->offset, t);
 
+	/*
 	ADD_TAB(t)
 	printf("to_parent:\n");
 	print_aimatrix4x4(&b->to_parent, t);
@@ -5409,6 +5410,7 @@ void PrintBone(model_info *m, bone *b, int t)
 	ADD_TAB(t)
 	printf("final_transform:\n");
 	print_aimatrix4x4(&b->local_matrix, t);
+	*/
 
 	/*
 	ADD_TAB(t)
@@ -5420,21 +5422,6 @@ void PrintBone(model_info *m, bone *b, int t)
 	ADD_TAB(t)
 	printf("rot: (%.3f, %.3f, %.3f, %.3f)\n", b->rot.x, b->rot.y, b->rot.z, b->rot.w);
 	*/
-	for(int i = 0;i < t;i++)
-	{
-		printf(" ");
-	}
-	/*
-	if(b->parent)
-	{
-		printf("to_parent:\n");
-		print_aimatrix4x4(&b->to_parent, t);
-	}
-	FOR_VEC(ch, b->children)
-	{
-		PrintBone(*ch, t+2);
-	}
-		*/
 
 	FOR_VEC(ch, b->children)
 	{
@@ -5762,13 +5749,15 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 			aiBone *b = mesh->mBones[i];
 
 			std::string str(b->mName.C_Str());
-			bone cur_bone;
+
+			m->all.make_count(m->all.size() + 1);
+			bone &cur_bone = m->all.back();
 			cur_bone.b = b;
 			cur_bone.idx = bones_added;
 			cur_bone.parent = -1;
 			cur_bone.name = b->mName.C_Str();
+			//HERE()
 			cur_bone.offset = b->mOffsetMatrix;
-			m->all.emplace_back(cur_bone);
 			
 			for(int v = 0; v < b->mNumWeights; v++)
 			{
@@ -5779,6 +5768,9 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 				int empty_slot = -1;
 				int *cur_vert = (int *)&vertices[vert_idx];
 				int *cur_empty_slot = (int *)&vertices[vert_idx + 5];
+
+				int lowest_idx = 100;
+				float lowest_force = 1000.0;
 				for(int v = 0; v < number_of_bone_ids_per_vertex; v++)
 				{
 					if(*cur_empty_slot == 0)
@@ -5836,11 +5828,13 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 			int vert_idx = i * stride;
 			v4 *cur = (v4 *)&vertices[vert_idx + 5 + number_of_bone_ids_per_vertex];
 			auto total = cur->x + cur->y + cur->z + cur->w;
-
-			cur->x /= total;
-			cur->y /= total;
-			cur->z /= total;
-			cur->w /= total;
+			if (total > 0)
+			{
+				cur->x /= total;
+				cur->y /= total;
+				cur->z /= total;
+				cur->w /= total;
+			}
 		}
 		//ASSERT(0)
 	}
@@ -5849,6 +5843,7 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 		for(int i= 0; i < scene->mNumAnimations; i++)
 		{
 			aiAnimation *cur_anim = scene->mAnimations[i];
+			printf("anim tiks per sec %.3f\n", (float)cur_anim->mTicksPerSecond);
 			for(int a = 0; a < cur_anim->mNumChannels; a++)
 			{
 				aiNodeAnim *nd_anim = cur_anim->mChannels[a];

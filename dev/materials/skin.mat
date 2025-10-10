@@ -4,7 +4,7 @@ projection:uniform mat4
 color:uniform v4 
 cam_pos:uniform v4 
 tex:uniform sampler2d 
-bones:uniform [8]mat4 
+bones:uniform [32]mat4 
 sun_dir:uniform v3 
 sun_color:uniform v4 
 col:uniform v4 

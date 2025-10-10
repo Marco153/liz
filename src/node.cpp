@@ -286,6 +286,7 @@ char* AllocMiscData(lang_state *lang_stat, int sz)
 	*/
 	return ret;
 }
+/**/
 char* std_str_to_heap2(own_std::string* str)
 {
 	int sz = str->size();

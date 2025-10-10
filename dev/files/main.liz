@@ -4495,12 +4495,12 @@ find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32) ! u64
 	ret--
 	return ret
 }
-fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4)
+fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, time : f32)
 {
-	pos_kf_idx := find_keyframe(&b.pos, ctx.anim_timer)
+	pos_kf_idx := find_keyframe(&b.pos, time)
 	pos_next_kf_idx := clamp(pos_kf_idx + 1, 0, b.pos.count - 1)
 
-	rot_kf_idx := find_keyframe(&b.rot, ctx.anim_timer)
+	rot_kf_idx := find_keyframe(&b.rot, time)
 	rot_next_kf_idx := clamp(rot_kf_idx + 1, 0, b.rot.count - 1)
 
 	cur_pos_kf := b.pos[pos_kf_idx]
@@ -4514,7 +4514,7 @@ fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_
 
 	if val_diff > 0.0
 	{
-		p := (ctx.anim_timer - cur_pos_kf.time) / val_diff
+		p := (time - cur_pos_kf.time) / val_diff
 
 		diff_pos := next_pos_kf.val - cur_pos_kf.val 
 		final_pos = cur_pos_kf.val + diff_pos * p
@@ -4532,15 +4532,8 @@ fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_
 
 	if val_diff != 0.0
 	{
-		p := (ctx.anim_timer - (cur_rot_kf.time - 1.0)) / val_diff
+		p := (time - (cur_rot_kf.time - 1.0)) / val_diff
 		final_rot = quaternion_slerp(&cur_rot_kf.val, &next_rot_kf.val, p)
-		if b.id == 2
-		{
-			printf("\nid {b.id}, time {ctx.anim_timer}, p {p}, cur {cur_rot_kf.time}\n")
-			print_vec(&cur_rot_kf.val)
-			print_vec(&next_rot_kf.val)
-			print_vec(&final_rot)
-		}
 	}
 	else
 	{
@@ -4548,11 +4541,11 @@ fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_
 	}
 
 
-	anim_local:mat4x4;
+	anim_local:mat4x4=?;
 
-	rot_mat :mat4x4
-	pos_mat :mat4x4
-	q:quaternion
+	rot_mat :mat4x4=?
+	pos_mat :mat4x4=?
+	q:quaternion=?
 	q.v = final_rot
 	
 
@@ -4566,10 +4559,10 @@ fill_bones::fn(ctx : *context, out_matrices : *f32, b : *bone_animation, parent_
 	memcpy(mat_ptr, &offset, sizeof(mat4x4));
 	for ch in b.children
 	{
-		fill_bones(ctx, out_matrices, *ch, &offset)
+		fill_bones(ctx, out_matrices, *ch, &anim_local, time)
 	}
 }
-editor_window::fn(ctx : *context, out_ent : **entity)
+editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 {
 	buffer:[128]char
 	screenmx := GetMouseScreenPosX();
@@ -4773,6 +4766,7 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 	if ImGuiSelectable("anim", aux_bool, 40.0, 15.0)
 	{
 		ctx.editor_wnd_type = editor_window_enum.TEST_ANIM
+		ctx.anim_timer = 0.0
 	}
 
 	assign_new_height := false
@@ -5443,10 +5437,12 @@ editor_window::fn(ctx : *context, out_ent : **entity)
 		bone3_mat :mat4x4=?
 
 		//__dbg_break
+		ctx.anim_timer += dt
+		time := ctx.anim_timer * 24.0
 		for b in ctx.model_anim.roots
 		{
 			identity_matrix4x4(cast(*f32)&bone3_mat)
-			fill_bones(ctx, matrices, *b, &bone3_mat)
+			fill_bones(ctx, matrices, *b, &bone3_mat, time)
 		}
 	}
 }
@@ -6823,7 +6819,7 @@ main_loop::fn(ctx : *context)
 				GetBoneKeyframesData(m.model, cast(u32)i2, cur_banim.pos[0], cur_banim.scales[0], cur_banim.rot[0])
 				GetBoneMatrices(m.model, cast(u32)i2, cast(*f32)&cur_banim.local_matrix, cast(*f32)&cur_banim.inv_local_matrix)
 			}
-			bones_idxs:[16]u32
+			bones_idxs:[32]u32
 			for i2 in 0..num_bones
 			{
 				total:u32
@@ -8452,7 +8448,7 @@ main_loop::fn(ctx : *context)
 			{
 				out_ent = out_ent.parent_col
 			}
-			editor_window(ctx, &out_ent)
+			editor_window(ctx, &out_ent, dt)
 
 			if prev_ent.type == ent_type.AUX_COL_ENT
 			{

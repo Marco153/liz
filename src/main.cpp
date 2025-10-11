@@ -5577,6 +5577,24 @@ void GetBoneChildrenLen(int thread_id, dbg_state* dbg)
 	*aux = b->children.size();
 
 }
+void GetBoneName(int thread_id, dbg_state* dbg)
+{
+	auto gl_state = (open_gl_state*)dbg->data;
+	int base_ptr = *(int*)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+	int model_idx = *(int*)&dbg->mem_buffer[base_ptr + 8];
+	int bone_id = *(int*)&dbg->mem_buffer[base_ptr + 16];
+	int buffer_offset = *(int*)&dbg->mem_buffer[base_ptr + 24];
+	int buffer_sz = *(int*)&dbg->mem_buffer[base_ptr + 32];
+
+	char *out = (char*)&dbg->mem_buffer[buffer_offset];
+	model_info *m = &gl_state->models[model_idx];
+
+	bone *b = &m->all[bone_id];
+
+	ASSERT(b->name.size() < buffer_sz);
+	memcpy(out, b->name.data(), b->name.size());
+	out[b->name.size()] = 0;
+}
 void GetBoneChildrenData(int thread_id, dbg_state* dbg)
 {
 	auto gl_state = (open_gl_state*)dbg->data;
@@ -5801,7 +5819,7 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 		loadIdentity((float *)&identity);
 		cur->local_matrix = cur->offset;
 		FillBone(cur, cur_bone_nd, &bones, m->all.data(), &identity);
-		PrintBone(m, cur, 0);
+		//PrintBone(m, cur, 0);
 
 		for(int i = 1; i < bones_added; i++)
 		{
@@ -5813,7 +5831,7 @@ void LoadModelBase(int thread_id, dbg_state* dbg, own_std::string &full_path)
 			loadIdentity((float *)&identity);
 			cur->local_matrix = cur->offset;
 			FillBone(cur, cur_bone_nd, &bones, m->all.data(), &identity);
-			PrintBone(m, cur, 0);
+			//PrintBone(m, cur, 0);
 			
 		}
 		for(int i = 0; i < bones_added; i++)
@@ -9021,6 +9039,7 @@ int main(int argc, char* argv[])
 	AssignOutsiderFunc(&lang_stat, "GetModelBonesRootsLen", (OutsiderFuncType)GetModelBonesRootsLen);
 	AssignOutsiderFunc(&lang_stat, "GetModelBonesRootsData", (OutsiderFuncType)GetModelBonesRootsData);
 	AssignOutsiderFunc(&lang_stat, "GetBoneMatrices", (OutsiderFuncType)GetBoneMatrices);
+	AssignOutsiderFunc(&lang_stat, "GetBoneName", (OutsiderFuncType)GetBoneName);
 	AssignOutsiderFunc(&lang_stat, "ModelHasAnim", (OutsiderFuncType)ModelHasAnim);
 
 	AssignOutsiderFunc(&lang_stat, "CopyDataFromModel", (OutsiderFuncType)CopyDataFromModel);

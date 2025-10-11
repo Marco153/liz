@@ -121,8 +121,8 @@ gjk_state : struct
 	dir : _vec
 
 	epa_new_sup : _vec
-	mink_diff : [64]_vec
-	mink_diff_vert : u64
+	//mink_diff : [64]_vec
+	//mink_diff_vert : u64
 
 	aux_col : collider
 }
@@ -621,6 +621,7 @@ SimpleAsm::fn x64(ret : *s32) ! s32
 	return 1;
 
 }
+/*
 add_vert::fn(gjk : *gjk_state, v : *_vec)
 {
 	for i in 0..gjk.mink_diff_vert
@@ -634,6 +635,7 @@ add_vert::fn(gjk : *gjk_state, v : *_vec)
 	gjk.mink_diff[gjk.mink_diff_vert] = *v
 	gjk.mink_diff_vert++
 }
+*/
 //code from GJK.h https://github.com/kevinmoran/GJK/tree/master
 EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *collider, col2 : *collider, out : * collision) ! _vec
 {
@@ -1040,8 +1042,8 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 	}
 	col_type.CAPSULE
 	{
-		r := col.CAPSULE.radius * 1.2
-		h := col.CAPSULE.height
+		r := col.CAPSULE.radius * 4.0
+		h := col.CAPSULE.height * 4.0
 		_min.x = e.pos.x - r
 		_min.y = e.pos.y - h
 		_min.z = e.pos.z - r
@@ -1153,8 +1155,9 @@ CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
 	{
 		minfo := &col.MESH.info
 		printf("is mesh copyverts\n")
-		m := minfo.model_idx
-		CopyDataFromModel(cast(u32)m, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)
+		m := get_model_ptr(cast(*asset_index)&minfo.model_idx)
+		
+		CopyDataFromModel(cast(u32)m.model, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)
 
 		mesh_verts = col.MESH.info.verts
 	}
@@ -1624,6 +1627,7 @@ StepCol::fn(ctx : *context, dt : f32)
 		aux_max : _vec=?
 
 		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &aux_min, &aux_max)
+		
 
 		if cast_s32_and_compare_vecs(&c1.rel_chunk_min, &aux_min) == false ||
 			cast_s32_and_compare_vecs(&c1.rel_chunk_max, &aux_max) == false ||
@@ -1721,37 +1725,34 @@ StepCol::fn(ctx : *context, dt : f32)
 			e2 := *_e2
 			e2.flags = e2.flags & ~ENTITY_ALREADY_DONE_IN_COLISION
 		}
+		tris_checked :u32=0
 
+		tri_verts1 :=gjk.aux_col.TRIANGLE.verts[0]
 		for ch in ctx.aux_col_chunks
 		{
-			
-			for tri in ch.tris
+			if ch.tris.count == 0
+				continue
+			gjk.aux_col.type = col_type.TRIANGLE
+
+			cur_tri :u64= 0
+			total_tris := ch.tris.count
+			//for tri in ch.tris
+			tri := ptr_offset(ch.tris[0], 0, triangle_info)
+			while cur_tri < total_tris
 			{
-				
-				info :verts_from_tri_info
+				info :verts_from_tri_info=?
 				info.t = tri.tri_idx
 				get_verts_pos_from_tris(&info, tri.info.tris, cast(*f32)tri.info.verts, 4)
 
-				_v1 := info.v1_out
-				_v2 := info.v2_out
-				_v3 := info.v3_out
 				cross := info.cross
-				gjk.aux_col.type = col_type.TRIANGLE
-				gjk.aux_col.TRIANGLE.verts[0] = _v1
-				gjk.aux_col.TRIANGLE.verts[1] = _v2
-				gjk.aux_col.TRIANGLE.verts[2] = _v3
+				memcpy(tri_verts1, &info.v1_out, 3 * 16)
+				//info.v3_out.y += 1.0
+				//info.v2_out.y += 1.0
+				//info.v1_out.y += 1.0
+				//draw_tri(ctx, &info.v3_out, &info.v2_out, &info.v1_out, &ctx.white_color, 0)
 
 				gjk.aux_col.TRIANGLE.normal = cross
 
-				//if t == 375
-					//__dbg_break;
-				
-				/*
-				if chunk.verts_mesh_idx == 2 && c1.ent.pos.z >= 34.0
-				{
-					__dbg_break
-				}
-				*/
 				if GJK(gjk, c1, &gjk.aux_col)
 				{
 					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, &gjk.aux_col, &col)
@@ -1770,8 +1771,12 @@ StepCol::fn(ctx : *context, dt : f32)
 						e.col_stay(e, tri.ent, &col);
 					}
 				}
+				//tris_checked++;
+				cur_tri++
+				tri = ptr_offset(tri, 1, triangle_info)
 			}
 		}
+		//printf("tris checked {tris_checked}\n")
 	}
 
 }
@@ -1782,7 +1787,7 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 		c1 := e.cols[0]
 		c1.no_rotation_ent = is_flag_on(e.flags, ENTITY_NO_ROTATION_ON_COLLISION)
 	}
-	steps := 2
+	steps := 1
 
 
 	dt = dt / cast(f32)steps

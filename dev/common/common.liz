@@ -1748,6 +1748,14 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 			cur_scp := new_ast2()
 			cur_scp.type = ast_type.SCOPE
 			dyn_add(&cur_scp.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)c.type))
+			if c.type == col_type.MESH
+			{
+				a_idx :asset_index
+				a_idx.asset_idx = cast(u32)c.MESH.info.model_idx
+				aux_ast = AssetIndexAssignmentToAst("model", &a_idx)
+				dyn_add(&cur_scp.SCOPE.stmnts, aux_ast)
+
+			}
 			dyn_add(&cur_scp.SCOPE.stmnts, VecAssignmentToAst("pos", &c.pos))
 			dyn_add(&cur_scp.SCOPE.stmnts, VecAssignmentToAst("size", &c.size))
 
@@ -1958,6 +1966,7 @@ GetModelBonesLen::fn outsider(model : u32)!u32;
 GetModelBonesRootsLen::fn outsider(model : u32)!u32;
 GetModelBonesRootsData::fn outsider(model : u32, out : *u32);
 
+GetBoneName::fn outsider(model : u32, bone_id : u32, buffer : *u8, buffer_sz : u32);
 GetBoneChildrenLen::fn outsider(model : u32, bone_id : u32)!u32;
 GetBoneChildrenData::fn outsider(model : u32, bone_id : u32, out : *u32);
 GetBoneKeyframesLen::fn outsider(model : u32, bone_id : u32, positions : *u32, scales : *u32, rotations : *u32);
@@ -2095,6 +2104,7 @@ keyframe_psr:struct
 }
 bone_animation:struct
 {
+	name : str_lit
 	id : u64
 	pos : dyn_array(keyframe_psr)
 	scales : dyn_array(keyframe_psr)
@@ -2103,7 +2113,10 @@ bone_animation:struct
 	children : dyn_array(*bone_animation)
 
 	local_matrix : mat4x4
-	inv_local_matrix : mat4x4
+
+	target_world_pos : _vec
+	target_rot : _vec
+	target_rot_weight : _vec
 }
 model_info: struct
 {

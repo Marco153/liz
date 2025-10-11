@@ -22,6 +22,10 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		matrix :mat4x4=?
 		cl := get_clip_ptr(&e.cl3d)
 		time := (e.clip_time + cl.start) * 24.0
+		if e.anim_func
+		{
+			e.anim_func(e)
+		}
 		for b in mod.roots
 		{
 			identity_matrix4x4(cast(*f32)&matrix)

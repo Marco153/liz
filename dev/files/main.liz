@@ -2428,6 +2428,9 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	cam_rot := *ctx.cam_rot_global
 	//printf("up col {mov.up_col}\n")
 
+	global_fw :_vec
+	global_fw.z = 1.0
+
 
 	if mov.step_timer > 1.0
 	{
@@ -2587,11 +2590,27 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			}
 		}
 
+
 		if on_ground
 		{
 			if absf(mov.h) > 0.1 || absf(mov.v) > 0.1
 			{
 				mov.step_timer += *dt * 2.0
+				
+				y_rot := 0.0
+
+				v := *forward * mov.v + cross * -mov.h
+
+				ang := angle_on_axis(&global_fw, &v, &ctx.up)
+
+				player_ent.rot = euler_to_quaternion(270.0, radians_to_degree(ang), 0.0).v
+
+				player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET + 1
+
+			}
+			else
+			{
+				player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET
 			}
 		}
 		if IsKeyDown(key_enum.KEY_JMP) && (on_ground && mov.jmp.time_off_ground == 0.0 || mov.jmp.time_off_ground <= 0.5)
@@ -2791,7 +2810,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		ctx.shock_ent_emmitter.size.z = clamped
 
 		ang := angle_on_axis(aux_forward, forward, &ctx.up)
-		player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
+		//player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
 
 		if IsKeyDown(key_enum.KEY_ACT1) && !on_ground
 		{
@@ -2932,6 +2951,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	player_ent.vel.x = clamp(player_ent.vel.x, -20.0, 20.0)
 	player_ent.vel.y = clamp(player_ent.vel.y, -20.0, 20.0)
 	player_ent.vel.z = clamp(player_ent.vel.z, -20.0, 20.0)
+	//player_ent.vel.y = 0.0
 
 
 	mov.stamina = clamp(mov.stamina, 1.0, mov.stamina_temp_max)
@@ -3743,9 +3763,17 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 			DeleteEnt(ctx, ent)
 			ent.flags = 0;
 		}
+		else
+		{
+			for c in ent.ents_in_collision
+			{
+				c.in_col = false;
+			}
+		}
 	}
 	clear_material_instances()
 
+	instantiated_ents := 0
 	while i < fl_sz
 	{
 		if *file[i] == '(
@@ -3804,6 +3832,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 				ent = NewEnt(ctx, "")
 			}
 
+			printf("des {instantiated_ents}\n")
 
 			for st in stmnts.BIN.expr
 			{
@@ -3926,6 +3955,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 				{
 					if  ent.cols.count == 0
 					{
+
 						scps := st.BIN.expr[1]
 						dyn_add(&ctx.bodies, &ent);
 						ent.ents_in_collision.alloc = ctx.alloc;
@@ -3954,17 +3984,35 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 								col_t :*type_data= GetTypeData(collider)
 								var_type = find_var(ctx, col_t, name, &offset)
 
-								if !var_type continue;
-								if var_type.name == "type"
+								if *name == "type"
 								{
 									col.type = cast(col_type)cur_st.BIN.expr[1].INT.num
 								}
+								else if *name == "model"
+								{
+									cid := cid_from_ast(ctx, *cur_st.BIN.expr[1])
+									memcpy(buffer[0], cid.name, 12)
+									a_idx := cast(*asset_index)&col.MESH.info.model_idx
+									find_asset(ctx, cast(str_lit)buffer[0], a_idx, ASSETS_MODELS_OFFSET)
+								}
 								else
 								{
+									if !var_type continue;
+
 									data = ptr_offset(col, var_type.offset + offset, u8)
 
 									DeserializeEntVar(ctx, var_type, data, *cur_st.BIN.expr[1])
 								}
+							}
+							if col.type == col_type.MESH
+							{
+								model_verts_count:u32
+								model_tris_count:u32
+								m := get_model_ptr(cast(*asset_index)&col.MESH.info.model_idx)
+								GetInfoFromModel(m.model, &model_verts_count, &model_tris_count)
+								create_mesh_collider(ctx, col, model_tris_count, model_verts_count)
+								//__dbg_break
+								assign_mesh_to_chunks(ctx, ent)
 							}
 						}
 					}
@@ -3975,10 +4023,6 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 					DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
 				}
 
-			}
-			if str_cmp(ent.name, "ground")
-			{
-				ctx.test_ent = ent
 			}
 			//printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
 
@@ -4049,6 +4093,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 				qeuler := quaternion_to_euler(&q2.v)
 				ent.vel.w = qeuler.x
 			}
+			instantiated_ents++
 
 		}
 		if *file[i] == '=
@@ -4555,6 +4600,9 @@ fill_bones::fn(out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, t
 	q:quaternion=?
 	q.v = final_rot
 	
+	p := b.target_world_pos.w
+	first := (final_pos * (1.0 - p))
+	final_pos = first + b.target_world_pos * p
 
 	build_rotation_matrix(&rot_mat, &q)
 	build_translation_matrix(&pos_mat, &final_pos)
@@ -5010,6 +5058,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			ctx.preview_ent.size.x = 1.0
 			ctx.preview_ent.size.y = 1.0
 			ctx.preview_ent.size.z = 1.0
+			ctx.preview_ent.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
 
 			aux_sel_from_non_bodies : *entity
 			shortest_dist : f32 = 9999.0
@@ -5445,7 +5494,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
 		//__dbg_break
 		ctx.anim_timer += dt
-		time := ctx.anim_timer * 24.0
+		time := ctx.anim_timer * ANIM_TICKS_PER_SEC
 		for b in ctx.model_anim.roots
 		{
 			identity_matrix4x4(cast(*f32)&bone3_mat)
@@ -6389,21 +6438,24 @@ assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
 	c1 := *ent.cols[0]
 	tri_idx:u64
 	info := &c1.MESH.info
+
+	verts := info.verts
+	tris := info.tris
 	while tri_idx < info.tris_count
 	{
-		tri1 := ptr_offset(info.tris, tri_idx, u32)
-		tri2 := ptr_offset(info.tris, tri_idx + 1, u32)
-		tri3 := ptr_offset(info.tris, tri_idx + 2, u32)
+		tri1 := *ptr_offset(tris, tri_idx, u32)
+		tri2 := *ptr_offset(tris, tri_idx + 1, u32)
+		tri3 := *ptr_offset(tris, tri_idx + 2, u32)
 		
-		v1 := ptr_offset(info.verts, tri1, _vec)
-		v2 := ptr_offset(info.verts, tri2, _vec)
-		_v3 := ptr_offset(info.verts, tri3, _vec)
+		v1 := ptr_offset(verts, tri1, _vec)
+		v2 := ptr_offset(verts, tri2, _vec)
+		_v3 := ptr_offset(verts, tri3, _vec)
 
 		min_v := minPerComponent(v1, v2)
 		min_v = minPerComponent(&min_v, _v3)
 
-		max_v := minPerComponent(v1, v2)
-		max_v = minPerComponent(&max_v, _v3)
+		max_v := maxPerComponent(v1, v2)
+		max_v = maxPerComponent(&max_v, _v3)
 
 		dyn_clear(&ctx.aux_col_chunks)
 
@@ -6728,6 +6780,41 @@ gameplay_cam::fn(ctx : *context, dt : f32)
 	//printf("angx {angx}, angy {angy}\n")
 	//print_vec(cam_forward)
 }
+create_clip_asset::fn(name : str_lit, start : f32, end : f32) ! asset_index
+{
+	aux_idx := find_empty_asset(ASSETS_CLIPS_OFFSET)
+	clip_aux := globals.assets[aux_idx]
+	clip_aux.type = asset_type.CLIP
+	memcpy(clip_aux.cid.name[0], name, str_ln(name))
+	clip_aux.CLIP.cl.start = start
+	clip_aux.CLIP.cl.end = end
+
+	ret :asset_index
+	ret.asset_idx = cast(u32)aux_idx
+	return ret
+	
+}
+ANIM_TICKS_PER_SEC:const f32= 24.0
+create_mesh_collider::fn(ctx : *context, c : *collider, model_tris_count : u32, model_verts_count : u32)
+{
+	minfo : *verts_and_tris= &c.MESH.info
+
+	minfo.verts = cast(*_vec)heap_alloc(ctx.alloc, model_verts_count * 16)
+	minfo.verts_count = model_verts_count
+
+	minfo.tris = cast(*u32)heap_alloc(ctx.alloc, sizeof(u32)*model_tris_count)
+	minfo.tris_count = model_tris_count
+	c.data_ready = false
+
+
+	model_idx := get_id_of_model(&c.MESH.info.model_idx)
+
+	CopyDataFromModel(model_idx, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)
+
+	aux1 : _vec
+	aux2 : _vec
+	CopyVerts(c, &aux1, &aux2)
+}
 main_loop::fn(ctx : *context)
 {
 	globals.perm_alloc = ctx.alloc
@@ -6775,11 +6862,8 @@ main_loop::fn(ctx : *context)
 	memcpy(model_.cid.name[0], "plane", str_ln("plane"))
 	model_.MODEL.mod.model = 1
 
-	aux_idx = find_empty_asset(ASSETS_CLIPS_OFFSET)
-	clip_aux := globals.assets[aux_idx]
-	clip_aux.type = asset_type.CLIP
-	memcpy(clip_aux.cid.name[0], "anim", str_ln("anim"))
-	clip_aux.CLIP.cl.end = 1.0
+	create_clip_asset("p_idle", 30.0/ANIM_TICKS_PER_SEC, 97.0/ANIM_TICKS_PER_SEC)
+	create_clip_asset("p_walk", 0.0, 24.0/ANIM_TICKS_PER_SEC)
 
 	for i in 0..total_fl
 	{
@@ -6815,6 +6899,9 @@ main_loop::fn(ctx : *context)
 			num_scales : u32
 			num_rot : u32
 
+			bones_idxs:[32]u32
+			name:[32]char
+
 			for i2 in 0..num_bones
 			{
 				GetBoneKeyframesLen(m.model, cast(u32)i2, &num_pos, &num_scales, &num_rot);
@@ -6829,10 +6916,15 @@ main_loop::fn(ctx : *context)
 				cur_banim.scales.count = num_scales
 				cur_banim.rot.count = num_rot
 
+
+				GetBoneName(m.model, cast(u32)i2, name, 32)
+				cur_banim.name = new_str_lit(ctx.alloc, cast(str_lit)name)
+				
+
 				GetBoneKeyframesData(m.model, cast(u32)i2, cur_banim.pos[0], cur_banim.scales[0], cur_banim.rot[0])
-				GetBoneMatrices(m.model, cast(u32)i2, cast(*f32)&cur_banim.local_matrix, cast(*f32)&cur_banim.inv_local_matrix)
+				dummy_mat :mat4x4=?
+				GetBoneMatrices(m.model, cast(u32)i2, cast(*f32)&cur_banim.local_matrix, cast(*f32)&dummy_mat)
 			}
-			bones_idxs:[32]u32
 			for i2 in 0..num_bones
 			{
 				total:u32
@@ -6971,6 +7063,37 @@ main_loop::fn(ctx : *context)
 
 	player_ent.mov_info.speed = 2.5
 	player_ent.mov_info.jmp.speed = 2.1
+
+	find_asset(ctx, "bones.fbx", &player_ent.model)
+	player_ent.material_idx = find_shader(ctx, "skin.mat")
+	player_ent.flags = player_ent.flags | ENTITY_CUSTOM_SHADER
+	player_ent.in_material_instance = new_material_instance(ctx, &player_ent.material_idx, player_ent)
+	player_ent.name = "player"
+	player_ent.size.x = 1.0
+	player_ent.size.y = 1.0
+	player_ent.size.z = 1.0
+	player_ent.size = player_ent.size * 0.2
+	player_ent.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
+	player_ent.c_type = clip_type.C3D
+	player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET
+	dyn_add(&ctx.ents_with_clip, player_ent)
+	dyn_add(&player_ent.remove_from, ent_part_of.ANIMATION)
+	player_ent.mov_info.neck_bone = find_bone("neck", get_model_ptr(player_ent.model))
+	player_ent.anim_func = fn(ent : *entity)
+	{
+		mov := ent.mov_info
+		mov.neck_bone.target_world_pos += ctx.white_color
+		
+		if IsKeyHeld(key_enum.KEY_P)
+		{
+			mov.neck_bone.target_world_pos.w  = 1.0
+		}
+		else
+		{
+			mov.neck_bone.target_world_pos.w  = 0.0
+		}
+
+	}
 	//player_ent.model = test_model
 
 	total_bullets := 32
@@ -7135,23 +7258,8 @@ main_loop::fn(ctx : *context)
 	cube.tex_id = ctx.grass_tex
 	cube.name = "ground"
 
-	test_anim := new_cube(ctx, &_vec{15.0, 73.0, 10.0}, &_vec{40.0, 1.0, 40.0}, false);
+	//test_anim := new_cube(ctx, &_vec{15.0, 73.0, 10.0}, &_vec{40.0, 1.0, 40.0}, false);
 
-	test_anim.material_idx = find_shader(ctx, "skin.mat")
-	test_anim.flags = test_anim.flags | ENTITY_CUSTOM_SHADER
-	test_anim.in_material_instance = new_material_instance(ctx, &test_anim.material_idx, test_anim)
-	test_anim.name = "bones"
-	test_anim.size.x = 1.0
-	test_anim.size.y = 1.0
-	test_anim.size.z = 1.0
-	test_anim.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
-	test_anim.c_type = clip_type.C3D
-	test_anim.cl3d.asset_idx = ASSETS_CLIPS_OFFSET
-	dyn_add(&ctx.ents_with_clip, test_anim)
-	dyn_add(&test_anim.remove_from, ent_part_of.ANIMATION)
-
-
-	find_asset(ctx, "bones.fbx", &test_anim.model)
 
 
 /*
@@ -7270,7 +7378,8 @@ main_loop::fn(ctx : *context)
 	sel_action : select_action
 
 	SerializeAllEnt(ctx, "01")
-	DeserializeAllEnt(ctx, "01")
+	//__dbg_break
+	DeserializeAllEnt(ctx, "02")
 	
 	ctx.grid_ent = NewEnt(ctx, "grid_ent")
 	ctx.grid_ent.flags = ctx.grid_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
@@ -7836,6 +7945,7 @@ main_loop::fn(ctx : *context)
 							cube.model.asset_idx = cast(u32)idx
 							cube.pos = ctx.preview_ent.pos
 							cube.flags = cube.flags & ~(ENTITY_HAS_TEXTURE)
+							cube.rot = ctx.preview_ent.rot
 						}
 						else
 						{
@@ -8333,7 +8443,11 @@ main_loop::fn(ctx : *context)
 					new_mesh_info:=false
 					model_verts_count:u32
 					model_tris_count:u32
+
 					m := get_model_ptr(&ctx.selected_model)
+
+					c.MESH.info.model_idx = ctx.selected_model
+
 					GetInfoFromModel(m.model, &model_verts_count, &model_tris_count)
 					if c.type == col_type.MESH
 					{
@@ -8350,22 +8464,8 @@ main_loop::fn(ctx : *context)
 
 					if new_mesh_info
 					{
-						c.MESH.info.verts = cast(*_vec)heap_alloc(ctx.alloc, model_verts_count * 16)
-						c.MESH.info.verts_count = model_verts_count
-
-						c.MESH.info.tris = cast(*u32)heap_alloc(ctx.alloc, sizeof(u32)*model_tris_count)
-						c.MESH.info.tris_count = model_tris_count
-						c.data_ready = false
-
 						minfo := &c.MESH.info
-
-						minfo.model_idx = get_id_of_model(&ctx.selected_model)
-
-						CopyDataFromModel(cast(u32)minfo.model_idx, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)
-
-						aux1 : _vec
-						aux2 : _vec
-						CopyVerts(c, &aux1, &aux2)
+						create_mesh_collider(ctx, c, model_tris_count, model_verts_count)
 					}
 					printf("mesh changed\n")
 					assign_mesh_to_chunks(ctx, info._out_ent)
@@ -8679,6 +8779,7 @@ TERRAIN_TRIS_SIZE :const s32=(MESH_WIDTH ) * (MESH_WIDTH) * 6 * 4
 TERRAIN_MESHES_SIZE :const s32= sizeof(mesh_info) * (TERRAIN_WIDTH * TERRAIN_WIDTH + 1)
 TERRAIN_CHUNKS_COL_SIZE :const s32= sizeof(mesh_info) * TERRAIN_WIDTH * TERRAIN_WIDTH
 
+
 UpdateEntsWithClips::fn(ctx : *context, dt : f32)
 {
 	if ctx.ents_with_clip.count == 0
@@ -8693,6 +8794,39 @@ UpdateEntsWithClips::fn(ctx : *context, dt : f32)
 	}
 }
 
+find_bone::fn(name : str_lit, m : *model_info) ! *bone_animation
+{
+	for b in m.roots
+	{
+		if str_cmp(b.name, name)
+		{
+			return *b
+		}
+		val := find_bone(name, *b)
+		if val
+		{
+			return val
+		}
+	}
+	return nil
+}
+find_bone::fn(name : str_lit, b : *bone_animation) ! *bone_animation
+{
+	if str_cmp(b.name, name)
+	{
+		return b
+	}
+	for ch in b.children
+	{
+
+		val := find_bone(name, *ch)
+		if val
+		{
+			return val
+		}
+	}
+	return nil
+}
 
 main:: fn(){
 	q := euler_to_quaternion(-8.103, 0.0, 8.103)

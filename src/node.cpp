@@ -9051,6 +9051,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			const own_std::string &decl_name = n->l != nullptr ? n->l->t->str : own_std::to_string((long long)n);
 
+			//BREAK(n->t->line == 8797)
 
 			// creating a new node for an implied name
 			if (n->l == nullptr)

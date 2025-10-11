@@ -53,7 +53,7 @@ verts_and_tris:struct
 	verts_count : u32
 	tris : *u32
 	tris_count : u32
-	model_idx : u64
+	model_idx : asset_index
 }
 
 col_type : etruct

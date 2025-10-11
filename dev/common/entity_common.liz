@@ -246,6 +246,8 @@ entity:struct
 	col_stay : fn(*entity, *entity, *collision),
 	col_exit : fn(*entity, *entity, *collision),
 	playable_func : fn(*void, *entity, *f32),
+
+	anim_func :fn(ent : *entity);
 	
 	cols : dyn_array(*collider)
 	emmitter : *particle_emmitter
@@ -374,6 +376,7 @@ enemy_info: struct
 player_info: struct
 {
 	can_move : bool,
+	neck_bone : *bone_animation
 	using u1 :: union
 	{
 		mov_vel : _vec,

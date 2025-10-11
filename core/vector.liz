@@ -192,6 +192,34 @@ quaternion_slerp::fn(a : *_vec, b : *_vec, t : f32) ! _vec
 
     return out;
 }
+inverse_quaternion::fn(q_ : *quaternion) ! quaternion
+{
+	q := q_.v
+    result : quaternion=?;
+
+    // Compute the squared magnitude
+    mag2 : f32 = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+
+    // If normalized quaternion, just conjugate
+    if (absf(mag2 - 1.0) < 0.0001)
+    {
+        result.v.x = -q.x;
+        result.v.y = -q.y;
+        result.v.z = -q.z;
+        result.v.w =  q.w;
+    }
+    else
+    {
+        // Otherwise divide conjugate by |q|²
+        invMag2 : f32 = 1.0 / mag2;
+        result.v.x = -q.x * invMag2;
+        result.v.y = -q.y * invMag2;
+        result.v.z = -q.z * invMag2;
+        result.v.w =  q.w * invMag2;
+    }
+
+    return result;
+}
 quaternion_to_euler::fn(q : *_vec) ! _vec
 {
     angles : _vec=?;

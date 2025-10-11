@@ -7085,7 +7085,7 @@ bool IsNodeOperator(node* nd, tkn_type2 tkn)
 	}
 	return false;
 }
-void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
+bool TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 {
 	func_decl* f = decl_exist->type.fdecl;
 	decl_exist->type.overload_funcs = (func_overload_strct*)AllocMiscData(lang_stat, sizeof(func_overload_strct));
@@ -7099,6 +7099,7 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 	{
 		auto op_str = OvrldOpToStr(f->op_overload);
 		auto op_str_len = op_str.size();
+		
 
 		f->name = MangleFuncNameWithArgs(lang_stat, f, f->name, 0);
 	}
@@ -7121,6 +7122,7 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 
 	decl_exist->type.overload_funcs->fdecls.emplace_back(f);
 	decl_exist->type.type = enum_type2::TYPE_OVERLOADED_FUNCS;
+	return true;
 }
 
 void AddNewDeclToFileGlobalScope(lang_state *lang_stat, decl2* d)
@@ -9051,8 +9053,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			const own_std::string &decl_name = n->l != nullptr ? n->l->t->str : own_std::to_string((long long)n);
 
-			//BREAK(n->t->line == 8797)
-
 			// creating a new node for an implied name
 			if (n->l == nullptr)
 			{
@@ -9084,7 +9084,10 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					ExitProcess(1);
 				}
 
-				TransformSingleFuncToOvrlStrct(lang_stat, decl_exist);
+				if(!TransformSingleFuncToOvrlStrct(lang_stat, decl_exist))
+				{
+					return nullptr;
+				}
 			}
 			func_overload_strct* overload_strct = nullptr;
 
@@ -9682,6 +9685,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 						auto colon = DescendNameFinding(lang_stat, n->r, scp);
 						if (overload_strct && first_time)
 						{
+
 							own_std::string new_name = MangleFuncNameWithArgs(lang_stat, ret_type.fdecl, decl_name, 0);
 							ret_type.fdecl->name = new_name;
 							FOR_VEC(fdecl, overload_strct->fdecls)

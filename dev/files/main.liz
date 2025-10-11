@@ -2582,7 +2582,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			trying_to_run = true
 			if !mov.exhausted
 			{
-				speed = speed * 1.8
+				speed = speed * 2.8
 				if on_ground
 				{
 					mov.step_timer += *dt * 2.0;
@@ -2606,6 +2606,11 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				player_ent.rot = euler_to_quaternion(270.0, radians_to_degree(ang), 0.0).v
 
 				player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET + 1
+				if IsKeyHeld(key_enum.KEY_SHIFT)
+				{
+					player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET + 2
+					
+				}
 
 			}
 			else
@@ -4538,16 +4543,16 @@ find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32) ! u64
 	ret : u64
 	for k in *ar
 	{
-		ret++
 		if k.time > time
 		{
 			break
 		}
+		ret++
 	}
 	ret--
 	return ret
 }
-fill_bones::fn(out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, time : f32)
+fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, time : f32)
 {
 	pos_kf_idx := find_keyframe(&b.pos, time)
 	pos_next_kf_idx := clamp(pos_kf_idx + 1, 0, b.pos.count - 1)
@@ -4582,6 +4587,7 @@ fill_bones::fn(out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, t
 	val_diff = next_rot_kf.time - cur_rot_kf.time
 
 
+
 	if val_diff != 0.0
 	{
 		p := (time - (cur_rot_kf.time - 1.0)) / val_diff
@@ -4591,18 +4597,34 @@ fill_bones::fn(out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, t
 	{
 		final_rot = cur_rot_kf.val
 	}
+	/*
+	globals.temp_alloc.cur = 0
+	if str_cmp(b.name, "ik_feet_r")
+	{
+		printf("name: {b.name}\n")
+		print_vec(&final_pos)
+	}
+	*/
 
 
 	anim_local:mat4x4=?;
 
 	rot_mat :mat4x4=?
 	pos_mat :mat4x4=?
-	q:quaternion=?
-	q.v = final_rot
+
 	
+	if b.anim_func
+	{
+		b.anim_func(ent, b, parent_mat)
+	}
 	p := b.target_world_pos.w
 	first := (final_pos * (1.0 - p))
 	final_pos = first + b.target_world_pos * p
+
+	final_rot = quaternion_slerp(&final_rot, &b.target_rot, b.target_rot_weight)
+
+	q:quaternion=?
+	q.v = final_rot
 
 	build_rotation_matrix(&rot_mat, &q)
 	build_translation_matrix(&pos_mat, &final_pos)
@@ -4614,8 +4636,10 @@ fill_bones::fn(out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, t
 	memcpy(mat_ptr, &offset, sizeof(mat4x4));
 	for ch in b.children
 	{
-		fill_bones(out_matrices, *ch, &anim_local, time)
+		fill_bones(ent, out_matrices, *ch, &anim_local, time)
 	}
+	b.anim_func = nil
+
 }
 editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 {
@@ -5498,7 +5522,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		for b in ctx.model_anim.roots
 		{
 			identity_matrix4x4(cast(*f32)&bone3_mat)
-			fill_bones(matrices, *b, &bone3_mat, time)
+			//fill_bones(matrices, *b, &bone3_mat, time)
 		}
 	}
 }
@@ -6780,7 +6804,7 @@ gameplay_cam::fn(ctx : *context, dt : f32)
 	//printf("angx {angx}, angy {angy}\n")
 	//print_vec(cam_forward)
 }
-create_clip_asset::fn(name : str_lit, start : f32, end : f32) ! asset_index
+create_clip_asset::fn(name : str_lit, start : f32, end : f32, vel : f32= 1.0) ! asset_index
 {
 	aux_idx := find_empty_asset(ASSETS_CLIPS_OFFSET)
 	clip_aux := globals.assets[aux_idx]
@@ -6788,6 +6812,7 @@ create_clip_asset::fn(name : str_lit, start : f32, end : f32) ! asset_index
 	memcpy(clip_aux.cid.name[0], name, str_ln(name))
 	clip_aux.CLIP.cl.start = start
 	clip_aux.CLIP.cl.end = end
+	clip_aux.CLIP.cl.vel = vel
 
 	ret :asset_index
 	ret.asset_idx = cast(u32)aux_idx
@@ -6864,6 +6889,7 @@ main_loop::fn(ctx : *context)
 
 	create_clip_asset("p_idle", 30.0/ANIM_TICKS_PER_SEC, 97.0/ANIM_TICKS_PER_SEC)
 	create_clip_asset("p_walk", 0.0, 24.0/ANIM_TICKS_PER_SEC)
+	create_clip_asset("p_run", 110.0/ANIM_TICKS_PER_SEC, 135.0/ANIM_TICKS_PER_SEC, 2.0)
 
 	for i in 0..total_fl
 	{
@@ -6919,6 +6945,7 @@ main_loop::fn(ctx : *context)
 
 				GetBoneName(m.model, cast(u32)i2, name, 32)
 				cur_banim.name = new_str_lit(ctx.alloc, cast(str_lit)name)
+
 				
 
 				GetBoneKeyframesData(m.model, cast(u32)i2, cur_banim.pos[0], cur_banim.scales[0], cur_banim.rot[0])
@@ -7078,19 +7105,74 @@ main_loop::fn(ctx : *context)
 	player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET
 	dyn_add(&ctx.ents_with_clip, player_ent)
 	dyn_add(&player_ent.remove_from, ent_part_of.ANIMATION)
-	player_ent.mov_info.neck_bone = find_bone("neck", get_model_ptr(player_ent.model))
+	player_ent.mov_info.neck_bone = find_bone2("neck", get_model_ptr(&player_ent.model))
+
+	p_tex :asset_index
+	if !find_asset(ctx, "ch.png", &p_tex, ASSETS_TEXTURES_OFFSET)
+	{
+		__dbg_break
+	}
+	set_shader_uniform_sampler2d(ctx, player_ent, "tex", &p_tex)
+
 	player_ent.anim_func = fn(ent : *entity)
 	{
 		mov := ent.mov_info
-		mov.neck_bone.target_world_pos += ctx.white_color
-		
-		if IsKeyHeld(key_enum.KEY_P)
+		b := mov.neck_bone
+
+		z:_vec
+		z.z = 4.0
+
+		/*
+
+
+		end := inv * z
+		end = end + player_ent.pos
+		*/
+
+		mov.neck_bone.anim_func=fn(ent : *entity, b : *bone_animation, cur : *mat4x4)
 		{
-			mov.neck_bone.target_world_pos.w  = 1.0
-		}
-		else
-		{
-			mov.neck_bone.target_world_pos.w  = 0.0
+			up :_vec
+			up.y = 1.0
+			z:_vec
+			z.z = 1.0
+
+			q:quaternion
+			q.v = ent.rot
+			euler := quaternion_to_euler(&q.v)
+			final_rot_ := euler_to_quaternion(-270.0, 0.0, 0.0) * q
+			final_rot_.v.y = final_rot_.v.z
+			final_rot_.v.z = 0.0
+			final_rot_ = inverse_quaternion(cast(*quaternion)&final_rot_)
+
+			
+			original_z := z
+
+			target_pos :_vec
+			target_pos.x = 76.0
+			target_pos.y = 71.0
+			target_pos.z = 5.0
+			dir := ent.pos - target_pos 
+			dir = normalize_vec(&dir)
+			
+
+			ang := angle_on_axis(&z, &dir, &up)
+
+			rot := euler_to_quaternion(0.0, radians_to_degree(ang), 0.0)
+
+			final_rot_ = rot * final_rot_
+			b.target_rot = final_rot_.v
+
+			d := dot_vec(&dir, &ent.forward)
+			printf("d {d}\n")
+			
+			if IsKeyHeld(key_enum.KEY_P)
+			{
+				b.target_rot_weight  = 1.0
+			}
+			else
+			{
+				b.target_rot_weight  = 0.0
+			}
 		}
 
 	}
@@ -7575,7 +7657,6 @@ main_loop::fn(ctx : *context)
 		}
 		if ctx.editor_cam
 		{
-			//draw_vertex(ctx, &player_ent.pos, &_vec{1.0, 1.0, 1.0, 1.0}, &cam_pos, &cam_rot)
 			//printf("model {ctx.grid_ent.model}\n")
 			if IsKeyHeld(key_enum.KEY_LCTRL) && IsKeyDown(key_enum.KEY_S)
 			{
@@ -8327,11 +8408,32 @@ main_loop::fn(ctx : *context)
 			
 			player_mov(ctx, &-aux_forward, &dt)
 
+/*
+			z:_vec
+			z.z = 4.0
+
+			q:quaternion
+			q.v = player_ent.rot
+			euler := quaternion_to_euler(&q.v)
+			print_vec(&euler)
+			final_rot := euler_to_quaternion(0.0, radians_to_degree(euler.y), 0.0)
+			z = final_rot * z
+
+			inv := inverse_quaternion(&final_rot)
+
+			end := inv * z
+			end = end + player_ent.pos
+
+			draw_vertex(ctx, &end, &ctx.white_color, ctx.cam_pos_global, ctx.cam_rot_global)
+			*/
+
 			//cam_pos = player_ent.pos
 			sky.pos = player_ent.pos
 
 			gameplay_cam(ctx, dt)
 			player_ent.forward = aux_forward
+
+
 			
 
 /*
@@ -8794,7 +8896,7 @@ UpdateEntsWithClips::fn(ctx : *context, dt : f32)
 	}
 }
 
-find_bone::fn(name : str_lit, m : *model_info) ! *bone_animation
+find_bone2::fn(name : str_lit, m : *model_info) ! *bone_animation
 {
 	for b in m.roots
 	{

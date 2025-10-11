@@ -35,7 +35,7 @@ own_std::string FuncNameWithTempls(lang_state *,  own_std::string fname, own_std
 own_std::string MangleFuncNameWithArgs(lang_state *, func_decl *fdecl, own_std::string original_name, int start_arg);
 decl2 *NewDecl(lang_state *, own_std::string name, type2 tp);
 decl2 *GetDeclFromStruct(type_struct2*);
-void TransformSingleFuncToOvrlStrct(lang_state *, decl2 *decl_exist);
+bool TransformSingleFuncToOvrlStrct(lang_state *, decl2 *decl_exist);
 int GetTypeSize(type2* tp);
 
 

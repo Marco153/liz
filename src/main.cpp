@@ -5645,6 +5645,13 @@ void GetBoneKeyframesData(int thread_id, dbg_state* dbg)
 	auto bone_aux = &m->all[bone_id];
 
 	aiNodeAnim *bone = bone_aux->keyframes;
+
+	/*
+	if(bone_aux->name == "ik_feet_r")
+	{
+		HERE()
+	}
+		*/
 	//HERE()
 	for(int i = 0; i < bone->mNumPositionKeys;i++)
 	{

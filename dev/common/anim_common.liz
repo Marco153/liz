@@ -55,6 +55,7 @@ clip3d: struct
 {
 	start : f32
 	end : f32
+	vel : f32
 }
 clip2: struct
 {

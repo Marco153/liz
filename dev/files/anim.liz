@@ -24,12 +24,12 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		time := e.clip_time * 24.0 + cl.start * 24.0
 		if e.anim_func
 		{
-			e.anim_func(e)
+			e.anim_func(e, dt)
 		}
 		for b in mod.roots
 		{
 			identity_matrix4x4(cast(*f32)&matrix)
-			fill_bones(e, e.matrices_ptr, *b, &matrix, time)
+			fill_bones(e, e.matrices_ptr, *b, &matrix, time, dt)
 		}
 		e.clip_time += dt * cl.vel
 		//printf("anim time {time}, factored {e.clip_time}, end {cl.end}\n")

@@ -203,11 +203,19 @@ clip_type:enum
 	C2D,
 	C3D,
 }
+anim_manager:struct
+{
+	sec_clip : asset_index
+	sec_clip_weight : f32
+	sec_clip_timer : f32
+	loop_sec_clip : bool
+}
 entity:struct
 {
 	type : ent_type,
 	state : entity_state,
 	name : str_lit,
+	anim_man : *anim_manager
 	using info_::union
 	{
 		mov_info : *player_info,
@@ -247,7 +255,7 @@ entity:struct
 	col_exit : fn(*entity, *entity, *collision),
 	playable_func : fn(*void, *entity, *f32),
 
-	anim_func :fn(ent : *entity);
+	anim_func :fn(ent : *entity, f32);
 	
 	cols : dyn_array(*collider)
 	emmitter : *particle_emmitter
@@ -377,6 +385,8 @@ player_info: struct
 {
 	can_move : bool,
 	neck_bone : *bone_animation
+	arm_bone : *bone_animation
+	hand_bone : *bone_animation
 	using u1 :: union
 	{
 		mov_vel : _vec,

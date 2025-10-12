@@ -2118,6 +2118,11 @@ bone_animation:struct
 	target_rot : _vec
 	target_rot_weight : f32
 	anim_func : fn(*entity, b : *bone_animation, parent:*mat4x4);
+
+	has_sec_clip : bool
+
+	final_pos : _vec
+	final_rot : _vec
 }
 model_info: struct
 {

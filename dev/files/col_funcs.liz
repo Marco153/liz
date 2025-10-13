@@ -73,19 +73,6 @@ CanIgnoreTriggerAndDoCollision::fn(ent_a : *entity, spear : *entity, col : *coll
 player_collision_exit::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 }
-/*
-enemy_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
-{
-	up : _vec
-	up.y = 1.0
-	ent_a.normal_col = col.normal
-	if dot_vec(&col.normal, &up) > 0.5
-	{
-		ent_a.on_ground = true
-		//ent_a. = true
-	}
-}
-*/
 enemy_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 	up : _vec
@@ -180,6 +167,17 @@ bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	vol := 1.0/(len * 0.2)
 	vol = clamp(vol, 0.0, 1.0)
 	PlayAudioByHandle(globals.magic_hit_sound_handle, volume=vol)
+}
+enemy_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+	up : _vec
+	up.y = 1.0
+	ent_a.normal_col = col.normal
+	if dot_vec(&col.normal, &up) > 0.5
+	{
+		ent_a.on_ground = true
+		ent_a.mov_info.just_hit_ground = true
+	}
 }
 player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {

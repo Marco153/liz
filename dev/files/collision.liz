@@ -1629,9 +1629,10 @@ StepCol::fn(ctx : *context, dt : f32)
 		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &aux_min, &aux_max)
 		
 
-		if cast_s32_and_compare_vecs(&c1.rel_chunk_min, &aux_min) == false ||
+
+		if e.type == ent_type.PLAYER && (cast_s32_and_compare_vecs(&c1.rel_chunk_min, &aux_min) == false ||
 			cast_s32_and_compare_vecs(&c1.rel_chunk_max, &aux_max) == false ||
-			is_flag_on(e.flags, ENTITY_COL_CHUNK_WAS_MODIFIED)
+			is_flag_on(e.flags, ENTITY_COL_CHUNK_WAS_MODIFIED))
 		{
 			c1.rel_chunk_min = aux_min
 			c1.rel_chunk_max = aux_max
@@ -2283,6 +2284,76 @@ RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*coll
 	}
 	return found
 }
+ray_against_mesh_info:struct
+{
+	start : *_vec, 
+	end : *_vec,
+	verts : *_vec,
+	tris : *u32,
+	total_tris: u32,
+	cur_dist : *f32,
+	found : *bool,
+	cinfo : *collision,
+	is_axis : *bool,
+	e : *entity,
+	collided : **entity
+}
+ray_agains_mesh::fn(ctx : *context, c1: *collider, ray_info : *ray_against_mesh_info) ! bool
+{
+	using ray_info
+
+	aux_found := false
+	dir := *end - *start
+
+	t :u64
+	while t < total_tris
+	{
+		info :verts_from_tri_info=?
+		info.t = t
+		get_verts_pos_from_tris(&info, cast(*u32)tris, cast(*f32)verts, 4)
+		rinfo : raycast_info=?
+		rinfo.ray_origin = *start
+		rinfo.ray_dir = dir
+		c_offset := c1.ent.col_offset
+		rinfo.v0 = info.v1_out + c_offset
+		rinfo.v1 = info.v2_out + c_offset
+		rinfo.v2 = info.v3_out + c_offset
+
+		globals.tri_v1 = rinfo.v0
+		globals.tri_v2 = rinfo.v1
+		globals.tri_v3 = rinfo.v2
+
+		if ray_triangle_intersect(&rinfo)
+		{
+			tri_pos := *start + dir * rinfo.t_out
+			dist_dir := *start - tri_pos
+			d := dot_vec(&dist_dir, &dist_dir)
+
+			ent_is_axis := e.type == ent_type.AXIS
+			if ent_is_axis
+			{
+				*is_axis = true
+			}
+			if d < *cur_dist
+			{
+				*cur_dist = d
+				*found = true
+				cinfo.ent = e
+				if *is_axis && ent_is_axis || *is_axis == false
+				{
+					*collided = e
+					//printf("got {e.name}, is_axis {is_axis}, ent_is_axis {ent_is_axis}\n")
+				}
+				cinfo.normal = info.cross
+				cinfo.contact_point = tri_pos
+				aux_found = true
+			}
+
+		}
+		t += 3
+	}
+	return aux_found
+}
 ray_agains_collider::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity, e : *entity, is_axis : *bool, cur_dist : *f32, found : *bool, c1 : *collider) ! bool
 {
 	//c1.pos = e.pos;
@@ -2294,68 +2365,44 @@ ray_agains_collider::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*colli
 
 	aux_found := false
 	
+	info : ray_against_mesh_info=?
 	on c1.type
 	{
 	col_type.MESH
 	{
+		verts := c1.MESH.info.verts
+		tris_count := c1.MESH.info.tris_count
+		tris := c1.MESH.info.tris
 
+		info.start = start
+		info.end = end
+		info.verts = verts
+		info.tris = tris
+		info.total_tris = tris_count
+		info.cur_dist = cur_dist
+		info.found = found
+		info.cinfo = cinfo
+		info.is_axis = is_axis
+		info.e = e
+		info.collided = collided
+		aux_found = ray_agains_mesh(ctx, c1, &info)
 	}
 	col_type.CUBE
 	{
-		globals.trn = e
-		globals.ray_origin = *start
-		globals.ray_end = *end
-		//__dbg_break
-		t :u64
-		while t < 36
-		{
-			info :verts_from_tri_info=?
-			info.t = t
-			get_verts_pos_from_tris(&info, cast(*u32)globals.cube_tris, cast(*f32)c1.CUBE.verts[0], 4)
-			rinfo : raycast_info=?
-			rinfo.ray_origin = *start
-			rinfo.ray_dir = dir
-			c_offset := c1.ent.col_offset
-			rinfo.v0 = info.v1_out + c_offset
-			rinfo.v1 = info.v2_out + c_offset
-			rinfo.v2 = info.v3_out + c_offset
+		verts := c1.CUBE.verts[0]
 
-			globals.tri_v1 = rinfo.v0
-			globals.tri_v2 = rinfo.v1
-			globals.tri_v3 = rinfo.v2
-
-			if ray_triangle_intersect(&rinfo)
-			{
-				tri_pos := *start + dir * rinfo.t_out
-				dist_dir := *start - tri_pos
-				d := dot_vec(&dist_dir, &dist_dir)
-
-
-				//printf("is axis {e.name}\n")
-
-				ent_is_axis := e.type == ent_type.AXIS
-				if ent_is_axis
-				{
-					*is_axis = true
-				}
-				if d < *cur_dist
-				{
-					*cur_dist = d
-					*found = true
-					cinfo.ent = e
-					if *is_axis && ent_is_axis || *is_axis == false
-					{
-						*collided = e
-						//printf("got {e.name}, is_axis {is_axis}, ent_is_axis {ent_is_axis}\n")
-					}
-					cinfo.normal = info.cross
-					cinfo.contact_point = tri_pos
-					aux_found = true
-				}
-
-			}
-			t += 3
-		}
+		info.start = start
+		info.end = end
+		info.verts = verts
+		info.tris = cast(*u32)globals.cube_tris[0]
+		info.total_tris = 36
+		info.cur_dist = cur_dist
+		info.found = found
+		info.cinfo = cinfo
+		info.is_axis = is_axis
+		info.e = e
+		info.collided = collided
+		aux_found = ray_agains_mesh(ctx, c1, &info)
 	}
 	}
 	return aux_found

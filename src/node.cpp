@@ -5481,11 +5481,9 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			{
 				if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 				{
-					/*
 					REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 						VAR_ARGS("for some reason func '%s' was not done. \n it seems like that function reached up until this line %d", ncall->l->t->str.c_str(), lhs->type.fdecl->reached_nd->t->line)
 						);
-						*/
 					return false;
 				}
 				else

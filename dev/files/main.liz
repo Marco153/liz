@@ -299,6 +299,10 @@ context: struct
 	matrices_inst : *f32
 	model_anim : *model_info
 	anim_timer : f32
+
+	skull_idle : asset_index
+	skull_walk_forwards : asset_index
+	skull_walk_sideways : asset_index
 }
 
 
@@ -2450,7 +2454,17 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	if on_ground
 	{
-		grav.y = -0.05
+		if absf(mov.h) > 0.1 || absf(mov.v) > 0.1
+		{
+			d := dot_vec(&player_ent.normal_col, &player_ent.forward)
+			//printf("d is {d}\n")
+			grav.y = -2.05 + d
+		}
+		else
+		{
+			grav.y = -0.05
+
+		}
 		reset_jmp(mov)
 	}
 	else
@@ -3367,6 +3381,7 @@ new_axis_ent::fn(ctx : *context, name : str_lit, sz : *_vec, col : *_vec) ! *ent
 	ret.col_size.x = 1.0
 	ret.col_size.y = 1.0
 	ret.col_size.z = 1.0
+	ret.model.asset_idx = ASSETS_MODELS_OFFSET 
 	ret.size = *sz
 	memcpy(&ret.color, col, 16)
 	dyn_add(&ctx.drawable_ents, ret)
@@ -4010,6 +4025,8 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 		i++
 	}
 
+	grid_shader := find_shader(ctx, "grid.mat")
+	ctx.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, ctx.preview_ent)
 	assign_bodies_to_chunks(ctx)
 }
 free_lang_stuff::fn()
@@ -5114,12 +5131,12 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		if *out_ent
 		{
 			globals.temp_alloc.cur = 0
-			aux_type := out_ent.type
-			if ImGuiEnumCombo("ent_type", __LINE__, cast(*u32)&aux_type)
+			aux_type := cast(u32)out_ent.type
+			if ImGuiEnumCombo("ent_type", __LINE__, &aux_type)
 			{
 
-				out_ent.type = aux_type
-				on aux_type
+				out_ent.type = cast(ent_type)aux_type
+				on cast(ent_type)aux_type
 				{
 				ent_type.EVENT
 				{
@@ -5129,6 +5146,10 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 				{
 					out_ent.vel = out_ent.pos
 					out_ent.forward = out_ent.rot
+				}
+				ent_type.ENEMY
+				{
+
 				}
 				ent_type.GRID
 				{
@@ -5152,6 +5173,62 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 					out_ent.color.z = 1.0
 					out_ent.color.w = 0.5
 				}
+				}
+			}
+			if out_ent.type == ent_type.ENEMY
+			{
+				aux_type = cast(u32)out_ent.enemy_type
+				if ImGuiEnumCombo("enemy_enum", __LINE__, cast(*u32)&aux_type)
+				{
+					//printf("clickd combo val {cast(u32)aux_type}\n")
+					on cast(enemy_enum)aux_type
+					{
+					enemy_enum.SKULL
+					{
+						printf("changed to skull\n")
+						find_asset(ctx, "skel.fbx", &out_ent.model)
+						prev_val := out_ent.material_idx.asset_idx
+						out_ent.size.x = 0.1
+						out_ent.size.y = 0.1
+						out_ent.size.z = 0.1
+						out_ent.is_static = false
+						out_ent.playable_func = skull_mov
+						out_ent.col_enter = enemy_collision_enter;
+						dyn_add(&out_ent.remove_from, ent_part_of.PLAYABLE)
+						dyn_add(&ctx.playable_ents, *out_ent)
+
+						if out_ent.cols.count == 0
+						{
+							add_body(ctx, *out_ent)
+						}
+
+						dyn_add(&ctx.ents_with_clip, *out_ent)
+						dyn_add(&out_ent.remove_from, ent_part_of.ANIMATION)
+						out_ent.c_type = clip_type.C3D
+						out_ent.cl3d = ctx.skull_idle
+
+						c := *out_ent.cols[0]
+						c.type = col_type.CUBE
+						c.size.x = 10.0
+						c.size.y = 10.0
+						c.size.z = 25.0
+						c.pos.z = -1.0
+
+						out_ent.state = entity_state.GO_SIDEWAYS
+
+
+						skin := find_shader(ctx, "skin.mat")
+						out_ent.material_idx = skin
+						out_ent.flags = out_ent.flags | ENTITY_CUSTOM_SHADER
+						if skin.asset_idx != prev_val
+						{
+							out_ent.in_material_instance = new_material_instance(ctx, &out_ent.material_idx, *out_ent)
+						}
+
+						out_ent.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
+						//ent.c_type = clip_type.C3D
+					}
+					}
 				}
 			}
 			for i in out_ent.remove_from
@@ -5472,6 +5549,72 @@ change_preview_col_idx::fn(ctx : *context, new_val : u8)
 		ctx.draw_col = true
 	}
 	}
+}
+skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
+{
+	player := ctx.player
+	dir := player.pos - ent.pos
+
+	dist := len_vec(&dir)
+
+	dir = normalize_vec(&dir)
+
+	ent.vel.y = -1.0
+	z:_vec
+	z.z = 1.0
+	dir.y = 0.0
+	cross := cross_vec(&dir, &ctx.up)
+
+	speed := 4.0
+	if ent.on_ground
+	{
+		ent.vel.y = -0.0
+
+		ang := angle_on_axis(&z, &dir, &ctx.up)
+		ent.rot = euler_to_quaternion(270.0, radians_to_degree(ang), 0.0).v
+		on ent.state
+		{
+		entity_state.GO_FORWARDS
+		{
+			target := player.pos - dir * 10.0
+
+			dir = target - ent.pos
+
+			dist = len_vec(&dir)
+			dir = normalize_vec(&dir)
+			dir.y = 0.0
+			printf("fw dist {dist}\n")
+			if dist <  1.0
+			{
+				//printf("will go side\n")
+				ent.state = entity_state.GO_SIDEWAYS
+			}
+			else
+			{
+				ent.vel = dir * speed
+				ent.cl3d = ctx.skull_walk_forwards
+			}
+		}
+		entity_state.GO_SIDEWAYS
+		{
+			printf("sd dist {dist}\n")
+			if dist < 7.0 || dist > 12.0
+			{
+				ent.state = entity_state.GO_FORWARDS
+			}
+			else
+			{
+				ent.vel = cross * speed
+				ent.cl3d = ctx.skull_walk_sideways
+			}
+
+		}
+		}
+
+	}
+	//printf("dist {dist}\n")
+	//print_vec(&ent.vel)
+	//ent.on_ground = false
 }
 enemy_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 {
@@ -6778,7 +6921,6 @@ update_sword_in_hand::fn(player_ent : *entity, sword : *entity, hand_bone : *bon
 	dir := hand_bone.final_pos
 	q:quaternion=?
 	q.v = player_ent.rot
-	euler := quaternion_to_euler(&q.v)
 	final_rot := q
 	q = final_rot
 	q2 :quaternion=?
@@ -6849,6 +6991,12 @@ main_loop::fn(ctx : *context)
 	create_clip_asset("p_walk", 0.0, 24.0/ANIM_TICKS_PER_SEC)
 	create_clip_asset("p_run", 110.0/ANIM_TICKS_PER_SEC, 135.0/ANIM_TICKS_PER_SEC, 2.0)
 	create_clip_asset("p_atk", 146.0/ANIM_TICKS_PER_SEC, 160.0/ANIM_TICKS_PER_SEC, 0.5)
+
+	ctx.skull_idle = create_clip_asset("s_idle", 0.0/ANIM_TICKS_PER_SEC, 40.0/ANIM_TICKS_PER_SEC, 1.0)
+	ctx.skull_walk_forwards = create_clip_asset("s_wfw", 55.0/ANIM_TICKS_PER_SEC, 95.0/ANIM_TICKS_PER_SEC, 3.0)
+	ctx.skull_walk_sideways = create_clip_asset("s_wside", 110.0/ANIM_TICKS_PER_SEC, 131.0/ANIM_TICKS_PER_SEC, 3.0)
+
+	ctx
 
 	for i in 0..total_fl
 	{
@@ -7295,9 +7443,10 @@ main_loop::fn(ctx : *context)
 	hidden_cur := true
 
 	
-	cube :*entity
-	cube = new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{1.1, 0.1, 0.1}, true);
-	cube.flags = cube.flags | ENTITY_DONT_FREE
+	sword :*entity
+	sword = new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{1.1, 0.1, 0.1}, true);
+	sword.flags = sword.flags | ENTITY_DONT_FREE
+	sword.flags = sword.flags & ~ENTITY_SERIALIZE
 
 	//test_anim := new_cube(ctx, &_vec{15.0, 73.0, 10.0}, &_vec{40.0, 1.0, 40.0}, false);
 
@@ -7477,6 +7626,7 @@ main_loop::fn(ctx : *context)
 	trn_ent.is_active = false
 
 	ctx.cam_dist = 5.0
+
 
 	while !ShouldClose(ctx.window)
 	{
@@ -7930,7 +8080,7 @@ main_loop::fn(ctx : *context)
 							t := dot_vec(&n, &(cam_pos - ctx.grid_ent.pos)) / denom
 							point = cam_pos - dir * t
 						}
-						cube = new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
+						cube := new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
 
 						new_rot := quaternion_to_euler(&ctx.grid_ent.rot)
 						cube.rot = euler_to_quaternion(0.0, radians_to_degree(new_rot.y), 0.0).v
@@ -8024,8 +8174,9 @@ main_loop::fn(ctx : *context)
 							{
 								axis_sel_ent = aux_sel
 								sel_fw = axis_sel_ent.forward
-								if out_ent.model.asset_idx > 1
+								if out_ent.model.asset_idx > ASSETS_MODELS_OFFSET + 1
 								{
+
 									id := get_id_of_model(&out_ent.model)
 									ctx.model_farthes_vert = ModelFarthestPoint(cast(u32)id, &sel_fw)
 									ctx.model_farthes_vert.y = dot_vec(&ctx.model_farthes_vert, &sel_fw)
@@ -8356,8 +8507,7 @@ main_loop::fn(ctx : *context)
 			UpdateEntsWithClips(ctx, dt)
 			PhysicsUpdate(ctx, dt)
 
-			update_sword_in_hand(player_ent, cube, hand_bone)
-
+			update_sword_in_hand(player_ent, sword, hand_bone)
 
 
 			i :u64

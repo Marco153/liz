@@ -2885,7 +2885,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 			CreateOppositeRegAssigmentAfterCondChecking(lang_stat, out, sub_if_idx, if_idx, reg);
 			top->type = IR_TYPE_REG;
-			top->reg_sz = 8;
+			//top->reg_sz = 8;
 			top->deref = -1;
 			top->reg = reg;
 
@@ -2905,7 +2905,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			else
 			{
 				ir.assign.to_assign.type = IR_TYPE_REG;
-				ir.assign.to_assign.reg_sz = 8;
+				ir.assign.to_assign.reg_sz = top->reg_sz;
 				ir.assign.to_assign.reg = AllocReg(lang_stat);
 			}
 			ir.assign.rhs = *top;

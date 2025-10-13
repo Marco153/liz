@@ -38,6 +38,10 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		{
 			e.clip_time = 0.0
 		}
+		if e.clip_time < 0.0
+		{
+			e.clip_time = end
+		}
 	}
 	clip_type.C2D
 	{

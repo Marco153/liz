@@ -27,9 +27,7 @@ ent_type:enum
 }
 enemy_enum : enum
 {
-	THRAXER,
-	QUIMMER,
-	WOLF,
+	SKULL
 }
 interact_type : enum
 {
@@ -58,6 +56,8 @@ impact_enum:enum
 entity_state:enum
 {
 	IDLE,
+	GO_SIDEWAYS,
+	GO_FORWARDS,
 	SURF,
 	EDGE,
 	ON_WALL,

@@ -16,10 +16,6 @@ DisableEnt::fn(ent : *entity)
 
 	if ent.type == ent_type.ENEMY
 	{
-		if ent.enemy_type == enemy_enum.THRAXER || ent.enemy_type == enemy_enum.WOLF
-		{
-			DisableEnt(ent.mov_info.trigger);
-		}
 	}
 }
 

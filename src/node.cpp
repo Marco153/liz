@@ -10628,6 +10628,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			ret_type = DescendNode(lang_stat, n->l->l, scp);
 		}
+		if(ret_type.type == TYPE_VOID && ret_type.ptr == 0)
+		{
+			REPORT_ERROR(n->t->line, n->t->line_offset,
+				VAR_ARGS("type 'void' is not a valid condition check\n")
+			);
+			ExitProcess(1);
+		}
 		//checking if the scope isn't zero and descending it
 		if (n->l->r && n->l->r->r)
 		{

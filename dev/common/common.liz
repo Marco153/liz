@@ -2004,7 +2004,7 @@ ImGuiShowV2::fn outsider(*_vec);
 ImGuiShowV3::fn outsider(*_vec);
 ImGuiShowV4::fn outsider(*_vec);
 ImGuiSetWindowFontScale::fn outsider(size : f32);
-ImGuiInputText::fn outsider(label : str_lit, buf : str_lit, buf_sz : u32);
+ImGuiInputText::fn outsider(label : str_lit, buf : str_lit, buf_sz : u32) !bool;
 ImGuiInputInt::fn outsider(label : str_lit, int : *s32);
 ImGuiInputF32::fn outsider(label : str_lit, f : *f32);
 ImGuiDragInt::fn outsider(label : str_lit, int : *s32);

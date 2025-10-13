@@ -31,6 +31,7 @@ context: struct
 	//scenes : *scene_info,
 	//scene_cur : u32,
 	//scenes_max : u32,
+	test_ent : *entity
 	alloc : *mem_alloc,
 	main_alloc : mem_alloc,
 	per_scene_alloc : mem_alloc,
@@ -241,6 +242,8 @@ context: struct
 	selected_model :asset_index
 	selected_material :asset_index
 
+	tris_checked :u32
+
 	draw_col :bool,
 	draw_origin :bool,
 	save_player_pos : bool
@@ -261,7 +264,6 @@ context: struct
 	cur_model_selected_idx : s32
 
 	preview_ent : *entity
-	test_ent : *entity
 
 	cur_preview_idx : u8
 
@@ -1706,7 +1708,6 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 	axis.y = 1.0
 	axis.x = 0.0
 	axis.z = 0.0
-	aux_forward := ctx.cam_aux_forward_global
 	cam_forward := ctx.cam_forward_global
 	cam_pos := ctx.cam_pos_global
 	cam_rot := ctx.cam_rot_global
@@ -1735,16 +1736,12 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 	}
 	cross := cross_vec(cam_forward, &axis)
 
-	axis = cross * radians_to_degree(cam_rot.x)
+	axis = cross * radians_to_degree(-cam_rot.x)
 	aux_rot := euler_to_quaternion(axis.x , axis.y, axis.z)
-	
-	axis.x = 0.0
-	axis.y = 1.0
-	axis.z = 0.0
-	axis = cross * radians_to_degree(cam_rot.y)
-	//aux_rot = aux_rot * euler_to_quaternion(axis.x , axis.y, axis.z)
 
 	actual_forward := aux_rot * *cam_forward
+
+	print_vec(cam_rot)
 	if IsKeyHeld(key_enum.KEY_A)
 	{
 		*cam_pos += cross * dt * speed
@@ -3754,6 +3751,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 				ent = NewEnt(ctx, "")
 			}
 
+			ent.anim_mul = 1.0
 			printf("des {instantiated_ents}\n")
 
 			for st in stmnts.BIN.expr
@@ -3780,21 +3778,24 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 					//__dbg_break
 					cid := cid_from_ast(ctx, *st.BIN.expr[1])
 					memcpy(buffer[0], cid.name, 12)
-					find_asset(ctx, cast(str_lit)buffer[0], &ent.cl3d)
+					found := find_asset(ctx, cast(str_lit)buffer[0], &ent.cl3d)
+					ASSERT(found)
 				}
 				else if *name == "model"
 				{
 					//__dbg_break
 					cid := cid_from_ast(ctx, *st.BIN.expr[1])
 					memcpy(buffer[0], cid.name, 12)
-					find_asset(ctx, cast(str_lit)buffer[0], &ent.model)
+					found := find_asset(ctx, cast(str_lit)buffer[0], &ent.model, ASSETS_MODELS_OFFSET)
+					ASSERT(found)
 				}
 				else if *name == "tex_id"
 				{
 					//__dbg_break
 					cid := cid_from_ast(ctx, *st.BIN.expr[1])
 					memcpy(buffer[0], cid.name, 12)
-					find_asset(ctx, cast(str_lit)buffer[0], &ent.tex_id)
+					found := find_asset(ctx, cast(str_lit)buffer[0], &ent.tex_id)
+					ASSERT(found)
 				}
 				else if *name == "material_idx"
 				{
@@ -3811,7 +3812,8 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 					cid := cid_from_ast(ctx, *m_idx_scp)
 					memcpy(buffer[0], cid.name, 12)
 
-					find_asset(ctx, cast(str_lit)buffer[0], &ent.material_idx, start=ASSETS_MATERIALS_OFFSET)
+					found:=find_asset(ctx, cast(str_lit)buffer[0], &ent.material_idx, start=ASSETS_MATERIALS_OFFSET)
+					ASSERT(found)
 
 					mat := get_material_ptr(&ent.material_idx)
 
@@ -3826,7 +3828,7 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 						cur_ast_name := &cur_ast.BIN.expr[0].WORD.str
 						i2 :u64= 0
 						
-						found := false
+						found = false
 						for u in mat.uniforms
 						{
 							if u.name == *cur_ast_name
@@ -3850,7 +3852,8 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 							aux_type_data.tp = type_enum.TYPE_U32
 							cid = cid_from_ast(ctx, *cur_ast.BIN.expr[1])
 							memcpy(buffer[0], cid.name, 12)
-							find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex)
+							found = find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex)
+							ASSERT(found)
 
 						}
 						lang_type_type.V2, lang_type_type.V3, lang_type_type.V4
@@ -3915,7 +3918,8 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 									cid := cid_from_ast(ctx, *cur_st.BIN.expr[1])
 									memcpy(buffer[0], cid.name, 12)
 									a_idx := cast(*asset_index)&col.MESH.info.model_idx
-									find_asset(ctx, cast(str_lit)buffer[0], a_idx, ASSETS_MODELS_OFFSET)
+									found:=find_asset(ctx, cast(str_lit)buffer[0], a_idx, ASSETS_MODELS_OFFSET)
+									ASSERT(found)
 								}
 								else
 								{
@@ -3963,9 +3967,21 @@ DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
 						dyn_add(&ctx.playable_ents, ent)
 						if ent.type == ent_type.ENEMY
 						{
-							ent.playable_func = enemy_mov
-							ent.col_stay = enemy_collision_stay
-							ent.en_info.origin_pos = ent.pos
+							on ent.enemy_type
+							{
+							enemy_enum.SKULL
+							{
+								ent.playable_func = skull_mov
+								ent.state = entity_state.GO_FORWARDS
+								ent.c_type = clip_type.C3D
+							}
+							default
+							{
+								__dbg_break
+							}
+							}
+							ent.col_enter = enemy_collision_enter;
+							//ent.en_info.origin_pos = ent.pos
 						}
 					}
 					ent_part_of.ANIMATION
@@ -5333,7 +5349,16 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 				}
 			}
 			globals.temp_alloc.cur = 0
-			ImGuiText(out_ent.name)
+
+			name_ln := str_ln(out_ent.name)
+			memcpy(buffer[0], out_ent.name, name_ln)
+			*buffer[name_ln] = cast(char)0
+			if ImGuiInputText("name", cast(str_lit)buffer[0], 32)
+			{
+				heap_free(ctx.alloc, out_ent.name)
+				out_ent.name = new_str_lit(ctx.alloc, cast(str_lit)buffer[0])
+			}
+
 			has_col := out_ent.cols.count > 0
 			ImGuiText("has col: {has_col}");
 			ImGuiCheckbox("active: ", &out_ent.is_active)
@@ -5552,6 +5577,7 @@ change_preview_col_idx::fn(ctx : *context, new_val : u8)
 }
 skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 {
+	//return
 	player := ctx.player
 	dir := player.pos - ent.pos
 
@@ -5571,7 +5597,11 @@ skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 		ent.vel.y = -0.0
 
 		ang := angle_on_axis(&z, &dir, &ctx.up)
-		ent.rot = euler_to_quaternion(270.0, radians_to_degree(ang), 0.0).v
+		q :quaternion=euler_to_quaternion(270.0, radians_to_degree(ang), 0.0)
+
+		ent.rot = q.v
+		ent.forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * z
+
 		on ent.state
 		{
 		entity_state.GO_FORWARDS
@@ -5580,10 +5610,13 @@ skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 
 			dir = target - ent.pos
 
+			d := dot_vec(&dir, &ent.forward)
+			//printf("d {d}\n")
+			//print_vec(&ent.forward)
+
 			dist = len_vec(&dir)
 			dir = normalize_vec(&dir)
 			dir.y = 0.0
-			printf("fw dist {dist}\n")
 			if dist <  1.0
 			{
 				//printf("will go side\n")
@@ -5594,10 +5627,18 @@ skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 				ent.vel = dir * speed
 				ent.cl3d = ctx.skull_walk_forwards
 			}
+			if d > 0.0
+			{
+				ent.anim_mul = 1.0
+			}
+			else
+			{
+				ent.anim_mul = -1.0
+
+			}
 		}
 		entity_state.GO_SIDEWAYS
 		{
-			printf("sd dist {dist}\n")
 			if dist < 7.0 || dist > 12.0
 			{
 				ent.state = entity_state.GO_FORWARDS
@@ -5615,78 +5656,6 @@ skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 	//printf("dist {dist}\n")
 	//print_vec(&ent.vel)
 	//ent.on_ground = false
-}
-enemy_mov::fn(ctx : *context, ent : *entity, dt : *f32)
-{
-	//printf("enemy\n")
-	mov := ent.en_info
-	ent.cl = ctx.character_walk
-
-	if ent.on_ground
-	{
-		ent.vel.y = -0.5
-	}
-
-	origin := mov.origin_pos
-
-	dir :_vec
-	dist_to_target :f32=?
-
-	on mov.state
-	{
-	behaviour_state.IDLE
-	{
-		dist_to_player := len_vec(&(ent.pos - ctx.player.pos))
-		if dist_to_player < 5.0
-		{
-			mov.state = behaviour_state.ATTACK
-		}
-	}
-	behaviour_state.GO_TO
-	{
-		target_pos := mov.target_pos
-		dir = target_pos - ent.pos 
-		prev_y := dir.y
-		dir.y = 0.0
-		
-		dist_to_target = len_vec(&(dir))
-
-		if dist_to_target < 0.1
-		{
-			mov.state = behaviour_state.IDLE
-		}
-
-		dir.y = prev_y
-
-		dir = normalize_vec(&dir)
-	}
-	behaviour_state.ATTACK
-	{
-		dir = ctx.player.pos - ent.pos
-		dist_to_origin := len_vec(&(ent.pos - origin))
-		if dist_to_origin > 5.0
-		{
-			mov.state = behaviour_state.GO_TO
-			mov.target_pos = origin
-		}
-		dir = normalize_vec(&dir)
-	}
-	}
-
-	prev_y := ent.vel.y
-	ent.vel = dir * 4.0 + ent.impact_vel
-	ent.vel.y += prev_y + -1.0
-	ent.sec_color.w = 1.0
-
-	if ent.hp <= 0.0
-	{
-		ent.is_active = false
-	}
-
-	ent.impact_vel += -ent.impact_vel * *dt * 8.0
-
-	ent.color_lerp += -ent.color_lerp * *dt * 8.0
-	ent.on_ground = false
 }
 playble_ents_logic::fn(ctx : *context, dt : *f32)
 {
@@ -6995,8 +6964,6 @@ main_loop::fn(ctx : *context)
 	ctx.skull_idle = create_clip_asset("s_idle", 0.0/ANIM_TICKS_PER_SEC, 40.0/ANIM_TICKS_PER_SEC, 1.0)
 	ctx.skull_walk_forwards = create_clip_asset("s_wfw", 55.0/ANIM_TICKS_PER_SEC, 95.0/ANIM_TICKS_PER_SEC, 3.0)
 	ctx.skull_walk_sideways = create_clip_asset("s_wside", 110.0/ANIM_TICKS_PER_SEC, 131.0/ANIM_TICKS_PER_SEC, 3.0)
-
-	ctx
 
 	for i in 0..total_fl
 	{

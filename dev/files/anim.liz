@@ -31,7 +31,7 @@ UpdateClip2::fn(e : *entity, dt : f32)
 			identity_matrix4x4(cast(*f32)&matrix)
 			fill_bones(e, e.matrices_ptr, *b, &matrix, time, dt)
 		}
-		e.clip_time += dt * cl.vel
+		e.clip_time += dt * cl.vel * e.anim_mul
 		//printf("anim time {time}, factored {e.clip_time}, end {cl.end}\n")
 		end := cl.end - cl.start
 		if e.clip_time >= end
@@ -51,7 +51,7 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		if e.cl.pause 
 			return
 
-		e.clip_time += dt * e.cl.vel;
+		e.clip_time += dt * e.cl.vel * e.anim_mul;
 		e.clip_done = false
 		if e.clip_time >= e.cl.len
 		{

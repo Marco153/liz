@@ -1772,12 +1772,11 @@ StepCol::fn(ctx : *context, dt : f32)
 						e.col_stay(e, tri.ent, &col);
 					}
 				}
-				//tris_checked++;
+				ctx.tris_checked++;
 				cur_tri++
 				tri = ptr_offset(tri, 1, triangle_info)
 			}
 		}
-		//printf("tris checked {tris_checked}\n")
 	}
 
 }
@@ -1790,13 +1789,14 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 	}
 	steps := 1
 
+	ctx.tris_checked = 0
+
 
 	dt = dt / cast(f32)steps
 	for i in 0..steps
 	{
 		StepCol(ctx, dt)
 	}
-
 }
 
 

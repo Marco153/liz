@@ -55,21 +55,6 @@ spear_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	}
 }
 
-CanIgnoreTriggerAndDoCollision::fn(ent_a : *entity, spear : *entity, col : *collision) ! bool
-{
-	if spear.type == ent_type.SPEAR
-	{
-		ent_a_foot_y := ent_a.pos.y - ent_a.pivot.y * ent_a.col_size.y;
-		spear_top_y := spear.pos.y + spear.pivot.y * spear.col_size.y;
-		dabs := absf(col.depth);
-		if dabs < 0.3 && ent_a_foot_y >= (spear_top_y - dabs) && ent_a.vel.y < 0.0
-		{
-			return true;
-		}
-	}
-	return false;
-
-}
 player_collision_exit::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 }
@@ -102,6 +87,7 @@ bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	ent_a.is_active = false
 	if ent_b.type == ent_type.ENEMY
 	{
+		/*
 
 		vel := ent_a.vel
 		vel = normalize_vec(&vel) * 4.0
@@ -128,6 +114,7 @@ bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 			ent_b.sec_color.y = 1.0
 			ent_b.sec_color.z = 1.0
 		}
+		*/
 	}
 	ev :create_event_info
 	ev.type = create_event_etruct.CREATE_EMMITTER

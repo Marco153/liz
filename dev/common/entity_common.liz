@@ -232,7 +232,7 @@ entity:struct
 	model : asset_index
 	tex_id : asset_index
 
-	
+	anim_mul : f32
 
 	size : _vec,
 	col_size : _vec,

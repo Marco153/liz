@@ -4162,7 +4162,10 @@ void ImGuiInputText(int thread_id, dbg_state* dbg)
 	if (own_std::string(label) == "scene_name")
 		auto a = 0;
 	char* buf = (char *)&dbg->mem_buffer[buf_offset];
-	ImGui::InputText(label, buf, buf_sz);
+	bool val = ImGui::InputText(label, buf, buf_sz);
+	auto aux = GetRegValPtr(thread_id, dbg, RET_1_REG);
+	*aux = val;
+
 }
 void ImGuiImage(int thread_id, dbg_state* dbg)
 {

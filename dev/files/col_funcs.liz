@@ -67,6 +67,11 @@ enemy_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	{
 		ent_a.on_ground = true
 	}
+	if dot_vec(&col.normal, &up) > 0.5
+	
+	{
+		ent_a.on_ground = true
+	}
 }
 item_col_func::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
@@ -80,6 +85,12 @@ player_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	if dot_vec(&col.normal, &up) > 0.5
 	{
 		ent_a.on_ground = true
+	}
+	d := dot_vec(&col.normal, &ent_a.forward)
+	//printf("d {d}\n")
+	if d < -0.5
+	{
+		ent_a.mov_info.facing_wall = true
 	}
 }
 bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
@@ -203,6 +214,10 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	}
 }
 
+xe_trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
+{
+
+}
 axe_trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
 	if ent_a.type == ent_type.AXE
@@ -212,7 +227,6 @@ axe_trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 			DisableEnt(ent_b);
 		}
 	}
-
 }
 defense_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {

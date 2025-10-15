@@ -14338,7 +14338,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				if (lhs.reg == 0)
 					sse_reg++;
 				
-				GenX64ToIrValReg2(lang_stat, ret, &rhs, &assign.rhs, false, false, sse_reg);
+				GenX64ToIrValReg2(lang_stat, ret, &rhs, &assign.rhs, false, false);
 				//AllocSpecificReg(lang_stat, lhs.reg);
 
 

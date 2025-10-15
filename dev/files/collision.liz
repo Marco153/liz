@@ -1719,6 +1719,7 @@ StepCol::fn(ctx : *context, dt : f32)
 				{
 					check_maybe_resolve_collision(ctx, gjk, e, e2, dt, c1, *c, &p_aabb)
 				}
+
 			}
 		}
 		for _e2 in c1.ents_of_gotten_chunks
@@ -1729,6 +1730,8 @@ StepCol::fn(ctx : *context, dt : f32)
 		tris_checked :u32=0
 
 		tri_verts1 :=gjk.aux_col.TRIANGLE.verts[0]
+
+
 		for ch in ctx.aux_col_chunks
 		{
 			if ch.tris.count == 0
@@ -1737,8 +1740,9 @@ StepCol::fn(ctx : *context, dt : f32)
 
 			cur_tri :u64= 0
 			total_tris := ch.tris.count
-			//for tri in ch.tris
+			
 			tri := ptr_offset(ch.tris[0], 0, triangle_info)
+
 			while cur_tri < total_tris
 			{
 				info :verts_from_tri_info=?
@@ -1756,8 +1760,11 @@ StepCol::fn(ctx : *context, dt : f32)
 
 				if GJK(gjk, c1, &gjk.aux_col)
 				{
-					mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, &gjk.aux_col, &col)
-					e.pos -= mtv
+					if !e.is_trigger
+					{
+						mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, &gjk.aux_col, &col)
+						e.pos -= mtv
+					}
 
 					col.normal = col.normal * -1.0
 					if !EntIsInCollision(e, tri.ent, &col)
@@ -2298,14 +2305,18 @@ ray_against_mesh_info:struct
 	e : *entity,
 	collided : **entity
 }
-ray_agains_mesh::fn(ctx : *context, c1: *collider, ray_info : *ray_against_mesh_info) ! bool
+ray_agains_mesh::fn(ctx : *context, c1: *collider, ray_info : *ray_against_mesh_info, start_tri : u32= 0, end_tri :s32= -1) ! bool
 {
 	using ray_info
 
 	aux_found := false
 	dir := *end - *start
 
-	t :u64
+	t :u64= start_tri
+	if end_tri != -1
+	{
+		total_tris = cast(u32)end_tri
+	}
 	while t < total_tris
 	{
 		info :verts_from_tri_info=?

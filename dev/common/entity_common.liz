@@ -62,6 +62,7 @@ entity_state:enum
 	EDGE,
 	ON_WALL,
 	SLERP,
+	CLIMP_WALL2,
 }
 behaviour_state: enum
 {
@@ -384,9 +385,11 @@ enemy_info: struct
 player_info: struct
 {
 	can_move : bool,
+	facing_wall : bool
 	neck_bone : *bone_animation
 	arm_bone : *bone_animation
 	hand_bone : *bone_animation
+	spine_bone : *bone_animation
 	using u1 :: union
 	{
 		mov_vel : _vec,

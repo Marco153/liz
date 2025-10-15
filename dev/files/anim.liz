@@ -10,6 +10,7 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		if e.cl3d.asset_idx == 0
 			return;
 
+		e.clip_done = false
 		if e.matrices_ptr == nil
 		{
 			mat := get_material_ptr(&e.material_idx)
@@ -36,10 +37,12 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		end := cl.end - cl.start
 		if e.clip_time >= end
 		{
+			e.clip_done = true
 			e.clip_time = 0.0
 		}
 		if e.clip_time < 0.0
 		{
+			e.clip_done = true
 			e.clip_time = end
 		}
 	}

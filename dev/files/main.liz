@@ -710,7 +710,7 @@ input_info:struct
 
 
 
-ChangeState::fn(e : *entity, state : entity_state)
+change_state::fn(e : *entity, state : entity_state)
 {
 	if e.state != state
 	{
@@ -2415,6 +2415,89 @@ reset_jmp::fn(mov : *player_info)
 	mov.jmp.jmpd = false
 }
 
+collider_against_tris::fn(ctx : *context, c1 : *collider) ! bool
+{
+	gjk := cast(*gjk_state)globals.gjk
+	tri_verts1 :=gjk.aux_col.TRIANGLE.verts[0]
+	for ch in ctx.aux_col_chunks
+	{
+		if ch.tris.count == 0
+			continue
+		gjk.aux_col.type = col_type.TRIANGLE
+
+		cur_tri :u64= 0
+		total_tris := ch.tris.count
+		
+		tri := ptr_offset(ch.tris[0], 0, triangle_info)
+
+		while cur_tri < total_tris
+		{
+			info :verts_from_tri_info=?
+			info.t = tri.tri_idx
+			get_verts_pos_from_tris(&info, tri.info.tris, cast(*f32)tri.info.verts, 4)
+
+			cross := info.cross
+			memcpy(tri_verts1, &info.v1_out, 3 * 16)
+			//info.v3_out.y += 1.0
+			//info.v2_out.y += 1.0
+			//info.v1_out.y += 1.0
+			//draw_tri(ctx, &info.v3_out, &info.v2_out, &info.v1_out, &ctx.white_color, 0)
+
+			gjk.aux_col.TRIANGLE.normal = cross
+
+			if GJK(gjk, c1, &gjk.aux_col)
+			{
+				return true
+			}
+			ctx.tris_checked++;
+			cur_tri++
+			tri = ptr_offset(tri, 1, triangle_info)
+		}
+	}
+	return false
+}
+raycast_against_chunk_tris::fn(ctx : *context, start : *_vec, end : *_vec, out_pos : *_vec) ! bool
+{
+	dir := *end - *start
+
+	for ch in ctx.aux_col_chunks
+	{
+		if ch.tris.count == 0
+			continue
+
+		cur_tri :u64= 0
+		total_tris := ch.tris.count
+		
+		tri := ptr_offset(ch.tris[0], 0, triangle_info)
+
+		while cur_tri < total_tris
+		{
+			info :verts_from_tri_info=?
+			info.t = tri.tri_idx
+			get_verts_pos_from_tris(&info, tri.info.tris, cast(*f32)tri.info.verts, 4)
+			rinfo : raycast_info=?
+			rinfo.ray_origin = *start
+			rinfo.ray_dir = dir
+			rinfo.v0 = info.v1_out
+			rinfo.v1 = info.v2_out
+			rinfo.v2 = info.v3_out
+
+			if ray_triangle_intersect(&rinfo)
+			{
+				aux := *start + dir * rinfo.t_out
+				*out_pos = aux
+				return true
+			}
+
+
+
+			//ctx.tris_checked++;
+			cur_tri++
+			tri = ptr_offset(tri, 1, triangle_info)
+		}
+	}
+	return false
+}
 player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 {
 
@@ -2427,12 +2510,13 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	grav := &mov.gravity_vel
 	cam_pos := *ctx.cam_pos_global
 	cam_rot := *ctx.cam_rot_global
-	//printf("up col {mov.up_col}\n")
+	//printf("wal {mov.facing_wall}\n")
 
 	//print_vec(&mov.hand_bone.final_pos)
 
 	global_fw :_vec
 	global_fw.z = 1.0
+
 
 
 	if mov.step_timer > 1.0
@@ -2564,6 +2648,57 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			player_ent.state = entity_state.IDLE
 		}
 	}
+	entity_state.CLIMP_WALL2
+	{
+		idx :asset_index
+		idx.asset_idx = ASSETS_CLIPS_OFFSET + 4
+		//__dbg_break
+		cl:= get_clip_ptr(&idx)
+		player_ent.cl3d = idx
+		start_slerp_upwards := 190.0/ANIM_TICKS_PER_SEC - cl.start 
+		end_slerp_upwards := 194.0/ANIM_TICKS_PER_SEC - cl.start 
+		total_len := cl.end - cl.start
+		remaining_len := (end_slerp_upwards - start_slerp_upwards)
+
+		player_ent.vel.x = 0.0
+		player_ent.vel.y = 0.0
+		player_ent.vel.z = 0.0
+		player_ent.is_trigger = true
+		grav.y = 0.0
+
+		dir := mov.slerp_end - mov.slerp_start
+		if player_ent.clip_done
+		{
+			change_state(player_ent, entity_state.IDLE)
+			player_ent.is_trigger = false
+
+			local_final_pos := mov.spine_bone.final_pos
+			prev_z := local_final_pos.z
+			local_final_pos.z = local_final_pos.y
+			local_final_pos.y = prev_z
+
+			local_final_pos = local_final_pos * player_ent.size
+			print_vec(&local_final_pos)
+			//__dbg_break
+			player_ent.pos += local_final_pos
+			//__dbg_break
+		}
+		else if mov.slerp_timer >= start_slerp_upwards
+		{
+			aux_start := mov.slerp_timer - start_slerp_upwards
+			p := aux_start/remaining_len
+			p = clamp(p, 0.0, 1.0)
+			//p = sqrt(p)
+			//printf("p {p}, aux_start {aux_start}, start_up {start_slerp_upwards}\n")
+			//__dbg_break
+			dir2 := dir*p
+			//print_vec(&dir2)
+			player_ent.pos = mov.slerp_start + dir2
+		}
+		//print_vec(&mov.spine_bone.final_pos)
+
+		mov.slerp_timer += *dt
+	}
 	entity_state.SLERP
 	{
 		player_ent.is_trigger = true
@@ -2617,7 +2752,9 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				ang := angle_on_axis(&global_fw, &v, &ctx.up)
 
 				player_ent.rot = euler_to_quaternion(270.0, radians_to_degree(ang), 0.0).v
-				player_ent.forward = euler_to_quaternion(0.0, radians_to_degree(ang), 0.0) * global_fw
+				//global_fw.z = -global_fw.z
+				q := euler_to_quaternion(0.0, radians_to_degree(ang) + 180.0, 0.0)
+				player_ent.forward = q * global_fw
 
 				player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET + 1
 				if IsKeyHeld(key_enum.KEY_SHIFT)
@@ -2704,78 +2841,59 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			player_ent.anim_man.sec_clip_timer = 0.0
 			player_ent.anim_man.sec_clip_weight = 1.0
 		}
-		fw := ctx.shock_ent.forward
-		dir := ctx.shock_ent.pos - player_ent.pos
-		cross = cross_vec(&ctx.up, &fw)
-
-		aux_mul :=  PI
-		half_aux_mul := aux_mul * 0.5
-		d := dot_vec(&cross, &dir) * aux_mul * 2.0
-		d = clamp(d, -half_aux_mul, half_aux_mul)
-		d = d + PI * 0.5
-
-		//ang2 := angle_on_axis(&aux_forward, &dir, &cross)
-		q : quaternion=?
-		q.v = ctx.shock_ent.vel
-	
-		ctx.shock_ent.rot = (q * euler_to_quaternion(radians_to_degree(d), 0.0, 0.0)).v
-
-		tmr := ctx.shock_ent_emmitter.timer_deactivate
-		ctx.shock_ent_emmitter.color.w = tmr
-		clamped := clamp((1.0 - tmr) * 16.0, 0.0, 1.0)
-		ctx.shock_ent_emmitter.size.x = clamped
-		ctx.shock_ent_emmitter.size.y = clamped
-		ctx.shock_ent_emmitter.size.z = clamped
-
-		ang := angle_on_axis(aux_forward, forward, &ctx.up)
-		//player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
-
-		if IsKeyDown(key_enum.KEY_ACT1) && !on_ground
+		
+		if mov.facing_wall
 		{
-			player_ent.state = entity_state.SURF
-		}
-		d_up := dot_vec(&player_ent.normal_col, &ctx.up)
-		if IsMouseDown(mouse_enum.RIGHT) && mov.col_in_stay && absf(d_up) < 0.1 && !on_ground
-		{
-			player_ent.state = entity_state.ON_WALL
-		}
-		if IsKeyDown(key_enum.KEY_JMP) && mov.down_col && mov.up_col==false
-		{
-			//__dbg_break
-			ASSERT(mov.ent_col)
-			c1 := *player_ent.cols[0]
-			ASSERT(c1.type == col_type.CAPSULE)
-			r := c1.CAPSULE.radius
-			c1.pos = player_ent.forward *r * 2.0 + ctx.up * 1.4
-			c2 := *mov.ent_col.cols[0]
-			c2.type = col_type.CUBE
-			//c2.pos = mov.ent_col.pos
-			c2.ent = mov.ent_col
-			dummy : _vec
-			CopyVerts(c2, &dummy, &dummy)
-			gjk := ctx.gjk
+			found_at := 0
+			up:_vec
+			up.y = 1.0
+			col : collider
+			col.type = col_type.SPHERE
+			col.SPHERE.radius = 0.5
 
-			if GJK(gjk, c1, c2)
+			col.pos = player_ent.pos + player_ent.forward * 0.5
+			col.pos += up * 0.5
+
+			start_ray:_vec=?
+			end_ray:_vec=?
+
+			val1 := collider_against_tris(ctx, &col)
+			if !val1
 			{
-				//__dbg_break
-				col : collision
-				
-				mtv := EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, c2, &col)
-				
-				col.normal = col.normal * -1.0
-				mov.slerp_end = player_ent.pos
+				start_ray = col.pos
+				end_ray = col.pos - up * 3.0
 			}
-			else
-			{
-				mov.slerp_end = player_ent.pos
-			}
+			
+			printf("val1 {val1}\n")
 
-			mov.slerp_timer = 0.0
-			mov.slerp_start = player_ent.pos
-			player_ent.state = entity_state.SLERP
-			player_ent.vel.x = 0.0
-			player_ent.vel.y = 0.0
-			player_ent.vel.z = 0.0
+			col.pos = player_ent.pos + player_ent.forward * 0.5
+			col.pos += up * 2.0
+
+			val2 := collider_against_tris(ctx, &col)
+			if !val2
+			{
+				start_ray = col.pos
+				end_ray = col.pos - up * 100.0
+			}
+			printf("val2 {val2}\n")
+			out_pos :_vec=?
+			if IsKeyDown(key_enum.KEY_E) && !val2
+			{
+				if raycast_against_chunk_tris(ctx, &start_ray, &end_ray, &out_pos)
+				{
+					printf("found pos \n")
+					print_vec(&out_pos)
+					mov.slerp_start = player_ent.pos
+					mov.slerp_end = player_ent.pos
+					
+					// we want the hands to touch the ledge, not the conter of the object,
+					// thats why were making the making a little lower
+					mov.slerp_end.y = out_pos.y - 1.0
+					mov.slerp_timer = 0.0
+					
+					change_state(player_ent, entity_state.CLIMP_WALL2)
+				}
+			}
 		}
 	}
 	entity_state.SURF
@@ -2893,6 +3011,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	mov.col_in_stay = false
 	mov.up_col = false
 	mov.just_hit_ground = false
+	mov.facing_wall = false
 }
 
 MESH_WIDTH :const s32= 33
@@ -4593,6 +4712,12 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	{
 		fill_bones(ent, out_matrices, *ch, &anim_local, time, dt)
 	}
+	/*
+	if str_cmp(b.name, "spine")
+	{
+		print_vec(&final_pos)
+	}
+	*/
 
 	b.final_pos = final_pos
 	b.final_rot = final_rot
@@ -6960,6 +7085,7 @@ main_loop::fn(ctx : *context)
 	create_clip_asset("p_walk", 0.0, 24.0/ANIM_TICKS_PER_SEC)
 	create_clip_asset("p_run", 110.0/ANIM_TICKS_PER_SEC, 135.0/ANIM_TICKS_PER_SEC, 2.0)
 	create_clip_asset("p_atk", 146.0/ANIM_TICKS_PER_SEC, 160.0/ANIM_TICKS_PER_SEC, 0.5)
+	create_clip_asset("p_clmb_2", 176.0/ANIM_TICKS_PER_SEC, 215.0/ANIM_TICKS_PER_SEC, 1.0)
 
 	ctx.skull_idle = create_clip_asset("s_idle", 0.0/ANIM_TICKS_PER_SEC, 40.0/ANIM_TICKS_PER_SEC, 1.0)
 	ctx.skull_walk_forwards = create_clip_asset("s_wfw", 55.0/ANIM_TICKS_PER_SEC, 95.0/ANIM_TICKS_PER_SEC, 3.0)
@@ -7181,6 +7307,7 @@ main_loop::fn(ctx : *context)
 	dyn_add(&player_ent.remove_from, ent_part_of.ANIMATION)
 	player_ent.mov_info.neck_bone = find_bone2("neck", get_model_ptr(&player_ent.model))
 	player_ent.mov_info.arm_bone = find_bone2("arm1_r", get_model_ptr(&player_ent.model))
+	player_ent.mov_info.spine_bone = find_bone2("spine", get_model_ptr(&player_ent.model))
 
 	hand_bone := find_bone2("hand_r", get_model_ptr(&player_ent.model))
 	player_ent.mov_info.hand_bone = hand_bone

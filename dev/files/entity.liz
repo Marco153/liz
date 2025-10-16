@@ -45,69 +45,69 @@ deactivate_ent::fn(ctx : *context, e : *entity)
 }
 DeleteEnt::fn(ctx : *context, ent : *entity)
 {
-	a :=0
-	val :bool
-	for t in ent.remove_from
-	{
-		te := cast(ent_part_of)*t
-		on te
-		{
-		ent_part_of.LOOK_AT_PLAYER
-		{
-			val = RemoveEntFromAr(&ctx.look_at_ents, ent)
-			ASSERT(val)
-			a=0 
-		}
-		ent_part_of.ITEMS
-		{
-			val = RemoveEntFromAr(&ctx.items_ents, ent)
-			ASSERT(val)
-			a=0 
-		}
-		ent_part_of.PLAYABLE
-		{
-			val = RemoveEntFromAr(&ctx.playable_ents, ent)
-			ASSERT(val)
-			a=0 
-		}
-		ent_part_of.ANIMATION
-		{
-			val = RemoveEntFromAr(&ctx.ents_with_clip, ent)
-			ASSERT(val)
-			a=0 
-		}
-		ent_part_of.EMMITTER
-		{
-			val = RemoveEntFromAr(&ctx.emmitters, ent)
-			ASSERT(val)
-			a=0 
+  a :=0
+  val :bool
+  for t in ent.remove_from
+  {
+    te := cast(ent_part_of)*t
+    on te
+    {
+    ent_part_of.LOOK_AT_PLAYER
+    {
+        val = RemoveEntFromAr(&ctx.look_at_ents, ent)
+        ASSERT(val)
+        a=0 
+    }
+    ent_part_of.ITEMS
+    {
+        val = RemoveEntFromAr(&ctx.items_ents, ent)
+        ASSERT(val)
+        a=0 
+    }
+    ent_part_of.PLAYABLE
+    {
+        val = RemoveEntFromAr(&ctx.playable_ents, ent)
+        ASSERT(val)
+        a=0 
+    }
+    ent_part_of.ANIMATION
+    {
+        val = RemoveEntFromAr(&ctx.ents_with_clip, ent)
+        ASSERT(val)
+        a=0 
+    }
+    ent_part_of.EMMITTER
+    {
+        val = RemoveEntFromAr(&ctx.emmitters, ent)
+        ASSERT(val)
+        a=0 
 
-			heap_free(ctx.alloc, ent.emmitter.particles)
-			heap_free(ctx.alloc, ent.emmitter)
-		}
-		ent_part_of.DRAWABLE
-		{
-			val = RemoveEntFromAr(&ctx.drawable_ents, ent)
-			ASSERT(val)
-			a=0 
-		}
-		ent_part_of.COLLIDER
-		{
-			remove_body(ctx, ent)
-		}
-		ent_part_of.INSTANTIATED
-		{
-			val = RemoveEntFromAr(&ctx.ents, ent)
-			ASSERT(val)
-			a=0 
-		}
-		default
-		{
-			__dbg_break
-		}
-		}
-	}
-	ent.flags = 0
+        heap_free(ctx.alloc, ent.emmitter.particles)
+        heap_free(ctx.alloc, ent.emmitter)
+    }
+    ent_part_of.DRAWABLE
+    {
+        val = RemoveEntFromAr(&ctx.drawable_ents, ent)
+        ASSERT(val)
+        a=0 
+    }
+    ent_part_of.COLLIDER
+    {
+        remove_body(ctx, ent)
+    }
+    ent_part_of.INSTANTIATED
+    {
+        val = RemoveEntFromAr(&ctx.ents, ent)
+        ASSERT(val)
+        a=0 
+    }
+    default
+    {
+        __dbg_break
+    }
+    }
+  }
+  ent.flags = 0
 }
 NewEnt::fn(ctx : *context, name : str_lit) ! *entity
 {

@@ -1361,7 +1361,11 @@ ast_to_string::fn(ast : *ast_rep, out : *string)
 			}
 		}
 
-		out.data.count -= 2
+    if ast.SCOPE.stmnts.count > 0
+    {
+      out.data.count -= 2
+    }
+
 		if globals.add_new_line_new_stmnt_ast_to_string
 		{
 			PushStrLit(out, "\n\}\n")

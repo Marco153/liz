@@ -4,151 +4,126 @@
 #include <unordered_map>
 
 #define CHUNK_FREE 1
-//#define CHUNK_IN_USE 2
+// #define CHUNK_IN_USE 2
 #define CHUNK_ALLOCATED 4
 
-struct mem_chunk
-{
-    mem_chunk *next;
-    mem_chunk *prev;
-    u64 size;
-    int flags;
-    char *addr;
+struct mem_chunk {
+  mem_chunk *next;
+  mem_chunk *prev;
+  u64 size;
+  int flags;
+  char *addr;
 };
 
-#define BYTES_PER_CHUNK  8
-#define UNALLOCATED_BUFFER_ITEMS  8
+#define BYTES_PER_CHUNK 8
+#define UNALLOCATED_BUFFER_ITEMS 8
 
-struct heap_hash
-{
-	struct inner
-	{
-		void* key;
-		void* value;
-	};
-	inner *data;
-	unsigned int hash_table_size = (64 * 1024 * 1024);
-	unsigned int used;
+struct heap_hash {
+  struct inner {
+    void *key;
+    void *value;
+  };
+  inner *data;
+  unsigned int hash_table_size = (8 * 1024 * 1024);
+  unsigned int used;
 
-	void Clear()
-	{
-		memset(data, 0, sizeof(inner) * hash_table_size);
-	}
+  void Clear() { memset(data, 0, sizeof(inner) * hash_table_size); }
 
-	void *Get(void* key)
-	{
-		int idx = ((long long)key) % hash_table_size;
-		auto cur = &data[idx];
+  void *Get(void *key) {
+    int idx = ((long long)key) % hash_table_size;
+    auto cur = &data[idx];
 
-		if (cur->key == key)
-		{
-			return cur->value;
-		}
-		bool put = false;
-		for (int i = 0; i < hash_table_size; i++)
-		{
-			int mod = (i + idx + 1) % hash_table_size;
-			cur = &data[mod];
-
-			if (cur->key == key)
-			{
-				return cur->value;
-			}
-		}
-		return nullptr;
-		ASSERT(put);
-	}
-	void Remove(void* key)
-	{
-		int idx = ((long long)key) % hash_table_size;
-		auto cur = &data[idx];
-
-		if (cur->key == key)
-		{
-			cur->key = nullptr;
-			return;
-		}
-		bool removed = false;
-		for (int i = 0; i < hash_table_size; i++)
-		{
-			int mod = (i + idx + 1) % hash_table_size;
-			cur = &data[mod];
-
-			if (cur->key == key)
-			{
-				cur->key = nullptr;
-				removed = true;
-				break;
-			}
-		}
-		used--;
-		ASSERT(removed);
-	}
-	void Store(void *key, void *value)
-	{
-		int idx = ((long long)key) % hash_table_size;
-		auto cur = &data[idx];
-
-		if (cur->key == nullptr)
-		{
-			cur->key = key;
-			cur->value = value;
-			return;
-		}
-		bool put = false;
-		for (int i = 0; i < hash_table_size; i++)
-		{
-			int mod = (i + idx + 1) % hash_table_size;
-			cur = &data[mod];
-
-			if (cur->key == nullptr)
-			{
-				cur->key = key;
-				cur->value = value;
-				put = true;
-				break;
-			}
-		}
-		used++;
-		ASSERT(put);
-	}
-};
-
-struct mem_alloc
-{
-    char *buffer;
-    mem_chunk *head_free;
-    heap_hash in_use;
-    mem_chunk *all;
-    mem_chunk **probable_unallocated;
-	unsigned int chunks_cap =(1024 * 1024 * 256);
-
-	char* main_buffer;
-	 // Safe ctor: initialize members explicitly
-    mem_alloc()
-      : buffer(nullptr),
-        head_free(nullptr),
-        in_use(),                 // default-construct heap_hash safely
-        all(nullptr),
-        probable_unallocated(nullptr),
-        chunks_cap(1024u * 1024u * 256u),
-        main_buffer(nullptr)
-    {
-        // avoid any memset(this, ...) here
+    if (cur->key == key) {
+      return cur->value;
     }
-};
-void InitMemAlloc(mem_alloc* alloc);
-void FreeMemAlloc(mem_alloc* alloc);
+    bool put = false;
+    for (int i = 0; i < hash_table_size; i++) {
+      int mod = (i + idx + 1) % hash_table_size;
+      cur = &data[mod];
 
-struct linear_alloc
-{
-	char *data;
-	u32 cur;
-	u32 max;
-	void init(int sz)
-	{
-		data = (char *)__lang_globals.alloc(__lang_globals.data, sz);
-		max = sz;
-		cur = 0;
-	}
+      if (cur->key == key) {
+        return cur->value;
+      }
+    }
+    return nullptr;
+    ASSERT(put);
+  }
+  void Remove(void *key) {
+    int idx = ((long long)key) % hash_table_size;
+    auto cur = &data[idx];
+
+    if (cur->key == key) {
+      cur->key = nullptr;
+      return;
+    }
+    bool removed = false;
+    for (int i = 0; i < hash_table_size; i++) {
+      int mod = (i + idx + 1) % hash_table_size;
+      cur = &data[mod];
+
+      if (cur->key == key) {
+        cur->key = nullptr;
+        removed = true;
+        break;
+      }
+    }
+    used--;
+    ASSERT(removed);
+  }
+  void Store(void *key, void *value) {
+    int idx = ((long long)key) % hash_table_size;
+    auto cur = &data[idx];
+
+    if (cur->key == nullptr) {
+      cur->key = key;
+      cur->value = value;
+      return;
+    }
+    bool put = false;
+    for (int i = 0; i < hash_table_size; i++) {
+      int mod = (i + idx + 1) % hash_table_size;
+      cur = &data[mod];
+
+      if (cur->key == nullptr) {
+        cur->key = key;
+        cur->value = value;
+        put = true;
+        break;
+      }
+    }
+    used++;
+    ASSERT(put);
+  }
+};
+
+struct mem_alloc {
+  char *buffer;
+  mem_chunk *head_free;
+  heap_hash in_use;
+  mem_chunk *all;
+  mem_chunk **probable_unallocated;
+  unsigned int chunks_cap = (1024 * 1024 * 256);
+
+  char *main_buffer;
+  // Safe ctor: initialize members explicitly
+  mem_alloc()
+      : buffer(nullptr), head_free(nullptr),
+        in_use(), // default-construct heap_hash safely
+        all(nullptr), probable_unallocated(nullptr),
+        chunks_cap(1024u * 1024u * 256u), main_buffer(nullptr) {
+    // avoid any memset(this, ...) here
+  }
+};
+void InitMemAlloc(mem_alloc *alloc);
+void FreeMemAlloc(mem_alloc *alloc);
+
+struct linear_alloc {
+  char *data;
+  u32 cur;
+  u32 max;
+  void init(int sz) {
+    data = (char *)__lang_globals.alloc(__lang_globals.data, sz);
+    max = sz;
+    cur = 0;
+  }
 };

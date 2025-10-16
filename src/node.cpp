@@ -8718,6 +8718,9 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 		}
 		else if (n->t->str == "__FUNC_NAME__")
 		{
+			ret_type.type = TYPE_STR_LIT;
+			n->type = N_STR_LIT;
+			n->t->str = scp->fdecl->name;
 			break;
 		}
 		/*

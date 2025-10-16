@@ -21,6 +21,7 @@ ent_type:enum
 	GRID,
 	BRIDGE,
 	EVENT,
+	LOADING_AREA,
 	ITEM,
 	PREVIEW_ENT,
 	AUX_COL_ENT,
@@ -299,6 +300,7 @@ entity:struct
 	{
 		event : entity_event
 		item_type : inv_item
+    l_area:*loading_area_info
 		bullet ::struct
 		{
 			dmg_val : f32
@@ -331,6 +333,17 @@ entity:struct
 	remove_from : dyn_array(ent_part_of),
 	stencil_val : u8,
 	stencil_func : stencil_func_enum,
+}
+loading_area_info:struct
+{
+    in_front_scene_name : str_lit
+    in_back_scene_name : str_lit
+
+    in_front_scene_data : str_lit
+    in_back_scene_data : str_lit
+
+    in_front_scene_sz : u32
+    in_back_scene_sz : u32
 }
 
 combo_enum:enum
@@ -384,58 +397,79 @@ enemy_info: struct
 }
 player_info: struct
 {
-	can_move : bool,
-	facing_wall : bool
-	neck_bone : *bone_animation
-	arm_bone : *bone_animation
-	hand_bone : *bone_animation
-	spine_bone : *bone_animation
-	using u1 :: union
-	{
-		mov_vel : _vec,
-		origin_pos : _vec,
-	}
-	h : f32
-	v : f32
-	ab : f32
+  can_move : bool,
+  facing_wall : bool
+  neck_bone : *bone_animation
+  arm_bone : *bone_animation
+  hand_bone : *bone_animation
+  spine_bone : *bone_animation
 
-	slerp_start : _vec
-	slerp_end : _vec
-	slerp_timer : f32
+  can_change_scene : bool
 
-	up_col_norm : _vec
-	ent_col : *entity
+  asking_for_this_scene : str_lit
+  asking_for_this_scene_sz : u32
 
-	max_y_cam_pos : f32
-	min_y_cam_pos : f32
+  area_col_pos_start : _vec
 
-	step_timer : f32
+  loading_level_data : str_lit
+  loading_level_data_sz : u32
 
-	on_getting_to_back_pos : bool
-	on_rotating_cam:bool
-	gravity_vel : _vec,
-	platform_vel : _vec,
-	platform : *entity,
-	trigger : *entity,
-	just_hit_ground : bool
-	
-	up_col : bool
-	down_col : bool
-	exhausted : bool
+  using u1 :: union
+  {
+      mov_vel : _vec,
+      origin_pos : _vec,
+  }
+  h : f32
+  v : f32
+  ab : f32
 
-	inv : inventory
-	cur_item : u32
+  slerp_start : _vec
+  slerp_end : _vec
+  slerp_timer : f32
+
+  up_col_norm : _vec
+  ent_col : *entity
+
+  max_y_cam_pos : f32
+  min_y_cam_pos : f32
+
+  step_timer : f32
+
+  on_getting_to_back_pos : bool
+  on_rotating_cam:bool
+  gravity_vel : _vec,
+  platform_vel : _vec,
+  platform : *entity,
+  trigger : *entity,
+  just_hit_ground : bool
+  
+  up_col : bool
+  down_col : bool
+  exhausted : bool
+
+  inv : inventory
+  cur_item : u32
 
 
-	col_in_stay : bool
+  col_in_stay : bool
 
-	jmp : jmp_info,
-	speed : f32,
+  jmp : jmp_info,
+  speed : f32,
 
-	stamina : f32
-	stamina_temp_max : f32
-	stamina_max : f32
+  stamina : f32
+  stamina_temp_max : f32
+  stamina_max : f32
 
-	stamina_recover_rate : f32
-	stamina_decrease_rate : f32
+  stamina_recover_rate : f32
+  stamina_decrease_rate : f32
+}
+get_forward::fn(ent : *entity)  ! _vec
+{
+  z :_vec
+  z.z = 1.0
+  
+  q:quaternion=?
+  q.v = ent.rot
+  
+  return q * z
 }

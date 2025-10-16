@@ -62,6 +62,16 @@ LinearGet::fn{T}(alloc : *linear_alloc(T), count : u32) ! *T
 	alloc.cur += count;
 	return ret
 }
+loading_stage:enum
+{
+  NONE,
+  UNLOADING_ASSETS,
+  DELETING_ENTS,
+  NOT_DONE_BUT_CAN_CHANGE_SCENES,
+  DONE,
+
+  CLEAR_COROUTINE
+}
 particle_emmitter_base :struct
 {
 	gravity : _vec
@@ -755,6 +765,7 @@ ScreenMouseToWorld::fn outsider(mx : f32, my : f32) ! _vec;
 Perlin2D::fn outsider(x:f32, y:f32, freq:f32, depth : u32) ! f32;
 CreateMesh::fn outsider(*create_mesh_info) ! u32;
 LoadModel::fn outsider(name : str_lit) ! u32;
+FreeModel::fn outsider(idx: u32);
 ModelFarthestPoint::fn outsider(idx : u32, axis : *_vec) ! _vec;
 
 PrintV3::fn outsider(f32, f32, f32);
@@ -1630,6 +1641,19 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 	//dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("material_idx", cast(s32)ent.material_idx))
 	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_static", cast(s32)ent.is_static))
 	dyn_add(&ret.SCOPE.stmnts, ArrayU32AssignmentToAst("remove_from", cast(*dyn_array(u32))&ent.remove_from))
+
+  if ent.type == ent_type.LOADING_AREA
+  {
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+
+    dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("in_front_scene_name", ent.l_area.in_front_scene_name))
+    dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("in_back_scene_name", ent.l_area.in_back_scene_name))
+
+
+
+    dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("l_area", scp))
+  }
 	
 	aux_ast :*ast_rep
 	aux_ast = AssetIndexAssignmentToAst("model", &ent.model)

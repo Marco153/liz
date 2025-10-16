@@ -205,7 +205,32 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 		printf("enter\n")
 		print_vec(&ent_a.forward)
 	}
-	if ent_b.type == ent_type.ITEM
+
+	if ent_b.type == ent_type.LOADING_AREA
+    {
+      mov := ent_a.mov_info
+      mov.area_col_pos_start = ent_a.pos
+
+      dir := ent_b.pos - ent_a.pos
+      
+      fw := get_forward(ent_b)
+      d := dot_vec(&fw, &dir)
+
+      printf("l d is {d}\n")
+
+      l_area := ent_b.l_area
+      if d > 0.0
+      {
+        mov.asking_for_this_scene = l_area.in_front_scene_data
+        mov.asking_for_this_scene_sz = l_area.in_front_scene_sz
+      }
+      else
+      {
+        mov.asking_for_this_scene = l_area.in_back_scene_data
+        mov.asking_for_this_scene_sz = l_area.in_back_scene_sz
+      }
+    }
+	else if ent_b.type == ent_type.ITEM
 	{
 		printf("item is {cast(u32)ent_b.item_type}\n")
 		//*ent_a.mov_info.inv.items[cast(u64)ent_b.item_type - 1] = ent_b.item_type

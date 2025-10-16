@@ -26,8 +26,17 @@ temporarily_not_serialize_info:struct
 	str : string
 	ent : *entity
 }
+area_col_info :struct
+{
+	area_col_pos : _vec
+	area_col_size : _vec
+  chunk_width :f32
+
+	col_chunks : dyn_array(collision_chunk)
+}
 context: struct
 {
+    col_chunks : *area_col_info
 	//scenes : *scene_info,
 	//scene_cur : u32,
 	//scenes_max : u32,
@@ -36,6 +45,11 @@ context: struct
 	main_alloc : mem_alloc,
 	per_scene_alloc : mem_alloc,
 	terrain_alloc : mem_alloc,
+
+	tkns : dyn_array(token)
+
+    cur_scene_changing : str_lit
+    cur_scene_changing_sz : u32
 
 	grid_ent : *entity
 	sun_dir : _vec
@@ -50,8 +64,7 @@ context: struct
 
 	sum_ :f32
 
-	area_col_pos : _vec
-	area_col_size : _vec
+    areas_col :dyn_array(area_col_info)
 
 	line_shader : asset_index
 
@@ -68,9 +81,8 @@ context: struct
 	white_color : _vec
 	red_color : _vec
 
-	chunk_width : f32
-	col_chunks : dyn_array(collision_chunk)
 	aux_col_chunks : dyn_array(*collision_chunk)
+
 
 
 	//all_axis_ent :*entity
@@ -1741,7 +1753,6 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 
 	actual_forward := aux_rot * *cam_forward
 
-	print_vec(cam_rot)
 	if IsKeyHeld(key_enum.KEY_A)
 	{
 		*cam_pos += cross * dt * speed
@@ -2864,7 +2875,6 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				end_ray = col.pos - up * 3.0
 			}
 			
-			printf("val1 {val1}\n")
 
 			col.pos = player_ent.pos + player_ent.forward * 0.5
 			col.pos += up * 2.0
@@ -2875,7 +2885,6 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				start_ray = col.pos
 				end_ray = col.pos - up * 100.0
 			}
-			printf("val2 {val2}\n")
 			out_pos :_vec=?
 			if IsKeyDown(key_enum.KEY_E) && !val2
 			{
@@ -3758,411 +3767,511 @@ cid_from_ast::fn(ctx : *context, ast : *ast_rep) ! custom_id
 	}
 	return ret
 }
-DeserializeAllEnt::fn(ctx : *context, file_name : str_lit)
+
+find_closing_curly::fn(ctx : *context, file : *u8, i : s64) ! s64
 {
-	buffer:[13]char
-	file_name = "../scenes/{file_name}"
-	fl_sz: = GetFileSize(file_name);
-	if fl_sz == -1
-		__dbg_break
-	file: = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
-	ReadFile(file_name, file);
-	fl :=cast(*scene_file)file
+  cur := ptr_offset(file, i, char)
+  ASSERT(*cur == '{)
 
-	ctx.area_col_pos = fl.area_col_pos
-	ctx.area_col_size = fl.area_col_size
-	ctx.chunk_width = fl.chunk_width
+  open_levels:= 1
 
-	if ctx.chunk_width != 16.0
-	{
-		ctx.chunk_width = 16.0
+
+  i++
+  while true
+  {
+    cur = ptr_offset(file, i, char)
+    if *cur == '{
+    {
+      open_levels++
+    }
+    if *cur == '}
+    {
+      open_levels--
+    }
+    if open_levels == 0
+    {
+        break
+    }
+    i++
+  }
+  i++
+  return i
+}
+
+ast_from_string_range::fn(ctx : *context, file : str_lit, start : s64, end : s64, root : *scope, pinfo : *parse_info, tkns : *dyn_array(token), lang_stat : *lang_state) ! *ast_rep
+{
+
+  aux_ptr := file[end]
+  prev_char := *aux_ptr
+  *aux_ptr = cast(char)0
+
+  pinfo.cur_tkn = 0
+  dyn_clear(tkns)
+
+  Tokenize(tkns, cast(str_lit)file[start])
+  globals.nodes_alloc.cur = 0
+  globals.ast_alloc.cur = 0
+  globals.scope_alloc.cur = 1
+
+  nd :*node= parse_scope(pinfo)
+  ast :*ast_rep= parse_node_to_ast(lang_stat, nd, root)
+
+  *aux_ptr = prev_char
+  return ast
+}
+
+DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, file_name : str_lit, stage : *loading_stage, file : str_lit = nil, fl_sz :s64 = 0)
+{
+  __dbg_break
+  if *stage == loading_stage.CLEAR_COROUTINE
+  {
+
+    _found.regs.rip = 0
+  }
+  file_data_was_given := file != nil
+  buffer:[13]char
+  file_name = "../scenes/{file_name}"
+  if file == nil
+  {
+    fl_sz = GetFileSize(file_name);
+    if fl_sz == -1
+        __dbg_break
+    file = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
+
+    ReadFile(file_name, file);
+  }
+
+  dyn_clear(&ctx.tkns)
+
+  lang_stat :lang_state
+
+  pinfo :parse_info
+  pinfo.tkns = &ctx.tkns
+
+  root :*scope= new_scope(nil)
+
+  i :s64
+  settings_end := find_closing_curly(ctx, file, i)
+  settings_ast :*ast_rep= ast_from_string_range(ctx, file, i, settings_end, root, &pinfo, &ctx.tkns, &lang_stat)
+
+  dyn_clear(&ctx.areas_col)
+
+  stmnts:*ast_rep= *settings_ast.SCOPE.stmnts[0]
+  ar := &settings_ast.SCOPE.stmnts
+  tp1 := cast(token_type)stmnts.BIN.op
+  if(!is_ast_bin(stmnts, cast(u32)token_type.EQUAL))
+  {
+    stmnts = *stmnts.BIN.expr[0]
+    ar = &stmnts.BIN.expr
+  }
+
+  // getting settings
+  for st in *ar
+  {
+    ASSERT(is_ast_bin(*st, cast(u32)token_type.EQUAL))
+    name :*string= &st.BIN.expr[0].WORD.str
+
+    if *name == "area_col"
+    {
+      cur_area :area_col_info
+      stmnts2 := *st.BIN.expr[1]
+
+      if stmnts2.SCOPE.stmnts.count == 0 continue
+
+      ar2 := &stmnts2.SCOPE.stmnts[0].BIN.expr[0].BIN.expr
+      for st2 in *ar2
+      {
+        type :*type_data= GetTypeData(area_col_info)
+
+        ASSERT(is_ast_bin(*st2, cast(u32)token_type.EQUAL))
+        name = &st2.BIN.expr[0].WORD.str
+
+        offset : u32
+        var_type:*type_data= find_var(ctx, type, name, &offset)
+
+        if !var_type continue;
+
+        data := ptr_offset(&cur_area, var_type.offset, u8)
+        DeserializeEntVar(ctx, var_type, data, *st2.BIN.expr[1])
+      }
+      new_collision_chunks(ctx, &cur_area)
+
+      dyn_add(&ctx.areas_col, &cur_area)
+
+      ctx.col_chunks = dyn_last(&ctx.areas_col)
+
+    }
+  }
+
+  i = settings_end
+  for i2 in 0..globals.entities.max
+  {
+    ent := ptr_offset(globals.entities.start, i2, entity);
+
+    if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
+    {
+      DeleteEnt(ctx, ent)
+      ent.flags = 0;
+    }
+    else
+    {
+      for c in ent.ents_in_collision
+      {
+          c.in_col = false;
+      }
+    }
+    return 
+  }
+  clear_material_instances()
+
+  instantiated_ents := 0
+  file = cast(str_lit)ptr_offset(file, 0, u8);
+  while i < fl_sz
+  {
+    ch := ptr_offset(file, i, char)
+    if *file[i] == '{
+    {
+      ent_str_end := find_closing_curly(ctx, file, i)
+      dyn_clear(&ctx.tkns)
+      ast :*ast_rep= ast_from_string_range(ctx, file, i, ent_str_end, root, &pinfo, &ctx.tkns, &lang_stat)
+
+      aux_str:string
+        ast_to_string(ast, &aux_str)
+        ASSERT(ast.type == ast_type.SCOPE)
+
+        stmnts= *ast.SCOPE.stmnts[0]
+        test := cast(token_type)stmnts.BIN.op
+
+        ASSERT(is_ast_bin(stmnts, cast(u32)token_type.SEMI_COLON))
+
+        etype :*type_data= GetTypeData(cast(*entity)0)
+
+        flags := cast(u32)stmnts.BIN.expr[0].BIN.expr[1].INT.num
+
+        ent :*entity
+
+        if is_flag_on(flags, ENTITY_DONT_FREE)
+        {
+            bin := stmnts.BIN.expr[1]
+            ASSERT(bin.BIN.expr[0].WORD.str == "idx")
+            ent_idx := cast(u32)stmnts.BIN.expr[1].BIN.expr[1].INT.num
+            ASSERT(ent_idx < globals.entities.max)
+            ent = ptr_offset(globals.entities.start, ent_idx, entity)
+        }
+        else
+        {
+            ent = NewEnt(ctx, "")
+        }
+
+        ent.anim_mul = 1.0
+        printf("des {instantiated_ents}\n")
+
+        for st in stmnts.BIN.expr
+        {
+            ASSERT(is_ast_bin(*st, cast(u32)token_type.EQUAL))
+            name :*string= &st.BIN.expr[0].WORD.str
+
+            offset : u32
+            var_type:*type_data= find_var(ctx, etype, name, &offset)
+
+            if !var_type continue;
+
+            data := ptr_offset(ent, var_type.offset + offset, u8)
+            if *name == "emmitter"
+            {
+                ent.emmitter = cast(*particle_emmitter)heap_alloc(ctx.alloc, sizeof(particle_emmitter))
+            }
+            else if *name == "l_area"
+            {
+              l_area := new_ptr(loading_area_info)
+              scp := *st.SCOPE.stmnts[1]
+              bin := scp.BIN.expr[0]
+              in_front_name := &bin.BIN.expr[0].BIN.expr[1].STR_LIT.str
+              in_back_name := &bin.BIN.expr[1].BIN.expr[1].STR_LIT.str
+              
+              l_area.in_front_scene_name = string_to_str_lit(ctx.alloc, in_front_name)
+              l_area.in_back_scene_name = string_to_str_lit(ctx.alloc, in_back_name)
+            
+              fill_loading_area_with_file_data(ctx, l_area)
+              ent.l_area = l_area
+            }
+            else if *name == "event"
+            {
+                parse_event_ast(ctx, *st.BIN.expr[1], ent)
+            }
+            else if *name == "cl3d"
+            {
+                //__dbg_break
+                cid := cid_from_ast(ctx, *st.BIN.expr[1])
+                memcpy(buffer[0], cid.name, 12)
+                found := find_asset(ctx, cast(str_lit)buffer[0], &ent.cl3d)
+                ASSERT(found)
+            }
+            else if *name == "model"
+            {
+                //__dbg_break
+                cid := cid_from_ast(ctx, *st.BIN.expr[1])
+                memcpy(buffer[0], cid.name, 12)
+                found := find_asset(ctx, cast(str_lit)buffer[0], &ent.model, ASSETS_MODELS_OFFSET)
+                ASSERT(found)
+            }
+            else if *name == "tex_id"
+            {
+                //__dbg_break
+                cid := cid_from_ast(ctx, *st.BIN.expr[1])
+                memcpy(buffer[0], cid.name, 12)
+                found := find_asset(ctx, cast(str_lit)buffer[0], &ent.tex_id)
+                ASSERT(found)
+            }
+            else if *name == "material_idx"
+            {
+              ASSERT(st.BIN.expr[1].type == ast_type.SCOPE)
+              ASSERT(is_ast_bin(*st.BIN.expr[1].SCOPE.stmnts[0], cast(u32)token_type.SEMI_COLON))
+              ent.flags = ent.flags | ENTITY_CUSTOM_SHADER
+
+              cur_stmnts := &st.BIN.expr[1].SCOPE.stmnts[0].BIN.expr
+
+              m_idx_name := cur_stmnts[0].BIN.expr[0]
+              m_idx_scp := cur_stmnts[0].BIN.expr[1]
+              ASSERT(m_idx_name.type == ast_type.WORD && m_idx_name.WORD.str == "idx")
+
+              cid := cid_from_ast(ctx, *m_idx_scp)
+              memcpy(buffer[0], cid.name, 12)
+
+              found:=find_asset(ctx, cast(str_lit)buffer[0], &ent.material_idx, start=ASSETS_MATERIALS_OFFSET)
+              ASSERT(found)
+
+              mat := get_material_ptr(&ent.material_idx)
+
+
+              ent.in_material_instance = new_material_instance(ctx, &ent.material_idx, ent)
+
+              inst := mat.instances[cast(u64)ent.in_material_instance]
+
+              
+              for cur_ast in *cur_stmnts
+              {
+                cur_ast_name := &cur_ast.BIN.expr[0].WORD.str
+                i2 :u64= 0
+                
+                found = false
+                for u in mat.uniforms
+                {
+                  if u.name == *cur_ast_name
+                  {
+                      found = true
+                      break
+                  }
+                  i2++
+                }
+                if !found
+                    continue;
+
+                target_decl_u := mat.uniforms[i2]
+                target_u := inst.uniforms[i2]
+                aux_type_data : type_data
+                on target_decl_u.tp.type
+                {
+                lang_type_type.SAMPLER2D
+                {
+                  //__dbg_break
+                  aux_type_data.tp = type_enum.TYPE_U32
+                  cid = cid_from_ast(ctx, *cur_ast.BIN.expr[1])
+                  memcpy(buffer[0], cid.name, 12)
+                  found = find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex)
+                  ASSERT(found)
+
+                }
+                lang_type_type.V2, lang_type_type.V3, lang_type_type.V4
+                {
+                    aux_type_data.tp = type_enum.TYPE_VECTOR
+                    a := *cur_ast.BIN.expr[1]
+                    DeserializeEntVar(ctx, &aux_type_data, &target_u.v, a)
+                }
+                default
+                {
+                    __dbg_break
+                }
+                }
+                a:=0
+              }
+            }
+            else if *name == "en_info"
+            {
+                ent.en_info = new_ptr(enemy_info)
+                memset(ent.en_info, 0, sizeof(enemy_info))
+                DeserializeEntVar(ctx, GetTypeData(enemy_info), ent.en_info , *st.BIN.expr[1])
+            }
+            else if *name == "cols"
+            {
+                if  ent.cols.count == 0
+                {
+
+                    scps := st.BIN.expr[1]
+                    dyn_add(&ctx.bodies, &ent);
+                    ent.ents_in_collision.alloc = ctx.alloc;
+                    dyn_init(&ent.ents_in_collision, 16);
+                    ent.ents_in_collision.count = 16
+
+                    ASSERT(scps.type == ast_type.SCOPE)
+
+                    for s in scps.SCOPE.stmnts
+                    {
+                        col := new_ptr(collider)
+                        memset(col, 0, sizeof(collider))
+                        col.ent = ent
+                        dyn_add(&ent.cols, col)
+
+                        ASSERT(s.type == ast_type.SCOPE)
+                        ASSERT(is_ast_bin(*s.SCOPE.stmnts[0], cast(u32)token_type.SEMI_COLON))
+
+                        sts := s.SCOPE.stmnts[0]
+
+                        for cur_st in sts.BIN.expr
+                        {
+
+                            name = &cur_st.BIN.expr[0].WORD.str
+                            
+                            col_t :*type_data= GetTypeData(collider)
+                            var_type = find_var(ctx, col_t, name, &offset)
+
+                            if *name == "type"
+                            {
+                                col.type = cast(col_type)cur_st.BIN.expr[1].INT.num
+                            }
+                            else if *name == "model"
+                            {
+                                cid := cid_from_ast(ctx, *cur_st.BIN.expr[1])
+                                memcpy(buffer[0], cid.name, 12)
+                                a_idx := cast(*asset_index)&col.MESH.info.model_idx
+                                found:=find_asset(ctx, cast(str_lit)buffer[0], a_idx, ASSETS_MODELS_OFFSET)
+                                ASSERT(found)
+                            }
+                            else
+                            {
+                                if !var_type continue;
+
+                                data = ptr_offset(col, var_type.offset + offset, u8)
+
+                                DeserializeEntVar(ctx, var_type, data, *cur_st.BIN.expr[1])
+                            }
+                        }
+                        if col.type == col_type.MESH
+                        {
+                            model_verts_count:u32
+                            model_tris_count:u32
+                            m := get_model_ptr(cast(*asset_index)&col.MESH.info.model_idx)
+                            GetInfoFromModel(m.model, &model_verts_count, &model_tris_count)
+                            create_mesh_collider(ctx, col, model_tris_count, model_verts_count)
+                            //__dbg_break
+                            assign_mesh_to_chunks(ctx, ent)
+                        }
+                    }
+                }
+                add_body_to_chunks(ctx, ent)
+            }
+            else
+            {
+                DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
+            }
+
+        }
+        //printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
+
+
+        i = ent_str_end
+        if is_flag_off(ent.flags, ENTITY_DONT_FREE)
+        {
+            for en in ent.remove_from
+            {
+                on *en
+                {
+                ent_part_of.PLAYABLE
+                {
+                    printf("type {cast(u32)ent.type}\n")
+
+                    dyn_add(&ctx.playable_ents, ent)
+                    if ent.type == ent_type.ENEMY
+                    {
+                        on ent.enemy_type
+                        {
+                        enemy_enum.SKULL
+                        {
+                            ent.playable_func = skull_mov
+                            ent.state = entity_state.GO_FORWARDS
+                            ent.c_type = clip_type.C3D
+                        }
+                        default
+                        {
+                            __dbg_break
+                        }
+                        }
+                        ent.col_enter = enemy_collision_enter;
+                        //ent.en_info.origin_pos = ent.pos
+                    }
+                }
+                ent_part_of.ANIMATION
+                {
+                    dyn_add(&ctx.ents_with_clip, ent)
+                }
+                ent_part_of.ITEMS
+                {
+                    dyn_add(&ctx.items_ents, ent)
+                    ent.col_enter = item_col_func
+                }
+                ent_part_of.LOOK_AT_PLAYER
+                {
+                    dyn_add(&ctx.look_at_ents, ent)
+                }
+                ent_part_of.EMMITTER
+                {
+                    dyn_add(&ctx.emmitters, ent)
+                }
+                ent_part_of.DRAWABLE
+                {
+                    dyn_add(&ctx.drawable_ents, ent)
+                }
+                ent_part_of.COLLIDER
+                {
+                    //add_body(ctx, ent);
+                }
+                ent_part_of.INSTANTIATED
+                {
+                    //__dbg_break
+                    //dyn_add(&ctx.ents, ent)
+                }
+                default
+                {
+                    __dbg_break
+                }
+                }
+            }
+        }
+        if ent.type == ent_type.BRIDGE
+        {
+            ent.forward = ent.rot
+            ent.vel = ent.pos
+
+            q2:quaternion=?
+            q2.v = ent.rot
+            qeuler := quaternion_to_euler(&q2.v)
+            ent.vel.w = qeuler.x
+        }
+        instantiated_ents++
+
+      }
+      if *file[i] == '=
+      {
+          
+      }
+      i++
 	}
 
-	new_collision_chunks(ctx)
+  grid_shader := find_shader(ctx, "grid.mat")
+  ctx.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, ctx.preview_ent)
+  assign_bodies_to_chunks(ctx)
 
-	file = cast(str_lit)ptr_offset(file, sizeof(*fl), u8);
-	i :s64
-
-	tkns : dyn_array(token)
-
-	lang_stat :lang_state
-
-	pinfo :parse_info
-	pinfo.tkns = &tkns
-
-	root :*scope= new_scope(nil)
-
-	for i2 in 0..globals.entities.max
-	{
-		ent := ptr_offset(globals.entities.start, i2, entity);
-
-		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
-		{
-			DeleteEnt(ctx, ent)
-			ent.flags = 0;
-		}
-		else
-		{
-			for c in ent.ents_in_collision
-			{
-				c.in_col = false;
-			}
-		}
-	}
-	clear_material_instances()
-
-	instantiated_ents := 0
-	while i < fl_sz
-	{
-		if *file[i] == '(
-		{
-			i++
-			
-			start := i
-			while cast(s64)i < fl_sz && IsNumber(*file[i])
-				i++;
-
-			num_len: = i - start
-			ent_str_sz := str_2_num(cast(str_lit)file[start], cast(u32)num_len)
-
-			i++
-
-
-			aux_ptr := file[i + ent_str_sz]
-			prev_char := *aux_ptr
-			*aux_ptr = cast(char)0
-
-			pinfo.cur_tkn = 0
-			dyn_clear(&tkns)
-
-			Tokenize(&tkns, cast(str_lit)file[i])
-			globals.nodes_alloc.cur = 0
-			globals.ast_alloc.cur = 0
-			globals.scope_alloc.cur = 1
-
-			nd :*node= parse_scope(&pinfo)
-			ast :*ast_rep= parse_node_to_ast(&lang_stat, nd, root)
-			aux_str:string
-			ast_to_string(ast, &aux_str)
-			ASSERT(ast.type == ast_type.SCOPE)
-
-			stmnts:*ast_rep= *ast.SCOPE.stmnts[0]
-			test := cast(token_type)stmnts.BIN.op
-
-			ASSERT(is_ast_bin(stmnts, cast(u32)token_type.SEMI_COLON))
-
-			etype :*type_data= GetTypeData(cast(*entity)0)
-
-			flags := cast(u32)stmnts.BIN.expr[0].BIN.expr[1].INT.num
-
-			ent :*entity
-
-			if is_flag_on(flags, ENTITY_DONT_FREE)
-			{
-				bin := stmnts.BIN.expr[1]
-				ASSERT(bin.BIN.expr[0].WORD.str == "idx")
-				ent_idx := cast(u32)stmnts.BIN.expr[1].BIN.expr[1].INT.num
-				ASSERT(ent_idx < globals.entities.max)
-				ent = ptr_offset(globals.entities.start, ent_idx, entity)
-			}
-			else
-			{
-				ent = NewEnt(ctx, "")
-			}
-
-			ent.anim_mul = 1.0
-			printf("des {instantiated_ents}\n")
-
-			for st in stmnts.BIN.expr
-			{
-				ASSERT(is_ast_bin(*st, cast(u32)token_type.EQUAL))
-				name :*string= &st.BIN.expr[0].WORD.str
-
-				offset : u32
-				var_type:*type_data= find_var(ctx, etype, name, &offset)
-
-				if !var_type continue;
-
-				data := ptr_offset(ent, var_type.offset + offset, u8)
-				if *name == "emmitter"
-				{
-					ent.emmitter = cast(*particle_emmitter)heap_alloc(ctx.alloc, sizeof(particle_emmitter))
-				}
-				else if *name == "event"
-				{
-					parse_event_ast(ctx, *st.BIN.expr[1], ent)
-				}
-				else if *name == "cl3d"
-				{
-					//__dbg_break
-					cid := cid_from_ast(ctx, *st.BIN.expr[1])
-					memcpy(buffer[0], cid.name, 12)
-					found := find_asset(ctx, cast(str_lit)buffer[0], &ent.cl3d)
-					ASSERT(found)
-				}
-				else if *name == "model"
-				{
-					//__dbg_break
-					cid := cid_from_ast(ctx, *st.BIN.expr[1])
-					memcpy(buffer[0], cid.name, 12)
-					found := find_asset(ctx, cast(str_lit)buffer[0], &ent.model, ASSETS_MODELS_OFFSET)
-					ASSERT(found)
-				}
-				else if *name == "tex_id"
-				{
-					//__dbg_break
-					cid := cid_from_ast(ctx, *st.BIN.expr[1])
-					memcpy(buffer[0], cid.name, 12)
-					found := find_asset(ctx, cast(str_lit)buffer[0], &ent.tex_id)
-					ASSERT(found)
-				}
-				else if *name == "material_idx"
-				{
-					ASSERT(st.BIN.expr[1].type == ast_type.SCOPE)
-					ASSERT(is_ast_bin(*st.BIN.expr[1].SCOPE.stmnts[0], cast(u32)token_type.SEMI_COLON))
-					ent.flags = ent.flags | ENTITY_CUSTOM_SHADER
-
-					cur_stmnts := &st.BIN.expr[1].SCOPE.stmnts[0].BIN.expr
-
-					m_idx_name := cur_stmnts[0].BIN.expr[0]
-					m_idx_scp := cur_stmnts[0].BIN.expr[1]
-					ASSERT(m_idx_name.type == ast_type.WORD && m_idx_name.WORD.str == "idx")
-
-					cid := cid_from_ast(ctx, *m_idx_scp)
-					memcpy(buffer[0], cid.name, 12)
-
-					found:=find_asset(ctx, cast(str_lit)buffer[0], &ent.material_idx, start=ASSETS_MATERIALS_OFFSET)
-					ASSERT(found)
-
-					mat := get_material_ptr(&ent.material_idx)
-
-
-					ent.in_material_instance = new_material_instance(ctx, &ent.material_idx, ent)
-
-					inst := mat.instances[cast(u64)ent.in_material_instance]
-
-					
-					for cur_ast in *cur_stmnts
-					{
-						cur_ast_name := &cur_ast.BIN.expr[0].WORD.str
-						i2 :u64= 0
-						
-						found = false
-						for u in mat.uniforms
-						{
-							if u.name == *cur_ast_name
-							{
-								found = true
-								break
-							}
-							i2++
-						}
-						if !found
-							continue;
-
-						target_decl_u := mat.uniforms[i2]
-						target_u := inst.uniforms[i2]
-						aux_type_data : type_data
-						on target_decl_u.tp.type
-						{
-						lang_type_type.SAMPLER2D
-						{
-							//__dbg_break
-							aux_type_data.tp = type_enum.TYPE_U32
-							cid = cid_from_ast(ctx, *cur_ast.BIN.expr[1])
-							memcpy(buffer[0], cid.name, 12)
-							found = find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex)
-							ASSERT(found)
-
-						}
-						lang_type_type.V2, lang_type_type.V3, lang_type_type.V4
-						{
-							aux_type_data.tp = type_enum.TYPE_VECTOR
-							a := *cur_ast.BIN.expr[1]
-							DeserializeEntVar(ctx, &aux_type_data, &target_u.v, a)
-						}
-						default
-						{
-							__dbg_break
-						}
-						}
-						a:=0
-					}
-				}
-				else if *name == "en_info"
-				{
-					ent.en_info = new_ptr(enemy_info)
-					memset(ent.en_info, 0, sizeof(enemy_info))
-					DeserializeEntVar(ctx, GetTypeData(enemy_info), ent.en_info , *st.BIN.expr[1])
-				}
-				else if *name == "cols"
-				{
-					if  ent.cols.count == 0
-					{
-
-						scps := st.BIN.expr[1]
-						dyn_add(&ctx.bodies, &ent);
-						ent.ents_in_collision.alloc = ctx.alloc;
-						dyn_init(&ent.ents_in_collision, 16);
-						ent.ents_in_collision.count = 16
-
-						ASSERT(scps.type == ast_type.SCOPE)
-
-						for s in scps.SCOPE.stmnts
-						{
-							col := new_ptr(collider)
-							memset(col, 0, sizeof(collider))
-							col.ent = ent
-							dyn_add(&ent.cols, col)
-
-							ASSERT(s.type == ast_type.SCOPE)
-							ASSERT(is_ast_bin(*s.SCOPE.stmnts[0], cast(u32)token_type.SEMI_COLON))
-
-							sts := s.SCOPE.stmnts[0]
-
-							for cur_st in sts.BIN.expr
-							{
-
-								name = &cur_st.BIN.expr[0].WORD.str
-								
-								col_t :*type_data= GetTypeData(collider)
-								var_type = find_var(ctx, col_t, name, &offset)
-
-								if *name == "type"
-								{
-									col.type = cast(col_type)cur_st.BIN.expr[1].INT.num
-								}
-								else if *name == "model"
-								{
-									cid := cid_from_ast(ctx, *cur_st.BIN.expr[1])
-									memcpy(buffer[0], cid.name, 12)
-									a_idx := cast(*asset_index)&col.MESH.info.model_idx
-									found:=find_asset(ctx, cast(str_lit)buffer[0], a_idx, ASSETS_MODELS_OFFSET)
-									ASSERT(found)
-								}
-								else
-								{
-									if !var_type continue;
-
-									data = ptr_offset(col, var_type.offset + offset, u8)
-
-									DeserializeEntVar(ctx, var_type, data, *cur_st.BIN.expr[1])
-								}
-							}
-							if col.type == col_type.MESH
-							{
-								model_verts_count:u32
-								model_tris_count:u32
-								m := get_model_ptr(cast(*asset_index)&col.MESH.info.model_idx)
-								GetInfoFromModel(m.model, &model_verts_count, &model_tris_count)
-								create_mesh_collider(ctx, col, model_tris_count, model_verts_count)
-								//__dbg_break
-								assign_mesh_to_chunks(ctx, ent)
-							}
-						}
-					}
-					add_body_to_chunks(ctx, ent)
-				}
-				else
-				{
-					DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
-				}
-
-			}
-			//printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
-
-
-			i += ent_str_sz - 1
-			if is_flag_off(ent.flags, ENTITY_DONT_FREE)
-			{
-				for en in ent.remove_from
-				{
-					on *en
-					{
-					ent_part_of.PLAYABLE
-					{
-						printf("type {cast(u32)ent.type}\n")
-
-						dyn_add(&ctx.playable_ents, ent)
-						if ent.type == ent_type.ENEMY
-						{
-							on ent.enemy_type
-							{
-							enemy_enum.SKULL
-							{
-								ent.playable_func = skull_mov
-								ent.state = entity_state.GO_FORWARDS
-								ent.c_type = clip_type.C3D
-							}
-							default
-							{
-								__dbg_break
-							}
-							}
-							ent.col_enter = enemy_collision_enter;
-							//ent.en_info.origin_pos = ent.pos
-						}
-					}
-					ent_part_of.ANIMATION
-					{
-						dyn_add(&ctx.ents_with_clip, ent)
-					}
-					ent_part_of.ITEMS
-					{
-						dyn_add(&ctx.items_ents, ent)
-						ent.col_enter = item_col_func
-					}
-					ent_part_of.LOOK_AT_PLAYER
-					{
-						dyn_add(&ctx.look_at_ents, ent)
-					}
-					ent_part_of.EMMITTER
-					{
-						dyn_add(&ctx.emmitters, ent)
-					}
-					ent_part_of.DRAWABLE
-					{
-						dyn_add(&ctx.drawable_ents, ent)
-					}
-					ent_part_of.COLLIDER
-					{
-						//add_body(ctx, ent);
-					}
-					ent_part_of.INSTANTIATED
-					{
-						//__dbg_break
-						//dyn_add(&ctx.ents, ent)
-					}
-					default
-					{
-						__dbg_break
-					}
-					}
-				}
-			}
-			if ent.type == ent_type.BRIDGE
-			{
-				ent.forward = ent.rot
-				ent.vel = ent.pos
-
-				q2:quaternion=?
-				q2.v = ent.rot
-				qeuler := quaternion_to_euler(&q2.v)
-				ent.vel.w = qeuler.x
-			}
-			instantiated_ents++
-
-		}
-		if *file[i] == '=
-		{
-			
-		}
-		i++
-	}
-
-	grid_shader := find_shader(ctx, "grid.mat")
-	ctx.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, ctx.preview_ent)
-	assign_bodies_to_chunks(ctx)
+  *stage = loading_stage.DONE
 }
 free_lang_stuff::fn()
 {
@@ -4173,14 +4282,9 @@ free_lang_stuff::fn()
 SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 {
 	out :string
-	fl:scene_file
-	fl.session_id = ctx.session_id
-	fl.area_col_pos = ctx.area_col_pos
-	fl.area_col_size = ctx.area_col_size
-	fl.chunk_width = ctx.chunk_width
 
 	InitMemAlloc(&ctx.per_scene_alloc, 16000)
-	dyn_add_data(&out.data, &fl, sizeof(fl));
+	//dyn_add_data(&out.data, &fl, sizeof(fl));
 
 	prev_alloc := globals.alloc
 	globals.alloc = &ctx.per_scene_alloc
@@ -4188,6 +4292,37 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	file_name = "../scenes/{file_name}"
 	out_file := OpenFile(file_name)
 	defer CloseFile(out_file)
+
+  settings_ast := new_ast2()
+  settings_ast.type = ast_type.SCOPE
+
+  area_cols_ast := new_ast2()
+  area_cols_ast.type = ast_type.SCOPE
+
+
+  for a in ctx.areas_col
+  {
+    cur := new_ast2()
+    cur.type = ast_type.SCOPE
+
+    dyn_add(&cur.SCOPE.stmnts, VecAssignmentToAst("area_col_pos", &a.area_col_pos))
+    dyn_add(&cur.SCOPE.stmnts, VecAssignmentToAst("area_col_size", &a.area_col_size))
+
+    dyn_add(&cur.SCOPE.stmnts, S32AssignmentToAst("chunk_width", *cast(*s32)&a.chunk_width))
+
+    dyn_add(&area_cols_ast.SCOPE.stmnts, cur)
+    
+  }
+  
+  dyn_add(&settings_ast.SCOPE.stmnts, AssignmentToAst("area_col", area_cols_ast))
+
+  aux :string
+
+  
+  ast_to_string(settings_ast, &aux)
+  PushStr(&out, &aux)
+  heap_free(aux.data.alloc, aux.data.data)
+
 
 	WriteToFile(out_file, out.data.data, out.data.count)
 	cur_file_sz := out.data.count
@@ -4222,13 +4357,12 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
 		{
 			free_lang_stuff()
-			aux :string
+      memset(&aux, 0, sizeof(string))
 			cur_al:=globals.alloc
 
 			ast := SerializeEnt(ent, cast(u64)i)
 			
 			ast_to_string(ast, &aux)
-			PushStrLit(&out, "({aux.data.count})")
 			PushStr(&out, &aux)
 			heap_free(aux.data.alloc, aux.data.data)
 			PushStrLit(&out, "\n ")
@@ -4355,20 +4489,21 @@ set_bridge_pos::fn(ent : *entity)
 	c := *ent.cols[0]
 	c.data_ready = false
 }
-new_collision_chunks::fn(ctx : *context)
+new_collision_chunks::fn(ctx : *context, area_col : *area_col_info)
 {
-	chunk_width := ctx.chunk_width
-
-	x_width := cast(u32)(ctx.area_col_size.x / chunk_width) + 1
-	y_width := cast(u32)(ctx.area_col_size.y / chunk_width) + 1
-	z_width := cast(u32)(ctx.area_col_size.z / chunk_width) + 1
+    area_col_size := area_col.area_col_size
+    chunk_width := area_col.chunk_width
+	x_width := cast(u32)(area_col_size.x / chunk_width) + 1
+	y_width := cast(u32)(area_col_size.y / chunk_width) + 1
+	z_width := cast(u32)(area_col_size.z / chunk_width) + 1
 
 	total_chunks := x_width * y_width * z_width
 
 	printf("{total_chunks} chunks created \n")
+  
 
-	dyn_init2(&ctx.col_chunks, total_chunks, ctx.alloc)
-	ctx.col_chunks.count = ctx.col_chunks.cap
+	dyn_init2(&area_col.col_chunks, total_chunks, ctx.alloc)
+	area_col.col_chunks.count = area_col.col_chunks.cap
 }
 items_func::fn(ctx : *context, dt : f32, selected_ent : *entity)
 {
@@ -4723,6 +4858,38 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	b.final_rot = final_rot
 
 }
+input_text::fn(ctx : *context, label_name : str_lit, name : *str_lit, buffer : *char)
+{
+  name_ln := str_ln(*name)
+  memcpy(buffer, *name, name_ln)
+  *ptr_offset(buffer, name_ln, u8) = 0
+  if ImGuiInputText(label_name, cast(str_lit)buffer, 32)
+  {
+    printf("freeing {cast(u64)*name}\n")
+    heap_free(ctx.alloc, *name)
+    *name = new_str_lit(ctx.alloc, cast(str_lit)buffer)
+  }
+}
+fill_loading_area_with_file_data::fn(ctx : *context, l_area : *loading_area_info)
+{
+  in_front_name := "../scenes/{l_area.in_front_scene_name}"
+  in_back_name := "../scenes/{l_area.in_back_scene_name}"
+  fl_sz: = cast(u32)GetFileSize(in_front_name);
+  if fl_sz == -1
+    __dbg_break
+
+  l_area.in_front_scene_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
+  ReadFile(in_front_name, l_area.in_front_scene_data);
+  l_area.in_front_scene_sz = fl_sz
+
+  fl_sz = cast(u32)GetFileSize(in_back_name);
+  if fl_sz == -1
+    __dbg_break
+
+  l_area.in_back_scene_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
+  ReadFile(in_back_name, l_area.in_back_scene_data);
+  l_area.in_back_scene_sz = fl_sz
+}
 editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 {
 	buffer:[128]char
@@ -5014,36 +5181,63 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	}
 	editor_window_enum.AREA_COL
 	{
-		draw:draw_info3d
-
-		draw.model = 0
-		draw.pos = ctx.area_col_pos
-		draw.rot.w = 1.0
-		draw.cam_pos = &cam_pos
-		draw.cam_rot = &cam_rot
-		*draw.color[0] = 1.0
-		*draw.color[3] = 0.3
-		draw.cam_forward = ctx.cam_forward_global
-		draw.ent_size = ctx.area_col_size
+      cur_area_selected:global s64
 
 
-		draw.flags = DRAW_INFO_TRANSPARENT;
-		Draw3D(ctx.window, &draw);
+      for i in 0..ctx.areas_col.count
+      {
+        selected := i == cur_area_selected
+        if ImGuiSelectable("{i}", selected, 20.0, 30.0)
+        {
+          cur_area_selected = i
+          ctx.col_chunks = ctx.areas_col[cast(u64)i]
+        }
+        ImGuiSameLine()
+
+        if ImGuiSelectable("x##{i}", false, 10.0, 10.0)
+        {
+          dyn_rem(&ctx.areas_col, cast(u32)i)
+        }
+      }
+      if ImGuiSelectable("+", false, 10.0, 10.0)
+      {
+        aux:area_col_info
+        dyn_add(&ctx.areas_col, &aux)
+      }
+
+      if ctx.col_chunks
+      {
+        draw:draw_info3d
+
+        draw.model = 0
+        draw.pos = ctx.col_chunks.area_col_pos
+        draw.rot.w = 1.0
+        draw.cam_pos = &cam_pos
+        draw.cam_rot = &cam_rot
+        *draw.color[0] = 1.0
+        *draw.color[3] = 0.3
+        draw.cam_forward = ctx.cam_forward_global
+        draw.ent_size = ctx.col_chunks.area_col_size
 
 
-		ImGuiText("pos: ")
-		ImGuiSameLine()
-		ImGuiShowV3(&ctx.area_col_pos)
-		ImGuiText("size: ")
-		ImGuiSameLine()
-		ImGuiShowV3(&ctx.area_col_size)
+        draw.flags = DRAW_INFO_TRANSPARENT;
+        Draw3D(ctx.window, &draw);
 
-		ImGuiDragF32("chunk_width", &ctx.chunk_width)
 
-		if ImGuiSelectable("new", false, 20.0, 30.0)
-		{
-			new_collision_chunks(ctx)
-		}
+        ImGuiText("pos: ")
+        ImGuiSameLine()
+        ImGuiShowV3(&ctx.col_chunks.area_col_pos)
+        ImGuiText("size: ")
+        ImGuiSameLine()
+        ImGuiShowV3(&ctx.col_chunks.area_col_size)
+
+        ImGuiDragF32("chunk_width", &ctx.col_chunks.chunk_width)
+
+        if ImGuiSelectable("generate", false, 20.0, 30.0)
+        {
+            new_collision_chunks(ctx, ctx.col_chunks)
+        }
+      }
 	}
 	editor_window_enum.ITEMS
 	{
@@ -5258,9 +5452,10 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			SerializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
 		}
 		ImGuiSameLine()
+        stage :loading_stage
 		if ImGuiSelectable("open", dummy_sel, 40.0, 15.0)
 		{
-			DeserializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
+			DeserializeAllEnt(&ctx.coroutines, ctx, cast(str_lit)ctx.save_scene_buffer[0], &stage)
 		}
 
 
@@ -5276,12 +5471,25 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			if ImGuiEnumCombo("ent_type", __LINE__, &aux_type)
 			{
 
-				out_ent.type = cast(ent_type)aux_type
 				on cast(ent_type)aux_type
 				{
 				ent_type.EVENT
 				{
 					
+				}
+				ent_type.LOADING_AREA
+				{
+          if out_ent.type != ent_type.LOADING_AREA
+          {
+            out_ent.is_trigger = true
+            out_ent.l_area = new_ptr(loading_area_info)
+            memset(out_ent.l_area, 0, sizeof(loading_area_info))
+            l_area := out_ent.l_area
+            l_area.in_front_scene_name = cast(str_lit)heap_alloc(ctx.alloc, 1)
+            l_area.in_back_scene_name = cast(str_lit)heap_alloc(ctx.alloc, 1)
+            *ptr_offset(l_area.in_front_scene_name, 1, u16) = 0
+            *ptr_offset(l_area.in_back_scene_name, 1, u16) = 0
+          }
 				}
 				ent_type.BRIDGE
 				{
@@ -5315,9 +5523,33 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 					out_ent.color.w = 0.5
 				}
 				}
+				out_ent.type = cast(ent_type)aux_type
 			}
-			if out_ent.type == ent_type.ENEMY
+			on out_ent.type
 			{
+      ent_type.LOADING_AREA
+      {
+        l_area := out_ent.l_area
+        input_text(ctx, "in_front({cast(u64)l_area.in_front_scene_name}), lar {cast(u64)l_area}", &l_area.in_front_scene_name, buffer[0])
+        input_text(ctx, "in_back", &l_area.in_back_scene_name, buffer[0])
+
+        if ImGuiSelectable("assign", false, 80.0, 15.0)
+        {
+          if l_area.in_front_scene_data != nil
+          {
+            heap_free(ctx.alloc, l_area.in_front_scene_data)
+            heap_free(ctx.alloc, l_area.in_back_scene_data)
+          }
+          else
+          {
+
+          }
+          fill_loading_area_with_file_data(ctx, l_area)
+
+        }
+      }
+      ent_type.ENEMY
+      {
 				aux_type = cast(u32)out_ent.enemy_type
 				if ImGuiEnumCombo("enemy_enum", __LINE__, cast(*u32)&aux_type)
 				{
@@ -5371,6 +5603,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 					}
 					}
 				}
+      }
 			}
 			for i in out_ent.remove_from
 			{
@@ -5475,14 +5708,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			}
 			globals.temp_alloc.cur = 0
 
-			name_ln := str_ln(out_ent.name)
-			memcpy(buffer[0], out_ent.name, name_ln)
-			*buffer[name_ln] = cast(char)0
-			if ImGuiInputText("name", cast(str_lit)buffer[0], 32)
-			{
-				heap_free(ctx.alloc, out_ent.name)
-				out_ent.name = new_str_lit(ctx.alloc, cast(str_lit)buffer[0])
-			}
+      input_text(ctx, "name", &out_ent.name, buffer[0])
 
 			has_col := out_ent.cols.count > 0
 			ImGuiText("has col: {has_col}");
@@ -6099,6 +6325,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 	if fl_sz == -1
 		__dbg_break
 
+  printf("----creating shader {file_name}\n")
 	InitMemAlloc(&ctx.compiling_shaders_alloc, ctx.compiling_shaders_alloc.chunks_cap)
 
 	globals.alloc = &ctx.compiling_shaders_alloc
@@ -6556,22 +6783,23 @@ raycast_get_pos::fn(ctx : *context, col : *collision) !bool
 }
 get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, _min : *_vec, _max : *_vec, out_min : *_vec, out_max : *_vec)
 {
-	start_chunk_pos := ctx.area_col_pos - (ctx.area_col_size * 0.5)
+  area_col_size := ctx.col_chunks.area_col_size
+  area_col_pos := ctx.col_chunks.area_col_pos
+  chunk_width := ctx.col_chunks.chunk_width
+	start_chunk_pos := area_col_pos - (area_col_size * 0.5)
 
 
-	chunk_width := ctx.chunk_width
-
-	x_width := (ctx.area_col_size.x / chunk_width)
-	y_width := (ctx.area_col_size.y / chunk_width)
-	z_width := (ctx.area_col_size.z / chunk_width)
+	x_width := (area_col_size.x / chunk_width)
+	y_width := (area_col_size.y / chunk_width)
+	z_width := (area_col_size.z / chunk_width)
 
 
-	*out_min = (*_min - start_chunk_pos) / ctx.chunk_width
+	*out_min = (*_min - start_chunk_pos) / chunk_width
 	out_min.x = clamp(out_min.x, 0.0, x_width)
 	out_min.y = clamp(out_min.y, 0.0, y_width)
 	out_min.z = clamp(out_min.z, 0.0, z_width)
 
-	*out_max = (*_max - start_chunk_pos) / ctx.chunk_width
+	*out_max = (*_max - start_chunk_pos) / chunk_width
 	out_max.x = clamp(out_max.x, 0.0, x_width)
 	out_max.y = clamp(out_max.y, 0.0, y_width)
 	out_max.z = clamp(out_max.z, 0.0, z_width)
@@ -6581,10 +6809,12 @@ get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*colli
 {
 	c1 := *e.cols[0]
 
-	chunk_width := ctx.chunk_width
-	x_width := (ctx.area_col_size.x / chunk_width) + 1.0
-	y_width := (ctx.area_col_size.y / chunk_width) + 1.0
-	z_width := (ctx.area_col_size.z / chunk_width) + 1.0
+  area_col_size := ctx.col_chunks.area_col_size
+  area_col_pos := ctx.col_chunks.area_col_pos
+  chunk_width := ctx.col_chunks.chunk_width
+	x_width := (area_col_size.x / chunk_width) + 1.0
+	y_width := (area_col_size.y / chunk_width) + 1.0
+	z_width := (area_col_size.z / chunk_width) + 1.0
 
 	pos_stride := *max_rel_pos - *min_rel_pos 
 
@@ -6610,7 +6840,7 @@ get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*colli
 				}
 				*/
 				idx :=cast(u64)(x + (z * cast(s32)x_width) + (y * cast(s32)(z_width * x_width)))
-				cur := ctx.col_chunks[idx]
+				cur := ctx.col_chunks.col_chunks[idx]
 
 				dyn_add(out, cur)
 				a := 0
@@ -6665,6 +6895,7 @@ assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
 }
 assign_bodies_to_chunks::fn(ctx : *context)
 {
+  if ctx.col_chunks == nil return
 	for e_ in ctx.bodies
 	{
 		e := *e_
@@ -7034,8 +7265,23 @@ update_sword_in_hand::fn(player_ent : *entity, sword : *entity, hand_bone : *bon
 	pivot =  q * pivot
 	sword.pos += pivot
 }
+coroutine_test::fn coroutine(cor_ctx : *coroutine_ctx, a : *u32)
+{
+  *a = 1
+  return
+  *a = 2
+  return
+}
 main_loop::fn(ctx : *context)
 {
+  
+  test_c : u32
+  for i in 0..2
+  {
+    coroutine_test(&ctx.coroutines, &test_c)
+    ASSERT(test_c == cast(u32)(i + 1))
+  }
+
 	globals.perm_alloc = ctx.alloc
 	ctx.bone1_scale.x = 1.0
 	ctx.bone1_scale.y = 1.0
@@ -7068,8 +7314,6 @@ main_loop::fn(ctx : *context)
     perspective(&ctx.perspective_mat, 45.0 * (3.14159 / 180.0), 1.0, 0.1, 500.0);
 
 
-	hidx := HandleForGettingFilesInDir("../models")
-	total_fl := HandleDirTotalFiles(hidx)
 
 	aux_idx := find_empty_asset(ASSETS_MODELS_OFFSET)
 	aux_idx = find_empty_asset(ASSETS_MODELS_OFFSET)
@@ -7090,6 +7334,12 @@ main_loop::fn(ctx : *context)
 	ctx.skull_idle = create_clip_asset("s_idle", 0.0/ANIM_TICKS_PER_SEC, 40.0/ANIM_TICKS_PER_SEC, 1.0)
 	ctx.skull_walk_forwards = create_clip_asset("s_wfw", 55.0/ANIM_TICKS_PER_SEC, 95.0/ANIM_TICKS_PER_SEC, 3.0)
 	ctx.skull_walk_sideways = create_clip_asset("s_wside", 110.0/ANIM_TICKS_PER_SEC, 131.0/ANIM_TICKS_PER_SEC, 3.0)
+
+    dyn_init2(&ctx.tkns, 1024, ctx.alloc)
+
+	hidx := HandleForGettingFilesInDir("../models")
+	total_fl := HandleDirTotalFiles(hidx)
+
 
 	for i in 0..total_fl
 	{
@@ -7193,7 +7443,7 @@ main_loop::fn(ctx : *context)
 	globals.up = ctx.up
 	globals.ctx = ctx
 
-	dyn_init2(&ctx.coroutines.funcs, 2, ctx.alloc);
+	dyn_init2(&ctx.coroutines.funcs, 4, ctx.alloc);
 
 	LinearInit(&globals.entities, ctx.alloc, 128)
 	LinearInit(&globals.str_alloc, ctx.alloc, 128)
@@ -7451,9 +7701,9 @@ main_loop::fn(ctx : *context)
 	globals.after_init = true
 
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = 8.0
-	player_ent.pos.y = 75.0
-	player_ent.pos.z = 9.0
+	player_ent.pos.x = 0.0
+	player_ent.pos.y = 2.0
+	player_ent.pos.z = 0.0
 
 	player_ent.mov_info.stamina = 1.0
 	player_ent.mov_info.stamina_recover_rate = 0.05
@@ -7624,7 +7874,13 @@ main_loop::fn(ctx : *context)
 
 	SerializeAllEnt(ctx, "01")
 	//__dbg_break
-	DeserializeAllEnt(ctx, "02")
+
+  stage : loading_stage
+  while stage != loading_stage.DONE
+  {
+    DeserializeAllEnt(&ctx.coroutines, ctx, "02", &stage)
+  }
+
 	
 	ctx.grid_ent = NewEnt(ctx, "grid_ent")
 	ctx.grid_ent.flags = ctx.grid_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
@@ -7691,11 +7947,13 @@ main_loop::fn(ctx : *context)
 	StepCol(ctx, 0.0)
 	assign_bodies_to_chunks(ctx)
 	
-	for c in ctx.col_chunks
+    /*
+	for c in ctx.col_chunks.col_chunks
 	{
 		dyn_add(&c.entities, trn_ent)
 
 	}
+    */
 
 	//ctx.screen_tex_id = GenRawTexture(256, 256, gen_texture_type.RGBA, gen_texture_filter.NEAREST, gen_texture_size.BYTE)
 
@@ -7721,6 +7979,7 @@ main_loop::fn(ctx : *context)
 
 	ctx.cam_dist = 5.0
 
+    ld_stage :loading_stage
 
 	while !ShouldClose(ctx.window)
 	{
@@ -8916,6 +9175,18 @@ main_loop::fn(ctx : *context)
 		}
 		*/
 
+        if ctx.cur_scene_changing
+        {
+          if player_ent.mov_info.asking_for_this_scene != ctx.cur_scene_changing &&
+            (ld_stage == loading_stage.NONE || ld_stage == loading_stage.NOT_DONE_BUT_CAN_CHANGE_SCENES)
+          {
+            ctx.cur_scene_changing = player_ent.mov_info.asking_for_this_scene
+            ctx.cur_scene_changing_sz = player_ent.mov_info.asking_for_this_scene_sz
+          }
+          
+          //DeserializeAllEnt(&ctx.coroutines, ctx, cast(str_lit)ctx.save_scene_buffer[0], &stage,
+          //ctx.cur_scene_changing, cast(s64)ctx.cur_scene_changing_sz)
+        }
 		mx = GetMouseScreenPosX() - curmx;
 		my = GetMouseScreenPosY() - curmy;
 		mx = mx / 500.0
@@ -9068,7 +9339,6 @@ find_bone::fn(name : str_lit, b : *bone_animation) ! *bone_animation
 	}
 	for ch in b.children
 	{
-
 		val := find_bone(name, *ch)
 		if val
 		{
@@ -9095,7 +9365,7 @@ main:: fn(){
 	ctx.alloc = &ctx.main_alloc;
 	ctx.coroutines.alloc = ctx.alloc;
 	window := OpenWindow(1000, 1000);
-	ctx.chunk_width = 16.0
+	//ctx.chunk_width = 16.0
 
 	dyn_init2(&globals.assets, ASSETS_MAX, ctx.alloc)
 	globals.assets.count = ASSETS_MAX

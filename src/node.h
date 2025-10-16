@@ -367,7 +367,7 @@ struct scope
 	scope *parent;
 	own_std::vector<decl2 *> vars;
 	own_std::vector<own_std::vector<decl2 *>> call_args;
-	std::unordered_map<own_std::string, decl2 *> vars_map;
+	//std::unordered_map<own_std::string, decl2 *> vars_map;
 	own_std::vector<scope *> children;
 	own_std::vector<ast_rep *> defered;
 	own_std::vector<template_to_be_assigned> templs_to_be_assigned;

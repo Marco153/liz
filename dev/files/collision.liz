@@ -1691,6 +1691,8 @@ StepCol::fn(ctx : *context, dt : f32)
 
 
 			e2.flags = e2.flags | ENTITY_ALREADY_DONE_IN_COLISION
+
+      if e2.cols.count == 0 continue
 			
 			c2 := *e2.cols[0]
 
@@ -1799,6 +1801,8 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 {
 	for e in ctx.bodies
 	{
+    if e.cols.count == 0 continue
+
 		c1 := e.cols[0]
 		c1.no_rotation_ent = is_flag_on(e.flags, ENTITY_NO_ROTATION_ON_COLLISION)
 	}

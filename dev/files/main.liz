@@ -3930,6 +3930,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
       ent_str_end := find_closing_curly(ctx, file, i)
       dyn_clear(&ctx.tkns)
       ast :*ast_rep= ast_from_string_range(ctx, file, i, ent_str_end, root, &pinfo, &ctx.tkns, &lang_stat)
+      return
 
       aux_str:string
         ast_to_string(ast, &aux_str)
@@ -3945,7 +3946,6 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
         flags := cast(u32)stmnts.BIN.expr[0].BIN.expr[1].INT.num
 
         ent :*entity
-
         if is_flag_on(flags, ENTITY_DONT_FREE)
         {
             bin := stmnts.BIN.expr[1]
@@ -3953,6 +3953,13 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             ent_idx := cast(u32)stmnts.BIN.expr[1].BIN.expr[1].INT.num
             ASSERT(ent_idx < globals.entities.max)
             ent = ptr_offset(globals.entities.start, ent_idx, entity)
+
+            if is_flag_on(ent.flags, ENTITY_PLAYER_INSTANTIATED)
+            {
+              i = ent_str_end
+              continue
+            }
+
         }
         else
         {
@@ -3990,6 +3997,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             
               fill_loading_area_with_file_data(ctx, l_area)
               ent.l_area = l_area
+              return
             }
             else if *name == "event"
             {
@@ -4002,6 +4010,11 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                 memcpy(buffer[0], cid.name, 12)
                 found := find_asset(ctx, cast(str_lit)buffer[0], &ent.cl3d)
                 ASSERT(found)
+                if ent.matrices_ptr
+                {
+                  heap_free(ctx.alloc, ent.matrices_ptr)
+                }
+                ent.matrices_ptr = nil
             }
             else if *name == "model"
             {
@@ -4039,11 +4052,11 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
 
               mat := get_material_ptr(&ent.material_idx)
 
-
               ent.in_material_instance = new_material_instance(ctx, &ent.material_idx, ent)
 
               inst := mat.instances[cast(u64)ent.in_material_instance]
 
+              return
               
               for cur_ast in *cur_stmnts
               {
@@ -4091,6 +4104,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                 }
                 a:=0
               }
+              return
             }
             else if *name == "en_info"
             {
@@ -4111,6 +4125,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
 
                     ASSERT(scps.type == ast_type.SCOPE)
 
+                    return
                     for s in scps.SCOPE.stmnts
                     {
                         col := new_ptr(collider)
@@ -4163,6 +4178,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                             assign_mesh_to_chunks(ctx, ent)
                         }
                     }
+                    return
                 }
                 add_body_to_chunks(ctx, ent)
             }
@@ -4172,6 +4188,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             }
 
         }
+        return
         //printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
 
 
@@ -4257,16 +4274,14 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
         return
 
       }
-      if *file[i] == '=
-      {
-          
-      }
+
       i++
 	}
 
   grid_shader := find_shader(ctx, "grid.mat")
   ctx.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, ctx.preview_ent)
   assign_bodies_to_chunks(ctx)
+  ctx.player.flags = ctx.player.flags | ENTITY_PLAYER_INSTANTIATED
 
   *stage = loading_stage.DONE
 }
@@ -9228,7 +9243,7 @@ main_loop::fn(ctx : *context)
             //__dbg_break
 
           }
-          printf("not done stage {cast(u32)stage}\n")
+          //printf("not done stage {cast(u32)stage}\n")
 
         }
 		mx = GetMouseScreenPosX() - curmx;

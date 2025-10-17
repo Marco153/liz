@@ -3820,26 +3820,14 @@ ast_from_string_range::fn(ctx : *context, file : str_lit, start : s64, end : s64
   return ast
 }
 
-DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, file_name : str_lit, stage : *loading_stage, file : str_lit = nil, fl_sz :s64 = 0)
+DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage : *loading_stage, file : str_lit, fl_sz : s64, out_cor : **coroutine_func_saved)
 {
-  __dbg_break
-  if *stage == loading_stage.CLEAR_COROUTINE
+  if out_cor != nil
   {
-
-    _found.regs.rip = 0
+    *out_cor = _found
   }
-  file_data_was_given := file != nil
+
   buffer:[13]char
-  file_name = "../scenes/{file_name}"
-  if file == nil
-  {
-    fl_sz = GetFileSize(file_name);
-    if fl_sz == -1
-        __dbg_break
-    file = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
-
-    ReadFile(file_name, file);
-  }
 
   dyn_clear(&ctx.tkns)
 
@@ -3904,6 +3892,8 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, file_n
   }
 
   i = settings_end
+
+
   for i2 in 0..globals.entities.max
   {
     ent := ptr_offset(globals.entities.start, i2, entity);
@@ -3912,17 +3902,23 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, file_n
     {
       DeleteEnt(ctx, ent)
       ent.flags = 0;
+      return 
     }
     else
     {
+      had_cols := false
       for c in ent.ents_in_collision
       {
+        had_cols = true
           c.in_col = false;
       }
+      if had_cols
+      {
+        return
+      }
     }
-    return 
   }
-  clear_material_instances()
+  //clear_material_instances()
 
   instantiated_ents := 0
   file = cast(str_lit)ptr_offset(file, 0, u8);
@@ -4258,6 +4254,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, file_n
             ent.vel.w = qeuler.x
         }
         instantiated_ents++
+        return
 
       }
       if *file[i] == '=
@@ -4882,6 +4879,8 @@ fill_loading_area_with_file_data::fn(ctx : *context, l_area : *loading_area_info
   ReadFile(in_front_name, l_area.in_front_scene_data);
   l_area.in_front_scene_sz = fl_sz
 
+  *ptr_offset(l_area.in_front_scene_data, fl_sz, u8) = 0
+
   fl_sz = cast(u32)GetFileSize(in_back_name);
   if fl_sz == -1
     __dbg_break
@@ -4889,6 +4888,8 @@ fill_loading_area_with_file_data::fn(ctx : *context, l_area : *loading_area_info
   l_area.in_back_scene_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
   ReadFile(in_back_name, l_area.in_back_scene_data);
   l_area.in_back_scene_sz = fl_sz
+
+  *ptr_offset(l_area.in_back_scene_data, fl_sz, u8) = 0
 }
 editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 {
@@ -5452,10 +5453,10 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			SerializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
 		}
 		ImGuiSameLine()
-        stage :loading_stage
 		if ImGuiSelectable("open", dummy_sel, 40.0, 15.0)
 		{
-			DeserializeAllEnt(&ctx.coroutines, ctx, cast(str_lit)ctx.save_scene_buffer[0], &stage)
+            //stage : loading_stage
+			//DeserializeAllEnt(&ctx.coroutines, ctx, cast(str_lit)ctx.save_scene_buffer[0], &stage)
 		}
 
 
@@ -6608,17 +6609,38 @@ new_material_instance::fn(ctx : *context, mat_id : *asset_index, ent : *entity) 
 	}
 	if !inst
 	{
-		new_i:material_instance
+        i :u64
+        found_empty := false
+        for i2 in m.instances
+        {
+          if i2.ent == nil
+          {
+            found_empty = true
+            break
+          }
+          i++
+        }
 
-		inst_id = cast(u32)m.instances.count
+        if found_empty
+        {
+          inst = m.instances[i]
+          inst_id = cast(u32)i
+        }
+        else
+        {
+          new_i:material_instance
 
-		dyn_add(&m.instances, &new_i)
-		inst = dyn_last(&m.instances)
+          inst_id = cast(u32)m.instances.count
+
+          dyn_add(&m.instances, &new_i)
+          inst = dyn_last(&m.instances)
+        }
 	}
 	else
 	{
 		dyn_clear(&inst.uniforms)
 	}
+    inst.ent = ent
 
 	for u in m.uniforms
 	{
@@ -7876,10 +7898,22 @@ main_loop::fn(ctx : *context)
 	//__dbg_break
 
   stage : loading_stage
+
+  cor :*coroutine_func_saved
+
+  file_name := "../scenes/03"
+  file_data : str_lit
+  fl_sz := GetFileSize(file_name);
+  if fl_sz == -1
+      __dbg_break
+  file_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
+
+  ReadFile(file_name, file_data);
   while stage != loading_stage.DONE
   {
-    DeserializeAllEnt(&ctx.coroutines, ctx, "02", &stage)
+    DeserializeAllEnt(&ctx.coroutines, ctx, &stage, file_data, fl_sz, &cor)
   }
+  stage = loading_stage.NONE
 
 	
 	ctx.grid_ent = NewEnt(ctx, "grid_ent")
@@ -9175,17 +9209,27 @@ main_loop::fn(ctx : *context)
 		}
 		*/
 
+        if player_ent.mov_info.asking_for_this_scene && player_ent.mov_info.asking_for_this_scene != ctx.cur_scene_changing
+        {
+          ctx.cur_scene_changing = player_ent.mov_info.asking_for_this_scene
+          ctx.cur_scene_changing_sz = player_ent.mov_info.asking_for_this_scene_sz
+        }
         if ctx.cur_scene_changing
         {
-          if player_ent.mov_info.asking_for_this_scene != ctx.cur_scene_changing &&
-            (ld_stage == loading_stage.NONE || ld_stage == loading_stage.NOT_DONE_BUT_CAN_CHANGE_SCENES)
+          DeserializeAllEnt(&ctx.coroutines, ctx, &stage, ctx.cur_scene_changing, cast(s64)ctx.cur_scene_changing_sz, &cor)
+          if stage == loading_stage.DONE
           {
-            ctx.cur_scene_changing = player_ent.mov_info.asking_for_this_scene
-            ctx.cur_scene_changing_sz = player_ent.mov_info.asking_for_this_scene_sz
+            caux := cor
+            printf("stage {cast(u32)stage}\n")
+            ctx.cur_scene_changing = nil
+            player_ent.mov_info.asking_for_this_scene = nil
+            stage = loading_stage.NONE
+            cor.regs.rip = 0
+            //__dbg_break
+
           }
-          
-          //DeserializeAllEnt(&ctx.coroutines, ctx, cast(str_lit)ctx.save_scene_buffer[0], &stage,
-          //ctx.cur_scene_changing, cast(s64)ctx.cur_scene_changing_sz)
+          printf("not done stage {cast(u32)stage}\n")
+
         }
 		mx = GetMouseScreenPosX() - curmx;
 		my = GetMouseScreenPosY() - curmy;

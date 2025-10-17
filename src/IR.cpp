@@ -2768,6 +2768,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			//break;
 			//top->ptr--;
 			
+            //BREAK(e->line_number == 3686)
 			bool was_reg = false;
 			if (top->type == IR_TYPE_REG)
 			{
@@ -2778,46 +2779,10 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 
 			int val_to_modify = top->type == IR_TYPE_REG ? -1 : 1;
 			
-			/*
-			if (top->is_float && (top->ptr > 0 || top->ptr < 0))
-			{
-				ir.type = IR_ASSIGNMENT;
-				ir.assign.to_assign.type = IR_TYPE_REG;
-				ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
-				ir.assign.to_assign.reg_sz = 4;
-				ir.assign.to_assign.deref = -1;
-				ir.assign.to_assign.is_float = true;
-				ir.assign.only_lhs = true;
-				ir.assign.lhs = *top;
-				//ir.assign.lhs.type = IR_TYPE_REG;
-				ir.assign.lhs.deref = 0 + top->ptr > 0 ? 1 :0 ;
-				out->emplace_back(ir);
-				*top = ir.assign.to_assign;
-				FreeSpecificReg(lang_stat, top->reg);
-			}
-			else
-			{
-
-			}
-			*/
 			//if(IS_FLAG_OFF(top->reg_ex, IR_VAL_FROM_POINT))
 				top->deref++;
 			top->ptr = top->ptr;
-			/*
-			if(top->ptr == 1)
-			{
-				if(top->type == IR_TYPE_DECL && top->decl->type.type == TYPE_VECTOR)
-				{
-					top->is_float = true;
-					top->is_packed_float = true;
-				}
-			}
-			else
-			{
-				//top->is_float = false;
-				//top->is_packed_float = false;
-			}
-			*/
+
 			if(e->deref.type.type == TYPE_STATIC_ARRAY)
 				top->reg_sz = 8;
 			else
@@ -2825,35 +2790,6 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			top->reg_sz = min(top->reg_sz, 8);
 			top->reg_ex |= IR_VAL_FROM_DEREF;
 			top->reg_ex &= ~IR_VAL_FROM_AST_INDEX;
-			/*
-			if ((top->ptr + -val_to_modify) != 0)
-			{
-				ir.type = IR_ASSIGNMENT;
-				ir.assign.to_assign.type = IR_TYPE_REG;
-				if (top->type == IR_TYPE_REG)
-				{
-					ir.assign.to_assign = *top;
-				}
-				else
-					ir.assign.to_assign.reg = AllocReg(lang_stat);
-
-				ir.assign.only_lhs = true;
-				ir.assign.lhs = *top;
-				ir.assign.to_assign.reg_sz = top->reg_sz;
-				ir.assign.to_assign.ptr = 0;
-				top->ptr = top->ptr + -(e->deref.times * val_to_modify);
-				ir.assign.lhs.ptr = top->ptr;
-				out->emplace_back(ir);
-				//break;
-			}
-				*/
-
-
-
-			//top->type = IR_TYPE_REG;
-			//top->reg = ir.assign.to_assign.reg;
-			//top->reg_sz = ir.assign.to_assign.reg_sz;
-
 		}break;
 		case AST_OPPOSITE:
 		{

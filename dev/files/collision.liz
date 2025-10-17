@@ -945,7 +945,7 @@ add_body::fn(ctx : *context, ent : *entity)
 	add_body_to_chunks(ctx, ent)
 }
 
-remove_body::fn(ctx : *context, ent : *entity)
+remove_body::fn(ctx : *context, ent : *entity, free_ptr : bool=true)
 {
 	i :u32= 0
 	found :=false

@@ -6981,6 +6981,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_U16_TYPE:
 		case TYPE_U32_TYPE:
 		case TYPE_U64_TYPE:
+		case TYPE_VOID_TYPE:
 		case TYPE_S8_TYPE:
 		case TYPE_S16_TYPE:
 		case TYPE_S32_TYPE:
@@ -7474,6 +7475,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_CHAR_TYPE:
 		case TYPE_VECTOR_TYPE:
 		case TYPE_VECTOR:
+		case TYPE_VOID_TYPE:
 			break;
 		default:
 			ASSERT(0);
@@ -15164,6 +15166,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			// CMP D I
 			if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
 			{
+        //BREAK(cur_line == 3826)
 				
 				//GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, true);
 				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, true, false);

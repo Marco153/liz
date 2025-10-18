@@ -112,6 +112,5 @@ collision_chunk_tris:struct
 collision_chunk:struct
 {
 	entities : dyn_array(*entity)
-	tris : dyn_array(triangle_info)
-
+  from_ents : dyn_array(collision_chunk_tris)
 }

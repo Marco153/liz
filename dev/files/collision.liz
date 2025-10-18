@@ -963,7 +963,41 @@ remove_body::fn(ctx : *context, ent : *entity, free_ptr : bool=true)
 	for c in ent.cols
 	{
 		heap_free(ctx.alloc, *c)
+    if c.type == col_type.MESH
+    {
+      for a in ctx.areas_col
+      {
+        cur_ch :u64= 0
+        while cur_ch < a.col_chunks.count
+        {
+          ch := a.col_chunks[cur_ch]
+          found = false
+          i = 0
+
+          for e_ch in ch.from_ents
+          {
+            if e_ch.from_ent == ent
+            {
+              found = true
+              break;
+            }
+            i++
+          }
+
+          if found
+          {
+            idx := ch.from_ents[cast(u64)i]
+            alloc := idx.tris.alloc
+            heap_free(alloc, idx.tris.data)
+            dyn_rem(&ch.from_ents, i)
+            cur_ch--
+          }
+          cur_ch++
+        }
+      }
+    }
 	}
+
 }
 
 EntIsInCollision::fn(into : *entity, in_col : *entity, cinfo : *collision) !bool
@@ -1748,50 +1782,53 @@ StepCol::fn(ctx : *context, dt : f32)
 
 		for ch in ctx.aux_col_chunks
 		{
-			if ch.tris.count == 0
-				continue
-			gjk.aux_col.type = col_type.TRIANGLE
+      for e_ch in ch.from_ents
+      {
+        if e_ch.tris.count == 0
+          continue
+        gjk.aux_col.type = col_type.TRIANGLE
 
-			cur_tri :u64= 0
-			total_tris := ch.tris.count
-			
-			tri := ptr_offset(ch.tris[0], 0, triangle_info)
+        cur_tri :u64= 0
+        total_tris := e_ch.tris.count
+        
+        tri := ptr_offset(e_ch.tris[0], 0, triangle_info)
 
-			while cur_tri < total_tris
-			{
-				memcpy(tri_verts1, &tri._v1, 3 * 16)
+        while cur_tri < total_tris
+        {
+          memcpy(tri_verts1, &tri._v1, 3 * 16)
 
-				gjk.aux_col.TRIANGLE.normal = tri.normal
+          gjk.aux_col.TRIANGLE.normal = tri.normal
 
-        dir := tri._v1 - e.pos
-        d := dot_vec(&dir, &dir)
-        same_dir := dot_vec(&dir, &tri.normal)
+          dir := tri._v1 - e.pos
+          d := dot_vec(&dir, &dir)
+          same_dir := dot_vec(&dir, &tri.normal)
 
-				if d < 50.0 && same_dir > 0.0 && GJK(gjk, c1, &gjk.aux_col)
-				{
-					if !e.is_trigger
-					{
-						mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, &gjk.aux_col, &col)
-						e.pos -= mtv
-					}
+          if d < 50.0 && same_dir > 0.0 && GJK(gjk, c1, &gjk.aux_col)
+          {
+            if !e.is_trigger
+            {
+              mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, &gjk.aux_col, &col)
+              e.pos -= mtv
+            }
 
-					col.normal = col.normal * -1.0
-					if !EntIsInCollision(e, tri.ent, &col)
-					{
-						if e.col_enter != nil
-						{
-							e.col_enter(e, tri.ent, &col);
-						}
-					}
-					if e.col_stay != nil
-					{
-						e.col_stay(e, tri.ent, &col);
-					}
-				}
-				cur_tri++
-				tri = ptr_offset(tri, 1, triangle_info)
-			}
-      ctx.tris_checked += cast(u32)total_tris
+            col.normal = col.normal * -1.0
+            if !EntIsInCollision(e, tri.ent, &col)
+            {
+              if e.col_enter != nil
+              {
+                e.col_enter(e, tri.ent, &col);
+              }
+            }
+            if e.col_stay != nil
+            {
+              e.col_stay(e, tri.ent, &col);
+            }
+          }
+          cur_tri++
+          tri = ptr_offset(tri, 1, triangle_info)
+        }
+        ctx.tris_checked += cast(u32)total_tris
+      }
 		}
 	}
 

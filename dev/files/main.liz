@@ -64,7 +64,7 @@ context: struct
 
 	sum_ :f32
 
-    areas_col :dyn_array(area_col_info)
+  areas_col :dyn_array(area_col_info)
 
 	line_shader : asset_index
 
@@ -2434,29 +2434,32 @@ collider_against_tris::fn(ctx : *context, c1 : *collider) ! bool
 	tri_verts1 :=gjk.aux_col.TRIANGLE.verts[0]
 	for ch in ctx.aux_col_chunks
 	{
-		if ch.tris.count == 0
-			continue
-		gjk.aux_col.type = col_type.TRIANGLE
+    for e_ch in ch.from_ents
+    {
+      if e_ch.tris.count == 0
+        continue
+      gjk.aux_col.type = col_type.TRIANGLE
 
-		cur_tri :u64= 0
-		total_tris := ch.tris.count
-		
-		tri := ptr_offset(ch.tris[0], 0, triangle_info)
+      cur_tri :u64= 0
+      total_tris := e_ch.tris.count
+      
+      tri := ptr_offset(e_ch.tris[0], 0, triangle_info)
 
-		while cur_tri < total_tris
-		{
-			memcpy(tri_verts1, &tri._v1, 3 * 16)
+      while cur_tri < total_tris
+      {
+        memcpy(tri_verts1, &tri._v1, 3 * 16)
 
-			gjk.aux_col.TRIANGLE.normal = tri.normal
+        gjk.aux_col.TRIANGLE.normal = tri.normal
 
-			if GJK(gjk, c1, &gjk.aux_col)
-			{
-				return true
-			}
-			ctx.tris_checked++;
-			cur_tri++
-			tri = ptr_offset(tri, 1, triangle_info)
-		}
+        if GJK(gjk, c1, &gjk.aux_col)
+        {
+          return true
+        }
+        ctx.tris_checked++;
+        cur_tri++
+        tri = ptr_offset(tri, 1, triangle_info)
+      }
+    }
 	}
 	return false
 }
@@ -2466,36 +2469,37 @@ raycast_against_chunk_tris::fn(ctx : *context, start : *_vec, end : *_vec, out_p
 
 	for ch in ctx.aux_col_chunks
 	{
-		if ch.tris.count == 0
-			continue
+    for e_ch in ch.from_ents
+    {
+      if e_ch.tris.count == 0
+        continue
 
-		cur_tri :u64= 0
-		total_tris := ch.tris.count
-		
-		tri := ptr_offset(ch.tris[0], 0, triangle_info)
+      cur_tri :u64= 0
+      total_tris := e_ch.tris.count
+      
+      tri := ptr_offset(e_ch.tris[0], 0, triangle_info)
 
-		while cur_tri < total_tris
-		{
-			rinfo : raycast_info=?
-			rinfo.ray_origin = *start
-			rinfo.ray_dir = dir
-			rinfo.v0 = tri._v1
-			rinfo.v1 = tri._v2
-			rinfo.v2 = tri._v3
+      while cur_tri < total_tris
+      {
+        rinfo : raycast_info=?
+        rinfo.ray_origin = *start
+        rinfo.ray_dir = dir
+        rinfo.v0 = tri._v1
+        rinfo.v1 = tri._v2
+        rinfo.v2 = tri._v3
 
-			if ray_triangle_intersect(&rinfo)
-			{
-				aux := *start + dir * rinfo.t_out
-				*out_pos = aux
-				return true
-			}
+        if ray_triangle_intersect(&rinfo)
+        {
+          aux := *start + dir * rinfo.t_out
+          *out_pos = aux
+          return true
+        }
 
-
-
-			//ctx.tris_checked++;
-			cur_tri++
-			tri = ptr_offset(tri, 1, triangle_info)
-		}
+        //ctx.tris_checked++;
+        cur_tri++
+        tri = ptr_offset(tri, 1, triangle_info)
+      }
+    }
 	}
 	return false
 }
@@ -3828,6 +3832,34 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
 
   root :*scope= new_scope(nil)
 
+
+
+  for i2 in 0..globals.entities.max
+  {
+    ent := ptr_offset(globals.entities.start, i2, entity);
+    if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES) continue
+
+    if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
+    {
+      DeleteEnt(ctx, ent)
+      ent.flags = 0;
+      return 
+    }
+    else
+    {
+      had_cols := false
+      for c in ent.ents_in_collision
+      {
+        had_cols = true
+          c.in_col = false;
+      }
+      if had_cols
+      {
+        return
+      }
+    }
+  }
+  //clear_material_instances()
   i :s64
   settings_end := find_closing_curly(ctx, file, i)
   settings_ast :*ast_rep= ast_from_string_range(ctx, file, i, settings_end, root, &pinfo, &ctx.tkns, &lang_stat)
@@ -3882,34 +3914,6 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
   }
 
   i = settings_end
-
-
-  for i2 in 0..globals.entities.max
-  {
-    ent := ptr_offset(globals.entities.start, i2, entity);
-    if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES) continue
-
-    if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
-    {
-      DeleteEnt(ctx, ent)
-      ent.flags = 0;
-      return 
-    }
-    else
-    {
-      had_cols := false
-      for c in ent.ents_in_collision
-      {
-        had_cols = true
-          c.in_col = false;
-      }
-      if had_cols
-      {
-        return
-      }
-    }
-  }
-  //clear_material_instances()
 
   instantiated_ents := 0
   file = cast(str_lit)ptr_offset(file, 0, u8);
@@ -6042,11 +6046,11 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
     ReadFile(file_name, file_data);
     cor :*coroutine_func_saved
 
-    __dbg_break
     while stage != loading_stage.DONE
     {
       DeserializeAllEnt(&ctx.coroutines, ctx, &stage, file_data, cast(s64)fl_sz, &cor)
     }
+    cor.regs.rip = 0
 
     heap_free(ctx.alloc, file_data)
   }
@@ -7057,7 +7061,28 @@ assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
 
 		for c in ctx.aux_col_chunks
 		{
-			tri_info : triangle_info
+      found_in_chunk := false
+      found : *collision_chunk_tris
+
+      for e_ch in c.from_ents
+      {
+          if e_ch.from_ent == ent
+          {
+            found_in_chunk = true
+            found = e_ch
+            break;
+          }
+      }
+
+      if !found_in_chunk
+      {
+        cinfo:collision_chunk_tris
+        cinfo.from_ent = ent
+        dyn_add(&c.from_ents, &cinfo)
+        found = dyn_last(&c.from_ents)
+      }
+
+			tri_info : triangle_info=?
 			tri_info.ent = ent
 			//tri_info.info = &c1.MESH.info
 			//tri_info.tri_idx = cast(u32)tri_idx
@@ -7065,7 +7090,7 @@ assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
 			tri_info._v2 = *v2
 			tri_info._v3 = *_v3
 			tri_info.normal = cross
-			dyn_add(&c.tris, &tri_info)
+			dyn_add(&found.tris, &tri_info)
 			a:=0
 
 		}

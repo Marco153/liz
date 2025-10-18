@@ -532,6 +532,7 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
     ASSERT(cur != nil && (cur.size * BYTES_PER_CHUNK) >= size);
 
 	got_all_bytes_from_chunk:bool= ((cur.size * BYTES_PER_CHUNK) - size) == 0;
+	got_all_bytes_from_chunk= got_all_bytes_from_chunk || cur.size == 1
 	
 	min_alloc_size:= size;
 

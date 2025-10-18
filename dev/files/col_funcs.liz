@@ -229,6 +229,8 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
         mov.asking_for_this_scene = l_area.in_back_scene_data
         mov.asking_for_this_scene_sz = l_area.in_back_scene_sz
       }
+
+      mov.asking_for_this_loading_area = ent_b.l_area
     }
 	else if ent_b.type == ent_type.ITEM
 	{

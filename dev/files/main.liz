@@ -317,6 +317,8 @@ context: struct
 	skull_idle : asset_index
 	skull_walk_forwards : asset_index
 	skull_walk_sideways : asset_index
+
+  cur_changing_loading_area : *loading_area_info
 }
 
 
@@ -2853,7 +2855,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			player_ent.anim_man.sec_clip_weight = 1.0
 		}
 		
-		if mov.facing_wall
+		if IsKeyDown(key_enum.KEY_E) && mov.facing_wall
 		{
 			found_at := 0
 			up:_vec
@@ -2886,7 +2888,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				end_ray = col.pos - up * 100.0
 			}
 			out_pos :_vec=?
-			if IsKeyDown(key_enum.KEY_E) && !val2
+			if !val2
 			{
 				if raycast_against_chunk_tris(ctx, &start_ray, &end_ray, &out_pos)
 				{
@@ -3897,6 +3899,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
   for i2 in 0..globals.entities.max
   {
     ent := ptr_offset(globals.entities.start, i2, entity);
+    if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES) continue
 
     if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
     {
@@ -3922,6 +3925,8 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
 
   instantiated_ents := 0
   file = cast(str_lit)ptr_offset(file, 0, u8);
+
+  loading_areas_to_fill :dyn_array(*loading_area_info)
   while i < fl_sz
   {
     ch := ptr_offset(file, i, char)
@@ -3954,7 +3959,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             ASSERT(ent_idx < globals.entities.max)
             ent = ptr_offset(globals.entities.start, ent_idx, entity)
 
-            if is_flag_on(ent.flags, ENTITY_PLAYER_INSTANTIATED)
+            if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES)
             {
               i = ent_str_end
               continue
@@ -3987,6 +3992,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             else if *name == "l_area"
             {
               l_area := new_ptr(loading_area_info)
+              memset(l_area, 0, sizeof(*l_area))
               scp := *st.SCOPE.stmnts[1]
               bin := scp.BIN.expr[0]
               in_front_name := &bin.BIN.expr[0].BIN.expr[1].STR_LIT.str
@@ -3996,7 +4002,35 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
               l_area.in_back_scene_name = string_to_str_lit(ctx.alloc, in_back_name)
             
               fill_loading_area_with_file_data(ctx, l_area)
+
+              if bin.BIN.expr.count > 2
+              {
+                bin = bin.BIN.expr[2]
+                preserve_name := &bin.BIN.expr[0].WORD.str
+                ASSERT(*preserve_name == "preserve_ents")
+
+                preserve_scp := bin.BIN.expr[1]
+                preserve_scp_bin := preserve_scp.SCOPE.stmnts[0]
+
+                ar = &preserve_scp_bin.BIN.expr
+
+                if preserve_scp_bin.type == ast_type.STR_LIT
+                {
+                  ar = &preserve_scp.SCOPE.stmnts
+                }
+
+                for str in *ar
+                {
+                  ASSERT(str.type == ast_type.STR_LIT)
+                  new_str := string_to_str_lit(ctx.alloc, &str.STR_LIT.str)
+                  dyn_add(&l_area.preserve_ents_names, new_str)
+                }
+              }
+
+              
               ent.l_area = l_area
+              dyn_add(&loading_areas_to_fill, l_area)
+
               return
             }
             else if *name == "event"
@@ -4281,7 +4315,30 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
   grid_shader := find_shader(ctx, "grid.mat")
   ctx.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, ctx.preview_ent)
   assign_bodies_to_chunks(ctx)
-  ctx.player.flags = ctx.player.flags | ENTITY_PLAYER_INSTANTIATED
+  ctx.player.flags = ctx.player.flags | ENTITY_PRESERVE_ENT_THROUGH_SCENES
+
+
+  aux_ents :[16]*entity
+
+
+  ASSERT(sizeof(str_lit) == sizeof(*entity))
+  for ld in loading_areas_to_fill
+  {
+    i=0
+    
+    for str in ld.preserve_ents_names
+    {
+      for e in ctx.ents
+      {
+        if str_cmp(*str, e.name)
+        {
+          *aux_ents[cast(u64)i] = *e
+          i++
+        }
+      }
+    }
+    memcpy(ld.preserve_ents.data, aux_ents[0], cast(u64)i * sizeof(*entity))
+  }
 
   *stage = loading_stage.DONE
 }
@@ -4870,16 +4927,19 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	b.final_rot = final_rot
 
 }
-input_text::fn(ctx : *context, label_name : str_lit, name : *str_lit, buffer : *char)
+input_text::fn(ctx : *context, label_name : str_lit, name : *str_lit, buffer : *char, free_name :bool=true)
 {
   name_ln := str_ln(*name)
   memcpy(buffer, *name, name_ln)
   *ptr_offset(buffer, name_ln, u8) = 0
   if ImGuiInputText(label_name, cast(str_lit)buffer, 32)
   {
-    printf("freeing {cast(u64)*name}\n")
-    heap_free(ctx.alloc, *name)
-    *name = new_str_lit(ctx.alloc, cast(str_lit)buffer)
+    if free_name
+    {
+      printf("freeing {cast(u64)*name}\n")
+      heap_free(ctx.alloc, *name)
+      *name = new_str_lit(ctx.alloc, cast(str_lit)buffer)
+    }
   }
 }
 fill_loading_area_with_file_data::fn(ctx : *context, l_area : *loading_area_info)
@@ -4908,7 +4968,7 @@ fill_loading_area_with_file_data::fn(ctx : *context, l_area : *loading_area_info
 }
 editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 {
-	buffer:[128]char
+	buffer:[256]char
 	screenmx := GetMouseScreenPosX();
 	screenmy := GetMouseScreenPosY();
 	
@@ -5374,7 +5434,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			ctx.preview_ent.size.x = 1.0
 			ctx.preview_ent.size.y = 1.0
 			ctx.preview_ent.size.z = 1.0
-			ctx.preview_ent.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
+			ctx.preview_ent.rot = euler_to_quaternion(90.0, 0.0, 0.0).v
 
 			aux_sel_from_non_bodies : *entity
 			shortest_dist : f32 = 9999.0
@@ -5561,8 +5621,63 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
           }
           fill_loading_area_with_file_data(ctx, l_area)
-
         }
+        ImGuiSeparator()
+        ImGuiText("preserve ents:")
+
+        i :u32
+        printf("ptr {cast(u64)l_area}, total {l_area.preserve_ents.count}\n")
+        for e in l_area.preserve_ents
+        {
+          name :="nil"
+          if e != nil
+          {
+            name = e.name
+          }
+
+          buffer_ptr := cast(str_lit)buffer[cast(u64)i * 16  + 32 ]
+          ImGuiText("{name}\n")
+
+          ImGuiSameLine()
+
+          ImGuiInputText("##{i}pick", buffer_ptr, 16)
+          ImGuiSameLine()
+          if ImGuiSelectable("assign##{i}", false, 80.0, 15.0)
+          {
+            for e2 in ctx.ents
+            {
+              if str_cmp(e2.name, buffer_ptr)
+              {
+                *e = *e2
+                break
+              }
+            }
+          }
+
+          ImGuiSameLine()
+
+          if ImGuiSelectable("pick##{i}", false, 50.0, 15.0)
+          {
+            if out_ent
+            {
+              *e = *out_ent
+            }
+          }
+
+          ImGuiSameLine()
+
+          if ImGuiSelectable("x", false, 80.0, 15.0)
+          {
+            dyn_rem(&l_area.preserve_ents, i)
+          }
+
+          i++
+        }
+        if ImGuiSelectable("+##preserve", false, 80.0, 15.0)
+        {
+          dyn_add(&l_area.preserve_ents, nil)
+        }
+        ImGuiSeparator()
       }
       ent_type.ENEMY
       {
@@ -7187,7 +7302,7 @@ draw_radial_menu::fn(ctx : *context, x : f32, y : f32, out : *u32, total : u32, 
 get_cam_final_pos::fn(ctx : *context, dt : f32) ! _vec
 {
 }
-gameplay_cam::fn(ctx : *context, dt : f32)
+gameplay_cam::fn(ctx : *context, dt : f32, cam_dist : f32)
 {
 	cam_forward := ctx.cam_forward_global
 	cam_rot_val := &ctx.cam_rot_val
@@ -7215,7 +7330,7 @@ gameplay_cam::fn(ctx : *context, dt : f32)
 
 	p_pos := ctx.player.pos
 
-	dir := *cam_forward * ctx.cam_dist
+	dir := *cam_forward * cam_dist
 	final_pos := p_pos + dir
 
 	cam_pos := ctx.cam_pos_global
@@ -7916,7 +8031,7 @@ main_loop::fn(ctx : *context)
 
   cor :*coroutine_func_saved
 
-  file_name := "../scenes/03"
+  file_name := "../scenes/02"
   file_data : str_lit
   fl_sz := GetFileSize(file_name);
   if fl_sz == -1
@@ -8065,7 +8180,7 @@ main_loop::fn(ctx : *context)
 		dt_aux: = GetTime() - last_time;
 		dt: = 0.017;
 
-		//printf("dt {dt_aux}\n")
+		printf("dt {dt_aux}\n")
 
 		ctx.i_clicked = IsKeyDown(key_enum.KEY_I)
 		globals.timer = 0.0;
@@ -8883,8 +8998,22 @@ main_loop::fn(ctx : *context)
 
 			sky.pos = player_ent.pos
 
-			gameplay_cam(ctx, dt)
 			player_ent.angle_rot = aux_forward
+
+      dir = cam_pos - player_ent.pos
+      end := player_ent.pos + dir
+
+      out_pos:_vec
+
+      cam_dist := 5.0
+      if raycast_against_chunk_tris(ctx, &player_ent.pos, &end, &out_pos)
+      {
+        dir = out_pos - player_ent.pos
+        cam_dist = len_vec(&dir)
+        cam_dist = cam_dist * 0.9
+      }
+      cam_dist = clamp(cam_dist, 0.0, 5.0)
+			gameplay_cam(ctx, dt, cam_dist)
 
 
 			
@@ -9224,10 +9353,23 @@ main_loop::fn(ctx : *context)
 		}
 		*/
 
-        if player_ent.mov_info.asking_for_this_scene && player_ent.mov_info.asking_for_this_scene != ctx.cur_scene_changing
+        if player_ent.mov_info.asking_for_this_scene && player_ent.mov_info.asking_for_this_scene != ctx.cur_scene_changing &&
+          (stage == loading_stage.NOT_DONE_BUT_CAN_CHANGE_SCENES || stage == loading_stage.NONE)
         {
           ctx.cur_scene_changing = player_ent.mov_info.asking_for_this_scene
           ctx.cur_scene_changing_sz = player_ent.mov_info.asking_for_this_scene_sz
+
+          ctx.cur_changing_loading_area = player_ent.mov_info.asking_for_this_loading_area
+
+          l_area := player_ent.mov_info.asking_for_this_loading_area
+
+          for e in l_area.preserve_ents
+          {
+            if e == nil continue
+
+            e.flags = e.flags | ENTITY_PRESERVE_ENT_THROUGH_SCENES
+          }
+
         }
         if ctx.cur_scene_changing
         {
@@ -9240,6 +9382,15 @@ main_loop::fn(ctx : *context)
             player_ent.mov_info.asking_for_this_scene = nil
             stage = loading_stage.NONE
             cor.regs.rip = 0
+
+            l_area := ctx.cur_changing_loading_area
+            for e in l_area.preserve_ents
+            {
+              if e == nil continue
+
+              e.flags = e.flags & ~ENTITY_PRESERVE_ENT_THROUGH_SCENES
+            }
+             
             //__dbg_break
 
           }

@@ -93,7 +93,7 @@ ENTITY_CUSTOM_SHADER: const s32 = 0x2000
 ENTITY_NO_ROTATION_ON_COLLISION: const s32 = 0x4000
 ENTITY_ALREADY_DONE_IN_COLISION: const s32 = 0x8000
 ENTITY_COL_CHUNK_WAS_MODIFIED: const s32 = 0x10000
-ENTITY_PLAYER_INSTANTIATED: const s32 = 0x20000
+ENTITY_PRESERVE_ENT_THROUGH_SCENES: const s32 = 0x20000
 
 LAYER_ENTITY_PLAYABLE:const s32 = 1;
 LAYER_PLAYER:const s32 = 2;
@@ -345,6 +345,13 @@ loading_area_info:struct
 
     in_front_scene_sz : u32
     in_back_scene_sz : u32
+
+    using u ::union
+    {
+      preserve_ents : dyn_array(*entity)
+      preserve_ents_names : dyn_array(str_lit)
+    }
+    //preserve_ents : dyn_array(str_lit)
 }
 
 combo_enum:enum
@@ -409,6 +416,7 @@ player_info: struct
 
   asking_for_this_scene : str_lit
   asking_for_this_scene_sz : u32
+  asking_for_this_loading_area : *loading_area_info
 
   area_col_pos_start : _vec
 

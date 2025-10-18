@@ -2445,18 +2445,9 @@ collider_against_tris::fn(ctx : *context, c1 : *collider) ! bool
 
 		while cur_tri < total_tris
 		{
-			info :verts_from_tri_info=?
-			info.t = tri.tri_idx
-			get_verts_pos_from_tris(&info, tri.info.tris, cast(*f32)tri.info.verts, 4)
+			memcpy(tri_verts1, &tri._v1, 3 * 16)
 
-			cross := info.cross
-			memcpy(tri_verts1, &info.v1_out, 3 * 16)
-			//info.v3_out.y += 1.0
-			//info.v2_out.y += 1.0
-			//info.v1_out.y += 1.0
-			//draw_tri(ctx, &info.v3_out, &info.v2_out, &info.v1_out, &ctx.white_color, 0)
-
-			gjk.aux_col.TRIANGLE.normal = cross
+			gjk.aux_col.TRIANGLE.normal = tri.normal
 
 			if GJK(gjk, c1, &gjk.aux_col)
 			{
@@ -2485,15 +2476,12 @@ raycast_against_chunk_tris::fn(ctx : *context, start : *_vec, end : *_vec, out_p
 
 		while cur_tri < total_tris
 		{
-			info :verts_from_tri_info=?
-			info.t = tri.tri_idx
-			get_verts_pos_from_tris(&info, tri.info.tris, cast(*f32)tri.info.verts, 4)
 			rinfo : raycast_info=?
 			rinfo.ray_origin = *start
 			rinfo.ray_dir = dir
-			rinfo.v0 = info.v1_out
-			rinfo.v1 = info.v2_out
-			rinfo.v2 = info.v3_out
+			rinfo.v0 = tri._v1
+			rinfo.v1 = tri._v2
+			rinfo.v2 = tri._v3
 
 			if ray_triangle_intersect(&rinfo)
 			{
@@ -4982,6 +4970,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
 	cam_dir = cam_pos + dir * 2000.0
 
+  open_scene:=false
 
 	prev_sel := out_ent
 	aux_sel : *entity
@@ -5528,10 +5517,11 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			SerializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
 		}
 		ImGuiSameLine()
+
+
 		if ImGuiSelectable("open", dummy_sel, 40.0, 15.0)
 		{
-            //stage : loading_stage
-			//DeserializeAllEnt(&ctx.coroutines, ctx, cast(str_lit)ctx.save_scene_buffer[0], &stage)
+      open_scene = true
 		}
 
 
@@ -5802,6 +5792,11 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			{
 				toggle_flag(&out_ent.flags, ENTITY_ONLY_COL)
 			}
+			check = is_flag_on(out_ent.flags, ENTITY_DONT_FREE)
+			if ImGuiCheckbox("dont free", &check)
+			{
+				toggle_flag(&out_ent.flags, ENTITY_DONT_FREE)
+      }
 			check = is_flag_on(out_ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
 			if ImGuiCheckbox("not serialize", &check)
 			{
@@ -6033,6 +6028,28 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			//fill_bones(matrices, *b, &bone3_mat, time)
 		}
 	}
+  if open_scene
+  {
+    stage : loading_stage
+
+    file_name := "../scenes/{cast(str_lit)ctx.save_scene_buffer[0]}"
+    file_data : str_lit
+    fl_sz := GetFileSize(file_name);
+    if fl_sz == -1
+        __dbg_break
+    file_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
+
+    ReadFile(file_name, file_data);
+    cor :*coroutine_func_saved
+
+    __dbg_break
+    while stage != loading_stage.DONE
+    {
+      DeserializeAllEnt(&ctx.coroutines, ctx, &stage, file_data, cast(s64)fl_sz, &cor)
+    }
+
+    heap_free(ctx.alloc, file_data)
+  }
 }
 change_preview_col_idx::fn(ctx : *context, new_val : u8)
 {
@@ -7018,6 +7035,11 @@ assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
 		v2 := ptr_offset(verts, tri2, _vec)
 		_v3 := ptr_offset(verts, tri3, _vec)
 
+    edge1 := *v2 - *v1
+    edge2 := *_v3 - *v1
+    cross := cross_vec(&edge1, &edge2)
+    cross = normalize_vec(&cross)
+
 		min_v := minPerComponent(v1, v2)
 		min_v = minPerComponent(&min_v, _v3)
 
@@ -7037,13 +7059,20 @@ assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
 		{
 			tri_info : triangle_info
 			tri_info.ent = ent
-			tri_info.info = &c1.MESH.info
-			tri_info.tri_idx = cast(u32)tri_idx
+			//tri_info.info = &c1.MESH.info
+			//tri_info.tri_idx = cast(u32)tri_idx
+			tri_info._v1 = *v1
+			tri_info._v2 = *v2
+			tri_info._v3 = *_v3
+			tri_info.normal = cross
 			dyn_add(&c.tris, &tri_info)
 			a:=0
+
 		}
+    globals.temp_alloc.cur = 0
 		tri_idx += 3
 	}
+  printf("mesh added col chunk\n")
 }
 assign_bodies_to_chunks::fn(ctx : *context)
 {
@@ -7379,6 +7408,22 @@ create_mesh_collider::fn(ctx : *context, c : *collider, model_tris_count : u32, 
 	model_idx := get_id_of_model(&c.MESH.info.model_idx)
 
 	CopyDataFromModel(model_idx, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)
+
+/*
+  tri :u64=0
+  while tri < model_tris_count
+  {
+
+    info :verts_from_tri_info
+    info.t = tri
+    get_verts_pos_from_tris(&info, cast(*u32)minfo.tris, cast(*f32)minfo.tris, 4)
+
+    tri_info :triangle_info=?
+    memcpy(&tri_info._v1, &info, 4 * sizeof(_vec))
+    dyn_add(&minfo.tris_info, &tri_info)
+    tri += 3
+  }
+  */
 
 	aux1 : _vec
 	aux2 : _vec
@@ -8180,6 +8225,7 @@ main_loop::fn(ctx : *context)
 		dt_aux: = GetTime() - last_time;
 		dt: = 0.017;
 
+    dt_aux = 1.0/dt_aux
 		printf("dt {dt_aux}\n")
 
 		ctx.i_clicked = IsKeyDown(key_enum.KEY_I)
@@ -9569,7 +9615,7 @@ main:: fn(){
 	ctx.tedit.terrain_height_max = 65000.0
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.terrain_alloc, 10);
-	InitMemAlloc(&ctx.main_alloc, 258600);
+	InitMemAlloc(&ctx.main_alloc, 458600);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;

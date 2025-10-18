@@ -13,20 +13,13 @@ signf::fn x64(a :f32) !f32
 }
 
 
-find_support::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider, dir : *_vec) ! _vec
+find_support::fn( col1 : *collider, col2 : *collider, dir : *_vec) ! _vec
 {
-	#if DBG_COL == 0
-	{
-		 return find_furthest_point(col1, &col1.ent.pos, dir) - find_furthest_point(col2, &col2.ent.pos, &(-*dir))
-	}
-	else
-	{
 		sup1 := find_furthest_point(col1, &col1.ent.pos, dir)
 		sup2 := find_furthest_point(col2, &col2.ent.pos, &(-*dir))
-		gjk.sup1 = sup1
-		gjk.sup2 = sup2
+		//gjk.sup1 = sup1
+		//gjk.sup2 = sup2
 		return sup1 - sup2
-	}
 
 }
 find_furthest_point::fn x64(col : *collider, world_pos : *_vec, dir : *_vec) ! _vec
@@ -142,7 +135,7 @@ GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 	unitx.x = 1.0
 	gjk.simplex_verts = 0
 	//__dbg_break
-	sup := find_support(gjk, col1, col2, &unitx)
+	sup := find_support( col1, col2, &unitx)
 
 	simplex_push_front(gjk, &sup)
 
@@ -150,7 +143,7 @@ GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 	//gjk.dir = dir
 	for it in 0..32
 	{
-		sup = find_support(gjk, col1, col2, &dir)
+		sup = find_support( col1, col2, &dir)
 
 		//gjk.dir = dir
 
@@ -686,47 +679,47 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
     closest_face:u64;
 	cur_k := 0
 
-    for iterations in 0.. EPA_MAX_NUM_ITERATIONS
+  for iterations in 0.. EPA_MAX_NUM_ITERATIONS
 	{
 		globals.temp_alloc.cur = 0
-        //Find face that's closest to origin
-        min_dist:= dot_vec(faces[0][0], faces[0][3]);
-        closest_face = 0;
-        for i in 1..num_faces
+    //Find face that's closest to origin
+    min_dist:= dot_vec(faces[0][0], faces[0][3]);
+    closest_face = 0;
+    for i in 1..num_faces
 		{
-            dist := dot_vec(faces[cast(u64)i][0], faces[cast(u64)i][3]);
-            if(dist<min_dist)
+      dist := dot_vec(faces[cast(u64)i][0], faces[cast(u64)i][3]);
+      if(dist<min_dist)
 			{
-                min_dist = dist;
-                closest_face = cast(u32)i;
-            }
-        }
+        min_dist = dist;
+        closest_face = cast(u32)i;
+      }
+    }
 		//gjk.closest_face = closest_face
 
-        //search normal to face that's closest to origin
-        search_dir := *faces[cast(u64)closest_face][3]; 
-        p := find_support(gjk, col1, col2, &search_dir)
+    //search normal to face that's closest to origin
+    search_dir := *faces[cast(u64)closest_face][3]; 
+    p := find_support(col1, col2, &search_dir)
 
 		dot := dot_vec(&p, &search_dir)
 		dist := dot-min_dist
-        if((dist)<EPA_TOLERANCE){
-            //Convergence (new point is not significantly further from origin)
+    if((dist)<EPA_TOLERANCE){
+        //Convergence (new point is not significantly further from origin)
 			//__dbg_break
 			out.normal = *faces[cast(u64)closest_face][3]
-            return *faces[cast(u64)closest_face][3] * dot_vec(&p, &search_dir); //dot vertex with normal to resolve collision along normal!
-        }
+      return *faces[cast(u64)closest_face][3] * dot_vec(&p, &search_dir); //dot vertex with normal to resolve collision along normal!
+    }
 
         num_loose_edges:u64 = 0;
 
 		//printf("here\n")
         //Find all triangles that are facing p
 		for i2 in 0..num_faces
-        {
+    {
 			i := cast(u64)i2
 			//printf("i {i}\n")
 			to_point := p-*faces[i][0] 
-            if(dot_vec(faces[i][3], &to_point)>0.0) //triangle i faces p, remove it
-            {
+      if(dot_vec(faces[i][3], &to_point)>0.0) //triangle i faces p, remove it
+      {
 				n := faces[i][3]
 				//gjk.cur_face_facing_point = i
 				//gjk.epa_new_sup = p
@@ -736,7 +729,7 @@ EPA::fn(gjk : *gjk_state, a : *_vec, b: *_vec, c : *_vec, d : *_vec, col1 : *col
                 //Add removed triangle's edges to loose edge list.
                 //If it's already there, remove it (both triangles it belonged to are gone)
 				for j2 in 0..3
-                {
+        {
 					j:=cast(u64)j2
 					//printf("j {j}\n")
                     current_edge:[2]_vec=?
@@ -1189,6 +1182,17 @@ verts_from_tri_info:struct
 	v3_out : _vec, 
 	cross : _vec, 
 	t : u64
+}
+
+get_verts_pos_from_tris2::fn x64(info : *verts_from_tri_info, tris_info : *triangle_info)
+{
+		t := info.t
+    memcpy(info, &tris_info._v1, 4 * sizeof(_vec))
+		info.v1_out.w = 0.0
+
+		info.v2_out.w = 0.0
+
+		info.v3_out.w = 0.0
 }
 get_verts_pos_from_tris::fn x64(info : *verts_from_tri_info, tris : *u32, verts : *f32, stride : u32)
 {
@@ -1755,20 +1759,15 @@ StepCol::fn(ctx : *context, dt : f32)
 
 			while cur_tri < total_tris
 			{
-				info :verts_from_tri_info=?
-				info.t = tri.tri_idx
-				get_verts_pos_from_tris(&info, tri.info.tris, cast(*f32)tri.info.verts, 4)
+				memcpy(tri_verts1, &tri._v1, 3 * 16)
 
-				cross := info.cross
-				memcpy(tri_verts1, &info.v1_out, 3 * 16)
-				//info.v3_out.y += 1.0
-				//info.v2_out.y += 1.0
-				//info.v1_out.y += 1.0
-				//draw_tri(ctx, &info.v3_out, &info.v2_out, &info.v1_out, &ctx.white_color, 0)
+				gjk.aux_col.TRIANGLE.normal = tri.normal
 
-				gjk.aux_col.TRIANGLE.normal = cross
+        dir := tri._v1 - e.pos
+        d := dot_vec(&dir, &dir)
+        same_dir := dot_vec(&dir, &tri.normal)
 
-				if GJK(gjk, c1, &gjk.aux_col)
+				if d < 50.0 && same_dir > 0.0 && GJK(gjk, c1, &gjk.aux_col)
 				{
 					if !e.is_trigger
 					{
@@ -1789,10 +1788,10 @@ StepCol::fn(ctx : *context, dt : f32)
 						e.col_stay(e, tri.ent, &col);
 					}
 				}
-				ctx.tris_checked++;
 				cur_tri++
 				tri = ptr_offset(tri, 1, triangle_info)
 			}
+      ctx.tris_checked += cast(u32)total_tris
 		}
 	}
 
@@ -1816,6 +1815,7 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 	{
 		StepCol(ctx, dt)
 	}
+  //printf("tris checked {ctx.tris_checked}\n")
 }
 
 

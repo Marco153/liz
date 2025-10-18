@@ -46,7 +46,6 @@ col_info:struct
     b_rot: _vec,
 	b_ent : *entity,
 }
-
 verts_and_tris:struct
 {
 	verts : *_vec
@@ -54,6 +53,7 @@ verts_and_tris:struct
 	tris : *u32
 	tris_count : u32
 	model_idx : asset_index
+  tris_info : dyn_array(triangle_info)
 }
 
 col_type : etruct
@@ -99,8 +99,15 @@ collider : struct
 triangle_info:struct
 {
 	ent : *entity
-	info : *verts_and_tris
-	tri_idx : u32
+  _v1 : _vec
+  _v2 : _vec
+  _v3 : _vec
+  normal : _vec
+}
+collision_chunk_tris:struct
+{
+  from_ent : *entity
+	tris : dyn_array(triangle_info)
 }
 collision_chunk:struct
 {

@@ -3832,12 +3832,15 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
 
   root :*scope= new_scope(nil)
 
-
-
+  preserved_ents : dyn_array(*entity)
   for i2 in 0..globals.entities.max
   {
     ent := ptr_offset(globals.entities.start, i2, entity);
-    if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES) continue
+    if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES) 
+    {
+      dyn_add(&preserved_ents, ent)
+      continue
+    }
 
     if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
     {
@@ -3883,35 +3886,57 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
 
     if *name == "area_col"
     {
-      cur_area :area_col_info
       stmnts2 := *st.BIN.expr[1]
 
       if stmnts2.SCOPE.stmnts.count == 0 continue
 
-      ar2 := &stmnts2.SCOPE.stmnts[0].BIN.expr[0].BIN.expr
-      for st2 in *ar2
+      stmnts = *stmnts2.SCOPE.stmnts[0]
+
+      total_areas := 1
+      if is_ast_bin(stmnts, cast(u32)token_type.SEMI_COLON)
       {
-        type :*type_data= GetTypeData(area_col_info)
-
-        ASSERT(is_ast_bin(*st2, cast(u32)token_type.EQUAL))
-        name = &st2.BIN.expr[0].WORD.str
-
-        offset : u32
-        var_type:*type_data= find_var(ctx, type, name, &offset)
-
-        if !var_type continue;
-
-        data := ptr_offset(&cur_area, var_type.offset, u8)
-        DeserializeEntVar(ctx, var_type, data, *st2.BIN.expr[1])
+        total_areas = cast(s32)stmnts.BIN.expr.count
       }
-      new_collision_chunks(ctx, &cur_area)
 
-      dyn_add(&ctx.areas_col, &cur_area)
+      for cur_ar_idx in 0..total_areas
+      {
+        cur_area :area_col_info
+        cur := *stmnts.BIN.expr[cast(u64)cur_ar_idx]
+        ar2 := &cur.BIN.expr
 
-      ctx.col_chunks = dyn_last(&ctx.areas_col)
+        if cur.type == ast_type.SCOPE && is_ast_bin(*cur.SCOPE.stmnts[0], cast(u32)token_type.SEMI_COLON)
+        {
+          ar2 = &cur.SCOPE.stmnts[0].BIN.expr
 
+        }
+
+        for st2 in *ar2
+        {
+          type :*type_data= GetTypeData(area_col_info)
+
+          if(!is_ast_bin(*st2, cast(u32)token_type.EQUAL))
+          {
+            tt :token_type
+            tt.type = cast(token_type)st2.BIN.op
+          }
+          name = &st2.BIN.expr[0].WORD.str
+
+          offset : u32
+          var_type:*type_data= find_var(ctx, type, name, &offset)
+
+          if !var_type continue;
+
+          data := ptr_offset(&cur_area, var_type.offset, u8)
+          DeserializeEntVar(ctx, var_type, data, *st2.BIN.expr[1])
+        }
+        new_collision_chunks(ctx, &cur_area)
+
+        dyn_add(&ctx.areas_col, &cur_area)
+
+      }
     }
   }
+  ctx.col_chunks = ctx.areas_col[0]
 
   i = settings_end
 
@@ -3919,6 +3944,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
   file = cast(str_lit)ptr_offset(file, 0, u8);
 
   loading_areas_to_fill :dyn_array(*loading_area_info)
+
   while i < fl_sz
   {
     ch := ptr_offset(file, i, char)
@@ -3966,6 +3992,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
         ent.anim_mul = 1.0
         printf("des {instantiated_ents}\n")
 
+        deleted := false
         for st in stmnts.BIN.expr
         {
             ASSERT(is_ast_bin(*st, cast(u32)token_type.EQUAL))
@@ -4211,9 +4238,31 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             else
             {
                 DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
+                if *name == "name"
+                {
+                  for e in preserved_ents
+                  {
+                    if str_cmp(ent.name, e.name)
+                    {
+                      deleted = true
+                      //__dbg_break
+                      break;
+                    }
+                  }
+                  if deleted
+                  {
+                    break;
+                  }
+                }
             }
-
         }
+        if deleted
+        {
+          i = ent_str_end
+          ent.flags = 0
+          continue
+        }
+
         return
         //printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
 
@@ -4331,6 +4380,12 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
     }
     memcpy(ld.preserve_ents.data, aux_ents[0], cast(u64)i * sizeof(*entity))
   }
+
+  if loading_areas_to_fill.count > 0
+    heap_free(ctx.alloc, loading_areas_to_fill.data)
+
+  if preserved_ents.count > 0
+    heap_free(ctx.alloc, preserved_ents.data)
 
   *stage = loading_stage.DONE
 }
@@ -4958,6 +5013,38 @@ fill_loading_area_with_file_data::fn(ctx : *context, l_area : *loading_area_info
 
   *ptr_offset(l_area.in_back_scene_data, fl_sz, u8) = 0
 }
+area_col_ui::fn(ctx :*context, a : *area_col_info)
+{
+  i :u32
+  selected_idx:global u32
+  for ch in a.col_chunks
+  {
+    selected:= i == selected_idx
+    if ImGuiSelectable("{i}: col_chunk", selected, 40.0, 15.0)
+    {
+      selected_idx = i
+    }
+    if i == selected_idx
+    {
+      for e_ch in ch.from_ents
+      {
+        for tri in e_ch.tris
+        {
+          _v1 := tri._v1
+          _v2 := tri._v2
+          _v3 := tri._v3
+          _v1.y += 0.5
+          _v2.y += 0.5
+          _v3.y += 0.5
+          draw_tri(ctx, &_v3, &_v2, &_v1, &ctx.white_color, 0)
+        }
+      }
+
+    }
+    i++
+  }
+
+}
 editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 {
 	buffer:[256]char
@@ -5266,6 +5353,12 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
         if ImGuiSelectable("x##{i}", false, 10.0, 10.0)
         {
           dyn_rem(&ctx.areas_col, cast(u32)i)
+        }
+        if selected
+        {
+          a := ctx.areas_col[cast(u64)i]
+          //area_col_ui(ctx, a)
+
         }
       }
       if ImGuiSelectable("+", false, 10.0, 10.0)
@@ -6954,11 +7047,11 @@ raycast_get_pos::fn(ctx : *context, col : *collision) !bool
 	*/
 	return found
 }
-get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, _min : *_vec, _max : *_vec, out_min : *_vec, out_max : *_vec)
+get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, l_area : *area_col_info, _min : *_vec, _max : *_vec, out_min : *_vec, out_max : *_vec) ! bool
 {
-  area_col_size := ctx.col_chunks.area_col_size
-  area_col_pos := ctx.col_chunks.area_col_pos
-  chunk_width := ctx.col_chunks.chunk_width
+  area_col_size := l_area.area_col_size
+  area_col_pos := l_area.area_col_pos
+  chunk_width := l_area.chunk_width
 	start_chunk_pos := area_col_pos - (area_col_size * 0.5)
 
 
@@ -6968,23 +7061,43 @@ get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, _min : *_vec,
 
 
 	*out_min = (*_min - start_chunk_pos) / chunk_width
+	*out_max = (*_max - start_chunk_pos) / chunk_width
+
+  below_x := out_min.x < 0.0 && out_max.x < 0.0
+  below_y := out_min.y < 0.0 && out_max.y < 0.0
+  below_z := out_min.z < 0.0 && out_max.z < 0.0
+
+  above_x := out_min.x > x_width && out_max.x > x_width
+  above_y := out_min.y > y_width && out_max.y > y_width
+  above_z := out_min.z > z_width && out_max.z > z_width
+
+  not_in_x := below_x || above_x
+  not_in_y := below_y || above_y
+  not_in_z := below_z || above_z
+
+  if not_in_x || not_in_y || not_in_z 
+  {
+    return false
+    __dbg_break
+  }
+
 	out_min.x = clamp(out_min.x, 0.0, x_width)
 	out_min.y = clamp(out_min.y, 0.0, y_width)
 	out_min.z = clamp(out_min.z, 0.0, z_width)
 
-	*out_max = (*_max - start_chunk_pos) / chunk_width
 	out_max.x = clamp(out_max.x, 0.0, x_width)
 	out_max.y = clamp(out_max.y, 0.0, y_width)
 	out_max.z = clamp(out_max.z, 0.0, z_width)
+  return true
 
 }
-get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*collision_chunk), min_rel_pos : *_vec, max_rel_pos : *_vec)
+get_chunks_close_to_ent::fn(ctx : *context, l_area :*area_col_info, e : *entity, out : *dyn_array(*collision_chunk), min_rel_pos : *_vec, max_rel_pos : *_vec)
 {
 	c1 := *e.cols[0]
 
-  area_col_size := ctx.col_chunks.area_col_size
-  area_col_pos := ctx.col_chunks.area_col_pos
-  chunk_width := ctx.col_chunks.chunk_width
+  area_col_size := l_area.area_col_size
+  area_col_pos := l_area.area_col_pos
+  chunk_width := l_area.chunk_width
 	x_width := (area_col_size.x / chunk_width) + 1.0
 	y_width := (area_col_size.y / chunk_width) + 1.0
 	z_width := (area_col_size.z / chunk_width) + 1.0
@@ -7006,14 +7119,8 @@ get_chunks_close_to_ent::fn(ctx : *context, e : *entity, out : *dyn_array(*colli
 		{
 			for x in x_start..x_end
 			{
-				/*
-				if x == 2 && y == 0 && z == 6
-				{
-					__dbg_break
-				}
-				*/
 				idx :=cast(u64)(x + (z * cast(s32)x_width) + (y * cast(s32)(z_width * x_width)))
-				cur := ctx.col_chunks.col_chunks[idx]
+				cur := l_area.col_chunks[idx]
 
 				dyn_add(out, cur)
 				a := 0
@@ -7050,50 +7157,54 @@ assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
 		max_v := maxPerComponent(v1, v2)
 		max_v = maxPerComponent(&max_v, _v3)
 
-		dyn_clear(&ctx.aux_col_chunks)
+    for l_area in ctx.areas_col
+    {
+      rel_min_v :_vec
+      rel_max_v :_vec
+      in_range := get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, l_area, &min_v, &max_v, &rel_min_v, &rel_max_v)
 
-		rel_min_v :_vec
-		rel_max_v :_vec
-
-		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &min_v, &max_v, &rel_min_v, &rel_max_v)
-		get_chunks_close_to_ent(ctx, ent, &ctx.aux_col_chunks, &rel_min_v, &rel_max_v)
-
-
-		for c in ctx.aux_col_chunks
-		{
-      found_in_chunk := false
-      found : *collision_chunk_tris
-
-      for e_ch in c.from_ents
+      if in_range
       {
-          if e_ch.from_ent == ent
+        dyn_clear(&ctx.aux_col_chunks)
+        get_chunks_close_to_ent(ctx, l_area, ent, &ctx.aux_col_chunks, &rel_min_v, &rel_max_v)
+
+        for c in ctx.aux_col_chunks
+        {
+          found_in_chunk := false
+          found : *collision_chunk_tris
+
+          for e_ch in c.from_ents
           {
-            found_in_chunk = true
-            found = e_ch
-            break;
+              if e_ch.from_ent == ent
+              {
+                found_in_chunk = true
+                found = e_ch
+                break;
+              }
           }
+
+          if !found_in_chunk
+          {
+            cinfo:collision_chunk_tris
+            cinfo.from_ent = ent
+            dyn_add(&c.from_ents, &cinfo)
+            found = dyn_last(&c.from_ents)
+          }
+
+          tri_info : triangle_info=?
+          tri_info.ent = ent
+          //tri_info.info = &c1.MESH.info
+          //tri_info.tri_idx = cast(u32)tri_idx
+          tri_info._v1 = *v1
+          tri_info._v2 = *v2
+          tri_info._v3 = *_v3
+          tri_info.normal = cross
+          dyn_add(&found.tris, &tri_info)
+          a:=0
+
+        }
       }
-
-      if !found_in_chunk
-      {
-        cinfo:collision_chunk_tris
-        cinfo.from_ent = ent
-        dyn_add(&c.from_ents, &cinfo)
-        found = dyn_last(&c.from_ents)
-      }
-
-			tri_info : triangle_info=?
-			tri_info.ent = ent
-			//tri_info.info = &c1.MESH.info
-			//tri_info.tri_idx = cast(u32)tri_idx
-			tri_info._v1 = *v1
-			tri_info._v2 = *v2
-			tri_info._v3 = *_v3
-			tri_info.normal = cross
-			dyn_add(&found.tris, &tri_info)
-			a:=0
-
-		}
+    }
     globals.temp_alloc.cur = 0
 		tri_idx += 3
 	}
@@ -7131,8 +7242,12 @@ assign_bodies_to_chunks::fn(ctx : *context)
 			dyn_clear(&ctx.aux_col_chunks)
 			
 
-			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
-			get_chunks_close_to_ent(ctx, e, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
+      l_area := ctx.col_chunks
+		  in_range := get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, l_area, &c1._min, &c1._max, &min_rel_pos, &max_rel_pos)
+
+      if !in_range continue
+
+			get_chunks_close_to_ent(ctx, l_area, e, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
 
 			for c in ctx.aux_col_chunks
 			{
@@ -8251,7 +8366,7 @@ main_loop::fn(ctx : *context)
 		dt: = 0.017;
 
     dt_aux = 1.0/dt_aux
-		printf("dt {dt_aux}\n")
+		//printf("dt {dt_aux}\n")
 
 		ctx.i_clicked = IsKeyDown(key_enum.KEY_I)
 		globals.timer = 0.0;

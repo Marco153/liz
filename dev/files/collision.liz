@@ -881,21 +881,16 @@ add_body_to_chunks::fn(ctx : *context, ent : *entity)
 {
 	min_rel_pos : _vec=?
 	max_rel_pos : _vec=?
-  if ctx.col_chunks == nil
-  {
-    printf("[ERROR] there is no ptr to ctx.col_chunks. i am in {__FUNC_NAME__}\n")
-    return
-  }
 	
-	if ctx.col_chunks.col_chunks.count > 0
-	{
+  for l_area in ctx.areas_col
+  {
 		for c in ent.cols 
 		{
 			CopyVerts(*c, &min_rel_pos, &max_rel_pos)
 			dyn_clear(&ctx.aux_col_chunks)
 
-			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c._min, &c._max, &min_rel_pos, &max_rel_pos)
-			get_chunks_close_to_ent(ctx, ent, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
+			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, l_area, &c._min, &c._max, &min_rel_pos, &max_rel_pos)
+			get_chunks_close_to_ent(ctx, l_area, ent, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
 
 			for ch in ctx.aux_col_chunks
 			{
@@ -1672,9 +1667,19 @@ StepCol::fn(ctx : *context, dt : f32)
 		aux_min : _vec=?
 		aux_max : _vec=?
 
-		get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, &c1._min, &c1._max, &aux_min, &aux_max)
-		
-
+    l_area :*area_col_info
+    in_range := false
+    for a in ctx.areas_col
+    {
+      if get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, a, &c1._min, &c1._max, &aux_min, &aux_max)
+      {
+        in_range = true
+        l_area = a
+        break
+      }
+      
+    }
+    if !in_range continue
 
 		if e.type == ent_type.PLAYER && (cast_s32_and_compare_vecs(&c1.rel_chunk_min, &aux_min) == false ||
 			cast_s32_and_compare_vecs(&c1.rel_chunk_max, &aux_max) == false ||
@@ -1684,7 +1689,7 @@ StepCol::fn(ctx : *context, dt : f32)
 			c1.rel_chunk_max = aux_max
 
 			dyn_clear(&ctx.aux_col_chunks)
-			get_chunks_close_to_ent(ctx, e, &ctx.aux_col_chunks, &aux_min, &aux_max)
+			get_chunks_close_to_ent(ctx, l_area, e, &ctx.aux_col_chunks, &aux_min, &aux_max)
 
 			// remove the ents from chunks
 			for c in c1.in_chunks
@@ -1803,7 +1808,7 @@ StepCol::fn(ctx : *context, dt : f32)
           d := dot_vec(&dir, &dir)
           same_dir := dot_vec(&dir, &tri.normal)
 
-          if d < 50.0 && same_dir > 0.0 && GJK(gjk, c1, &gjk.aux_col)
+          if d < 150.0 && same_dir > 0.0 && GJK(gjk, c1, &gjk.aux_col)
           {
             if !e.is_trigger
             {

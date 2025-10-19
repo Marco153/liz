@@ -60,20 +60,19 @@ cmp_cid::fn x64(cid : *custom_id, cid2 : *custom_id)!bool
 get_clip_ptr::fn(cid : *asset_index) !*clip3d
 {
     a := globals.assets[cast(u64)cid.asset_idx]
-    ASSERT(a.type == asset_type.CLIP)
+    assert(a.type == asset_type.CLIP)
     return &a.CLIP.cl
 }
 get_model_ptr::fn(cid : *asset_index) !*model_info
 {
     a := globals.assets[cast(u64)cid.asset_idx]
-    ASSERT(a.type == asset_type.MODEL)
+    assert(a.type == asset_type.MODEL)
     return &a.MODEL.mod
 }
 get_material_ptr::fn(cid : *asset_index) !*material_info
 {
     a := globals.assets[cast(u64)cid.asset_idx]
 
-    __dbg_break
     assert(a.type == asset_type.MATERIAL)
     return &a.MATERIAL.mat
 }

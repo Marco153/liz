@@ -428,6 +428,10 @@ heap_clear::fn(alloc : *mem_alloc)
 }
 heap_free::fn(alloc : *mem_alloc, ptr : *void)
 {
+  if ptr == nil
+  {
+		assert(false, "cant free nil");
+  }
 	ASSERT(alloc.id == 0x1234);
     chunk_to_free:= cast(*mem_chunk)HHashGet(alloc, ptr);
 	ASSERT(chunk_to_free != nil);
@@ -445,7 +449,8 @@ heap_free::fn(alloc : *mem_alloc, ptr : *void)
 			cur = cur.next;
 		}
 
-		ASSERT(cur != nil && cur.next.addr >= chunk_to_free.addr);
+    val := cur != nil && cur.next.addr >= chunk_to_free.addr
+		assert(val);
 		
 		//TODO: create a var put these two vals in each bit, and create a swich statetement so that we 
 		// wont need if and elses

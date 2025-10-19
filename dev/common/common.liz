@@ -783,15 +783,6 @@ Draw3DTransparency::fn outsider(*u8);
 EndFrame::fn outsider(wnd : *u8);
 PrintCallStack::fn outsider();
 
-assert::fn(val : bool, str : str_lit="")
-{
-  if !val
-  {
-    printf("assertion failed: {str}\n")
-    PrintCallStack()
-    __dbg_break
-  }
-}
 
 type_enum : enum
 {
@@ -2759,4 +2750,13 @@ builtin_type_to_string::fn(tp : *lang_type)!str_lit
 		__dbg_break
 	}
 	}
+}
+assert::fn(val : bool, str : str_lit="", line :str_lit= __SRC_LINE__)
+{
+  if !val
+  {
+    printf("\nassertion failed: {line}\n{str}\n")
+    PrintCallStack()
+    __dbg_break
+  }
 }

@@ -23,6 +23,7 @@ char *GetFileLn(lang_state *lang_stat, int line, unit_file *fl)
 void ReportError(lang_state *lang_stat, int line, int line_offset, char *str, int flags)
 {
 	char msg_hdr[256];
+  //BREAK(line == 5574)
 
 	own_std::vector<char *> *lines = &lang_stat->cur_file->lines;
 	char* cur_line = (*lines)[line - 1];

@@ -4390,6 +4390,11 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 			ret_type.flags |= TYPE_IS_GLOBAL;
 			
 		}
+		else if (n->t->str == "__SRC_LINE__")
+		{
+			ret_type.type = TYPE_STR_LIT;
+			break;
+		}
 		else if (n->t->str == "__FUNC_NAME__")
 		{
 			ret_type.type = TYPE_STR_LIT;
@@ -5357,6 +5362,7 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl, own_std
 	sorted_args.reserve(fdecl->args.size());
 
 	bool found_assignment = false;
+  //BREAK(ncall->t->line == 4682)
 
 	FOR_VEC(t, *args)
 	{
@@ -5404,7 +5410,21 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl, own_std
 		decl2 *d = *t;
 		if(d->to_assign_value && sorted_args[i] == nullptr)
 		{
-			sorted_args[i] = d->to_assign_value;
+      if(d->to_assign_value->type == N_STR_LIT && d->to_assign_value->t->str == "__SRC_LINE__")
+      {
+        node *new_n = new_node(lang_stat, ncall);
+        new_n->type = N_STR_LIT;
+        own_std::vector<char *> *lines = &lang_stat->cur_file->lines;
+        char* cur_line = (*lines)[ncall->t->line - 1];
+        new_n->t->str = cur_line;
+
+        sorted_args[i] = new_n;
+
+      }
+      else
+      {
+        sorted_args[i] = d->to_assign_value;
+      }
 		}
 		i++;
 	}
@@ -5481,9 +5501,11 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 			{
 				if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
 				{
+          /*
 					REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
 						VAR_ARGS("for some reason func '%s' was not done. \n it seems like that function reached up until this line %d", ncall->l->t->str.c_str(), lhs->type.fdecl->reached_nd->t->line)
 						);
+            */
 					return false;
 				}
 				else
@@ -5517,6 +5539,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 	
 	defer_strct dfr(scp, lhs->type.fdecl, lang_stat);
 	lang_stat->flags |= PSR_FLAGS_ON_FUNC_CALL;
+
 	//printf("on call %.*s, line %d\n", lhs->name.size(), lhs->name.data(), ncall->t->line);
 	if((lhs->type.type == TYPE_FUNC || lhs->type.type == TYPE_FUNC_EXTERN) && IS_FLAG_OFF(lhs->type.fdecl->flags, FUNC_DECL_MACRO | FUNC_DECL_TEMPLATED))
 	{
@@ -5755,6 +5778,7 @@ bool CallNode(lang_state *lang_stat, node* ncall, scope* scp, type2* ret_type, d
 				*/
 			}
 			bool same_number_of_args = args.size() == lhs->type.fdecl->args.size();
+      //BREAK(ncall->t->line== 69 && ncall->l->t->str == "assert")
 			if(lhs->type.type != TYPE_OVERLOADED_FUNCS && 
 				(has_arg_assignment || IS_FLAG_ON(lhs->type.fdecl->flags, FUNC_DECL_HAS_DEFAULT_ARGUMENTS) && !same_number_of_args))
 			{
@@ -6449,6 +6473,7 @@ bool FunctionIsDone(lang_state *lang_stat, node* n, scope* scp, type2* ret_type,
 	{
 		lang_stat->outsider_funcs.emplace_back(fdecl);
 	}
+  //BREAK(fnode->t->line == 5114)
 
 	if (IS_FLAG_OFF(flags, DONT_DESCEND_SCOPE) && IS_FLAG_OFF(fdecl->flags, FUNC_DECL_MACRO))
 	{
@@ -8716,6 +8741,12 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 			n->type = node_type::N_INT;
 			break;
 		}
+		else if (n->t->str == "__SRC_LINE__")
+		{
+			ret_type.type = TYPE_STR_LIT;
+			n->type = N_STR_LIT;
+			break;
+		}
 		else if (n->t->str == "__FUNC_NAME__")
 		{
 			ret_type.type = TYPE_STR_LIT;
@@ -9811,6 +9842,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 
 		scope* for_scope = n->r->scp;
 
+    //BREAK(n->t->line == 5574)
 
 		if (IsKeyword(n->l, KW_REV))
 			n = n->l->r;
@@ -10468,6 +10500,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	case node_type::N_FOR:
 	{
 		//scp = GetScopeFromParent(n->r, given_scp);
+    //BREAK(n->t->line == 5574)
 		if (IsNodeOperator(n->l, T_IN) && (n->l->r->type == N_IDENTIFIER || CMP_NTYPE_BIN(n->l->r, T_POINT)))
 		{
 			type2 rhs = DescendNode(lang_stat, n->l->r, scp);
@@ -11191,6 +11224,13 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		{
 			ret_type = DescendNode(lang_stat, n->r, scp);
 		}
+		else if (n->t->str == "__SRC_LINE__")
+		{
+			ret_type.type = TYPE_STR_LIT;
+			n->type = N_STR_LIT;
+
+			break;
+		}
 		else if (n->t->str == "__FUNC_NAME__")
 		{
 			ret_type.type = TYPE_STR_LIT;
@@ -11788,7 +11828,10 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 						ReportMessageOne(lang_stat, n->r->t, "struct '%s' doesn't have an operator '==' overloading", (void*)ltp.strct->name.c_str());
 				}
 				if (IS_FLAG_ON(ltp.strct->flags, TP_STRCT_ETRUCT))
+        {
+          ret_type.type = enum_type2::TYPE_BOOL;
 					return ret_type;
+        }
 
 				// struct_lhs==(&lhs, &rhs)
 				own_std::vector<node*> arg_ar;

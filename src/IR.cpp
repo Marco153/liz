@@ -4,7 +4,7 @@ bool IsAstSimple(lang_state *lang_stat, ast_rep *ast);
 decl2* PointLogic(lang_state* lang_stat, node* n, scope* scp, type2* ret_tp);
 bool NameFindingGetType(lang_state* lang_stat, node* n, scope* scp, type2& ret_type, int);
 void GenStackThenIR(lang_state* lang_stat, ast_rep* ast, own_std::vector<ir_rep>* out, ir_val* dst_val, ir_val *i=nullptr);
-void CreateOppositeRegAssigmentAfterCondChecking(lang_state* lang_stat, own_std::vector<ir_rep>* out, int sub_if_idx, int if_idx, int reg);
+void CreateOppositeRegAssigmentAfterCondChecking(lang_state* lang_stat, own_std::vector<ir_rep>* out, int sub_if_idx, int if_idx, int reg, char true_cond_final_reg_val = 1, char false_cond_final_reg_val = 0);
 bool IsNodeOperator(node* nd, tkn_type2 tkn);
 
 
@@ -1510,12 +1510,9 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin, own_std::vector<ir_rep> *
 		ir.bin.lhs.deref = -1;
 		out->emplace_back(ir);
 
-
 	}
 	else
 	{
-
-
 		ir.bin.rhs.type = IR_TYPE_REG;
 		ir.bin.rhs.reg_sz = 8;
 		ir.bin.rhs.reg = AllocReg(lang_stat);
@@ -1937,7 +1934,7 @@ bool IsIrValFloat(ir_val* val)
 	return is_decl && (val->decl->type.type == TYPE_F32  || is_ar_float) || val->is_float || val->type == IR_TYPE_F32;
 }
 
-void CreateOppositeRegAssigmentAfterCondChecking(lang_state *lang_stat, own_std::vector<ir_rep> *out, int sub_if_idx, int if_idx, int reg)
+void CreateOppositeRegAssigmentAfterCondChecking(lang_state *lang_stat, own_std::vector<ir_rep> *out, int sub_if_idx, int if_idx, int reg, char true_cond_final_reg_val, char false_cond_final_reg_val)
 {
 	ir_rep ir = {};
 	ir.type = IR_ASSIGNMENT;
@@ -1948,7 +1945,7 @@ void CreateOppositeRegAssigmentAfterCondChecking(lang_state *lang_stat, own_std:
 	ir.assign.only_lhs = true;
 
 	ir.assign.lhs.type = IR_TYPE_INT;
-	ir.assign.lhs.i = 0;
+	ir.assign.lhs.i = false_cond_final_reg_val;
 	out->emplace_back(ir);
 
 
@@ -1967,7 +1964,7 @@ void CreateOppositeRegAssigmentAfterCondChecking(lang_state *lang_stat, own_std:
 	ir.assign.only_lhs = true;
 
 	ir.assign.lhs.type = IR_TYPE_INT;
-	ir.assign.lhs.i = 1;
+	ir.assign.lhs.i = true_cond_final_reg_val;
 	out->emplace_back(ir);
 	IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
 	IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
@@ -2810,7 +2807,7 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			ir.bin.rhs.is_unsigned = top->is_unsigned;
 			out->emplace_back(ir);
 
-            IRCreateEndBlock(lang_stat,cond_idx, out, IR_END_COND_BLOCK);
+      IRCreateEndBlock(lang_stat,cond_idx, out, IR_END_COND_BLOCK);
 
 			int reg = 0;
 			if (top->type == IR_TYPE_REG)
@@ -3191,7 +3188,9 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 		case AST_BINOP:
 		{
 			if (e->op == T_COND_AND || e->op == T_COND_OR)
+      {
 				continue;
+      }
 			ASSERT(stack.size() >= 2);
 			switch (e->op)
 			{
@@ -3202,8 +3201,21 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 			case T_LESSER_THAN:
 			case T_COND_NE:
 			{
+        ast_rep* next = exps[j + 1];
+        bool is_end_arg = IsEndArg(next);
+
 				ir_val* top = &stack[stack.size() - 1];
 				ir_val* one_minus_top = &stack[stack.size() - 2];
+
+        int if_idx = 0;
+        int sub_if_idx = 0;
+        int cond_idx = 0;
+        if(is_end_arg)
+        {
+          if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+          sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
+          cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
+        }
 
 				ir.type = IR_CMP_EQ;
 				ir.bin.op = e->op;
@@ -3211,7 +3223,28 @@ void GinIRFromStack(lang_state* lang_stat, own_std::vector<ast_rep *> &exps, own
 				ir.bin.rhs = *top;
 				ir.bin.it_is_jmp_if_true = true;
 				out->emplace_back(ir);
+        
 				stack.pop_back();
+				top = &stack[stack.size() - 1];
+
+        if(is_end_arg)
+        {
+          IRCreateEndBlock(lang_stat,cond_idx, out, IR_END_COND_BLOCK);
+
+          int reg = 0;
+          if (top->type == IR_TYPE_REG)
+            reg = top->reg;
+          else
+            reg = AllocReg(lang_stat);
+
+
+          CreateOppositeRegAssigmentAfterCondChecking(lang_stat, out, sub_if_idx, if_idx, reg, 0, 1);
+          top->type = IR_TYPE_REG;
+          //top->reg_sz = 8;
+          top->is_float = false;
+          top->deref = -1;
+          top->reg = reg;
+        }
 				auto a = 0;
 			}break;
 			case T_POINT:

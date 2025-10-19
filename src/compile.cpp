@@ -17967,8 +17967,10 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 
 			int a = 0;
 			iterations++;
-			if (iterations >= 150)
+			if (iterations >= 250)
 			{
+        printf("descend name finding iterations were now enough\n");
+        HERE()
 				FOR_VEC(cur, names_not_found)
 				{
 					decl2* d = FindIdentifier(cur->nd->t->str, cur->scp, &dummy);

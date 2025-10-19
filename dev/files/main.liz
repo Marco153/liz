@@ -3988,6 +3988,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
           data := ptr_offset(&cur_area, var_type.offset, u8)
           DeserializeEntVar(ctx, var_type, data, *st2.BIN.expr[1])
         }
+        //__dbg_break
         new_collision_chunks(ctx, &cur_area)
 
         dyn_add(&ctx.areas_col, &cur_area)
@@ -4286,10 +4287,10 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                             model_tris_count:u32
                             m := get_model_ptr(cast(*asset_index)&col.MESH.info.model_idx)
 
-                            return
                             GetInfoFromModel(m.model, &model_verts_count, &model_tris_count)
                             create_mesh_collider(ctx, col, model_tris_count, model_verts_count)
                             //__dbg_break
+                            return
                             assign_mesh_to_chunks(ctx, ent)
                         }
                     }
@@ -4673,8 +4674,11 @@ set_bridge_pos::fn(ent : *entity)
 }
 new_collision_chunks::fn(ctx : *context, area_col : *area_col_info)
 {
-    area_col_size := area_col.area_col_size
-    chunk_width := area_col.chunk_width
+  area_col_size := area_col.area_col_size
+  chunk_width := area_col.chunk_width
+
+  assert(chunk_width > 0.0, "chunk_with was {chunk_width}")
+
 	x_width := cast(u32)(area_col_size.x / chunk_width) + 1
 	y_width := cast(u32)(area_col_size.y / chunk_width) + 1
 	z_width := cast(u32)(area_col_size.z / chunk_width) + 1
@@ -4685,6 +4689,7 @@ new_collision_chunks::fn(ctx : *context, area_col : *area_col_info)
   
 
 	dyn_init2(&area_col.col_chunks, total_chunks, ctx.alloc)
+  //memset(area_col.col_chunks.data, 0, total_chunks * sizeof(*area_col.col_chunks.data))
 	area_col.col_chunks.count = area_col.col_chunks.cap
 }
 items_func::fn(ctx : *context, dt : f32, selected_ent : *entity)
@@ -5430,6 +5435,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
       if ImGuiSelectable("+", false, 10.0, 10.0)
       {
         aux:area_col_info
+        aux.name = cast(str_lit)heap_alloc(ctx.alloc, 1)
         dyn_add(&ctx.areas_col, &aux)
       }
 
@@ -5781,7 +5787,6 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
         ImGuiText("preserve ents:")
 
         i :u32
-        printf("ptr {cast(u64)l_area}, total {l_area.preserve_ents.count}\n")
         for e in l_area.preserve_ents
         {
           name :="nil"
@@ -8353,7 +8358,8 @@ main_loop::fn(ctx : *context)
 	
 	//CopyDataFromModel(2, ctx.aux_vertices, ctx.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
 
-	ctx.aux_col_ent = NewEnt(ctx, "aux_col_ent")
+	ctx.aux_col_ent = new_cube(ctx, &ctx.white_color, &ctx.white_color, false)
+  
 	ctx.aux_col_ent.flags = ctx.aux_col_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
 	ctx.aux_col_ent.type = ent_type.AUX_COL_ENT
 	ctx.aux_col_ent.is_active = false

@@ -28,6 +28,7 @@ temporarily_not_serialize_info:struct
 }
 area_col_info :struct
 {
+  name : str_lit
 	area_col_pos : _vec
 	area_col_size : _vec
   chunk_width :f32
@@ -3862,12 +3863,52 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
       }
     }
   }
-  //clear_material_instances()
+  return
+
   i :s64
   settings_end := find_closing_curly(ctx, file, i)
   settings_ast :*ast_rep= ast_from_string_range(ctx, file, i, settings_end, root, &pinfo, &ctx.tkns, &lang_stat)
 
-  dyn_clear(&ctx.areas_col)
+  for a_idx in 0..ctx.areas_col.count
+  {
+    l_area := ctx.areas_col[cast(u64)a_idx]
+    found_preserve := false
+    cur_ch := 0
+    for ch in l_area.col_chunks
+    {
+      for e in preserved_ents
+      {
+        for e2 in ch.entities
+        {
+          if str_cmp(e2.name, e.name)
+          {
+            found_preserve = true
+            break
+          }
+        }
+
+        if found_preserve break;
+
+        for e2 in ch.from_ents
+        {
+          if str_cmp(e2.from_ent.name, e.name)
+          {
+            found_preserve = true
+            break
+          }
+        }
+
+        if found_preserve break;
+      }
+    }
+    if !found_preserve
+    {
+      dyn_rem(&ctx.areas_col, cast(u32)a_idx)
+      a_idx--
+    }
+  }
+  return
+  //dyn_clear(&ctx.areas_col)
 
   stmnts:*ast_rep= *settings_ast.SCOPE.stmnts[0]
   ar := &settings_ast.SCOPE.stmnts
@@ -3907,8 +3948,26 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
         if cur.type == ast_type.SCOPE && is_ast_bin(*cur.SCOPE.stmnts[0], cast(u32)token_type.SEMI_COLON)
         {
           ar2 = &cur.SCOPE.stmnts[0].BIN.expr
-
         }
+
+        area_name_ast := ar2[0].BIN.expr[1]
+
+        ASSERT(area_name_ast.type == ast_type.STR_LIT)
+
+        area_name := &area_name_ast.STR_LIT.str
+
+        preserve_area := false
+
+        for a in ctx.areas_col
+        {
+          if *area_name == a.name
+          {
+            preserve_area = true
+            break
+          }
+        }
+
+        if preserve_area continue;
 
         for st2 in *ar2
         {
@@ -3932,6 +3991,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
         new_collision_chunks(ctx, &cur_area)
 
         dyn_add(&ctx.areas_col, &cur_area)
+        return
 
       }
     }
@@ -4225,6 +4285,8 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                             model_verts_count:u32
                             model_tris_count:u32
                             m := get_model_ptr(cast(*asset_index)&col.MESH.info.model_idx)
+
+                            return
                             GetInfoFromModel(m.model, &model_verts_count, &model_tris_count)
                             create_mesh_collider(ctx, col, model_tris_count, model_verts_count)
                             //__dbg_break
@@ -4234,6 +4296,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                     return
                 }
                 add_body_to_chunks(ctx, ent)
+                return
             }
             else
             {
@@ -4353,10 +4416,12 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
       i++
 	}
 
+  return
   grid_shader := find_shader(ctx, "grid.mat")
   ctx.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, ctx.preview_ent)
   assign_bodies_to_chunks(ctx)
   ctx.player.flags = ctx.player.flags | ENTITY_PRESERVE_ENT_THROUGH_SCENES
+  return
 
 
   aux_ents :[16]*entity
@@ -4421,6 +4486,7 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
     cur := new_ast2()
     cur.type = ast_type.SCOPE
 
+    dyn_add(&cur.SCOPE.stmnts, StrLitAssignmentToAst("name", a.name))
     dyn_add(&cur.SCOPE.stmnts, VecAssignmentToAst("area_col_pos", &a.area_col_pos))
     dyn_add(&cur.SCOPE.stmnts, VecAssignmentToAst("area_col_size", &a.area_col_size))
 
@@ -5385,6 +5451,8 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
         draw.flags = DRAW_INFO_TRANSPARENT;
         Draw3D(ctx.window, &draw);
 
+
+        input_text(ctx, "area##{cast(u64)ctx.col_chunks}", &ctx.col_chunks.name, buffer[0])
 
         ImGuiText("pos: ")
         ImGuiSameLine()

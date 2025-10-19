@@ -889,7 +889,10 @@ add_body_to_chunks::fn(ctx : *context, ent : *entity)
 			CopyVerts(*c, &min_rel_pos, &max_rel_pos)
 			dyn_clear(&ctx.aux_col_chunks)
 
-			get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, l_area, &c._min, &c._max, &min_rel_pos, &max_rel_pos)
+			in_range := get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, l_area, &c._min, &c._max, &min_rel_pos, &max_rel_pos)
+
+      if !in_range continue
+        
 			get_chunks_close_to_ent(ctx, l_area, ent, &ctx.aux_col_chunks, &min_rel_pos, &max_rel_pos)
 
 			for ch in ctx.aux_col_chunks

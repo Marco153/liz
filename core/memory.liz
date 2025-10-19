@@ -77,10 +77,20 @@ heap_insert_unallocated::fn(alloc : *mem_alloc, a : *mem_chunk)
 		i++;
 	}
 }
+push_str_lit_on_buffer::fn(buffer : *char, bf_sz : u32, bf_offset : *u32, str : str_lit)
+{
+  slen := str_ln(str)
+  memcpy(ptr_offset(buffer, *bf_offset, u8), str, slen)
+  *bf_offset += cast(u32)slen
+  *ptr_offset(buffer, *bf_offset, u8) = 0
+}
+
 ASSERT::fn macro(exp : _expr)
 {
 	if !(exp)
+  {
 		__dbg_break;
+  }
 }
 is_flag_off::fn macro(val : _expr, flag : _expr)
 {

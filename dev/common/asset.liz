@@ -72,7 +72,9 @@ get_model_ptr::fn(cid : *asset_index) !*model_info
 get_material_ptr::fn(cid : *asset_index) !*material_info
 {
     a := globals.assets[cast(u64)cid.asset_idx]
-    ASSERT(a.type == asset_type.MATERIAL)
+
+    __dbg_break
+    assert(a.type == asset_type.MATERIAL)
     return &a.MATERIAL.mat
 }
 get_id_of_model::fn(cid : *asset_index) !u32

@@ -10818,7 +10818,10 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 			if(ret_type.ptr > 0)
 			{
-				node* new_n = NewBinOpNode(lang_stat, n->r, T_COND_EQ, NewIntNode(lang_stat, 0, n->t));
+        auto rhs = new_node(lang_stat, n->t);
+        rhs->type = N_KEYWORD;
+        rhs->kw = KW_NIL;
+				node* new_n = NewBinOpNode(lang_stat, n->r, T_COND_EQ, rhs);
 				
 				memcpy(n, new_n, sizeof(node));
 			}

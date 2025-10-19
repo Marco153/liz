@@ -3632,6 +3632,42 @@ void ImGuiInputText(int thread_id, dbg_state *dbg) {
   auto aux = GetRegValPtr(thread_id, dbg, RET_1_REG);
   *aux = val;
 }
+//void PrintCallBasedOnBc(dbg_state *dbg, by)
+void PrintCallBasedOnBc(dbg_state *dbg, byte_code2 *bc)
+{
+    func_decl *fdecl = GetFuncBasedOnBc2(dbg, bc);
+    int offset = bc - dbg->lang_stat->bcs2_start;
+    stmnt_dbg *st = GetStmntBasedOnOffset(&fdecl->wasm_stmnts, offset);
+		if(st)
+			printf("%s(%d): %s\n", fdecl->from_file->name.c_str(), st->line, fdecl->name.c_str());
+		else
+			printf("%s: %s\n", fdecl->from_file->name.c_str(), fdecl->name.c_str());
+}
+void PrintCallStack(int thread_id, dbg_state *dbg)
+{
+	FOR_VEC(bc, dbg->return_stack_bc2)
+	{
+    PrintCallBasedOnBc(dbg, **bc);
+  }
+  PrintCallBasedOnBc(dbg, *dbg->cur_bc2);
+
+}
+/*
+void PrintCallStack(int thread_id, dbg_state *dbg)
+{
+  HERE()
+}
+void PrintCallStack(int thread_id, dbg_state *dbg)
+{
+	FOR_VEC(f, dbg.return_stack_bc2_func)
+	{
+		if(!f->st)
+			printf("%s: %s", f->fdecl->from_file->name.c_str(), f->fdecl->name.c_str());
+		else
+			printf("%s(%d): %s", f->fdecl->from_file->name.c_str(), f->st->line, f->fdecl->name.c_str());
+	}
+}
+*/
 void ImGuiImage(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int id = *(int *)&dbg->mem_buffer[base_ptr + 8];
@@ -8265,6 +8301,7 @@ int main(int argc, char *argv[]) {
   AssignOutsiderFunc(&lang_stat, "euler_to_quaternion2",
                      (OutsiderFuncType)euler_to_quaternion2);
   AssignOutsiderFunc(&lang_stat, "quat_mul2", (OutsiderFuncType)quat_mul2);
+  AssignOutsiderFunc(&lang_stat, "PrintCallStack", (OutsiderFuncType)PrintCallStack);
   lang_stat.cur_decl = 0;
 
   opts.wasm_dir = wasm_dir;

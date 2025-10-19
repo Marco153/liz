@@ -160,6 +160,9 @@ global_struct : struct
 
 	cam_pos : *_vec
 	assets : dyn_array(asset_info)
+
+  assert_buffer : [256]u8
+  assert_i : u32
 }
 globals : global global_struct
 
@@ -778,6 +781,17 @@ Draw::fn outsider(*u8, *draw_info);
 Draw3D::fn outsider(*u8, *draw_info3d);
 Draw3DTransparency::fn outsider(*u8);
 EndFrame::fn outsider(wnd : *u8);
+PrintCallStack::fn outsider();
+
+assert::fn(val : bool, str : str_lit="")
+{
+  if !val
+  {
+    printf("assertion failed: {str}\n")
+    PrintCallStack()
+    __dbg_break
+  }
+}
 
 type_enum : enum
 {
@@ -929,17 +943,13 @@ num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
 	written :u64= 0;
 	aux_buffer : [64]u8;
 
-	out_buffer : dyn_array(char);
-	out_buffer.data = cast(*char)in_buf;
-	out_buffer.count = buffer_sz;
+	out_buffer :*char= cast(*char)in_buf;
 
-	buffer : dyn_array(char);
-	buffer.data = cast(*char)aux_buffer;
-	buffer.count = 64;
+	buffer := cast(*char)aux_buffer;
 
 	if num == 0
 	{
-		*out_buffer[0] = '0;
+		*ptr_offset(out_buffer, 0, u8) = '0;
 		return 1;
 	}
 	negative: = false;
@@ -953,7 +963,7 @@ num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
 	while num != 0
 	{
 		mod := num % 10;
-		*buffer[written] = cast(char)(cast(u8)'0 + cast(u8)mod);
+		*ptr_offset(buffer, written, char) = cast(char)(cast(u8)'0 + cast(u8)mod);
 		num = num / 10;
 		written += 1;
 	}
@@ -962,15 +972,15 @@ num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
 	aux_written :u64= 0;
 	if negative
 	{
-		*out_buffer[aux_written] = '-;
+		*ptr_offset(out_buffer, aux_written, char) = '-;
 		aux_written++;
 		written++;
 	}
 	while  aux_written_rev >= 0
 	{
 
-		dst :=out_buffer[aux_written]
-		*dst = *buffer[cast(u64)aux_written_rev];
+		dst :=ptr_offset(out_buffer, aux_written, char)
+		*dst = *ptr_offset(buffer, cast(u64)aux_written_rev, char);
 		aux_written_rev--;
 		aux_written++;
 	}

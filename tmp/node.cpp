@@ -11146,6 +11146,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 
 				if (ltp.ptr > 0)
 				{
+          HERE()
 					ReportMessage(lang_stat, n->r->t, "lhs must be a value, but it is a ptr");
 					ExitProcess(1);
 				}

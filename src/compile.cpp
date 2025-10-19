@@ -9961,6 +9961,31 @@ void HackFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur
 	mempcpy(dbg->mem_buffer, aux_buffer, END_OF_REGS);
 }
 
+/*
+bool ImGuiHasMissignEndChild(const ImGui::ImGuiErrorRecoveryState* state_in)
+{
+    // PVS-Studio V1044 is "Loop break conditions do not depend on the number of iterations"
+    ImGuiContext& g = *GImGui;
+    while (g.CurrentWindowStack.Size > state_in->SizeOfWindowStack) //-V1044
+    {
+        // Recap:
+        // - Begin()/BeginChild() return false to indicate the window is collapsed or fully clipped.
+        // - Always call a matching End() for each Begin() call, regardless of its return value!
+        // - Begin/End and BeginChild/EndChild logic is KNOWN TO BE INCONSISTENT WITH ALL OTHER BEGIN/END FUNCTIONS.
+        // - We will fix that in a future major update.
+        ImGuiWindow* window = g.CurrentWindow;
+        if (window->Flags & ImGuiWindowFlags_ChildWindow)
+        {
+          return true;
+        }
+        else
+        {
+          return true
+        }
+    }
+    return false;
+}
+*/
 void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 {
 	char buffer[512];
@@ -10188,6 +10213,12 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				dbg->cur_func = nullptr;
 				continue;
 			}
+      /*
+      //if(ImGuiHasMissignEndChild(&GImGui->StackSizesInNewFrame))
+      {
+        //printf("on line %d, func %s\n", cur_st->line, dbg->cur_func->name.c_str());
+      }
+      */
 			glfwPollEvents();
 			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 			{

@@ -119,7 +119,7 @@ dyn_add_data::fn{ T }(dyn : *dyn_array(T), data : *void, sz : u32)
 {
 	if dyn.alloc == nil || dyn.alloc && dyn.alloc.id != 0x1234
 	{
-		ASSERT(globals.alloc)
+		ASSERT(globals.alloc != nil)
 		//return
 		//__dbg_break
 		dyn_init2(dyn, 2, globals.alloc);

@@ -1799,6 +1799,8 @@ StepCol::fn(ctx : *context, dt : f32)
         cur_tri :u64= 0
         total_tris := e_ch.tris.count
         
+        printf("check tri col against {e_ch.from_ent.name}\n")
+
         tri := ptr_offset(e_ch.tris[0], 0, triangle_info)
 
         while cur_tri < total_tris

@@ -9225,10 +9225,6 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 					if (!NameFindingGetType(lang_stat, n->r, scp, ret_type, flags_to_get_type))
 					{
 						bool found = false;
-						if(n->r->t->line == 24)
-						{
-							HERE()
-						}
 						if (NameFindingGetType(lang_stat, n->r, scp, ret_type, flags_to_get_type | NM_FND_ASSIGN_FLAG_FOR_NODE_WHEN_DECL_NOT_DONE))
 						{
 							if (ret_type.ptr > 0)

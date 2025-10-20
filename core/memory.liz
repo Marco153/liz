@@ -610,35 +610,39 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 {
 	alloc.id = 0x1234;
-	aux := chunks_cap / 2
+	aux := chunks_cap / 4
 	alloc.chunks_cap = chunks_cap;
 	alloc.hash_table_size = aux;
-    all_chunks_sz:u64= sizeof(mem_chunk) * aux;
+  all_chunks_sz:u64= sizeof(mem_chunk) * aux;
+
 	if !alloc.all
 		alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
-    memset(cast(*u8)alloc.all, 0, all_chunks_sz);
+
+  memset(cast(*u8)alloc.all, 0, all_chunks_sz);
 	//__dbg_break;
 
 	unallocated_sz:u64 = UNALLOCATED_BUFFER_ITEMS * 8;
 
 	if !alloc.probable_unallocated
 		alloc.probable_unallocated = cast(**mem_chunk)GetMem(cast(u64)unallocated_sz);
-    memset(cast(*u8)alloc.probable_unallocated, 0, unallocated_sz);
 
-    total_size:u64= alloc.chunks_cap * BYTES_PER_CHUNK;
+  memset(cast(*u8)alloc.probable_unallocated, 0, unallocated_sz);
+
+  total_size:u64= alloc.chunks_cap * BYTES_PER_CHUNK;
 	if !alloc.buffer
 		alloc.buffer = cast(*u8)GetMem(total_size);
 	
 	in_use_hash_sz:u64 = alloc.hash_table_size * sizeof(heap_hash.inner);
+
 	if !alloc.in_use.data
 		alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
+
 	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
 
-    free:*mem_chunk= GetUnallocatedChunk(alloc);
-	//alloc.in_use.reserve(alloc.hash_table_size);
+  free:*mem_chunk= GetUnallocatedChunk(alloc);
 
 	free.size = cast(u32)(total_size / BYTES_PER_CHUNK);
-    free.addr = alloc.buffer;
+  free.addr = alloc.buffer;
 
 
 	alloc.head_free = free;

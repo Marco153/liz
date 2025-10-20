@@ -4,6 +4,7 @@ ASSETS_TEXTURES_OFFSET:const s32=0
 ASSETS_MATERIALS_OFFSET:const s32=128
 ASSETS_MODELS_OFFSET:const s32=256
 ASSETS_CLIPS_OFFSET:const s32=384
+ASSETS_MEM_ALLOC_OFFSET:const s32=448
 ASSETS_MAX:const s32=1024
 asset_type:etruct
 {
@@ -12,6 +13,9 @@ asset_type:etruct
     ),
     CLIP(
         cl : clip3d
+    ),
+    MEM_ALLOC(
+        alloc : mem_alloc
     ),
     MODEL(
         mod : model_info
@@ -62,6 +66,12 @@ get_clip_ptr::fn(cid : *asset_index) !*clip3d
     a := globals.assets[cast(u64)cid.asset_idx]
     assert(a.type == asset_type.CLIP)
     return &a.CLIP.cl
+}
+get_mem_alloc_ptr::fn(cid : *asset_index) !*mem_alloc
+{
+    a := globals.assets[cast(u64)cid.asset_idx]
+    assert(a.type == asset_type.MEM_ALLOC)
+    return &a.MEM_ALLOC.alloc
 }
 get_model_ptr::fn(cid : *asset_index) !*model_info
 {

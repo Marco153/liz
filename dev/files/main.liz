@@ -35,6 +35,13 @@ area_col_info :struct
 
 	col_chunks : dyn_array(collision_chunk)
 }
+scene_info:struct
+{
+  in_use : bool
+  name : str_lit
+  alloc : asset_index
+  ents : dyn_array(*entity)
+}
 context: struct
 {
     col_chunks : *area_col_info
@@ -68,6 +75,8 @@ context: struct
   areas_col :dyn_array(area_col_info)
 
 	line_shader : asset_index
+
+  scenes : [5]scene_info
 
 
 	step_audio_idxs : [2]u32
@@ -7684,7 +7693,18 @@ coroutine_test::fn coroutine(cor_ctx : *coroutine_ctx, a : *u32)
 }
 main_loop::fn(ctx : *context)
 {
-  
+  __dbg_break
+  for i in 0..5
+  {
+    mem_asset_idx :asset_index
+    find_asset(ctx, "mem{i}", &mem_asset_idx, ASSETS_MEM_ALLOC_OFFSET)
+    mem_asset := globals.assets[cast(u64)mem_asset_idx.asset_idx]
+    mem_asset.type = asset_type.MEM_ALLOC
+    memset(&mem_asset.MEM_ALLOC.alloc, 0, sizeof(mem_alloc))
+    InitMemAlloc(&mem_asset.MEM_ALLOC.alloc, 458600)
+    
+  }
+
   test_c : u32
   for i in 0..2
   {

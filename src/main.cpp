@@ -1243,7 +1243,7 @@ void Draw3DTransparency(int thread_id, dbg_state *dbg) {
 
     v4 v1;
     _mm_storeu_ps(&v1.x, vec1);
-    c->val = vec3_dot(*(Vec3*)&v1, *(Vec3*)&v1);
+    c->val = vec3_dot(*(Vec3 *)&v1, *(Vec3 *)&v1);
   }
   SortRatedStuff(&gl_state->transparent_objs);
 
@@ -3632,25 +3632,20 @@ void ImGuiInputText(int thread_id, dbg_state *dbg) {
   auto aux = GetRegValPtr(thread_id, dbg, RET_1_REG);
   *aux = val;
 }
-//void PrintCallBasedOnBc(dbg_state *dbg, by)
-void PrintCallBasedOnBc(dbg_state *dbg, byte_code2 *bc)
-{
-    func_decl *fdecl = GetFuncBasedOnBc2(dbg, bc);
-    int offset = bc - dbg->lang_stat->bcs2_start;
-    stmnt_dbg *st = GetStmntBasedOnOffset(&fdecl->wasm_stmnts, offset);
-		if(st)
-			printf("%s(%d): %s\n", fdecl->from_file->name.c_str(), st->line, fdecl->name.c_str());
-		else
-			printf("%s: %s\n", fdecl->from_file->name.c_str(), fdecl->name.c_str());
+// void PrintCallBasedOnBc(dbg_state *dbg, by)
+void PrintCallBasedOnBc(dbg_state *dbg, byte_code2 *bc) {
+  func_decl *fdecl = GetFuncBasedOnBc2(dbg, bc);
+  int offset = bc - dbg->lang_stat->bcs2_start;
+  stmnt_dbg *st = GetStmntBasedOnOffset(&fdecl->wasm_stmnts, offset);
+  if (st)
+    printf("%s(%d): %s\n", fdecl->from_file->name.c_str(), st->line,
+           fdecl->name.c_str());
+  else
+    printf("%s: %s\n", fdecl->from_file->name.c_str(), fdecl->name.c_str());
 }
-void PrintCallStack(int thread_id, dbg_state *dbg)
-{
-	FOR_VEC(bc, dbg->return_stack_bc2)
-	{
-    PrintCallBasedOnBc(dbg, **bc);
-  }
+void PrintCallStack(int thread_id, dbg_state *dbg) {
+  FOR_VEC(bc, dbg->return_stack_bc2) { PrintCallBasedOnBc(dbg, **bc); }
   PrintCallBasedOnBc(dbg, *dbg->cur_bc2);
-
 }
 /*
 void PrintCallStack(int thread_id, dbg_state *dbg)
@@ -3659,13 +3654,13 @@ void PrintCallStack(int thread_id, dbg_state *dbg)
 }
 void PrintCallStack(int thread_id, dbg_state *dbg)
 {
-	FOR_VEC(f, dbg.return_stack_bc2_func)
-	{
-		if(!f->st)
-			printf("%s: %s", f->fdecl->from_file->name.c_str(), f->fdecl->name.c_str());
-		else
-			printf("%s(%d): %s", f->fdecl->from_file->name.c_str(), f->st->line, f->fdecl->name.c_str());
-	}
+        FOR_VEC(f, dbg.return_stack_bc2_func)
+        {
+                if(!f->st)
+                        printf("%s: %s", f->fdecl->from_file->name.c_str(),
+f->fdecl->name.c_str()); else printf("%s(%d): %s",
+f->fdecl->from_file->name.c_str(), f->st->line, f->fdecl->name.c_str());
+        }
 }
 */
 void ImGuiImage(int thread_id, dbg_state *dbg) {
@@ -7033,7 +7028,6 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
     printf("resized");
     return;
   }
-  
 
   if (!gl_state->pa_stream) {
 
@@ -7985,14 +7979,21 @@ int main(int argc, char *argv[]) {
   compile_options opts = {};
   // opts.file = "../lang2/files";
   // opts.wasm_dir = "../lang2/web/";
+  int arg_start = 0;
+  own_std::string arg1 = argv[1];
+  if (arg1 == "chk_nptr") {
+    lang_stat.check_nil_ptr = true;
+    arg_start = 1;
+  }
+
   if (argc > 1) {
-    own_std::string arg1 = argv[1];
+    arg1 = argv[arg_start + 1];
     if (arg1 == "run") {
       if (argc <= 2) {
         printf("no folder specified\n");
         return 0;
       } else {
-        opts.file = argv[2];
+        opts.file = argv[arg_start + 2];
         opts.folder_name = GetFolderName(opts.file);
         opts.wasm_dir = "";
         opts.release = false;
@@ -8029,7 +8030,6 @@ int main(int argc, char *argv[]) {
   auto wasm_dir = std_str_to_heap2(&opts.wasm_dir);
   auto folder_name = std_str_to_heap2(&opts.folder_name);
 
-  lang_stat.check_nil_ptr = true;
   Compile(&lang_stat, &opts);
   memset(&lang_stat, 0, sizeof(lang_stat));
   InitMemAlloc(&alloc);
@@ -8302,7 +8302,8 @@ int main(int argc, char *argv[]) {
   AssignOutsiderFunc(&lang_stat, "euler_to_quaternion2",
                      (OutsiderFuncType)euler_to_quaternion2);
   AssignOutsiderFunc(&lang_stat, "quat_mul2", (OutsiderFuncType)quat_mul2);
-  AssignOutsiderFunc(&lang_stat, "PrintCallStack", (OutsiderFuncType)PrintCallStack);
+  AssignOutsiderFunc(&lang_stat, "PrintCallStack",
+                     (OutsiderFuncType)PrintCallStack);
   lang_stat.cur_decl = 0;
 
   opts.wasm_dir = wasm_dir;

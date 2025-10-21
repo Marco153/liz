@@ -414,6 +414,7 @@ player_info: struct
 
   can_change_scene : bool
 
+  asking_for_this_scene_name : str_lit
   asking_for_this_scene : str_lit
   asking_for_this_scene_sz : u32
   asking_for_this_loading_area : *loading_area_info

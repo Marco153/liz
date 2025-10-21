@@ -1,4 +1,5 @@
 #include "IR.h"
+#include "token_common.h"
 
 bool IsAstSimple(lang_state *lang_stat, ast_rep *ast);
 decl2 *PointLogic(lang_state *lang_stat, node *n, scope *scp, type2 *ret_tp);
@@ -1995,7 +1996,7 @@ void GinIRCheckNilPtr(lang_state *lang_stat, own_std::vector<ir_rep> *out,
   */
 
   aux_ir.type = IR_CMP_LE;
-  aux_ir.bin.op = T_COND_LE;
+  aux_ir.bin.op = T_GREATER_THAN;
   aux_ir.bin.lhs = *top_info;
   aux_ir.bin.lhs.deref = top_info->ptr - 1;
   aux_ir.bin.lhs.ptr = 0;

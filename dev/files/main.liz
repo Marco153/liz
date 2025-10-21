@@ -87,8 +87,9 @@ context: struct
 
 	tkns : dyn_array(token)
 
-    cur_scene_changing : str_lit
-    cur_scene_changing_sz : u32
+  cur_scene_changing_name : str_lit
+  cur_scene_changing : str_lit
+  cur_scene_changing_sz : u32
 
 	grid_ent : *entity
 	sun_dir : _vec
@@ -7599,13 +7600,14 @@ update_sword_in_hand::fn(player_ent : *entity, sword : *entity, hand_bone : *bon
 	pivot =  q * pivot
 	sword.pos += pivot
 }
-get_not_used_scene::fn(ctx : *context) ! *scene_info
+get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
 {
   for s in ctx.scenes
   {
     if s.in_use == false
     {
       s.in_use = true
+      s.name = name
       return s 
     }
   }
@@ -7634,7 +7636,6 @@ main_loop::fn(ctx : *context)
     memset(&mem_asset.MEM_ALLOC.alloc, 0, sizeof(mem_alloc))
 
     InitMemAlloc(&mem_asset.MEM_ALLOC.alloc, 458600)
-    scn.in_use = true
 
     scn.alloc_idx.asset_idx = cast(u32)mem_asset_idx
     scn.alloc = &mem_asset.MEM_ALLOC.alloc
@@ -9607,13 +9608,24 @@ main_loop::fn(ctx : *context)
 
           l_area := player_ent.mov_info.asking_for_this_loading_area
 
-          for e in l_area.preserve_ents
+          already_loaded := false
+          for s in ctx.scenes
           {
-            if e == nil continue
-
-            e.flags = e.flags | ENTITY_PRESERVE_ENT_THROUGH_SCENES
+            if s.in_use && str_cmp(s.name, ctx.cur_scene_changing_name)
+            {
+              already_loaded = true
+              break
+            }
           }
-
+          if already_loaded
+          {
+            player_ent.mov_info.asking_for_this_scene = nil
+            ctx.cur_scene_changing = nil
+          }
+          else
+          {
+            ctx.changing_scn = get_not_used_scene(ctx, ctx.cur_scene_changing_name)
+          }
         }
         if ctx.cur_scene_changing
         {
@@ -10036,6 +10048,6 @@ main:: fn(){
 	ctx.abcd_tex_info_idx = cast(u32)i
 
 	ASSERT(sizeof(custom_id)==16)
-  ctx.cur_scn = get_not_used_scene(&ctx)
+  ctx.cur_scn = get_not_used_scene(&ctx, "02")
 	main_loop(&ctx);
 }

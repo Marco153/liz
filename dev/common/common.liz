@@ -161,8 +161,34 @@ global_struct : struct
 	cam_pos : *_vec
 	assets : dyn_array(asset_info)
 
+	textures : dyn_array(texture_info),
+
   assert_buffer : [256]u8
   assert_i : u32
+
+  time_since_start : f32
+
+	grass_tex : asset_index
+	aim_tex : asset_index
+	white_tex : asset_index
+	circle_tex : asset_index
+	ball_tex : asset_index
+	water_tex : asset_index
+	grid_tex : asset_index
+	grid_transparent_tex : asset_index
+
+	preview_ent : *entity
+	player : *entity,
+
+	line_shader : asset_index
+
+	cur_preview_idx : u8
+	aux_col_ent : *entity
+
+	aux_vertices : *_vec
+	aux_vertices_sz : u32
+	aux_indices : *u32
+	aux_indices_sz : u32
 }
 globals : global global_struct
 
@@ -2510,132 +2536,6 @@ sample_texture_bilinear::fn(tex : *texture_info, u : f32, v : f32) ! _vec
 
 
 
-OpenScene::fn(alloc : *mem_alloc, name : str_lit, layers : *dyn_array(*layer_sprites), textures : *dyn_array(texture_info))! *u8
-{
-	for l in *layers
-	{
-		if l.type == layer_enum.SPRITE
-		{
-			for sh in l.cells
-			{
-				//FreeSheet(alloc, sh.sheet);
-				FreeTexture(sh.tp.SPRITE.sheet.tex_id);
-			}
-		}
-	}
-
-
-	aux_buffer : [64]char;
-	sprintf(cast(*u8)aux_buffer[0], 64, "%%", "../scenes/", name);
-	fl_sz: = GetFileSize(cast(str_lit) aux_buffer[0]);
-	file: = heap_alloc(alloc, cast(u32)fl_sz + 1);
-	ReadFile(cast(str_lit) aux_buffer[0], file);
-
-	lang_stat : lang_state
-	scp := new_scope(nil)
-	tkns : dyn_array(token)
-	pinfo : parse_info
-	pinfo.tkns = &tkns
-	
-	Tokenize(&tkns, cast(str_lit)file)
-	n := parse(&pinfo, 999, parser_op.GREATER_THAN)
-	ast := parse_node_to_ast(&lang_stat, n, scp)
-
-
-	/*
-	ASSERT(n.type == node_type.BIN && n.BIN.op == cast(u32)token_type.EQUAL)
-	ASSERT(n.BIN.lhs.type == node_type.WORD && n.BIN.lhs.WORD.str == "a")
-	ASSERT(n.BIN.rhs.type == node_type.INT && n.BIN.rhs.INT.num == 2)
-
-	globals.nodes_alloc.cur = 0;
-
-	str:string
-
-	target_str := "a = 2, b = 3"
-	Tokenize(&tkns, target_str)
-	pinfo.cur_tkn = 0
-	n = parse(&pinfo, 999, parser_op.GREATER_THAN)
-
-	ASSERT(is_node_bin(n, cast(u32)token_type.COMMA))
-	ASSERT(is_node_bin(n.BIN.lhs, cast(u32)token_type.EQUAL))
-	ASSERT(is_node_bin(n.BIN.rhs, cast(u32)token_type.EQUAL))
-
-	ASSERT(is_node_word(n.BIN.lhs.BIN.lhs, "a"))
-	ASSERT(is_node_num(n.BIN.lhs.BIN.rhs, 2))
-
-	ASSERT(is_node_word(n.BIN.rhs.BIN.lhs, "b"))
-	ASSERT(is_node_num(n.BIN.rhs.BIN.rhs, 3))
-
-	node_to_string(n, &str)
-	ASSERT(str == target_str)
-
-
-	target_str = "a = [1, 2]"
-	Tokenize(&tkns, target_str)
-	pinfo.cur_tkn = 0
-	n = parse(&pinfo, 999, parser_op.GREATER_THAN)
-
-	ASSERT(is_node_bin(n, cast(u32)token_type.EQUAL))
-	ASSERT(is_node_word(n.BIN.lhs, "a"))
-	ASSERT(n.BIN.rhs.type == node_type.INDEX)
-
-	str.data.count = 0
-	node_to_string(n, &str)
-	ASSERT(str == target_str)
-
-	target_str = "\{a = [1, 2]\}"
-	Tokenize(&tkns, target_str)
-	pinfo.cur_tkn = 0
-	n = parse(&pinfo, 999, parser_op.GREATER_THAN)
-
-	str.data.count = 0
-	node_to_string(n, &str)
-	ASSERT(str == target_str)
-
-
-	target_str = "\{\{a}, \{d}\}"
-	Tokenize(&tkns, target_str)
-	pinfo.cur_tkn = 0
-	n = parse(&pinfo, 999, parser_op.GREATER_THAN)
-
-	str.data.count = 0
-	node_to_string(n, &str)
-	ASSERT(str == target_str)
-
-	target_str = "a, b, c, d, e, f, g"
-	Tokenize(&tkns, target_str)
-	pinfo.cur_tkn = 0
-	n = parse(&pinfo, 999, parser_op.GREATER_THAN)
-
-	str.data.count = 0
-	node_to_string(n, &str)
-	ASSERT(str == target_str)
-
-	ast := parse_node_to_ast(n, root)
-	str.data.count = 0
-	ast_to_string(ast, &str)
-	cstr := cast(str_lit)LinearGet(&globals.temp_alloc, cast(u32)(str.data.count + 1))
-	memcpy(cstr, str.data.data, str.data.count)
-	*cstr[str.data.count] = cast(char)0
-
-
-	globals.temp_alloc.cur = 0
-	globals.nodes_alloc.cur = 0
-
-
-	str.data.count = 0
-	pinfo.cur_tkn = 0
-	*ptr_offset(file, fl_sz, u8) = 0
-	Tokenize(&tkns, cast(str_lit)file)
-
-	n = parse(&pinfo, 999, parser_op.GREATER_THAN)
-	ast = parse_node_to_ast(n)
-
-	*/
-
-	return file;
-	
-}
 
 GetCharTextureIdx::fn(ch : char ) ! u32
 {

@@ -354,6 +354,7 @@ LANG_STAT_FLAGS_PRS_BREAK_WHEN_HEAD_IS_WORD :const s32=1
 LANG_STAT_FLAGS_PRS_IN_IF_COND :const s32=2
 LANG_STAT_FLAGS_REPORT_UNDECLARED :const s32=4
 LANG_STAT_FLAGS_IMPLIED_STMNT :const s32=8
+LANG_STAT_FLAGS_COMPILING_SHADER :const s32=16
 
 LANG_STAT_FLAGS_IR_IN_CALL :const s32=1
 LANG_STAT_FLAGS_IR_IN_EQUAL :const s32=2
@@ -2493,7 +2494,10 @@ descend_name_finding::fn(lang_stat : *lang_state, ast : *ast_rep, scp: *scope, o
 
 		if !descend_name_finding(lang_stat, ast.CALL.name, scp, &d)
 			return false
-		if d.tp.tp == lang_type_type.FUNC_DECL
+    if !d && is_flag_on(lang_stat.flags, LANG_STAT_FLAGS_COMPILING_SHADER)
+    {
+    }
+		else if d.tp.tp == lang_type_type.FUNC_DECL
 			ast.CALL.fdecl = d.tp.FUNC_DECL.fdecl
 		else if d.tp.tp == lang_type_type.FUNC_DEF
 			ast.CALL.fdecl = d.tp.FUNC_DEF.fdecl

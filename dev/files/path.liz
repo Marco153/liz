@@ -127,7 +127,7 @@ add_neighbors_to_wpinfo::fn(cur_wp_idx : u32, wps_info : *dyn_array(waypoint_inf
 		}
 	}
 }
-find_wpath::fn(ctx : *context, start_w : *waypoint, final_pos : *_vec, out_pos : *dyn_array(_vec))
+find_wpath::fn(ctx : *scene_info, start_w : *waypoint, final_pos : *_vec, out_pos : *dyn_array(_vec))
 {
 	wps_that_can_see_final_pos : dyn_array(*waypoint)
 	wps := &ctx.waypoints

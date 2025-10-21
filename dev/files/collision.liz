@@ -848,7 +848,7 @@ FindContactPoints::fn(vertsA : *_vec, vertsALen : u32, vertsB : *_vec, vertsBLen
 	GetContactPointToArr(vertsB, vertsBLen, vertsA, vertsALen, contacts.data, &contacts.count, &minDist);
 }
 
-DrawCols::fn(ctx : *context)
+DrawCols::fn(ctx : *scene_info, drw_set : *draw_settings)
 {
 	a_verts : [4]_vec;
 	dummy :_vec;
@@ -866,18 +866,18 @@ DrawCols::fn(ctx : *context)
 			draw: draw_info;
 			draw.pos = pos;
 			draw.pos.z = 0.9;
-			draw.cam_pos = ctx.cam_pos_global;
-			draw.cam_size = ctx.cam_size;
+			draw.cam_pos = drw_set.cam_pos
+			draw.cam_size = drw_set.cam_size;
 			draw.ent_size.x = size_x;
 			draw.ent_size.y = size_y;
 			draw.flags = DRAW_INFO_WIREFRAME;
 			*draw.color[3] = 1.0;
-			Draw(ctx.window, &draw);
+			Draw(drw_set.window, &draw);
 		}
 	}
 }
 
-add_body_to_chunks::fn(ctx : *context, ent : *entity)
+add_body_to_chunks::fn(ctx : *scene_info, ent : *entity)
 {
 	min_rel_pos : _vec=?
 	max_rel_pos : _vec=?
@@ -908,7 +908,7 @@ add_body_to_chunks::fn(ctx : *context, ent : *entity)
 	}
 
 }
-add_body::fn(ctx : *context, ent : *entity)
+add_body::fn(ctx : *scene_info, ent : *entity)
 {
 	dyn_add(&ctx.bodies, &ent);
 	ent.ents_in_collision.alloc = ctx.alloc;
@@ -936,7 +936,7 @@ add_body::fn(ctx : *context, ent : *entity)
 	add_body_to_chunks(ctx, ent)
 }
 
-remove_body::fn(ctx : *context, ent : *entity, free_ptr : bool=true)
+remove_body::fn(ctx : *scene_info, ent : *entity, free_ptr : bool=true)
 {
 	i :u32= 0
 	found :=false
@@ -1545,7 +1545,7 @@ cast_s32_and_compare_vecs::fn(a : *_vec, b : *_vec) ! bool
 	}
 	return true
 }
-check_maybe_resolve_collision::fn(ctx : *context, gjk : *gjk_state, e : *entity, e2 : *entity, dt : f32, c1 : *collider, c2 : *collider, p_aabb : *aabb)
+check_maybe_resolve_collision::fn(ctx : *scene_info, gjk : *gjk_state, e : *entity, e2 : *entity, dt : f32, c1 : *collider, c2 : *collider, p_aabb : *aabb)
 {
 	m_aabb :aabb = ?
 	col : collision=?
@@ -1627,11 +1627,11 @@ check_maybe_resolve_collision::fn(ctx : *context, gjk : *gjk_state, e : *entity,
 		//CopyVerts(c1, &p_aabb._min, &p_aabb._max)
 	}
 }
-StepCol::fn(ctx : *context, dt : f32)
+StepCol::fn(ctx : *scene_info, dt : f32)
 {
   if ctx.col_chunks == nil return
 
-	gjk := ctx.gjk
+	gjk := cast(*gjk_state)globals.gjk
 	globals.ctx = cast(*void)ctx
 	globals.gjk = gjk
 	for _e in ctx.bodies
@@ -1759,7 +1759,7 @@ StepCol::fn(ctx : *context, dt : f32)
 				trn := e2.terrain
 				dyn_clear(&ctx.terrain_chunks_to_col)
 				i := 0
-				get_closest_terrain_meshes_chunk_cols(ctx, &e.pos, e2, &ctx.terrain_chunks_to_col, 2.0)
+				//get_closest_terrain_meshes_chunk_cols(ctx, &e.pos, e2, &ctx.terrain_chunks_to_col, 2.0)
 				for ch in ctx.terrain_chunks_to_col
 				{
 					m := trn.meshes[cast(u64)ch.verts_mesh_idx]
@@ -1799,7 +1799,7 @@ StepCol::fn(ctx : *context, dt : f32)
         cur_tri :u64= 0
         total_tris := e_ch.tris.count
         
-        printf("check tri col against {e_ch.from_ent.name}\n")
+        //printf("check tri col against {e_ch.from_ent.name}\n")
 
         tri := ptr_offset(e_ch.tris[0], 0, triangle_info)
 
@@ -1813,37 +1813,42 @@ StepCol::fn(ctx : *context, dt : f32)
           d := dot_vec(&dir, &dir)
           same_dir := dot_vec(&dir, &tri.normal)
 
-          if d < 150.0 && same_dir > 0.0 && GJK(gjk, c1, &gjk.aux_col)
+          globals.temp_alloc.cur = 0
+          if d < 150.0 && same_dir > 0.0
           {
-            if !e.is_trigger
-            {
-              mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, &gjk.aux_col, &col)
-              e.pos -= mtv
-            }
 
-            col.normal = col.normal * -1.0
-            if !EntIsInCollision(e, tri.ent, &col)
+            if  GJK(gjk, c1, &gjk.aux_col)
             {
-              if e.col_enter != nil
+              if !e.is_trigger
               {
-                e.col_enter(e, tri.ent, &col);
+                mtv = EPA(gjk, gjk.simplex[0], gjk.simplex[1], gjk.simplex[2], gjk.simplex[3], c1, &gjk.aux_col, &col)
+                e.pos -= mtv
               }
-            }
-            if e.col_stay != nil
-            {
-              e.col_stay(e, tri.ent, &col);
+
+              col.normal = col.normal * -1.0
+              if !EntIsInCollision(e, tri.ent, &col)
+              {
+                if e.col_enter != nil
+                {
+                  e.col_enter(e, tri.ent, &col);
+                }
+              }
+              if e.col_stay != nil
+              {
+                e.col_stay(e, tri.ent, &col);
+              }
             }
           }
           cur_tri++
           tri = ptr_offset(tri, 1, triangle_info)
         }
-        ctx.tris_checked += cast(u32)total_tris
+        //ctx.tris_checked += cast(u32)total_tris
       }
 		}
 	}
 
 }
-PhysicsUpdate::fn(ctx : *context, dt : f32)
+PhysicsUpdate::fn(ctx : *scene_info, dt : f32)
 {
 	for e in ctx.bodies
 	{
@@ -1854,7 +1859,7 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 	}
 	steps := 1
 
-	ctx.tris_checked = 0
+	//ctx.tris_checked = 0
 
 
 	dt = dt / cast(f32)steps
@@ -1862,7 +1867,7 @@ PhysicsUpdate::fn(ctx : *context, dt : f32)
 	{
 		StepCol(ctx, dt)
 	}
-  //printf("tris checked {ctx.tris_checked}\n")
+  ////printf("tris checked {ctx.tris_checked}\n")
 }
 
 
@@ -1946,6 +1951,8 @@ get_chunk_on_pos ::fn(trn : *terrain_info, pos_s : s32) ! *chunk_col_info
 }
 RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *entity, col : *collision) !bool
 {
+  return false
+  /*
 	a := *start
 	b := *end
 	//b.y = a.y
@@ -2257,8 +2264,9 @@ RaycastWithTerrain::fn(ctx : *context, start : *_vec, end : *_vec, terrain : *en
 	}
 	
 	return true
+  */
 }
-RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
+RaycastWithNonBodies::fn(ctx : *scene_info, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
 {
 	found := false
 	dir := *end - *start
@@ -2279,11 +2287,11 @@ RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*coll
 		m := get_id_of_model(&it.model)
 		printf("name {it.name}, idx {it.model.asset_idx}, gl id {m}\n")
 		GetInfoFromModel(m, &model_verts_count, &model_tris_count)
-		if model_verts_count > ctx.aux_vertices_sz
+		if model_verts_count > globals.aux_vertices_sz
 		{
 			continue
 		}
-		CopyDataFromModel(m, ctx.aux_vertices, ctx.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
+		CopyDataFromModel(m, globals.aux_vertices, globals.aux_vertices_sz, globals.aux_indices, globals.aux_indices_sz, &out_verts_count, &out_indices_count)
 
 		mat : mat4x4=?
 		q :quaternion=?
@@ -2297,7 +2305,7 @@ RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*coll
 		d := _vec{1.0, 1.0, 1.0, 1.0}
 		build_model_matrix(a, &b, c, &d)
 
-		start_pos := ctx.aux_vertices
+		start_pos := globals.aux_vertices
 
 		_min : _vec=?
 		_max : _vec=?
@@ -2317,7 +2325,7 @@ RaycastWithNonBodies::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*coll
 		{
 			info :verts_from_tri_info
 			info.t = t
-			get_verts_pos_from_tris(&info, cast(*u32)ctx.aux_indices, cast(*f32)ctx.aux_vertices, 4)
+			get_verts_pos_from_tris(&info, cast(*u32)globals.aux_indices, cast(*f32)globals.aux_vertices, 4)
 			rinfo : raycast_info=?
 			rinfo.ray_origin = *start
 			rinfo.ray_dir = dir
@@ -2364,7 +2372,7 @@ ray_against_mesh_info:struct
 	e : *entity,
 	collided : **entity
 }
-ray_agains_mesh::fn(ctx : *context, c1: *collider, ray_info : *ray_against_mesh_info, start_tri : u32= 0, end_tri :s32= -1) ! bool
+ray_agains_mesh::fn(ctx : *scene_info, c1: *collider, ray_info : *ray_against_mesh_info, start_tri : u32= 0, end_tri :s32= -1) ! bool
 {
 	using ray_info
 
@@ -2424,7 +2432,7 @@ ray_agains_mesh::fn(ctx : *context, c1: *collider, ray_info : *ray_against_mesh_
 	}
 	return aux_found
 }
-ray_agains_collider::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity, e : *entity, is_axis : *bool, cur_dist : *f32, found : *bool, c1 : *collider) ! bool
+ray_agains_collider::fn(ctx : *scene_info, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity, e : *entity, is_axis : *bool, cur_dist : *f32, found : *bool, c1 : *collider) ! bool
 {
 	//c1.pos = e.pos;
 	dir := *end - *start
@@ -2477,9 +2485,9 @@ ray_agains_collider::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*colli
 	}
 	return aux_found
 }
-Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
+Raycast::fn(ctx : *scene_info, start : *_vec, end : *_vec, cinfo:*collision, layers_to_ignore:u32, collided : **entity) !bool
 {
-	dyn_clear(&ctx.broad_phase_ents);
+	//dyn_clear(&ctx.broad_phase_ents);
 
 	len: = len_vec(&(*start - *end));
 
@@ -2513,17 +2521,17 @@ Raycast::fn(ctx : *context, start : *_vec, end : *_vec, cinfo:*collision, layers
 				{
 					return true
 				}
-				if ctx.cur_preview_idx == 1
+				if globals.cur_preview_idx == 1
 				{
-					*collided = ctx.aux_col_ent
+					*collided = globals.aux_col_ent
 
-					ctx.aux_col_ent.parent_col = e
-					ctx.aux_col_ent.pos = e.pos + c.pos * e.size
-					ctx.aux_col_ent.size = c.size * e.size
-					ctx.aux_col_ent.aux_col = *c
+					globals.aux_col_ent.parent_col = e
+					globals.aux_col_ent.pos = e.pos + c.pos * e.size
+					globals.aux_col_ent.size = c.size * e.size
+					globals.aux_col_ent.aux_col = *c
 
-					dyn_clear(&ctx.aux_col_ent.cols)
-					dyn_add(&ctx.aux_col_ent.cols, *c)
+					dyn_clear(&globals.aux_col_ent.cols)
+					dyn_add(&globals.aux_col_ent.cols, *c)
 				}
 			}
 		}

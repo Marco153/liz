@@ -255,7 +255,6 @@ euler_to_quaternion::fn(x:f32, y:f32, z:f32) !quaternion
     cy := cos(z * 0.5);
     sy := sin(z * 0.5);
 
-	//__dbg_break
     q:= &ret.v;
     q.x = sr * cp * cy - cr * sp * sy;
     q.y = cr * sp * cy + sr * cp * sy;

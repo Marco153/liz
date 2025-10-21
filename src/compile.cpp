@@ -392,6 +392,7 @@ struct lang_state
 	bool is_lsp;
 	bool use_node_arena;
 	bool track_alloc_regs;
+  bool check_nil_ptr;
 	own_std::vector<int> tracked_regs;
 
 	node *zero_float;
@@ -15197,7 +15198,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			// CMP D I
 			if (ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
 			{
-        //BREAK(cur_line == 3826)
+        //BREAK(cur_line == 259)
 				
 				//GenX64ToIrValDecl(lang_stat, ret, &lhs, &ir->bin.lhs, true);
 				GenX64ToIrValDecl2(lang_stat, ret, &lhs, &ir->bin.lhs, true, false);
@@ -15553,6 +15554,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			{
 				
 				GenX64ToIrValReg2(lang_stat, ret, &dst, &ir->bin.lhs, true, false);
+        AllocSpecificReg(lang_stat, dst.reg);
 				bc.bin.lhs.reg = dst.reg;
 				bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
 

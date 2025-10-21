@@ -8029,6 +8029,7 @@ int main(int argc, char *argv[]) {
   auto wasm_dir = std_str_to_heap2(&opts.wasm_dir);
   auto folder_name = std_str_to_heap2(&opts.folder_name);
 
+  lang_stat.check_nil_ptr = true;
   Compile(&lang_stat, &opts);
   memset(&lang_stat, 0, sizeof(lang_stat));
   InitMemAlloc(&alloc);

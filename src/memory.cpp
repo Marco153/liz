@@ -347,7 +347,7 @@ unsigned char *PlatformGetMem(u64 sz, int flags) {
 
 void InitMemAlloc(mem_alloc *alloc) {
   long long mem_chunks_size = 11000000 * sizeof(mem_chunk);
-  long long raw_mem_size = 1024 * 1024 * 150 * BYTES_PER_CHUNK;
+  long long raw_mem_size = 1024 * 1024 * 160 * BYTES_PER_CHUNK;
   long long in_use_hash_sz =
       alloc->in_use.hash_table_size * sizeof(heap_hash::inner);
   long long unallocated_sz = UNALLOCATED_BUFFER_ITEMS * 8;

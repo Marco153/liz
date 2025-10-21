@@ -39,11 +39,11 @@ RemoveEntFromAr::fn(ar : *dyn_array(*entity), ent : *entity)!bool
 	}
 	return found
 }
-deactivate_ent::fn(ctx : *context, e : *entity)
+deactivate_ent::fn(ctx : *scene_info, e : *entity)
 {
 	e.is_active = false
 }
-DeleteEnt::fn(ctx : *context, ent : *entity)
+DeleteEnt::fn(ctx : *scene_info, ent : *entity)
 {
   a :=0
   val :bool
@@ -125,7 +125,7 @@ DeleteEnt::fn(ctx : *context, ent : *entity)
   }
   ent.flags = 0
 }
-NewEnt::fn(ctx : *context, name : str_lit) ! *entity
+NewEnt::fn(ctx : *scene_info, name : str_lit) ! *entity
 {
 	ent :*entity
 	i :u64=0
@@ -157,7 +157,7 @@ NewEnt::fn(ctx : *context, name : str_lit) ! *entity
 	
 	return ent;
 }
-NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
+NewPlayableEnt::fn(ctx : *scene_info, out_ent : **entity, should_be_freed : bool)
 {
 	*out_ent = NewEnt(ctx, "playable_ent");
 	mov_info: = cast(*player_info)heap_alloc(ctx.alloc, sizeof(player_info));
@@ -210,39 +210,42 @@ NewPlayableEnt::fn(ctx : *context, out_ent : **entity, should_be_freed : bool)
 	add_body(ctx, *out_ent);
 	//dyn_add(&ctx.playable_ents, out_ent);
 }
-draw_terrain::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec, e : *entity)
+draw_terrain::fn(ctx : *scene_info, e : *entity, drw_set : *draw_settings)
 {
 	trn : *terrain_info= e.terrain
 	//__dbg_break
 	draw : draw_info3d
 	custom_shader_setting(ctx, e, &draw)
-	draw.sun_dir = ctx.sun_dir
-	draw.sun_color = ctx.sun_color
+	draw.sun_dir = drw_set.sun_dir
+	draw.sun_color = drw_set.sun_color
 	for m in trn.meshes
 	{
 		draw.model = m.model
 		//__dbg_break
 		draw.pos = e.pos + m.pos
 		draw.rot = e.rot
-		draw.cam_pos = cam_pos
-		draw.cam_rot = cam_rot
-		draw.cam_forward = ctx.cam_forward_global
+		draw.cam_pos = drw_set.cam_pos
+		draw.cam_rot = drw_set.cam_rot
+		draw.cam_forward = drw_set.cam_forward
 		draw.ent_size.x = 1.0
 		draw.ent_size.y = 1.0
 		draw.ent_size.z = 1.0
 		memcpy(cast(*void)draw.color, &e.color, 4 * sizeof(f32));
-		Draw3D(ctx.window, &draw);
+		Draw3D(drw_set.window, &draw);
 	}
 }
-LookAtPlayerEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
+LookAtPlayerEnts::fn(ctx : *scene_info, drw_set : *draw_settings)
 {
+  cam_pos := drw_set.cam_pos
+  cam_rot := drw_set.cam_rot
+  cam_forward := drw_set.cam_forward
 	for ent in ctx.look_at_ents
 	{
 		if !ent.is_active
 		{
 			continue
 		}
-		ent.rot = euler_to_quaternion(0.0, radians_to_degree(ctx.cam_rot_global.y), 0.0).v
+		ent.rot = euler_to_quaternion(0.0, radians_to_degree(cam_rot.y), 0.0).v
 		draw : draw_info3d
 
 		draw.model = 1
@@ -250,7 +253,7 @@ LookAtPlayerEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 		draw.rot = ent.rot
 		draw.cam_pos = cam_pos
 		draw.cam_rot = cam_rot
-		draw.cam_forward = ctx.cam_forward_global
+		draw.cam_forward = cam_forward
 		draw.ent_size = ent.size
 		memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
 		memcpy(cast(*void)&draw.sec_color, &ent.sec_color, 4 * sizeof(f32));
@@ -269,11 +272,11 @@ LookAtPlayerEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 			draw.texture_id = get_id_of_texture_asset(&ent.tex_id)
 		}
 		draw.flags = draw.flags | DRAW_INFO_NO_LIGHT;
-		Draw3D(ctx.window, &draw);
+		Draw3D(drw_set.window, &draw);
 	}
 
 }
-DrawEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
+DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *draw_settings)
 {
 	if ctx.drawable_ents.count == 0
 		return;
@@ -292,20 +295,20 @@ DrawEnts::fn(ctx : *context, cam_pos : *_vec, cam_rot : *_vec)
 
 		if(e.type == ent_type.TERRAIN)
 		{
-			draw_terrain(ctx, cam_pos, cam_rot, *e)
+			draw_terrain(ctx, *e, drw_set)
 		}
 		else
 		{
-			DrawEntity(ctx, *e, cam_pos, cam_rot);
+			DrawEntity(ctx, *e, drw_set);
 		}
 	}
 	for e in ctx.transparent_ents
 	{
-		DrawEntity(ctx, *e, cam_pos, cam_rot);
+		DrawEntity(ctx, *e, drw_set);
 	}
-	Draw3DTransparency(ctx.window);
+	Draw3DTransparency(drw_set.window);
 }
-custom_shader_setting::fn(ctx : *context, ent : *entity, draw : *draw_info3d)
+custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
 {				
 	draw.flags = draw.flags | DRAW_INFO_CUSTOM_SHADER
 	draw.flags = draw.flags & ~DRAW_INFO_HAS_TEXTURE
@@ -395,7 +398,7 @@ custom_shader_setting::fn(ctx : *context, ent : *entity, draw : *draw_info3d)
 
 	
 }
-DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
+DrawEntity::fn(ctx : *scene_info, ent : *entity, drw_set : *draw_settings)
 {
 	//PrintV3(cast(f32)cast(u32)ent.is_active, 0.0, 0.0);
 	if !ent.is_active
@@ -413,11 +416,11 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			draw.model = get_id_of_model(&ent.model)
 			draw.pos = ent.pos
 			draw.rot = ent.rot
-			draw.cam_pos = cam_pos
-			draw.cam_rot = cam_rot
-			draw.cam_forward = ctx.cam_forward_global
-			draw.sun_dir = ctx.sun_dir
-			draw.sun_color = ctx.sun_color
+			draw.cam_pos = drw_set.cam_pos
+			draw.cam_rot = drw_set.cam_rot
+			draw.cam_forward = drw_set.cam_forward
+			draw.sun_dir = drw_set.sun_dir
+			draw.sun_color = drw_set.sun_color
 			draw.ent_size = ent.size
 			memcpy(cast(*void)&draw.color, &ent.color, 4 * sizeof(f32));
 			memcpy(cast(*void)&draw.sec_color, &ent.sec_color, 4 * sizeof(f32));
@@ -446,7 +449,7 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 				custom_shader_setting(ctx, ent, &draw)
 			}
 
-			Draw3D(ctx.window, &draw);
+			Draw3D(drw_set.window, &draw);
 		}
 
 
@@ -455,16 +458,16 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			draw.model = 0
 			draw.pos = ent.pos + ent.col_offset
 			draw.ent_size = ent.col_size * 1.001
-			//draw.cam_forward = &cam_forward
-			draw.cam_pos = cam_pos
-			draw.cam_rot = cam_rot
+			draw.cam_forward = drw_set.cam_forward
+			draw.cam_pos = drw_set.cam_pos
+			draw.cam_rot = drw_set.cam_rot
 			draw.rot = ent.rot
 			draw.flags = DRAW_INFO_TRANSPARENT
 			*draw.color[0] = 1.0
 			*draw.color[1] = 1.0
 			*draw.color[2] = 1.0
 			*draw.color[3] = 0.5
-			Draw3D(ctx.window, &draw)
+			Draw3D(drw_set.window, &draw)
 		}
 	}
 	else
@@ -473,8 +476,8 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 		draw:draw_info;
 		draw.pos = ent.pos;
 		draw.pivot = ent.pivot;
-		draw.cam_pos = cam_pos;
-		draw.cam_rot = cam_rot;
+		draw.cam_pos = drw_set.cam_pos;
+		draw.cam_rot = drw_set.cam_rot;
 		draw.rot = ent.rot;
 		draw.ent_size = ent.size;
 		if ent.forward.x != 0.0
@@ -499,8 +502,9 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 		}
 		memcpy(cast(*void)draw.color, &ent.color, 4 * sizeof(f32));
 
-		Draw(ctx.window, &draw);
+		Draw(drw_set.window, &draw);
 		
+    /*
 		if ctx.draw_origin
 		{
 			draw.flags = 0;
@@ -529,5 +533,6 @@ DrawEntity::fn(ctx : *context, ent : *entity, cam_pos : *_vec, cam_rot : *_vec)
 			Draw(ctx.window, &draw);
 			//draw.ent_size.x
 		}
+    */
 	}
 }

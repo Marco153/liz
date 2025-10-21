@@ -39,8 +39,39 @@ scene_info:struct
 {
   in_use : bool
   name : str_lit
-  alloc : asset_index
+  alloc_idx : asset_index
+  alloc : *mem_alloc
+
+  tkns : dyn_array(token)
+
   ents : dyn_array(*entity)
+  areas_col :dyn_array(area_col_info)
+	aux_col_chunks : dyn_array(*collision_chunk)
+  col_chunks : *area_col_info
+	drawable_ents : dyn_array(*entity),
+	ents_with_clip : dyn_array(*entity),
+	look_at_ents : dyn_array(*entity),
+	bodies : dyn_array(*entity),
+	playable_ents : dyn_array(*entity),
+	emmitters : dyn_array(*entity),
+	transparent_ents : dyn_array(*entity),
+	items_ents : dyn_array(*entity),
+	terrain_chunks_to_col : dyn_array(*chunk_col_info)
+	to_deactivate: dyn_array(*entity),
+
+	waypoints:dyn_array(waypoint)
+
+  draw_col : bool
+}
+draw_settings:struct
+{
+  window : *u8
+  sun_dir : _vec
+  sun_color : _vec
+  cam_pos : *_vec
+  cam_rot : *_vec
+  cam_forward : *_vec
+  cam_size : f32
 }
 context: struct
 {
@@ -65,18 +96,15 @@ context: struct
 
 	compiling_shaders_alloc : mem_alloc,
 
-	aux_vertices : *_vec
-	aux_vertices_sz : u32
-	aux_indices : *u32
-	aux_indices_sz : u32
 
 	sum_ :f32
 
-  areas_col :dyn_array(area_col_info)
 
-	line_shader : asset_index
 
   scenes : [5]scene_info
+
+  cur_scn : *scene_info
+  changing_scn : *scene_info
 
 
 	step_audio_idxs : [2]u32
@@ -118,10 +146,6 @@ context: struct
 
 	dt : f32
 
-	ball_tex : asset_index
-	water_tex : asset_index
-	grid_tex : asset_index
-	grid_transparent_tex : asset_index
 
 	abcd_tex_info_idx : u32
 
@@ -171,7 +195,6 @@ context: struct
 	aux_col1 : collider
 	aux_col2 : collider
 	
-	up : _vec
 	character_start_obj_idx : u32,
 	
 	mesh_idx :u32
@@ -186,11 +209,6 @@ context: struct
 	perspective_mat : [4 * 4]f32
 	
 	
-	grass_tex : asset_index
-	aim_tex : asset_index
-	white_tex : asset_index
-	circle_tex : asset_index
-	waypoints:dyn_array(waypoint)
 
 	cutscene_idx : u32,
 	cam_size :f32,
@@ -208,7 +226,6 @@ context: struct
 	layers_ptr : *dyn_array(*layer_sprites),
 	masking_objs: dyn_array(*_vec),
 
-	to_deactivate: dyn_array(*entity),
 	
 	player_start_level_pos : _vec,
 	
@@ -234,27 +251,19 @@ context: struct
 	cols_to_res : dyn_array(collision_res),
 
 	to_draw : dyn_array(draw_info),
-	items_ents : dyn_array(*entity),
-	bodies : dyn_array(*entity),
+
+
 	broad_phase_ents : dyn_array(*entity),
 	narrow_phase_ents : dyn_array(contact_col),
 	hit_ents_in_col : dyn_array(*entity),
-	playable_ents : dyn_array(*entity),
 	floaty_platforms : dyn_array(*entity),
-	drawable_ents : dyn_array(*entity),
 	start_pos : dyn_array(start_pos_info),
 	axe_ents : dyn_array(*entity),
 	objs_with_camera_mov : dyn_array(*entity),
 	ents_think : dyn_array(*entity),
-	emmitters : dyn_array(*entity),
-	transparent_ents : dyn_array(*entity),
-
-	textures : dyn_array(texture_info),
 
 
-	ents_with_clip : dyn_array(*entity),
-	look_at_ents : dyn_array(*entity),
-	player : *entity,
+
 
 	textures_wnd :bool
 	materials_wnd :bool
@@ -270,7 +279,6 @@ context: struct
 	draw_origin :bool,
 	save_player_pos : bool
 	editor_wnd :bool
-	terrain_chunks_to_col : dyn_array(*chunk_col_info)
 	mesh_added_aux : dyn_array(u32)
 	vertex_terrain : dyn_array(vertex_terrrain_modify)
 	aux_vertex_terrain : dyn_array(vertex_terrrain_modify)
@@ -285,9 +293,7 @@ context: struct
 
 	cur_model_selected_idx : s32
 
-	preview_ent : *entity
 
-	cur_preview_idx : u8
 
 	mach : machine
 
@@ -303,7 +309,6 @@ context: struct
 
 	can_deactivate_path_ents : bool
 
-	aux_col_ent : *entity
 	model_farthes_vert :  _vec
 	materials_count : u32
 	models_count : u32
@@ -333,7 +338,7 @@ context: struct
 
 
 INACTIVE_FLAGS_GET_FIRST_WHEN_NONE_FOUND:const s32= 1
-get_inactive_ent::fn(ctx : *context, ar : *dyn_array(*entity), flags : u32) ! *entity
+get_inactive_ent::fn(ctx : *scene_info, ar : *dyn_array(*entity), flags : u32) ! *entity
 {
 	for e in *ar
 	{
@@ -895,10 +900,10 @@ Cutscenes::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, dt : *f32)
 {
 	if ctx.cutscene_idx == 1
 	{
-		ctx.player.mov_info.can_move = false;
+		globals.player.mov_info.can_move = false;
 		//ctx.
 		//ct
-		//ctx.player.can_move //=
+		//globals.player.can_move //=
 		//CorWait(4.0);
 		ChangePrinterStr(ctx, GetDialogueStr(dialogue_enum.LEVEL_1_SIGN, 0));
 		CorMoveVecTo(ctx.cam_pos_global, -29.0, 5.0, 0.0, 2.0, ctx.cam_col_left);
@@ -911,14 +916,14 @@ Cutscenes::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, dt : *f32)
 			return;
 		}
 		ClearPrinterStr(ctx);
-		ctx.player.mov_info.can_move = true;
+		globals.player.mov_info.can_move = true;
 		ctx.cutscene_idx = 0;
 		ResetCoroutine();
 	}
 }
 
 
-to_deactivate_func::fn(ctx : *context, dt : f32)
+to_deactivate_func::fn(ctx : *scene_info, dt : f32)
 {
 	for i in 0..ctx.to_deactivate.count
 	{
@@ -977,7 +982,7 @@ axe_throw_callback::fn(data : *anim_callback_info) !bool
 	return false;
 }
 
-NewAxeEnt::fn(ctx : *context) ! *entity
+NewAxeEnt::fn(ctx : *scene_info) ! *entity
 {
 	axe_ent := NewEnt(ctx, "axe");
 	axe_ent.is_trigger = true;
@@ -993,7 +998,7 @@ NewAxeEnt::fn(ctx : *context) ! *entity
 	axe_ent.pos.y = 5.0;
 	return axe_ent;
 }
-NewPlayerEnt::fn(ctx : *context, name : str_lit) ! *entity
+NewPlayerEnt::fn(ctx : *scene_info, name : str_lit) ! *entity
 {
 	player_ent:*entity;
 	NewPlayableEnt(ctx, &player_ent, false);
@@ -1130,206 +1135,6 @@ level_str_offset::fn(str: str_lit, x : u32, y : u32, width: u32) ! *char
 	// y * 2 accounts for \n\r
 	return str[cast(u64)(2 + x + y * width + y * 2)]
 }
-create_map_from_str::fn(ctx : *context, str : str_lit, final_t : *_vec)
-{
-	width : u32
-	i : u32
-	len := str_ln(str)
-	while (*str[width + 2] != '\n && *str[width + 2] != '\r)
-	{
-		width++
-	}
-
-	height :u64
-	i = 2
-	while i < cast(u32)len
-	{
-		if *str[i] == '\n
-		{
-			height++
-		}
-		i++
-	}
-	height++
-	i = 0
-
-	// subing 2 because the first character is a new line
-
-
-	blocks_grid : dyn_array(dyn_array(_vec))
-	wp : waypoint
-
-
-	for y in 0..height
-	{
-		cur_ar : dyn_array(_vec)
-		dyn_init2(&cur_ar, width, ctx.alloc)
-		for x in 0..width
-		{
-			fx := cast(f32)x
-			fy := cast(f32)(height - cast(u64)y)
-			ch := *level_str_offset(str, cast(u32)x, cast(u32)y, width)
-			if ch == '-
-			{
-				last_on_x := cast(u64)x >= (width - 1)
-				last_on_y := cast(u64)y >= (height - 1)
-				first_on_x := x == 0
-				first_on_y := y == 0
-
-				if !last_on_x && !last_on_y  && !first_on_x && !first_on_y
-				{
-					prev_x := *level_str_offset(str, cast(u32)x - 1, cast(u32)y, width)
-					next_x := *level_str_offset(str, cast(u32)x + 1, cast(u32)y, width)
-
-					prev_y := *level_str_offset(str, cast(u32)x, cast(u32)y - 1, width)
-					next_y := *level_str_offset(str, cast(u32)x, cast(u32)y + 1, width)
-
-					if prev_x == '- && next_x == '- && prev_y == '- && next_y == 'n
-					{
-						continue
-					}
-				}
-				v :_vec
-				v.x = fx
-				v.y = fy
-				v.z = 0.1
-				dyn_add(&cur_ar, &v)
-
-			}
-			else if ch == 'p
-			{
-				ctx.player.pos.x = fx
-				ctx.player.pos.y = fy
-				ctx.player.pos.z = 0.1
-				ctx.player.pos.w = 0.0
-				dyn_add(&ctx.drawable_ents, ctx.player)
-			}
-			else if ch == 't
-			{
-				final_t.x = fx
-				final_t.y = fy
-				final_t.z = 0.0
-				final_t.w = 0.0
-			}
-			else if ch == 'w
-			{
-				wp.pos.x = fx + 0.5
-				wp.pos.y = fy + 0.5
-
-				dyn_add(&ctx.waypoints, &wp)
-			}
-		}
-		dyn_add(&blocks_grid, &cur_ar)
-	}
-
-	y : u64
-	while has_blocks_left(&blocks_grid, &y)
-	{
-		row_ar := blocks_grid[y]
-		start_pos :_vec= *row_ar[0]
-
-		
-		next_is_contiguous := false
-
-		contiguous_width := 0
-
-		cur_b :u64=1
-		cur_prev := start_pos
-		if row_ar.count > 1
-		{
-
-			while cur_b < row_ar.count && (row_ar[cur_b].x - cur_prev.x) < 1.1
-			{
-				next_is_contiguous = true
-				cur_prev = *row_ar[cur_b]
-				cur_b++
-			}
-		}
-
-
-		sz :_vec
-		sz.x = 1.0
-		sz.y = 1.0
-		if next_is_contiguous
-		{
-			sz.x = cast(f32)cur_b
-			while cur_b > 0
-			{
-				dyn_rem(row_ar, 0)
-				cur_b--
-			}
-		}
-		else
-		{
-			down_is_contiguous := false
-
-			cur_downwards_idx := y
-
-			if y < (blocks_grid.count - 1)
-			{
-				next_row := blocks_grid[cur_downwards_idx + 1]
-				out_below_block_idx : u64
-				while below_block_is_contiguous(&blocks_grid, &cur_prev, str, width, &out_below_block_idx)
-				{
-					cur_prev = *next_row[out_below_block_idx]
-					dyn_rem(next_row, cast(u32)out_below_block_idx)
-
-					cur_downwards_idx++
-
-					next_row = blocks_grid[cur_downwards_idx]
-				}
-
-			}
-			else
-			{
-				idx_block_to_remove :u32
-				for b in *row_ar
-				{
-					if (b.x - start_pos.x) < 0.1
-					{
-						break;
-					}
-					idx_block_to_remove++
-				}
-				ASSERT(idx_block_to_remove < cast(u32)row_ar.count)
-				dyn_rem(row_ar, idx_block_to_remove)
-
-				cur_downwards_idx++
-			}
-			block_height := cur_downwards_idx - y
-			sz.y = cast(f32)block_height
-		}
-		ent := NewEnt(ctx, "block");
-		ent.is_active = true;
-		ent.pos = start_pos
-		ent.pos.z = 0.1
-		ent.col_size = sz
-		//ent.col_size.y = 1.0
-		ent.size = ent.col_size
-		ent.is_static = true;
-		ent.color.w = 1.0
-		dyn_add(&ctx.drawable_ents, &ent);
-		add_body(ctx, ent);
-
-		block_width := 1
-	}
-
-	for cur_w in ctx.waypoints
-	{
-		for aux_w in ctx.waypoints
-		{
-			if aux_w == cur_w
-			{
-				continue;
-			}
-			col : collision
-			if !Raycast(ctx, &cur_w.pos, &aux_w.pos, &col, LAYER_TRIGGER | LAYER_PLAYER, nil)
-			{
-				dyn_add(&cur_w.neighbors, aux_w)
-			}
-		}
-	}
-}
 head_long_term_meeting_diff::fn(ctx : *context, t : *thinking, out : *f32) ! bool
 {
 	head:*long_term_action = t.long_term_acts[0]
@@ -1401,6 +1206,8 @@ check_mid_term_adding::fn(ctx : *context, e : *entity, dt  : *f32)
 }
 mid_term::fn(ctx : *context, e : *entity, dt  : *f32)
 {
+  return;
+  /*
 	t : *thinking= e.thoughts
 
 	if t.mid_term_acts.count == 0
@@ -1447,6 +1254,7 @@ mid_term::fn(ctx : *context, e : *entity, dt  : *f32)
 			head_r.in_curse = true
 		}
 	}
+  */
 }
 set_vel_dir_ret_dist::fn(vel : *_vec, start : *_vec, end : *_vec, vel_mul : f32, normal : *_vec) ! f32
 {
@@ -1707,7 +1515,7 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, flags : u
 
 	}
 	draw.flags = draw.flags | DRAW_INFO_CUSTOM_SHADER
-	draw.shader_id = get_id_of_material(&ctx.line_shader)
+	draw.shader_id = get_id_of_material(&globals.line_shader)
 
 	SetShader(draw.shader_id)
 	loc := GetUniformLocation(draw.shader_id, cast(*char)"col", 3)
@@ -2005,7 +1813,7 @@ view_collision ::fn(ccc : u32)
 	}
 	else
 	{
-		e1 = ctx.player
+		e1 = globals.player
 		e1.color.w = 0.5;
 		e1.flags = e1.flags | ENTITY_TRANSPARENT;
 		//DrawEntity(ctx, e1, cam_pos, cam_rot)
@@ -2477,7 +2285,7 @@ raycast_against_chunk_tris::fn(ctx : *context, start : *_vec, end : *_vec, out_p
 {
 	dir := *end - *start
 
-	for ch in ctx.aux_col_chunks
+	for ch in ctx.cur_scn.aux_col_chunks
 	{
     for e_ch in ch.from_ents
     {
@@ -2517,9 +2325,9 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 {
 
 	//OpenLocalsWindow(__LINE__)
-	player_ent := ctx.player
+	player_ent := globals.player
 	forward := &player_ent.angle_rot
-	cross := cross_vec(&ctx.up, aux_forward)
+	cross := cross_vec(&globals.up, aux_forward)
 	mov := player_ent.mov_info
 	on_ground := player_ent.on_ground
 	grav := &mov.gravity_vel
@@ -2644,7 +2452,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	{
 	entity_state.ON_WALL
 	{
-		cross = cross_vec(&ctx.up, &player_ent.normal_col)
+		cross = cross_vec(&globals.up, &player_ent.normal_col)
 		d := dot_vec(&cross, &player_ent.vel)
 
 		player_ent.vel.x = 0.0
@@ -2653,7 +2461,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		if IsKeyDown(key_enum.KEY_JMP) && !mov.exhausted
 		{
 			grav.y = 0.0
-			mov.jmp.vel = *ctx.cam_forward_global * 5.0 + ctx.up * 6.0
+			mov.jmp.vel = *ctx.cam_forward_global * 5.0 + globals.up * 6.0
 			player_ent.state = entity_state.IDLE
 
 			mov.stamina -= 0.2
@@ -2764,7 +2572,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 				v := *forward * mov.v + cross * -mov.h
 
-				ang := angle_on_axis(&global_fw, &v, &ctx.up)
+				ang := angle_on_axis(&global_fw, &v, &globals.up)
 
 				player_ent.rot = euler_to_quaternion(270.0, radians_to_degree(ang), 0.0).v
 				//global_fw.z = -global_fw.z
@@ -2915,7 +2723,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		{
 			grav.y = -4.0
 
-			cross_right := cross_vec(&ctx.up, &player_ent.normal_col)
+			cross_right := cross_vec(&globals.up, &player_ent.normal_col)
 			ground_dir := cross_vec(&cross_right, &player_ent.normal_col)
 			ground_dir = normalize_vec(&ground_dir)
 			d := dot_vec(&player_ent.forward, &ground_dir)
@@ -2932,7 +2740,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				mov.platform_vel += player_ent.forward * *dt * 64.0 * ground_steep
 			}
 
-			fric_dot := dot_vec(&ctx.up, &player_ent.normal_col)
+			fric_dot := dot_vec(&globals.up, &player_ent.normal_col)
 
 			mov.platform_vel += -player_ent.forward * *dt * fric_dot * 2.0
 			
@@ -2950,7 +2758,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			mov.platform_vel.y = clamp(mov.platform_vel.y, -20.0, 20.0)
 			mov.platform_vel.z = clamp(mov.platform_vel.z, -20.0, 20.0)
 
-			ang := angle_on_axis(&player_ent.forward, &mov.platform_vel, &ctx.up)
+			ang := angle_on_axis(&player_ent.forward, &mov.platform_vel, &globals.up)
 			mov.platform_vel = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0) * mov.platform_vel
 		}
 
@@ -2970,7 +2778,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		player_ent.rot.z = 0.0
 		player_ent.rot.w = 1.0
 
-		ang := angle_on_axis(aux_forward, forward, &ctx.up)
+		ang := angle_on_axis(aux_forward, forward, &globals.up)
 		axis_rot := euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
 		aux :_vec= player_ent.rot
 
@@ -2978,7 +2786,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		
 		cross = cross_vec(&player_ent.forward, &player_ent.normal_col)
 
-		ang = angle_on_axis(&ctx.up, &player_ent.normal_col, &cross) * 57.0
+		ang = angle_on_axis(&globals.up, &player_ent.normal_col, &cross) * 57.0
 		cross = cross * -ang
 		axis_rot = euler_to_quaternion(cross.x, cross.y , cross.z ).v
 		aux = player_ent.rot
@@ -3006,7 +2814,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	mov.stamina = clamp(mov.stamina, 1.0, mov.stamina_temp_max)
 
 
-	//ang := angle_on_axis(aux_forward, forward, &ctx.up)
+	//ang := angle_on_axis(aux_forward, forward, &globals.up)
 	//player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
 	player_ent.on_ground = false
 	width := 4.0
@@ -3462,7 +3270,7 @@ print_mov :: fn(mov : *entity)
 {
 	//OpenLocalsWindow(__LINE__)
 }
-new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
+new_cube::fn(ctx : *scene_info, pos : *_vec, size : *_vec, col : bool) ! *entity
 {
 	other := NewEnt(ctx, "block 1")
 	other.pos = *pos
@@ -3495,12 +3303,12 @@ new_cube::fn(ctx : *context, pos : *_vec, size : *_vec, col : bool) ! *entity
 		other.material_idx = grid_shader
 		other.in_material_instance = new_material_instance(ctx, &grid_shader, other)
 	}
-	set_shader_uniform_sampler2d(ctx, other, "tex", &ctx.grid_tex)
+	set_shader_uniform_sampler2d(ctx, other, "tex", &globals.grid_tex)
 
 
 	return other
 }
-new_axis_ent::fn(ctx : *context, name : str_lit, sz : *_vec, col : *_vec) ! *entity
+new_axis_ent::fn(ctx : *scene_info, name : str_lit, sz : *_vec, col : *_vec) ! *entity
 {
 	ret := NewEnt(ctx, name)
 	ret.is_active = false
@@ -3530,7 +3338,7 @@ select_action:enum
 	SCALE,
 	ROT,
 }
-DeserializeEntVar::fn(ctx : *context, type : *type_data, data : *void, ast : *ast_rep)
+DeserializeEntVar::fn(ctx : *scene_info, type : *type_data, data : *void, ast : *ast_rep)
 {
 	if is_flag_on(type.flags, TP_STRCT_IS_DYN_ARRAY)
 	{
@@ -3633,10 +3441,10 @@ DeserializeEntVar::fn(ctx : *context, type : *type_data, data : *void, ast : *as
 				name :*string= &st.BIN.expr[0].WORD.str
 
 				offset :u32
-				var_type:*type_data= find_var(ctx, strct_tp, name, &offset)
+				var_type:*type_data= find_var(strct_tp, name, &offset)
 				if !var_type continue;
 
-				DeserializeEntVar(ctx, var_type, ptr_offset(data, var_type.offset + offset, u8), *st.BIN.expr[1])
+				DeserializeEntVar(ctx,var_type, ptr_offset(data, var_type.offset + offset, u8), *st.BIN.expr[1])
 			}
 
 		}
@@ -3666,7 +3474,7 @@ DeserializeEntVar::fn(ctx : *context, type : *type_data, data : *void, ast : *as
 		}
 	}
 }
-find_var::fn(ctx : *context, var_type : *type_data, name : *string, offset : *u32) ! *type_data
+find_var::fn(var_type : *type_data, name : *string, offset : *u32) ! *type_data
 {
 	for i2 in 0..var_type.entries
 	{
@@ -3677,7 +3485,7 @@ find_var::fn(ctx : *context, var_type : *type_data, name : *string, offset : *u3
 		}
 		if cur_var.tp == type_enum.TYPE_STRUCT && is_flag_on(cur_var.flags, DECL_IS_USING) && cur_var.ptr == 0
 		{
-			found := find_var(ctx, cur_var.strct, name, offset)
+			found := find_var(cur_var.strct, name, offset)
 			if found
 			{
 				*offset += cast(u32)cur_var.offset
@@ -3687,7 +3495,7 @@ find_var::fn(ctx : *context, var_type : *type_data, name : *string, offset : *u3
 	}
 	return nil
 }
-parse_specific_event_ast::fn(ctx : *context, ast : *ast_rep, ent : *entity)
+parse_specific_event_ast::fn(ctx : *scene_info, ast : *ast_rep, ent : *entity)
 {
 	ASSERT(ast.type == ast_type.CALL)
 	type :*type_data
@@ -3707,7 +3515,7 @@ parse_specific_event_ast::fn(ctx : *context, ast : *ast_rep, ent : *entity)
 		name :*string= &st.BIN.expr[0].WORD.str
 
 		offset : u32
-		var_type:*type_data= find_var(ctx, type, name, &offset)
+		var_type:*type_data= find_var(type, name, &offset)
 
 		if !var_type continue;
 
@@ -3715,7 +3523,7 @@ parse_specific_event_ast::fn(ctx : *context, ast : *ast_rep, ent : *entity)
 		DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
 	}
 }
-parse_event_ast::fn(ctx : *context, ast : *ast_rep, ent : *entity)
+parse_event_ast::fn(ctx : *scene_info, ast : *ast_rep, ent : *entity)
 {
 	ASSERT(ast.type == ast_type.SCOPE)
 	type := GetTypeData(ent.event)
@@ -3725,7 +3533,7 @@ parse_event_ast::fn(ctx : *context, ast : *ast_rep, ent : *entity)
 		name :*string= &st.BIN.expr[0].WORD.str
 
 		offset : u32
-		var_type:*type_data= find_var(ctx, type, name, &offset)
+		var_type:*type_data= find_var(type, name, &offset)
 
 		if !var_type continue;
 
@@ -3743,7 +3551,7 @@ parse_event_ast::fn(ctx : *context, ast : *ast_rep, ent : *entity)
 	}
 
 }
-cid_from_ast::fn(ctx : *context, ast : *ast_rep) ! custom_id
+cid_from_ast::fn(ast : *ast_rep) ! custom_id
 {
 	ASSERT(ast.type == ast_type.SCOPE)
 	bin := ast.SCOPE.stmnts[0]
@@ -3772,7 +3580,7 @@ cid_from_ast::fn(ctx : *context, ast : *ast_rep) ! custom_id
 	return ret
 }
 
-find_closing_curly::fn(ctx : *context, file : *u8, i : s64) ! s64
+find_closing_curly::fn(file : *u8, i : s64) ! s64
 {
   cur := ptr_offset(file, i, char)
   ASSERT(*cur == '{)
@@ -3802,7 +3610,7 @@ find_closing_curly::fn(ctx : *context, file : *u8, i : s64) ! s64
   return i
 }
 
-ast_from_string_range::fn(ctx : *context, file : str_lit, start : s64, end : s64, root : *scope, pinfo : *parse_info, tkns : *dyn_array(token), lang_stat : *lang_state) ! *ast_rep
+ast_from_string_range::fn(file : str_lit, start : s64, end : s64, root : *scope, pinfo : *parse_info, tkns : *dyn_array(token), lang_stat : *lang_state) ! *ast_rep
 {
 
   aux_ptr := file[end]
@@ -3824,12 +3632,16 @@ ast_from_string_range::fn(ctx : *context, file : str_lit, start : s64, end : s64
   return ast
 }
 
-DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage : *loading_stage, file : str_lit, fl_sz : s64, out_cor : **coroutine_func_saved)
+OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *loading_stage, file : str_lit, fl_sz : s64, out_cor : **coroutine_func_saved)
 {
   if out_cor != nil
   {
     *out_cor = _found
   }
+
+  prev_alloc := globals.alloc
+
+  globals.alloc = ctx.alloc
 
   buffer:[13]char
 
@@ -3839,85 +3651,12 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
 
   pinfo :parse_info
   pinfo.tkns = &ctx.tkns
+  pinfo.lang_stat = &lang_stat
 
   root :*scope= new_scope(nil)
-
-  preserved_ents : dyn_array(*entity)
-  for i2 in 0..globals.entities.max
-  {
-    ent := ptr_offset(globals.entities.start, i2, entity);
-    if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES) 
-    {
-      dyn_add(&preserved_ents, ent)
-      continue
-    }
-
-    if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
-    {
-      DeleteEnt(ctx, ent)
-      ent.flags = 0;
-      return 
-    }
-    else
-    {
-      had_cols := false
-      for c in ent.ents_in_collision
-      {
-        had_cols = true
-          c.in_col = false;
-      }
-      if had_cols
-      {
-        return
-      }
-    }
-  }
-  return
-
   i :s64
-  settings_end := find_closing_curly(ctx, file, i)
-  settings_ast :*ast_rep= ast_from_string_range(ctx, file, i, settings_end, root, &pinfo, &ctx.tkns, &lang_stat)
-
-  for a_idx in 0..ctx.areas_col.count
-  {
-    l_area := ctx.areas_col[cast(u64)a_idx]
-    found_preserve := false
-    cur_ch := 0
-    for ch in l_area.col_chunks
-    {
-      for e in preserved_ents
-      {
-        for e2 in ch.entities
-        {
-          if str_cmp(e2.name, e.name)
-          {
-            found_preserve = true
-            break
-          }
-        }
-
-        if found_preserve break;
-
-        for e2 in ch.from_ents
-        {
-          if str_cmp(e2.from_ent.name, e.name)
-          {
-            found_preserve = true
-            break
-          }
-        }
-
-        if found_preserve break;
-      }
-    }
-    if !found_preserve
-    {
-      dyn_rem(&ctx.areas_col, cast(u32)a_idx)
-      a_idx--
-    }
-  }
-  return
-  //dyn_clear(&ctx.areas_col)
+  settings_end := find_closing_curly(file, i)
+  settings_ast :*ast_rep= ast_from_string_range(file, i, settings_end, root, &pinfo, &ctx.tkns, &lang_stat)
 
   stmnts:*ast_rep= *settings_ast.SCOPE.stmnts[0]
   ar := &settings_ast.SCOPE.stmnts
@@ -3990,7 +3729,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
           name = &st2.BIN.expr[0].WORD.str
 
           offset : u32
-          var_type:*type_data= find_var(ctx, type, name, &offset)
+          var_type:*type_data= find_var( type, name, &offset)
 
           if !var_type continue;
 
@@ -4020,9 +3759,9 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
     ch := ptr_offset(file, i, char)
     if *file[i] == '{
     {
-      ent_str_end := find_closing_curly(ctx, file, i)
+      ent_str_end := find_closing_curly(file, i)
       dyn_clear(&ctx.tkns)
-      ast :*ast_rep= ast_from_string_range(ctx, file, i, ent_str_end, root, &pinfo, &ctx.tkns, &lang_stat)
+      ast :*ast_rep= ast_from_string_range(file, i, ent_str_end, root, &pinfo, &ctx.tkns, &lang_stat)
       return
 
       aux_str:string
@@ -4069,7 +3808,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             name :*string= &st.BIN.expr[0].WORD.str
 
             offset : u32
-            var_type:*type_data= find_var(ctx, etype, name, &offset)
+            var_type:*type_data= find_var(etype, name, &offset)
 
             if !var_type continue;
 
@@ -4129,7 +3868,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             else if *name == "cl3d"
             {
                 //__dbg_break
-                cid := cid_from_ast(ctx, *st.BIN.expr[1])
+                cid := cid_from_ast( *st.BIN.expr[1])
                 memcpy(buffer[0], cid.name, 12)
                 found := find_asset(ctx, cast(str_lit)buffer[0], &ent.cl3d)
                 ASSERT(found)
@@ -4142,7 +3881,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             else if *name == "model"
             {
                 //__dbg_break
-                cid := cid_from_ast(ctx, *st.BIN.expr[1])
+                cid := cid_from_ast( *st.BIN.expr[1])
                 memcpy(buffer[0], cid.name, 12)
                 found := find_asset(ctx, cast(str_lit)buffer[0], &ent.model, ASSETS_MODELS_OFFSET)
                 ASSERT(found)
@@ -4150,7 +3889,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             else if *name == "tex_id"
             {
                 //__dbg_break
-                cid := cid_from_ast(ctx, *st.BIN.expr[1])
+                cid := cid_from_ast( *st.BIN.expr[1])
                 memcpy(buffer[0], cid.name, 12)
                 found := find_asset(ctx, cast(str_lit)buffer[0], &ent.tex_id)
                 ASSERT(found)
@@ -4167,7 +3906,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
               m_idx_scp := cur_stmnts[0].BIN.expr[1]
               ASSERT(m_idx_name.type == ast_type.WORD && m_idx_name.WORD.str == "idx")
 
-              cid := cid_from_ast(ctx, *m_idx_scp)
+              cid := cid_from_ast( *m_idx_scp)
               memcpy(buffer[0], cid.name, 12)
 
               found:=find_asset(ctx, cast(str_lit)buffer[0], &ent.material_idx, start=ASSETS_MATERIALS_OFFSET)
@@ -4208,7 +3947,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                 {
                   //__dbg_break
                   aux_type_data.tp = type_enum.TYPE_U32
-                  cid = cid_from_ast(ctx, *cur_ast.BIN.expr[1])
+                  cid = cid_from_ast( *cur_ast.BIN.expr[1])
                   memcpy(buffer[0], cid.name, 12)
                   found = find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex)
                   ASSERT(found)
@@ -4267,7 +4006,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                             name = &cur_st.BIN.expr[0].WORD.str
                             
                             col_t :*type_data= GetTypeData(collider)
-                            var_type = find_var(ctx, col_t, name, &offset)
+                            var_type = find_var(col_t, name, &offset)
 
                             if *name == "type"
                             {
@@ -4275,7 +4014,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
                             }
                             else if *name == "model"
                             {
-                                cid := cid_from_ast(ctx, *cur_st.BIN.expr[1])
+                                cid := cid_from_ast( *cur_st.BIN.expr[1])
                                 memcpy(buffer[0], cid.name, 12)
                                 a_idx := cast(*asset_index)&col.MESH.info.model_idx
                                 found:=find_asset(ctx, cast(str_lit)buffer[0], a_idx, ASSETS_MODELS_OFFSET)
@@ -4310,23 +4049,7 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
             }
             else
             {
-                DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
-                if *name == "name"
-                {
-                  for e in preserved_ents
-                  {
-                    if str_cmp(ent.name, e.name)
-                    {
-                      deleted = true
-                      //__dbg_break
-                      break;
-                    }
-                  }
-                  if deleted
-                  {
-                    break;
-                  }
-                }
+              DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
             }
         }
         if deleted
@@ -4428,9 +4151,9 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
 
   return
   grid_shader := find_shader(ctx, "grid.mat")
-  ctx.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, ctx.preview_ent)
+  globals.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, globals.preview_ent)
   assign_bodies_to_chunks(ctx)
-  ctx.player.flags = ctx.player.flags | ENTITY_PRESERVE_ENT_THROUGH_SCENES
+  globals.player.flags = globals.player.flags | ENTITY_PRESERVE_ENT_THROUGH_SCENES
   return
 
 
@@ -4456,13 +4179,121 @@ DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage 
     memcpy(ld.preserve_ents.data, aux_ents[0], cast(u64)i * sizeof(*entity))
   }
 
+
   if loading_areas_to_fill.count > 0
     heap_free(ctx.alloc, loading_areas_to_fill.data)
 
-  if preserved_ents.count > 0
-    heap_free(ctx.alloc, preserved_ents.data)
 
   *stage = loading_stage.DONE
+
+  globals.alloc = prev_alloc
+}
+_DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage : *loading_stage, file : str_lit, fl_sz : s64, out_cor : **coroutine_func_saved)
+{
+  /*
+  if out_cor != nil
+  {
+    *out_cor = _found
+  }
+
+  buffer:[13]char
+
+  dyn_clear(&ctx.tkns)
+
+  lang_stat :lang_state
+
+  pinfo :parse_info
+  pinfo.tkns = &ctx.tkns
+
+  root :*scope= new_scope(nil)
+
+  preserved_ents : dyn_array(*entity)
+  for i2 in 0..globals.entities.max
+  {
+    ent := ptr_offset(globals.entities.start, i2, entity);
+    if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES) 
+    {
+      dyn_add(&preserved_ents, ent)
+      continue
+    }
+
+    if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
+    {
+      DeleteEnt(ctx, ent)
+      ent.flags = 0;
+      return 
+    }
+    else
+    {
+      had_cols := false
+      for c in ent.ents_in_collision
+      {
+        had_cols = true
+          c.in_col = false;
+      }
+      if had_cols
+      {
+        return
+      }
+    }
+  }
+  return
+
+  i :s64
+  settings_end := find_closing_curly(file, i)
+  settings_ast :*ast_rep= ast_from_string_range( file, i, settings_end, root, &pinfo, &ctx.tkns, &lang_stat)
+
+  for a_idx in 0..ctx.areas_col.count
+  {
+    l_area := ctx.areas_col[cast(u64)a_idx]
+    found_preserve := false
+    cur_ch := 0
+    for ch in l_area.col_chunks
+    {
+      for e in preserved_ents
+      {
+        for e2 in ch.entities
+        {
+          if str_cmp(e2.name, e.name)
+          {
+            found_preserve = true
+            break
+          }
+        }
+
+        if found_preserve break;
+
+        for e2 in ch.from_ents
+        {
+          if str_cmp(e2.from_ent.name, e.name)
+          {
+            found_preserve = true
+            break
+          }
+        }
+
+        if found_preserve break;
+      }
+    }
+    if !found_preserve
+    {
+      dyn_rem(&ctx.areas_col, cast(u32)a_idx)
+      a_idx--
+    }
+  }
+  return
+  //dyn_clear(&ctx.areas_col)
+
+  stmnts:*ast_rep= *settings_ast.SCOPE.stmnts[0]
+  ar := &settings_ast.SCOPE.stmnts
+  tp1 := cast(token_type)stmnts.BIN.op
+  if(!is_ast_bin(stmnts, cast(u32)token_type.EQUAL))
+  {
+    stmnts = *stmnts.BIN.expr[0]
+    ar = &stmnts.BIN.expr
+  }
+  */
+
 }
 free_lang_stuff::fn()
 {
@@ -4470,8 +4301,116 @@ free_lang_stuff::fn()
 	globals.scope_alloc.cur = 0
 	globals.nodes_alloc.cur = 0
 }
+SaveScene::fn(ctx : *scene_info, file_name : str_lit)
+{
+	out :string
+
+	//InitMemAlloc(&ctx.per_scene_alloc, 16000)
+	//dyn_add_data(&out.data, &fl, sizeof(fl));
+
+	//prev_alloc := globals.alloc
+	//globals.alloc = &ctx.per_scene_alloc
+
+	file_name = "../scenes/{file_name}"
+	out_file := OpenFile(file_name)
+	defer CloseFile(out_file)
+
+  settings_ast := new_ast2()
+  settings_ast.type = ast_type.SCOPE
+
+  area_cols_ast := new_ast2()
+  area_cols_ast.type = ast_type.SCOPE
+
+
+  for a in ctx.areas_col
+  {
+    cur := new_ast2()
+    cur.type = ast_type.SCOPE
+
+    dyn_add(&cur.SCOPE.stmnts, StrLitAssignmentToAst("name", a.name))
+    dyn_add(&cur.SCOPE.stmnts, VecAssignmentToAst("area_col_pos", &a.area_col_pos))
+    dyn_add(&cur.SCOPE.stmnts, VecAssignmentToAst("area_col_size", &a.area_col_size))
+
+    dyn_add(&cur.SCOPE.stmnts, S32AssignmentToAst("chunk_width", *cast(*s32)&a.chunk_width))
+
+    dyn_add(&area_cols_ast.SCOPE.stmnts, cur)
+    
+  }
+  
+  dyn_add(&settings_ast.SCOPE.stmnts, AssignmentToAst("area_col", area_cols_ast))
+
+  aux :string
+
+  
+  ast_to_string(settings_ast, &aux)
+  PushStr(&out, &aux)
+  heap_free(aux.data.alloc, aux.data.data)
+
+
+	WriteToFile(out_file, out.data.data, out.data.count)
+	cur_file_sz := out.data.count
+
+	out.data.count = 0
+
+	for i in 0..globals.entities.max
+	{
+		globals.temp_alloc.cur = 0
+		ent := ptr_offset(globals.entities.start, i, entity);
+		/*
+		if str_cmp(ent.name, "item_idx79")
+		{
+			__dbg_break
+		}
+		*/
+		printf("i is {i} name {ent.name}\n")
+		if is_flag_off(ent.flags, ENTITY_IN_USE)
+		{
+			continue
+		}
+		//printf("ent saved {ent.name}, flags {ent.flags}\n")
+		if ent.type == ent_type.AXIS
+			continue;
+
+		if is_flag_on(ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
+		{
+			__dbg_break
+			continue
+		}
+
+		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
+		{
+			free_lang_stuff()
+      memset(&aux, 0, sizeof(string))
+			cur_al:=globals.alloc
+
+			ast := SerializeEnt(ent, cast(u64)i)
+			
+			ast_to_string(ast, &aux)
+			PushStr(&out, &aux)
+			heap_free(aux.data.alloc, aux.data.data)
+			PushStrLit(&out, "\n ")
+
+			SetFilePtr(out_file, cur_file_sz);
+
+			WriteToFile(out_file, out.data.data, out.data.count)
+
+			cur_file_sz += out.data.count
+
+			out.data.count = 0
+
+			globals.temp_alloc.cur = 0
+			//printf("str {out}\n")
+		}
+	}
+	out.data.count -= 2
+	printf("file name %", file_name)
+	//WriteFile(file_name, out.data.data, out.data.count)
+
+	heap_free(out.data.alloc, out.data.data)
+}
 SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 {
+  /*
 	out :string
 
 	InitMemAlloc(&ctx.per_scene_alloc, 16000)
@@ -4577,6 +4516,7 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	//WriteFile(file_name, out.data.data, out.data.count)
 
 	heap_free(out.data.alloc, out.data.data)
+  */
 
 }
 show_material_instance_uniforms::fn(ctx : *context, mat : *material_info, inst : *material_instance)
@@ -4681,7 +4621,7 @@ set_bridge_pos::fn(ent : *entity)
 	c := *ent.cols[0]
 	c.data_ready = false
 }
-new_collision_chunks::fn(ctx : *context, area_col : *area_col_info)
+new_collision_chunks::fn(ctx : *scene_info, area_col : *area_col_info)
 {
   area_col_size := area_col.area_col_size
   chunk_width := area_col.chunk_width
@@ -4701,14 +4641,14 @@ new_collision_chunks::fn(ctx : *context, area_col : *area_col_info)
   //memset(area_col.col_chunks.data, 0, total_chunks * sizeof(*area_col.col_chunks.data))
 	area_col.col_chunks.count = area_col.col_chunks.cap
 }
-items_func::fn(ctx : *context, dt : f32, selected_ent : *entity)
+items_func::fn(ctx : *scene_info, dt : f32, selected_ent : *entity)
 {
 	for e_ in ctx.items_ents
 	{
 		e := *e_
 		if e == selected_ent continue;
 
-		e.pos.y = e.pos.w + sin(ctx.time_since_start) * 0.1
+		e.pos.y = e.pos.w + sin(globals.time_since_start) * 0.1
 	}
 }
 terrain_brush_type:enum
@@ -5069,7 +5009,7 @@ input_text::fn(ctx : *context, label_name : str_lit, name : *str_lit, buffer : *
     }
   }
 }
-fill_loading_area_with_file_data::fn(ctx : *context, l_area : *loading_area_info)
+fill_loading_area_with_file_data::fn(ctx : *scene_info, l_area : *loading_area_info)
 {
   in_front_name := "../scenes/{l_area.in_front_scene_name}"
   in_back_name := "../scenes/{l_area.in_back_scene_name}"
@@ -5174,9 +5114,9 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		if IsMouseDown(mouse_enum.LEFT) && IsKeyHeld(key_enum.KEY_SHIFT)
 		{
 			start_pos = point
-			aux_ent = new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
+			aux_ent = new_cube(ctx.cur_scn, &point, &_vec{1.0, 1.0, 1.0}, true);
 			aux_ent.tex_id = ctx.screen_tex_id
-			set_shader_uniform_sampler2d(ctx, aux_ent, "tex", &ctx.screen_tex_id)
+			set_shader_uniform_sampler2d(ctx.cur_scn, aux_ent, "tex", &ctx.screen_tex_id)
 			c1 := aux_ent.cols[0]
 			c1.data_ready = false
 			aux_ent.rot = ctx.grid_ent.vel
@@ -5247,7 +5187,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		}
 		if IsKeyHeld(key_enum.KEY_JMP)
 		{
-			if raycast_get_pos(ctx, &col)
+			if raycast_get_pos(ctx.cur_scn, ctx.cam_pos_global, &col)
 			{
 				ctx.grid_ent.pos = col.contact_point + col.normal * -0.001
 				ctx.grid_ent.vel = col.ent.rot
@@ -5263,7 +5203,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		}
 		if IsKeyDown(key_enum.KEY_LCTRL)
 		{
-			ctx.grid_ent.rot = look_at_quaternion(&_vec{0.0, 0.0, 1.0}, &col.normal, &ctx.up).v
+			ctx.grid_ent.rot = look_at_quaternion(&_vec{0.0, 0.0, 1.0}, &col.normal, &globals.up).v
 			ctx.grid_ent.forward = -col.normal
 		}
 	}
@@ -5279,7 +5219,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	if ImGuiSelectable("ents", aux_bool, 40.0, 15.0)
 	{
 		ctx.editor_wnd_type = editor_window_enum.ENTS
-		ctx.preview_ent.is_active = false
+		globals.preview_ent.is_active = false
 		ctx.cur_model_selected_idx = -1
 	}
 
@@ -5344,11 +5284,11 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		if ctx.matrices_inst == nil
 		{
 			mat_idx :asset_index
-			if find_asset(ctx, "skin.mat", &mat_idx, start=ASSETS_MATERIALS_OFFSET)
+			if find_asset(ctx.cur_scn, "skin.mat", &mat_idx, start=ASSETS_MATERIALS_OFFSET)
 			{
 				mat := &globals.assets[cast(u64)mat_idx.asset_idx].MATERIAL.mat
 				mod_idx :asset_index
-				find_asset(ctx, "bones.fbx", &mod_idx, start=ASSETS_MODELS_OFFSET)
+				find_asset(ctx.cur_scn, "bones.fbx", &mod_idx, start=ASSETS_MODELS_OFFSET)
 				mod := &globals.assets[cast(u64)mod_idx.asset_idx].MODEL.mod
 				ctx.model_anim = mod
 
@@ -5420,23 +5360,23 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
       cur_area_selected:global s64
 
 
-      for i in 0..ctx.areas_col.count
+      for i in 0..ctx.cur_scn.areas_col.count
       {
         selected := i == cur_area_selected
         if ImGuiSelectable("{i}", selected, 20.0, 30.0)
         {
           cur_area_selected = i
-          ctx.col_chunks = ctx.areas_col[cast(u64)i]
+          ctx.col_chunks = ctx.cur_scn.areas_col[cast(u64)i]
         }
         ImGuiSameLine()
 
         if ImGuiSelectable("x##{i}", false, 10.0, 10.0)
         {
-          dyn_rem(&ctx.areas_col, cast(u32)i)
+          dyn_rem(&ctx.cur_scn.areas_col, cast(u32)i)
         }
         if selected
         {
-          a := ctx.areas_col[cast(u64)i]
+          a := ctx.cur_scn.areas_col[cast(u64)i]
           //area_col_ui(ctx, a)
 
         }
@@ -5445,7 +5385,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
       {
         aux:area_col_info
         aux.name = cast(str_lit)heap_alloc(ctx.alloc, 1)
-        dyn_add(&ctx.areas_col, &aux)
+        dyn_add(&ctx.cur_scn.areas_col, &aux)
       }
 
       if ctx.col_chunks
@@ -5480,7 +5420,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
         if ImGuiSelectable("generate", false, 20.0, 30.0)
         {
-            new_collision_chunks(ctx, ctx.col_chunks)
+            //new_collision_chunks(ctx, ctx.col_chunks)
         }
       }
 	}
@@ -5492,9 +5432,9 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
 		if IsKeyDown(key_enum.KEY_I) && item_type != inv_item.EMPTY
 		{
-			if raycast_get_pos(ctx, &col)
+			if raycast_get_pos(ctx.cur_scn, ctx.cam_pos_global, &col)
 			{
-				test_e := NewPlaneEnt(ctx, "item", &col.contact_point, &_vec{1.0, 1.0, 0.5})
+				test_e := NewPlaneEnt(ctx.cur_scn, "item", &col.contact_point, &_vec{1.0, 1.0, 0.5})
 				test_e.type  = ent_type.ITEM
 
 				test_e.flags  = test_e.flags | ENTITY_HAS_TEXTURE
@@ -5508,7 +5448,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
 				dyn_add(&test_e.remove_from, ent_part_of.ITEMS)
 
-				dyn_add(&ctx.items_ents, test_e)
+				dyn_add(&ctx.cur_scn.items_ents, test_e)
 			}
 		}
 
@@ -5519,13 +5459,13 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	}
 	editor_window_enum.PARTICLE
 	{
-		ent := ctx.preview_ent
+		ent := globals.preview_ent
 		if !ent.emmitter
 		{
 			ent.emmitter = cast(*particle_emmitter)heap_alloc(ctx.alloc, sizeof(particle_emmitter))
 			memset(ent.emmitter, 0, sizeof(particle_emmitter))
 			ent.type = ent_type.EMMITTER
-			dyn_add(&ctx.emmitters, ent)
+			dyn_add(&ctx.cur_scn.emmitters, ent)
 		}
 		emm := ent.emmitter
 
@@ -5564,7 +5504,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
 
 
-		if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+		if Raycast(ctx.cur_scn, &cam_pos, &cam_dir, &col, 0, &aux_sel)
 		{
 			ent.pos = col.contact_point
 			emm.normal = col.normal
@@ -5600,10 +5540,10 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
 		if ctx.cur_model_selected_idx != -1
 		{
-			ctx.preview_ent.size.x = 1.0
-			ctx.preview_ent.size.y = 1.0
-			ctx.preview_ent.size.z = 1.0
-			ctx.preview_ent.rot = euler_to_quaternion(90.0, 0.0, 0.0).v
+			globals.preview_ent.size.x = 1.0
+			globals.preview_ent.size.y = 1.0
+			globals.preview_ent.size.z = 1.0
+			globals.preview_ent.rot = euler_to_quaternion(90.0, 0.0, 0.0).v
 
 			aux_sel_from_non_bodies : *entity
 			shortest_dist : f32 = 9999.0
@@ -5611,13 +5551,13 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			point : _vec
 
 			hit := false
-			if RaycastWithNonBodies(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
+			if RaycastWithNonBodies(ctx.cur_scn, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
 			{
 				shortest_dist = len_vec(&(cam_pos - col.contact_point))
 				point = col.contact_point
 				hit = true
 			}
-			if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+			if Raycast(ctx.cur_scn, &cam_pos, &cam_dir, &col, 0, &aux_sel)
 			{
 				point = col.contact_point
 				hit = true
@@ -5640,23 +5580,23 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 				idx = ctx.cur_model_selected_idx + ASSETS_MODELS_OFFSET
 				a := globals.assets[cast(u64)idx]
 				m :*model_info= &a.MODEL.mod
-				ctx.preview_ent.model.asset_idx = cast(u32)idx
-				ctx.preview_ent.is_active = true
-				ctx.preview_ent.pos = point
+				globals.preview_ent.model.asset_idx = cast(u32)idx
+				globals.preview_ent.is_active = true
+				globals.preview_ent.pos = point
 
 				inv := col.normal
 				vert:= ModelFarthestPoint(cast(u32)m.model, &inv)
 				d := dot_vec(&vert, &inv)
 				if IsKeyHeld(key_enum.KEY_LCTRL)
 				{
-					ctx.preview_ent.pos += inv * d * -1.0
+					globals.preview_ent.pos += inv * d * -1.0
 				}
 
 			}
 			else
 			{
-				ctx.preview_ent.is_active = false
-				ctx.preview_ent.pos = point
+				globals.preview_ent.is_active = false
+				globals.preview_ent.pos = point
 			}
 		}
 	}
@@ -5752,16 +5692,16 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 				}
 				ent_type.WATER
 				{
-					out_ent.tex_id = ctx.water_tex
-					water_shader := find_shader(ctx, "water.mat")
+					out_ent.tex_id = globals.water_tex
+					water_shader := find_shader(ctx.cur_scn, "water.mat")
 
 					out_ent.flags = out_ent.flags | ENTITY_CUSTOM_SHADER
 					if out_ent.material_idx.asset_idx != water_shader.asset_idx
 					{
 						out_ent.material_idx = water_shader
-						out_ent.in_material_instance = new_material_instance(ctx, &water_shader, *out_ent)
+						out_ent.in_material_instance = new_material_instance(ctx.cur_scn, &water_shader, *out_ent)
 					}
-					set_shader_uniform_sampler2d(ctx, *out_ent, "tex", &ctx.water_tex)
+					set_shader_uniform_sampler2d(ctx.cur_scn, *out_ent, "tex", &globals.water_tex)
 					//out_ent.flags = out_ent.flags | ENTITY_TRANSPARENT
 					out_ent.color.x = 1.0
 					out_ent.color.y = 1.0
@@ -5790,7 +5730,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
           {
 
           }
-          fill_loading_area_with_file_data(ctx, l_area)
+          fill_loading_area_with_file_data(ctx.cur_scn, l_area)
         }
         ImGuiSeparator()
         ImGuiText("preserve ents:")
@@ -5859,7 +5799,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 					enemy_enum.SKULL
 					{
 						printf("changed to skull\n")
-						find_asset(ctx, "skel.fbx", &out_ent.model)
+						find_asset(ctx.cur_scn, "skel.fbx", &out_ent.model)
 						prev_val := out_ent.material_idx.asset_idx
 						out_ent.size.x = 0.1
 						out_ent.size.y = 0.1
@@ -5868,14 +5808,14 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 						out_ent.playable_func = skull_mov
 						out_ent.col_enter = enemy_collision_enter;
 						dyn_add(&out_ent.remove_from, ent_part_of.PLAYABLE)
-						dyn_add(&ctx.playable_ents, *out_ent)
+						dyn_add(&ctx.cur_scn.playable_ents, *out_ent)
 
 						if out_ent.cols.count == 0
 						{
-							add_body(ctx, *out_ent)
+							add_body(ctx.cur_scn, *out_ent)
 						}
 
-						dyn_add(&ctx.ents_with_clip, *out_ent)
+						dyn_add(&ctx.cur_scn.ents_with_clip, *out_ent)
 						dyn_add(&out_ent.remove_from, ent_part_of.ANIMATION)
 						out_ent.c_type = clip_type.C3D
 						out_ent.cl3d = ctx.skull_idle
@@ -5890,12 +5830,12 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 						out_ent.state = entity_state.GO_SIDEWAYS
 
 
-						skin := find_shader(ctx, "skin.mat")
+						skin := find_shader(ctx.cur_scn, "skin.mat")
 						out_ent.material_idx = skin
 						out_ent.flags = out_ent.flags | ENTITY_CUSTOM_SHADER
 						if skin.asset_idx != prev_val
 						{
-							out_ent.in_material_instance = new_material_instance(ctx, &out_ent.material_idx, *out_ent)
+							out_ent.in_material_instance = new_material_instance(ctx.cur_scn, &out_ent.material_idx, *out_ent)
 						}
 
 						out_ent.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
@@ -6126,7 +6066,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		m := get_material_ptr(&out_ent.material_idx)
 		inst := m.instances[cast(u64)out_ent.in_material_instance]
 		mat := compile_shader(ctx, m.name, m)
-		new_material_instance(ctx, &out_ent.material_idx, *out_ent)
+		new_material_instance(ctx.cur_scn, &out_ent.material_idx, *out_ent)
 		// materials uniforms
 	}
 	if model_changed
@@ -6135,16 +6075,16 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	}
 	if change_ent_to_grid
 	{
-		grid_shader := find_shader(ctx, "grid.mat")
+		grid_shader := find_shader(ctx.cur_scn, "grid.mat")
 
 		out_ent.flags = out_ent.flags | ENTITY_CUSTOM_SHADER
 
 		if out_ent.material_idx.asset_idx != grid_shader.asset_idx
 		{
 			out_ent.material_idx = grid_shader
-			out_ent.in_material_instance = new_material_instance(ctx, &grid_shader, *out_ent)
+			out_ent.in_material_instance = new_material_instance(ctx.cur_scn, &grid_shader, *out_ent)
 		}
-		set_shader_uniform_sampler2d(ctx, *out_ent, "tex", &ctx.grid_tex)
+		set_shader_uniform_sampler2d(ctx.cur_scn, *out_ent, "tex", &globals.grid_tex)
 		
 	}
 
@@ -6223,7 +6163,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
     while stage != loading_stage.DONE
     {
-      DeserializeAllEnt(&ctx.coroutines, ctx, &stage, file_data, cast(s64)fl_sz, &cor)
+      OpenScene(&ctx.coroutines, ctx.cur_scn, &stage, file_data, cast(s64)fl_sz, &cor)
     }
     cor.regs.rip = 0
 
@@ -6232,9 +6172,9 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 }
 change_preview_col_idx::fn(ctx : *context, new_val : u8)
 {
-	ctx.cur_preview_idx = (new_val) % 3;
+	globals.cur_preview_idx = (new_val) % 3;
 
-	on ctx.cur_preview_idx
+	on globals.cur_preview_idx
 	{
 	0
 	{
@@ -6256,7 +6196,7 @@ change_preview_col_idx::fn(ctx : *context, new_val : u8)
 skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 {
 	//return
-	player := ctx.player
+	player := globals.player
 	dir := player.pos - ent.pos
 
 	dist := len_vec(&dir)
@@ -6267,14 +6207,14 @@ skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 	z:_vec
 	z.z = 1.0
 	dir.y = 0.0
-	cross := cross_vec(&dir, &ctx.up)
+	cross := cross_vec(&dir, &globals.up)
 
 	speed := 4.0
 	if ent.on_ground
 	{
 		ent.vel.y = -0.0
 
-		ang := angle_on_axis(&z, &dir, &ctx.up)
+		ang := angle_on_axis(&z, &dir, &globals.up)
 		q :quaternion=euler_to_quaternion(270.0, radians_to_degree(ang), 0.0)
 
 		ent.rot = q.v
@@ -6335,7 +6275,7 @@ skull_mov::fn(ctx : *context, ent : *entity, dt : *f32)
 	//print_vec(&ent.vel)
 	//ent.on_ground = false
 }
-playble_ents_logic::fn(ctx : *context, dt : *f32)
+playble_ents_logic::fn(ctx : *scene_info, dt : *f32)
 {
 	for e in ctx.playable_ents
 	{
@@ -6408,7 +6348,7 @@ draw_ui_gameplay::fn(ctx : *context, info : *player_info)
 		x += 0.103
 	}
 }
-NewPlaneEnt::fn(ctx : *context, name : str_lit, pos : *_vec, size : *_vec) ! *entity
+NewPlaneEnt::fn(ctx : *scene_info, name : str_lit, pos : *_vec, size : *_vec) ! *entity
 {
 	ret := NewEnt(ctx, name);
 	ret.type = ent_type.ENEMY
@@ -6433,9 +6373,9 @@ NewPlaneEnt::fn(ctx : *context, name : str_lit, pos : *_vec, size : *_vec) ! *en
 
 	return ret
 }
-new_enemy::fn(ctx : *context, pos : *_vec, name : str_lit) ! *entity
+new_enemy::fn(ctx : *scene_info, pos : *_vec, name : str_lit) ! *entity
 {
-	test_e := NewPlaneEnt(ctx, name, &ctx.up, &_vec{0.5, 1.5, 0.5})
+	test_e := NewPlaneEnt(ctx, name, &globals.up, &_vec{0.5, 1.5, 0.5})
 
 	dyn_add(&test_e.remove_from, ent_part_of.ANIMATION)
 	dyn_add(&test_e.remove_from, ent_part_of.PLAYABLE)
@@ -6529,7 +6469,7 @@ init_emmitter::fn(e : *entity)
 	}
 	}
 }
-emmitters_func::fn(ctx : *context, dt : f32)
+emmitters_func::fn(ctx : *scene_info, dt : f32, drw_set : *draw_settings)
 {
 	for e in ctx.emmitters
 	{
@@ -6543,9 +6483,9 @@ emmitters_func::fn(ctx : *context, dt : f32)
 		n := emm.normal	
 		cross := emm.cross
 
-		cam_pos := *ctx.cam_pos_global
-		cam_rot := *ctx.cam_rot_global
-		cam_fw := *ctx.cam_aux_forward_global
+		cam_pos := *drw_set.cam_pos
+		cam_rot := *drw_set.cam_rot
+		cam_fw := *drw_set.cam_forward
 			
 		//printf("type is {cast(u32)emm.type}\n")
 		
@@ -6571,9 +6511,9 @@ emmitters_func::fn(ctx : *context, dt : f32)
 			
 				p.rot += p.ang_vel
 				
-				fwx := ctx.cam_rot_global.x * p.rot.x
-				fwz := ctx.cam_rot_global.z * p.rot.z
-				rot := euler_to_quaternion(0.0, radians_to_degree(ctx.cam_rot_global.y), 0.0).v
+				fwx := cam_rot.x * p.rot.x
+				fwz := cam_rot.z * p.rot.z
+				rot := euler_to_quaternion(0.0, radians_to_degree(cam_rot.y), 0.0).v
 				draw : draw_info3d
 
 				draw.model = 1
@@ -6590,8 +6530,8 @@ emmitters_func::fn(ctx : *context, dt : f32)
 				*draw.color[3] = 1.0
 
 				draw.flags = draw.flags | DRAW_INFO_NO_LIGHT | DRAW_INFO_HAS_TEXTURE;
-				draw.texture_id = get_id_of_texture_asset(&ctx.white_tex)
-				Draw3D(ctx.window, &draw);
+				draw.texture_id = get_id_of_texture_asset(&globals.white_tex)
+				Draw3D(drw_set.window, &draw);
 				
 				if p.time < 0.0
 				{
@@ -6611,36 +6551,6 @@ test_rett::fn(val : u32) ! u32
 	return val + 1
 }
 
-render_thread::fn(thread_id : u32, data : *void)
-{
-	buffer:[32]u8
-	test := thread_id
-	ctx := cast(*context)data
-	sz:= num_2_str(cast(s64)data, buffer[1], 20)
-	*buffer[0] = '\n
-	*buffer[sz + 1] = 0
-	PrintStr(cast(str_lit)buffer[0])
-	printf("\n*****ctx is %\n", test)
-
-	dt := ctx.dt
-
-	SuspendThread(thread_id)
-
-	while (true)
-	{
-
-		printf("\n****will render \n")
-		emmitters_func(ctx, dt)
-		DrawEnts(ctx, ctx.cam_pos_global, ctx.cam_rot_global)
-		LookAtPlayerEnts(ctx, ctx.cam_pos_global, ctx.cam_rot_global)
-
-
-
-		printf("\n****rendered \n")
-		SuspendThread(thread_id)
-		printf("woke up \n")
-	}
-}
 compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! *material_info
 {
 	file_name_original := file_name
@@ -6668,6 +6578,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 
 	pinfo :parse_info
 	pinfo.tkns = &tkns
+  pinfo.lang_stat = &lang_stat
 
 	globals.scope_alloc.cur = 1
 
@@ -6688,6 +6599,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 	
 	out_decl : *decl
 	done := false
+  lang_stat.flags = LANG_STAT_FLAGS_COMPILING_SHADER
 	for i in 0..5
 	{
 		if descend_name_finding(&lang_stat, ast, root, &out_decl)
@@ -6918,7 +6830,7 @@ imgui_show_window_grid::fn(ctx : *context, out_ent : *entity, info : *imgui_wind
 		*info.window_bool = false
 	}
 }
-new_material_instance::fn(ctx : *context, mat_id : *asset_index, ent : *entity) ! u32
+new_material_instance::fn(ctx : *scene_info, mat_id : *asset_index, ent : *entity) ! u32
 {
 	m := get_material_ptr(mat_id)
 	inst :*material_instance
@@ -7011,7 +6923,7 @@ new_material_instance::fn(ctx : *context, mat_id : *asset_index, ent : *entity) 
 
 	return inst_id
 }
-find_shader::fn(ctx : *context, name : str_lit) ! asset_index
+find_shader::fn(ctx : *scene_info, name : str_lit) ! asset_index
 {
 	ret : asset_index
 	if find_asset(ctx, name, &ret, start=ASSETS_MATERIALS_OFFSET)
@@ -7048,7 +6960,7 @@ set_shader_uniform3f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32,
 	target_u.v.y = y
 	target_u.v.z = z
 }
-set_shader_uniform_sampler2d::fn(ctx : *context, ent : *entity, name : str_lit, tex : *asset_index)
+set_shader_uniform_sampler2d::fn(ctx : *scene_info, ent : *entity, name : str_lit, tex : *asset_index)
 {
 	ASSERT(ent.material_idx.asset_idx >= 0)
 	m := get_material_ptr(&ent.material_idx)
@@ -7082,11 +6994,11 @@ set_shader_uniform2f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32,
 	target_u.v.x = x
 	target_u.v.y = y
 }
-raycast_get_pos::fn(ctx : *context, col : *collision) !bool
+raycast_get_pos::fn(ctx : *scene_info, _cam_pos : *_vec, col : *collision) !bool
 {
 	screenmx := GetMouseScreenPosX();
 	screenmy := GetMouseScreenPosY();
-	cam_pos := *ctx.cam_pos_global
+	cam_pos := *_cam_pos
 	dir := ScreenMouseToWorld(screenmx, screenmy)
 	
 	//dir.y = -dir.y
@@ -7129,7 +7041,7 @@ raycast_get_pos::fn(ctx : *context, col : *collision) !bool
 	*/
 	return found
 }
-get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, l_area : *area_col_info, _min : *_vec, _max : *_vec, out_min : *_vec, out_max : *_vec) ! bool
+get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *scene_info, l_area : *area_col_info, _min : *_vec, _max : *_vec, out_min : *_vec, out_max : *_vec) ! bool
 {
   area_col_size := l_area.area_col_size
   area_col_pos := l_area.area_col_pos
@@ -7173,7 +7085,7 @@ get_rel_size_from_min_and_max_pos_in_col_chunk::fn(ctx : *context, l_area : *are
   return true
 
 }
-get_chunks_close_to_ent::fn(ctx : *context, l_area :*area_col_info, e : *entity, out : *dyn_array(*collision_chunk), min_rel_pos : *_vec, max_rel_pos : *_vec)
+get_chunks_close_to_ent::fn(ctx : *scene_info, l_area :*area_col_info, e : *entity, out : *dyn_array(*collision_chunk), min_rel_pos : *_vec, max_rel_pos : *_vec)
 {
 	c1 := *e.cols[0]
 
@@ -7210,7 +7122,7 @@ get_chunks_close_to_ent::fn(ctx : *context, l_area :*area_col_info, e : *entity,
 		}
 	}
 }
-assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
+assign_mesh_to_chunks::fn(ctx : *scene_info, ent : *entity)
 {
 	c1 := *ent.cols[0]
 	tri_idx:u64
@@ -7292,7 +7204,7 @@ assign_mesh_to_chunks::fn(ctx : *context, ent : *entity)
 	}
   printf("mesh added col chunk\n")
 }
-assign_bodies_to_chunks::fn(ctx : *context)
+assign_bodies_to_chunks::fn(ctx : *scene_info)
 {
   if ctx.col_chunks == nil return
 	for e_ in ctx.bodies
@@ -7397,6 +7309,7 @@ unpack_color::fn(col : u8) ! u32
 	ret = ret | ((cast(u32)brightness_final) << 24)
 	return ret
 }
+/*
 update_screen_texture::fn(ctx : *context, m : *machine)
 {
 	buffer : [8 * 8]u32
@@ -7442,6 +7355,7 @@ update_screen_texture::fn(ctx : *context, m : *machine)
 	//__dbg_break
 
 }
+*/
 update_terrain_for_visualization::fn(ctx : *context, terrain : *terrain_info, assign_tex : bool)
 {
 	for vtx in ctx.vertex_terrain
@@ -7573,13 +7487,13 @@ gameplay_cam::fn(ctx : *context, dt : f32, cam_dist : f32)
 	h := aux
 	*ctx.cam_aux_forward_global = h
 
-	right := cross_vec(&h, &ctx.up)
+	right := cross_vec(&h, &globals.up)
 	q := create_from_axis_angle(right.x, right.y, right.z, cam_rot_val.y)
 	aux = q * aux
 
 	*cam_forward = aux
 
-	p_pos := ctx.player.pos
+	p_pos := globals.player.pos
 
 	dir := *cam_forward * cam_dist
 	final_pos := p_pos + dir
@@ -7587,7 +7501,8 @@ gameplay_cam::fn(ctx : *context, dt : f32, cam_dist : f32)
 	cam_pos := ctx.cam_pos_global
 	*cam_pos = final_pos
 
-	angy := angle_on_axis(&z, cam_forward, &ctx.up)
+
+	angy := angle_on_axis(&z, cam_forward, &globals.up)
 	angx := angle_on_axis(&h, cam_forward, &right)
 
 
@@ -7615,7 +7530,7 @@ create_clip_asset::fn(name : str_lit, start : f32, end : f32, vel : f32= 1.0) ! 
 	
 }
 ANIM_TICKS_PER_SEC:const f32= 24.0
-create_mesh_collider::fn(ctx : *context, c : *collider, model_tris_count : u32, model_verts_count : u32)
+create_mesh_collider::fn(ctx : *scene_info, c : *collider, model_tris_count : u32, model_verts_count : u32)
 {
 	minfo : *verts_and_tris= &c.MESH.info
 
@@ -7684,6 +7599,19 @@ update_sword_in_hand::fn(player_ent : *entity, sword : *entity, hand_bone : *bon
 	pivot =  q * pivot
 	sword.pos += pivot
 }
+get_not_used_scene::fn(ctx : *context) ! *scene_info
+{
+  for s in ctx.scenes
+  {
+    if s.in_use == false
+    {
+      s.in_use = true
+      return s 
+    }
+  }
+  assert(false)
+  return nil
+}
 coroutine_test::fn coroutine(cor_ctx : *coroutine_ctx, a : *u32)
 {
   *a = 1
@@ -7693,16 +7621,48 @@ coroutine_test::fn coroutine(cor_ctx : *coroutine_ctx, a : *u32)
 }
 main_loop::fn(ctx : *context)
 {
-  __dbg_break
+  drw_set := new_ptr(draw_settings)
+  memset(drw_set, 0 , sizeof(draw_settings))
   for i in 0..5
   {
-    mem_asset_idx :asset_index
-    find_asset(ctx, "mem{i}", &mem_asset_idx, ASSETS_MEM_ALLOC_OFFSET)
-    mem_asset := globals.assets[cast(u64)mem_asset_idx.asset_idx]
+    scn := ctx.scenes[cast(u64)i]
+    scn.name = new_str_lit(ctx.alloc, "alloc_{i}")
+    mem_asset_idx := find_empty_asset(ASSETS_MEM_ALLOC_OFFSET)
+    mem_asset := globals.assets[cast(u64)mem_asset_idx]
     mem_asset.type = asset_type.MEM_ALLOC
+
     memset(&mem_asset.MEM_ALLOC.alloc, 0, sizeof(mem_alloc))
+
     InitMemAlloc(&mem_asset.MEM_ALLOC.alloc, 458600)
-    
+    scn.in_use = true
+
+    scn.alloc_idx.asset_idx = cast(u32)mem_asset_idx
+    scn.alloc = &mem_asset.MEM_ALLOC.alloc
+
+
+
+    scn.bodies.alloc = scn.alloc;
+    dyn_init2(&scn.bodies, 4, scn.alloc);
+
+/*
+    scn.to_draw.alloc = scn.alloc;
+    dyn_init(&scn.to_draw, 4);
+
+    scn.broad_phase_ents.alloc = scn.alloc;
+    dyn_init(&scn.broad_phase_ents, 4);
+
+    scn.narrow_phase_ents.alloc = scn.alloc;
+    dyn_init(&scn.narrow_phase_ents, 4);
+
+    scn.hit_ents_in_col.alloc = scn.alloc;
+    dyn_init(&scn.hit_ents_in_col, 4);
+
+    dyn_init2(&scn.floaty_platforms, 4, scn.alloc);
+    dyn_init2(&scn.axe_ents, 4, scn.alloc);
+    */
+
+    dyn_init2(&scn.playable_ents, 4, scn.alloc);
+    dyn_init2(&scn.drawable_ents, 4, scn.alloc);
   }
 
   test_c : u32
@@ -7869,8 +7829,8 @@ main_loop::fn(ctx : *context)
 	total_fl = HandleDirTotalFiles(hidx)
 
 
-	ctx.up.y = 1.0
-	globals.up = ctx.up
+	globals.up.y = 1.0
+	globals.up = globals.up
 	globals.ctx = ctx
 
 	dyn_init2(&ctx.coroutines.funcs, 4, ctx.alloc);
@@ -7882,10 +7842,10 @@ main_loop::fn(ctx : *context)
 	LinearInit(&globals.ast_alloc, ctx.alloc, 1024)
 	LinearInit(&globals.scope_alloc, ctx.alloc, 32)
 
-	ctx.aux_vertices_sz = 500
-	ctx.aux_vertices = cast(*_vec)GetMem(ctx.aux_vertices_sz * 3* sizeof(_vec))
-	ctx.aux_indices_sz = ctx.aux_vertices_sz * 3
-	ctx.aux_indices = cast(*u32)GetMem(ctx.aux_indices_sz * sizeof(u32))
+	globals.aux_vertices_sz = 500
+	globals.aux_vertices = cast(*_vec)GetMem(globals.aux_vertices_sz * 3* sizeof(_vec))
+	globals.aux_indices_sz = globals.aux_vertices_sz * 3
+	globals.aux_indices = cast(*u32)GetMem(globals.aux_indices_sz * sizeof(u32))
 
 	for i in 0..total_fl
 	{
@@ -7928,7 +7888,8 @@ main_loop::fn(ctx : *context)
 */
 
 	//using ctx;
-	ctx.line_shader = find_shader(ctx, "line.mat")
+  cur_scn := ctx.scenes[0]
+	globals.line_shader = find_shader(cur_scn, "line.mat")
 	draw:draw_info3d;
 	draw2d:draw_info;
 	//AssignCamStuff(scn, &draw);
@@ -7941,6 +7902,7 @@ main_loop::fn(ctx : *context)
 	other_block :_vec;
 	other_block.x = 5.0;
 	other_block.y = 0.0;
+
 
 	globals.cam_pos = &cam_pos
 
@@ -7955,7 +7917,7 @@ main_loop::fn(ctx : *context)
 	col.contacts.count = 1;
 
 
-	player_ent:*entity=NewPlayerEnt(ctx, "player");
+	player_ent:*entity=NewPlayerEnt(ctx.scenes[0], "player");
 	{
 		c1 := player_ent.cols[0]
 		c1.type = col_type.CAPSULE
@@ -7971,10 +7933,10 @@ main_loop::fn(ctx : *context)
 	player_ent.mov_info.speed = 2.5
 	player_ent.mov_info.jmp.speed = 2.1
 
-	find_asset(ctx, "bones.fbx", &player_ent.model)
-	player_ent.material_idx = find_shader(ctx, "skin.mat")
+	find_asset(ctx.scenes[0], "bones.fbx", &player_ent.model)
+	player_ent.material_idx = find_shader(ctx.scenes[0], "skin.mat")
 	player_ent.flags = player_ent.flags | ENTITY_CUSTOM_SHADER
-	player_ent.in_material_instance = new_material_instance(ctx, &player_ent.material_idx, player_ent)
+	player_ent.in_material_instance = new_material_instance(ctx.scenes[0], &player_ent.material_idx, player_ent)
 	player_ent.name = "player"
 	player_ent.size.x = 1.0
 	player_ent.size.y = 1.0
@@ -7983,7 +7945,7 @@ main_loop::fn(ctx : *context)
 	player_ent.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
 	player_ent.c_type = clip_type.C3D
 	player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET
-	dyn_add(&ctx.ents_with_clip, player_ent)
+	dyn_add(&ctx.scenes[0].ents_with_clip, player_ent)
 	dyn_add(&player_ent.remove_from, ent_part_of.ANIMATION)
 	player_ent.mov_info.neck_bone = find_bone2("neck", get_model_ptr(&player_ent.model))
 	player_ent.mov_info.arm_bone = find_bone2("arm1_r", get_model_ptr(&player_ent.model))
@@ -8003,11 +7965,11 @@ main_loop::fn(ctx : *context)
 	//hand_bone = find_bone2("ik_hand_r", get_model_ptr(&player_ent.model))
 	//assign_sec_clip_to_bone(hand_bone, &c_asset)
 	p_tex :asset_index
-	if !find_asset(ctx, "ch.png", &p_tex, ASSETS_TEXTURES_OFFSET)
+	if !find_asset(ctx.scenes[0], "ch.png", &p_tex, ASSETS_TEXTURES_OFFSET)
 	{
 		__dbg_break
 	}
-	set_shader_uniform_sampler2d(ctx, player_ent, "tex", &p_tex)
+	set_shader_uniform_sampler2d(ctx.scenes[0], player_ent, "tex", &p_tex)
 
 	player_ent.anim_func = fn(ent : *entity, dt : f32)
 	{
@@ -8066,7 +8028,7 @@ main_loop::fn(ctx : *context)
 	bullet_sz := _vec{0.1, 0.1, 0.1}
 	for i in 0..total_bullets
 	{
-		e := NewPlaneEnt(ctx, "bullet{i}", &ctx.up, &bullet_sz)
+		e := NewPlaneEnt(ctx.scenes[0], "bullet{i}", &globals.up, &bullet_sz)
 		c := e.cols[0]
 		c.type = col_type.SPHERE
 		c.SPHERE.radius = 0.4
@@ -8082,7 +8044,7 @@ main_loop::fn(ctx : *context)
 	}
 	for i in 0..8
 	{
-		e := NewEnt(ctx, "emmitter{i}")
+		e := NewEnt(ctx.scenes[0], "emmitter{i}")
 		e.flags = e.flags & ~(ENTITY_SERIALIZE) | ENTITY_DONT_FREE
 		e.is_active = false
 		e.type = ent_type.EMMITTER
@@ -8091,11 +8053,11 @@ main_loop::fn(ctx : *context)
 		e.emmitter.total = 4
 		e.emmitter.particles = cast(*particle_pos_sz_vel)heap_alloc(ctx.alloc, sizeof(particle_pos_sz_vel) * e.emmitter.total)
 
-		dyn_add(&ctx.emmitters, e)
+		dyn_add(&ctx.scenes[0].emmitters, e)
 		globals.temp_alloc.cur = 0
 	}
 	
-	ctx.player = player_ent;
+	globals.player = player_ent;
 	
 	dyn_init2(&ctx.masking_objs, 4, ctx.alloc);
 	dyn_init2(&ctx.start_pos, 4, ctx.alloc);
@@ -8122,7 +8084,6 @@ main_loop::fn(ctx : *context)
 	ctx.layers_ptr = &layers;
 
 	//ctx.alloc = &ctx.per_scene_alloc;
-	//OpenSceneGame(ctx, "../scenes/01", &layers, &ctx.textures);
 	ctx.cam_size = 5.0;
 	//ctx.cam_size_original = ctx.cam_size;
 
@@ -8142,6 +8103,7 @@ main_loop::fn(ctx : *context)
 
 
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
+/*
 	terrain.tex = &ctx.terrain_tex
 	other := NewEnt(ctx, "terrain")
 	other.flags = other.flags | ENTITY_3D | ENTITY_DONT_FREE
@@ -8165,7 +8127,6 @@ main_loop::fn(ctx : *context)
 	
 	str :string
 
-/*
 	total_chunks := TERRAIN_WIDTH
 	tris_per_chunk := TERRAIN_TRIS_SIZE
 	terrain.tris.data = LinearGet(&globals.terrain_alloc, cast(u32)tris_per_chunk)
@@ -8186,6 +8147,9 @@ main_loop::fn(ctx : *context)
 	cam_forward : _vec
 	cam_forward.z = -1.0
 
+  drw_set.cam_pos = &cam_pos
+  drw_set.cam_rot = &cam_rot
+  drw_set.cam_forward = &cam_forward
 
 
 	//cam_rot.y = 1.5708
@@ -8208,7 +8172,7 @@ main_loop::fn(ctx : *context)
 	timer_for_cam_go_back_of_player : f32
 	ang_diff_for_cam_go_back_of_player : f32
 
-	player_back_pos := player_ent.pos - cam_forward * cam_to_player_dist + ctx.up * 2.0
+	player_back_pos := player_ent.pos - cam_forward * cam_to_player_dist + globals.up * 2.0
 	cam_start_pos_before_rotate_to_back_pos :_vec
 	on_getting_to_back_pos := false
 	forward := &player_ent.forward
@@ -8218,43 +8182,26 @@ main_loop::fn(ctx : *context)
 
 	
 	sword :*entity
-	sword = new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{1.1, 0.1, 0.1}, true);
+	sword = new_cube(ctx.scenes[0], &_vec{10.0, 70.0, 10.0}, &_vec{1.1, 0.1, 0.1}, true);
 	sword.flags = sword.flags | ENTITY_DONT_FREE
 	sword.flags = sword.flags & ~ENTITY_SERIALIZE
 
 	//test_anim := new_cube(ctx, &_vec{15.0, 73.0, 10.0}, &_vec{40.0, 1.0, 40.0}, false);
 
 
-	ctx.shock_ent = NewEnt(ctx, "shock")
-	ctx.shock_ent.flags = ctx.shock_ent.flags | ENTITY_3D | ENTITY_HAS_TEXTURE | ENTITY_DONT_FREE | ENTITY_NO_LIGHT
-	ctx.shock_ent.flags = ctx.shock_ent.flags | ENTITY_TRANSPARENT
-	dyn_add(&ctx.drawable_ents, ctx.shock_ent)
-	dyn_add(&ctx.ents_with_clip, ctx.shock_ent)
-	ctx.shock_ent.cl = ctx.shock_small_clip
-	ctx.shock_ent.is_static = true
-	ctx.shock_ent.model.asset_idx = ASSETS_MODELS_OFFSET + 1
-
-	ctx.shock_ent_emmitter = NewEnt(ctx, "shock_emmiter")
-	ctx.shock_ent_emmitter.flags = ctx.shock_ent_emmitter.flags | ENTITY_3D | ENTITY_HAS_TEXTURE | ENTITY_DONT_FREE | ENTITY_NO_LIGHT
-	ctx.shock_ent_emmitter.flags = ctx.shock_ent_emmitter.flags | ENTITY_TRANSPARENT
-	dyn_add(&ctx.drawable_ents, ctx.shock_ent_emmitter)
-	//dyn_add(&ctx.ents_with_clip, ctx.shock_ent_emmitter)
-	ctx.shock_ent_emmitter.tex_id = ctx.ball_tex
-	ctx.shock_ent_emmitter.is_static = true
-	ctx.shock_ent_emmitter.model.asset_idx = ASSETS_MODELS_OFFSET + 1
 
 
 
-	ctx.preview_ent = new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{1.0, 1.0, 1.0, 0.0}, false);
-	ctx.preview_ent.flags = ctx.preview_ent.flags | ENTITY_DONT_FREE
-	ctx.preview_ent.flags = ctx.preview_ent.flags & ~(ENTITY_SERIALIZE | ENTITY_HAS_TEXTURE)
-	ctx.preview_ent.is_active = false
-	ctx.preview_ent.name = "preview_ent"
-	ctx.preview_ent.type = ent_type.PREVIEW_ENT
+	globals.preview_ent = new_cube(ctx.scenes[0], &_vec{5.0, 70.5, 5.0}, &_vec{1.0, 1.0, 1.0, 0.0}, false);
+	globals.preview_ent.flags = globals.preview_ent.flags | ENTITY_DONT_FREE
+	globals.preview_ent.flags = globals.preview_ent.flags & ~(ENTITY_SERIALIZE | ENTITY_HAS_TEXTURE)
+	globals.preview_ent.is_active = false
+	globals.preview_ent.name = "preview_ent"
+	globals.preview_ent.type = ent_type.PREVIEW_ENT
 
-	ctx.preview_ent.color = _vec{1.0, 1.0, 1.0, 1.0}
+	globals.preview_ent.color = _vec{1.0, 1.0, 1.0, 1.0}
 
-	remove_body(ctx, ctx.preview_ent)
+	remove_body(ctx.scenes[0], globals.preview_ent)
 
 
 	HideCursor(hidden_cur)
@@ -8262,9 +8209,9 @@ main_loop::fn(ctx : *context)
 	prev_select_ent_col : _vec
 
 
-	x_axis_ent := new_axis_ent(ctx, "x_axis", &_vec{1.0, 0.2, 0.2}, &_vec{1.0, 0.0, 0.0, 1.0})
-	y_axis_ent := new_axis_ent(ctx, "y_axis", &_vec{0.2, 1.0, 0.2}, &_vec{0.0, 1.0, 0.0, 1.0})
-	z_axis_ent := new_axis_ent(ctx, "z_axis", &_vec{0.2, 0.2, 1.0}, &_vec{0.0, 0.0, 1.0, 1.0})
+	x_axis_ent := new_axis_ent(ctx.scenes[0], "x_axis", &_vec{1.0, 0.2, 0.2}, &_vec{1.0, 0.0, 0.0, 1.0})
+	y_axis_ent := new_axis_ent(ctx.scenes[0], "y_axis", &_vec{0.2, 1.0, 0.2}, &_vec{0.0, 1.0, 0.0, 1.0})
+	z_axis_ent := new_axis_ent(ctx.scenes[0], "z_axis", &_vec{0.2, 0.2, 1.0}, &_vec{0.0, 0.0, 1.0, 1.0})
 
 	ctx.y_axis_ent = y_axis_ent
 
@@ -8319,34 +8266,34 @@ main_loop::fn(ctx : *context)
   ReadFile(file_name, file_data);
   while stage != loading_stage.DONE
   {
-    DeserializeAllEnt(&ctx.coroutines, ctx, &stage, file_data, fl_sz, &cor)
+    OpenScene(&ctx.coroutines, ctx.cur_scn, &stage, file_data, fl_sz, &cor)
   }
   stage = loading_stage.NONE
 
 	
-	ctx.grid_ent = NewEnt(ctx, "grid_ent")
+	ctx.grid_ent = NewEnt(ctx.cur_scn, "grid_ent")
 	ctx.grid_ent.flags = ctx.grid_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
 	ctx.grid_ent.flags = ctx.grid_ent.flags & ~ENTITY_HAS_TEXTURE
 	ctx.grid_ent.is_active = true
 	ctx.grid_ent.model.asset_idx = ASSETS_MODELS_OFFSET + 1
 	ctx.grid_ent.forward = _vec{0.0, 1.0, 0.0}
-	ctx.grid_ent.material_idx = find_shader(ctx, "grid2.mat")
-	ctx.grid_ent.in_material_instance = new_material_instance(ctx, &ctx.grid_ent.material_idx, ctx.grid_ent)
-	set_shader_uniform_sampler2d(ctx, ctx.grid_ent, "tex", &ctx.grid_transparent_tex)
+	ctx.grid_ent.material_idx = find_shader(ctx.cur_scn, "grid2.mat")
+	ctx.grid_ent.in_material_instance = new_material_instance(ctx.cur_scn, &ctx.grid_ent.material_idx, ctx.grid_ent)
+	set_shader_uniform_sampler2d(ctx.cur_scn, ctx.grid_ent, "tex", &globals.grid_transparent_tex)
 	ctx.grid_ent.size.x = 10.0
 	ctx.grid_ent.size.y = 10.0
 	ctx.grid_ent.rot = euler_to_quaternion(90.0, 0.0, 0.0).v
 	ctx.grid_ent.layer = LAYER_IGNORE_RAYCAST
 	ctx.grid_ent.is_active = false
-	dyn_add(&ctx.drawable_ents, &ctx.grid_ent);
+	dyn_add(&ctx.cur_scn.drawable_ents, &ctx.grid_ent);
 
-	sky := new_cube(ctx, &_vec{5.0, 70.5, 5.0}, &_vec{500.5, 500.2, 500.5, 0.0}, false);
+	sky := new_cube(ctx.cur_scn, &_vec{5.0, 70.5, 5.0}, &_vec{500.5, 500.2, 500.5, 0.0}, false);
 	sky.name = "sky"
 	sky.is_trigger = true
 	sky.flags = sky.flags | ENTITY_CUSTOM_SHADER | ENTITY_DONT_FREE
 	sky.flags = sky.flags & ~ENTITY_SERIALIZE
-	sky.material_idx = find_shader(ctx, "sky.mat")
-	sky.in_material_instance = new_material_instance(ctx, &sky.material_idx, sky)
+	sky.material_idx = find_shader(ctx.cur_scn, "sky.mat")
+	sky.in_material_instance = new_material_instance(ctx.cur_scn, &sky.material_idx, sky)
 
 
 
@@ -8376,19 +8323,19 @@ main_loop::fn(ctx : *context)
 	ctx.sun_color = _vec{1.0, 0.6, 0.3, 1.0}
 	ctx.sun_dir = normalize_vec(&_vec{0.5, 0.2, 0.5, 0.0})
 	
-	//CopyDataFromModel(2, ctx.aux_vertices, ctx.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
+	//CopyDataFromModel(2, ctx.aux_vertices, globals.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
 
-	ctx.aux_col_ent = new_cube(ctx, &ctx.white_color, &ctx.white_color, false)
+	globals.aux_col_ent = new_cube(ctx.cur_scn, &ctx.white_color, &ctx.white_color, false)
   
-	ctx.aux_col_ent.flags = ctx.aux_col_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
-	ctx.aux_col_ent.type = ent_type.AUX_COL_ENT
-	ctx.aux_col_ent.is_active = false
+	globals.aux_col_ent.flags = globals.aux_col_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
+	globals.aux_col_ent.type = ent_type.AUX_COL_ENT
+	globals.aux_col_ent.is_active = false
 
 
 
 	//PlayAudio("01.flac", 1.0, 1.0);
-	StepCol(ctx, 0.0)
-	assign_bodies_to_chunks(ctx)
+	StepCol(ctx.cur_scn, 0.0)
+	assign_bodies_to_chunks(ctx.cur_scn)
 	
     /*
 	for c in ctx.col_chunks.col_chunks
@@ -8396,7 +8343,6 @@ main_loop::fn(ctx : *context)
 		dyn_add(&c.entities, trn_ent)
 
 	}
-    */
 
 	//ctx.screen_tex_id = GenRawTexture(256, 256, gen_texture_type.RGBA, gen_texture_filter.NEAREST, gen_texture_size.BYTE)
 
@@ -8409,6 +8355,8 @@ main_loop::fn(ctx : *context)
 	//set_shader_uniform_sampler2d(ctx, trn_ent, "heightmap", &ctx.terrain_tex)
 	set_shader_uniform2f(ctx, trn_ent, "terrain_size", cast(f32)ctx.terrain_tex.width, cast(f32)ctx.terrain_tex.height)
 	set_shader_uniform1f(ctx, trn_ent, "amplitude", cast(f32)terrain.amplitude)
+	trn_ent.is_active = false
+    */
 
 	cam_dir_terrain :_vec
 
@@ -8418,7 +8366,6 @@ main_loop::fn(ctx : *context)
 	on_click_ent_pos_add :_vec
 	on_click_ent_size :_vec
 
-	trn_ent.is_active = false
 
 	ctx.cam_dist = 5.0
 
@@ -8491,7 +8438,7 @@ main_loop::fn(ctx : *context)
 		player_ent.color.z = 0.0
 
 		ang: f32=?
-		cross := cross_vec(&ctx.up, &cam_forward)
+		cross := cross_vec(&globals.up, &cam_forward)
 
 		//cam_mov(ctx)
 
@@ -8535,7 +8482,16 @@ main_loop::fn(ctx : *context)
 				mvx := GetMouseVelX() * dt
 				mvy := GetMouseVelY() * dt
 				cam_mov_editor(ctx, mvx, mvy)
-				sel_fw := axis_sel_ent.forward 
+        sel_fw:_vec
+        if axis_sel_ent
+        {
+          sel_fw = axis_sel_ent.forward 
+        }
+        else
+        {
+
+          sel_fw.z = 0.0
+        }
 
 				if IsKeyDown(key_enum.KEY_P)
 				{
@@ -8571,7 +8527,7 @@ main_loop::fn(ctx : *context)
 				}
 				if IsKeyDown(key_enum.KEY_4)
 				{
-					change_preview_col_idx(ctx, ctx.cur_preview_idx + 1)
+					change_preview_col_idx(ctx, globals.cur_preview_idx + 1)
 				}
 				if IsKeyDown(key_enum.KEY_5)
 				{
@@ -8589,7 +8545,7 @@ main_loop::fn(ctx : *context)
 					size_ptr := &out_ent.size
 
 					prev_ent := out_ent
-					if ctx.cur_preview_idx == 0 && out_ent.type == ent_type.AUX_COL_ENT
+					if globals.cur_preview_idx == 0 && out_ent.type == ent_type.AUX_COL_ENT
 					{
 						out_ent = out_ent.parent_col
 					}
@@ -8597,8 +8553,8 @@ main_loop::fn(ctx : *context)
 					dist := len_vec(&(cam_pos - out_ent.pos))
 					mul := 2.0 + dist
 					n :_vec
-					up_vec := ctx.up
-					if dot_vec(&ctx.up, &local_fw) > 0.99
+					up_vec := globals.up
+					if dot_vec(&globals.up, &local_fw) > 0.99
 					{
 						up_vec = _vec{1.0, 0.0, 0.0}
 					}
@@ -8683,7 +8639,7 @@ main_loop::fn(ctx : *context)
 						dy := dot_vec(&local_fw, &select_up) * -mvy
 
 						*size_ptr += local_fw * (dx + dy) * mul * 2.0
-						if ctx.cur_preview_idx == 0
+						if globals.cur_preview_idx == 0
 						{
 							out_ent.col_size += local_fw * (dx + dy) * mul * 2.0
 						}
@@ -8723,14 +8679,9 @@ main_loop::fn(ctx : *context)
 					}
 				}
 
-				if out_ent.is_static && out_ent.cols.count > 0 
-				{
-					c1 := *out_ent.cols[0]
-					c1.data_ready = false
-				}
 				if IsKeyDown(key_enum.KEY_DEL) && out_ent != nil
 				{
-					DeleteEnt(ctx, out_ent)
+					DeleteEnt(ctx.cur_scn, out_ent)
 					out_ent = nil
 					x_axis_ent.is_active = true
 					y_axis_ent.is_active = true
@@ -8739,6 +8690,11 @@ main_loop::fn(ctx : *context)
 				}
 				if out_ent
 				{
+          if out_ent.is_static && out_ent.cols.count > 0 
+          {
+            c1 := *out_ent.cols[0]
+            c1.data_ready = false
+          }
 					if out_ent.type == ent_type.AXIS
 					{
 					}
@@ -8807,7 +8763,7 @@ main_loop::fn(ctx : *context)
 
 				if IsKeyDown(key_enum.KEY_I)
 				{
-					if ctx.cur_preview_idx == 1 && out_ent != nil
+					if globals.cur_preview_idx == 1 && out_ent != nil
 					{
 						prev_ent := out_ent
 						if out_ent.type == ent_type.AUX_COL_ENT
@@ -8816,7 +8772,7 @@ main_loop::fn(ctx : *context)
 						}
 						if out_ent.cols.count == 0
 						{
-							add_body(ctx, out_ent);
+							add_body(ctx.cur_scn, out_ent);
 						}
 						printf("creting a new collider\n")
 						new_col := new_ptr(collider)
@@ -8843,14 +8799,14 @@ main_loop::fn(ctx : *context)
 						point : _vec
 
 						closest :*entity
-						if RaycastWithNonBodies(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
+						if RaycastWithNonBodies(ctx.cur_scn, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
 						{
 							printf("hit {aux_sel_from_non_bodies.name}\n")
 							shortest_dist = len_vec(&(cam_pos - col.contact_point))
 							point = col.contact_point
 							closest = aux_sel_from_non_bodies
 						}
-						if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+						if Raycast(ctx.cur_scn, &cam_pos, &cam_dir, &col, 0, &aux_sel)
 						{
 							aux_dist := len_vec(&(cam_pos - col.contact_point))
 
@@ -8860,7 +8816,8 @@ main_loop::fn(ctx : *context)
 								closest = aux_sel
 							}
 						}
-						if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent, &col)
+            /*
+						if RaycastWithTerrain(ctx.cur_scn, &cam_pos, &cam_dir, trn_ent, &col)
 						{
 							aux_dist := len_vec(&(cam_pos - col.contact_point))
 
@@ -8869,6 +8826,7 @@ main_loop::fn(ctx : *context)
 								point = col.contact_point
 							}
 						}
+            */
 
 						n:=ctx.grid_ent.forward
 						if ctx.on_custom_grid
@@ -8877,7 +8835,7 @@ main_loop::fn(ctx : *context)
 							t := dot_vec(&n, &(cam_pos - ctx.grid_ent.pos)) / denom
 							point = cam_pos - dir * t
 						}
-						cube := new_cube(ctx, &point, &_vec{1.0, 1.0, 1.0}, true);
+						cube := new_cube(ctx.cur_scn, &point, &_vec{1.0, 1.0, 1.0}, true);
 
 						new_rot := quaternion_to_euler(&ctx.grid_ent.rot)
 						cube.rot = euler_to_quaternion(0.0, radians_to_degree(new_rot.y), 0.0).v
@@ -8889,11 +8847,11 @@ main_loop::fn(ctx : *context)
 							a := globals.assets[idx]
 							m := &a.MODEL.mod
 							cube.name = new_str_lit(ctx.alloc, m.name)
-							cube.pos = ctx.preview_ent.pos
+							cube.pos = globals.preview_ent.pos
 							cube.model.asset_idx = cast(u32)idx
-							cube.pos = ctx.preview_ent.pos
+							cube.pos = globals.preview_ent.pos
 							cube.flags = cube.flags & ~(ENTITY_HAS_TEXTURE)
-							cube.rot = ctx.preview_ent.rot
+							cube.rot = globals.preview_ent.rot
 						}
 						else
 						{
@@ -8929,12 +8887,12 @@ main_loop::fn(ctx : *context)
 					aux_sel_from_non_bodies : *entity
 					shortest_dist : f32 = 9999.0
 				
-					if RaycastWithNonBodies(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
+					if RaycastWithNonBodies(ctx.cur_scn, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
 					{
 						//printf("hit {aux_sel_from_non_bodies.name}\n")
 						shortest_dist = len_vec(&(cam_pos - col.contact_point))
 					}
-					if Raycast(ctx, &cam_pos, &cam_dir, &col, 0, &aux_sel)
+					if Raycast(ctx.cur_scn, &cam_pos, &cam_dir, &col, 0, &aux_sel)
 					{
 						aux_dist := len_vec(&(cam_pos - col.contact_point))
 						if aux_dist < shortest_dist || aux_sel.type == ent_type.AXIS
@@ -8946,7 +8904,7 @@ main_loop::fn(ctx : *context)
 							y_axis_ent.is_active = true
 							z_axis_ent.is_active = true
 
-							select_right = cross_vec(&dir, &ctx.up)
+							select_right = cross_vec(&dir, &globals.up)
 							select_up = cross_vec(&select_right, &dir)
 							on_click_dir = dir
 
@@ -8989,6 +8947,7 @@ main_loop::fn(ctx : *context)
 
 						}
 					}
+          /*
 					else if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
 					{
 						aux_dist := len_vec(&(cam_pos - col.contact_point))
@@ -8997,6 +8956,7 @@ main_loop::fn(ctx : *context)
 							out_ent = trn_ent
 						}
 					}
+          */
 					else if aux_sel_from_non_bodies == nil
 					{
 						if out_ent != nil && out_ent.type != ent_type.TERRAIN
@@ -9056,6 +9016,7 @@ main_loop::fn(ctx : *context)
 						}
 					}
 					dyn_clear(&ctx.vertex_terrain)
+          /*
 					if RaycastWithTerrain(ctx, &cam_pos, &cam_dir_terrain, trn_ent, &col)
 					{
 						out_ent = trn_ent
@@ -9069,6 +9030,7 @@ main_loop::fn(ctx : *context)
 						ctx.tedit.terrain_height_max = cast(f32)cast(s32)*ptr_offset(dst, 0, u16)
 						//draw_radial_menu(ctx, 0.0, 0.0, cast(*u32)&ctx.tedit.brush, brush_items_radial.len, brush_items_radial[0])
 					}
+          */
 				}
 				else if !ctx.on_contructing_path && !ctx.on_custom_grid &&  axis_sel_ent == nil && (out_ent == nil || out_ent.type == ent_type.TERRAIN)
 				{
@@ -9076,12 +9038,14 @@ main_loop::fn(ctx : *context)
 					//printf("will try {ctx.frames_total}\n")
 					if IsMouseHeld(mouse_enum.LEFT)
 					{
+            /*
 						dyn_clear(&ctx.vertex_terrain)
 						if RaycastWithTerrain(ctx, &cam_pos, &cam_dir, trn_ent, &col)
 						{
 							out_ent = trn_ent
 						}
 						update_terrain_for_visualization(ctx, terrain, true)
+            */
 					}
 					if IsMouseUp(mouse_enum.LEFT)
 					{
@@ -9130,7 +9094,7 @@ main_loop::fn(ctx : *context)
 							
 							next = *ctx.path_ents[i + 1]
 							dir = next.pos - cur.pos
-							cross = cross_vec(&ctx.up, &dir)
+							cross = cross_vec(&globals.up, &dir)
 							cross = normalize_vec(&cross)
 							cross = cross * pwidth_half
 
@@ -9145,7 +9109,7 @@ main_loop::fn(ctx : *context)
 						}
 						else if (i + 1) == limit
 						{
-							cross = cross_vec(&prev_dir, &ctx.up)
+							cross = cross_vec(&prev_dir, &globals.up)
 							cross = normalize_vec(&cross)
 							cross = cross * pwidth_half
 
@@ -9162,7 +9126,7 @@ main_loop::fn(ctx : *context)
 							dir = next.pos - cur.pos
 							d := dot_vec(&normalize_vec(&dir), &normalize_vec(&prev_dir))
 
-							cross = cross_vec(&dir, &ctx.up)
+							cross = cross_vec(&dir, &globals.up)
 
 							half_dir := lerp(&-dir, &prev_dir, 0.5)
 
@@ -9313,10 +9277,10 @@ main_loop::fn(ctx : *context)
 			
 			*/
 
-			playble_ents_logic(ctx, &dt)
-			to_deactivate_func(ctx, dt)
-			UpdateEntsWithClips(ctx, dt)
-			PhysicsUpdate(ctx, dt)
+			playble_ents_logic(ctx.cur_scn, &dt)
+			to_deactivate_func(ctx.cur_scn, dt)
+			UpdateEntsWithClips(ctx.cur_scn, dt)
+			PhysicsUpdate(ctx.cur_scn, dt)
 
 			update_sword_in_hand(player_ent, sword, hand_bone)
 
@@ -9347,13 +9311,13 @@ main_loop::fn(ctx : *context)
 				}
 				create_event_etruct.CREATE_EMMITTER
 				{
-					ent := get_inactive_ent(ctx, &ctx.emmitters, INACTIVE_FLAGS_GET_FIRST_WHEN_NONE_FOUND)
+					ent := get_inactive_ent(ctx.cur_scn, &ctx.cur_scn.emmitters, INACTIVE_FLAGS_GET_FIRST_WHEN_NONE_FOUND)
 					ent.pos = ev.CREATE_EMMITTER.pos
 					ent.timer_deactivate = ev.CREATE_EMMITTER.timer_deactivate
 					ent.emmitter.p = ev.CREATE_EMMITTER.p
 					init_emmitter(ent)
 
-					dyn_add(&ctx.to_deactivate, ent)
+					dyn_add(&ctx.cur_scn.to_deactivate, ent)
 
 					dyn_rem(&globals.create_events, cast(u32)i)
 
@@ -9432,10 +9396,10 @@ main_loop::fn(ctx : *context)
 					if new_mesh_info
 					{
 						minfo := &c.MESH.info
-						create_mesh_collider(ctx, c, model_tris_count, model_verts_count)
+						create_mesh_collider(ctx.cur_scn, c, model_tris_count, model_verts_count)
 					}
 					printf("mesh changed\n")
-					assign_mesh_to_chunks(ctx, info._out_ent)
+					assign_mesh_to_chunks(ctx.cur_scn, info._out_ent)
 				}
 			}
 			imgui_show_window_grid(ctx, out_ent, &info)
@@ -9473,7 +9437,7 @@ main_loop::fn(ctx : *context)
 				apply = fn(ctx : *context, info : *imgui_window)
 				{
 					info._out_ent.material_idx = ctx.selected_material
-					info._out_ent.in_material_instance = new_material_instance(ctx, &ctx.selected_material, info._out_ent)
+					info._out_ent.in_material_instance = new_material_instance(ctx.cur_scn, &ctx.selected_material, info._out_ent)
 					info._out_ent.flags = info._out_ent.flags | ENTITY_CUSTOM_SHADER
 					//printf("ent midx s {info._out_ent.material_idx}\n")
 				}
@@ -9486,7 +9450,7 @@ main_loop::fn(ctx : *context)
 			info.
 			{
 				name = "textures"
-				items = cast(u32)ctx.textures.count
+				items = cast(u32)globals.textures.count
 				items_per_line = 4
 				selected_ref = &ctx.selected_tex
 				window_bool = &ctx.textures_wnd
@@ -9504,7 +9468,7 @@ main_loop::fn(ctx : *context)
 					}
 					else
 					{
-						a = globals.assets[cast(u64)ctx.white_tex.asset_idx]
+						a = globals.assets[cast(u64)globals.white_tex.asset_idx]
 						t := a.TEXTURE_ARRAY.texs[0]
 						ImGuiImage(t.id, 64.0, 64.0)
 					}
@@ -9529,13 +9493,13 @@ main_loop::fn(ctx : *context)
 		if ctx.editor_wnd
 		{
 			prev_ent := out_ent
-			if out_ent.type == ent_type.AUX_COL_ENT
+			if out_ent != nil && out_ent.type == ent_type.AUX_COL_ENT
 			{
 				out_ent = out_ent.parent_col
 			}
 			editor_window(ctx, &out_ent, dt)
 
-			if prev_ent.type == ent_type.AUX_COL_ENT
+			if prev_ent != nil&& prev_ent.type == ent_type.AUX_COL_ENT
 			{
 				out_ent = prev_ent
 			}
@@ -9558,17 +9522,17 @@ main_loop::fn(ctx : *context)
 		//ResumeThread(render_thread_id)
 
 		//update_screen_texture(ctx, &ctx.mach)
-		emmitters_func(ctx, dt)
-		DrawEnts(ctx, ctx.cam_pos_global, ctx.cam_rot_global)
-		LookAtPlayerEnts(ctx, ctx.cam_pos_global, ctx.cam_rot_global)
-		items_func(ctx, dt, out_ent)
+		emmitters_func(ctx.cur_scn, dt, drw_set)
+		DrawEnts(ctx.cur_scn, ctx.cam_pos_global, ctx.cam_rot_global, drw_set)
+		LookAtPlayerEnts(ctx.cur_scn, drw_set)
+		items_func(ctx.cur_scn, dt, out_ent)
 
 		if !ctx.editor_cam
 		{
 			s:= 0.003
 			// aim
 			DrawSquare(ctx, -s, -s, s, s, &_vec{1.0, 1.0, 1.0, 1.0})
-			draw_ui_gameplay(ctx, ctx.player.mov_info)
+			draw_ui_gameplay(ctx, globals.player.mov_info)
 		}
 		globals.temp_alloc.cur = 0
 		/*
@@ -9653,7 +9617,8 @@ main_loop::fn(ctx : *context)
         }
         if ctx.cur_scene_changing
         {
-          DeserializeAllEnt(&ctx.coroutines, ctx, &stage, ctx.cur_scene_changing, cast(s64)ctx.cur_scene_changing_sz, &cor)
+          //assert(ctx.changing_scn != nil)
+          OpenScene(&ctx.coroutines, ctx.changing_scn, &stage, ctx.cur_scene_changing, cast(s64)ctx.cur_scene_changing_sz, &cor)
           if stage == loading_stage.DONE
           {
             caux := cor
@@ -9713,7 +9678,7 @@ find_empty_asset::fn(idx : u64) ! u64
 	ASSERT(false)
 	return -1
 }
-load_tex::fn(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! asset_index
+load_tex::fn(ctx : *scene_info, name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! asset_index
 {
 	ret :asset_index
 	found := find_asset(ctx, name, &ret)
@@ -9736,11 +9701,9 @@ load_tex::fn(ctx : *context, name:str_lit, x_offset : u32, y_offset:u32, sp_widt
 	tex.y_offset = y_offset
 	tex.width = sp_width
 	tex.height = sp_height
-	tex.idx_on_array = cast(u32)(ctx.textures.count - 1)
+	tex.idx_on_array = cast(u32)(globals.textures.count - 1)
 
 	a.in_use = true
-
-
 
 	ret.asset_idx = cast(u32)empty_idx
 	dyn_add(&a.TEXTURE_ARRAY.texs, &tex)
@@ -9764,7 +9727,7 @@ clear_material_instances::fn()
 		idx++
 	}
 }
-find_asset::fn(ctx : *context, name:str_lit, out : *asset_index, start : u64 = 0) ! bool
+find_asset::fn(ctx : *scene_info, name:str_lit, out : *asset_index, start : u64 = 0) ! bool
 {
 	idx :u32
 	aux_buffer:[13]char
@@ -9791,7 +9754,7 @@ TERRAIN_MESHES_SIZE :const s32= sizeof(mesh_info) * (TERRAIN_WIDTH * TERRAIN_WID
 TERRAIN_CHUNKS_COL_SIZE :const s32= sizeof(mesh_info) * TERRAIN_WIDTH * TERRAIN_WIDTH
 
 
-UpdateEntsWithClips::fn(ctx : *context, dt : f32)
+UpdateEntsWithClips::fn(ctx : *scene_info, dt : f32)
 {
 	if ctx.ents_with_clip.count == 0
 		return;
@@ -9954,6 +9917,7 @@ main:: fn(){
 	ctx.timers.timers_count = 128;
 	ctx.timers.timers = cast(*timer_info)heap_alloc(ctx.alloc, ctx.timers.timers_count * sizeof(timer_info));
 
+/*
 	ctx.to_draw.alloc = ctx.alloc;
 	dyn_init(&ctx.to_draw, 4);
 
@@ -9974,6 +9938,7 @@ main:: fn(){
 	dyn_init2(&ctx.drawable_ents, 4, ctx.alloc);
 	dyn_init2(&ctx.axe_ents, 4, ctx.alloc);
 	dyn_init2(&ctx.ents_with_clip, 4, ctx.alloc);
+  */
 	//dyn_init2(&ctx.materials, 4, ctx.alloc);
 
 	//scn.items.alloc = ctx.alloc;
@@ -9994,6 +9959,7 @@ main:: fn(){
 
 
 	ctx.gjk = cast(*gjk_state)heap_alloc(ctx.alloc, sizeof(gjk_state))
+  globals.gjk = ctx.gjk
 	memset(ctx.gjk, 0, sizeof(gjk_state))
 
 	ctx.prntr.chars_per_line = 24;
@@ -10002,12 +9968,13 @@ main:: fn(){
 	AssignModelFolder("../models");
 	AssignTexFolder("../images");
 	AssignSoundFolder("../sound");
-	LoadTexFolder("../images", &ctx.textures);
+	LoadTexFolder("../images", &globals.textures);
 
-	for t in ctx.textures
+  cur_scn := ctx.scenes[0]
+	for t in globals.textures
 	{
 		//dummy:asset_index
-		load_tex(&ctx, t.name, 0, 0, 0, 0)
+		load_tex(ctx.scenes[0], t.name, 0, 0, 0, 0)
 	}
 
 	ctx.step_audio_idxs[0] = GetAudioHandle("step1.flac")
@@ -10016,13 +9983,13 @@ main:: fn(){
 	globals.item_pick_sound_handle = GetAudioHandle("item_pick.flac")
 	globals.magic_hit_sound_handle = GetAudioHandle("item_hit.flac")
 	
-	ctx.white_tex = load_tex(&ctx, "white.png", 0, 0, 32, 32)
-	ctx.grass_tex = load_tex(&ctx, "grass.png", 0, 0, 32, 32)
-	ctx.aim_tex = load_tex(&ctx, "aim.png", 0, 0, 32, 32)
-	ctx.ball_tex = load_tex(&ctx, "ball.png", 0, 0, 32, 32)
-	ctx.water_tex = load_tex(&ctx, "water.png", 0, 0, 32, 32)
-	ctx.grid_tex = load_tex(&ctx, "grid.png", 0, 0, 32, 32)
-	ctx.grid_transparent_tex = load_tex(&ctx, "tr_grid.png", 0, 0, 32, 32)
+	globals.white_tex = load_tex(cur_scn, "white.png", 0, 0, 32, 32)
+	globals.grass_tex = load_tex(cur_scn, "grass.png", 0, 0, 32, 32)
+	globals.aim_tex = load_tex(cur_scn, "aim.png", 0, 0, 32, 32)
+	globals.ball_tex = load_tex(cur_scn, "ball.png", 0, 0, 32, 32)
+	globals.water_tex = load_tex(cur_scn, "water.png", 0, 0, 32, 32)
+	globals.grid_tex = load_tex(cur_scn, "grid.png", 0, 0, 32, 32)
+	globals.grid_transparent_tex = load_tex(cur_scn, "tr_grid.png", 0, 0, 32, 32)
 
 
 	LoadClip("char.png", 0, 0, 64, 64, 3, 1.0, &ctx.character_texs);
@@ -10057,7 +10024,7 @@ main:: fn(){
 	*ctx.curtain[3] = 0.0;
 
 	i := 0
-	for t in ctx.textures
+	for t in globals.textures
 	{
 		if str_cmp(t.name, "abcd.png")
 		{
@@ -10069,5 +10036,6 @@ main:: fn(){
 	ctx.abcd_tex_info_idx = cast(u32)i
 
 	ASSERT(sizeof(custom_id)==16)
+  ctx.cur_scn = get_not_used_scene(&ctx)
 	main_loop(&ctx);
 }

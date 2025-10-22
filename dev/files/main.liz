@@ -8656,20 +8656,6 @@ main_loop::fn(ctx : *context)
 					}
 					else
 					{
-						s := clamp(sin(GetTime() * 4.0), 0.0, 1.0)
-						yellow :_vec
-						yellow.x = 0.5
-						yellow.y = 0.5
-						yellow.z = 0.5
-						yellow.w = prev_select_ent_col.w
-
-						diff := yellow - prev_select_ent_col
-
-						aux := prev_select_ent_col + (diff * s)
-
-						out_ent.color.x = aux.x
-						out_ent.color.y = aux.y
-						out_ent.color.z = aux.z
 
 						x_axis_ent.pos = out_ent.pos
 
@@ -8836,7 +8822,7 @@ main_loop::fn(ctx : *context)
 				if IsMouseDown(mouse_enum.LEFT) && ctx.editor_wnd_type != editor_window_enum.GRID && 
 				 	!IsKeyHeld(key_enum.KEY_LCTRL)
 				{
-
+          printf("before  out is {cast(u64)out_ent}\n")
 					dyn_clear(&ctx.vertex_terrain)
 					prev_sel := out_ent
 					aux_sel : *entity
@@ -8931,6 +8917,7 @@ main_loop::fn(ctx : *context)
 					{
 						out_ent = aux_sel_from_non_bodies
 					}
+          //printf("afte r out is {cast(u64)out_ent}\n")
 				}
 
 				//printf("path {ctx.on_contructing_path}, customgrid {ctx.on_custom_grid}, out {cast(u64)out_ent}, tp {cast(u32)out_ent.type}\n")
@@ -9706,6 +9693,7 @@ main_loop::fn(ctx : *context)
 			}
 			ctx.can_deactivate_path_ents = false
 		}
+    globals.selected_ent = out_ent
 	}
 }
 

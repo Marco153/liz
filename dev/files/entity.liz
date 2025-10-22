@@ -436,7 +436,26 @@ DrawEntity::fn(ctx : *scene_info, ent : *entity, drw_set : *draw_settings)
 			draw.sun_dir = drw_set.sun_dir
 			draw.sun_color = drw_set.sun_color
 			draw.ent_size = ent.size
-      final_col := ent.color * ctx.color
+
+      final_col := ent.color
+
+      if globals.selected_ent == ent
+      {
+        s := clamp(sin(GetTime() * 4.0), 0.0, 1.0)
+        yellow :_vec=final_col/2.0
+
+        diff := yellow - final_col
+
+        aux := final_col + (diff * s)
+
+        final_col.x = aux.x
+        final_col.y = aux.y
+        final_col.z = aux.z
+        //print_vec(&final_col)
+      }
+      final_col = final_col * ctx.color
+
+
 
 			memcpy(cast(*void)&draw.color, &final_col, 4 * sizeof(f32));
 			memcpy(cast(*void)&draw.sec_color, &ent.sec_color, 4 * sizeof(f32));

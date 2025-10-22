@@ -1185,7 +1185,7 @@ CopyVerts::fn(col : *collider, _min : *_vec, _max : *_vec)
 	if col.type == col_type.MESH
 	{
 		minfo := &col.MESH.info
-		printf("is mesh copyverts\n")
+		//printf("is mesh copyverts\n")
 		m := get_model_ptr(cast(*asset_index)&minfo.model_idx)
 		
 		CopyDataFromModel(cast(u32)m.model, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)

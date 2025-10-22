@@ -191,6 +191,8 @@ global_struct : struct
 	aux_indices_sz : u32
 
   tris_checked :u32
+
+  selected_ent : *entity
 }
 globals : global global_struct
 

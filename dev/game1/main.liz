@@ -503,7 +503,7 @@ ChangeState::fn(e : *entity, state : entity_state)
 	}
 }
 
-clamp ::fn(v : f32, _min :f32, _max : f32) ! f32
+clamp ::fn x64(v : f32, _min :f32, _max : f32) ! f32
 {
 	if v <= _min return _min;
 	if v >= _max return _max;

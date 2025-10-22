@@ -886,7 +886,7 @@ parse::fn(pinfo : *parse_info, prec : u32, operation : parser_op) !*node
 	}
 	peek: = peek_tkn(pinfo)
 
-	if peek.type == token_type.CLOSE_CURLY
+	if peek.type == token_type.CLOSE_CURLY || peek.type == token_type.EOF
 		return nil;
 
 	ret: *node = parse_item(pinfo)
@@ -1801,7 +1801,10 @@ parse_node_to_ast::fn(lang_stat : *lang_state, n : *node, scp : *scope) !*ast_re
 		{
 			aux: = stack[i]
 			rhs = parse_node_to_ast(lang_stat, aux.BIN.rhs, scp)
-			dyn_add(&ret.BIN.expr, rhs)
+      if rhs
+      {
+        dyn_add(&ret.BIN.expr, rhs)
+      }
 			i--
 		}
 

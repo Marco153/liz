@@ -33,7 +33,9 @@ UpdateClip2::fn(e : *entity, dt : f32)
 			fill_bones(e, e.matrices_ptr, *b, &matrix, time, dt)
 		}
 		e.clip_time += dt * cl.vel * e.anim_mul
-		//printf("anim time {time}, factored {e.clip_time}, end {cl.end}\n")
+
+		//printf("anim time {time}, factored {e.clip_time}, end {cl.end}, dt {dt}, mul {e.anim_mul}\n")
+
 		end := cl.end - cl.start
 		if e.clip_time >= end
 		{

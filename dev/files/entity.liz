@@ -43,7 +43,7 @@ deactivate_ent::fn(ctx : *scene_info, e : *entity)
 {
 	e.is_active = false
 }
-DeleteEnt::fn(ctx : *scene_info, ent : *entity)
+DeleteEnt::fn(ctx : *scene_info, ent : *entity, for_changing_scenes : bool=false)
 {
   a :=0
   val :bool
@@ -93,7 +93,14 @@ DeleteEnt::fn(ctx : *scene_info, ent : *entity)
       }
       ent_part_of.COLLIDER
       {
+        if !for_changing_scenes
+        {
           remove_body(ctx, ent)
+        }
+        else
+        {
+          val = RemoveEntFromAr(&ctx.bodies, ent)
+        }
       }
       ent_part_of.INSTANTIATED
       {
@@ -107,23 +114,24 @@ DeleteEnt::fn(ctx : *scene_info, ent : *entity)
       }
       }
   }
-  if is_flag_on(ent.flags, ENTITY_CUSTOM_SHADER)
+  if is_flag_on(ent.flags, ENTITY_CUSTOM_SHADER) && !for_changing_scenes
   {
-	m := get_material_ptr(&ent.material_idx)
+    m := get_material_ptr(&ent.material_idx)
     inst := m.instances[cast(u64)ent.in_material_instance]
 
-	for un_val in inst.uniforms
-	{
-		on cast(lang_type_type)un_val.type
-		{
-        lang_type_type.STATIC_ARRAY
-        {
-          heap_free(globals.alloc, un_val.data)
-        }
-        }
-	}
+    for un_val in inst.uniforms
+    {
+      on cast(lang_type_type)un_val.type
+      {
+      lang_type_type.STATIC_ARRAY
+      {
+        heap_free(globals.alloc, un_val.data)
+      }
+      }
+    }
   }
-  ent.flags = 0
+  if !for_changing_scenes
+    ent.flags = 0
 }
 NewEnt::fn(ctx : *scene_info, name : str_lit) ! *entity
 {
@@ -401,6 +409,12 @@ custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
 DrawEntity::fn(ctx : *scene_info, ent : *entity, drw_set : *draw_settings)
 {
 	//PrintV3(cast(f32)cast(u32)ent.is_active, 0.0, 0.0);
+  /*
+  if IsKeyDown(key_enum.KEY_P) && str_cmp(ent.name, "player")
+  {
+    __dbg_break
+  }
+  */
 	if !ent.is_active
 		return;
 	//printf("ent {ent.name}\n")
@@ -422,8 +436,11 @@ DrawEntity::fn(ctx : *scene_info, ent : *entity, drw_set : *draw_settings)
 			draw.sun_dir = drw_set.sun_dir
 			draw.sun_color = drw_set.sun_color
 			draw.ent_size = ent.size
-			memcpy(cast(*void)&draw.color, &ent.color, 4 * sizeof(f32));
+      final_col := ent.color * ctx.color
+
+			memcpy(cast(*void)&draw.color, &final_col, 4 * sizeof(f32));
 			memcpy(cast(*void)&draw.sec_color, &ent.sec_color, 4 * sizeof(f32));
+
 			draw.color_lerp = ent.color_lerp
 			if(is_flag_on(ent.flags, ENTITY_ALWAYS_ON_FRONT))
 			{
@@ -448,6 +465,7 @@ DrawEntity::fn(ctx : *scene_info, ent : *entity, drw_set : *draw_settings)
 			{
 				custom_shader_setting(ctx, ent, &draw)
 			}
+
 
 			Draw3D(drw_set.window, &draw);
 		}

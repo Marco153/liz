@@ -1682,7 +1682,15 @@ StepCol::fn(ctx : *scene_info, dt : f32)
       }
       
     }
-    if !in_range continue
+    if !in_range
+    {
+      if !e.is_static
+      {
+        printf("have to change\n")
+        e.flags = e.flags | ENTITY_CHANGE_SCENES 
+      }
+      continue
+    }
 
 		if e.type == ent_type.PLAYER && (cast_s32_and_compare_vecs(&c1.rel_chunk_min, &aux_min) == false ||
 			cast_s32_and_compare_vecs(&c1.rel_chunk_max, &aux_max) == false ||
@@ -1783,7 +1791,6 @@ StepCol::fn(ctx : *scene_info, dt : f32)
 			e2 := *_e2
 			e2.flags = e2.flags & ~ENTITY_ALREADY_DONE_IN_COLISION
 		}
-		tris_checked :u32=0
 
 		tri_verts1 :=gjk.aux_col.TRIANGLE.verts[0]
 
@@ -1813,7 +1820,7 @@ StepCol::fn(ctx : *scene_info, dt : f32)
           d := dot_vec(&dir, &dir)
           same_dir := dot_vec(&dir, &tri.normal)
 
-          globals.temp_alloc.cur = 0
+          //globals.temp_alloc.cur = 0
           if d < 150.0 && same_dir > 0.0
           {
 
@@ -1842,7 +1849,7 @@ StepCol::fn(ctx : *scene_info, dt : f32)
           cur_tri++
           tri = ptr_offset(tri, 1, triangle_info)
         }
-        //ctx.tris_checked += cast(u32)total_tris
+        globals.tris_checked += cast(u32)total_tris
       }
 		}
 	}
@@ -1859,7 +1866,7 @@ PhysicsUpdate::fn(ctx : *scene_info, dt : f32)
 	}
 	steps := 1
 
-	//ctx.tris_checked = 0
+	globals.tris_checked = 0
 
 
 	dt = dt / cast(f32)steps
@@ -1867,7 +1874,6 @@ PhysicsUpdate::fn(ctx : *scene_info, dt : f32)
 	{
 		StepCol(ctx, dt)
 	}
-  ////printf("tris checked {ctx.tris_checked}\n")
 }
 
 

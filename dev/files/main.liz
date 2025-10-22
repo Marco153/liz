@@ -62,6 +62,8 @@ scene_info:struct
 	waypoints:dyn_array(waypoint)
 
   draw_col : bool
+
+  color : _vec
 }
 draw_settings:struct
 {
@@ -92,8 +94,6 @@ context: struct
   cur_scene_changing_sz : u32
 
 	grid_ent : *entity
-	sun_dir : _vec
-	sun_color : _vec
 
 	compiling_shaders_alloc : mem_alloc,
 
@@ -290,8 +290,6 @@ context: struct
 	session_id : u32
 
 
-	ents : dyn_array(*entity)
-
 	cur_model_selected_idx : s32
 
 
@@ -372,6 +370,7 @@ editor_window_enum:enum
 	AREA_COL,
 	TEST_ANIM,
 	ITEMS,
+  SCENES
 }
 
 perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) {
@@ -3787,11 +3786,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
             ASSERT(ent_idx < globals.entities.max)
             ent = ptr_offset(globals.entities.start, ent_idx, entity)
 
-            if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES)
-            {
-              i = ent_str_end
-              continue
-            }
 
         }
         else
@@ -3799,7 +3793,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
             ent = NewEnt(ctx, "")
         }
 
-        ent.anim_mul = 1.0
         printf("des {instantiated_ents}\n")
 
         deleted := false
@@ -4053,16 +4046,10 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
               DeserializeEntVar(ctx, var_type, data, *st.BIN.expr[1])
             }
         }
-        if deleted
-        {
-          i = ent_str_end
-          ent.flags = 0
-          continue
-        }
 
         return
-        //printf("ent deserialized {ent.name}, flags {ent.flags}, addr {cast(u32)cast(u64)ent}\n")
 
+        ent.anim_mul = 1.0
 
         i = ent_str_end
         if is_flag_off(ent.flags, ENTITY_DONT_FREE)
@@ -4154,7 +4141,7 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
   grid_shader := find_shader(ctx, "grid.mat")
   globals.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, globals.preview_ent)
   assign_bodies_to_chunks(ctx)
-  globals.player.flags = globals.player.flags | ENTITY_PRESERVE_ENT_THROUGH_SCENES
+  globals.player.flags = globals.player.flags
   return
 
 
@@ -4212,11 +4199,6 @@ _DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage
   for i2 in 0..globals.entities.max
   {
     ent := ptr_offset(globals.entities.start, i2, entity);
-    if is_flag_on(ent.flags, ENTITY_PRESERVE_ENT_THROUGH_SCENES) 
-    {
-      dyn_add(&preserved_ents, ent)
-      continue
-    }
 
     if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_off(ent.flags, ENTITY_DONT_FREE)
     {
@@ -4302,123 +4284,16 @@ free_lang_stuff::fn()
 	globals.scope_alloc.cur = 0
 	globals.nodes_alloc.cur = 0
 }
-SaveScene::fn(ctx : *scene_info, file_name : str_lit)
+
+SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_alloc)
 {
 	out :string
 
-	//InitMemAlloc(&ctx.per_scene_alloc, 16000)
-	//dyn_add_data(&out.data, &fl, sizeof(fl));
-
-	//prev_alloc := globals.alloc
-	//globals.alloc = &ctx.per_scene_alloc
-
-	file_name = "../scenes/{file_name}"
-	out_file := OpenFile(file_name)
-	defer CloseFile(out_file)
-
-  settings_ast := new_ast2()
-  settings_ast.type = ast_type.SCOPE
-
-  area_cols_ast := new_ast2()
-  area_cols_ast.type = ast_type.SCOPE
-
-
-  for a in ctx.areas_col
-  {
-    cur := new_ast2()
-    cur.type = ast_type.SCOPE
-
-    dyn_add(&cur.SCOPE.stmnts, StrLitAssignmentToAst("name", a.name))
-    dyn_add(&cur.SCOPE.stmnts, VecAssignmentToAst("area_col_pos", &a.area_col_pos))
-    dyn_add(&cur.SCOPE.stmnts, VecAssignmentToAst("area_col_size", &a.area_col_size))
-
-    dyn_add(&cur.SCOPE.stmnts, S32AssignmentToAst("chunk_width", *cast(*s32)&a.chunk_width))
-
-    dyn_add(&area_cols_ast.SCOPE.stmnts, cur)
-    
-  }
-  
-  dyn_add(&settings_ast.SCOPE.stmnts, AssignmentToAst("area_col", area_cols_ast))
-
-  aux :string
-
-  
-  ast_to_string(settings_ast, &aux)
-  PushStr(&out, &aux)
-  heap_free(aux.data.alloc, aux.data.data)
-
-
-	WriteToFile(out_file, out.data.data, out.data.count)
-	cur_file_sz := out.data.count
-
-	out.data.count = 0
-
-	for i in 0..globals.entities.max
-	{
-		globals.temp_alloc.cur = 0
-		ent := ptr_offset(globals.entities.start, i, entity);
-		/*
-		if str_cmp(ent.name, "item_idx79")
-		{
-			__dbg_break
-		}
-		*/
-		printf("i is {i} name {ent.name}\n")
-		if is_flag_off(ent.flags, ENTITY_IN_USE)
-		{
-			continue
-		}
-		//printf("ent saved {ent.name}, flags {ent.flags}\n")
-		if ent.type == ent_type.AXIS
-			continue;
-
-		if is_flag_on(ent.flags, ENTITY_TEMPORARILY_NOT_SERIALIZE)
-		{
-			__dbg_break
-			continue
-		}
-
-		if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
-		{
-			free_lang_stuff()
-      memset(&aux, 0, sizeof(string))
-			cur_al:=globals.alloc
-
-			ast := SerializeEnt(ent, cast(u64)i)
-			
-			ast_to_string(ast, &aux)
-			PushStr(&out, &aux)
-			heap_free(aux.data.alloc, aux.data.data)
-			PushStrLit(&out, "\n ")
-
-			SetFilePtr(out_file, cur_file_sz);
-
-			WriteToFile(out_file, out.data.data, out.data.count)
-
-			cur_file_sz += out.data.count
-
-			out.data.count = 0
-
-			globals.temp_alloc.cur = 0
-			//printf("str {out}\n")
-		}
-	}
-	out.data.count -= 2
-	printf("file name %", file_name)
-	//WriteFile(file_name, out.data.data, out.data.count)
-
-	heap_free(out.data.alloc, out.data.data)
-}
-SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
-{
-  /*
-	out :string
-
-	InitMemAlloc(&ctx.per_scene_alloc, 16000)
+	InitMemAlloc(per_scene_alloc, 16000)
 	//dyn_add_data(&out.data, &fl, sizeof(fl));
 
 	prev_alloc := globals.alloc
-	globals.alloc = &ctx.per_scene_alloc
+	globals.alloc = per_scene_alloc
 
 	file_name = "../scenes/{file_name}"
 	out_file := OpenFile(file_name)
@@ -4461,10 +4336,10 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 
 	out.data.count = 0
 
-	for i in 0..globals.entities.max
+	for i in 0..ctx.ents.count
 	{
 		globals.temp_alloc.cur = 0
-		ent := ptr_offset(globals.entities.start, i, entity);
+		ent := *ctx.ents[cast(u64)i]
 		/*
 		if str_cmp(ent.name, "item_idx79")
 		{
@@ -4517,7 +4392,6 @@ SerializeAllEnt::fn(ctx : *context, file_name : str_lit)
 	//WriteFile(file_name, out.data.data, out.data.count)
 
 	heap_free(out.data.alloc, out.data.data)
-  */
 
 }
 show_material_instance_uniforms::fn(ctx : *context, mat : *material_info, inst : *material_instance)
@@ -5232,6 +5106,13 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	}
 
 	ImGuiSameLine()
+	aux_bool =ctx.editor_wnd_type == editor_window_enum.SCENES
+	if ImGuiSelectable("scenes", aux_bool, 40.0, 15.0)
+	{
+		ctx.editor_wnd_type = editor_window_enum.SCENES
+	}
+
+	ImGuiSameLine()
 	aux_bool =ctx.editor_wnd_type == editor_window_enum.MODELS
 	if ImGuiSelectable("particle", aux_bool, 40.0, 15.0)
 	{
@@ -5280,6 +5161,47 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	model_changed := false
 	on ctx.editor_wnd_type
 	{
+	editor_window_enum.SCENES
+  {
+    i := 0
+    fallback_used_scene:*scene_info
+
+    for s in ctx.scenes
+    {
+      if !s.in_use continue
+
+      if ImGuiSelectable("{s.name}", false, 20.0, 30.0)
+      {
+        ctx.cur_scn = s
+      }
+      ImGuiSameLine()
+      if ImGuiSelectable("x##{i}", false, 20.0, 30.0)
+      {
+        if ctx.cur_scn == s
+          ctx.cur_scn = nil
+        s.in_use = false
+      }
+      if s.in_use
+      {
+          fallback_used_scene = s
+      }
+      i++
+    }
+
+    if ctx.cur_scn == nil
+    {
+      ctx.cur_scn = fallback_used_scene
+    }
+    ImGuiInputText("name", cast(str_lit)buffer, 32)
+    ImGuiSameLine()
+    if ImGuiSelectable("open", false, 20.0, 30.0)
+    {
+      open_scene = true
+      memcpy(ctx.save_scene_buffer[0], buffer, 32)
+      ctx.cur_scn = get_not_used_scene(ctx, cast(str_lit)buffer)
+    }
+    
+  }
 	editor_window_enum.TEST_ANIM
 	{
 		if ctx.matrices_inst == nil
@@ -5360,7 +5282,6 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	{
       cur_area_selected:global s64
 
-
       for i in 0..ctx.cur_scn.areas_col.count
       {
         selected := i == cur_area_selected
@@ -5374,9 +5295,12 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
         if ImGuiSelectable("x##{i}", false, 10.0, 10.0)
         {
           dyn_rem(&ctx.cur_scn.areas_col, cast(u32)i)
+          ctx.col_chunks = nil
+          i--
         }
         if selected
         {
+          printf("idx {cast(u64)i}, count {ctx.cur_scn.areas_col.count}\n")
           a := ctx.cur_scn.areas_col[cast(u64)i]
           //area_col_ui(ctx, a)
 
@@ -5616,7 +5540,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
 		dummy_sel := false
 		idx :u64=0
-		for e in ctx.ents
+		for e in ctx.cur_scn.ents
 		{
 			//if is_flag_on(ent.flags, ENTITY_IN_USE) && is_flag_on(ent.flags, ENTITY_SERIALIZE)
 			globals.temp_alloc.cur = 0
@@ -5635,7 +5559,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
 		if ImGuiSelectable("save", dummy_sel, 40.0, 15.0)
 		{
-			SerializeAllEnt(ctx, cast(str_lit)ctx.save_scene_buffer[0])
+			SaveScene(ctx.cur_scn, cast(str_lit)ctx.save_scene_buffer[0], &ctx.per_scene_alloc)
 		}
 		ImGuiSameLine()
 
@@ -5754,7 +5678,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
           ImGuiSameLine()
           if ImGuiSelectable("assign##{i}", false, 80.0, 15.0)
           {
-            for e2 in ctx.ents
+            for e2 in ctx.cur_scn.ents
             {
               if str_cmp(e2.name, buffer_ptr)
               {
@@ -5960,6 +5884,8 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			ImGuiText("has col: {has_col}");
 			ImGuiCheckbox("active: ", &out_ent.is_active)
 			ImGuiCheckbox("static: ", &out_ent.is_static)
+      ImGuiDragF32("anim_mul", &out_ent.anim_mul)
+
 			if ImGuiSelectable("materials", dummy_sel, 40.0, 15.0)
 			{
 				ctx.materials_wnd = true
@@ -7606,9 +7532,18 @@ get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
   {
     if s.in_use == false
     {
+      prev_idx := s.alloc_idx
+      prev_alloc := s.alloc
+      memset(s, 0, sizeof(*s))
+
+      s.alloc = prev_alloc
+      s.alloc_idx = prev_idx
+
       s.in_use = true
       s.name = name
-      return s 
+      InitMemAlloc(s.alloc, 458600)
+      s.color = ctx.white_color
+      return s
     }
   }
   assert(false)
@@ -7621,8 +7556,23 @@ coroutine_test::fn coroutine(cor_ctx : *coroutine_ctx, a : *u32)
   *a = 2
   return
 }
+test_fun::fn(ctx :*scene_info)
+{
+  scn2 :=ptr_offset(ctx, 1, scene_info)
+  OpenLocalsWindow(__LINE__)
+}
 main_loop::fn(ctx : *context)
 {
+	ctx.red_color.x = 1.0
+	ctx.red_color.y = 0.0
+	ctx.red_color.z = 0.0
+	ctx.red_color.w = 1.0
+
+	ctx.white_color.x = 1.0
+	ctx.white_color.y = 1.0
+	ctx.white_color.z = 1.0
+	ctx.white_color.w = 1.0
+
   drw_set := new_ptr(draw_settings)
   memset(drw_set, 0 , sizeof(draw_settings))
   for i in 0..5
@@ -7639,6 +7589,7 @@ main_loop::fn(ctx : *context)
 
     scn.alloc_idx.asset_idx = cast(u32)mem_asset_idx
     scn.alloc = &mem_asset.MEM_ALLOC.alloc
+    scn.in_use = false
 
 
 
@@ -7665,6 +7616,7 @@ main_loop::fn(ctx : *context)
     dyn_init2(&scn.playable_ents, 4, scn.alloc);
     dyn_init2(&scn.drawable_ents, 4, scn.alloc);
   }
+  ctx.cur_scn = get_not_used_scene(ctx, "02")
 
   test_c : u32
   for i in 0..2
@@ -7929,6 +7881,7 @@ main_loop::fn(ctx : *context)
 	}
 
 	player_ent.type = ent_type.PLAYER
+	player_ent.anim_mul = 1.0
 	player_ent.dont_res_cols_with_layers = LAYER_ENEMY
 
 	player_ent.mov_info.speed = 2.5
@@ -8250,24 +8203,30 @@ main_loop::fn(ctx : *context)
 	
 	sel_action : select_action
 
-	SerializeAllEnt(ctx, "01")
+	//AllEnt(ctx, "01")
 	//__dbg_break
 
   stage : loading_stage
 
   cor :*coroutine_func_saved
 
-  file_name := "../scenes/02"
-  file_data : str_lit
-  fl_sz := GetFileSize(file_name);
-  if fl_sz == -1
-      __dbg_break
-  file_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
-
-  ReadFile(file_name, file_data);
+  fl_sz:s64
+  file_data := cast(str_lit)read_entire_file("../scenes/02", &fl_sz)
+  
   while stage != loading_stage.DONE
   {
     OpenScene(&ctx.coroutines, ctx.cur_scn, &stage, file_data, fl_sz, &cor)
+  }
+
+  cor.regs.rip = 0
+
+  file_data = cast(str_lit)read_entire_file("../scenes/04", &fl_sz)
+  other_scn := get_not_used_scene(ctx, "04")
+  
+  stage = loading_stage.NONE
+  while stage != loading_stage.DONE
+  {
+    OpenScene(&ctx.coroutines, other_scn, &stage, file_data, fl_sz, &cor)
   }
   stage = loading_stage.NONE
 
@@ -8308,21 +8267,12 @@ main_loop::fn(ctx : *context)
 	set_uniform_v4(mat, sky, "sky_color", &_vec{235.0/255.0, 214.0/255.0, 251.0/255.0, 1.0})
 
 
-	ctx.red_color.x = 1.0
-	ctx.red_color.y = 0.0
-	ctx.red_color.z = 0.0
-	ctx.red_color.w = 1.0
-
-	ctx.white_color.x = 1.0
-	ctx.white_color.y = 1.0
-	ctx.white_color.z = 1.0
-	ctx.white_color.w = 1.0
 	//dyn_add(&test_e.remove_from, ent_part_of.LOOK_AT_PLAYER)
 
 	out_verts_count:u32
 	out_indices_count:u32
-	ctx.sun_color = _vec{1.0, 0.6, 0.3, 1.0}
-	ctx.sun_dir = normalize_vec(&_vec{0.5, 0.2, 0.5, 0.0})
+	drw_set.sun_color = _vec{1.0, 0.6, 0.3, 1.0}
+	drw_set.sun_dir = normalize_vec(&_vec{0.5, 0.2, 0.5, 0.0})
 	
 	//CopyDataFromModel(2, ctx.aux_vertices, globals.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
 
@@ -8408,7 +8358,7 @@ main_loop::fn(ctx : *context)
 		dt: = 0.017;
 
     dt_aux = 1.0/dt_aux
-		//printf("dt {dt_aux}\n")
+		//printf("dt {dt_aux}, tris checkd {globals.tris_checked}\n")
 
 		ctx.i_clicked = IsKeyDown(key_enum.KEY_I)
 		globals.timer = 0.0;
@@ -8475,7 +8425,7 @@ main_loop::fn(ctx : *context)
 			//printf("model {ctx.grid_ent.model}\n")
 			if IsKeyHeld(key_enum.KEY_LCTRL) && IsKeyDown(key_enum.KEY_S)
 			{
-				SerializeAllEnt(ctx, "02")
+				SaveScene(ctx.cur_scn, ctx.cur_scn.name, &ctx.per_scene_alloc)
 			}
 
 			if !ImGuiHasFocus()
@@ -9294,7 +9244,7 @@ main_loop::fn(ctx : *context)
 				{
 				create_event_etruct.BRIDGE_ROTATE
 				{
-					bridge_ent :*entity= *ctx.ents[cast(u64)ev.BRIDGE_ROTATE.ent_id]
+					bridge_ent :*entity= *ctx.cur_scn.ents[cast(u64)ev.BRIDGE_ROTATE.ent_id]
 					rot_cur := &ev.BRIDGE_ROTATE.rotation_cur
 					rot_amount := bridge_ent.vel.w
 
@@ -9524,9 +9474,67 @@ main_loop::fn(ctx : *context)
 
 		//update_screen_texture(ctx, &ctx.mach)
 		emmitters_func(ctx.cur_scn, dt, drw_set)
-		DrawEnts(ctx.cur_scn, ctx.cam_pos_global, ctx.cam_rot_global, drw_set)
+    for s in ctx.scenes
+    {
+      if !s.in_use continue
+
+      if s == ctx.cur_scn || ctx.editor_cam == false
+      {
+        s.color = ctx.white_color
+      }
+      else
+      {
+        memset(&s.color, 0, sizeof(_vec))
+        s.color.x = 1.0
+      }
+
+      DrawEnts(s, ctx.cam_pos_global, ctx.cam_rot_global, drw_set)
+    }
 		LookAtPlayerEnts(ctx.cur_scn, drw_set)
 		items_func(ctx.cur_scn, dt, out_ent)
+
+    
+
+    //test_fun(ctx.scenes[0])
+    if is_flag_on(player_ent.flags, ENTITY_CHANGE_SCENES)
+    {
+      c1 := *player_ent.cols[0]
+      p_aabb :aabb = ?
+      p_aabb._min = c1._min
+      p_aabb._max = c1._max
+
+      for s in ctx.scenes
+      {
+        if ctx.cur_scn == s continue
+
+        found := false
+        for a in s.areas_col
+        {
+          a_aabb :aabb
+          a_aabb._min = a.area_col_pos - a.area_col_size * 0.5
+          a_aabb._max = a.area_col_pos + a.area_col_size * 0.5
+
+          if aabbCheck3D(&p_aabb, &a_aabb)
+          {
+            DeleteEnt(ctx.cur_scn, player_ent, for_changing_scenes=true)
+
+            dyn_add(&s.drawable_ents, player_ent)
+            dyn_add(&s.ents, player_ent)
+            dyn_add(&s.bodies, player_ent)
+            dyn_add(&s.ents_with_clip, player_ent)
+
+            ctx.cur_scn = s
+            player_ent.flags = player_ent.flags & ~ENTITY_CHANGE_SCENES
+            found = true
+            break
+          }
+        }
+        if found
+        {
+            break
+        }
+      }
+    }
 
 		if !ctx.editor_cam
 		{
@@ -9641,12 +9649,6 @@ main_loop::fn(ctx : *context)
             cor.regs.rip = 0
 
             l_area := ctx.cur_changing_loading_area
-            for e in l_area.preserve_ents
-            {
-              if e == nil continue
-
-              e.flags = e.flags & ~ENTITY_PRESERVE_ENT_THROUGH_SCENES
-            }
              
             //__dbg_break
 
@@ -10048,6 +10050,5 @@ main:: fn(){
 	ctx.abcd_tex_info_idx = cast(u32)i
 
 	ASSERT(sizeof(custom_id)==16)
-  ctx.cur_scn = get_not_used_scene(&ctx, "02")
 	main_loop(&ctx);
 }

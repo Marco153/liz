@@ -46,7 +46,7 @@ toggle_flag::fn(out : *u32, flag : u32)
 LinearInit::fn{T}(linear_al : *linear_alloc(T), alloc : *mem_alloc, max : u32)
 {
 	linear_al.start = cast(*T)heap_alloc(alloc, max * sizeof(T))
-	printf("init addr %\n", cast(u32)cast(u64)linear_al.start)
+	//printf("init addr %\n", cast(u32)cast(u64)linear_al.start)
 	linear_al.max = max
 }
 LinearSub::fn{T}(alloc : *linear_alloc(T), count : u32)
@@ -189,6 +189,8 @@ global_struct : struct
 	aux_vertices_sz : u32
 	aux_indices : *u32
 	aux_indices_sz : u32
+
+  tris_checked :u32
 }
 globals : global global_struct
 
@@ -807,7 +809,6 @@ Draw::fn outsider(*u8, *draw_info);
 Draw3D::fn outsider(*u8, *draw_info3d);
 Draw3DTransparency::fn outsider(*u8);
 EndFrame::fn outsider(wnd : *u8);
-PrintCallStack::fn outsider();
 
 
 type_enum : enum
@@ -1005,6 +1006,7 @@ num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
 }
 sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_array(var_arg)) !u64
 {
+
 	format_ln: = str_ln(format);
 	format_idx:u64 = 0;
 	buffer_idx:u64 = 0;
@@ -2659,4 +2661,20 @@ assert::fn(val : bool, str : str_lit="", line :str_lit= __SRC_LINE__)
     PrintCallStack()
     __dbg_break
   }
+}
+read_entire_file::fn(file_name : str_lit, fl_sz_out : *s64)!*u8
+{
+  file_data : str_lit=?
+
+  fl_sz := GetFileSize(file_name);
+  if fl_sz == -1
+      __dbg_break
+  file_data = cast(str_lit)heap_alloc(globals.alloc, cast(u32)fl_sz + 1);
+
+  ReadFile(file_name, file_data);
+  if fl_sz_out != nil
+  {
+    *fl_sz_out = fl_sz
+  }
+  return file_data
 }

@@ -1,4 +1,6 @@
 import "../dev/common";
+PrintCallStack::fn outsider();
+
 rel_array: struct(T)
 {
 	data : *T,
@@ -7,10 +9,11 @@ rel_array: struct(T)
 }
 operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
 {
-	//PrintStr("rel_arr be\n")
-	//PrintV3Int(cast(s32)idx, cast(s32)dyn.count, 0)
-	//PrintStr("rel_arr end\n")
-	ASSERT(idx < dyn.count);
+	if(idx >= dyn.count)
+  {
+    PrintCallStack()
+    __dbg_break
+  }
 	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
 	return cast(*T)ptr_offset(addr, idx, T);
 }
@@ -38,7 +41,11 @@ it_end::fn{ T }(dyn : *dyn_array(T)) !*T
 }
 operator []{ T }(dyn : *dyn_array(T), idx : u64) !*T
 {
-	ASSERT(idx < dyn.count);
+	if(idx >= dyn.count)
+  {
+    PrintCallStack()
+    __dbg_break
+  }
 	return ptr_offset(dyn.data, idx, T);
 }
 dyn_last::fn{ T }(dyn : *dyn_array(T)) !*T

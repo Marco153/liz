@@ -1975,25 +1975,6 @@ void GinIRCheckNilPtr(lang_state *lang_stat, own_std::vector<ir_rep> *out,
   int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
 
   ir_rep aux_ir = {};
-  /*
-  char reg = AllocReg(lang_stat);
-  aux_ir.type = IR_ASSIGNMENT;
-  aux_ir.assign.rhs = *top_info;
-  aux_ir.assign.lhs.type = IR_TYPE_REG;
-  aux_ir.assign.lhs.reg = reg;
-  aux_ir.assign.lhs.reg_sz = top_info->reg_sz;
-  out->emplace_back(aux_ir);
-
-  aux_ir.type = IR_CMP_NE;
-  aux_ir.bin.op = T_COND_NE;
-  top_info->is_float = false;
-  aux_ir.bin.lhs.type = IR_TYPE_REG;
-  aux_ir.bin.lhs.reg = reg;
-  aux_ir.bin.rhs.type = IR_TYPE_INT;
-  aux_ir.bin.rhs.i = 0;
-  aux_ir.bin.rhs.is_unsigned = top_info->is_unsigned;
-  out->emplace_back(aux_ir);
-  */
 
   aux_ir.type = IR_CMP_LE;
   aux_ir.bin.op = T_GREATER_THAN;
@@ -2002,17 +1983,50 @@ void GinIRCheckNilPtr(lang_state *lang_stat, own_std::vector<ir_rep> *out,
   aux_ir.bin.lhs.ptr = 0;
   aux_ir.bin.lhs.is_float = false;
   aux_ir.bin.lhs.is_packed_float = false;
-  /*
-  if (aux_ir.bin.lhs.deref < 0) {
-    aux_ir.bin.lhs.deref++;
-  }
-  */
+
   aux_ir.bin.rhs.type = IR_TYPE_INT;
   aux_ir.bin.rhs.i = 1024;
   aux_ir.bin.rhs.is_unsigned = top_info->is_unsigned;
   out->emplace_back(aux_ir);
 
   IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_COND_BLOCK);
+
+  /*
+  aux_ir.type = IR_ASSIGNMENT;
+  aux_ir.assign.to_assign.type = IR_TYPE_ARG_REG;
+  aux_ir.assign.to_assign.reg = 0;
+  aux_ir.assign.to_assign.reg_sz = 8;
+  aux_ir.assign.to_assign.deref = -1;
+  aux_ir.assign.to_assign.is_float = top->is_float;
+  aux_ir.assign.to_assign.lhs.type = IR_TYPE_INT;
+  aux_ir.assign.to_assign.lhs.i = 0;
+
+  out->emplace_back(aux_ir);
+
+  aux_ir.assign.to_assign.reg = 1;
+  aux_ir.assign.to_assign.is_float = top->is_float;
+  aux_ir.assign.to_assign.lhs.type = IR_TYPE_STR_LIT;
+  aux_ir.assign.to_assign.lhs.str = "invalid ptr derefed";
+  out->emplace_back(aux_ir);
+
+  aux_ir.assign.to_assign.reg = 2;
+  aux_ir.assign.to_assign.is_float = top->is_float;
+  aux_ir.assign.to_assign.lhs.type = IR_TYPE_STR_LIT;
+  aux_ir.assign.to_assign.lhs.str = "invalid ptr derefed";
+  out->emplace_back(aux_ir);
+  */
+  type2 dummy_tp;
+
+  aux_ir.type = IR_CALL;
+
+  aux_ir.call.is_outsider = false;
+  aux_ir.call.is_outsider = true;
+
+  auto str = own_std::string("PrintCallStack");
+  aux_ir.call.fdecl =
+      FindIdentifier(str, lang_stat->funcs_scp, &dummy_tp, 0)->type.fdecl;
+  out->emplace_back(aux_ir);
+
   aux_ir.type = IR_DBG_BREAK;
   out->emplace_back(aux_ir);
   IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);

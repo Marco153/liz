@@ -8509,7 +8509,7 @@ void MemToString(dbg_state *dbg, char *buffer, char reg, int mem_offset, char sz
 	}break;
 	case 3:
 	{
-		sprintf(buffer, "%p", a);
+		sprintf(buffer, "%d", *a);
 	}break;
 	}
 }
@@ -8843,7 +8843,8 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case STORE_R_2_M:
 	{
 		 inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s[%s + %d], %s", inst_name, sz_str, reg_dst_str, mem_offset, reg_src_str);
+		MemToString(dbg, aux_buffer, reg_dst, mem_offset, sz);
+		snprintf(buffer, 128, "%s %s[%s + %d](%s), %s", inst_name, sz_str, reg_dst_str, mem_offset, aux_buffer, reg_src_str);
 		
 	}break;
 	case CMP_I_2_M:
@@ -9987,6 +9988,10 @@ bool ImGuiHasMissignEndChild(const ImGui::ImGuiErrorRecoveryState* state_in)
     return false;
 }
 */
+//void PrintCallStack(int thread_id, dbg_state *dbg);
+
+void PrintCallBasedOnBc(dbg_state *dbg, byte_code2 *bc);
+
 void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 {
 	char buffer[512];
@@ -10214,12 +10219,11 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				dbg->cur_func = nullptr;
 				continue;
 			}
-      /*
       //if(ImGuiHasMissignEndChild(&GImGui->StackSizesInNewFrame))
       {
-        //printf("on line %d, func %s\n", cur_st->line, dbg->cur_func->name.c_str());
+        //FOR_VEC(bc, dbg->return_stack_bc2) { PrintCallBasedOnBc(dbg, **bc); }
+        //PrintCallBasedOnBc(dbg, *dbg->cur_bc2);
       }
-      */
 			glfwPollEvents();
 			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 			{

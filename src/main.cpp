@@ -1652,6 +1652,7 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
   GL_CALL(GLint rot_u = glGetUniformLocation(shaderProgram, "rot"))
   GL_CALL(GLint sun_dir = glGetUniformLocation(shaderProgram, "sun_dir"))
   GL_CALL(GLint sun_color = glGetUniformLocation(shaderProgram, "sun_color"))
+  GL_CALL(GLint color = glGetUniformLocation(shaderProgram, "col"))
   GLint time = glGetUniformLocation(shaderProgram, "TIME");
 
   build_model_matrix(gl_state->model, (const Vec3 *)&draw->pos_x,
@@ -1690,6 +1691,9 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
   glUniformMatrix4fv(viewLoc, 1, GL_FALSE, gl_state->view);
   glUniformMatrix4fv(projLoc, 1, GL_FALSE, gl_state->projection);
   glUniform4f(camPos, -cam_pos_x, -cam_pos_y, -cam_pos_z, 1.0);
+  glUniform4f(camPos, -cam_pos_x, -cam_pos_y, -cam_pos_z, 1.0);
+  glUniform4f(color, draw->color_r, draw->color_b, draw->color_b,
+              draw->color_a);
   // glUniform4f(rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z,
   // draw->ent_rot_w);
   glUniform3f(sun_dir, draw->sun_dir_x, draw->sun_dir_y, draw->sun_dir_z);
@@ -3642,6 +3646,8 @@ void PrintCallBasedOnBc(dbg_state *dbg, byte_code2 *bc) {
            fdecl->name.c_str());
   else
     printf("%s: %s\n", fdecl->from_file->name.c_str(), fdecl->name.c_str());
+
+  fflush(stdout);
 }
 void PrintCallStack(int thread_id, dbg_state *dbg) {
   FOR_VEC(bc, dbg->return_stack_bc2) { PrintCallBasedOnBc(dbg, **bc); }
@@ -5708,7 +5714,6 @@ void PlayAudioByHandle(int thread_id, dbg_state *dbg) {
   float volume = *(float *)&dbg->mem_buffer[base_ptr + 16];
   float speed = *(float *)&dbg->mem_buffer[base_ptr + 24];
 
-  printf("vol: %.3f, speed: %.3f\n", volume, speed);
   auto gl_state = (open_gl_state *)dbg->data;
   AudioClip *clip = gl_state->sound->audio_clips_src[audio_clip];
   ASSERT(clip);
@@ -6913,6 +6918,7 @@ static int audio_callback(const void *input, void *output,
   // 1. Clear output buffer (safe memset)
   memset(out, 0, frameCount * sizeof(short) * 2); // Stereo = 2 channels
 
+  return;
   // 2. Mix audio clips
   int active_clips = 0;
   FOR_VEC(it, sound->audio_clips_to_play) {

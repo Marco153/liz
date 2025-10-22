@@ -1,13 +1,13 @@
-model:uniform mat4 
-view:uniform mat4 
-projection:uniform mat4 
-color:uniform v4 
-cam_pos:uniform v4 
-tex:uniform sampler2d 
-bones:uniform [32]mat4 
-sun_dir:uniform v3 
-sun_color:uniform v4 
-col:uniform v4 
+model:uniform mat4
+view:uniform mat4
+projection:uniform mat4
+color:uniform v4
+cam_pos:uniform v4
+tex:uniform sampler2d
+bones:uniform [32]mat4
+sun_dir:uniform v3
+sun_color:uniform v4
+col:uniform v4
 
 vertex:fn(pos : v3, uv : v2, bones_id : iv4, weights : v4) ! (tex_coord : v2, frag_pos : v3)
 {

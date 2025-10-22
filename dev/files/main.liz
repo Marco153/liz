@@ -150,7 +150,9 @@ context: struct
 
 	abcd_tex_info_idx : u32
 
+	x_axis_ent : *entity
 	y_axis_ent : *entity
+	z_axis_ent : *entity
 
 	/*
 	cur_clip : *clip,
@@ -3314,15 +3316,18 @@ new_axis_ent::fn(ctx : *scene_info, name : str_lit, sz : *_vec, col : *_vec) ! *
 	ret.is_active = false
 	ret.is_trigger = true
 	ret.type = ent_type.AXIS
-	ret.flags = ret.flags | ENTITY_ALWAYS_ON_FRONT | ENTITY_3D | ENTITY_DONT_FREE | ENTITY_TRANSPARENT
+	ret.flags = ret.flags | ENTITY_ALWAYS_ON_FRONT | ENTITY_3D | ENTITY_DONT_FREE
 	ret.col_size.x = 1.0
 	ret.col_size.y = 1.0
 	ret.col_size.z = 1.0
 	ret.model.asset_idx = ASSETS_MODELS_OFFSET 
 	ret.size = *sz
 	memcpy(&ret.color, col, 16)
-	dyn_add(&ctx.drawable_ents, ret)
+	//dyn_add(&ctx.drawable_ents, ret)
 	add_body(ctx, ret)
+  RemoveEntFromAr(&ctx.bodies, ret)
+  RemoveEntFromAr(&ctx.ents, ret)
+
 
 	ret.cols[0].size.x = 1.0
 	ret.cols[0].size.y = 1.0
@@ -7140,6 +7145,9 @@ assign_bodies_to_chunks::fn(ctx : *scene_info)
 	for e_ in ctx.bodies
 	{
 		e := *e_
+
+    if e.cols.count == 0 continue
+
 		c1 := *e.cols[0]
 		if !e.is_active continue;
 
@@ -7529,6 +7537,23 @@ update_sword_in_hand::fn(player_ent : *entity, sword : *entity, hand_bone : *bon
 	pivot =  q * pivot
 	sword.pos += pivot
 }
+add_axis_ents_to_scene::fn(ctx : *context, s : *scene_info)
+{
+  if ctx.x_axis_ent == nil return
+
+  dyn_add(&s.bodies, ctx.x_axis_ent)
+  dyn_add(&s.bodies, ctx.y_axis_ent)
+  dyn_add(&s.bodies, ctx.z_axis_ent)
+
+  dyn_add(&s.drawable_ents, ctx.x_axis_ent)
+  dyn_add(&s.drawable_ents, ctx.y_axis_ent)
+  dyn_add(&s.drawable_ents, ctx.z_axis_ent)
+
+  dyn_add(&s.ents, ctx.x_axis_ent)
+  dyn_add(&s.ents, ctx.y_axis_ent)
+  dyn_add(&s.ents, ctx.z_axis_ent)
+
+}
 get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
 {
   for s in ctx.scenes
@@ -7546,6 +7571,13 @@ get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
       s.name = name
       InitMemAlloc(s.alloc, 458600)
       s.color = ctx.white_color
+      
+      prev_alloc = globals.alloc
+
+      globals.alloc = s.alloc
+      add_axis_ents_to_scene(ctx, s)
+      globals.alloc = prev_alloc
+
       return s
     }
   }
@@ -8170,7 +8202,11 @@ main_loop::fn(ctx : *context)
 	y_axis_ent := new_axis_ent(ctx.scenes[0], "y_axis", &_vec{0.2, 1.0, 0.2}, &_vec{0.0, 1.0, 0.0, 1.0})
 	z_axis_ent := new_axis_ent(ctx.scenes[0], "z_axis", &_vec{0.2, 0.2, 1.0}, &_vec{0.0, 0.0, 1.0, 1.0})
 
+	ctx.x_axis_ent = x_axis_ent
 	ctx.y_axis_ent = y_axis_ent
+	ctx.z_axis_ent = z_axis_ent
+
+  add_axis_ents_to_scene(ctx, ctx.cur_scn)
 
 /*
 	all_axis_ent := new_axis_ent(ctx, "all_axis", &_vec{0.5, 0.5, 0.5}, &_vec{1.0, 1.0, 1.0, 0.5})

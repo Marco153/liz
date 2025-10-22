@@ -2231,6 +2231,8 @@ bool IsKeyDown(int thread_id, void *data, key_enum keye) {
   return false;
 }
 void ImGuiCheckbox(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   char *name = (char *)&dbg->mem_buffer[name_offset];
@@ -2248,6 +2250,8 @@ void ImGuiSetNextItemAllowOverlap(int thread_id, dbg_state *dbg) {
 }
 void ImGuiPopItemWidth(int thread_id, dbg_state *dbg) { ImGui::PopItemWidth(); }
 void ImGuiEnumCombo(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   char *name = (char *)&dbg->mem_buffer[name_offset];
@@ -2322,15 +2326,21 @@ void ImGuiEnumCombo(int thread_id, dbg_state *dbg) {
   *addr = clicked;
 }
 void ImGuiPopID(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   ImGui::PopID();
 }
 void ImGuiPushID(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   auto id = *(int *)&dbg->mem_buffer[base_ptr + 8];
   ImGui::PushID(id);
 }
 void ImGuiShowV4(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   auto v = (v3 *)&dbg->mem_buffer[v_offset];
@@ -2339,6 +2349,8 @@ void ImGuiShowV4(int thread_id, dbg_state *dbg) {
   ImGui::DragFloat4(buffer, (float *)v, 0.1);
 }
 void ImGuiShowV2(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   auto v = (v3 *)&dbg->mem_buffer[v_offset];
@@ -2347,6 +2359,8 @@ void ImGuiShowV2(int thread_id, dbg_state *dbg) {
   ImGui::DragFloat2(buffer, (float *)v, 0.1);
 }
 void ImGuiShowV3(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   auto v_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   auto v = (v3 *)&dbg->mem_buffer[v_offset];
@@ -2355,6 +2369,8 @@ void ImGuiShowV3(int thread_id, dbg_state *dbg) {
   ImGui::DragFloat3(buffer, (float *)v, 0.1);
 }
 void ImGuiSetCursorPos(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   float x = *(float *)&dbg->mem_buffer[base_ptr + 8];
   float y = *(float *)&dbg->mem_buffer[base_ptr + 16];
@@ -2365,7 +2381,11 @@ void ImGuiPushItemWidth(int thread_id, dbg_state *dbg) {
   float w = *(float *)&dbg->mem_buffer[base_ptr + 8];
   ImGui::PushItemWidth(w);
 }
-void ImGuiSameLine(int thread_id, dbg_state *dbg) { ImGui::SameLine(); }
+void ImGuiSameLine(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
+  ImGui::SameLine();
+}
 
 void ImGuiGetCursorPos(int thread_id, dbg_state *dbg) {
   float *addr = (float *)GetRegValPtr(thread_id, dbg, RET_1_REG);
@@ -2401,6 +2421,8 @@ void ImGuiButton(int thread_id, dbg_state *dbg) {
     *addr = false;
 }
 void ImGuiSelectable(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   char *name_str = (char *)&dbg->mem_buffer[name_offset];
@@ -2418,11 +2440,15 @@ void ImGuiSelectable(int thread_id, dbg_state *dbg) {
 }
 
 void ImGuiTreePop(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   ImGui::TreePop();
 }
 
 void ImGuiTreeNodeEx(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   char *name_str = (char *)&dbg->mem_buffer[name_offset];
@@ -2434,6 +2460,8 @@ void ImGuiTreeNodeEx(int thread_id, dbg_state *dbg) {
 }
 
 void ImGuiHasFocus(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   auto &io = ImGui::GetIO();
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   if (io.WantCaptureMouse)
@@ -3585,8 +3613,14 @@ void GoBackOneDir(own_std::string *dir) {
   *dir += '\\';
 }
 
-void ImGuiSeparator(int thread_id, dbg_state *dbg) { ImGui::Separator(); }
+void ImGuiSeparator(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
+  ImGui::Separator();
+}
 void ImGuiDragInt(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int label_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   int var_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
@@ -3596,6 +3630,8 @@ void ImGuiDragInt(int thread_id, dbg_state *dbg) {
   ImGui::DragInt(label, var_addr);
 }
 void ImGuiDragF32(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int label_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   int var_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
@@ -3605,6 +3641,8 @@ void ImGuiDragF32(int thread_id, dbg_state *dbg) {
   ImGui::DragFloat(label, var_addr, 0.1);
 }
 void ImGuiInputF32(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int label_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   int var_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
@@ -3614,6 +3652,8 @@ void ImGuiInputF32(int thread_id, dbg_state *dbg) {
   ImGui::InputFloat(label, var_addr);
 }
 void ImGuiInputInt(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int label_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   int var_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
@@ -3623,6 +3663,8 @@ void ImGuiInputInt(int thread_id, dbg_state *dbg) {
   ImGui::InputInt(label, var_addr);
 }
 void ImGuiInputText(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int label_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   int buf_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
@@ -3670,6 +3712,8 @@ f->fdecl->from_file->name.c_str(), f->st->line, f->fdecl->name.c_str());
 }
 */
 void ImGuiImage(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int id = *(int *)&dbg->mem_buffer[base_ptr + 8];
   int sz_x = (int)*(float *)&dbg->mem_buffer[base_ptr + 16];
@@ -3685,8 +3729,14 @@ void ImGuiImage(int thread_id, dbg_state *dbg) {
   ImGui::Image((ImTextureID)(intptr_t)t->id, ImVec2(sz_x, sz_y), ImVec2(0, 1),
                ImVec2(1, 0));
 }
-void ImGuiEnd(int thread_id, dbg_state *dbg) { ImGui::End(); }
+void ImGuiEnd(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
+  ImGui::End();
+}
 void ImGuiBegin(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   char *name_str = (char *)&dbg->mem_buffer[name_offset];
@@ -3695,15 +3745,24 @@ void ImGuiBegin(int thread_id, dbg_state *dbg) {
   bool *bool_ptr = (bool *)&dbg->mem_buffer[bool_offset];
   int flags = *(int *)&dbg->mem_buffer[base_ptr + 24];
   ImGui::Begin(name_str, bool_ptr, flags);
+
+  dbg->imgui_begins.emplace_back(0);
 }
-void ImGuiEndChild(int thread_id, dbg_state *dbg) { ImGui::EndChild(); }
+void ImGuiEndChild(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
+  ImGui::EndChild();
+}
 void ImGuiBeginChild(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   float sz_x = *(float *)&dbg->mem_buffer[base_ptr + 16];
   float sz_y = *(float *)&dbg->mem_buffer[base_ptr + 24];
   char *name_str = (char *)&dbg->mem_buffer[name_offset];
   ImGui::BeginChild(name_str, ImVec2(sz_x, sz_y));
+  dbg->imgui_begins.emplace_back(1);
 }
 
 void ImGuiText(int thread_id, dbg_state *dbg) {
@@ -3750,6 +3809,8 @@ void EndFrame(int thread_id, dbg_state *dbg) {
   ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
   glfwSwapBuffers(wnd);
   gl_state->scroll = 0;
+
+  dbg->imgui_begins.clear();
 }
 void ClearKeys(void *data) {
   auto gl_state = (open_gl_state *)data;

@@ -2932,6 +2932,9 @@ struct dbg_state
 	};
 	stmnt_dbg* cur_st;
 	stmnt_dbg* prev_st;
+
+	own_std::vector<char> imgui_begins;
+
 	own_std::vector<breakpoint> breakpoints;
 	own_std::vector<func_decl*> func_stack;
 	own_std::vector<block_linked *> block_stack;
@@ -10225,6 +10228,21 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
         //PrintCallBasedOnBc(dbg, *dbg->cur_bc2);
       }
 			glfwPollEvents();
+
+      FOR_VEC(im, dbg->imgui_begins)
+      {
+        if(*im == 0)
+        {
+          ImGui::End();
+        }
+        else if (*im == 1)
+        {
+          ImGui::EndChild();
+        }
+      }
+
+      dbg->imgui_begins.clear();
+
 			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 			{
 				ImGui_ImplGlfw_Sleep(10);
@@ -10241,6 +10259,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			glViewport(0, 0, display_w, display_h);
 			glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
 			glClear(GL_COLOR_BUFFER_BIT);
+
 
 			ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplGlfw_NewFrame();

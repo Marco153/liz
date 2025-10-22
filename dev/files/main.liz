@@ -5139,6 +5139,8 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		ctx.editor_wnd_type = editor_window_enum.AREA_COL
 	}
 
+  __dbg_break
+
 	ImGuiSameLine()
 	aux_bool =ctx.editor_wnd_type == editor_window_enum.ITEMS
 	if ImGuiSelectable("items", aux_bool, 40.0, 15.0)

@@ -3759,6 +3759,7 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
     ch := ptr_offset(file, i, char)
     if *file[i] == '{
     {
+      //__dbg_break
       ent_str_end := find_closing_curly(file, i)
       dyn_clear(&ctx.tkns)
       ast :*ast_rep= ast_from_string_range(file, i, ent_str_end, root, &pinfo, &ctx.tkns, &lang_stat)
@@ -3780,11 +3781,13 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
         ent :*entity
         if is_flag_on(flags, ENTITY_DONT_FREE)
         {
-            bin := stmnts.BIN.expr[1]
-            ASSERT(bin.BIN.expr[0].WORD.str == "idx")
-            ent_idx := cast(u32)stmnts.BIN.expr[1].BIN.expr[1].INT.num
-            ASSERT(ent_idx < globals.entities.max)
-            ent = ptr_offset(globals.entities.start, ent_idx, entity)
+          i = ent_str_end
+          continue
+          bin := stmnts.BIN.expr[1]
+          ASSERT(bin.BIN.expr[0].WORD.str == "idx")
+          ent_idx := cast(u32)stmnts.BIN.expr[1].BIN.expr[1].INT.num
+          ASSERT(ent_idx < globals.entities.max)
+          ent = ptr_offset(globals.entities.start, ent_idx, entity)
 
 
         }
@@ -4054,70 +4057,70 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
         i = ent_str_end
         if is_flag_off(ent.flags, ENTITY_DONT_FREE)
         {
-            for en in ent.remove_from
-            {
-                on *en
-                {
-                ent_part_of.PLAYABLE
-                {
-                    printf("type {cast(u32)ent.type}\n")
+          for en in ent.remove_from
+          {
+              on *en
+              {
+              ent_part_of.PLAYABLE
+              {
+                  printf("type {cast(u32)ent.type}\n")
 
-                    dyn_add(&ctx.playable_ents, ent)
-                    if ent.type == ent_type.ENEMY
-                    {
-                        on ent.enemy_type
-                        {
-                        enemy_enum.SKULL
-                        {
-                            ent.playable_func = skull_mov
-                            ent.state = entity_state.GO_FORWARDS
-                            ent.c_type = clip_type.C3D
-                        }
-                        default
-                        {
-                            __dbg_break
-                        }
-                        }
-                        ent.col_enter = enemy_collision_enter;
-                        //ent.en_info.origin_pos = ent.pos
-                    }
-                }
-                ent_part_of.ANIMATION
-                {
-                    dyn_add(&ctx.ents_with_clip, ent)
-                }
-                ent_part_of.ITEMS
-                {
-                    dyn_add(&ctx.items_ents, ent)
-                    ent.col_enter = item_col_func
-                }
-                ent_part_of.LOOK_AT_PLAYER
-                {
-                    dyn_add(&ctx.look_at_ents, ent)
-                }
-                ent_part_of.EMMITTER
-                {
-                    dyn_add(&ctx.emmitters, ent)
-                }
-                ent_part_of.DRAWABLE
-                {
-                    dyn_add(&ctx.drawable_ents, ent)
-                }
-                ent_part_of.COLLIDER
-                {
-                    //add_body(ctx, ent);
-                }
-                ent_part_of.INSTANTIATED
-                {
-                    //__dbg_break
-                    //dyn_add(&ctx.ents, ent)
-                }
-                default
-                {
-                    __dbg_break
-                }
-                }
-            }
+                  dyn_add(&ctx.playable_ents, ent)
+                  if ent.type == ent_type.ENEMY
+                  {
+                      on ent.enemy_type
+                      {
+                      enemy_enum.SKULL
+                      {
+                          ent.playable_func = skull_mov
+                          ent.state = entity_state.GO_FORWARDS
+                          ent.c_type = clip_type.C3D
+                      }
+                      default
+                      {
+                          __dbg_break
+                      }
+                      }
+                      ent.col_enter = enemy_collision_enter;
+                      //ent.en_info.origin_pos = ent.pos
+                  }
+              }
+              ent_part_of.ANIMATION
+              {
+                  dyn_add(&ctx.ents_with_clip, ent)
+              }
+              ent_part_of.ITEMS
+              {
+                  dyn_add(&ctx.items_ents, ent)
+                  ent.col_enter = item_col_func
+              }
+              ent_part_of.LOOK_AT_PLAYER
+              {
+                  dyn_add(&ctx.look_at_ents, ent)
+              }
+              ent_part_of.EMMITTER
+              {
+                  dyn_add(&ctx.emmitters, ent)
+              }
+              ent_part_of.DRAWABLE
+              {
+                  dyn_add(&ctx.drawable_ents, ent)
+              }
+              ent_part_of.COLLIDER
+              {
+                  //add_body(ctx, ent);
+              }
+              ent_part_of.INSTANTIATED
+              {
+                  //__dbg_break
+                  //dyn_add(&ctx.ents, ent)
+              }
+              default
+              {
+                  __dbg_break
+              }
+              }
+          }
         }
         if ent.type == ent_type.BRIDGE
         {
@@ -5138,8 +5141,6 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	{
 		ctx.editor_wnd_type = editor_window_enum.AREA_COL
 	}
-
-  __dbg_break
 
 	ImGuiSameLine()
 	aux_bool =ctx.editor_wnd_type == editor_window_enum.ITEMS
@@ -8281,6 +8282,7 @@ main_loop::fn(ctx : *context)
 	globals.aux_col_ent = new_cube(ctx.cur_scn, &ctx.white_color, &ctx.white_color, false)
   
 	globals.aux_col_ent.flags = globals.aux_col_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
+	globals.aux_col_ent.flags = globals.aux_col_ent.flags & ~ENTITY_SERIALIZE
 	globals.aux_col_ent.type = ent_type.AUX_COL_ENT
 	globals.aux_col_ent.is_active = false
 
@@ -8322,8 +8324,9 @@ main_loop::fn(ctx : *context)
 
 	ctx.cam_dist = 5.0
 
-    ld_stage :loading_stage
+  ld_stage :loading_stage
 
+  in_scenes :dyn_array(*scene_info)
 	while !ShouldClose(ctx.window)
 	{
 		//aux_c := *ctx.test_ent.cols[0]
@@ -8915,6 +8918,7 @@ main_loop::fn(ctx : *context)
 						if out_ent != nil && out_ent.type != ent_type.TERRAIN
 						{
 							memcpy(&out_ent.color, &prev_select_ent_col, 16)
+              printf("nilling")
 							out_ent = nil
 						}
 
@@ -9233,7 +9237,46 @@ main_loop::fn(ctx : *context)
 			playble_ents_logic(ctx.cur_scn, &dt)
 			to_deactivate_func(ctx.cur_scn, dt)
 			UpdateEntsWithClips(ctx.cur_scn, dt)
-			PhysicsUpdate(ctx.cur_scn, dt)
+
+      c1 := *player_ent.cols[0]
+      p_aabb :aabb = ?
+      p_aabb._min = c1._min
+      p_aabb._max = c1._max
+
+      found := 1.0
+      dyn_clear(&in_scenes)
+
+      for s in ctx.scenes
+      {
+        for a in s.areas_col
+        {
+          a_aabb :aabb=?
+          a_aabb._min = a.area_col_pos - a.area_col_size * 0.5
+          a_aabb._max = a.area_col_pos + a.area_col_size * 0.5
+
+          if aabbCheck3D(&p_aabb, &a_aabb)
+          {
+            dyn_add(&in_scenes, s)
+            break;
+          }
+        }
+      }
+      for s in in_scenes
+      {
+        DeleteEnt(ctx.cur_scn, player_ent, for_changing_scenes=true)
+
+        dyn_add(&s.drawable_ents, player_ent)
+        dyn_add(&s.ents, player_ent)
+        dyn_add(&s.bodies, player_ent)
+        dyn_add(&s.ents_with_clip, player_ent)
+
+        ctx.cur_scn = *s
+        //player_ent.flags = player_ent.flags & ~ENTITY_CHANGE_SCENES
+        div := cast(f32)in_scenes.count
+        dt = dt / div
+        PhysicsUpdate(*s, dt)
+
+      }
 
 			update_sword_in_hand(player_ent, sword, hand_bone)
 
@@ -9518,16 +9561,6 @@ main_loop::fn(ctx : *context)
 
           if aabbCheck3D(&p_aabb, &a_aabb)
           {
-            DeleteEnt(ctx.cur_scn, player_ent, for_changing_scenes=true)
-
-            dyn_add(&s.drawable_ents, player_ent)
-            dyn_add(&s.ents, player_ent)
-            dyn_add(&s.bodies, player_ent)
-            dyn_add(&s.ents_with_clip, player_ent)
-
-            ctx.cur_scn = s
-            player_ent.flags = player_ent.flags & ~ENTITY_CHANGE_SCENES
-            found = true
             break
           }
         }

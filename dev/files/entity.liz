@@ -154,7 +154,7 @@ NewEnt::fn(ctx : *scene_info, name : str_lit) ! *entity
 	dyn_add(&ctx.ents, ent)
 	ent.flags = ENTITY_IN_USE
 	ent.color = _vec{1.0, 1.0, 1.0, 1.0};
-	ent.name = new_str_lit(ctx.alloc, "{name}_idx{i}");
+	ent.name = new_str_lit(globals.ent_name_string_alloc, "{name}_idx{i}");
 	ent.size.x = 1.0;
 	ent.size.y = 1.0;
 	ent.size.z = 1.0;

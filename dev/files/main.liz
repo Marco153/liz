@@ -85,6 +85,7 @@ context: struct
 	alloc : *mem_alloc,
 	main_alloc : mem_alloc,
 	per_scene_alloc : mem_alloc,
+	ent_name_string_alloc : mem_alloc,
 	terrain_alloc : mem_alloc,
 
 	tkns : dyn_array(token)
@@ -3316,7 +3317,7 @@ new_axis_ent::fn(ctx : *scene_info, name : str_lit, sz : *_vec, col : *_vec) ! *
 	ret.is_active = false
 	ret.is_trigger = true
 	ret.type = ent_type.AXIS
-	ret.flags = ret.flags | ENTITY_ALWAYS_ON_FRONT | ENTITY_3D | ENTITY_DONT_FREE
+	ret.flags = ret.flags | ENTITY_ALWAYS_ON_FRONT | ENTITY_3D | ENTITY_DONT_FREE | ENTITY_TRANSPARENT
 	ret.col_size.x = 1.0
 	ret.col_size.y = 1.0
 	ret.col_size.z = 1.0
@@ -3828,6 +3829,7 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
               in_front_name := &bin.BIN.expr[0].BIN.expr[1].STR_LIT.str
               in_back_name := &bin.BIN.expr[1].BIN.expr[1].STR_LIT.str
               
+
               l_area.in_front_scene_name = string_to_str_lit(ctx.alloc, in_front_name)
               l_area.in_back_scene_name = string_to_str_lit(ctx.alloc, in_back_name)
             
@@ -4303,9 +4305,6 @@ SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_all
 	prev_alloc := globals.alloc
 	globals.alloc = per_scene_alloc
 
-	file_name = "../scenes/{file_name}"
-	out_file := OpenFile(file_name)
-	defer CloseFile(out_file)
 
   settings_ast := new_ast2()
   settings_ast.type = ast_type.SCOPE
@@ -4339,10 +4338,10 @@ SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_all
   heap_free(aux.data.alloc, aux.data.data)
 
 
-	WriteToFile(out_file, out.data.data, out.data.count)
+	//WriteToFile(out_file, out.data.data, out.data.count)
 	cur_file_sz := out.data.count
 
-	out.data.count = 0
+	//out.data.count = 0
 
 	for i in 0..ctx.ents.count
 	{
@@ -4375,29 +4374,36 @@ SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_all
       memset(&aux, 0, sizeof(string))
 			cur_al:=globals.alloc
 
+      if i == 46 __dbg_break;
+
 			ast := SerializeEnt(ent, cast(u64)i)
 			
 			ast_to_string(ast, &aux)
+
 			PushStr(&out, &aux)
 			heap_free(aux.data.alloc, aux.data.data)
 			PushStrLit(&out, "\n ")
 
-			SetFilePtr(out_file, cur_file_sz);
+			//SetFilePtr(out_file, cur_file_sz);
 
-			WriteToFile(out_file, out.data.data, out.data.count)
+			//WriteToFile(out_file, out.data.data, out.data.count)
 
-			cur_file_sz += out.data.count
+			//cur_file_sz += out.data.count
 
-			out.data.count = 0
+			//out.data.count = 0
 
 			globals.temp_alloc.cur = 0
 			//printf("str {out}\n")
 		}
 	}
+
 	globals.alloc = prev_alloc
-	out.data.count -= 2
+	file_name = "../scenes/{file_name}"
 	printf("file name %", file_name)
-	//WriteFile(file_name, out.data.data, out.data.count)
+
+	out_file := OpenFile(file_name)
+	WriteFile(file_name, out.data.data, out.data.count)
+	CloseFile(out_file)
 
 	heap_free(out.data.alloc, out.data.data)
 
@@ -4894,27 +4900,36 @@ input_text::fn(ctx : *context, label_name : str_lit, name : *str_lit, buffer : *
 }
 fill_loading_area_with_file_data::fn(ctx : *scene_info, l_area : *loading_area_info)
 {
-  in_front_name := "../scenes/{l_area.in_front_scene_name}"
-  in_back_name := "../scenes/{l_area.in_back_scene_name}"
-  fl_sz: = cast(u32)GetFileSize(in_front_name);
-  if fl_sz == -1
-    __dbg_break
+  __dbg_break
+  name_sz := str_ln(l_area.in_front_scene_name)
+  if name_sz > 0
+  {
+    in_front_name := "../scenes/{l_area.in_front_scene_name}"
+    fl_sz: = cast(u32)GetFileSize(in_front_name);
+    if fl_sz == -1
+      __dbg_break
 
-  l_area.in_front_scene_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
-  ReadFile(in_front_name, l_area.in_front_scene_data);
-  l_area.in_front_scene_sz = fl_sz
+    l_area.in_front_scene_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
+    ReadFile(in_front_name, l_area.in_front_scene_data);
+    l_area.in_front_scene_sz = fl_sz
 
-  *ptr_offset(l_area.in_front_scene_data, fl_sz, u8) = 0
+    *ptr_offset(l_area.in_front_scene_data, fl_sz, u8) = 0
+  }
 
-  fl_sz = cast(u32)GetFileSize(in_back_name);
-  if fl_sz == -1
-    __dbg_break
+  name_sz = str_ln(l_area.in_back_scene_name)
+  if name_sz > 0
+  {
+    in_back_name := "../scenes/{l_area.in_back_scene_name}"
+    fl_sz := cast(u32)GetFileSize(in_back_name);
+    if fl_sz == -1
+      __dbg_break
 
-  l_area.in_back_scene_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
-  ReadFile(in_back_name, l_area.in_back_scene_data);
-  l_area.in_back_scene_sz = fl_sz
+    l_area.in_back_scene_data = cast(str_lit)heap_alloc(ctx.alloc, cast(u32)fl_sz + 1);
+    ReadFile(in_back_name, l_area.in_back_scene_data);
+    l_area.in_back_scene_sz = fl_sz
 
-  *ptr_offset(l_area.in_back_scene_data, fl_sz, u8) = 0
+    *ptr_offset(l_area.in_back_scene_data, fl_sz, u8) = 0
+  }
 }
 area_col_ui::fn(ctx :*context, a : *area_col_info)
 {
@@ -5606,8 +5621,8 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
             l_area := out_ent.l_area
             l_area.in_front_scene_name = cast(str_lit)heap_alloc(ctx.alloc, 1)
             l_area.in_back_scene_name = cast(str_lit)heap_alloc(ctx.alloc, 1)
-            *ptr_offset(l_area.in_front_scene_name, 1, u16) = 0
-            *ptr_offset(l_area.in_back_scene_name, 1, u16) = 0
+            *ptr_offset(l_area.in_front_scene_name, 0, u8) = 0
+            *ptr_offset(l_area.in_back_scene_name, 0, u8) = 0
           }
 				}
 				ent_type.BRIDGE
@@ -5886,7 +5901,10 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			}
 			globals.temp_alloc.cur = 0
 
+      prev_alloc := ctx.alloc
+      ctx.alloc = globals.ent_name_string_alloc
       input_text(ctx, "name", &out_ent.name, buffer[0])
+      ctx.alloc = prev_alloc
 
 			has_col := out_ent.cols.count > 0
 			ImGuiText("has col: {has_col}");
@@ -5914,7 +5932,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			}
 			ImGuiSeparator()
 			ImGuiText("material:")
-			if out_ent.material_idx.asset_idx != -1
+			if out_ent.material_idx.asset_idx != 0
 			{
 				m := get_material_ptr(&out_ent.material_idx)
 				inst := m.instances[cast(u64)out_ent.in_material_instance]
@@ -8259,6 +8277,7 @@ main_loop::fn(ctx : *context)
 
   cor.regs.rip = 0
 
+/*
   file_data = cast(str_lit)read_entire_file("../scenes/04", &fl_sz)
   other_scn := get_not_used_scene(ctx, "04")
   
@@ -8267,6 +8286,7 @@ main_loop::fn(ctx : *context)
   {
     OpenScene(&ctx.coroutines, other_scn, &stage, file_data, fl_sz, &cor)
   }
+  */
   stage = loading_stage.NONE
 
 	
@@ -9888,10 +9908,13 @@ main:: fn(){
 	InitMemAlloc(&ctx.main_alloc, 458600);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
+	InitMemAlloc(&ctx.ent_name_string_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
 	ctx.coroutines.alloc = ctx.alloc;
 	window := OpenWindow(1000, 1000);
 	//ctx.chunk_width = 16.0
+
+  globals.ent_name_string_alloc = &ctx.ent_name_string_alloc
 
 	dyn_init2(&globals.assets, ASSETS_MAX, ctx.alloc)
 	globals.assets.count = ASSETS_MAX

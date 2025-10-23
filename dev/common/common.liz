@@ -116,6 +116,7 @@ global_struct : struct
 
 	timer : f32,
 	alloc : *mem_alloc,
+	ent_name_string_alloc : *mem_alloc,
 	perm_alloc : *mem_alloc,
 	args : rel_array(var_arg)
 
@@ -1680,28 +1681,19 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 
     l_area := ent.l_area
 
-    dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("in_front_scene_name", l_area.in_front_scene_name))
-    dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("in_back_scene_name", l_area.in_back_scene_name))
-
-
-    scp_preserve:= new_ast2()
-		scp_preserve.type = ast_type.SCOPE
-
-    scp_preserve_bin := new_ast2() 
-    scp_preserve_bin.type = ast_type.BIN
-    scp_preserve_bin.BIN.op = cast(u32)token_type.COMMA
-
-
-    for e in l_area.preserve_ents
+    aux_str:= ""
+    if *ptr_offset(l_area.in_front_scene_name, 0, u8) != 0
     {
-      str_ast := new_ast2()
-      str_ast.type = ast_type.STR_LIT
-      AssignStr(&str_ast.STR_LIT.str, e.name)
-      dyn_add(&scp_preserve_bin.SCOPE.stmnts, str_ast)
+      aux_str = l_area.in_front_scene_name
     }
-    dyn_add(&scp_preserve.SCOPE.stmnts, scp_preserve_bin)
-    dyn_add(&scp.SCOPE.stmnts, AssignmentToAst("preserve_ents", scp_preserve))
+    dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("in_front_scene_name", aux_str))
 
+    aux_str = ""
+    if *ptr_offset(l_area.in_back_scene_name, 0, u8) != 0
+    {
+      aux_str = l_area.in_back_scene_name
+    }
+    dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("in_back_scene_name", aux_str))
 
     dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("l_area", scp))
   }

@@ -453,6 +453,8 @@ DrawEntity::fn(ctx : *scene_info, ent : *entity, drw_set : *draw_settings)
         final_col.z = aux.z
         //print_vec(&final_col)
       }
+      //if ent.type == ent_type.AXIS __dbg_break
+
       final_col = final_col * ctx.color
 
 

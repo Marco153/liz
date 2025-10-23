@@ -1595,6 +1595,8 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 	}
 	
 
+  //if absf(mx) > 0.1 || absf(my) > 0.1
+  //printf("mx {mx}, my {my}\n")
 
 	if IsMouseHeld(mouse_enum.RIGHT)
 	{
@@ -3830,8 +3832,8 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
               in_back_name := &bin.BIN.expr[1].BIN.expr[1].STR_LIT.str
               
 
-              l_area.in_front_scene_name = string_to_str_lit(ctx.alloc, in_front_name)
-              l_area.in_back_scene_name = string_to_str_lit(ctx.alloc, in_back_name)
+              l_area.in_front_scene_name = string_to_str_lit(globals.perm_alloc, in_front_name)
+              l_area.in_back_scene_name = string_to_str_lit(globals.perm_alloc, in_back_name)
             
               fill_loading_area_with_file_data(ctx, l_area)
 
@@ -4298,6 +4300,7 @@ free_lang_stuff::fn()
 SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_alloc)
 {
 	out :string
+  __dbg_break
 
 	InitMemAlloc(per_scene_alloc, 16000)
 	//dyn_add_data(&out.data, &fl, sizeof(fl));
@@ -4331,21 +4334,20 @@ SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_all
   dyn_add(&settings_ast.SCOPE.stmnts, AssignmentToAst("area_col", area_cols_ast))
 
   aux :string
-
   
   ast_to_string(settings_ast, &aux)
   PushStr(&out, &aux)
   heap_free(aux.data.alloc, aux.data.data)
 
-
 	//WriteToFile(out_file, out.data.data, out.data.count)
 	cur_file_sz := out.data.count
 
 	//out.data.count = 0
+  prev_cur := globals.temp_alloc.cur
 
 	for i in 0..ctx.ents.count
 	{
-		globals.temp_alloc.cur = 0
+		globals.temp_alloc.cur = prev_cur
 		ent := *ctx.ents[cast(u64)i]
 		/*
 		if str_cmp(ent.name, "item_idx79")
@@ -4374,8 +4376,6 @@ SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_all
       memset(&aux, 0, sizeof(string))
 			cur_al:=globals.alloc
 
-      if i == 46 __dbg_break;
-
 			ast := SerializeEnt(ent, cast(u64)i)
 			
 			ast_to_string(ast, &aux)
@@ -4392,11 +4392,12 @@ SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_all
 
 			//out.data.count = 0
 
-			globals.temp_alloc.cur = 0
+			globals.temp_alloc.cur = prev_cur
 			//printf("str {out}\n")
 		}
 	}
 
+  __dbg_break
 	globals.alloc = prev_alloc
 	file_name = "../scenes/{file_name}"
 	printf("file name %", file_name)
@@ -4900,7 +4901,6 @@ input_text::fn(ctx : *context, label_name : str_lit, name : *str_lit, buffer : *
 }
 fill_loading_area_with_file_data::fn(ctx : *scene_info, l_area : *loading_area_info)
 {
-  __dbg_break
   name_sz := str_ln(l_area.in_front_scene_name)
   if name_sz > 0
   {
@@ -7586,8 +7586,8 @@ get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
       s.alloc_idx = prev_idx
 
       s.in_use = true
-      s.name = name
       InitMemAlloc(s.alloc, 458600)
+      s.name = new_str_lit(s.alloc, name)
       s.color = ctx.white_color
       
       prev_alloc = globals.alloc
@@ -8277,7 +8277,6 @@ main_loop::fn(ctx : *context)
 
   cor.regs.rip = 0
 
-/*
   file_data = cast(str_lit)read_entire_file("../scenes/04", &fl_sz)
   other_scn := get_not_used_scene(ctx, "04")
   
@@ -8286,7 +8285,6 @@ main_loop::fn(ctx : *context)
   {
     OpenScene(&ctx.coroutines, other_scn, &stage, file_data, fl_sz, &cor)
   }
-  */
   stage = loading_stage.NONE
 
 	
@@ -9911,7 +9909,7 @@ main:: fn(){
 	InitMemAlloc(&ctx.ent_name_string_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
 	ctx.coroutines.alloc = ctx.alloc;
-	window := OpenWindow(1000, 1000);
+	window := OpenWindow(900, 900);
 	//ctx.chunk_width = 16.0
 
   globals.ent_name_string_alloc = &ctx.ent_name_string_alloc

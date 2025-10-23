@@ -1692,7 +1692,7 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
   glUniformMatrix4fv(projLoc, 1, GL_FALSE, gl_state->projection);
   glUniform4f(camPos, -cam_pos_x, -cam_pos_y, -cam_pos_z, 1.0);
   glUniform4f(camPos, -cam_pos_x, -cam_pos_y, -cam_pos_z, 1.0);
-  glUniform4f(color, draw->color_r, draw->color_b, draw->color_b,
+  glUniform4f(color, draw->color_r, draw->color_g, draw->color_b,
               draw->color_a);
   // glUniform4f(rot_u, draw->ent_rot_x, draw->ent_rot_y, draw->ent_rot_z,
   // draw->ent_rot_w);
@@ -6493,13 +6493,7 @@ void Init3D(dbg_state *dbg) {
 	in vec3 fragPos;\n\
 	uniform vec4 col;\n\
 	void main() {\n\
-		vec3 dx = dFdx(fragPos);\n\
-		vec3 dy = dFdy(fragPos);\n\
-		vec3 norm = normalize(cross(dx, dy));\n\
-		vec3 lightDir = normalize(vec3(-1.0, 0.5, 0.0));\n\
-		float d = max(dot(lightDir, norm), 0.2);\n\
-		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
-		FragColor *= col * vColor;\n\
+		FragColor = col;\n\
 	}\
 	";
 
@@ -6818,6 +6812,9 @@ void cursor_position_callback(GLFWwindow *window, double xpos, double ypos) {
     gl_state->mouse_vel_x = (xpos - gl_state->mouse_last_x);
     gl_state->mouse_vel_y = (ypos - gl_state->mouse_last_y);
   }
+  auto prev_last_y = gl_state->mouse_last_y;
+  // printf("cury %.3f, lasty %.3f, vely %.3f\n", ypos, gl_state->mouse_last_y,
+  // gl_state->mouse_vel_y);
   // glfwSetCursorPos(window, 0, 0);
   gl_state->mouse_last_x = xpos;
   gl_state->mouse_last_y = ypos;

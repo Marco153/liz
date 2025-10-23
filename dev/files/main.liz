@@ -4300,7 +4300,6 @@ free_lang_stuff::fn()
 SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_alloc)
 {
 	out :string
-  __dbg_break
 
 	InitMemAlloc(per_scene_alloc, 16000)
 	//dyn_add_data(&out.data, &fl, sizeof(fl));
@@ -4397,7 +4396,6 @@ SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_all
 		}
 	}
 
-  __dbg_break
 	globals.alloc = prev_alloc
 	file_name = "../scenes/{file_name}"
 	printf("file name %", file_name)
@@ -5193,6 +5191,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
     {
       if !s.in_use continue
 
+      ImGuiPushID(cast(u32)i)
       if ImGuiSelectable("{s.name}", false, 20.0, 30.0)
       {
         ctx.cur_scn = s
@@ -5208,6 +5207,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
       {
           fallback_used_scene = s
       }
+      ImGuiPopID()
       i++
     }
 
@@ -9686,6 +9686,7 @@ main_loop::fn(ctx : *context)
           (stage == loading_stage.NOT_DONE_BUT_CAN_CHANGE_SCENES || stage == loading_stage.NONE)
         {
           ctx.cur_scene_changing = player_ent.mov_info.asking_for_this_scene
+          ctx.cur_scene_changing_name = player_ent.mov_info.asking_for_this_scene_name
           ctx.cur_scene_changing_sz = player_ent.mov_info.asking_for_this_scene_sz
 
           ctx.cur_changing_loading_area = player_ent.mov_info.asking_for_this_loading_area

@@ -1,5 +1,6 @@
 import "../../core";
 
+ANIM_TICKS_PER_SEC:const f32= 24.0
 timeline_type: enum
 {
 	MOV,
@@ -55,7 +56,14 @@ clip3d: struct
 {
 	start : f32
 	end : f32
+
+  start_kf :u64
+
 	vel : f32
+
+  bones_start_kf_pos :dyn_array(u32)
+  bones_start_kf_rot :dyn_array(u32)
+  bones_start_kf_scale :dyn_array(u32)
 }
 clip2: struct
 {

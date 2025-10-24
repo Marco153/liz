@@ -2528,6 +2528,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
     {
       change_state(player_ent, entity_state.ON_WALL_MOV)
     }
+    return
 	}
 	entity_state.CLIMP_WALL2
 	{
@@ -4804,11 +4805,12 @@ set_path_on_terrain::fn(ctx : *context, trn : *entity)
 		UpdateModel(m.model, m.verts.data)
 	}
 }
-find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32) ! u64
+find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32, start : u64) ! u64
 {
-	ret : u64
-	for k in *ar
+	ret : u64=start
+  for i in start..ar.count
 	{
+    k := ar[i]
 		if k.time > time
 		{
 			break
@@ -4818,9 +4820,14 @@ find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32) ! u64
 	ret--
 	return ret
 }
-get_keyframe_rot::fn(b : *bone_animation, time : f32) ! _vec
+get_keyframe_rot::fn(b : *bone_animation, time : f32, cl : *clip3d) ! _vec
 {
-	rot_kf_idx := find_keyframe(&b.rot, time)
+	start :=cast(u64)*cl.bones_start_kf_rot[cast(u64)b.id]
+	rot_kf_idx :=find_keyframe(&b.rot, time, cast(u64)start)
+	//rot_kf_idx2 :=find_keyframe(&b.rot, time, 0)
+
+  //assert(rot_kf_idx == rot_kf_idx2)
+
 	rot_next_kf_idx := clamp(rot_kf_idx + 1, 0, b.rot.count - 1)
 	final_rot :_vec=?
 
@@ -4841,10 +4848,12 @@ get_keyframe_rot::fn(b : *bone_animation, time : f32) ! _vec
 
 	return final_rot
 }
-get_keyframe_pos::fn(b : *bone_animation, time : f32) ! _vec
+get_keyframe_pos::fn(b : *bone_animation, time : f32, cl : *clip3d) ! _vec
 {
-	final_pos :_vec=?
-	pos_kf_idx := find_keyframe(&b.pos, time)
+  final_pos:_vec=?
+
+	start := cast(u64)*cl.bones_start_kf_pos[cast(u64)b.id]
+	pos_kf_idx :=find_keyframe(&b.pos, time, cast(u64)start)
 	pos_next_kf_idx := clamp(pos_kf_idx + 1, 0, b.pos.count - 1)
 
 	cur_pos_kf := b.pos[pos_kf_idx]
@@ -4866,14 +4875,16 @@ get_keyframe_pos::fn(b : *bone_animation, time : f32) ! _vec
 
 	return final_pos
 }
-fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, time : f32, dt : f32)
+fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, time : f32, dt : f32, cl : *clip3d)
 {
+  //globals.fill_bones_called++
 	a_man := ent.anim_man
-	final_pos := get_keyframe_pos(b, time)
-	final_rot := get_keyframe_rot(b, time)
+	final_pos :_vec= get_keyframe_pos(b, time, cl)
+	final_rot :_vec= get_keyframe_rot(b, time, cl)
 
 	if b.has_sec_clip
 	{
+    //printf("sec clip\n")
 		sec_cl := get_clip_ptr(&a_man.sec_clip)
 
 		sec_timer := &a_man.sec_clip_timer
@@ -4883,8 +4894,8 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 		{
 			cur = cur * ANIM_TICKS_PER_SEC
 
-			sec_pos := get_keyframe_pos(b, cur)
-			sec_rot := get_keyframe_rot(b, cur)
+			sec_pos := get_keyframe_pos(b, cur, cl )
+			sec_rot := get_keyframe_rot(b, cur, cl)
 
 			final_pos = lerp(&final_pos, &sec_pos, a_man.sec_clip_weight)
 			final_rot = quaternion_slerp(&final_rot, &sec_rot, a_man.sec_clip_weight)
@@ -4923,7 +4934,7 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	//__dbg_break
 	for ch in b.children
 	{
-		fill_bones(ent, out_matrices, *ch, &anim_local, time, dt)
+		fill_bones(ent, out_matrices, *ch, &anim_local, time, dt, cl)
 	}
 	/*
 	if str_cmp(b.name, "spine")
@@ -7530,7 +7541,7 @@ gameplay_cam::fn(ctx : *context, dt : f32, cam_dist : f32)
 	//printf("angx {angx}, angy {angy}\n")
 	//print_vec(cam_forward)
 }
-create_clip_asset::fn(name : str_lit, start : f32, end : f32, vel : f32= 1.0) ! asset_index
+create_clip_asset::fn(name : str_lit, start : f32, end : f32, mod : *model_info, vel : f32= 1.0) ! asset_index
 {
 	aux_idx := find_empty_asset(ASSETS_CLIPS_OFFSET)
 	clip_aux := globals.assets[aux_idx]
@@ -7540,12 +7551,69 @@ create_clip_asset::fn(name : str_lit, start : f32, end : f32, vel : f32= 1.0) ! 
 	clip_aux.CLIP.cl.end = end
 	clip_aux.CLIP.cl.vel = vel
 
+  cl := &clip_aux.CLIP.cl
+  dyn_init2(&cl.bones_start_kf_pos, cast(u32)mod.bones_anim.count, globals.alloc)
+  dyn_init2(&cl.bones_start_kf_rot, cast(u32)mod.bones_anim.count, globals.alloc)
+  dyn_init2(&cl.bones_start_kf_scale, cast(u32)mod.bones_anim.count, globals.alloc)
+
+  cl.bones_start_kf_pos.count = cast(u32)mod.bones_anim.count
+  cl.bones_start_kf_rot.count = cast(u32)mod.bones_anim.count
+  cl.bones_start_kf_scale.count = cast(u32)mod.bones_anim.count
+
+  
+  b_idx :u64= 0
+  start = start * ANIM_TICKS_PER_SEC
+  for b in mod.bones_anim
+  {
+    assert(b.id == cast(u32)b_idx)
+    idx : u32
+    for k in b.pos
+    {
+      if k.time > start
+      {
+        break
+      }
+      idx++
+    }
+    idx--
+
+    *cl.bones_start_kf_pos[b_idx] = idx
+
+    idx = 0
+    for k in b.rot
+    {
+      if k.time > start
+      {
+        break
+      }
+      idx++
+    }
+    idx--
+
+    *cl.bones_start_kf_rot[b_idx] = idx
+
+    idx = 0
+    for k in b.scales
+    {
+      if k.time > start
+      {
+        break
+      }
+      idx++
+    }
+    idx--
+
+    *cl.bones_start_kf_scale[b_idx] = idx
+
+
+    b_idx++
+  }
+
 	ret :asset_index
 	ret.asset_idx = cast(u32)aux_idx
 	return ret
 	
 }
-ANIM_TICKS_PER_SEC:const f32= 24.0
 create_mesh_collider::fn(ctx : *scene_info, c : *collider, model_tris_count : u32, model_verts_count : u32)
 {
 	minfo : *verts_and_tris= &c.MESH.info
@@ -7789,20 +7857,6 @@ main_loop::fn(ctx : *context)
 	memcpy(model_.cid.name[0], "plane", str_ln("plane"))
 	model_.MODEL.mod.model = 1
 
-	create_clip_asset("p_idle", 30.0/ANIM_TICKS_PER_SEC, 97.0/ANIM_TICKS_PER_SEC)
-	create_clip_asset("p_walk", 0.0, 24.0/ANIM_TICKS_PER_SEC)
-	create_clip_asset("p_run", 110.0/ANIM_TICKS_PER_SEC, 135.0/ANIM_TICKS_PER_SEC, 2.0)
-	create_clip_asset("p_atk", 146.0/ANIM_TICKS_PER_SEC, 160.0/ANIM_TICKS_PER_SEC, 0.5)
-	create_clip_asset("p_clmb_2", 176.0/ANIM_TICKS_PER_SEC, 215.0/ANIM_TICKS_PER_SEC, 1.0)
-	ctx.player_wall_vertical_up = create_clip_asset("p_wlv", 233.0/ANIM_TICKS_PER_SEC, 253.0/ANIM_TICKS_PER_SEC, 1.0)
-	ctx.player_wall_vertical_down = create_clip_asset("p_wlvd", 271.0/ANIM_TICKS_PER_SEC, 291.0/ANIM_TICKS_PER_SEC, 1.0)
-	ctx.player_wall_horizontal_right = create_clip_asset("p_wlh", 308.0/ANIM_TICKS_PER_SEC, 317.0/ANIM_TICKS_PER_SEC, 1.0)
-	ctx.player_wall_horizontal_left = create_clip_asset("p_wlhl", 325.0/ANIM_TICKS_PER_SEC, 335.0/ANIM_TICKS_PER_SEC, 1.0)
-	ctx.player_wall_idle = create_clip_asset("p_wli", 346.0/ANIM_TICKS_PER_SEC, 379.0/ANIM_TICKS_PER_SEC, 1.0)
-
-	ctx.skull_idle = create_clip_asset("s_idle", 0.0/ANIM_TICKS_PER_SEC, 40.0/ANIM_TICKS_PER_SEC, 1.0)
-	ctx.skull_walk_forwards = create_clip_asset("s_wfw", 55.0/ANIM_TICKS_PER_SEC, 95.0/ANIM_TICKS_PER_SEC, 3.0)
-	ctx.skull_walk_sideways = create_clip_asset("s_wside", 110.0/ANIM_TICKS_PER_SEC, 131.0/ANIM_TICKS_PER_SEC, 3.0)
 
     dyn_init2(&ctx.tkns, 1024, ctx.alloc)
 
@@ -7881,6 +7935,7 @@ main_loop::fn(ctx : *context)
 				GetBoneChildrenData(m.model, cast(u32)i2, bones_idxs[0])
 
 				cur_banim := m.bones_anim[cast(u64)i2]
+        cur_banim.id = cast(u64)i2
 				dyn_init2(&cur_banim.children, total, ctx.alloc)
 				//cur_banim.children.count = total
 				for i3 in 0..total
@@ -8038,6 +8093,23 @@ main_loop::fn(ctx : *context)
 	c_asset :asset_index
 	c_asset.asset_idx = ASSETS_CLIPS_OFFSET + 3
 	player_ent.anim_man.sec_clip = c_asset
+
+  model_ptr := get_model_ptr(&player_ent.model)
+	create_clip_asset("p_idle", 30.0/ANIM_TICKS_PER_SEC, 97.0/ANIM_TICKS_PER_SEC, model_ptr)
+	create_clip_asset("p_walk", 0.0, 24.0/ANIM_TICKS_PER_SEC, model_ptr)
+	create_clip_asset("p_run", 110.0/ANIM_TICKS_PER_SEC, 135.0/ANIM_TICKS_PER_SEC,  model_ptr, 1.0)
+	create_clip_asset("p_atk", 146.0/ANIM_TICKS_PER_SEC, 160.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+	create_clip_asset("p_clmb_2", 176.0/ANIM_TICKS_PER_SEC, 215.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+	ctx.player_wall_vertical_up = create_clip_asset("p_wlv", 233.0/ANIM_TICKS_PER_SEC, 253.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+	ctx.player_wall_vertical_down = create_clip_asset("p_wlvd", 271.0/ANIM_TICKS_PER_SEC, 291.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+	ctx.player_wall_horizontal_right = create_clip_asset("p_wlh", 308.0/ANIM_TICKS_PER_SEC, 317.0/ANIM_TICKS_PER_SEC,  model_ptr, 1.0)
+	ctx.player_wall_horizontal_left = create_clip_asset("p_wlhl", 325.0/ANIM_TICKS_PER_SEC, 334.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+	ctx.player_wall_idle = create_clip_asset("p_wli", 346.0/ANIM_TICKS_PER_SEC, 379.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+
+  
+	//ctx.skull_idle = create_clip_asset("s_idle", 0.0/ANIM_TICKS_PER_SEC, 40.0/ANIM_TICKS_PER_SEC, 1.0)
+	//ctx.skull_walk_forwards = create_clip_asset("s_wfw", 55.0/ANIM_TICKS_PER_SEC, 95.0/ANIM_TICKS_PER_SEC, 3.0)
+	//ctx.skull_walk_sideways = create_clip_asset("s_wside", 110.0/ANIM_TICKS_PER_SEC, 131.0/ANIM_TICKS_PER_SEC, 3.0)
 
 	assign_sec_clip_to_bone(player_ent.mov_info.arm_bone, &c_asset)
 	assign_sec_clip_to_bone(hand_bone, &c_asset)
@@ -8454,7 +8526,7 @@ main_loop::fn(ctx : *context)
   ld_stage :loading_stage
 
   in_scenes :dyn_array(*scene_info)
-  player_ent.state = entity_state.ON_WALL_IDLE
+  //player_ent.state = entity_state.ON_WALL_IDLE
 	while !ShouldClose(ctx.window)
 	{
 
@@ -8493,7 +8565,7 @@ main_loop::fn(ctx : *context)
 		dt: = 0.017;
 
     dt_aux = 1.0/dt_aux
-		//printf("dt {dt_aux}, tris checkd {globals.tris_checked}\n")
+		printf("dt {dt_aux}, tris checkd {globals.tris_checked}\n")
 
 		ctx.i_clicked = IsKeyDown(key_enum.KEY_I)
 		globals.timer = 0.0;

@@ -194,6 +194,8 @@ global_struct : struct
   tris_checked :u32
 
   selected_ent : *entity
+
+  fill_bones_called : u32
 }
 globals : global global_struct
 
@@ -2193,6 +2195,7 @@ bone_animation:struct
 	final_pos : _vec
 	final_rot : _vec
 	vel : _vec
+
 }
 model_info: struct
 {

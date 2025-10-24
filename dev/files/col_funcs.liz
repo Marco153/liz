@@ -241,6 +241,13 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 		DisableEnt(ent_b)
 		PlayAudioByHandle(globals.item_pick_sound_handle)
 	}
+	else if ent_b.type == ent_type.CLIMBING_AREA
+  {
+    ent_a.vel.x = 0.0
+    ent_a.vel.y = 0.0
+    ent_a.vel.z = 0.0
+    ent_a.state = entity_state.ON_WALL_IDLE
+  }
 }
 
 xe_trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)

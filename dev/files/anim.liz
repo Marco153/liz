@@ -47,11 +47,18 @@ UpdateClip2::fn(e : *entity, dt : f32)
     {
       return
     }
+
+    //if e.state == entity_state.ON_WALL_MOV __dbg_break
+
+    //globals.fill_bones_called = 0
 		for b in mod.roots
 		{
 			identity_matrix4x4(cast(*f32)&matrix)
-			fill_bones(e, e.matrices_ptr, *b, &matrix, time, dt)
+			fill_bones(e, e.matrices_ptr, *b, &matrix, time, dt, cl)
 		}
+
+    //printf("called {globals.fill_bones_called}\n")
+
 	}
 	clip_type.C2D
 	{

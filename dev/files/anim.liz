@@ -27,11 +27,7 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		{
 			e.anim_func(e, dt)
 		}
-		for b in mod.roots
-		{
-			identity_matrix4x4(cast(*f32)&matrix)
-			fill_bones(e, e.matrices_ptr, *b, &matrix, time, dt)
-		}
+
 		e.clip_time += dt * cl.vel * e.anim_mul
 
 		//printf("anim time {time}, factored {e.clip_time}, end {cl.end}, dt {dt}, mul {e.anim_mul}\n")
@@ -46,6 +42,15 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		{
 			e.clip_done = true
 			e.clip_time = end
+		}
+    if e.clip_done
+    {
+      return
+    }
+		for b in mod.roots
+		{
+			identity_matrix4x4(cast(*f32)&matrix)
+			fill_bones(e, e.matrices_ptr, *b, &matrix, time, dt)
 		}
 	}
 	clip_type.C2D

@@ -61,7 +61,8 @@ entity_state:enum
 	GO_FORWARDS,
 	SURF,
 	EDGE,
-	ON_WALL,
+	ON_WALL_IDLE,
+	ON_WALL_MOV,
 	SLERP,
 	CLIMP_WALL2,
 }
@@ -407,6 +408,7 @@ player_info: struct
 {
   can_move : bool,
   facing_wall : bool
+  pos_anim : _vec
   neck_bone : *bone_animation
   arm_bone : *bone_animation
   hand_bone : *bone_animation

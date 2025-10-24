@@ -2181,6 +2181,8 @@ bone_animation:struct
 
 	local_matrix : mat4x4
 
+  lock_pos : bool
+
 	target_world_pos : _vec
 	target_rot : _vec
 	target_rot_weight : f32
@@ -2190,6 +2192,7 @@ bone_animation:struct
 
 	final_pos : _vec
 	final_rot : _vec
+	vel : _vec
 }
 model_info: struct
 {

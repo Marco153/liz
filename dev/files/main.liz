@@ -335,7 +335,14 @@ context: struct
 	skull_walk_forwards : asset_index
 	skull_walk_sideways : asset_index
 
+	player_wall_vertical_up : asset_index
+	player_wall_horizontal_right : asset_index
+	player_wall_vertical_down : asset_index
+	player_wall_horizontal_left : asset_index
+	player_wall_idle : asset_index
+
   cur_changing_loading_area : *loading_area_info
+  cam_follow_player_pos_anim : bool
 }
 
 
@@ -742,13 +749,13 @@ input_info:struct
 
 
 
-change_state::fn(e : *entity, state : entity_state)
+change_state::fn(e : *entity, state : entity_state, timer :f32=0.0)
 {
 	if e.state != state
 	{
 		e.cl = nil;
 		e.state = state;
-		e.clip_time = 0.0;
+		e.clip_time = timer;
 		e.clip_done = false;
 	}
 }
@@ -2326,6 +2333,31 @@ raycast_against_chunk_tris::fn(ctx : *context, start : *_vec, end : *_vec, out_p
 	}
 	return false
 }
+test_on_wall_changing_clip::fn(ctx : *context, player_ent : *entity, cl_h_right : *clip3d, cl_v_up : *clip3d)!bool
+{
+  change := true
+  if IsKeyHeld(key_enum.KEY_A)
+  {
+    player_ent.cl3d = ctx.player_wall_horizontal_left
+  }
+  else if IsKeyHeld(key_enum.KEY_D)
+  {
+    player_ent.cl3d = ctx.player_wall_horizontal_right
+  }
+  else if IsKeyHeld(key_enum.KEY_W)
+  {
+    player_ent.cl3d = ctx.player_wall_vertical_up
+  }
+  else if IsKeyHeld(key_enum.KEY_S)
+  {
+    player_ent.cl3d = ctx.player_wall_vertical_down
+  }
+  else
+  {
+    change = false
+  }
+  return change
+}
 player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 {
 
@@ -2452,29 +2484,50 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		actual_forward.y = 0.0
 		actual_forward.z = 0.0
 	}
+  cl_h_right := get_clip_ptr(&ctx.player_wall_horizontal_right)
+  cl_v_up := get_clip_ptr(&ctx.player_wall_vertical_up)
 
 	on player_ent.state
 	{
-	entity_state.ON_WALL
+	entity_state.ON_WALL_MOV
 	{
-		cross = cross_vec(&globals.up, &player_ent.normal_col)
-		d := dot_vec(&cross, &player_ent.vel)
+    player_ent.is_trigger = true
 
-		player_ent.vel.x = 0.0
-		player_ent.vel.z = 0.0
-		player_ent.vel.y = -0.5
-		if IsKeyDown(key_enum.KEY_JMP) && !mov.exhausted
-		{
-			grav.y = 0.0
-			mov.jmp.vel = *ctx.cam_forward_global * 5.0 + globals.up * 6.0
-			player_ent.state = entity_state.IDLE
+    local_final_pos := mov.spine_bone.final_pos
+    prev_z := local_final_pos.z
+    local_final_pos.z = local_final_pos.y
+    local_final_pos.y = prev_z
 
-			mov.stamina -= 0.2
-		}
-		if on_ground
-		{
-			player_ent.state = entity_state.IDLE
-		}
+    local_final_pos = local_final_pos * player_ent.size
+    ctx.cam_follow_player_pos_anim = true
+
+    mov.pos_anim = player_ent.pos + local_final_pos
+
+    
+		if player_ent.clip_done
+    {
+			player_ent.pos += local_final_pos
+      change_state(player_ent, entity_state.ON_WALL_IDLE)
+      memset(&player_ent.vel, 0, sizeof(_vec))
+    }
+
+	}
+	entity_state.ON_WALL_IDLE
+	{
+    player_ent.is_trigger = true
+
+    player_ent.cl3d = ctx.player_wall_idle
+    player_ent.anim_mul = 1.0
+
+
+
+    change := test_on_wall_changing_clip(ctx, player_ent, cl_h_right, cl_v_up)
+		grav.y = 0.0
+
+    if change
+    {
+      change_state(player_ent, entity_state.ON_WALL_MOV)
+    }
 	}
 	entity_state.CLIMP_WALL2
 	{
@@ -2657,8 +2710,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 
 
-		player_ent.vel = actual_forward * speed + *grav
-		player_ent.vel += mov.jmp.vel; // + mov.platform_vel
+		player_ent.vel += mov.jmp.vel + mov.platform_vel
 		if dot_vec(&actual_forward, &actual_forward) > 0.01 && !mov.on_rotating_cam
 		{
 			*forward = normalize_vec(&actual_forward)
@@ -2721,6 +2773,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 				}
 			}
 		}
+		player_ent.vel = actual_forward * speed + *grav
 	}
 	entity_state.SURF
 	{
@@ -4853,6 +4906,7 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	first := (final_pos * (1.0 - p))
 	final_pos = first + b.target_world_pos * p
 
+
 	final_rot = quaternion_slerp(&final_rot, &b.target_rot, b.target_rot_weight)
 
 	q:quaternion=?
@@ -4878,6 +4932,7 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	}
 	*/
 
+	b.vel = final_pos - b.final_pos
 	b.final_pos = final_pos
 	b.final_rot = final_rot
 
@@ -7451,6 +7506,11 @@ gameplay_cam::fn(ctx : *context, dt : f32, cam_dist : f32)
 
 	p_pos := globals.player.pos
 
+  if ctx.cam_follow_player_pos_anim
+  {
+    p_pos = globals.player.mov_info.pos_anim
+  }
+
 	dir := *cam_forward * cam_dist
 	final_pos := p_pos + dir
 
@@ -7574,6 +7634,14 @@ add_axis_ents_to_scene::fn(ctx : *context, s : *scene_info)
 }
 get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
 {
+  for s in ctx.scenes
+  {
+    if str_cmp(name, s.name)
+    {
+      s.in_use = true
+      return s
+    }
+  }
   for s in ctx.scenes
   {
     if s.in_use == false
@@ -7726,6 +7794,11 @@ main_loop::fn(ctx : *context)
 	create_clip_asset("p_run", 110.0/ANIM_TICKS_PER_SEC, 135.0/ANIM_TICKS_PER_SEC, 2.0)
 	create_clip_asset("p_atk", 146.0/ANIM_TICKS_PER_SEC, 160.0/ANIM_TICKS_PER_SEC, 0.5)
 	create_clip_asset("p_clmb_2", 176.0/ANIM_TICKS_PER_SEC, 215.0/ANIM_TICKS_PER_SEC, 1.0)
+	ctx.player_wall_vertical_up = create_clip_asset("p_wlv", 233.0/ANIM_TICKS_PER_SEC, 253.0/ANIM_TICKS_PER_SEC, 1.0)
+	ctx.player_wall_vertical_down = create_clip_asset("p_wlvd", 271.0/ANIM_TICKS_PER_SEC, 291.0/ANIM_TICKS_PER_SEC, 1.0)
+	ctx.player_wall_horizontal_right = create_clip_asset("p_wlh", 308.0/ANIM_TICKS_PER_SEC, 317.0/ANIM_TICKS_PER_SEC, 1.0)
+	ctx.player_wall_horizontal_left = create_clip_asset("p_wlhl", 325.0/ANIM_TICKS_PER_SEC, 335.0/ANIM_TICKS_PER_SEC, 1.0)
+	ctx.player_wall_idle = create_clip_asset("p_wli", 346.0/ANIM_TICKS_PER_SEC, 379.0/ANIM_TICKS_PER_SEC, 1.0)
 
 	ctx.skull_idle = create_clip_asset("s_idle", 0.0/ANIM_TICKS_PER_SEC, 40.0/ANIM_TICKS_PER_SEC, 1.0)
 	ctx.skull_walk_forwards = create_clip_asset("s_wfw", 55.0/ANIM_TICKS_PER_SEC, 95.0/ANIM_TICKS_PER_SEC, 3.0)
@@ -8381,8 +8454,11 @@ main_loop::fn(ctx : *context)
   ld_stage :loading_stage
 
   in_scenes :dyn_array(*scene_info)
+  player_ent.state = entity_state.ON_WALL_IDLE
 	while !ShouldClose(ctx.window)
 	{
+
+    //print_vec(&player_ent.mov_info.spine_bone.vel)
 		//aux_c := *ctx.test_ent.cols[0]
 /*
 

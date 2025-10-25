@@ -340,9 +340,12 @@ context: struct
 	player_wall_vertical_down : asset_index
 	player_wall_horizontal_left : asset_index
 	player_wall_idle : asset_index
+	player_wall_climb : asset_index
 
   cur_changing_loading_area : *loading_area_info
   cam_follow_player_pos_anim : bool
+  start_slerp_upwards :f32
+  end_slerp_upwards :f32
 }
 
 
@@ -2358,6 +2361,16 @@ test_on_wall_changing_clip::fn(ctx : *context, player_ent : *entity, cl_h_right 
   }
   return change
 }
+get_player_forward::fn(player_ent : *entity) ! _vec
+{
+    q := euler_to_quaternion(-270.0, 0.0, 0.0)
+    q2:quaternion
+    q2.v = player_ent.rot
+
+    //__dbg_break
+    q = q2 * q
+    return q * -globals.forward
+}
 player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 {
 
@@ -2487,11 +2500,20 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
   cl_h_right := get_clip_ptr(&ctx.player_wall_horizontal_right)
   cl_v_up := get_clip_ptr(&ctx.player_wall_vertical_up)
 
+  col : collider=?
+  start_ray:_vec=?
+  end_ray:_vec=?
+
 	on player_ent.state
 	{
-	entity_state.ON_WALL_MOV
-	{
+	entity_state.ON_WALL_UPWARDS
+  {
     player_ent.is_trigger = true
+		cl:= get_clip_ptr(&ctx.player_wall_climb)
+
+		player_ent.cl3d = ctx.player_wall_climb
+
+    ctx.cam_follow_player_pos_anim = true
 
     local_final_pos := mov.spine_bone.final_pos
     prev_z := local_final_pos.z
@@ -2499,13 +2521,84 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
     local_final_pos.y = prev_z
 
     local_final_pos = local_final_pos * player_ent.size
+
+    mov.pos_anim = player_ent.pos + local_final_pos
+    sz :_vec
+    sz.x = 0.5
+    sz.y = 0.5
+    sz.z = 0.5
+    draw_vertex(ctx, &mov.slerp_start, &sz, &cam_pos, &cam_rot)
+
+		if player_ent.clip_done
+		{
+			change_state(player_ent, entity_state.IDLE)
+			player_ent.is_trigger = false
+
+			player_ent.pos += local_final_pos
+      ctx.cam_follow_player_pos_anim = false
+		}
+  }
+	entity_state.ON_WALL_MOV
+	{
+    //player_ent.is_trigger = true
+
+    local_final_pos := mov.spine_bone.final_pos
+    local_final_pos = local_final_pos * player_ent.size
+
+    q : quaternion=?
+    q.v = player_ent.rot
+    local_final_pos = q *local_final_pos
+
     ctx.cam_follow_player_pos_anim = true
 
     mov.pos_anim = player_ent.pos + local_final_pos
 
-    
-		if player_ent.clip_done
+    changed := false
+    if (ctx.frames_total % 16) == 0
     {
+			col.type = col_type.SPHERE
+			col.SPHERE.radius = 1.5
+
+      fw := get_player_forward(player_ent)
+
+      //__dbg_break
+      col.pos = mov.pos_anim + fw
+      col.pos += globals.up
+
+			val2 := collider_against_tris(ctx, &col)
+
+			if !val2
+			{
+				start_ray = col.pos
+				end_ray = col.pos - globals.up * 100.0
+
+        out_pos :_vec=?
+
+				if raycast_against_chunk_tris(ctx, &start_ray, &end_ray, &out_pos)
+				{
+          //player_ent.pos = out_pos
+          player_ent.is_trigger = true
+          player_ent.pos = out_pos
+          //player_ent.pos.y += 1.0
+					printf("found pos \n")
+					print_vec(&out_pos)
+          /*
+					change_state(player_ent, entity_state.IDLE)
+          ctx.cam_follow_player_pos_anim = false
+          */
+          mov.slerp_start = out_pos
+
+          changed = true
+					
+					change_state(player_ent, entity_state.ON_WALL_UPWARDS)
+          //player_ent.clip_time = ctx.start_slerp_upwards
+				}
+			}
+    }
+    
+		if player_ent.clip_done && !changed
+    {
+
 			player_ent.pos += local_final_pos
       change_state(player_ent, entity_state.ON_WALL_IDLE)
       memset(&player_ent.vel, 0, sizeof(_vec))
@@ -2514,8 +2607,6 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	}
 	entity_state.ON_WALL_IDLE
 	{
-    player_ent.is_trigger = true
-
     player_ent.cl3d = ctx.player_wall_idle
     player_ent.anim_mul = 1.0
 
@@ -2528,18 +2619,28 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
     {
       change_state(player_ent, entity_state.ON_WALL_MOV)
     }
+
+    if IsKeyDown(key_enum.KEY_JMP)
+    {
+      change_state(player_ent, entity_state.IDLE)
+      ctx.cam_follow_player_pos_anim = false
+    }
     return
 	}
 	entity_state.CLIMP_WALL2
 	{
 		idx :asset_index
 		idx.asset_idx = ASSETS_CLIPS_OFFSET + 4
-		//__dbg_break
+
 		cl:= get_clip_ptr(&idx)
+
 		player_ent.cl3d = idx
-		start_slerp_upwards := 190.0/ANIM_TICKS_PER_SEC - cl.start 
-		end_slerp_upwards := 194.0/ANIM_TICKS_PER_SEC - cl.start 
+
+		start_slerp_upwards := ctx.start_slerp_upwards
+		end_slerp_upwards := ctx.end_slerp_upwards
+
 		total_len := cl.end - cl.start
+
 		remaining_len := (end_slerp_upwards - start_slerp_upwards)
 
 		player_ent.vel.x = 0.0
@@ -2549,32 +2650,35 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 		grav.y = 0.0
 
 		dir := mov.slerp_end - mov.slerp_start
+
+    ctx.cam_follow_player_pos_anim = true
+
+    local_final_pos := mov.spine_bone.final_pos
+    prev_z := local_final_pos.z
+    local_final_pos.z = local_final_pos.y
+    local_final_pos.y = prev_z
+
+    local_final_pos = local_final_pos * player_ent.size
+
+    mov.pos_anim = player_ent.pos + local_final_pos
 		if player_ent.clip_done
 		{
 			change_state(player_ent, entity_state.IDLE)
 			player_ent.is_trigger = false
 
-			local_final_pos := mov.spine_bone.final_pos
-			prev_z := local_final_pos.z
-			local_final_pos.z = local_final_pos.y
-			local_final_pos.y = prev_z
-
-			local_final_pos = local_final_pos * player_ent.size
-			print_vec(&local_final_pos)
-			//__dbg_break
 			player_ent.pos += local_final_pos
-			//__dbg_break
+      ctx.cam_follow_player_pos_anim = false
 		}
 		else if mov.slerp_timer >= start_slerp_upwards
 		{
 			aux_start := mov.slerp_timer - start_slerp_upwards
 			p := aux_start/remaining_len
 			p = clamp(p, 0.0, 1.0)
-			//p = sqrt(p)
+
 			//printf("p {p}, aux_start {aux_start}, start_up {start_slerp_upwards}\n")
-			//__dbg_break
+      
 			dir2 := dir*p
-			//print_vec(&dir2)
+
 			player_ent.pos = mov.slerp_start + dir2
 		}
 		//print_vec(&mov.spine_bone.final_pos)
@@ -2722,21 +2826,19 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			player_ent.anim_man.sec_clip_timer = 0.0
 			player_ent.anim_man.sec_clip_weight = 1.0
 		}
+
 		
 		if IsKeyDown(key_enum.KEY_E) && mov.facing_wall
 		{
 			found_at := 0
 			up:_vec
 			up.y = 1.0
-			col : collider
 			col.type = col_type.SPHERE
 			col.SPHERE.radius = 0.5
 
 			col.pos = player_ent.pos + player_ent.forward * 0.5
 			col.pos += up * 0.5
 
-			start_ray:_vec=?
-			end_ray:_vec=?
 
 			val1 := collider_against_tris(ctx, &col)
 			if !val1
@@ -2875,7 +2977,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	//ang := angle_on_axis(aux_forward, forward, &globals.up)
 	//player_ent.rot = euler_to_quaternion(0.0, radians_to_degree(-ang), 0.0).v
-	player_ent.on_ground = false
+	//player_ent.on_ground = false
 	width := 4.0
 	if player_ent.pos.y < mov.min_y_cam_pos || mov_pressed
 	{
@@ -5098,7 +5200,6 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			if dot < 0.999999
 			{
 				relative_forward = cross_vec(&n, &rel_up)
-				rf := relative_forward
 				relative_right = cross_vec(&n, &relative_forward)
 				diff := angle_on_axis(&rel_up, &n, &relative_forward)
 
@@ -7752,6 +7853,7 @@ test_fun::fn(ctx :*scene_info)
 }
 main_loop::fn(ctx : *context)
 {
+  globals.forward.z = 1.0
 	ctx.red_color.x = 1.0
 	ctx.red_color.y = 0.0
 	ctx.red_color.z = 0.0
@@ -8097,14 +8199,22 @@ main_loop::fn(ctx : *context)
   model_ptr := get_model_ptr(&player_ent.model)
 	create_clip_asset("p_idle", 30.0/ANIM_TICKS_PER_SEC, 97.0/ANIM_TICKS_PER_SEC, model_ptr)
 	create_clip_asset("p_walk", 0.0, 24.0/ANIM_TICKS_PER_SEC, model_ptr)
-	create_clip_asset("p_run", 110.0/ANIM_TICKS_PER_SEC, 135.0/ANIM_TICKS_PER_SEC,  model_ptr, 1.0)
+	create_clip_asset("p_run", 110.0/ANIM_TICKS_PER_SEC, 135.0/ANIM_TICKS_PER_SEC,  model_ptr, 1.5)
 	create_clip_asset("p_atk", 146.0/ANIM_TICKS_PER_SEC, 160.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
-	create_clip_asset("p_clmb_2", 176.0/ANIM_TICKS_PER_SEC, 215.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+	idx_climb := create_clip_asset("p_clmb_2", 176.0/ANIM_TICKS_PER_SEC, 215.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
 	ctx.player_wall_vertical_up = create_clip_asset("p_wlv", 233.0/ANIM_TICKS_PER_SEC, 253.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
 	ctx.player_wall_vertical_down = create_clip_asset("p_wlvd", 271.0/ANIM_TICKS_PER_SEC, 291.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
 	ctx.player_wall_horizontal_right = create_clip_asset("p_wlh", 308.0/ANIM_TICKS_PER_SEC, 317.0/ANIM_TICKS_PER_SEC,  model_ptr, 1.0)
 	ctx.player_wall_horizontal_left = create_clip_asset("p_wlhl", 325.0/ANIM_TICKS_PER_SEC, 334.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
 	ctx.player_wall_idle = create_clip_asset("p_wli", 346.0/ANIM_TICKS_PER_SEC, 379.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+	ctx.player_wall_climb = create_clip_asset("p_wlc", 396.0/ANIM_TICKS_PER_SEC, 417.0/ANIM_TICKS_PER_SEC, model_ptr, 1.0)
+
+  idx_climb.asset_idx = ASSETS_CLIPS_OFFSET + 4
+
+  cl:= get_clip_ptr(&idx_climb)
+
+  ctx.start_slerp_upwards = 190.0/ANIM_TICKS_PER_SEC - cl.start 
+  ctx.end_slerp_upwards   = 194.0/ANIM_TICKS_PER_SEC - cl.start 
 
   
 	//ctx.skull_idle = create_clip_asset("s_idle", 0.0/ANIM_TICKS_PER_SEC, 40.0/ANIM_TICKS_PER_SEC, 1.0)
@@ -8133,6 +8243,7 @@ main_loop::fn(ctx : *context)
 		z:_vec
 		z.z = 1.0
 
+/*
 		q:quaternion
 		q.v = ent.rot
 		euler := quaternion_to_euler(&q.v)
@@ -8172,6 +8283,7 @@ main_loop::fn(ctx : *context)
 		}
 
 		b.target_rot_weight = clamp(b.target_rot_weight, 0.0, 1.0)
+    */
 	}
 	//player_ent.model = test_model
 
@@ -8565,7 +8677,7 @@ main_loop::fn(ctx : *context)
 		dt: = 0.017;
 
     dt_aux = 1.0/dt_aux
-		printf("dt {dt_aux}, tris checkd {globals.tris_checked}\n")
+		//printf("dt {dt_aux}, tris checkd {globals.tris_checked}\n")
 
 		ctx.i_clicked = IsKeyDown(key_enum.KEY_I)
 		globals.timer = 0.0;
@@ -9396,11 +9508,14 @@ main_loop::fn(ctx : *context)
       out_pos:_vec
 
       cam_dist := 5.0
-      if raycast_against_chunk_tris(ctx, &player_ent.pos, &end, &out_pos)
+      if !ctx.cam_follow_player_pos_anim
       {
-        dir = out_pos - player_ent.pos
-        cam_dist = len_vec(&dir)
-        cam_dist = cam_dist * 0.9
+        if raycast_against_chunk_tris(ctx, &player_ent.pos, &end, &out_pos)
+        {
+          dir = out_pos - player_ent.pos
+          cam_dist = len_vec(&dir)
+          cam_dist = cam_dist * 0.9
+        }
       }
       cam_dist = clamp(cam_dist, 0.0, 5.0)
 			gameplay_cam(ctx, dt, cam_dist)

@@ -135,6 +135,7 @@ global_struct : struct
 	ray_origin : _vec
 	ray_end : _vec
 	up : _vec
+	forward : _vec
 
 	aabb1_min : _vec
 	aabb1_max : _vec

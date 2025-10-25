@@ -64,6 +64,7 @@ entity_state:enum
 	EDGE,
 	ON_WALL_IDLE,
 	ON_WALL_MOV,
+	ON_WALL_UPWARDS,
 	SLERP,
 	CLIMP_WALL2,
 }

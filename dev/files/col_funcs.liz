@@ -57,6 +57,14 @@ spear_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 
 player_collision_exit::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
+	up : _vec
+	up.y = 1.0
+	ent_a.normal_col = col.normal
+	ent_a.mov_info.col_in_stay = true
+	if dot_vec(&col.normal, &up) > 0.5
+	{
+		ent_a.on_ground = false
+	}
 }
 enemy_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
@@ -241,12 +249,30 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 		DisableEnt(ent_b)
 		PlayAudioByHandle(globals.item_pick_sound_handle)
 	}
-	else if ent_b.type == ent_type.CLIMBING_AREA
+	else if ent_b.type == ent_type.CLIMBING_AREA && ent_a.state != entity_state.ON_WALL_UPWARDS
   {
     ent_a.vel.x = 0.0
     ent_a.vel.y = 0.0
     ent_a.vel.z = 0.0
     ent_a.state = entity_state.ON_WALL_IDLE
+
+    relative_forward := cross_vec(&col.normal, &globals.up)
+    diff_up := angle_on_axis(&_vec{1.0, 0.0, 0.0}, &col.normal, &globals.up) + PI * 0.5
+    diff := angle_on_axis(&globals.up, &col.normal, &relative_forward) + PI * 0.5
+    printf("diff {diff}\n")
+
+    aux_n :_vec=relative_forward
+
+    q : quaternion=?
+    q = euler_to_quaternion(270.0, radians_to_degree(diff_up), 0.0)
+
+    quat := create_from_axis_angle(aux_n.x, aux_n.y, aux_n.z, diff)
+    ent_a.forward = get_forward(ent_a)
+
+
+    q =  quat * q
+
+    ent_a.rot = q.v
   }
 }
 

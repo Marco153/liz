@@ -2,6 +2,7 @@
 #include "machine_rel.h"
 #include "error_report.h"
 #include "bytecode.h"
+#include "token.h"
 #include <algorithm>
 #include <time.h>
 #ifdef LINUX
@@ -4177,10 +4178,19 @@ bool NameFindingGetType(lang_state *lang_stat, node* n, scope* scp, type2& ret_t
 	case node_type::N_CONST:
 	{
 		ASSERT(NameFindingGetType(lang_stat, n->r, scp, ret_type))
-		if(ret_type.type == TYPE_F32_TYPE)
+		switch(ret_type.type)
+		{
+		case TYPE_STR_LIT:
+		{
+			ret_type.type = TYPE_STR_LIT;
+		}break;
+		case TYPE_F32_TYPE:
+		{
 			ret_type.type = TYPE_F32_RAW;
-		else
+		}break;
+		default:
 			ret_type.type = TYPE_INT;
+		}
 
 		ret_type.is_const = true;
 	}break;
@@ -11258,6 +11268,12 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 			}
 			if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !decl)
 				ReportUndeclaredIdentifier(lang_stat, n->t);
+			/*
+			if(n->t->line == 7911 && decl->type.is_const)
+			{
+				HERE()
+			}
+			*/
 
 				/*
 			if(!decl)

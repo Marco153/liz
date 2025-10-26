@@ -5129,14 +5129,23 @@ void loadIdentity(float *mat) {
   std::fill(mat, mat + 16, 0.0f);
   mat[0] = mat[5] = mat[10] = mat[15] = 1.0f;
 }
-void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string &full_path) {
+void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path, int use_model_idx = -1) {
   auto gl_state = (open_gl_state *)dbg->data;
   int free_idx = -1;
-  int idx = HasModel(dbg, full_path, &free_idx);
-  if (idx != -1) {
-    *(int *)GetRegValPtr(thread_id, dbg, RET_1_REG) = idx;
-    ASSERT(0)
-    return;
+  if(use_model_idx == -1)
+  {
+    int idx = HasModel(dbg, full_path, &free_idx);
+    if (idx != -1) {
+      *(int *)GetRegValPtr(thread_id, dbg, RET_1_REG) = idx;
+      ASSERT(0)
+      return;
+    }
+  }
+  else
+  {
+    free_idx = use_model_idx;
+    model_info *m = &gl_state->models[free_idx];
+    full_path = m->name;
   }
 
   const struct aiScene *scene =
@@ -5150,11 +5159,14 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string &full_path) {
     return;
   }
 
+
   const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
 
   model_info *m = &gl_state->models[free_idx];
   new (m) model_info();
   std::unordered_map<std::string, int> &bones = m->bones;
+  
+  m->name = full_path;
 
   m->scene = (aiScene *)scene;
 
@@ -5484,6 +5496,24 @@ void FreeModel(int thread_id, dbg_state *dbg) {
 
   aiReleaseImport(m->scene);
   */
+}
+void ReloadModel(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int model_idx = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+  auto gl_state = (open_gl_state *)dbg->data;
+
+  model_info *m = &gl_state->models[model_idx];
+  
+  aiReleaseImport(m->scene);
+
+  glDeleteBuffers(1, &m->vao);
+  glDeleteBuffers(1, &m->vbo);
+  glDeleteBuffers(1, &m->ebo);
+
+  //own_std::string full_path = gl_state->model_folder + m->name;
+  LoadModelBase(thread_id, dbg, "", model_idx);
+
 }
 void LoadModel(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -5863,6 +5893,49 @@ void FreeHandle(int thread_id, dbg_state *dbg) {
 
   handle_info *h = &dbg->handles[hidx];
   h->in_use = false;
+}
+void FileChangeTime(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int name = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+  char *name_ptr = (char *)&dbg->mem_buffer[name];
+
+  if (!dbg->cur_func) {
+    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  }
+  own_std::string work_dir = dbg->cur_func->from_file->path;
+  // MaybeAddBarToEndOfStr(&work_dir);
+
+  auto final_name = work_dir + name_ptr;
+    
+  name_ptr = final_name.c_str();
+
+#ifdef LINUX
+  struct stat st;
+  auto val = stat(name_ptr, &st);
+  if(val == -1)
+  {
+    printf("cant open file %s\n", name_ptr);
+    ASSERT(0);
+  }
+
+  /*
+  // Convert to local time
+  struct tm localTime = *localtime(&st.st_mtime);
+  std::cout << std::endl<<name_ptr << " last modified: "
+            << localTime.tm_year + 1900 << "-"
+            << localTime.tm_mon + 1 << "-"
+            << localTime.tm_mday << " "
+            << localTime.tm_hour << ":"
+            << localTime.tm_min << ":"
+            << localTime.tm_sec
+            << std::endl;
+            */
+
+  *(int *)GetRegValPtr(thread_id, dbg, RET_1_REG) = st.st_mtime;
+#else
+  ASSERT(0)
+#endif
 }
 void HandleDirFilenameAt(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -8153,8 +8226,12 @@ int main(int argc, char *argv[]) {
 
   AssignOutsiderFunc(&lang_stat, "HandleForGettingFilesInDir",
                      (OutsiderFuncType)HandleForGettingFilesInDir);
+  AssignOutsiderFunc(&lang_stat, "FileChangeTime",
+                     (OutsiderFuncType)FileChangeTime);
+
   AssignOutsiderFunc(&lang_stat, "HandleDirFilenameAt",
                      (OutsiderFuncType)HandleDirFilenameAt);
+
   AssignOutsiderFunc(&lang_stat, "HandleDirTotalFiles",
                      (OutsiderFuncType)HandleDirTotalFiles);
   AssignOutsiderFunc(&lang_stat, "FreeHandle", (OutsiderFuncType)FreeHandle);
@@ -8288,6 +8365,7 @@ int main(int argc, char *argv[]) {
   AssignOutsiderFunc(&lang_stat, "LoadTexFolder",
                      (OutsiderFuncType)LoadTexFolder);
   AssignOutsiderFunc(&lang_stat, "LoadModel", (OutsiderFuncType)LoadModel);
+  AssignOutsiderFunc(&lang_stat, "ReloadModel", (OutsiderFuncType)ReloadModel);
   AssignOutsiderFunc(&lang_stat, "FreeModel", (OutsiderFuncType)FreeModel);
   AssignOutsiderFunc(&lang_stat, "ModelFarthestPoint",
                      (OutsiderFuncType)ModelFarthestPoint);

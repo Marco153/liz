@@ -225,6 +225,7 @@ struct type2
 		long long s64;
 		type_struct2 *strct;
 		own_std::string template_name;
+		char *str_lit;
 		void (*macro_builtin)(node *, node *, node *, void *);
         decl2 *type_def_decl;
 

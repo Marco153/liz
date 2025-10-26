@@ -2523,11 +2523,13 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
     local_final_pos = local_final_pos * player_ent.size
 
     mov.pos_anim = player_ent.pos + local_final_pos
+    /*
     sz :_vec
     sz.x = 0.5
     sz.y = 0.5
     sz.z = 0.5
     draw_vertex(ctx, &mov.slerp_start, &sz, &cam_pos, &cam_rot)
+    */
 
 		if player_ent.clip_done
 		{
@@ -4950,6 +4952,33 @@ get_keyframe_rot::fn(b : *bone_animation, time : f32, cl : *clip3d) ! _vec
 
 	return final_rot
 }
+get_keyframe_scale::fn(b : *bone_animation, time : f32, cl : *clip3d) ! _vec
+{
+  final_scale:_vec=?
+
+	start := cast(u64)*cl.bones_start_kf_scale[cast(u64)b.id]
+	scale_kf_idx :=find_keyframe(&b.scales, time, cast(u64)start)
+	scale_next_kf_idx := clamp(scale_kf_idx + 1, 0, b.scales.count - 1)
+
+	cur_scale_kf := b.scales[scale_kf_idx]
+	next_scale_kf := b.scales[scale_next_kf_idx]
+	val_diff := next_scale_kf.time - cur_scale_kf.time
+
+	if val_diff > 0.0
+	{
+		p := (time - cur_scale_kf.time) / val_diff
+
+		diff_scale := next_scale_kf.val - cur_scale_kf.val 
+		final_scale = cur_scale_kf.val + diff_scale * p
+
+	}
+	else
+	{
+		final_scale = cur_scale_kf.val
+	}
+
+	return final_scale
+}
 get_keyframe_pos::fn(b : *bone_animation, time : f32, cl : *clip3d) ! _vec
 {
   final_pos:_vec=?
@@ -4983,6 +5012,7 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	a_man := ent.anim_man
 	final_pos :_vec= get_keyframe_pos(b, time, cl)
 	final_rot :_vec= get_keyframe_rot(b, time, cl)
+	final_scale :_vec= get_keyframe_scale(b, time, cl)
 
 	if b.has_sec_clip
 	{
@@ -5011,8 +5041,9 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	anim_local:mat4x4=?;
 
 
-	rot_mat :mat4x4=?
 	pos_mat :mat4x4=?
+	scale_mat :mat4x4=?
+	rot_mat :mat4x4=?
 
 	
 	p := b.target_world_pos.w
@@ -5025,10 +5056,11 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	q:quaternion=?
 	q.v = final_rot
 
-	build_rotation_matrix(&rot_mat, &q)
 	build_translation_matrix(&pos_mat, &final_pos)
+	build_scale_matrix(&scale_mat, &final_scale)
+	build_rotation_matrix(&rot_mat, &q)
 
-	anim_local = pos_mat * rot_mat
+	anim_local = pos_mat * rot_mat * scale_mat
 	anim_local = *parent_mat * anim_local
 
 	offset :=  anim_local * b.local_matrix
@@ -7851,8 +7883,47 @@ test_fun::fn(ctx :*scene_info)
   scn2 :=ptr_offset(ctx, 1, scene_info)
   OpenLocalsWindow(__LINE__)
 }
+
+
+check_if_any_models_file_changed::fn()
+{
+	MODELS_DIR:= "../models/"
+	//if (globals.frames_total % 16) == 0
+	if true
+	{
+		pressed := false
+		if IsKeyDown(key_enum.KEY_P)
+		{
+			pressed = true
+		}
+
+		// the first two models are builtin ones, the cube and the plane
+		for i in 2..32
+		{
+			cur_m := globals.assets[ASSETS_MODELS_OFFSET + cast(u64)i]
+
+			if !cur_m.in_use continue;
+				
+
+			file_name := cast(str_lit)cur_m.cid.name[0]
+			if pressed __dbg_break
+				
+			aux_name := "{MODELS_DIR}{file_name}"
+			cur_change := FileChangeTime(aux_name)
+			
+			if cur_m.last_change != cur_change
+			{
+				m := &cur_m.MODEL.mod
+				ReloadModel(m.model)
+				cur_m.last_change = cur_change
+			}
+		}
+	}
+}
 main_loop::fn(ctx : *context)
 {
+	MODELS_DIR:= "../models/"
+
   globals.forward.z = 1.0
 	ctx.red_color.x = 1.0
 	ctx.red_color.y = 0.0
@@ -7980,14 +8051,18 @@ main_loop::fn(ctx : *context)
 		a := globals.assets[empty_idx]
 		a.cid.id.a_type = cast(u8)cast(u32)asset_type.MODEL
 		a.type = asset_type.MODEL
-		ln := str_ln(cast(str_lit)ctx.save_scene_buffer[0])
+		
+		file_name := cast(str_lit)ctx.save_scene_buffer[0]
+		aux_name := "{MODELS_DIR}{file_name}"
+		a.last_change = FileChangeTime(aux_name)
+		ln := str_ln(file_name)
 		ASSERT(ln < 12)
-		memcpy(&a.cid.name, cast(str_lit)ctx.save_scene_buffer[0], ln)
+		memcpy(&a.cid.name, file_name, ln)
 
 
 		m := get_model_ptr(&empty_a)
-		m.model = LoadModel(cast(str_lit)ctx.save_scene_buffer[0])
-		m.name = new_str_lit(ctx.alloc, cast(str_lit)ctx.save_scene_buffer[0])
+		m.model = LoadModel(file_name)
+		m.name = new_str_lit(ctx.alloc, file_name)
 
 		if ModelHasAnim(m.model)
 		{
@@ -8178,7 +8253,7 @@ main_loop::fn(ctx : *context)
 	player_ent.size.x = 1.0
 	player_ent.size.y = 1.0
 	player_ent.size.z = 1.0
-	player_ent.size = player_ent.size * 0.2
+	player_ent.size = player_ent.size
 	player_ent.rot = euler_to_quaternion(270.0, 0.0, 0.0).v
 	player_ent.c_type = clip_type.C3D
 	player_ent.cl3d.asset_idx = ASSETS_CLIPS_OFFSET
@@ -8641,8 +8716,6 @@ main_loop::fn(ctx : *context)
   //player_ent.state = entity_state.ON_WALL_IDLE
 	while !ShouldClose(ctx.window)
 	{
-
-    //print_vec(&player_ent.mov_info.spine_bone.vel)
 		//aux_c := *ctx.test_ent.cols[0]
 /*
 
@@ -8718,6 +8791,7 @@ main_loop::fn(ctx : *context)
 
 		if IsKeyDown(key_enum.KEY_F1)
 		{
+
 			ctx.can_deactivate_path_ents = true
 			ctx.editor_cam = !ctx.editor_cam 
 			change_select_ent_col = true
@@ -8741,6 +8815,7 @@ main_loop::fn(ctx : *context)
 		}
 		if ctx.editor_cam
 		{
+			check_if_any_models_file_changed()
 			//printf("model {ctx.grid_ent.model}\n")
 			if IsKeyHeld(key_enum.KEY_LCTRL) && IsKeyDown(key_enum.KEY_S)
 			{
@@ -9792,6 +9867,7 @@ main_loop::fn(ctx : *context)
 		}
 		if ctx.editor_wnd
 		{
+
 			prev_ent := out_ent
 			if out_ent != nil && out_ent.type == ent_type.AUX_COL_ENT
 			{
@@ -10001,6 +10077,7 @@ main_loop::fn(ctx : *context)
 		mx = mx / 500.0
 		my = my / 500.0
 		EndFrame(ctx.window);
+		globals.frames_total = ctx.frames_total
 		ctx.frames_total++;
 
 		if ctx.can_deactivate_path_ents

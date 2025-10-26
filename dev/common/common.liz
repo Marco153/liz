@@ -197,6 +197,7 @@ global_struct : struct
   selected_ent : *entity
 
   fill_bones_called : u32
+  frames_total : u64
 }
 globals : global global_struct
 
@@ -802,6 +803,7 @@ ScreenMouseToWorld::fn outsider(mx : f32, my : f32) ! _vec;
 Perlin2D::fn outsider(x:f32, y:f32, freq:f32, depth : u32) ! f32;
 CreateMesh::fn outsider(*create_mesh_info) ! u32;
 LoadModel::fn outsider(name : str_lit) ! u32;
+ReloadModel::fn outsider(idx:u32);
 FreeModel::fn outsider(idx: u32);
 ModelFarthestPoint::fn outsider(idx : u32, axis : *_vec) ! _vec;
 
@@ -2149,6 +2151,7 @@ LoadTexEx::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32,
 HandleForGettingFilesInDir::fn outsider(str_lit) ! u32;
 HandleDirTotalFiles::fn outsider(u32) ! u32;
 HandleDirFilenameAt::fn outsider(u32, idx : u32, buffer:*u8, sz:u32);
+FileChangeTime::fn outsider(name:str_lit)!u32;
 FreeHandleGet::fn outsider(u32);
 
 GetFuncStackSize::fn intrinsic() !u64;

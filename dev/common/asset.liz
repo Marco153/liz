@@ -29,6 +29,7 @@ asset_info:struct
   in_use : bool,
   dont_free :bool
   cid : custom_id
+  last_change : u32
   using type : asset_type
 }
 cid_info :struct

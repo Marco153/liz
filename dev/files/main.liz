@@ -2516,11 +2516,12 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
     ctx.cam_follow_player_pos_anim = true
 
     local_final_pos := mov.spine_bone.final_pos
-    prev_z := local_final_pos.z
-    local_final_pos.z = local_final_pos.y
-    local_final_pos.y = prev_z
 
     local_final_pos = local_final_pos * player_ent.size
+
+    q : quaternion=?
+    q.v = player_ent.rot
+    local_final_pos = q *local_final_pos
 
     mov.pos_anim = player_ent.pos + local_final_pos
     /*
@@ -2550,6 +2551,10 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
     q : quaternion=?
     q.v = player_ent.rot
     local_final_pos = q *local_final_pos
+		prev_z := local_final_pos.z
+		//local_final_pos.z = local_final_pos.y
+		//local_final_pos.y = prev_z
+		//local_final_pos = local_final_pos * -1.0
 
     ctx.cam_follow_player_pos_anim = true
 
@@ -2557,6 +2562,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
     changed := false
     if (ctx.frames_total % 16) == 0
+		//if false
     {
 			col.type = col_type.SPHERE
 			col.SPHERE.radius = 1.5
@@ -2656,11 +2662,13 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
     ctx.cam_follow_player_pos_anim = true
 
     local_final_pos := mov.spine_bone.final_pos
-    prev_z := local_final_pos.z
-    local_final_pos.z = local_final_pos.y
-    local_final_pos.y = prev_z
-
+    //local_final_pos.z = local_final_pos.y
+    //local_final_pos.y = prev_z
+		//
+    q : quaternion=?
+    q.v = player_ent.rot
     local_final_pos = local_final_pos * player_ent.size
+		local_final_pos = q * local_final_pos 
 
     mov.pos_anim = player_ent.pos + local_final_pos
 		if player_ent.clip_done
@@ -5078,7 +5086,7 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	*/
 
 	b.vel = final_pos - b.final_pos
-	b.final_pos = final_pos
+	b.final_pos = *parent_mat * final_pos
 	b.final_rot = final_rot
 
 }
@@ -7266,6 +7274,9 @@ get_chunks_close_to_ent::fn(ctx : *scene_info, l_area :*area_col_info, e : *enti
 			for x in x_start..x_end
 			{
 				idx :=cast(u64)(x + (z * cast(s32)x_width) + (y * cast(s32)(z_width * x_width)))
+
+        if idx >= l_area.col_chunks.count continue
+
 				cur := l_area.col_chunks[idx]
 
 				dyn_add(out, cur)
@@ -7824,13 +7835,13 @@ add_axis_ents_to_scene::fn(ctx : *context, s : *scene_info)
   dyn_add(&s.bodies, ctx.y_axis_ent)
   dyn_add(&s.bodies, ctx.z_axis_ent)
 
-  dyn_add(&s.drawable_ents, ctx.x_axis_ent)
-  dyn_add(&s.drawable_ents, ctx.y_axis_ent)
-  dyn_add(&s.drawable_ents, ctx.z_axis_ent)
+  //dyn_add(&s.drawable_ents, ctx.x_axis_ent)
+  //dyn_add(&s.drawable_ents, ctx.y_axis_ent)
+  //dyn_add(&s.drawable_ents, ctx.z_axis_ent)
 
-  dyn_add(&s.ents, ctx.x_axis_ent)
-  dyn_add(&s.ents, ctx.y_axis_ent)
-  dyn_add(&s.ents, ctx.z_axis_ent)
+  //dyn_add(&s.ents, ctx.x_axis_ent)
+  //dyn_add(&s.ents, ctx.y_axis_ent)
+  //dyn_add(&s.ents, ctx.z_axis_ent)
 
 }
 get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
@@ -7891,12 +7902,6 @@ check_if_any_models_file_changed::fn()
 	//if (globals.frames_total % 16) == 0
 	if true
 	{
-		pressed := false
-		if IsKeyDown(key_enum.KEY_P)
-		{
-			pressed = true
-		}
-
 		// the first two models are builtin ones, the cube and the plane
 		for i in 2..32
 		{
@@ -7906,7 +7911,6 @@ check_if_any_models_file_changed::fn()
 				
 
 			file_name := cast(str_lit)cur_m.cid.name[0]
-			if pressed __dbg_break
 				
 			aux_name := "{MODELS_DIR}{file_name}"
 			cur_change := FileChangeTime(aux_name)
@@ -9292,8 +9296,6 @@ main_loop::fn(ctx : *context)
 					{
 						if out_ent != nil && out_ent.type != ent_type.TERRAIN
 						{
-							memcpy(&out_ent.color, &prev_select_ent_col, 16)
-              printf("nilling")
 							out_ent = nil
 						}
 
@@ -9518,6 +9520,7 @@ main_loop::fn(ctx : *context)
 					draw.cam_rot = &cam_rot
 					draw.rot = out_ent.rot
 					draw.flags = DRAW_INFO_TRANSPARENT
+					
 					*draw.color[0] = 1.0
 					*draw.color[1] = 0.0
 					*draw.color[2] = 0.0
@@ -10031,6 +10034,7 @@ main_loop::fn(ctx : *context)
           ctx.cur_changing_loading_area = player_ent.mov_info.asking_for_this_loading_area
 
           l_area := player_ent.mov_info.asking_for_this_loading_area
+          //__dbg_break
 
           already_loaded := false
           for s in ctx.scenes
@@ -10072,6 +10076,33 @@ main_loop::fn(ctx : *context)
           //printf("not done stage {cast(u32)stage}\n")
 
         }
+				
+
+				
+		for ch in ctx.aux_col_chunks
+		{
+      for e_ch in ch.from_ents
+      {
+        if e_ch.tris.count == 0
+          continue
+
+        cur_tri :u64= 0
+        total_tris := e_ch.tris.count
+        
+        //printf("check tri col against {e_ch.from_ent.name}\n")
+
+        tri := ptr_offset(e_ch.tris[0], 0, triangle_info)
+
+        while cur_tri < total_tris
+        {
+					draw_tri(ctx, &tri._v3, &tri._v2, &tri._v1, &ctx.white_color, 0)
+					cur_tri++
+				}
+			}
+		}
+    DrawEntity(ctx.cur_scn, x_axis_ent, drw_set)
+    DrawEntity(ctx.cur_scn, y_axis_ent, drw_set)
+    DrawEntity(ctx.cur_scn, z_axis_ent, drw_set)
 		mx = GetMouseScreenPosX() - curmx;
 		my = GetMouseScreenPosY() - curmy;
 		mx = mx / 500.0

@@ -5129,20 +5129,18 @@ void loadIdentity(float *mat) {
   std::fill(mat, mat + 16, 0.0f);
   mat[0] = mat[5] = mat[10] = mat[15] = 1.0f;
 }
-void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path, int use_model_idx = -1) {
+void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
+                   int use_model_idx = -1) {
   auto gl_state = (open_gl_state *)dbg->data;
   int free_idx = -1;
-  if(use_model_idx == -1)
-  {
+  if (use_model_idx == -1) {
     int idx = HasModel(dbg, full_path, &free_idx);
     if (idx != -1) {
       *(int *)GetRegValPtr(thread_id, dbg, RET_1_REG) = idx;
       ASSERT(0)
       return;
     }
-  }
-  else
-  {
+  } else {
     free_idx = use_model_idx;
     model_info *m = &gl_state->models[free_idx];
     full_path = m->name;
@@ -5159,13 +5157,12 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path, int
     return;
   }
 
-
   const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
 
   model_info *m = &gl_state->models[free_idx];
   new (m) model_info();
   std::unordered_map<std::string, int> &bones = m->bones;
-  
+
   m->name = full_path;
 
   m->scene = (aiScene *)scene;
@@ -5177,6 +5174,15 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path, int
     // HERE()
     //  4 for bones ids, 4 for weights
     stride += number_of_bone_ids_per_vertex + 4;
+  }
+  if (mesh->HasVertexColors(0)) {
+    // HERE()
+    if (mesh->HasBones()) {
+      printf("at the moment we dont allow a mesh to have bones and vertex "
+             "colors\n");
+      HERE();
+    }
+    stride += 4;
   }
 
   m->vertex_stride = stride;
@@ -5274,6 +5280,13 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path, int
     }
     // ASSERT(0)
   }
+  if (mesh->HasVertexColors(0)) {
+    for (int i = 0; i < mesh->mNumVertices; i++) {
+      int vert_idx = i * stride;
+      v4 *cur = (v4 *)&vertices[vert_idx + 5];
+      *cur = *(v4 *)&(mesh->mColors[0])[i];
+    }
+  }
   if (scene->HasAnimations()) {
     for (int i = 0; i < scene->mNumAnimations; i++) {
       aiAnimation *cur_anim = scene->mAnimations[i];
@@ -5369,10 +5382,17 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path, int
     glVertexAttribIPointer(2, 4, GL_INT, stride * sizeof(float),
                            (void *)(5 * sizeof(float)));
     glEnableVertexAttribArray(2);
+
     GL_CALL(glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE,
                                   stride * sizeof(float),
                                   (void *)(9 * sizeof(float))));
     glEnableVertexAttribArray(3);
+  }
+
+  if (mesh->HasVertexColors(0)) {
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride * sizeof(float),
+                          (void *)(5 * sizeof(float)));
+    glEnableVertexAttribArray(2);
   }
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
@@ -5504,16 +5524,15 @@ void ReloadModel(int thread_id, dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
 
   model_info *m = &gl_state->models[model_idx];
-  
+
   aiReleaseImport(m->scene);
 
   glDeleteBuffers(1, &m->vao);
   glDeleteBuffers(1, &m->vbo);
   glDeleteBuffers(1, &m->ebo);
 
-  //own_std::string full_path = gl_state->model_folder + m->name;
+  // own_std::string full_path = gl_state->model_folder + m->name;
   LoadModelBase(thread_id, dbg, "", model_idx);
-
 }
 void LoadModel(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -5907,14 +5926,13 @@ void FileChangeTime(int thread_id, dbg_state *dbg) {
   // MaybeAddBarToEndOfStr(&work_dir);
 
   auto final_name = work_dir + name_ptr;
-    
+
   name_ptr = final_name.c_str();
 
 #ifdef LINUX
   struct stat st;
   auto val = stat(name_ptr, &st);
-  if(val == -1)
-  {
+  if (val == -1) {
     printf("cant open file %s\n", name_ptr);
     ASSERT(0);
   }
@@ -6823,9 +6841,9 @@ void Init3D(dbg_state *dbg) {
   unsigned int texture;
   glGenTextures(1, &texture);
   glBindTexture(GL_TEXTURE_2D, texture);
-  // set the texture wrapping/filtering options (on the currently bound texture
-  object) glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  // set the texture wrapping/filtering options (on the currently bound
+  texture object) glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
+  GL_REPEAT); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   // load and generate the texture
@@ -6886,9 +6904,9 @@ void cursor_position_callback(GLFWwindow *window, double xpos, double ypos) {
     gl_state->mouse_vel_y = (ypos - gl_state->mouse_last_y);
   }
   auto prev_last_y = gl_state->mouse_last_y;
-  // printf("cury %.3f, lasty %.3f, vely %.3f\n", ypos, gl_state->mouse_last_y,
-  // gl_state->mouse_vel_y);
-  // glfwSetCursorPos(window, 0, 0);
+  // printf("cury %.3f, lasty %.3f, vely %.3f\n", ypos,
+  // gl_state->mouse_last_y, gl_state->mouse_vel_y); glfwSetCursorPos(window,
+  // 0, 0);
   gl_state->mouse_last_x = xpos;
   gl_state->mouse_last_y = ypos;
   // glfwSetCursorPos(window, gl_state->width / 2, gl_state->height / 2);
@@ -7214,8 +7232,8 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
   // glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
   /*
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on
-  Mac
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required
+  on Mac
   */
 
   // glfwWindowHint(GLFW_REFRESH_RATE, 60);
@@ -8044,7 +8062,8 @@ AudioClip *CreateNewAudioClip(open_gl_state *gl_state, char *name) {
   drflac* pFlac = drflac_open_file("01.flac", &allocationCallbacks);
   int sampleRate, channels;
   short* buffer;
-  //int res = stb_vorbis_decode_filename(name, channels, &sampleRate, &buffer);
+  //int res = stb_vorbis_decode_filename(name, channels, &sampleRate,
+  &buffer);
   */
   return ret;
 }

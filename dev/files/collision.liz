@@ -1076,12 +1076,12 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *_vec, _max : *_vec
 		r := col.CAPSULE.radius * 4.0
 		h := col.CAPSULE.height * 4.0
 		_min.x = e.pos.x - r
-		_min.y = e.pos.y - h
+		_min.y = e.pos.y - h * 0.5
 		_min.z = e.pos.z - r
 		_min.w = 0.0
 
 		_max.x = e.pos.x + r
-		_max.y = e.pos.y + h
+		_max.y = e.pos.y + h * 0.5
 		_max.z = e.pos.z + r
 		_max.w = 0.0
 	}
@@ -1795,8 +1795,8 @@ StepCol::fn(ctx : *scene_info, dt : f32)
 		tri_verts1 :=gjk.aux_col.TRIANGLE.verts[0]
 
 
-		for ch in ctx.aux_col_chunks
-		{
+	for ch in ctx.aux_col_chunks
+	{
       for e_ch in ch.from_ents
       {
         if e_ch.tris.count == 0

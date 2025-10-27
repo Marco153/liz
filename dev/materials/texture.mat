@@ -7,17 +7,19 @@ sun_dir:uniform v3
 sun_color:uniform v4 
 tex:uniform sampler2d 
 
-vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
+vertex:fn(pos : v3, uv : v2, vcol : v4) ! (tex_coord : v2, frag_pos : v3, px_vcol : v4)
 {
     tex_coord = uv
     aux_pos :v4=  model * v4(pos.xyz, 1.0)
     frag_pos = v3(aux_pos.xyz)
     aux_pos = aux_pos + cam_pos
+    px_vcol = vcol
     POSITION = projection * view * aux_pos
 }
-fragment:fn(tex_coord : v2, frag_pos : v3)
+fragment:fn(tex_coord : v2, frag_pos : v3, px_vcol: v4)
 {
     t :v4=texture(tex, tex_coord)
+    t = t * px_vcol
 
     dx:v3 = dFdx(frag_pos)
     dy:v3 = dFdy(frag_pos)

@@ -90,16 +90,26 @@ player_collision_stay::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	up.y = 1.0
 	ent_a.normal_col = col.normal
 	ent_a.mov_info.col_in_stay = true
-	if dot_vec(&col.normal, &up) > 0.5
+  test_ground := true
+  if ent_b.type == ent_type.LOADING_AREA
+  {
+    test_ground = false
+  }
+	if test_ground
 	{
-		ent_a.on_ground = true
+    if dot_vec(&col.normal, &up) > 0.5
+    {
+      ent_a.on_ground = true
+    }
+
+    d := dot_vec(&col.normal, &ent_a.forward)
+
+    if d < -0.5
+    {
+      ent_a.mov_info.facing_wall = true
+    }
 	}
-	d := dot_vec(&col.normal, &ent_a.forward)
-	//printf("d {d}\n")
-	if d < -0.5
-	{
-		ent_a.mov_info.facing_wall = true
-	}
+
 }
 bullet_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 {
@@ -190,11 +200,7 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 	up : _vec
 	up.y = 1.0
 	ent_a.normal_col = col.normal
-	if dot_vec(&col.normal, &up) > 0.5
-	{
-		ent_a.on_ground = true
-		ent_a.mov_info.just_hit_ground = true
-	}
+  test_ground := true
 	if ent_a.state == entity_state.SURF
 	{
 		mov := ent_a.mov_info
@@ -218,6 +224,8 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
     {
       mov := ent_a.mov_info
       mov.area_col_pos_start = ent_a.pos
+
+      test_ground = false
 
       dir := ent_b.pos - ent_a.pos
       
@@ -274,6 +282,12 @@ player_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)
 
     ent_a.rot = q.v
   }
+
+	if test_ground && dot_vec(&col.normal, &up) > 0.5
+	{
+		ent_a.on_ground = true
+		ent_a.mov_info.just_hit_ground = true
+	}
 }
 
 xe_trig_collision_enter::fn(ent_a : *entity, ent_b : *entity, col : *collision)

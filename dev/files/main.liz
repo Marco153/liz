@@ -3630,11 +3630,11 @@ DeserializeEntVar::fn(ctx : *scene_info, type : *type_data, data : *void, ast : 
 		{
 			if ast.type == ast_type.WORD
 			{
-				*cast(*str_lit)data = string_to_str_lit(ctx.alloc, &ast.WORD.str)
+				*cast(*str_lit)data = string_to_str_lit(globals.perm_alloc, &ast.WORD.str)
 			}
 			else if ast.type == ast_type.STR_LIT
 			{
-				*cast(*str_lit)data = string_to_str_lit(ctx.alloc, &ast.STR_LIT.str)
+				*cast(*str_lit)data = string_to_str_lit(globals.perm_alloc, &ast.STR_LIT.str)
 			}
 			else
 			{
@@ -4033,6 +4033,12 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
 
               return
             }
+            else if *name == "name"
+            {
+                str := *st.BIN.expr[1]
+                assert(str.type == ast_type.STR_LIT)
+                ent.name = string_to_str_lit(globals.ent_name_string_alloc, &str.STR_LIT.str)
+            }
             else if *name == "event"
             {
                 parse_event_ast(ctx, *st.BIN.expr[1], ent)
@@ -4306,6 +4312,13 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
             q2.v = ent.rot
             qeuler := quaternion_to_euler(&q2.v)
             ent.vel.w = qeuler.x
+        }
+        on ent.type
+        {
+        ent_type.LOADING_AREA, ent_type.CLIMBING_AREA
+        {
+          RemoveEntFromAr(&ctx.drawable_ents, ent)
+        }
         }
         instantiated_ents++
         return
@@ -8799,6 +8812,7 @@ main_loop::fn(ctx : *context)
 			ctx.can_deactivate_path_ents = true
 			ctx.editor_cam = !ctx.editor_cam 
 			change_select_ent_col = true
+      cur_scn = ctx.cur_scn
 
 			if !ctx.editor_cam
 			{
@@ -8810,11 +8824,30 @@ main_loop::fn(ctx : *context)
 				change_preview_col_idx(ctx, 0)
 
 				ctx.textures_wnd = false
+        for e in ctx.cur_scn.ents
+        {
+          on e.type
+          {
+          ent_type.LOADING_AREA, ent_type.CLIMBING_AREA
+          {
+            RemoveEntFromAr(&ctx.cur_scn.drawable_ents, *e)
+          }
+          }
+        }
 
 			}
 			else
 			{
-
+        for e in ctx.cur_scn.ents
+        {
+          on e.type
+          {
+          ent_type.LOADING_AREA, ent_type.CLIMBING_AREA
+          {
+            dyn_add(&ctx.cur_scn.drawable_ents, *e)
+          }
+          }
+        }
 			}
 		}
 		if ctx.editor_cam

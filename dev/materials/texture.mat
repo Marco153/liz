@@ -38,7 +38,7 @@ fragment:fn(tex_coord : v2, frag_pos : v3, px_vcol: v4)
 
     fog:f32= length(dir_to_frag_world)
 
-    aux_color :v4= mix(col * t, sun_color, smoothstep(10, 100, fog))
+    aux_color :v4= mix(col * t, sun_color, smoothstep(10, 200, fog))
 
     COLOR =  aux_color
 }

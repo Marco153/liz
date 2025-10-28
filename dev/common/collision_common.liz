@@ -1,4 +1,9 @@
 import "../../core";
+aabb : struct 
+{
+    _min : _vec  
+    _max : _vec
+}
 
 in_col_ent:struct
 {
@@ -102,6 +107,8 @@ triangle_info:struct
   _v1 : _vec
   _v2 : _vec
   _v3 : _vec
+
+  bounds : aabb
   normal : _vec
 }
 collision_chunk_tris:struct

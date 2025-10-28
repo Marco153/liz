@@ -1468,11 +1468,6 @@ get_close_chunk_cols::fn(ctx : *context, terrain_chunks_to_col : *dyn_array(*chu
 	}
 	*/
 }
-aabb : struct 
-{
-    _min : _vec  
-    _max : _vec
-}
 // 3D Axis-Aligned Bounding Box collision check
 aabbCheck3D::fn x64(a: *aabb, b: *aabb) ! bool
 {
@@ -1817,11 +1812,12 @@ StepCol::fn(ctx : *scene_info, dt : f32)
           gjk.aux_col.TRIANGLE.normal = tri.normal
 
           dir := tri._v1 - e.pos
-          d := dot_vec(&dir, &dir)
+          //d := dot_vec(&dir, &dir)
           same_dir := dot_vec(&dir, &tri.normal)
 
           //globals.temp_alloc.cur = 0
-          if d < 150.0 && same_dir > 0.0
+          //__dbg_break
+          if same_dir > 0.0 && aabbCheck3D(&p_aabb, &tri.bounds)
           {
 
             if  GJK(gjk, c1, &gjk.aux_col)

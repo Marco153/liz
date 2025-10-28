@@ -237,6 +237,7 @@ context: struct
 	prntr : printer,
 
 	thraxer_trigger : *entity,
+	player : *entity,
 
 	shock_ent : *entity,
 	shock_ent_emmitter : *entity,
@@ -763,13 +764,13 @@ change_state::fn(e : *entity, state : entity_state, timer :f32=0.0)
 	}
 }
 
+
 clamp ::fn{T}(v : T, _min :T, _max : T) ! T
 {
 	if v <= _min return _min;
 	if v >= _max return _max;
 	return v;
 }
-
 PrevInvItem::fn(inv : *inventory, cur : **inv_slot)
 {
 	start := inv.items[0];
@@ -2837,6 +2838,13 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			player_ent.anim_man.sec_clip_weight = 1.0
 		}
 
+    // attack trigger
+    if player_ent.anim_man.sec_clip_timer > 0.1
+    {
+      mov.trigger.is_active = true
+      printf("is_active {player_ent.anim_man.sec_clip_timer}\n")
+    }
+
 		
 		if IsKeyDown(key_enum.KEY_E) && mov.facing_wall
 		{
@@ -2846,7 +2854,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			col.type = col_type.SPHERE
 			col.SPHERE.radius = 0.5
 
-			col.pos = player_ent.pos + player_ent.forward * 0.5
+			col.pos = player_ent.pos + player_ent.forward * 0.2
 			col.pos += up * 0.5
 
 
@@ -2875,7 +2883,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 					printf("found pos \n")
 					print_vec(&out_pos)
 					mov.slerp_start = player_ent.pos
-					mov.slerp_end = player_ent.pos
+					mov.slerp_end = out_pos
 					
 					// we want the hands to touch the ledge, not the conter of the object,
 					// thats why were making the making a little lower
@@ -4318,6 +4326,8 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
         ent_type.LOADING_AREA, ent_type.CLIMBING_AREA
         {
           RemoveEntFromAr(&ctx.drawable_ents, ent)
+          ent.flags = ent.flags | ENTITY_TRANSPARENT
+          ent.color.w = 0.5
         }
         }
         instantiated_ents++
@@ -5833,6 +5843,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 				}
 				ent_type.LOADING_AREA
 				{
+          out_ent.flags = out_ent.flags | ENTITY_TRANSPARENT
           if out_ent.type != ent_type.LOADING_AREA
           {
             out_ent.is_trigger = true
@@ -7368,6 +7379,10 @@ assign_mesh_to_chunks::fn(ctx : *scene_info, ent : *entity)
           tri_info._v1 = *v1
           tri_info._v2 = *v2
           tri_info._v3 = *_v3
+
+
+          tri_info.bounds._min = min_v
+          tri_info.bounds._max = max_v
           tri_info.normal = cross
           dyn_add(&found.tris, &tri_info)
           a:=0
@@ -7833,6 +7848,8 @@ update_sword_in_hand::fn(player_ent : *entity, sword : *entity, hand_bone : *bon
 
 	sword.pos = dir + player_ent.pos
 	sword.rot = (q * q2).v
+  q.v = sword.rot
+  sword.rot = (q * euler_to_quaternion(0.0, 0.0, 70.0)).v
 
 	q.v = sword.rot
 	pivot :_vec
@@ -7889,6 +7906,8 @@ get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
       add_axis_ents_to_scene(ctx, s)
       globals.alloc = prev_alloc
 
+      dyn_add(&s.bodies, ctx.player.mov_info.trigger)
+
       return s
     }
   }
@@ -7936,6 +7955,16 @@ check_if_any_models_file_changed::fn()
 			}
 		}
 	}
+}
+delete_ent_from_scene_add_to_another::fn(from : *scene_info, dst : *scene_info, ent : *entity)
+{
+  DeleteEnt(from, ent, for_changing_scenes=true)
+
+  dyn_add(&dst.drawable_ents, ent)
+  dyn_add(&dst.ents, ent)
+  dyn_add(&dst.bodies, ent)
+  dyn_add(&dst.ents_with_clip, ent)
+
 }
 main_loop::fn(ctx : *context)
 {
@@ -8245,6 +8274,12 @@ main_loop::fn(ctx : *context)
 	col.contacts.count = 1;
 
 
+  prev_alloc := ctx.scenes[0].alloc
+  prev_alloc2 := globals.alloc
+
+  ctx.scenes[0].alloc = ctx.alloc
+  globals.alloc = ctx.alloc
+
 	player_ent:*entity=NewPlayerEnt(ctx.scenes[0], "player");
 	{
 		c1 := player_ent.cols[0]
@@ -8254,6 +8289,8 @@ main_loop::fn(ctx : *context)
 		//player_ent.mov_info.inv.items[0].item = inv_item.EXPLOSION_GEM
 		player_ent.mov_info.inv.items[1].item = inv_item.SHOCK
 	}
+  ctx.scenes[0].alloc = prev_alloc
+  globals.alloc = prev_alloc2
 
 	player_ent.type = ent_type.PLAYER
 	player_ent.anim_mul = 1.0
@@ -8544,10 +8581,6 @@ main_loop::fn(ctx : *context)
 
 	//test_anim := new_cube(ctx, &_vec{15.0, 73.0, 10.0}, &_vec{40.0, 1.0, 40.0}, false);
 
-
-
-
-
 	globals.preview_ent = new_cube(ctx.scenes[0], &_vec{5.0, 70.5, 5.0}, &_vec{1.0, 1.0, 1.0, 0.0}, false);
 	globals.preview_ent.flags = globals.preview_ent.flags | ENTITY_DONT_FREE
 	globals.preview_ent.flags = globals.preview_ent.flags & ~(ENTITY_SERIALIZE | ENTITY_HAS_TEXTURE)
@@ -8731,6 +8764,7 @@ main_loop::fn(ctx : *context)
 
   in_scenes :dyn_array(*scene_info)
   //player_ent.state = entity_state.ON_WALL_IDLE
+  ctx.player = player_ent
 	while !ShouldClose(ctx.window)
 	{
 		//aux_c := *ctx.test_ent.cols[0]
@@ -8816,6 +8850,7 @@ main_loop::fn(ctx : *context)
 
 			if !ctx.editor_cam
 			{
+        out_ent = nil
 				x_axis_ent.is_active = false
 				y_axis_ent.is_active = false
 				z_axis_ent.is_active = false
@@ -9018,9 +9053,10 @@ main_loop::fn(ctx : *context)
 					}
 					select_action.SCALE
 					{
-						dy := dot_vec(&local_fw, &select_up) * -mvy
+						dy := dot_vec(&global_fw, &select_up) * -mvy
+            print_vec(&global_fw)
 
-						*size_ptr += local_fw * (dx + dy) * mul * 2.0
+						*size_ptr += global_fw * (dx + dy) * mul * 2.0
 						if globals.cur_preview_idx == 0
 						{
 							out_ent.col_size += local_fw * (dx + dy) * mul * 2.0
@@ -9203,7 +9239,11 @@ main_loop::fn(ctx : *context)
 							t := dot_vec(&n, &(cam_pos - ctx.grid_ent.pos)) / denom
 							point = cam_pos - dir * t
 						}
+            
+            prev_alloc =globals.alloc
+            globals.alloc = ctx.cur_scn.alloc
 						cube := new_cube(ctx.cur_scn, &point, &_vec{1.0, 1.0, 1.0}, true);
+            globals.alloc = prev_alloc
 
 						new_rot := quaternion_to_euler(&ctx.grid_ent.rot)
 						cube.rot = euler_to_quaternion(0.0, radians_to_degree(new_rot.y), 0.0).v
@@ -9678,15 +9718,9 @@ main_loop::fn(ctx : *context)
       }
       for s in in_scenes
       {
-        DeleteEnt(ctx.cur_scn, player_ent, for_changing_scenes=true)
-
-        dyn_add(&s.drawable_ents, player_ent)
-        dyn_add(&s.ents, player_ent)
-        dyn_add(&s.bodies, player_ent)
-        dyn_add(&s.ents_with_clip, player_ent)
+        delete_ent_from_scene_add_to_another(ctx.cur_scn, *s, player_ent)
 
         ctx.cur_scn = *s
-        //player_ent.flags = player_ent.flags & ~ENTITY_CHANGE_SCENES
         div := cast(f32)in_scenes.count
         dt = dt / div
         PhysicsUpdate(*s, dt)
@@ -10533,6 +10567,8 @@ main:: fn(){
 	}
 
 	ctx.abcd_tex_info_idx = cast(u32)i
+  test :dyn_array(RatedStuff(u32))
+  sort_array(&test)
 
 	ASSERT(sizeof(custom_id)==16)
 	main_loop(&ctx);

@@ -27,6 +27,7 @@ CULLING_BACK:const s32= 0x1
 CULLING_FRONT:const s32= 0x2
 CULLING_FRONT_BACK:const s32= 0x4
 
+
 linear_alloc :struct(T)
 {
 	start : *T,
@@ -2681,4 +2682,52 @@ read_entire_file::fn(file_name : str_lit, fl_sz_out : *s64)!*u8
     *fl_sz_out = fl_sz
   }
   return file_data
+}
+
+FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : u64)!f32
+{
+    score := 0.0;
+
+    // Match exact characters at the same positions
+    i : u64
+    while i < to_match_size && i < src_size
+    {
+        if *ptr_offset(to_match, i, u8) == *ptr_offset(src, i, u8)
+            score += 2.0;
+        i++
+    }
+    i=0
+
+    // Match characters at any position
+    while i < to_match_size
+    {
+      j:u64
+      while j < src_size
+      {
+        if (to_match[i] == src[j])
+        {
+          score += 0.5;
+
+          // Calculate neighboring indices with clamping
+          prev_idx_src := clamp_u64(j - 1, 0, src_size - 1);
+          next_idx_src := clamp_u64(j + 1, 0, src_size - 1);
+
+          prev_idx_match := clamp_u64(i - 1, 0, to_match_size - 1);
+          next_idx_match := clamp_u64(i + 1, 0, to_match_size - 1);
+
+          add := 0.0;
+
+          if i != prev_idx_match && *ptr_offset(to_match, prev_idx_match, u8) == *ptr_offset(src, prev_idx_src, u8)
+              add += 1.0;
+
+          if i != next_idx_match && *ptr_offset(to_match, next_idx_match, u8) == *ptr_offset(src, next_idx_src, u8)
+              add += 1.0;
+
+          score += add;
+        }
+        j++
+      }
+    }
+
+    return score;
 }

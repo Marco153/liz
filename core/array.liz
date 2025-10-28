@@ -248,3 +248,34 @@ str_ln::fn(str :str_lit) !u64
 	}
 	return i;
 }
+RatedStuff:struct(T)
+{
+  val : f32
+  type : T
+}
+sort_array::fn{ T }(ar : *dyn_array(RatedStuff(T)))
+{
+	n :=  ar.count;
+  i :u64
+	while i < n - 1
+  {
+    minIndex := i;
+    j :u64=i + 1
+    while j < n
+    {
+      // Find the index of the minimum element in the remaining unsorted part
+      if (ar[j].val < ar[minIndex].val){
+          minIndex = j;
+      }
+      j++
+    }
+    
+        // Swap the minimum element with the first element in the unsorted part
+      RatedStuff<T> temp;
+      memcpy(&temp, (*ar)[i], sizeof(RatedStuff<T>));
+
+      memcpy((*ar)[i], (*ar)[minIndex], sizeof(RatedStuff<T>));
+      memcpy((*ar)[minIndex], &temp, sizeof(RatedStuff<T>));
+      i++
+    }
+}

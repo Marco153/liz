@@ -1517,12 +1517,17 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
   }
   // ASSERT(draw->perspective_mat != 0)
   // float * perspective_mat= (float *)dbg->mem_buffer[draw->perspective_mat];
+  if (IS_FLAG_ON(draw->flags, DRAW_INFO_DBG_BREAK)) {
+    raise(SIGTRAP);
+  }
 
   int indicies_to_draw = 36;
   glDepthMask(GL_TRUE);
   glEnable(GL_DEPTH_TEST);
   if (IS_FLAG_OFF(draw->flags, DRAW_INFO_TRANSPARENT2)) {
     glDisable(GL_BLEND);
+  } else {
+    glEnable(GL_BLEND);
   }
   if (IS_FLAG_ON(draw->flags, DRAW_INFO_ALWAYS_ON_FRONT)) {
     glDepthMask(GL_FALSE);
@@ -1542,9 +1547,6 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
     GL_CALL(glUniform1f(sec_color_lerp, draw->lerp_color));
   }
 
-  if (IS_FLAG_ON(draw->flags, DRAW_INFO_DBG_BREAK)) {
-    raise(SIGTRAP);
-  }
   if (IS_FLAG_ON(draw->flags, DRAW_INFO_LINE | DRAW_INFO_NO_PROJ)) {
 
     if (IS_FLAG_ON(draw->flags, DRAW_INFO_CUSTOM_SHADER)) {
@@ -4183,8 +4185,8 @@ int GenTexture2(lang_state *lang_stat, open_gl_state *gl_state,
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
   // glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
   GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
@@ -4211,8 +4213,10 @@ int GenTexture(lang_state *lang_stat, open_gl_state *gl_state,
   // object)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
   // int sp_height = info->sp_width;
   // int sp_width = info->sp_height;

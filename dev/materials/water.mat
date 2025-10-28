@@ -1,7 +1,7 @@
 model:uniform mat4 
 view:uniform mat4 
 projection:uniform mat4 
-color:uniform v4 
+col: uniform v4 
 cam_pos:uniform v4 
 tex:uniform sampler2d 
 noise:uniform sampler2d 
@@ -19,5 +19,5 @@ fragment:fn(tex_coord : v2, frag_pos : v3)
     n  :v4=texture(noise, v2(-frag_pos.x + TIME * 0.12, frag_pos.z + TIME * 0.12))
 
     tex_col:v4 =  texture(tex, v2(frag_pos.x + TIME * 0.1 + n.x, frag_pos.z + TIME * 0.1 + n.z))
-    COLOR = color * tex_col
+    COLOR = col * tex_col
 }

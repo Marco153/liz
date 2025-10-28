@@ -55,40 +55,43 @@ DeleteEnt::fn(ctx : *scene_info, ent : *entity, for_changing_scenes : bool=false
       ent_part_of.LOOK_AT_PLAYER
       {
           val = RemoveEntFromAr(&ctx.look_at_ents, ent)
-          ASSERT(val)
-          a=0 
+          //ASSERT(val)
+          //a=0 
       }
       ent_part_of.ITEMS
       {
           val = RemoveEntFromAr(&ctx.items_ents, ent)
-          ASSERT(val)
+          //ASSERT(val)
           a=0 
       }
       ent_part_of.PLAYABLE
       {
           val = RemoveEntFromAr(&ctx.playable_ents, ent)
-          ASSERT(val)
+          //ASSERT(val)
           a=0 
       }
       ent_part_of.ANIMATION
       {
           val = RemoveEntFromAr(&ctx.ents_with_clip, ent)
-          ASSERT(val)
+          //ASSERT(val)
           a=0 
       }
       ent_part_of.EMMITTER
       {
           val = RemoveEntFromAr(&ctx.emmitters, ent)
-          ASSERT(val)
-          a=0 
+          if val
+          {
+            ASSERT(val)
+            a=0 
 
-          heap_free(ctx.alloc, ent.emmitter.particles)
-          heap_free(ctx.alloc, ent.emmitter)
+            heap_free(ctx.alloc, ent.emmitter.particles)
+            heap_free(ctx.alloc, ent.emmitter)
+          }
       }
       ent_part_of.DRAWABLE
       {
           val = RemoveEntFromAr(&ctx.drawable_ents, ent)
-          ASSERT(val)
+          //ASSERT(val)
           a=0 
       }
       ent_part_of.COLLIDER
@@ -173,6 +176,12 @@ NewPlayableEnt::fn(ctx : *scene_info, out_ent : **entity, should_be_freed : bool
 	out_ent.mov_info = mov_info;
 
 	//memset(*out_ent, 0, sizeof(entity));
+	trigger := new_cube(ctx, &_vec{10.0, 70.0, 10.0}, &_vec{1.1, 0.1, 0.1}, true)
+
+  trigger.flags = trigger.flags | ENTITY_DONT_FREE
+  trigger.is_trigger = true
+  trigger.is_active = false
+	mov_info.trigger = trigger;
 
 	/*
 	trigger := NewEnt(ctx, "trigger of playable_ent");
@@ -478,7 +487,8 @@ DrawEntity::fn(ctx : *scene_info, ent : *entity, drw_set : *draw_settings)
 			}
 			if(is_flag_on(ent.flags, ENTITY_TRANSPARENT))
 			{
-				draw.flags = draw.flags | DRAW_INFO_TRANSPARENT2;
+        //__dbg_break
+				draw.flags = draw.flags | DRAW_INFO_TRANSPARENT2 
 			}
 			if(is_flag_on(ent.flags, ENTITY_HAS_TEXTURE))
 			{

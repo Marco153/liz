@@ -2232,6 +2232,13 @@ bool IsKeyDown(int thread_id, void *data, key_enum keye) {
   }
   return false;
 }
+void ImGuiSetKeyboardFocusHere(int thread_id, dbg_state *dbg) {
+  if (dbg->frame_is_from_dbg)
+    return;
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int i = *(int *)&dbg->mem_buffer[base_ptr + 8];
+  ImGui::SetKeyboardFocusHere(i);
+}
 void ImGuiCheckbox(int thread_id, dbg_state *dbg) {
   if (dbg->frame_is_from_dbg)
     return;
@@ -8407,6 +8414,8 @@ int main(int argc, char *argv[]) {
   AssignOutsiderFunc(&lang_stat, "ImGuiShowV2", (OutsiderFuncType)ImGuiShowV2);
   AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
   AssignOutsiderFunc(&lang_stat, "ImGuiShowV4", (OutsiderFuncType)ImGuiShowV4);
+  AssignOutsiderFunc(&lang_stat, "ImGuiSetKeyboardFocusHere",
+                     (OutsiderFuncType)ImGuiSetKeyboardFocusHere);
   AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow",
                      (OutsiderFuncType)IsMouseOnGameWindow);
   AssignOutsiderFunc(&lang_stat, "GetTopStackPtr",

@@ -85,6 +85,13 @@ particle_emmitter_base :struct
 	speed : f32
 	random_start_timer : f32
 }
+
+window_event:enum
+{
+  OPEN,
+  UPDATE,
+  CLOSE,
+}
 create_event_etruct:etruct
 {
 	BRIDGE_ROTATE(
@@ -2084,6 +2091,7 @@ ImGuiDragInt::fn outsider(label : str_lit, int : *s32);
 ImGuiDragF32::fn outsider(label : str_lit, f : *f32);
 ImGuiCheckbox::fn outsider(label : str_lit, b : *bool) ! bool;
 ImGuiSeparator::fn outsider();
+ImGuiSetKeyboardFocusHere::fn outsider(u32);
 
 HideCursor::fn outsider(bool);
 IsMouseOnGameWindow::fn outsider()!bool;
@@ -2153,7 +2161,7 @@ HandleForGettingFilesInDir::fn outsider(str_lit) ! u32;
 HandleDirTotalFiles::fn outsider(u32) ! u32;
 HandleDirFilenameAt::fn outsider(u32, idx : u32, buffer:*u8, sz:u32);
 FileChangeTime::fn outsider(name:str_lit)!u32;
-FreeHandleGet::fn outsider(u32);
+FreeHandle::fn outsider(u32);
 
 GetFuncStackSize::fn intrinsic() !u64;
 GetTopStackPtr::fn outsider() !*u64;
@@ -2727,6 +2735,7 @@ FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : 
         }
         j++
       }
+      i++
     }
 
     return score;

@@ -347,6 +347,10 @@ context: struct
   cam_follow_player_pos_anim : bool
   start_slerp_upwards :f32
   end_slerp_upwards :f32
+
+  scene_files_window_open : bool
+  scene_files_window_file_names : dyn_array(str_lit)
+  scene_files_window_files_rated : dyn_array(RatedStuff)
 }
 
 
@@ -7966,6 +7970,117 @@ delete_ent_from_scene_add_to_another::fn(from : *scene_info, dst : *scene_info, 
   dyn_add(&dst.ents_with_clip, ent)
 
 }
+scene_files_window ::fn(ctx : *context, e:window_event)
+{
+  buffer:[32]u8
+  hidx :global u32
+  flags :global u32
+
+  rated_ar := &ctx.scene_files_window_files_rated
+  files_ar := &ctx.scene_files_window_file_names
+
+  if is_flag_on(flags, 2)
+  {
+    e = window_event.CLOSE
+  }
+
+  on e
+  {
+  window_event.CLOSE
+  {
+    ctx.scene_files_window_open = false
+    for s in *files_ar
+    {
+      heap_free(ctx.alloc, *s)
+    }
+    FreeHandle(hidx)
+
+  }
+  window_event.UPDATE
+  {
+
+    ImGuiBegin("scenes files", &ctx.scene_files_window_open, 0);
+    if flags == 1
+    {
+      ImGuiSetKeyboardFocusHere(0)
+      flags = flags & ~1
+    }
+    input_b := cast(str_lit)ctx.save_scene_buffer[0]
+    if ImGuiInputText("##scenes_buffer", input_b, 32)
+    {
+      ln := str_ln(input_b)
+      dyn_clear(rated_ar)
+      for s in *files_ar
+      {
+        r : RatedStuff=?
+        r.val = 100.0 - FuzzyMatch(input_b, ln, *s, str_ln(*s))
+        r.str = *s
+        dyn_add(rated_ar, &r)
+      }
+      sort_array(rated_ar)
+    }
+
+    for v in *rated_ar
+    {
+      ImGuiText(v.str)
+    }
+
+    ImGuiEnd()
+
+    if IsKeyDown(key_enum.KEY_ENTER)
+    {
+      flags = 2
+      scn := get_not_used_scene(ctx, "02")
+      open_scene_in_one_go(ctx, rated_ar[0].str)
+
+    }
+    if !ctx.scene_files_window_open
+    {
+      flags = 2
+    }
+
+
+  }
+  window_event.OPEN
+  {
+    hidx = HandleForGettingFilesInDir("../scenes")
+    total_fl := HandleDirTotalFiles(hidx)
+
+    flags = 1
+
+
+    for i in 0..total_fl
+    {
+      HandleDirFilenameAt(hidx, cast(u32)i, ctx.save_scene_buffer[0], 64)
+      str := new_str_lit(ctx.alloc, cast(str_lit)ctx.save_scene_buffer[0])
+      dyn_add(files_ar, str)
+    }
+    dyn_clear(rated_ar)
+    for s in *files_ar
+    {
+      r : RatedStuff=?
+      r.str = *s
+      dyn_add(rated_ar, &r)
+    }
+    memset(ctx.save_scene_buffer[0], 0, 16)
+  }
+  }
+}
+open_scene_in_one_go::fn(ctx : *context, name : str_lit)
+{
+  stage : loading_stage
+
+  cor :*coroutine_func_saved
+
+  fl_sz:s64
+  file_data := cast(str_lit)read_entire_file("../scenes/{name}", &fl_sz)
+  
+  while stage != loading_stage.DONE
+  {
+    OpenScene(&ctx.coroutines, ctx.cur_scn, &stage, file_data, fl_sz, &cor)
+  }
+
+}
 main_loop::fn(ctx : *context)
 {
 	MODELS_DIR:= "../models/"
@@ -8894,7 +9009,10 @@ main_loop::fn(ctx : *context)
 				SaveScene(ctx.cur_scn, ctx.cur_scn.name, &ctx.per_scene_alloc)
 			}
 
-			if !ImGuiHasFocus()
+      scene_game_can_have_focus := ImGuiHasFocus() == false && ctx.scene_files_window_open == false
+
+
+			if scene_game_can_have_focus
 			{
 				mvx := GetMouseVelX() * dt
 				mvy := GetMouseVelY() * dt
@@ -9387,6 +9505,19 @@ main_loop::fn(ctx : *context)
 				//printf("path {ctx.on_contructing_path}, customgrid {ctx.on_custom_grid}, out {cast(u64)out_ent}, tp {cast(u32)out_ent.type}\n")
 				if IsKeyHeld(key_enum.KEY_ALT)
 				{
+					if IsKeyDown(key_enum.KEY_S)
+					{
+            ctx.scene_files_window_open = !ctx.scene_files_window_open
+            if ctx.scene_files_window_open
+            {
+              scene_files_window(ctx, window_event.OPEN)
+            }
+            if !ctx.scene_files_window_open
+            {
+              scene_files_window(ctx, window_event.CLOSE)
+            }
+					}
+
 					if IsKeyHeld(key_enum.KEY_X)
 					{
 						DrawText(ctx, "{ctx.tedit.force}", -0.2, 0.0, &ctx.white_color, 0.7)
@@ -9889,6 +10020,10 @@ main_loop::fn(ctx : *context)
 			}
 			imgui_show_window_grid(ctx, out_ent, &info)
 		}
+		if ctx.scene_files_window_open
+    {
+      scene_files_window(ctx, window_event.UPDATE)
+    }
 		if ctx.textures_wnd
 		{
 			info:imgui_window=?
@@ -10567,7 +10702,21 @@ main:: fn(){
 	}
 
 	ctx.abcd_tex_info_idx = cast(u32)i
-  test :dyn_array(RatedStuff(u32))
+  test :dyn_array(RatedStuff)
+
+  r : RatedStuff
+  r.val = 1.0
+  r.str = "1.0_val"
+  dyn_add(&test, &r)
+
+  r.val = 2.5
+  r.str = "2.5_val"
+  dyn_add(&test, &r)
+
+  r.val = 1.5
+  r.str = "1.5_val"
+  dyn_add(&test, &r)
+
   sort_array(&test)
 
 	ASSERT(sizeof(custom_id)==16)

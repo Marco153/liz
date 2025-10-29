@@ -248,12 +248,15 @@ str_ln::fn(str :str_lit) !u64
 	}
 	return i;
 }
-RatedStuff:struct(T)
+RatedStuff:struct
 {
   val : f32
-  type : T
+  using u :: union
+  {
+    str : str_lit
+  }
 }
-sort_array::fn{ T }(ar : *dyn_array(RatedStuff(T)))
+sort_array::fn(ar : *dyn_array(RatedStuff))
 {
 	n :=  ar.count;
   i :u64
@@ -271,11 +274,11 @@ sort_array::fn{ T }(ar : *dyn_array(RatedStuff(T)))
     }
     
         // Swap the minimum element with the first element in the unsorted part
-      RatedStuff<T> temp;
-      memcpy(&temp, (*ar)[i], sizeof(RatedStuff<T>));
+      temp:RatedStuff;
+      memcpy(&temp, (*ar)[i], sizeof(RatedStuff));
 
-      memcpy((*ar)[i], (*ar)[minIndex], sizeof(RatedStuff<T>));
-      memcpy((*ar)[minIndex], &temp, sizeof(RatedStuff<T>));
+      memcpy((*ar)[i], (*ar)[minIndex], sizeof(RatedStuff));
+      memcpy((*ar)[minIndex], &temp, sizeof(RatedStuff));
       i++
     }
 }

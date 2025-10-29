@@ -2515,19 +2515,49 @@ bool TemplTypeFromStruct(type2 *in, type2 *out, type2 *arg,
                          own_std::string target_templ_name) {
   auto name_in = in->strct->name;
   auto name_arg = arg->strct->name;
+
+  auto scp = arg->strct->scp;
   auto name_arg_original = arg->strct->original_strct->name;
   if (arg->strct->original_strct &&
       in->strct->name == arg->strct->original_strct->name) {
     int arg_strct_templs_count = in->strct->templates.size();
+
     auto strct_vars = &arg->strct->scp->vars;
+
     for (int i = 0; i < arg_strct_templs_count; i++) {
       auto cur_templ = (*strct_vars)[i];
       if (cur_templ->type.type == enum_type2::TYPE_STRUCT) {
         if (TemplTypeFromStruct(in, out, &cur_templ->type, target_templ_name))
           return true;
       } else if (cur_templ->name == target_templ_name) {
+        auto template_is_struct = cur_templ->type.tp != nullptr &&
+                                  cur_templ->type.tp->type == TYPE_STRUCT_TYPE;
+
+        if (template_is_struct) {
+          auto st_scp = cur_templ->type.tp->strct->scp;
+          auto strct_has_templates =
+              st_scp->vars.size() > 0 &&
+              (st_scp->vars[0])->type.type == TYPE_TEMPLATE;
+          if (strct_has_templates) {
+            // HERE()
+          }
+        }
+        /*
+        if (!strct_has_templates) { HERE()
+
+          *out = *arg;
+          return true;
+        }
+        if (template_is_struct &&
+            TemplTypeFromStruct(in, out, cur_templ->type.tp,
+                                target_templ_name)) {
+          return true;
+        }
+        else {
+        */
         *out = *cur_templ->type.tp;
         return true;
+        //}
       }
     }
   } else {
@@ -3350,6 +3380,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2 *original,
     ASSERT(in_vec.size() == args.size())
 
     scope *target_scope = strct->scp->parent;
+    // HERE()
 
     auto templates_types =
         GetTemplateTypes(lang_stat, &in_vec, &args, target_scope, nullptr);
@@ -3432,6 +3463,13 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2 *original,
     i++;
   }
 
+  /*
+  FOR_VEC(cur_ptr, new_strct->scp->vars) {
+    decl2 *cur = *cur_ptr;
+    if (cur->type.type == TYPE_TEMPLATE)
+      cur->type = *cur->type.tp;
+  }
+  */
   new_strct->size =
       SetVariablesAddress(&new_strct->vars, 0, &new_strct->biggest_type);
 
@@ -3442,6 +3480,7 @@ bool TryInstantiateStruct(lang_state *lang_stat, type_struct2 *original,
   }
   */
 
+  // HERE()
   ret_type.type = enum_type2::TYPE_STRUCT_TYPE;
   ret_type.strct = new_strct;
   new_strct->ToTypeSect(lang_stat, &lang_stat->type_sect, nullptr);
@@ -3480,6 +3519,7 @@ bool InstantiateArFromType(lang_state *lang_stat, type2 &ar_type, scope *scp,
 
   if (!TryInstantiateStruct(lang_stat, ar_strct->type.strct, sname, scp,
                             ret_struct, dummy_ar, &ar_type)) {
+
     return false;
   }
   return true;
@@ -4534,7 +4574,7 @@ bool AddNewTemplFuncFromLangArrayTemplTypesToScope(
   if (!CheckFuncRetType(lang_stat, fdecl, fdecl->scp))
     return false;
 
-  BREAK(ncall->t->line == 10571)
+  // BREAK(ncall->t->line == 10571)
   if (!DescendArgsOfModifiedFunc(lang_stat, fdecl))
     return false;
 
@@ -5031,7 +5071,7 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
     ncall->exprs = (own_std::vector<comma_ret> *)AllocMiscData(
         lang_stat, sizeof(own_std::vector<comma_ret>));
   }
-  BREAK(ncall->t->line == 256)
+  // BREAK(ncall->t->line == 256)
   if (ncall->r && was_null) {
     DescendComma(lang_stat, ncall->r, scp, *ncall->exprs);
   }
@@ -5580,6 +5620,20 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
     if (!TryInstantiateStruct(lang_stat, lhs->type.strct, templ_name,
                               lhs->type.strct->scp, &ret_strct, args))
       return false;
+
+    // if
+    /*
+    for(int i= 0;i < args.size();i++)
+    {
+      auto cur_templ = ret_strct->scp->vars[i];
+      if(cur_templ->type.type == TYPE_TEMPLATE)
+      {
+
+
+      }
+    }
+    */
+    //  BREAK(ncall->t->line == 10570)
 
     ASSERT(IS_FLAG_OFF(ret_strct->flags, TP_STRCT_TEMPLATED))
 
@@ -7577,7 +7631,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
   case node_type::N_INDEX: {
     // indexing
     if (IS_FLAG_OFF(n->flags, NODE_FLAGS_INDEX_IS_TYPE)) {
-      BREAK(n->t->line == 267)
+      // BREAK(n->t->line == 267)
       auto lhs = DescendNameFinding(lang_stat, n->l, scp);
       if (!lhs)
         return nullptr;
@@ -9001,7 +9055,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
   } break;
   case node_type::N_WHILE: {
     // scp = GetScopeFromParent(n, given_scp);
-    BREAK(n->t->line == 264)
+    // BREAK(n->t->line == 264)
     if (n->l != nullptr && !DescendNameFinding(lang_stat, n->l, scp) &&
         scp->parent != nullptr)
       return nullptr;

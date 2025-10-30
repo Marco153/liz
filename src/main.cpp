@@ -3742,6 +3742,8 @@ void ImGuiEnd(int thread_id, dbg_state *dbg) {
   if (dbg->frame_is_from_dbg)
     return;
   ImGui::End();
+
+  dbg->imgui_begins.pop_back();
 }
 void ImGuiBegin(int thread_id, dbg_state *dbg) {
   if (dbg->frame_is_from_dbg)
@@ -3761,6 +3763,7 @@ void ImGuiEndChild(int thread_id, dbg_state *dbg) {
   if (dbg->frame_is_from_dbg)
     return;
   ImGui::EndChild();
+  dbg->imgui_begins.pop_back();
 }
 void ImGuiBeginChild(int thread_id, dbg_state *dbg) {
   if (dbg->frame_is_from_dbg)

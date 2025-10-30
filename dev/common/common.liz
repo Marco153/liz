@@ -222,6 +222,14 @@ rel_string : struct
 	offset : u32,
 	count : u32,
 }
+new_str_lit::fn(alloc : *linear_alloc(u8), str: str_lit) ! str_lit
+{
+	ln := str_ln(str)
+	ret := cast(*u8)LinearGet(alloc, cast(u32)ln + 1)
+	memcpy(ret, str, ln)
+	*ptr_offset(ret, ln, u8) = 0
+	return cast(str_lit)ret
+}
 new_str_lit::fn(alloc : *mem_alloc, str: str_lit) ! str_lit
 {
 	ln := str_ln(str)
@@ -2695,6 +2703,10 @@ read_entire_file::fn(file_name : str_lit, fl_sz_out : *s64)!*u8
 FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : u64)!f32
 {
     score := 0.0;
+    if src_size == to_match_size
+    {
+      score += 1.0
+    }
 
     // Match exact characters at the same positions
     i : u64

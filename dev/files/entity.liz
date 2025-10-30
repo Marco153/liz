@@ -108,7 +108,7 @@ DeleteEnt::fn(ctx : *scene_info, ent : *entity, for_changing_scenes : bool=false
       ent_part_of.INSTANTIATED
       {
           val = RemoveEntFromAr(&ctx.ents, ent)
-          ASSERT(val)
+          //ASSERT(val)
           a=0 
       }
       default
@@ -304,6 +304,9 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
 	{
 		if e.is_active == false
 			continue
+
+    //printf("ent {e.name}\n")
+
 		if is_flag_on(e.flags, ENTITY_TRANSPARENT)
 		{
 			dyn_add(&ctx.transparent_ents, e)

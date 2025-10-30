@@ -38,11 +38,14 @@ area_col_info :struct
 scene_info:struct
 {
   in_use : bool
+  loading : bool
   name : str_lit
   alloc_idx : asset_index
   alloc : *mem_alloc
 
   tkns : dyn_array(token)
+
+  scenes_to_be_loaded : dyn_array(str_lit)
 
   ents : dyn_array(*entity)
   areas_col :dyn_array(area_col_info)
@@ -75,6 +78,33 @@ draw_settings:struct
   cam_forward : *_vec
   cam_size : f32
 }
+engine_event_info:etruct
+{
+  SAVE_SCENE(
+    s : *scene_info
+  ),
+  LOAD_SCENE(
+    scn_name : str_lit
+  ),
+  CHANGE_SCENE(
+    scn_name : str_lit
+    scn_data : str_lit
+    scn_data_sz : s64
+    one_go : bool
+    stage : u8
+    s : *scene_info
+    cor :*coroutine_func_saved
+
+    change_to_this_scene : bool
+  ),
+  ENT_CLICKED(
+    ent : *entity
+  )
+}
+engine_event:struct
+{
+  using type : engine_event_info
+}
 context: struct
 {
     col_chunks : *area_col_info
@@ -90,6 +120,7 @@ context: struct
 
 	tkns : dyn_array(token)
 
+  cur_scene_exiting_from : str_lit
   cur_scene_changing_name : str_lit
   cur_scene_changing : str_lit
   cur_scene_changing_sz : u32
@@ -349,10 +380,198 @@ context: struct
   end_slerp_upwards :f32
 
   scene_files_window_open : bool
+  scene_files_window_alloc : linear_alloc(u8)
   scene_files_window_file_names : dyn_array(str_lit)
   scene_files_window_files_rated : dyn_array(RatedStuff)
+
+
+  eng_events : dyn_array(engine_event)
+
+  out_ent : **entity
+  //empty_scn : scene_info
+}
+add_event::fn(ctx : *context, ev : *engine_event)
+{
+  dyn_add(&ctx.eng_events, ev)
+}
+add_load_scene_event::fn(ctx : *context, name : str_lit)
+{
+  ev : engine_event
+  ev.type = engine_event_info.LOAD_SCENE
+  ev.LOAD_SCENE.scn_name = new_str_lit(globals.perm_alloc, name)
+  add_event(ctx, &ev)
+}
+add_save_scene_event::fn(ctx : *context, s : *scene_info)
+{
+  ev : engine_event
+  ev.type = engine_event_info.SAVE_SCENE
+  ev.SAVE_SCENE.s = s
+  add_event(ctx, &ev)
+}
+add_change_scene_event::fn(ctx : *context, name : str_lit, one_go :bool, change_to_this_scene : bool)
+{
+  ev : engine_event
+  ev.type = engine_event_info.CHANGE_SCENE
+  ev.CHANGE_SCENE.scn_name = new_str_lit(globals.perm_alloc, name)
+  ev.CHANGE_SCENE.one_go = one_go
+  ev.CHANGE_SCENE.change_to_this_scene = change_to_this_scene 
+  add_event(ctx, &ev)
+}
+add_ent_clicked_event::fn(ctx : *context, ent : *entity)
+{
+  ev : engine_event
+  ev.type = engine_event_info.ENT_CLICKED
+  ev.ENT_CLICKED.ent = ent
+  add_event(ctx, &ev)
 }
 
+
+process_engine_events::fn(ctx : *context)
+{
+  cur_loading_scene_name :str_lit
+  for i in 0..ctx.eng_events.count
+  {
+    e := ctx.eng_events[cast(u64)i]
+    on e.type
+    {
+    engine_event_info.SAVE_SCENE
+    {
+			SaveScene(e.SAVE_SCENE.s, e.SAVE_SCENE.s.name, &ctx.per_scene_alloc)
+      dyn_rem(&ctx.eng_events, cast(u32)i)
+    }
+    engine_event_info.LOAD_SCENE
+    {
+      loaded := false
+      name := e.LOAD_SCENE.scn_name
+      s := get_not_used_scene(ctx, name, &loaded)
+
+      if !loaded
+      {
+        open_scene_in_one_go(ctx, s, name)
+      }
+
+      heap_free(globals.perm_alloc, name)
+      dyn_rem(&ctx.eng_events, cast(u32)i)
+      i--
+
+    }
+    engine_event_info.CHANGE_SCENE
+    {
+      loaded :global bool
+      name := e.CHANGE_SCENE.scn_name
+      s :*scene_info= e.CHANGE_SCENE.s
+
+      if cur_loading_scene_name == nil
+      {
+        cur_loading_scene_name = name
+      }
+
+      if cur_loading_scene_name != name
+      {
+        continue
+      }
+
+      //if str_cmp(name, "lw2hy") __dbg_break
+
+
+      cur := ctx.cur_scn
+
+      if e.CHANGE_SCENE.stage == 0
+      {
+        e.CHANGE_SCENE.s = get_not_used_scene(ctx, name, &loaded)
+        s = e.CHANGE_SCENE.s
+        s.loading = true
+        e.CHANGE_SCENE.stage++
+      }
+
+      s = e.CHANGE_SCENE.s
+
+      if e.CHANGE_SCENE.stage == 1
+      {
+        if !loaded
+        {
+          if e.CHANGE_SCENE.one_go
+          {
+            open_scene_in_one_go(ctx, s, name)
+            e.CHANGE_SCENE.stage = 99
+          }
+          else
+          {
+            e.CHANGE_SCENE.stage = 2
+          }
+        }
+        else
+        {
+            e.CHANGE_SCENE.stage = 99
+        }
+      }
+      if e.CHANGE_SCENE.stage == 2
+      {
+        file_name := "../scenes/{name}"
+        file_data : str_lit
+        fl_sz := GetFileSize(file_name);
+        if fl_sz == -1
+            __dbg_break
+        file_data = cast(str_lit)heap_alloc(globals.perm_alloc, cast(u32)fl_sz + 1);
+
+        ReadFile(file_name, file_data);
+
+        e.CHANGE_SCENE.scn_data = file_data
+        e.CHANGE_SCENE.scn_data_sz = fl_sz
+
+        e.CHANGE_SCENE.stage++
+      }
+      if e.CHANGE_SCENE.stage == 3
+      {
+        stage : loading_stage
+
+        OpenScene(&ctx.coroutines, e.CHANGE_SCENE.s, &stage, e.CHANGE_SCENE.scn_data, cast(s64)e.CHANGE_SCENE.scn_data_sz, &e.CHANGE_SCENE.cor)
+
+        if stage == loading_stage.DONE
+        {
+          if e.CHANGE_SCENE.change_to_this_scene
+          {
+            delete_ent_from_scene_add_to_another(ctx.cur_scn, s, ctx.player)
+          }
+          e.CHANGE_SCENE.cor.regs.rip = 0
+          e.CHANGE_SCENE.stage = 99
+        }
+
+      }
+      if e.CHANGE_SCENE.stage == 99
+      {
+
+        printf("scene {name} loaded\n")
+        if e.CHANGE_SCENE.change_to_this_scene
+        {
+          ctx.cur_scn = e.CHANGE_SCENE.s
+        }
+
+
+        heap_free(globals.perm_alloc, name)
+
+        change_ents_visibility_based_on_play_mode(ctx)
+
+        
+        for sname in s.scenes_to_be_loaded
+        {
+          add_change_scene_event(ctx, *sname, false, false)
+        }
+        s.loading = false
+        dyn_rem(&ctx.eng_events, cast(u32)i)
+        cur_loading_scene_name = nil
+        i--
+      }
+    }
+    engine_event_info.ENT_CLICKED
+    {
+      *ctx.out_ent = e.ENT_CLICKED.ent
+      dyn_rem(&ctx.eng_events, cast(u32)i)
+      i--
+    }
+    }
+  }
+}
 
 INACTIVE_FLAGS_GET_FIRST_WHEN_NONE_FOUND:const s32= 1
 get_inactive_ent::fn(ctx : *scene_info, ar : *dyn_array(*entity), flags : u32) ! *entity
@@ -2846,7 +3065,6 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
     if player_ent.anim_man.sec_clip_timer > 0.1
     {
       mov.trigger.is_active = true
-      printf("is_active {player_ent.anim_man.sec_clip_timer}\n")
     }
 
 		
@@ -3847,19 +4065,39 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
   stmnts:*ast_rep= *settings_ast.SCOPE.stmnts[0]
   ar := &settings_ast.SCOPE.stmnts
   tp1 := cast(token_type)stmnts.BIN.op
-  if(!is_ast_bin(stmnts, cast(u32)token_type.EQUAL))
+  // getting settings
+  if(is_ast_bin(stmnts, cast(u32)token_type.SEMI_COLON))
+  {
+    //stmnts = *stmnts.BIN.expr[0]
+    ar = &stmnts.BIN.expr
+  }
+  else if(!is_ast_bin(stmnts, cast(u32)token_type.EQUAL))
   {
     stmnts = *stmnts.BIN.expr[0]
     ar = &stmnts.BIN.expr
   }
 
-  // getting settings
   for st in *ar
   {
     ASSERT(is_ast_bin(*st, cast(u32)token_type.EQUAL))
     name :*string= &st.BIN.expr[0].WORD.str
 
-    if *name == "area_col"
+    if *name == "scenes_to_be_loaded"
+    {
+      scp := *st.BIN.expr[1]
+      assert(scp.type == ast_type.SCOPE)
+      exprs := scp.SCOPE.stmnts[0]
+
+      assert(is_ast_bin(*exprs, cast(u32)token_type.COMMA))
+
+      for s in exprs.BIN.expr
+      {
+        assert(s.type == ast_type.STR_LIT)
+        dyn_add(&ctx.scenes_to_be_loaded, string_to_str_lit(ctx.alloc, &s.STR_LIT.str))
+      }
+
+    }
+    else if *name == "area_col"
     {
       stmnts2 := *st.BIN.expr[1]
 
@@ -3931,14 +4169,14 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
       }
     }
   }
-  ctx.col_chunks = ctx.areas_col[0]
+  if ctx.areas_col.count > 0
+    ctx.col_chunks = ctx.areas_col[0]
 
   i = settings_end
 
   instantiated_ents := 0
   file = cast(str_lit)ptr_offset(file, 0, u8);
 
-  loading_areas_to_fill :dyn_array(*loading_area_info)
 
   while i < fl_sz
   {
@@ -4041,7 +4279,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
 
               
               ent.l_area = l_area
-              dyn_add(&loading_areas_to_fill, l_area)
 
               return
             }
@@ -4342,6 +4579,7 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
       i++
 	}
 
+
   return
   grid_shader := find_shader(ctx, "grid.mat")
   globals.preview_ent.in_material_instance = new_material_instance(ctx, &grid_shader, globals.preview_ent)
@@ -4349,37 +4587,15 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
   globals.player.flags = globals.player.flags
   return
 
-
   aux_ents :[16]*entity
 
-
   ASSERT(sizeof(str_lit) == sizeof(*entity))
-  for ld in loading_areas_to_fill
-  {
-    i=0
-    
-    for str in ld.preserve_ents_names
-    {
-      for e in ctx.ents
-      {
-        if str_cmp(*str, e.name)
-        {
-          *aux_ents[cast(u64)i] = *e
-          i++
-        }
-      }
-    }
-    memcpy(ld.preserve_ents.data, aux_ents[0], cast(u64)i * sizeof(*entity))
-  }
-
-
-  if loading_areas_to_fill.count > 0
-    heap_free(ctx.alloc, loading_areas_to_fill.data)
-
 
   *stage = loading_stage.DONE
 
   globals.alloc = prev_alloc
+  out_cor.regs.rip = 0
+
 }
 _DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage : *loading_stage, file : str_lit, fl_sz : s64, out_cor : **coroutine_func_saved)
 {
@@ -5421,6 +5637,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
     i := 0
     fallback_used_scene:*scene_info
 
+    prev_scn := ctx.cur_scn
     for s in ctx.scenes
     {
       if !s.in_use continue
@@ -5428,8 +5645,10 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
       ImGuiPushID(cast(u32)i)
       if ImGuiSelectable("{s.name}", false, 20.0, 30.0)
       {
-        ctx.cur_scn = s
+        add_change_scene_event(ctx, s.name, true, true)
+        //ctx.cur_scn = s
       }
+      /*
       ImGuiSameLine()
       if ImGuiSelectable("x##{i}", false, 20.0, 30.0)
       {
@@ -5437,6 +5656,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
           ctx.cur_scn = nil
         s.in_use = false
       }
+      */
       if s.in_use
       {
           fallback_used_scene = s
@@ -5447,7 +5667,8 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 
     if ctx.cur_scn == nil
     {
-      ctx.cur_scn = fallback_used_scene
+      //ctx.cur_scn = fallback_used_scene
+      //add_change_scene_event(ctx, prev_scn, ctx.cur_scn)
     }
     ImGuiInputText("name", cast(str_lit)buffer, 32)
     ImGuiSameLine()
@@ -7878,13 +8099,24 @@ add_axis_ents_to_scene::fn(ctx : *context, s : *scene_info)
   //dyn_add(&s.ents, ctx.z_axis_ent)
 
 }
-get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
+get_not_used_scene::fn(ctx : *context, name : str_lit, was_already_loaded : *bool =nil) ! *scene_info
 {
+  /*
+  if str_cmp(name, "lw2hy")
+  {
+    __dbg_break
+  }
+  */
+  *was_already_loaded = false
   for s in ctx.scenes
   {
     if str_cmp(name, s.name)
     {
       s.in_use = true
+      if was_already_loaded
+      {
+        *was_already_loaded = true
+      }
       return s
     }
   }
@@ -7911,7 +8143,6 @@ get_not_used_scene::fn(ctx : *context, name : str_lit) ! *scene_info
       globals.alloc = prev_alloc
 
       dyn_add(&s.bodies, ctx.player.mov_info.trigger)
-
       return s
     }
   }
@@ -7989,11 +8220,8 @@ scene_files_window ::fn(ctx : *context, e:window_event)
   window_event.CLOSE
   {
     ctx.scene_files_window_open = false
-    for s in *files_ar
-    {
-      heap_free(ctx.alloc, *s)
-    }
     FreeHandle(hidx)
+    flags = 0
 
   }
   window_event.UPDATE
@@ -8027,12 +8255,33 @@ scene_files_window ::fn(ctx : *context, e:window_event)
 
     ImGuiEnd()
 
-    if IsKeyDown(key_enum.KEY_ENTER)
+    if IsKeyHeld(key_enum.KEY_LCTRL)
     {
-      flags = 2
-      scn := get_not_used_scene(ctx, "02")
-      open_scene_in_one_go(ctx, rated_ar[0].str)
+      if IsKeyDown(key_enum.KEY_ENTER)
+      {
+        flags = 2
 
+        prev_scn := ctx.cur_scn
+
+        ctx.cur_scn = get_not_used_scene(ctx, cast(str_lit)ctx.save_scene_buffer[0])
+        delete_ent_from_scene_add_to_another(prev_scn, ctx.cur_scn, ctx.player)
+
+        SaveScene(ctx.cur_scn, ctx.cur_scn.name, &ctx.per_scene_alloc)
+      }
+    }
+    else
+    {
+      if IsKeyDown(key_enum.KEY_ENTER)
+      {
+        flags = 2
+
+        prev_scn := ctx.cur_scn
+
+
+        add_change_scene_event(ctx, rated_ar[0].str, true, true)
+
+
+      }
     }
     if !ctx.scene_files_window_open
     {
@@ -8043,16 +8292,26 @@ scene_files_window ::fn(ctx : *context, e:window_event)
   }
   window_event.OPEN
   {
+    if ctx.scene_files_window_alloc.cur == 0
+    {
+      LinearInit(&ctx.scene_files_window_alloc, ctx.alloc, 256)
+    }
+
+    ctx.scene_files_window_alloc.cur = 0
+
     hidx = HandleForGettingFilesInDir("../scenes")
     total_fl := HandleDirTotalFiles(hidx)
 
     flags = 1
 
+    dyn_clear(files_ar)
+
 
     for i in 0..total_fl
     {
       HandleDirFilenameAt(hidx, cast(u32)i, ctx.save_scene_buffer[0], 64)
-      str := new_str_lit(ctx.alloc, cast(str_lit)ctx.save_scene_buffer[0])
+
+      str := new_str_lit(&ctx.scene_files_window_alloc, cast(str_lit)ctx.save_scene_buffer[0])
       dyn_add(files_ar, str)
     }
     dyn_clear(rated_ar)
@@ -8066,7 +8325,7 @@ scene_files_window ::fn(ctx : *context, e:window_event)
   }
   }
 }
-open_scene_in_one_go::fn(ctx : *context, name : str_lit)
+open_scene_in_one_go::fn(ctx : *context, scn : *scene_info, name : str_lit)
 {
   stage : loading_stage
 
@@ -8077,9 +8336,43 @@ open_scene_in_one_go::fn(ctx : *context, name : str_lit)
   
   while stage != loading_stage.DONE
   {
-    OpenScene(&ctx.coroutines, ctx.cur_scn, &stage, file_data, fl_sz, &cor)
+    OpenScene(&ctx.coroutines, scn, &stage, file_data, fl_sz, &cor)
   }
 
+  cor.regs.rip = 0
+
+}
+
+change_ents_visibility_based_on_play_mode::fn(ctx : *context)
+{
+
+  if !ctx.editor_cam
+  {
+    for e in ctx.cur_scn.ents
+    {
+      on e.type
+      {
+      ent_type.LOADING_AREA, ent_type.CLIMBING_AREA
+      {
+        RemoveEntFromAr(&ctx.cur_scn.drawable_ents, *e)
+      }
+      }
+    }
+
+  }
+  else
+  {
+    for e in ctx.cur_scn.ents
+    {
+      on e.type
+      {
+      ent_type.LOADING_AREA, ent_type.CLIMBING_AREA
+      {
+        dyn_add(&ctx.cur_scn.drawable_ents, *e)
+      }
+      }
+    }
+  }
 }
 main_loop::fn(ctx : *context)
 {
@@ -8710,6 +9003,7 @@ main_loop::fn(ctx : *context)
 
 	HideCursor(hidden_cur)
 	out_ent : *entity= nil
+  ctx.out_ent = &out_ent
 	prev_select_ent_col : _vec
 
 
@@ -8771,19 +9065,14 @@ main_loop::fn(ctx : *context)
   {
     OpenScene(&ctx.coroutines, ctx.cur_scn, &stage, file_data, fl_sz, &cor)
   }
+  for sname in ctx.cur_scn.scenes_to_be_loaded
+  {
+    add_change_scene_event(ctx, *sname, true, false)
+  }
 
   cor.regs.rip = 0
 
-  file_data = cast(str_lit)read_entire_file("../scenes/04", &fl_sz)
-  other_scn := get_not_used_scene(ctx, "04")
-  
   stage = loading_stage.NONE
-  while stage != loading_stage.DONE
-  {
-    OpenScene(&ctx.coroutines, other_scn, &stage, file_data, fl_sz, &cor)
-  }
-  stage = loading_stage.NONE
-
 	
 	ctx.grid_ent = NewEnt(ctx.cur_scn, "grid_ent")
 	ctx.grid_ent.flags = ctx.grid_ent.flags | ENTITY_3D | ENTITY_TRANSPARENT | ENTITY_DONT_FREE
@@ -8882,6 +9171,7 @@ main_loop::fn(ctx : *context)
   ctx.player = player_ent
 	while !ShouldClose(ctx.window)
 	{
+    process_engine_events(ctx)
 		//aux_c := *ctx.test_ent.cols[0]
 /*
 
@@ -8963,6 +9253,8 @@ main_loop::fn(ctx : *context)
 			change_select_ent_col = true
       cur_scn = ctx.cur_scn
 
+      change_ents_visibility_based_on_play_mode(ctx)
+
 			if !ctx.editor_cam
 			{
         out_ent = nil
@@ -8974,30 +9266,10 @@ main_loop::fn(ctx : *context)
 				change_preview_col_idx(ctx, 0)
 
 				ctx.textures_wnd = false
-        for e in ctx.cur_scn.ents
-        {
-          on e.type
-          {
-          ent_type.LOADING_AREA, ent_type.CLIMBING_AREA
-          {
-            RemoveEntFromAr(&ctx.cur_scn.drawable_ents, *e)
-          }
-          }
-        }
 
 			}
 			else
 			{
-        for e in ctx.cur_scn.ents
-        {
-          on e.type
-          {
-          ent_type.LOADING_AREA, ent_type.CLIMBING_AREA
-          {
-            dyn_add(&ctx.cur_scn.drawable_ents, *e)
-          }
-          }
-        }
 			}
 		}
 		if ctx.editor_cam
@@ -9006,11 +9278,26 @@ main_loop::fn(ctx : *context)
 			//printf("model {ctx.grid_ent.model}\n")
 			if IsKeyHeld(key_enum.KEY_LCTRL) && IsKeyDown(key_enum.KEY_S)
 			{
-				SaveScene(ctx.cur_scn, ctx.cur_scn.name, &ctx.per_scene_alloc)
+        add_save_scene_event(ctx, ctx.cur_scn)
 			}
 
       scene_game_can_have_focus := ImGuiHasFocus() == false && ctx.scene_files_window_open == false
 
+      if IsKeyHeld(key_enum.KEY_ALT)
+      {
+        if IsKeyDown(key_enum.KEY_S)
+        {
+          ctx.scene_files_window_open = !ctx.scene_files_window_open
+          if ctx.scene_files_window_open
+          {
+            scene_files_window(ctx, window_event.OPEN)
+          }
+          else
+          {
+            scene_files_window(ctx, window_event.CLOSE)
+          }
+        }
+      }
 
 			if scene_game_can_have_focus
 			{
@@ -9224,64 +9511,6 @@ main_loop::fn(ctx : *context)
 					z_axis_ent.is_active = true
 					//all_axis_ent.is_active = true
 				}
-				if out_ent
-				{
-          if out_ent.is_static && out_ent.cols.count > 0 
-          {
-            c1 := *out_ent.cols[0]
-            c1.data_ready = false
-          }
-					if out_ent.type == ent_type.AXIS
-					{
-					}
-					else
-					{
-
-						x_axis_ent.pos = out_ent.pos
-
-						y_axis_ent.pos = out_ent.pos
-						
-						z_axis_ent.pos = out_ent.pos
-						
-						//all_axis_ent.pos = out_ent.pos
-
-						offset := 1.0
-						x_axis_offset:_vec
-						y_axis_offset:_vec
-						z_axis_offset:_vec
-						
-						x_axis_offset.x = 1.0
-						y_axis_offset.y = 1.0
-						z_axis_offset.z = 1.0
-
-						q :quaternion=?
-						q.v = out_ent.rot
-
-
-						x_axis_offset = q * x_axis_offset
-						y_axis_offset = q * y_axis_offset
-						z_axis_offset = q * z_axis_offset
-
-						if sel_action == select_action.SCALE_ONE_AXIS2
-						{
-							x_axis_ent.pos -= x_axis_offset
-							y_axis_ent.pos -= y_axis_offset
-							z_axis_ent.pos -= z_axis_offset
-						}
-						else
-						{
-							x_axis_ent.pos += x_axis_offset
-							y_axis_ent.pos += y_axis_offset
-							z_axis_ent.pos += z_axis_offset
-						}
-						x_axis_ent.vel = x_axis_offset
-						y_axis_ent.vel = y_axis_offset
-						z_axis_ent.vel = z_axis_offset
-						x_axis_ent.rot = out_ent.rot
-						y_axis_ent.rot = out_ent.rot
-						z_axis_ent.rot = out_ent.rot
-					}
-				}
 
 				if IsKeyDown(key_enum.KEY_I)
 				{
@@ -9413,6 +9642,7 @@ main_loop::fn(ctx : *context)
 					aux_sel_from_non_bodies : *entity
 					shortest_dist : f32 = 9999.0
 				
+          final_selected : *entity
 					if RaycastWithNonBodies(ctx.cur_scn, &cam_pos, &cam_dir, &col, 0, &aux_sel_from_non_bodies)
 					{
 						//printf("hit {aux_sel_from_non_bodies.name}\n")
@@ -9426,9 +9656,6 @@ main_loop::fn(ctx : *context)
 							
 							shortest_dist = aux_dist
 							aux_sel_from_non_bodies = nil
-							x_axis_ent.is_active = true
-							y_axis_ent.is_active = true
-							z_axis_ent.is_active = true
 
 							select_right = cross_vec(&dir, &globals.up)
 							select_up = cross_vec(&select_right, &dir)
@@ -9439,7 +9666,8 @@ main_loop::fn(ctx : *context)
 								on_click_ent_pos = aux_sel.pos
 								on_click_ent_size = aux_sel.size
 								on_click_pos = aux_sel.pos
-								out_ent = aux_sel
+                final_selected = aux_sel
+								//out_ent = aux_sel
 								if prev_sel != nil
 								{
 									if  prev_sel != out_ent
@@ -9497,27 +9725,18 @@ main_loop::fn(ctx : *context)
 					}
 					if aux_sel_from_non_bodies != nil && aux_sel == nil
 					{
-						out_ent = aux_sel_from_non_bodies
+						final_selected = aux_sel_from_non_bodies
 					}
+
+          if final_selected
+            add_ent_clicked_event(ctx, final_selected)
+          //out_ent = final_selected
           //printf("afte r out is {cast(u64)out_ent}\n")
 				}
 
 				//printf("path {ctx.on_contructing_path}, customgrid {ctx.on_custom_grid}, out {cast(u64)out_ent}, tp {cast(u32)out_ent.type}\n")
 				if IsKeyHeld(key_enum.KEY_ALT)
 				{
-					if IsKeyDown(key_enum.KEY_S)
-					{
-            ctx.scene_files_window_open = !ctx.scene_files_window_open
-            if ctx.scene_files_window_open
-            {
-              scene_files_window(ctx, window_event.OPEN)
-            }
-            if !ctx.scene_files_window_open
-            {
-              scene_files_window(ctx, window_event.CLOSE)
-            }
-					}
-
 					if IsKeyHeld(key_enum.KEY_X)
 					{
 						DrawText(ctx, "{ctx.tedit.force}", -0.2, 0.0, &ctx.white_color, 0.7)
@@ -9689,6 +9908,68 @@ main_loop::fn(ctx : *context)
 					}
 				}
 			}
+      if out_ent
+      {
+        if out_ent.is_static && out_ent.cols.count > 0 
+        {
+          c1 := *out_ent.cols[0]
+          c1.data_ready = false
+        }
+        if out_ent.type == ent_type.AXIS
+        {
+        }
+        else
+        {
+          x_axis_ent.is_active = true
+          y_axis_ent.is_active = true
+          z_axis_ent.is_active = true
+
+          x_axis_ent.pos = out_ent.pos
+
+          y_axis_ent.pos = out_ent.pos
+          
+          z_axis_ent.pos = out_ent.pos
+          print_vec(&x_axis_ent.pos)
+          
+          //all_axis_ent.pos = out_ent.pos
+
+          offset := 1.0
+          x_axis_offset:_vec
+          y_axis_offset:_vec
+          z_axis_offset:_vec
+          
+          x_axis_offset.x = 1.0
+          y_axis_offset.y = 1.0
+          z_axis_offset.z = 1.0
+
+          q :quaternion=?
+          q.v = out_ent.rot
+
+
+          x_axis_offset = q * x_axis_offset
+          y_axis_offset = q * y_axis_offset
+          z_axis_offset = q * z_axis_offset
+
+          if sel_action == select_action.SCALE_ONE_AXIS2
+          {
+            x_axis_ent.pos -= x_axis_offset
+            y_axis_ent.pos -= y_axis_offset
+            z_axis_ent.pos -= z_axis_offset
+          }
+          else
+          {
+            x_axis_ent.pos += x_axis_offset
+            y_axis_ent.pos += y_axis_offset
+            z_axis_ent.pos += z_axis_offset
+          }
+          x_axis_ent.vel = x_axis_offset
+          y_axis_ent.vel = y_axis_offset
+          z_axis_ent.vel = z_axis_offset
+          x_axis_ent.rot = out_ent.rot
+          y_axis_ent.rot = out_ent.rot
+          z_axis_ent.rot = out_ent.rot
+        }
+      }
 			if ctx.ent_collider_modify && out_ent != nil
 			{
 
@@ -9834,6 +10115,8 @@ main_loop::fn(ctx : *context)
 
       for s in ctx.scenes
       {
+        if s.loading continue
+
         for a in s.areas_col
         {
           a_aabb :aabb=?
@@ -9847,8 +10130,11 @@ main_loop::fn(ctx : *context)
           }
         }
       }
+      aoeuaeou := in_scenes
       for s in in_scenes
       {
+        if s.loading continue
+
         delete_ent_from_scene_add_to_another(ctx.cur_scn, *s, player_ent)
 
         ctx.cur_scn = *s
@@ -10233,6 +10519,8 @@ main_loop::fn(ctx : *context)
           ctx.cur_scene_changing_name = player_ent.mov_info.asking_for_this_scene_name
           ctx.cur_scene_changing_sz = player_ent.mov_info.asking_for_this_scene_sz
 
+          ctx.cur_scene_exiting_from = player_ent.mov_info.exiting_this_scene_name
+
           ctx.cur_changing_loading_area = player_ent.mov_info.asking_for_this_loading_area
 
           l_area := player_ent.mov_info.asking_for_this_loading_area
@@ -10241,10 +10529,13 @@ main_loop::fn(ctx : *context)
           already_loaded := false
           for s in ctx.scenes
           {
+            if str_cmp(s.name, ctx.cur_scene_exiting_from)
+            {
+              s.in_use = false
+            }
             if s.in_use && str_cmp(s.name, ctx.cur_scene_changing_name)
             {
               already_loaded = true
-              break
             }
           }
           if already_loaded
@@ -10254,12 +10545,17 @@ main_loop::fn(ctx : *context)
           }
           else
           {
-            ctx.changing_scn = get_not_used_scene(ctx, ctx.cur_scene_changing_name)
+            //ctx.changing_scn = get_not_used_scene(ctx, ctx.cur_scene_changing_name)
           }
         }
         if ctx.cur_scene_changing
         {
           //assert(ctx.changing_scn != nil)
+          add_change_scene_event(ctx, ctx.cur_scene_changing_name, false, true)
+          ctx.cur_scene_changing = nil
+
+
+/*
           OpenScene(&ctx.coroutines, ctx.changing_scn, &stage, ctx.cur_scene_changing, cast(s64)ctx.cur_scene_changing_sz, &cor)
           if stage == loading_stage.DONE
           {
@@ -10275,6 +10571,7 @@ main_loop::fn(ctx : *context)
             //__dbg_break
 
           }
+          */
           //printf("not done stage {cast(u32)stage}\n")
 
         }

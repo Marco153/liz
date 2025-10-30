@@ -1632,7 +1632,7 @@ StepCol::fn(ctx : *scene_info, dt : f32)
 	for _e in ctx.bodies
 	{
 		e := *_e
-		if e.is_static || e.is_active == false || e.type == ent_type.TERRAIN
+		if e == nil || e.is_static || e.is_active == false || e.type == ent_type.TERRAIN
 			continue;
 
 		for in_col in e.ents_in_collision
@@ -1855,7 +1855,7 @@ PhysicsUpdate::fn(ctx : *scene_info, dt : f32)
 {
 	for e in ctx.bodies
 	{
-    if e.cols.count == 0 continue
+    if *e == nil || e.cols.count == 0 continue
 
 		c1 := e.cols[0]
 		c1.no_rotation_ent = is_flag_on(e.flags, ENTITY_NO_ROTATION_ON_COLLISION)

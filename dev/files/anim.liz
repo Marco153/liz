@@ -1,7 +1,7 @@
 import "../../core";
 import "../common";
 
-UpdateClip2::fn(e : *entity, dt : f32)
+UpdateClip2::fn(ctx : *scene_info, e : *entity, dt : f32)
 {
 	on e.c_type
 	{
@@ -15,7 +15,7 @@ UpdateClip2::fn(e : *entity, dt : f32)
 		{
 			mat := get_material_ptr(&e.material_idx)
 			idx := GetShaderUniform(mat, "bones")
-			inst := mat.instances[cast(u64)e.in_material_instance]
+			inst := ctx.instances[cast(u64)e.in_material_instance]
 			e.matrices_ptr = inst.uniforms[idx].data
 		}
 		mod := get_model_ptr(&e.model)

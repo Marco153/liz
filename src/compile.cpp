@@ -9432,6 +9432,18 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 
 		u64* eflags = GetRegValPtr(thread_id, dbg, EFLAGS_REG);
 		*eflags = 0;
+    /*
+    if((s64)dst == 0x3e4e2dbce38da077)
+    {
+      stmnt_dbg* cur_st;
+      func_decl *cur_func = GetFuncBasedOnBc2(dbg, bc);
+      if (cur_func)
+      {
+        cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
+      }
+      HERE()
+    }
+    */
 
 		DoCmpInst(dst, imm, eflags, sz);
 		//bool sgnd =

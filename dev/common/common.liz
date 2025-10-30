@@ -63,6 +63,49 @@ LinearGet::fn{T}(alloc : *linear_alloc(T), count : u32) ! *T
 	alloc.cur += count;
 	return ret
 }
+area_col_info :struct
+{
+  name : str_lit
+	area_col_pos : _vec
+	area_col_size : _vec
+  chunk_width :f32
+
+	col_chunks : dyn_array(collision_chunk)
+}
+scene_info:struct
+{
+  in_use : bool
+  loading : bool
+  name : str_lit
+  alloc_idx : asset_index
+  alloc : *mem_alloc
+
+  tkns : dyn_array(token)
+
+  scenes_to_be_loaded : dyn_array(str_lit)
+
+  ents : dyn_array(*entity)
+  areas_col :dyn_array(area_col_info)
+	aux_col_chunks : dyn_array(*collision_chunk)
+  col_chunks : *area_col_info
+	drawable_ents : dyn_array(*entity),
+	ents_with_clip : dyn_array(*entity),
+	look_at_ents : dyn_array(*entity),
+	bodies : dyn_array(*entity),
+	playable_ents : dyn_array(*entity),
+	emmitters : dyn_array(*entity),
+	transparent_ents : dyn_array(*entity),
+	items_ents : dyn_array(*entity),
+	terrain_chunks_to_col : dyn_array(*chunk_col_info)
+	to_deactivate: dyn_array(*entity),
+
+	waypoints:dyn_array(waypoint)
+	instances : dyn_array(material_instance)
+
+  draw_col : bool
+
+  color : _vec
+}
 loading_stage:enum
 {
   NONE,
@@ -1664,7 +1707,7 @@ VecAssignmentToAst::fn(name : str_lit, rhs : *_vec)!*ast_rep
 	v := VecToAst(rhs)
 	return AssignmentToAst(name, v)
 }
-SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
+SerializeEnt::fn(ctx : *scene_info, ent : *entity, idx : u64) ! *ast_rep
 {
 	al := globals.alloc
 	ret := new_ast2()
@@ -1738,7 +1781,7 @@ SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
 		dyn_add(&scp.SCOPE.stmnts, aux_ast)
 
 		m := get_material_ptr(&ent.material_idx)
-		inst := m.instances[cast(u64)ent.in_material_instance]
+		inst := ctx.instances[cast(u64)ent.in_material_instance]
 		prev_sz := globals.temp_alloc.cur
 		for i in 0..m.uniforms.count
 		{
@@ -2013,12 +2056,12 @@ material_info :struct
 	shader_id : u32
 	uniforms : dyn_array(decl)
 	cull_type : u8
-	instances : dyn_array(material_instance)
+	_instances : dyn_array(material_instance)
 	
 }
-set_uniform_v4::fn(mat: *material_info, ent : *entity, u_name : str_lit, v : *_vec)
+set_uniform_v4::fn(ctx : *scene_info, mat: *material_info, ent : *entity, u_name : str_lit, v : *_vec)
 {
-	inst :*material_instance= mat.instances[cast(u64)ent.in_material_instance]
+	inst :*material_instance= ctx.instances[cast(u64)ent.in_material_instance]
 	idx :u64
 	for u in mat.uniforms
 	{
@@ -2699,7 +2742,6 @@ read_entire_file::fn(file_name : str_lit, fl_sz_out : *s64)!*u8
   }
   return file_data
 }
-
 FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : u64)!f32
 {
     score := 0.0;
@@ -2752,3 +2794,13 @@ FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : 
 
     return score;
 }
+/*
+//USE_LOG:const s32=1
+log::fn(name : str_lit, msg:str_lit, line :str_lit= __SRC_LINE__)
+{
+//#if USE_LOG == 1
+//{
+  //printf("{name}: {msg}\n")
+//}
+}
+*/

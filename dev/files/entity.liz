@@ -108,7 +108,7 @@ DeleteEnt::fn(ctx : *scene_info, ent : *entity, for_changing_scenes : bool=false
       ent_part_of.INSTANTIATED
       {
           val = RemoveEntFromAr(&ctx.ents, ent)
-          //ASSERT(val)
+          ASSERT(val)
           a=0 
       }
       default
@@ -120,7 +120,7 @@ DeleteEnt::fn(ctx : *scene_info, ent : *entity, for_changing_scenes : bool=false
   if is_flag_on(ent.flags, ENTITY_CUSTOM_SHADER) && !for_changing_scenes
   {
     m := get_material_ptr(&ent.material_idx)
-    inst := m.instances[cast(u64)ent.in_material_instance]
+    inst := ctx.instances[cast(u64)ent.in_material_instance]
 
     for un_val in inst.uniforms
     {
@@ -330,11 +330,12 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
 }
 custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
 {				
+  //printf("here 1\n")
 	draw.flags = draw.flags | DRAW_INFO_CUSTOM_SHADER
 	draw.flags = draw.flags & ~DRAW_INFO_HAS_TEXTURE
 	
 	m := get_material_ptr(&ent.material_idx)
-	inst := m.instances[cast(u64)ent.in_material_instance]
+	inst := ctx.instances[cast(u64)ent.in_material_instance]
 
 	//printf("custom shader. shader id {m.shader_id}\n")
 
@@ -342,15 +343,19 @@ custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
 	{
 		SetCulling(m.cull_type)
 	}
+  //printf("here 2\n")
 
 	draw.shader_id = m.shader_id
 	SetShader(draw.shader_id)
 
 	//a :lang_type_type
 	i := 0
+  //printf("shader u {i}\n")
 	for u in inst.uniforms
 	{
+    //globals.temp_alloc. = 0
 		//a.type = cast(lang_type_type)u.type
+    //printf("shader u {i}, u {cast(u64) u}\n")
 
 
 		if u.is_array
@@ -359,6 +364,7 @@ custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
 			{
 			lang_type_type.MAT4
 			{
+        printf("shader u {i}\n")
 				SetUniformMatrices4x4(u.uniform_id, u.array_sz, u.data)
 			}
 			default
@@ -416,6 +422,7 @@ custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
 		i++
 	}
 
+  //printf("done\n")
 	
 }
 DrawEntity::fn(ctx : *scene_info, ent : *entity, drw_set : *draw_settings)

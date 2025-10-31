@@ -4,6 +4,7 @@
 #include "machine_rel.h"
 #include "token.h"
 #include <algorithm>
+#include <cstdio>
 #include <time.h>
 #ifdef LINUX
 #else
@@ -4950,14 +4951,21 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
       lang_stat->flags &= ~PSR_FLAGS_ON_FUNC_CALL;
     }
   };
+  /*
+  if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS)) {
+    // ReportUndeclaredIdentifier(lang_stat, ncall->t);
+    BREAK(ncall->t->line == 4130)
+  }
+  */
 
   //	if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
   //		int last_ar_lit_sz = scp->fdecl->array_literal_sz;
 
   if (!decl_func) {
     if (ncall->l->type == N_FUNC_DECL) {
-      if (!DescendNameFinding(lang_stat, ncall->l, scp))
+      if (!DescendNameFinding(lang_stat, ncall->l, scp)) {
         return false;
+      }
       ModifyFuncDeclToName(lang_stat, ncall->l->fdecl, ncall->l, scp);
     } else if (ncall->l->type == N_CAST) {
       NameFindingGetType(lang_stat, ncall->l, scp, aux_decl.type);
@@ -4977,13 +4985,13 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
           IS_FLAG_ON(lhs->flags, DECL_NOT_DONE) && !is_self_ref) {
         if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS)) {
           /*
-                                        REPORT_ERROR(ncall->t->line,
-             ncall->t->line_offset, VAR_ARGS("for some reason func '%s' was not
-             done. \n it seems like that function reached up until this line
-             %d", ncall->l->t->str.c_str(),
-             lhs->type.fdecl->reached_nd->t->line)
-                                                );
-            */
+          REPORT_ERROR(
+              ncall->t->line, ncall->t->line_offset,
+              VAR_ARGS("for some reason func '%s' was not done. \n it seems "
+                       "like that function reached up until this line %d ",
+                       ncall->l->t->str.c_str(),
+                       lhs->type.fdecl->reached_nd->t->line));
+                       */
           return false;
         } else
           return false;
@@ -4993,12 +5001,10 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
       lhs = DescendNameFinding(lang_stat, ncall->l, scp);
     if (!lhs) {
       if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS)) {
-        /*
         REPORT_ERROR(ncall->t->line, ncall->t->line_offset,
-                VAR_ARGS("func not found %s", ncall->l->t->str.c_str())
-                )
-        //ExitProcess(1);
-        */
+                     VAR_ARGS("func not found %s\n", ncall->l->t->str.c_str()))
+        // fflush(stdout);
+        //  tProcess(1);
         return false;
       } else
         return false;
@@ -7201,8 +7207,16 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
         if (!NameFindingOnExprEtruct(lang_stat, ret_type.strct, cur_cond->cond,
                                      scp, false))
           return nullptr;
-        if (!DescendNameFinding(lang_stat, cur_cond->scp, scp))
+
+        if (!DescendNameFinding(lang_stat, cur_cond->scp, scp)) {
+          if (IS_FLAG_ON(lang_stat->flags,
+                         PSR_FLAGS_REPORT_UNDECLARED_IDENTS)) {
+            // BREAK(cur_cond->cond->t->line == 400)
+            // DescendNameFinding(lang_stat,
+            // lang_stat->cur_file->arrived_at_node, scp);
+          }
           return nullptr;
+        }
       }
 
       n->flags |= NODE_FLAGS_IS_PROCESSED;
@@ -9813,8 +9827,8 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
     case enum_type2::TYPE_BOOL_TYPE:
       break;
     case enum_type2::TYPE_STRUCT_TYPE:
-      // can only convert to struct type, if the struct type is ptr and the rhs
-      // is 8 bytes
+      // can only convert to struct type, if the struct type is ptr and the
+      // rhs is 8 bytes
 
       if (IS_FLAG_ON(lhs_type.strct->flags, TP_STRCT_ETRUCT)) {
         if (rhs_type.type == TYPE_INT) {
@@ -9924,7 +9938,8 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
 
         maybe_lhs_or_modified_nd = n;
       }
-      // index already returns a pointer so we removing the "taking address of"
+      // index already returns a pointer so we removing the "taking address
+      // of"
       else if (CMP_NTYPE(n->r, N_INDEX)) {
         memcpy(n, n->r, sizeof(node));
         maybe_lhs_or_modified_nd = n;
@@ -10079,8 +10094,8 @@ if (!is_correct_ovrld)
     ret_type = ltp.fdecl->ret_type;
 
     func_decl *fdecl = ltp.fdecl;
-    // cant call regular functions inside comp ones, unless it has code, in that
-    // case it should be from base.lng file
+    // cant call regular functions inside comp ones, unless it has code, in
+    // that case it should be from base.lng file
     if (scp->fdecl && IS_FLAG_ON(scp->fdecl->flags, FUNC_DECL_COMP) &&
         IS_FLAG_OFF(fdecl->flags, FUNC_DECL_INTERNAL) &&
         fdecl->code != nullptr) {
@@ -10110,8 +10125,8 @@ if (!is_correct_ovrld)
         ASSERT(0);
     } else if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_INTRINSIC)) {
       // if (IS_FLAG_OFF(lang_stat->cur_func->flags, FUNC_DECL_X64))
-      // ReportMessage(lang_stat, n->t, "intrinsic functions can only be called
-      // from a x64 function");
+      // ReportMessage(lang_stat, n->t, "intrinsic functions can only be
+      // called from a x64 function");
     }
 
     switch (ltp.type) {
@@ -10939,7 +10954,8 @@ if (!is_correct_ovrld)
               else if (tp == enum_type2::TYPE_INT)
               {
                       ret_type.i = GetExpressionValT<int>(n->t->type,
-      n->l->t->i, n->r->t->i); n->type = node_type::N_INT; n->t->i = ret_type.i;
+      n->l->t->i, n->r->t->i); n->type = node_type::N_INT; n->t->i =
+      ret_type.i;
               }
               free(n->l);
               free(n->r);
@@ -11007,9 +11023,9 @@ if (!is_correct_ovrld)
 
           // ASSERT(op_func)
 
-          // if the struct doesnt have an equal operator overload, we'll just do
-          // a memcpy later and if rhs and lhs are different structs
-          // so we dont want to enter this cond rtp and ltp are the same type
+          // if the struct doesnt have an equal operator overload, we'll just
+          // do a memcpy later and if rhs and lhs are different structs so we
+          // dont want to enter this cond rtp and ltp are the same type
           /*
           if (!is_same_strct && !op_func)
           {
@@ -11144,8 +11160,8 @@ if (!is_correct_ovrld)
       // if type was non ommited
       type2 rtp;
       if (n->r) {
-        // for the moment, we dont want plugin functions to modify the type of a
-        // declaration
+        // for the moment, we dont want plugin functions to modify the type of
+        // a declaration
         auto before_flags = lang_stat->flags;
         lang_stat->flags &= ~PSR_FLAGS_HAS_PLUGINS;
 

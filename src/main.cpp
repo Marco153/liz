@@ -17,6 +17,10 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+struct memory_watch {
+  int address;
+  int prev_val;
+};
 
 int min(int a, int b) { return a < b ? a : b; }
 int max(int a, int b) { return a > b ? a : b; }
@@ -7512,6 +7516,16 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
 
   // Vertex Shader
 }
+void AddMemoryWatch(int thread_id, dbg_state *dbg) {
+  int base = *(int *)GetRegValPtr(0, dbg, STACK_PTR_REG);
+  int address = *(int *)&dbg->mem_buffer[base + 8];
+
+  int val = *(int *)&dbg->mem_buffer[address];
+  memory_watch m;
+  m.address = address;
+  m.prev_val = val;
+  dbg->mem_watches.emplace_back(m);
+}
 /*
 void DebuggerCommand(dbg_state* dbg)
 {
@@ -8479,6 +8493,8 @@ int main(int argc, char *argv[]) {
   AssignOutsiderFunc(&lang_stat, "euler_to_quaternion2",
                      (OutsiderFuncType)euler_to_quaternion2);
   AssignOutsiderFunc(&lang_stat, "quat_mul2", (OutsiderFuncType)quat_mul2);
+  AssignOutsiderFunc(&lang_stat, "AddMemoryWatch",
+                     (OutsiderFuncType)AddMemoryWatch);
   AssignOutsiderFunc(&lang_stat, "PrintCallStack",
                      (OutsiderFuncType)PrintCallStack);
   lang_stat.cur_decl = 0;

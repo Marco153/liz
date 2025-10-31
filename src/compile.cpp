@@ -2946,6 +2946,7 @@ struct dbg_state
 	own_std::vector<wasm_stack_val> wasm_stack;
 	own_std::vector<dbg_expr *> exprs;
 	own_std::vector<dbg_expr2 *> exprs2;
+	own_std::vector<memory_watch> mem_watches;
 	own_std::string scene_folder;
 	long long same_func_stack_ptr;
 	//own_std::vector<command_info> cmds;
@@ -10158,6 +10159,25 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		
 		bool inc_ptr = true;
 		bool valid = true;
+    auto i =0;
+    FOR_VEC(m, dbg->mem_watches)
+    {
+      int cur = *(int *)&dbg->mem_buffer[m->address];
+      //printf("watch cur %d, prev %d\n", cur, m->prev_val);
+      if(cur != m->prev_val)
+      {
+        breakpoint bp;
+        bp.line = 0;
+        bp.prev_inst = cur_bc->bc_type;
+        bp.bc = cur_bc;
+        bp.one_time_bp = true;
+        dbg->breakpoints.emplace_back(bp);
+        dbg->mem_watches.remove(i);
+        cur_bc->bc_type = INT3;
+        //HERE()
+      }
+      i++;
+    }
 		//printf("%p\n", *rip_ptr);
 		if(dbg->thread == nullptr)
 		{
@@ -10402,6 +10422,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			{
 				auto a = 0;
 			}
+      //HERE()
 
 			FOR_VEC(b, dbg->breakpoints)
 			{
@@ -18004,7 +18025,7 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 
 			int a = 0;
 			iterations++;
-			if (iterations >= 250)
+			if (iterations >= 1050)
 			{
         printf("descend name finding iterations were now enough\n");
         HERE()

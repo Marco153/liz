@@ -26,6 +26,48 @@ temporarily_not_serialize_info:struct
 	str : string
 	ent : *entity
 }
+area_col_info :struct
+{
+  name : str_lit
+	area_col_pos : _vec
+	area_col_size : _vec
+  chunk_width :f32
+
+	col_chunks : dyn_array(collision_chunk)
+}
+scene_info:struct
+{
+  in_use : bool
+  loading : bool
+  name : str_lit
+  alloc_idx : asset_index
+  alloc : *mem_alloc
+
+  tkns : dyn_array(token)
+
+  scenes_to_be_loaded : dyn_array(str_lit)
+
+  ents : dyn_array(*entity)
+  areas_col :dyn_array(area_col_info)
+	aux_col_chunks : dyn_array(*collision_chunk)
+  col_chunks : *area_col_info
+	drawable_ents : dyn_array(*entity),
+	ents_with_clip : dyn_array(*entity),
+	look_at_ents : dyn_array(*entity),
+	bodies : dyn_array(*entity),
+	playable_ents : dyn_array(*entity),
+	emmitters : dyn_array(*entity),
+	transparent_ents : dyn_array(*entity),
+	items_ents : dyn_array(*entity),
+	terrain_chunks_to_col : dyn_array(*chunk_col_info)
+	to_deactivate: dyn_array(*entity),
+
+	waypoints:dyn_array(waypoint)
+
+  draw_col : bool
+
+  color : _vec
+}
 draw_settings:struct
 {
   window : *u8
@@ -57,7 +99,7 @@ engine_event_info:etruct
   ),
   ENT_CLICKED(
     ent : *entity
-  ),
+  )
 }
 engine_event:struct
 {
@@ -65,6 +107,8 @@ engine_event:struct
 }
 context: struct
 {
+  scenes : [5]scene_info
+
     col_chunks : *area_col_info
 	//scenes : *scene_info,
 	//scene_cur : u32,
@@ -92,7 +136,6 @@ context: struct
 
 
 
-  scenes : [5]scene_info
 
   cur_scn : *scene_info
   changing_scn : *scene_info
@@ -489,7 +532,8 @@ process_engine_events::fn(ctx : *context)
         {
           if e.CHANGE_SCENE.change_to_this_scene
           {
-            delete_ent_from_scene_add_to_another(ctx.cur_scn, s, ctx.player)
+            //if ctx.cur_scn != s
+            //delete_ent_from_scene_add_to_another(ctx.cur_scn, s, ctx.player)
           }
           e.CHANGE_SCENE.cor.regs.rip = 0
           e.CHANGE_SCENE.stage = 99
@@ -498,13 +542,12 @@ process_engine_events::fn(ctx : *context)
       }
       if e.CHANGE_SCENE.stage == 99
       {
-
         printf("scene {name} loaded\n")
+
         if e.CHANGE_SCENE.change_to_this_scene
         {
           ctx.cur_scn = e.CHANGE_SCENE.s
         }
-
 
         heap_free(globals.perm_alloc, name)
 
@@ -519,7 +562,12 @@ process_engine_events::fn(ctx : *context)
         dyn_rem(&ctx.eng_events, cast(u32)i)
         cur_loading_scene_name = nil
         i--
+
       }
+      /*
+      if str_cmp(s.name, "hy") __dbg_break
+        a:=0
+        */
     }
     engine_event_info.ENT_CLICKED
     {
@@ -4127,7 +4175,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
       }
     }
   }
-  log("OPEN_SCENE", "settings loaded")
   if ctx.areas_col.count > 0
     ctx.col_chunks = ctx.areas_col[0]
 
@@ -4142,8 +4189,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
     ch := ptr_offset(file, i, char)
     if *file[i] == '{
     {
-      //printf("OPEN_SCENE: on {instantiated_ents} instantiated ents\n")
-      log("OPEN_SCENE", "on {instantiated_ents} instantiated ents")
       //__dbg_break
       ent_str_end := find_closing_curly(file, i)
       dyn_clear(&ctx.tkns)
@@ -4326,6 +4371,7 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
                 if !found
                     continue;
 
+
                 target_decl_u := mat.uniforms[i2]
                 target_u := inst.uniforms[i2]
                 aux_type_data : type_data
@@ -4337,7 +4383,7 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
                   aux_type_data.tp = type_enum.TYPE_U32
                   cid = cid_from_ast( *cur_ast.BIN.expr[1])
                   memcpy(buffer[0], cid.name, 12)
-                  found = find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex)
+                  found = find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex, ASSETS_TEXTURES_OFFSET)
                   ASSERT(found)
 
                 }
@@ -4352,13 +4398,17 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
                     __dbg_break
                 }
                 }
-
                 a:=0
               }
-
-              printf("\tOPEN_SCENE: material loaded\n")
-
               return
+              a := 0
+              /*
+              if str_cmp(ent.name, "hy.fbx")
+              {
+                __dbg_break
+                AddMemoryWatch(&mat.instances[0].uniforms.count)
+              }
+              */
             }
             else if *name == "en_info"
             {
@@ -4368,9 +4418,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
             }
             else if *name == "cols"
             {
-                log("\tOPEN_SCENE", "loading cols")
-                model_verts_count:u32
-                model_tris_count:u32
                 if  ent.cols.count == 0
                 {
 
@@ -4426,39 +4473,20 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
                         }
                         if col.type == col_type.MESH
                         {
+                            model_verts_count:u32
+                            model_tris_count:u32
                             m := get_model_ptr(cast(*asset_index)&col.MESH.info.model_idx)
 
-
                             GetInfoFromModel(m.model, &model_verts_count, &model_tris_count)
-
-                            log("\tOPEN_SCENE", "col is mesh, got info from model verts {model_verts_count}. will create mesh collider")
-
                             create_mesh_collider(ctx, col, model_tris_count, model_verts_count)
-                            log("\tOPEN_SCENE", "done")
                             //__dbg_break
                             return
-
-                            //if model_verts_count == 2121 __dbg_break
-
-                            log("\tOPEN_SCENE", "will assign mesh to chunks")
                             assign_mesh_to_chunks(ctx, ent)
-                            log("\tOPEN_SCENE", "done")
-
-
                         }
                     }
-                    //if model_verts_count == 2121 __dbg_break
-
                     return
-
-                    //if model_verts_count == 2121 __dbg_break
                 }
-
-                log("\tOPEN_SCENE", "will add body to chunks")
                 add_body_to_chunks(ctx, ent)
-                log("\tOPEN_SCENE", "done")
-
-                printf("\tOPEN_SCENE: collision loaded\n")
                 return
             }
             else
@@ -4539,7 +4567,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
               }
           }
         }
-        log("OPEN_SCENE", "ent '{ent.name}' loaded")
         if ent.type == ent_type.BRIDGE
         {
             ent.forward = ent.rot
@@ -4566,7 +4593,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
 
       i++
 	}
-  log("OPEN_SCENE", "scene loaded")
 
 
   return
@@ -4584,17 +4610,6 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
 
   globals.alloc = prev_alloc
   out_cor.regs.rip = 0
-
-  i = 0 
-  while cast(u64)i < ctx.bodies.count
-  {
-    if ctx.bodies[cast(u64)i] == nil
-    {
-
-      dyn_rem(&ctx.bodies, cast(u32)i)
-    }
-    i++
-  }
 
 }
 _DeserializeAllEnt::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *context, stage : *loading_stage, file : str_lit, fl_sz : s64, out_cor : **coroutine_func_saved)
@@ -4784,7 +4799,7 @@ SaveScene::fn(ctx : *scene_info, file_name : str_lit, per_scene_alloc : *mem_all
       memset(&aux, 0, sizeof(string))
 			cur_al:=globals.alloc
 
-			ast := SerializeEnt(ctx, ent, cast(u64)i)
+			ast := SerializeEnt(ent, cast(u64)i)
 			
 			ast_to_string(ast, &aux)
 
@@ -5643,7 +5658,8 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
       if !s.in_use continue
 
       ImGuiPushID(cast(u32)i)
-      if ImGuiSelectable("{s.name}", false, 20.0, 30.0)
+      selected := ctx.cur_scn == s
+      if ImGuiSelectable("{s.name}", selected, 20.0, 30.0)
       {
         add_change_scene_event(ctx, s.name, true, true)
         //ctx.cur_scn = s
@@ -5702,7 +5718,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 					}
 					idx++
 				}
-				//ctx.matrices_inst = cast(*f32)mat.instances[0].uniforms[idx].data
+				ctx.matrices_inst = cast(*f32)mat.instances[0].uniforms[idx].data
 			}
 		}
 		set_bones_anim = true
@@ -6348,7 +6364,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 				{
 					ASSERT(found == false)
 					t:temporarily_not_serialize_info
-					ast := SerializeEnt(ctx.cur_scn, *out_ent, cast(u64)idx)
+					ast := SerializeEnt(*out_ent, cast(u64)idx)
 					
 					ast_to_string(ast, &t.str)
 
@@ -6391,7 +6407,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 			if out_ent.material_idx.asset_idx != 0
 			{
 				m := get_material_ptr(&out_ent.material_idx)
-				inst := ctx.cur_scn.instances[cast(u64)out_ent.in_material_instance]
+				inst := m.instances[cast(u64)out_ent.in_material_instance]
 
 				show_material_instance_uniforms(ctx, m, inst)
 				// materials uniforms
@@ -6473,7 +6489,7 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 	if _compile_shader
 	{
 		m := get_material_ptr(&out_ent.material_idx)
-		inst := ctx.cur_scn.instances[cast(u64)out_ent.in_material_instance]
+		inst := m.instances[cast(u64)out_ent.in_material_instance]
 		mat := compile_shader(ctx, m.name, m)
 		new_material_instance(ctx.cur_scn, &out_ent.material_idx, *out_ent)
 		// materials uniforms
@@ -7116,6 +7132,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 
 		mat = get_material_ptr(&empty_a)
 		mat.name = new_str_lit(ctx.alloc, file_name_original)
+    dyn_init2(&mat.instances, 4, globals.perm_alloc)
 	}
 	else
 	{
@@ -7241,16 +7258,13 @@ imgui_show_window_grid::fn(ctx : *context, out_ent : *entity, info : *imgui_wind
 }
 new_material_instance::fn(ctx : *scene_info, mat_id : *asset_index, ent : *entity) ! u32
 {
-  prev_alloc := globals.alloc
-  globals.alloc = ctx.alloc
-
 	m := get_material_ptr(mat_id)
 	inst :*material_instance
 	inst_id :u32
 	ent.flags = ent.flags | ENTITY_CUSTOM_SHADER
-	for mi in ctx.instances
+	for mi in m.instances
 	{
-		if mi.ent == ent
+		if mi.ent == ent || mi.ent == nil
 		{
 			inst = mi
 			break;
@@ -7261,7 +7275,7 @@ new_material_instance::fn(ctx : *scene_info, mat_id : *asset_index, ent : *entit
 	{
         i :u64
         found_empty := false
-        for i2 in ctx.instances
+        for i2 in m.instances
         {
           if i2.ent == nil
           {
@@ -7273,24 +7287,26 @@ new_material_instance::fn(ctx : *scene_info, mat_id : *asset_index, ent : *entit
 
         if found_empty
         {
-          inst = ctx.instances[i]
+          inst = m.instances[i]
           inst_id = cast(u32)i
         }
         else
         {
           new_i:material_instance
+          dyn_init2(&new_i.uniforms, 4, globals.perm_alloc)
 
-          inst_id = cast(u32)ctx.instances.count
+          inst_id = cast(u32)m.instances.count
 
-          dyn_add(&ctx.instances, &new_i)
-          inst = dyn_last(&ctx.instances)
+          dyn_add(&m.instances, &new_i)
+          inst = dyn_last(&m.instances)
         }
 	}
 	else
 	{
 		dyn_clear(&inst.uniforms)
 	}
-    inst.ent = ent
+  inst.ent = ent
+
 
 	for u in m.uniforms
 	{
@@ -7317,7 +7333,7 @@ new_material_instance::fn(ctx : *scene_info, mat_id : *asset_index, ent : *entit
 			un_val.is_array = true
 			un_val.type = cast(u32)u.tp.STATIC_ARRAY.type.type
 			un_val.array_sz = u.tp.STATIC_ARRAY.sz
-			un_val.data = heap_alloc(ctx.alloc, sz)
+			un_val.data = heap_alloc(globals.perm_alloc, sz)
 
 			if un_val.type == cast(u32)lang_type_type.MAT4
 			{
@@ -7332,8 +7348,6 @@ new_material_instance::fn(ctx : *scene_info, mat_id : *asset_index, ent : *entit
 		dyn_add(&inst.uniforms, &un_val)
 	}
 
-  globals.alloc = prev_alloc
-
 
 	return inst_id
 }
@@ -7347,12 +7361,12 @@ find_shader::fn(ctx : *scene_info, name : str_lit) ! asset_index
 	ASSERT(0)
 	return ret
 }
-set_shader_uniform4f::fn(ctx : *scene_info, ent : *entity, name : str_lit, x : f32, y : f32, z : f32, w : f32)
+set_shader_uniform4f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32, y : f32, z : f32, w : f32)
 {
 	ASSERT(ent.material_idx.asset_idx >= 0)
 	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
-	inst := ctx.instances[cast(u64)ent.in_material_instance]
+	inst := m.instances[cast(u64)ent.in_material_instance]
 
 	target_u := inst.uniforms[u_idx]
 
@@ -7361,12 +7375,12 @@ set_shader_uniform4f::fn(ctx : *scene_info, ent : *entity, name : str_lit, x : f
 	target_u.v.z = z
 	target_u.v.w = w
 }
-set_shader_uniform3f::fn(ctx : *scene_info, ent : *entity, name : str_lit, x : f32, y : f32, z : f32)
+set_shader_uniform3f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32, y : f32, z : f32)
 {
 	ASSERT(ent.material_idx.asset_idx >= 0)
 	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
-	inst := ctx.instances[cast(u64)ent.in_material_instance]
+	inst := m.instances[cast(u64)ent.in_material_instance]
 
 	target_u := inst.uniforms[u_idx]
 
@@ -7379,29 +7393,29 @@ set_shader_uniform_sampler2d::fn(ctx : *scene_info, ent : *entity, name : str_li
 	ASSERT(ent.material_idx.asset_idx >= 0)
 	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
-	inst := ctx.instances[cast(u64)ent.in_material_instance]
+	inst := m.instances[cast(u64)ent.in_material_instance]
 
 	target_u := inst.uniforms[u_idx]
 
 	target_u.tex = *tex
 }
-set_shader_uniform1f::fn(ctx : *scene_info, ent : *entity, name : str_lit, x : f32)
+set_shader_uniform1f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32)
 {
 	ASSERT(ent.material_idx.asset_idx >= 0)
 	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
-	inst := ctx.instances[cast(u64)ent.in_material_instance]
+	inst := m.instances[cast(u64)ent.in_material_instance]
 
 	target_u := inst.uniforms[u_idx]
 
 	target_u.v.x = x
 }
-set_shader_uniform2f::fn(ctx : *scene_info, ent : *entity, name : str_lit, x : f32, y : f32)
+set_shader_uniform2f::fn(ctx : *context, ent : *entity, name : str_lit, x : f32, y : f32)
 {
 	ASSERT(ent.material_idx.asset_idx >= 0)
 	m := get_material_ptr(&ent.material_idx)
 	u_idx := GetShaderUniform(m, name)
-	inst := ctx.instances[cast(u64)ent.in_material_instance]
+	inst := m.instances[cast(u64)ent.in_material_instance]
 
 	target_u := inst.uniforms[u_idx]
 
@@ -7632,7 +7646,7 @@ assign_bodies_to_chunks::fn(ctx : *scene_info)
 	{
 		e := *e_
 
-    if e == nil || e.cols.count == 0 continue
+    if e.cols.count == 0 continue
 
 		c1 := *e.cols[0]
 		if !e.is_active continue;
@@ -8407,6 +8421,7 @@ main_loop::fn(ctx : *context)
     memset(&mem_asset.MEM_ALLOC.alloc, 0, sizeof(mem_alloc))
 
     InitMemAlloc(&mem_asset.MEM_ALLOC.alloc, 458600)
+    mem_asset.MEM_ALLOC.alloc.name = new_str_lit(ctx.alloc, "scene{i}_alloc")
 
     scn.alloc_idx.asset_idx = cast(u32)mem_asset_idx
     scn.alloc = &mem_asset.MEM_ALLOC.alloc
@@ -9174,8 +9189,16 @@ main_loop::fn(ctx : *context)
   in_scenes :dyn_array(*scene_info)
   //player_ent.state = entity_state.ON_WALL_IDLE
   ctx.player = player_ent
+  /*
+  tst_idx :asset_index 
+  find_asset(ctx.cur_scn, "texture.mat", &tst_idx, start=ASSETS_MATERIALS_OFFSET)
+  tex_mat := get_material_ptr(&tst_idx)
+  */
+
 	while !ShouldClose(ctx.window)
 	{
+    //ptr := tex_mat.instances[0].uniforms.count
+    //printf("total uniforms {ptr}\n")
     process_engine_events(ctx)
 		//aux_c := *ctx.test_ent.cols[0]
 /*
@@ -10135,16 +10158,14 @@ main_loop::fn(ctx : *context)
           }
         }
       }
-      aoeuaeou := in_scenes
       for s in in_scenes
       {
-        if s.loading continue
-
         delete_ent_from_scene_add_to_another(ctx.cur_scn, *s, player_ent)
 
         ctx.cur_scn = *s
         div := cast(f32)in_scenes.count
         dt = dt / div
+        printf("div {div}, s {s.name}\n")
         PhysicsUpdate(*s, dt)
 
       }
@@ -10417,6 +10438,7 @@ main_loop::fn(ctx : *context)
     
 
     //test_fun(ctx.scenes[0])
+    /*
     if is_flag_on(player_ent.flags, ENTITY_CHANGE_SCENES)
     {
       c1 := *player_ent.cols[0]
@@ -10446,6 +10468,7 @@ main_loop::fn(ctx : *context)
         }
       }
     }
+    */
 
 		if !ctx.editor_cam
 		{
@@ -10517,8 +10540,7 @@ main_loop::fn(ctx : *context)
 		}
 		*/
 
-        if player_ent.mov_info.asking_for_this_scene && player_ent.mov_info.asking_for_this_scene != ctx.cur_scene_changing &&
-          (stage == loading_stage.NOT_DONE_BUT_CAN_CHANGE_SCENES || stage == loading_stage.NONE)
+        if player_ent.mov_info.asking_for_this_scene && player_ent.mov_info.asking_for_this_scene != ctx.cur_scene_changing 
         {
           ctx.cur_scene_changing = player_ent.mov_info.asking_for_this_scene
           ctx.cur_scene_changing_name = player_ent.mov_info.asking_for_this_scene_name
@@ -10534,51 +10556,25 @@ main_loop::fn(ctx : *context)
           already_loaded := false
           for s in ctx.scenes
           {
-            if str_cmp(s.name, ctx.cur_scene_exiting_from)
-            {
+            if str_cmp(s.name, l_area.in_back_scene_name) == false && str_cmp(s.name, l_area.in_front_scene_name) == false
               s.in_use = false
-            }
-            if s.in_use && str_cmp(s.name, ctx.cur_scene_changing_name)
-            {
-              already_loaded = true
-            }
           }
-          if already_loaded
+
+
+          for s in in_scenes
           {
-            player_ent.mov_info.asking_for_this_scene = nil
-            ctx.cur_scene_changing = nil
+            s.in_use = true
           }
-          else
-          {
-            //ctx.changing_scn = get_not_used_scene(ctx, ctx.cur_scene_changing_name)
-          }
+          player_ent.mov_info.asking_for_this_scene = nil
         }
+        //OpenLocalsWindow(__LINE__)
         if ctx.cur_scene_changing
         {
           //assert(ctx.changing_scn != nil)
-          add_change_scene_event(ctx, ctx.cur_scene_changing_name, false, true)
+          printf("will load\n")
+          add_change_scene_event(ctx, ctx.cur_scene_changing_name, false, false)
           ctx.cur_scene_changing = nil
-
-
-/*
-          OpenScene(&ctx.coroutines, ctx.changing_scn, &stage, ctx.cur_scene_changing, cast(s64)ctx.cur_scene_changing_sz, &cor)
-          if stage == loading_stage.DONE
-          {
-            caux := cor
-            printf("stage {cast(u32)stage}\n")
-            ctx.cur_scene_changing = nil
-            player_ent.mov_info.asking_for_this_scene = nil
-            stage = loading_stage.NONE
-            cor.regs.rip = 0
-
-            l_area := ctx.cur_changing_loading_area
-             
-            //__dbg_break
-
-          }
-          */
-          //printf("not done stage {cast(u32)stage}\n")
-
+          player_ent.mov_info.asking_for_this_scene = nil
         }
 				
 
@@ -10677,7 +10673,6 @@ load_tex::fn(ctx : *scene_info, name:str_lit, x_offset : u32, y_offset:u32, sp_w
 
 	return ret
 }
-/*
 clear_material_instances::fn()
 {
 	idx :u32
@@ -10695,7 +10690,6 @@ clear_material_instances::fn()
 		idx++
 	}
 }
-*/
 find_asset::fn(ctx : *scene_info, name:str_lit, out : *asset_index, start : u64 = 0) ! bool
 {
 	idx :u32
@@ -10732,7 +10726,7 @@ UpdateEntsWithClips::fn(ctx : *scene_info, dt : f32)
 		if !e.is_active
 			continue;
 		//__dbg_break;
-		UpdateClip2(ctx, *e, dt);
+		UpdateClip2(*e, dt);
 		
 	}
 }
@@ -10786,6 +10780,7 @@ main:: fn(){
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	InitMemAlloc(&ctx.ent_name_string_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
+  ctx.main_alloc.name = "main_alloc"
 	ctx.coroutines.alloc = ctx.alloc;
 	window := OpenWindow(900, 900);
 	//ctx.chunk_width = 16.0

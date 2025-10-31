@@ -10165,7 +10165,7 @@ main_loop::fn(ctx : *context)
         ctx.cur_scn = *s
         div := cast(f32)in_scenes.count
         dt = dt / div
-        printf("div {div}, s {s.name}\n")
+        //printf("div {div}, s {s.name}\n")
         PhysicsUpdate(*s, dt)
 
       }

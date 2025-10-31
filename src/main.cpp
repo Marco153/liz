@@ -5351,8 +5351,9 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
     max_x = max(max_x, abs(v->x));
     max_y = max(max_y, abs(v->y));
     max_z = max(max_z, abs(v->z));
+    scene->mMaterials
 
-    vertices[i * stride + 0] = mesh->mVertices[i].x;
+        vertices[i * stride + 0] = mesh->mVertices[i].x;
     vertices[i * stride + 1] = mesh->mVertices[i].y;
     vertices[i * stride + 2] = mesh->mVertices[i].z;
     vertices[i * stride + 3] = mesh->mTextureCoords[0][i].x;

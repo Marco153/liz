@@ -1,0 +1,57 @@
+
+model:uniform mat4 
+view:uniform mat4 
+projection:uniform mat4 
+col:uniform v4 
+cam_pos:uniform v4 
+sun_dir:uniform v3 
+sun_color:uniform v4 
+tex0:uniform sampler2d 
+tex1:uniform sampler2d 
+tex2:uniform sampler2d 
+tex3:uniform sampler2d 
+
+vertex:fn(pos : v3, uv : v2, vcol : v4, in_texs : v4) ! (tex_coord : v2, frag_pos : v3, px_vcol : v4, out_texs : v4)
+{
+    tex_coord = uv
+    aux_pos :v4=  model * v4(pos.xyz, 1.0)
+    frag_pos = v3(aux_pos.xyz)
+    aux_pos = aux_pos + cam_pos
+    px_vcol = vcol
+    out_texs = in_texs
+    POSITION = projection * view * aux_pos
+}
+fragment:fn(tex_coord : v2, frag_pos : v3, px_vcol: v4, out_texs :v4)
+{
+    t0 :v4= texture(tex0, tex_coord)
+    t1 :v4= texture(tex1, tex_coord)
+    t2 :v4= texture(tex2, tex_coord)
+    t3 :v4= texture(tex3, tex_coord)
+
+
+
+    t :v4= t0*out_texs.x + t1*out_texs.y + t2*out_texs.z + t3*out_texs.w
+    t = t * px_vcol
+
+    dx:v3 = dFdx(frag_pos)
+    dy:v3 = dFdy(frag_pos)
+    norm:v3= normalize(cross(dx, dy))
+
+    dir_to_frag_world :v3= frag_pos - -cam_pos.xyz
+    dir_to_frag :v3= normalize(dir_to_frag_world)
+
+    d:f32 = max(dot(sun_dir, norm), 0.2)
+
+
+    reflection_dot :f32= 1 - abs(dot(norm, dir_to_frag))
+    reflection_dot = reflection_dot 
+
+    col1 :v4= vec4(vec3(1.0, 1.0, 1.0) * d, 1.0) * col * t * sun_color
+  
+    fog:f32= length(dir_to_frag_world)
+
+    aux_color :v4= mix(col * t, sun_color, smoothstep(60, 300, fog))
+
+    COLOR =  aux_color
+}
+

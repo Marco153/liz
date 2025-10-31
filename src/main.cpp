@@ -1,4 +1,5 @@
 // #define USE_TEXT_EDITOR
+#include <assimp/material.h>
 #define RAD_TO_DEG 57.29577
 #define DEG_TO_RAD (3.14159265f / 180.0f)
 #define LINUX
@@ -5147,67 +5148,11 @@ void loadIdentity(float *mat) {
   std::fill(mat, mat + 16, 0.0f);
   mat[0] = mat[5] = mat[10] = mat[15] = 1.0f;
 }
-void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
-                   int use_model_idx = -1) {
-  auto gl_state = (open_gl_state *)dbg->data;
-  int free_idx = -1;
-  if (use_model_idx == -1) {
-    int idx = HasModel(dbg, full_path, &free_idx);
-    if (idx != -1) {
-      *(int *)GetRegValPtr(thread_id, dbg, RET_1_REG) = idx;
-      ASSERT(0)
-      return;
-    }
-  } else {
-    free_idx = use_model_idx;
-    model_info *m = &gl_state->models[free_idx];
-    full_path = m->name;
-  }
 
-  const struct aiScene *scene =
-      aiImportFile(full_path.c_str(),
-                   aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
-                       aiProcess_GenNormals | aiProcess_ImproveCacheLocality);
-
-  if (!scene) {
-    printf("Failed to load FBX: %s\n", aiGetErrorString());
-    ASSERT(0)
-    return;
-  }
-
-  const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
-
-  model_info *m = &gl_state->models[free_idx];
-  new (m) model_info();
+void LoadMesh(float *vertices, unsigned int *indices, aiMesh *mesh,
+              model_info *m, int stride, int number_of_bone_ids_per_vertex,
+              aiScene *scene, int ind_offset) {
   std::unordered_map<std::string, int> &bones = m->bones;
-
-  m->name = full_path;
-
-  m->scene = (aiScene *)scene;
-
-  int stride = 5;
-
-  int number_of_bone_ids_per_vertex = 4;
-  if (mesh->HasBones()) {
-    // HERE()
-    //  4 for bones ids, 4 for weights
-    stride += number_of_bone_ids_per_vertex + 4;
-  }
-  if (mesh->HasVertexColors(0)) {
-    // HERE()
-    if (mesh->HasBones()) {
-      printf("at the moment we dont allow a mesh to have bones and vertex "
-             "colors\n");
-      HERE();
-    }
-    stride += 4;
-  }
-
-  m->vertex_stride = stride;
-
-  int size = mesh->mNumVertices * stride * sizeof(float);
-  auto vertices = (float *)AllocMiscData(dbg->lang_stat, size);
-  memset(vertices, 0, size);
 
   if (mesh->HasBones()) {
     int bones_added = 0;
@@ -5342,6 +5287,7 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
   float max_x = 0.0;
   float max_y = 0.0;
   float max_z = 0.0;
+
   for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
     Vec3 *v = (Vec3 *)&mesh->mVertices[i].x;
 
@@ -5351,13 +5297,16 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
     max_x = max(max_x, abs(v->x));
     max_y = max(max_y, abs(v->y));
     max_z = max(max_z, abs(v->z));
-    scene->mMaterials
+    // scene->mMaterials
 
-        vertices[i * stride + 0] = mesh->mVertices[i].x;
+    vertices[i * stride + 0] = mesh->mVertices[i].x;
     vertices[i * stride + 1] = mesh->mVertices[i].y;
     vertices[i * stride + 2] = mesh->mVertices[i].z;
     vertices[i * stride + 3] = mesh->mTextureCoords[0][i].x;
     vertices[i * stride + 4] = mesh->mTextureCoords[0][i].y;
+    if (scene->mNumMeshes > 1) {
+      vertices[i * stride + 9 + mesh->mMaterialIndex] = 1.0;
+    }
   }
 
   m->size.x = max_x * 0.5;
@@ -5365,15 +5314,130 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
   m->size.z = max_z * 0.5;
 
   // Create index array
-  unsigned int index_count = mesh->mNumFaces * 3;
-  auto indices = (unsigned int *)malloc(index_count * sizeof(unsigned int));
   for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
     const struct aiFace *face = &mesh->mFaces[i];
     if (face->mNumIndices != 3)
       continue; // skip non-triangles
-    indices[i * 3 + 0] = face->mIndices[0];
-    indices[i * 3 + 1] = face->mIndices[1];
-    indices[i * 3 + 2] = face->mIndices[2];
+    indices[i * 3 + 0] = face->mIndices[0] + ind_offset;
+    indices[i * 3 + 1] = face->mIndices[1] + ind_offset;
+    indices[i * 3 + 2] = face->mIndices[2] + ind_offset;
+  }
+}
+void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
+                   int use_model_idx = -1) {
+  auto gl_state = (open_gl_state *)dbg->data;
+  int free_idx = -1;
+  if (use_model_idx == -1) {
+    int idx = HasModel(dbg, full_path, &free_idx);
+    if (idx != -1) {
+      *(int *)GetRegValPtr(thread_id, dbg, RET_1_REG) = idx;
+      ASSERT(0)
+      return;
+    }
+  } else {
+    free_idx = use_model_idx;
+    model_info *m = &gl_state->models[free_idx];
+    full_path = m->name;
+  }
+
+  const struct aiScene *scene =
+      aiImportFile(full_path.c_str(),
+                   aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
+                       aiProcess_GenNormals | aiProcess_ImproveCacheLocality);
+
+  if (!scene) {
+    printf("Failed to load FBX: %s\n", aiGetErrorString());
+    ASSERT(0)
+    return;
+  }
+
+  const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
+
+  model_info *m = &gl_state->models[free_idx];
+  new (m) model_info();
+
+  m->name = full_path;
+
+  m->scene = (aiScene *)scene;
+
+  int stride = 5;
+
+  int number_of_bone_ids_per_vertex = 4;
+  bool has_bones = false;
+  bool has_vertex_colors = false;
+
+  if (mesh->HasBones()) {
+    has_bones = true;
+    // HERE()
+    //  4 for bones ids, 4 for weights
+    stride += number_of_bone_ids_per_vertex + 4;
+  }
+  if (mesh->HasVertexColors(0)) {
+    has_vertex_colors = true;
+    // HERE()
+    if (has_bones) {
+      printf("at the moment we dont allow a mesh to have bones and vertex "
+             "colors\n");
+      HERE();
+    }
+    stride += 4;
+  }
+  bool has_more_than_one_mesh = scene->mNumMeshes > 1;
+
+  if (has_more_than_one_mesh) {
+    if (has_bones) {
+      printf("at the moment we dont allow a models that have more than one "
+             "mesh to have bones "
+             "colors\n");
+      HERE();
+    }
+    // HERE()
+    stride += 4;
+  }
+
+  m->vertex_stride = stride;
+
+  int size = 0;
+  unsigned int index_count = 0;
+  for (int i = 0; i < scene->mNumMeshes; i++) {
+    aiMesh *cur_mesh = scene->mMeshes[i];
+    size += cur_mesh->mNumVertices * stride * sizeof(float);
+    index_count += cur_mesh->mNumFaces * 3;
+
+    /*
+    aiMaterial *mat = scene->mMaterials[cur_mesh->mMaterialIndex];
+    for (int type = aiTextureType_NONE; type <= aiTextureType_UNKNOWN; type++) {
+      aiTextureType texType = (aiTextureType)type;
+
+      aiString path;
+      if (mat->GetTexture(texType, 0, &path) == AI_SUCCESS) {
+        own_std::string str;
+        str = path.C_Str();
+        auto file_name = GetFileNameOnly(str);
+            printf("Texture Type %d Path: %s\n", texType, path.C_Str());
+        // PFNGLVERTEXSTREAM4IATIPROC
+      }
+    }
+    */
+  }
+  auto indices = (unsigned int *)AllocMiscData(
+      dbg->lang_stat, index_count * sizeof(unsigned int));
+
+  auto vertices = (float *)AllocMiscData(dbg->lang_stat, size);
+  memset(vertices, 0, size);
+  auto vert_offset = 0;
+  auto ind_offset = 0;
+  if (has_more_than_one_mesh) {
+    // HERE()
+  }
+  for (int i = 0; i < scene->mNumMeshes; i++) {
+    aiMesh *cur_mesh = scene->mMeshes[i];
+    LoadMesh(&vertices[vert_offset], &indices[ind_offset], (aiMesh *)cur_mesh,
+             m, stride, number_of_bone_ids_per_vertex, (aiScene *)scene,
+             vert_offset / stride);
+
+    vert_offset += cur_mesh->mNumVertices * stride;
+    ind_offset += cur_mesh->mNumFaces * 3;
   }
 
   printf("Loaded mesh: %d vertices, %d indices\n", mesh->mNumVertices,
@@ -5387,8 +5451,8 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
   glBindVertexArray(VAO);
 
   glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * stride * sizeof(float),
-               vertices, GL_STATIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, vert_offset * sizeof(float), vertices,
+               GL_STATIC_DRAW);
 
   GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
                                 stride * sizeof(float), (void *)0));
@@ -5397,7 +5461,7 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
                                 stride * sizeof(float),
                                 (void *)(3 * sizeof(float))));
   glEnableVertexAttribArray(1);
-  if (mesh->HasBones()) {
+  if (has_bones) {
     glVertexAttribIPointer(2, 4, GL_INT, stride * sizeof(float),
                            (void *)(5 * sizeof(float)));
     glEnableVertexAttribArray(2);
@@ -5408,10 +5472,16 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
     glEnableVertexAttribArray(3);
   }
 
-  if (mesh->HasVertexColors(0)) {
+  if (has_vertex_colors) {
     glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, stride * sizeof(float),
                           (void *)(5 * sizeof(float)));
     glEnableVertexAttribArray(2);
+  }
+
+  if (has_more_than_one_mesh) {
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride * sizeof(float),
+                          (void *)(9 * sizeof(float)));
+    glEnableVertexAttribArray(3);
   }
 
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
@@ -5423,7 +5493,7 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
   m->ebo = EBO;
   m->indicies = index_count;
 
-  m->model_verts_count = mesh->mNumVertices;
+  m->model_verts_count = vert_offset;
   m->vertices = vertices;
   m->indices_data = (int *)indices;
 
@@ -7791,6 +7861,17 @@ void Sin(int thread_id, dbg_state *dbg) {
 }
 void Stub() {}
 
+own_std::string GetFileNameOnly(own_std::string &path) {
+  int last_bar = path.find_last_of('/');
+
+  if (last_bar == (path.size() - 1)) {
+    return "";
+  }
+  if (last_bar == -1)
+    last_bar = 0;
+
+  return path.substr(last_bar + 1);
+}
 own_std::string GetFolderName(own_std::string path) {
   int last_bar = path.find_last_of('/');
 

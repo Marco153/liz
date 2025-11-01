@@ -1,8 +1,10 @@
 // #define USE_TEXT_EDITOR
+#include "include/vulkan_includes/vulkan/vulkan_core.h"
 #include <assimp/material.h>
 #define RAD_TO_DEG 57.29577
 #define DEG_TO_RAD (3.14159265f / 180.0f)
 #define LINUX
+#define RENDERER_VULKAN
 
 #ifdef LINUX
 #include <assimp/cimport.h>
@@ -18,6 +20,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vulkan/vulkan.h>
 struct memory_watch {
   int address;
   int prev_val;
@@ -592,6 +595,32 @@ struct draw_info3d {
 
   unsigned long long name_offset;
 };
+#ifdef RENDERER_VULKAN
+
+struct SwapchainData {
+  VkSwapchainKHR swapchain;
+  VkFormat imageFormat;
+  VkExtent2D extent;
+  uint32_t imageCount;
+  VkImage *images;
+  VkImageView *imageViews;
+};
+
+struct vulkan_state {
+  VkInstance instance = VK_NULL_HANDLE;
+  VkSurfaceKHR surface = VK_NULL_HANDLE;
+  VkPhysicalDevice physical_device = VK_NULL_HANDLE;
+  VkDevice device = VK_NULL_HANDLE;
+  VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
+  VkQueue grphics_queue = VK_NULL_HANDLE;
+  VkCommandPool cmd_pool = VK_NULL_HANDLE;
+  VkSemaphore render_complete = VK_NULL_HANDLE;
+  VkSemaphore present_complete = VK_NULL_HANDLE;
+
+  SwapchainData swap_chain;
+  own_std::vector<VkCommandBuffer> cmd_buffers;
+};
+#endif
 struct open_gl_state {
   int vao3d;
   int vao3d_line;
@@ -616,6 +645,10 @@ struct open_gl_state {
   int tex_size;
   int tex_offset;
   int pos_u;
+
+#ifdef RENDERER_VULKAN
+  vulkan_state vk_state;
+#endif
 
   u64 audio_frames;
 
@@ -807,8 +840,8 @@ void FillBuffer(sound_state *sound, char *buffer, int total_samples_in_buffer,
             short h_plus_one = h + 1;
 
 
-            float sine_h = harmonic_on ? sinf((last_sin * 2 * PI) * h_plus_one)
-    : 0;
+            float sine_h = harmonic_on ? sinf((last_sin * 2 * PI) *
+    h_plus_one) : 0;
 
             float wave_period_max = (possible_harmonics * wave_period);
             float cur_h_wave_period = (wave_period * h_plus_one);
@@ -1375,9 +1408,8 @@ Vec3 ScreenMouseToWorldActual(float mouseX, float mouseY, float screenWidth,
   float ndcY =
       1.0f - (2.0f * mouseY) / screenHeight; // Invert Y for screen coords
 
-  // printf("mx %.3f my %.3f, sw %.3f, sh %.3f\n", mouseX, mouseY, screenWidth,
-  // screenHeight);
-  // Clip space positions at near and far plane
+  // printf("mx %.3f my %.3f, sw %.3f, sh %.3f\n", mouseX, mouseY,
+  // screenWidth, screenHeight); Clip space positions at near and far plane
   Vec3 nearPoint = invViewProj.multiplyPoint(ndcX, ndcY, -1.0f, 1.0f);
   Vec3 farPoint = invViewProj.multiplyPoint(ndcX, ndcY, 1.0f, 1.0f);
 
@@ -1484,10 +1516,11 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
                     glGetActiveUniform(shaderProgram, (GLuint)i, 64, &len,
     &size, (GLenum *)&type, buffer);
 
-                    printf("Uniform #%d Type: %u Name: %s\n", i, type, buffer);
+                    printf("Uniform #%d Type: %u Name: %s\n", i, type,
+    buffer);
             }
-            printf("\ngl error %d, line %d\n", error, __LINE__); fflush(stdout);
-    ExitProcess(1);
+            printf("\ngl error %d, line %d\n", error, __LINE__);
+    fflush(stdout); ExitProcess(1);
     }
             */
 
@@ -1686,9 +1719,9 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
 
   // printf("sx %.3f, sy %.3f, sz %.3f\n", draw->ent_size_x, draw->ent_size_y,
   // draw->ent_size_z); printf("sx %.3f, sy %.3f, sz %.3f\n", cam_forward_x,
-  // cam_forward_y, cam_forward_z); printf("cx %.3f, cy %.3f, cz %.3f, rx %.3f,
-  // ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x, cam_rot_y,
-  // cam_rot_z);
+  // cam_forward_y, cam_forward_z); printf("cx %.3f, cy %.3f, cz %.3f, rx
+  // %.3f, ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x,
+  // cam_rot_y, cam_rot_z);
   gl_state->view[12] = -0.0;
   gl_state->view[13] = 0.0;
   gl_state->view[14] = 0.0;
@@ -3115,8 +3148,9 @@ int CreateLspProcess(lang_state *lang_stat, open_gl_state *gl_state,
   // Create the child process
   if (!CreateProcess(
           NULL,
-          (LPSTR) "E:/projects/WasmGame/lang2/src/lsp/lsp.exe", // Replace with
-                                                                // your command
+          (LPSTR) "E:/projects/WasmGame/lang2/src/lsp/lsp.exe", // Replace
+                                                                // with your
+                                                                // command
           NULL, NULL,
           TRUE, // Inherit handles
           0, NULL, NULL, &si, &pi)) {
@@ -3454,8 +3488,8 @@ void ImGuiRenderTextEditor(dbg_state *dbg) {
   /*
   if (IsKeyHeld(dbg, _KEY_LCTRL) && IsKeyDown(dbg, _KEY_F))
   {
-          bool CheckMatchLevelsOfChar(char target_ch, int line, int column, int
-  *out_line, int *out_column)
+          bool CheckMatchLevelsOfChar(char target_ch, int line, int column,
+  int *out_line, int *out_column)
   }
   */
   if (IsKeyHeld(dbg, _KEY_SHIFT) && IsKeyDown(dbg, _KEY_SPACE)) {
@@ -3820,8 +3854,8 @@ void EndFrame(int thread_id, dbg_state *dbg) {
   // int display_w, display_h;
   // glfwGetFramebufferSize(window, &display_w, &display_h);
   // glViewport(0, 0, display_w, display_h);
-  // glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w,
-  // clear_color.z * clear_color.w, clear_color.w);
+  // glClearColor(clear_color.x * clear_color.w, clear_color.y *
+  // clear_color.w, clear_color.z * clear_color.w, clear_color.w);
   // glClear(GL_COLOR_BUFFER_BIT);
   ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
   glfwSwapBuffers(wnd);
@@ -4224,8 +4258,8 @@ int GenTexture(lang_state *lang_stat, open_gl_state *gl_state,
   unsigned int texture;
   glGenTextures(1, &texture);
   glBindTexture(GL_TEXTURE_2D, texture);
-  // set the texture wrapping/filtering options (on the currently bound texture
-  // object)
+  // set the texture wrapping/filtering options (on the currently bound
+  // texture object)
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -4541,15 +4575,16 @@ int LoadSpriteSheet(dbg_state *dbg, own_std::string sp_file_name,
       }
       /*
       int px_width = cur_layer->pixels_per_width;
-      char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width * 4);
-      *tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
+      char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width *
+      4); *tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
       *tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
       *tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width *
       *tex_height * 4);
       //int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
       tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8*)*tex_data,
-      cur_layer->grid_x * px_width, cur_layer->grid_y * px_width); texture_info*
-      t = &gl_state->textures[tex_id]; glBindTexture(GL_TEXTURE_2D, t->id);
+      cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
+      texture_info* t = &gl_state->textures[tex_id];
+      glBindTexture(GL_TEXTURE_2D, t->id);
 
       for (int c = 0; c < cur_layer->total_of_used_cells; c++)
       {
@@ -4558,13 +4593,15 @@ int LoadSpriteSheet(dbg_state *dbg, own_std::string sp_file_name,
 
               int x_offset = cur_cell->src_tex_offset_x / px_width;
               int y_offset = cur_cell->src_tex_offset_y / px_width;
-              auto data_ptr = tex_src->data + x_offset * px_width * 4 + y_offset
+              auto data_ptr = tex_src->data + x_offset * px_width * 4 +
+      y_offset
       * tex_src->width * 4 * px_width; CopyFromSrcImgToBuffer((char*)data_ptr,
       aux_buffer, px_width, px_width, tex_src->width);
               //GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0,
-      GL_RGBA, GL_UNSIGNED_BYTE, NULL)); GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D,
-      0, cur_cell->grid_x * px_width, cur_cell->grid_y * px_width, px_width,
-      px_width, GL_RGBA, GL_UNSIGNED_BYTE, aux_buffer)
+      GL_RGBA, GL_UNSIGNED_BYTE, NULL));
+      GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, cur_cell->grid_x * px_width,
+      cur_cell->grid_y * px_width, px_width, px_width, GL_RGBA,
+      GL_UNSIGNED_BYTE, aux_buffer)
               );
 
               cur_cell = (aux_cell_info *)(((char*)cur_cell) +
@@ -5406,8 +5443,8 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
 
     /*
     aiMaterial *mat = scene->mMaterials[cur_mesh->mMaterialIndex];
-    for (int type = aiTextureType_NONE; type <= aiTextureType_UNKNOWN; type++) {
-      aiTextureType texType = (aiTextureType)type;
+    for (int type = aiTextureType_NONE; type <= aiTextureType_UNKNOWN; type++)
+    { aiTextureType texType = (aiTextureType)type;
 
       aiString path;
       if (mat->GetTexture(texType, 0, &path) == AI_SUCCESS) {
@@ -7235,6 +7272,530 @@ static int audio_callback(const void *input, void *output,
 
   return paContinue; // Return `paComplete` to stop
 }
+#ifdef RENDERER_VULKAN
+void createSemaphores(VkDevice device, VkSemaphore *imageAvailable,
+                      VkSemaphore *renderFinished) {
+  VkSemaphoreCreateInfo semaphoreInfo = {
+      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+  };
+
+  if (vkCreateSemaphore(device, &semaphoreInfo, NULL, imageAvailable) !=
+          VK_SUCCESS ||
+      vkCreateSemaphore(device, &semaphoreInfo, NULL, renderFinished) !=
+          VK_SUCCESS) {
+    fprintf(stderr, "Failed to create semaphores!\n");
+    exit(1);
+  }
+}
+// Begins command buffer recording with given usage flags
+void beginCommandBuffer(VkCommandBuffer cmdBuf,
+                        VkCommandBufferUsageFlags usageFlags) {
+  VkCommandBufferBeginInfo beginInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = usageFlags,
+      .pInheritanceInfo = NULL // not needed for primary command buffers
+  };
+
+  VkResult result = vkBeginCommandBuffer(cmdBuf, &beginInfo);
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "Failed to begin recording command buffer! (error %d)\n",
+            result);
+    exit(EXIT_FAILURE);
+  }
+}
+void recordCommadBuffer(VkCommandBuffer cmd, VkImage img) {
+  VkClearColorValue clear_color = {1.0, 0.0, 0.0, 0.0};
+  VkImageSubresourceRange range = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                   .baseMipLevel = 0,
+                                   .levelCount = 1,
+                                   .baseArrayLayer = 0,
+                                   .layerCount = 1};
+
+  beginCommandBuffer(cmd, 0);
+  vkCmdClearColorImage(cmd, img, VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1,
+                       &range);
+  vkEndCommandBuffer(cmd);
+}
+VkCommandPool createCommandPool(VkDevice device, uint32_t queueFamilyIndex) {
+  VkCommandPoolCreateInfo poolInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+      .queueFamilyIndex = queueFamilyIndex,
+      .flags =
+          VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT // allow re-recording
+  };
+
+  VkCommandPool commandPool;
+  VkResult result = vkCreateCommandPool(device, &poolInfo, NULL, &commandPool);
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "Failed to create command pool! (error %d)\n", result);
+    exit(EXIT_FAILURE);
+  }
+
+  printf("Command pool created (family %u).\n", queueFamilyIndex);
+  return commandPool;
+}
+
+// Allocates `count` primary command buffers from a pool
+void allocateCommandBuffers(VkDevice device, VkCommandPool commandPool,
+                            uint32_t count, VkCommandBuffer *buffers) {
+  VkCommandBufferAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .commandPool = commandPool,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandBufferCount = count,
+  };
+
+  VkResult result = vkAllocateCommandBuffers(device, &allocInfo, buffers);
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "Failed to allocate command buffers! (error %d)\n", result);
+    exit(EXIT_FAILURE);
+  }
+
+  printf("%u command buffer(s) allocated.\n", count);
+}
+
+// Helper: choose surface format
+VkSurfaceFormatKHR
+chooseSurfaceFormat(const VkSurfaceFormatKHR *availableFormats,
+                    uint32_t count) {
+  for (uint32_t i = 0; i < count; i++) {
+    if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
+        availableFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+      return availableFormats[i];
+    }
+  }
+  return availableFormats[0];
+}
+
+// Helper: choose present mode
+VkPresentModeKHR choosePresentMode(const VkPresentModeKHR *availableModes,
+                                   uint32_t count) {
+  for (uint32_t i = 0; i < count; i++) {
+    if (availableModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+      return availableModes[i]; // low-latency triple buffering
+    }
+  }
+  return VK_PRESENT_MODE_FIFO_KHR; // always supported
+}
+
+// Helper: choose swap extent (window size)
+VkExtent2D chooseExtent(const VkSurfaceCapabilitiesKHR *caps,
+                        GLFWwindow *window) {
+  if (caps->currentExtent.width != UINT32_MAX)
+    return caps->currentExtent;
+
+  int width, height;
+  glfwGetFramebufferSize(window, &width, &height);
+
+  VkExtent2D actual = {.width = (uint32_t)width, .height = (uint32_t)height};
+
+  if (actual.width < caps->minImageExtent.width)
+    actual.width = caps->minImageExtent.width;
+  if (actual.width > caps->maxImageExtent.width)
+    actual.width = caps->maxImageExtent.width;
+  if (actual.height < caps->minImageExtent.height)
+    actual.height = caps->minImageExtent.height;
+  if (actual.height > caps->maxImageExtent.height)
+    actual.height = caps->maxImageExtent.height;
+
+  return actual;
+}
+
+// Main function to create swapchain
+SwapchainData createSwapchain(VkPhysicalDevice physicalDevice, VkDevice device,
+                              VkSurfaceKHR surface, int graphicsFamily,
+                              int presentFamily, GLFWwindow *window) {
+  SwapchainData sc = {0};
+
+  // Query surface capabilities
+  VkSurfaceCapabilitiesKHR caps;
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &caps);
+
+  uint32_t formatCount;
+  vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount,
+                                       NULL);
+  VkSurfaceFormatKHR *formats =
+      (VkSurfaceFormatKHR *)malloc(sizeof(VkSurfaceFormatKHR) * formatCount);
+  vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount,
+                                       formats);
+
+  uint32_t modeCount;
+  vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &modeCount,
+                                            NULL);
+  VkPresentModeKHR *modes =
+      (VkPresentModeKHR *)malloc(sizeof(VkPresentModeKHR) * modeCount);
+  vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &modeCount,
+                                            modes);
+
+  VkSurfaceFormatKHR surfaceFormat = chooseSurfaceFormat(formats, formatCount);
+  VkPresentModeKHR presentMode = choosePresentMode(modes, modeCount);
+  VkExtent2D extent = chooseExtent(&caps, window);
+
+  free(formats);
+  free(modes);
+
+  uint32_t imageCount = caps.minImageCount + 1;
+  if (caps.maxImageCount > 0 && imageCount > caps.maxImageCount)
+    imageCount = caps.maxImageCount;
+
+  uint32_t queueFamilyIndices[] = {(uint32_t)graphicsFamily,
+                                   (uint32_t)presentFamily};
+  VkSharingMode sharingMode = (graphicsFamily != presentFamily)
+                                  ? VK_SHARING_MODE_CONCURRENT
+                                  : VK_SHARING_MODE_EXCLUSIVE;
+
+  VkSwapchainCreateInfoKHR createInfo = {
+      .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+      .surface = surface,
+      .minImageCount = imageCount,
+      .imageFormat = surfaceFormat.format,
+      .imageColorSpace = surfaceFormat.colorSpace,
+      .imageExtent = extent,
+      .imageArrayLayers = 1,
+      .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+      .imageSharingMode = sharingMode,
+      .queueFamilyIndexCount = (graphicsFamily != presentFamily) ? 2 : 0,
+      .pQueueFamilyIndices =
+          (graphicsFamily != presentFamily) ? queueFamilyIndices : NULL,
+      .preTransform = caps.currentTransform,
+      .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+      .presentMode = presentMode,
+      .clipped = VK_TRUE,
+      .oldSwapchain = VK_NULL_HANDLE,
+  };
+
+  if (vkCreateSwapchainKHR(device, &createInfo, NULL, &sc.swapchain) !=
+      VK_SUCCESS) {
+    fprintf(stderr, "Failed to create swapchain!\n");
+    exit(EXIT_FAILURE);
+  }
+
+  vkGetSwapchainImagesKHR(device, sc.swapchain, &imageCount, NULL);
+  sc.images = (VkImage *)malloc(sizeof(VkImage) * imageCount);
+  vkGetSwapchainImagesKHR(device, sc.swapchain, &imageCount, sc.images);
+  sc.imageCount = imageCount;
+  sc.imageFormat = surfaceFormat.format;
+  sc.extent = extent;
+
+  // Create image views
+  sc.imageViews = (VkImageView *)malloc(sizeof(VkImageView) * imageCount);
+  for (uint32_t i = 0; i < imageCount; i++) {
+    VkImageViewCreateInfo viewInfo = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = sc.images[i],
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = sc.imageFormat,
+        .components = {VK_COMPONENT_SWIZZLE_IDENTITY},
+        .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                             .baseMipLevel = 0,
+                             .levelCount = 1,
+                             .baseArrayLayer = 0,
+                             .layerCount = 1}};
+    if (vkCreateImageView(device, &viewInfo, NULL, &sc.imageViews[i]) !=
+        VK_SUCCESS) {
+      fprintf(stderr, "Failed to create image view!\n");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  printf("Swapchain created with %u images.\n", sc.imageCount);
+  return sc;
+}
+VKAPI_ATTR VkBool32 VKAPI_CALL
+vkDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                VkDebugUtilsMessageTypeFlagsEXT messageType,
+                const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+                void *pUserData) {
+  (void)messageType;
+  (void)pUserData;
+
+  const char *severity =
+      (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+          ? "ERROR"
+      : (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+          ? "WARNING"
+      : (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+          ? "INFO"
+          : "VERBOSE";
+
+  fprintf(stderr, "[%s] %s\n", severity, pCallbackData->pMessage);
+  return VK_FALSE;
+}
+void pickPhysicalDevice(VkInstance instance, VkPhysicalDevice *outDevice) {
+  uint32_t deviceCount = 0;
+  vkEnumeratePhysicalDevices(instance, &deviceCount, NULL);
+
+  if (deviceCount == 0) {
+    fprintf(stderr, "Failed: No GPUs with Vulkan support found.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  VkPhysicalDevice *devices =
+      (VkPhysicalDevice *)malloc(sizeof(VkPhysicalDevice) * deviceCount);
+
+  vkEnumeratePhysicalDevices(instance, &deviceCount, devices);
+
+  printf("Found %u Vulkan-capable device(s):\n", deviceCount);
+
+  for (uint32_t i = 0; i < deviceCount; i++) {
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(devices[i], &props);
+
+    printf("  [%u] %s (API Version %u.%u.%u)\n", i, props.deviceName,
+           VK_API_VERSION_MAJOR(props.apiVersion),
+           VK_API_VERSION_MINOR(props.apiVersion),
+           VK_API_VERSION_PATCH(props.apiVersion));
+
+    if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+      *outDevice = devices[i];
+      printf("Selected discrete GPU: %s\n", props.deviceName);
+      free(devices);
+      return;
+    }
+  }
+
+  // Pick the first device (you can choose more selectively)
+  *outDevice = devices[0];
+
+  free(devices);
+}
+int findGraphicsQueueFamily(VkPhysicalDevice device) {
+  uint32_t queueFamilyCount = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+
+  VkQueueFamilyProperties *queueFamilies = (VkQueueFamilyProperties *)malloc(
+      sizeof(VkQueueFamilyProperties) * queueFamilyCount);
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
+                                           queueFamilies);
+
+  int graphicsFamily = -1;
+
+  for (uint32_t i = 0; i < queueFamilyCount; i++) {
+    if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+      graphicsFamily = i;
+      break;
+    }
+  }
+
+  free(queueFamilies);
+  return graphicsFamily;
+}
+
+VkDevice createLogicalDevice(VkPhysicalDevice physicalDevice,
+                             int graphicsFamily, VkQueue *outQueue) {
+  float queuePriority = 1.0f;
+  VkDeviceQueueCreateInfo queueCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+      .queueFamilyIndex = (uint32_t)graphicsFamily,
+      .queueCount = 1,
+      .pQueuePriorities = &queuePriority,
+  };
+
+  const char *deviceExtensions[] = {
+      VK_KHR_SWAPCHAIN_EXTENSION_NAME, // needed for rendering to screen
+      VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME};
+
+  VkPhysicalDeviceFeatures deviceFeatures = {0};
+
+  VkDeviceCreateInfo createInfo = {
+      .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+      .pQueueCreateInfos = &queueCreateInfo,
+      .queueCreateInfoCount = 1,
+      .pEnabledFeatures = &deviceFeatures,
+      .enabledExtensionCount = 1,
+      .ppEnabledExtensionNames = deviceExtensions,
+  };
+
+  VkDevice device;
+  VkResult result = vkCreateDevice(physicalDevice, &createInfo, NULL, &device);
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "Failed to create logical device (error %d)\n", result);
+    exit(EXIT_FAILURE);
+  }
+
+  // Retrieve queue handle
+  vkGetDeviceQueue(device, (uint32_t)graphicsFamily, 0, outQueue);
+  return device;
+}
+int findPresentQueueFamily(VkPhysicalDevice device, VkSurfaceKHR surface) {
+  uint32_t queueFamilyCount = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+
+  VkQueueFamilyProperties *queueFamilies = (VkQueueFamilyProperties *)malloc(
+      sizeof(VkQueueFamilyProperties) * queueFamilyCount);
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
+                                           queueFamilies);
+
+  int presentFamily = -1;
+
+  for (uint32_t i = 0; i < queueFamilyCount; i++) {
+    VkBool32 presentSupport = VK_FALSE;
+    vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+    if (presentSupport) {
+      presentFamily = (int)i;
+      break;
+    }
+  }
+
+  free(queueFamilies);
+  return presentFamily;
+}
+void InitVulkan(dbg_state *dbg, GLFWwindow *window) {
+  auto gl_state = (open_gl_state *)dbg->data;
+  vulkan_state *vk_state = &gl_state->vk_state;
+  VkAllocationCallbacks *allocator = VK_NULL_HANDLE;
+
+  own_std::vector<const char *> layers;
+  layers.emplace_back("VK_LAYER_KHRONOS_validation");
+
+  own_std::vector<const char *> extensions;
+  extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
+  extensions.emplace_back("VK_KHR_wayland_surface");
+  extensions.emplace_back("VK_KHR_xcb_surface");
+  extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  extensions.emplace_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+
+  VkResult result;
+
+  // 1. Create Vulkan instance
+  VkApplicationInfo appInfo = {
+      .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+      .pApplicationName = "Minimal Vulkan App",
+      .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+      .pEngineName = "No Engine",
+      .engineVersion = VK_MAKE_VERSION(1, 0, 0),
+      .apiVersion = VK_API_VERSION_1_0,
+  };
+
+  VkInstanceCreateInfo createInfo = {
+      .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+      .pApplicationInfo = &appInfo,
+      .enabledExtensionCount = extensions.size(),
+      .ppEnabledExtensionNames = extensions.data(),
+      .enabledLayerCount = layers.size(),
+      .ppEnabledLayerNames = layers.data(),
+  };
+
+  // Create debug messenger info (so we can reuse it later)
+  VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+      .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+      .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                     VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                     VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+      .pfnUserCallback = vkDebugCallback,
+      .pUserData = NULL};
+
+  result = vkCreateInstance(&createInfo, allocator, &vk_state->instance);
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "Failed to create Vulkan instance! Error code: %d\n",
+            result);
+    return EXIT_FAILURE;
+  }
+  printf("Vulkan: instance created!\n");
+
+  PFN_vkCreateDebugUtilsMessengerEXT func =
+      (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
+          vk_state->instance, "vkCreateDebugUtilsMessengerEXT");
+  if (func == NULL) {
+    fprintf(stderr, "couldnt find vkCreateDebugUtilsMessengerEXT");
+    ASSERT(false)
+  }
+  result = func(vk_state->instance, &debugCreateInfo, allocator,
+                &vk_state->debug_messenger);
+  if (result != VK_SUCCESS) {
+    fprintf(stderr, "Failed to create Vulkan debug! Error code: %d\n", result);
+    ASSERT(false)
+    return EXIT_FAILURE;
+  }
+  printf("Vulkan: debug created!\n");
+
+  if (glfwCreateWindowSurface(vk_state->instance, window,
+                              (const VkAllocationCallbacks *)allocator,
+                              &vk_state->surface)) {
+    fprintf(stderr, "Failed to create surface with glfw!");
+    ASSERT(false)
+  }
+
+  printf("Vulkan: surface created!\n");
+
+  pickPhysicalDevice(vk_state->instance, &vk_state->physical_device);
+
+  printf("Vulkan: physical device picked!\n");
+
+  int graphicsFamily = findGraphicsQueueFamily(vk_state->physical_device);
+  if (graphicsFamily == -1) {
+    fprintf(stderr, "Failed to find graphics queue family!\n");
+    ASSERT(false)
+    return EXIT_FAILURE;
+  }
+
+  vk_state->device = createLogicalDevice(
+      vk_state->physical_device, graphicsFamily, &vk_state->grphics_queue);
+  printf("Vulkan: Logical device and graphics queue created successfully!\n");
+
+  auto presentFamily =
+      findPresentQueueFamily(vk_state->physical_device, vk_state->surface);
+
+  vk_state->swap_chain =
+      createSwapchain(vk_state->physical_device, vk_state->device,
+                      vk_state->surface, graphicsFamily, presentFamily, window);
+  printf("Vulkan: swapchain created successfully!\n");
+
+  vk_state->cmd_pool = createCommandPool(vk_state->device, graphicsFamily);
+
+  // Allocate N command buffers
+  uint32_t cmdCount = vk_state->swap_chain.imageCount;
+  vk_state->cmd_buffers.reserve(cmdCount);
+  allocateCommandBuffers(vk_state->device, vk_state->cmd_pool, cmdCount,
+                         vk_state->cmd_buffers.data());
+
+  createSemaphores(vk_state->device, &vk_state->render_complete,
+                   &vk_state->present_complete);
+
+  VkPipelineStageFlags wait_flags =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+  while (!glfwWindowShouldClose(window)) {
+    uint32_t imageIndex;
+    vkAcquireNextImageKHR(vk_state->device, vk_state->swap_chain.swapchain,
+                          UINT64_MAX, vk_state->present_complete,
+                          VK_NULL_HANDLE, &imageIndex);
+    recordCommadBuffer(vk_state->cmd_buffers[imageIndex],
+                       vk_state->swap_chain.images[imageIndex]);
+
+    VkSubmitInfo submitInfo = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &vk_state->present_complete,
+        .pWaitDstStageMask = &wait_flags,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &vk_state->cmd_buffers[imageIndex],
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &vk_state->render_complete,
+    };
+
+    if (vkQueueSubmit(vk_state->grphics_queue, 1, &submitInfo,
+                      VK_NULL_HANDLE) != VK_SUCCESS) {
+      fprintf(stderr, "Failed to submit draw command buffer!\n");
+    }
+    VkPresentInfoKHR presentInfo = {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &vk_state->render_complete,
+        .swapchainCount = 1,
+        .pSwapchains = &vk_state->swap_chain.swapchain,
+        .pImageIndices = &imageIndex,
+    };
+
+    vkQueuePresentKHR(vk_state->grphics_queue, &presentInfo);
+  }
+}
+#endif
 void OpenWindow(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int wnd_width = *(int *)&dbg->mem_buffer[base_ptr + 8];
@@ -7316,10 +7877,12 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
   const char *glsl_version = "#version 430";
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-  glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
   // glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
   /*
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required
   on Mac
@@ -7329,6 +7892,9 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
 
   window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World",
                             NULL, NULL);
+  InitVulkan(dbg, window);
+  HERE()
+
   if (!window) {
     ASSERT(0);
     glfwTerminate();

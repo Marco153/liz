@@ -7877,23 +7877,22 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
   const char *glsl_version = "#version 430";
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+  //glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
   // glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
-  /*
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required
-  on Mac
-  */
+  //*/
+  //on Mac
 
   // glfwWindowHint(GLFW_REFRESH_RATE, 60);
 
   window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World",
                             NULL, NULL);
-  InitVulkan(dbg, window);
-  HERE()
+  //InitVulkan(dbg, window);
+  //HERE()
 
   if (!window) {
     ASSERT(0);

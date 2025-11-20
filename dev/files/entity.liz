@@ -291,14 +291,58 @@ LookAtPlayerEnts::fn(ctx : *scene_info, drw_set : *draw_settings)
 		draw.flags = draw.flags | DRAW_INFO_NO_LIGHT;
 		Draw3D(drw_set.window, &draw);
 	}
+}
 
+DRAW_BUFFER_MAX_COUNT:const s32= 256
+DRAW_BUFFER_MAX_SIZE:const s32= 1024 * 32
+
+get_transparents_offset_ptr ::fn(size : u32)!*void
+{
+  scn := cast(*scene_draw_info)globals.scene_draw.buffer
+  start := cast(*void)ptr_offset(scn, 1, scene_draw_info)
+
+  start_count := cast(*void)ptr_offset(start, DRAW_BUFFER_MAX_COUNT, u8)
+  start_data := cast(*void)ptr_offset(start, DRAW_BUFFER_MAX_COUNT * 2 + DRAW_BUFFER_MAX_SIZE, u8)
+  scn.transparents_ptr = start_data
+
+  cur := ptr_offset(start_count, scn.count_transparents, u32)
+  *cur = scn.transparents_cur_size + DRAW_BUFFER_MAX_COUNT * 2 * 4 + DRAW_BUFFER_MAX_SIZE
+
+
+  scn.transparents_cur_size += size
+  assert(scn.transparents_cur_size < DRAW_BUFFER_MAX_SIZE)
+  scn.count_transparents++
+
+  scn.count_transparents = scn.count_transparents
+
+  return ptr_offset(start, *cur, u8)
+}
+get_opaques_offset_ptr ::fn(size : u32)!*void
+{
+  scn := cast(*scene_draw_info)globals.scene_draw.buffer
+  start := cast(*void)ptr_offset(scn, 1, scene_draw_info)
+
+  start_count := start
+  start_data := cast(*void)ptr_offset(start, DRAW_BUFFER_MAX_COUNT * 2, u8)
+
+  scn.opaques_ptr = start_data
+
+  cur := ptr_offset(start_count, scn.count_opaques, u32)
+  *cur = scn.opaques_cur_size + DRAW_BUFFER_MAX_COUNT * 2 * 4
+
+  scn.opaques_cur_size += size
+  assert(scn.opaques_cur_size < DRAW_BUFFER_MAX_SIZE)
+  scn.count_opaques++
+
+  scn.count_opaques = scn.count_opaques
+
+  return ptr_offset(start, *cur, u8)
 }
 DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *draw_settings)
 {
 	if ctx.drawable_ents.count == 0
 		return;
 
-	dyn_clear(&ctx.transparent_ents)
 
 	for e in ctx.drawable_ents
 	{
@@ -307,11 +351,44 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
 
     //printf("ent {e.name}\n")
 
+    //__dbg_break
+    data:*object_draw_info
+    m := get_material_ptr(&e.material_idx)
+    inst := m.instances[cast(u64)e.in_material_instance]
+    size := m.data_size + m.textures_count * 4
 		if is_flag_on(e.flags, ENTITY_TRANSPARENT)
 		{
-			dyn_add(&ctx.transparent_ents, e)
-			continue
+      data = cast(*object_draw_info)get_transparents_offset_ptr(size)
 		}
+    else
+    {
+      data = cast(*object_draw_info)get_opaques_offset_ptr(size)
+    }
+    //__dbg_break
+    data.model_id = get_id_of_model(&e.model)
+    data.pos = e.pos
+    data.size = e.size
+    data.rot = e.rot
+    data.shader_id = m.shader_id
+    data.model_uniform_size = m.data_size
+    data.textures_count = m.textures_count
+
+    start_model_uniform := ptr_offset(data, 1, object_draw_info)
+    start_texture_uniform := ptr_offset(start_model_uniform, m.data_size, u8)
+
+    memcpy(start_model_uniform, inst.data, m.data_size)
+    i:= 0
+    for u in inst.uniforms
+    {
+      if cast(lang_type_type)u.type == lang_type_type.SAMPLER2D
+      {
+        cur_texture_ptr := ptr_offset(start_texture_uniform, i, u32)
+        *cur_texture_ptr = get_id_of_texture_asset(&u.tex)
+        i++
+      }
+    }
+
+/*
 
 		if(e.type == ent_type.TERRAIN)
 		{
@@ -321,12 +398,27 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
 		{
 			DrawEntity(ctx, *e, drw_set);
 		}
+    */
 	}
+  //__dbg_break
+
+  scn := cast(*scene_draw_info)globals.scene_draw.buffer
+  scn.cam_pos = *drw_set.cam_pos
+  scn.cam_rot = *drw_set.cam_rot
+  scn.cam_fw = *drw_set.cam_forward
+  scn.cam_size = drw_set.cam_size
+
+  Draw3D2(drw_set.window, cast(*scene_draw_info)globals.scene_draw.buffer)
+  /*
 	for e in ctx.transparent_ents
 	{
 		DrawEntity(ctx, *e, drw_set);
 	}
 	Draw3DTransparency(drw_set.window);
+	dyn_clear(&ctx.transparent_ents)
+  */
+
+  memset(scn, 0, sizeof(*scn))
 }
 custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
 {				
@@ -345,6 +437,8 @@ custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
   //if str_cmp(ent.name, "hy.fbx") __dbg_break
 
 	draw.shader_id = m.shader_id
+
+  __dbg_break
 	SetShader(draw.shader_id)
 
 	//a :lang_type_type

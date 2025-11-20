@@ -6975,6 +6975,44 @@ test_rett::fn(val : u32) ! u32
 {
 	return val + 1
 }
+from_lang_type_2_type_layout::fn(tp : *lang_type)!type_layout
+{
+  on tp.type
+  {
+  lang_type_type.F32
+  {
+    return type_layout.FLOAT_R32
+  }
+  lang_type_type.V2
+  {
+    return type_layout.FLOAT_R32G32
+  }
+  lang_type_type.V3
+  {
+    return type_layout.FLOAT_R32G32B32
+  }
+  lang_type_type.MAT4
+  {
+    return type_layout.MAT4
+  }
+  lang_type_type.SAMPLER2D
+  {
+    return type_layout.TEX2D
+  }
+  lang_type_type.V4
+  {
+    return type_layout.FLOAT_R32G32B32A32
+  }
+  lang_type_type.IV4
+  {
+    return type_layout.INT_R32G32B32A32
+  }
+  default
+  {
+    __dbg_break
+  }
+  }
+}
 
 compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! *material_info
 {
@@ -7040,28 +7078,85 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 
 
 	uniforms : string
+	uniforms_defines : string
+	uniforms_textures : string
+
 	vs : string
 	fs : string
+  prologue := "layout(set = 0, binding = 0) uniform ubo \{
+  mat4 view;
+  mat4 proj;
+  float TIME;
+  \} UBO;
+  layout(set = 1, binding = 0) uniform model \{
+  mat4 mod;
+  \} MODEL;"
 
+	PushStrLit(&vs, "#version 450 core\n")
+	PushStrLit(&fs, "#version 450 core\n")
+  PushStrLit(&vs, prologue) 
+  PushStrLit(&fs, prologue) 
+
+  PushStrLit(&uniforms, "\nlayout(set = 2, binding =0) uniform _UNIS\{\n")
+  //PushStrLit(&uniforms_textures, "\nlayout(set = 3, binding =0) uniform _UNIS\{\n")
+
+  i := 0
+  sh_create : shader_create_info
+  cur_textures:=0
+  tinfo :type_layout_info
+  //tinfo.tp
+  dyn_add(&sh_create.uniforms_layout, tinfo)
+
+  cur_uniform_offset:u32=0
 
 	for un in lang_stat.uniforms
 	{
+    tinfo.count = 1
+
 		globals.temp_alloc.cur = prev_size
+
+    //PushStrLit(&uniforms, "layout(set=1, binding={i})") 
+
+    out_str := &uniforms
+		if un.tp.type == lang_type_type.SAMPLER2D
+    {
+      PushStrLit(&uniforms_textures, "\nlayout(set = 3, binding ={cur_textures}) ")
+      out_str = &uniforms_textures
+
+      un.offset = cur_textures
+
+      cur_textures++
+      tinfo.tp = from_lang_type_2_type_layout(&un.tp)
+
+      dyn_add(&sh_create.uniforms_layout, tinfo)
+    }
+    else
+    {
+      PushStrLit(&uniforms_defines, "#define {un.name} UNIS.{un.name}\n")
+      un.offset = cast(s32)cur_uniform_offset
+      cur_uniform_offset += lget_type_size(&un.tp)
+    }
+
 		if un.tp.type == lang_type_type.STATIC_ARRAY
 		{
 			sz := un.tp.STATIC_ARRAY.sz
 			tp := un.tp.STATIC_ARRAY.type
-			PushStrLit(&uniforms, "uniform {builtin_type_to_string(tp)} {un.name}[{sz}];\n")
+			PushStrLit(out_str, "uniform {builtin_type_to_string(tp)} {un.name}[{sz}];\n")
 		}
 		else
 		{
-			PushStrLit(&uniforms, "uniform {builtin_type_to_string(&un.tp)} {un.name};\n")
+			PushStrLit(out_str, "uniform {builtin_type_to_string(&un.tp)} {un.name};\n")
 		}
-	}
-	PushStrLit(&uniforms, "uniform float TIME;\n")
 
-	PushStrLit(&vs, "#version 330 core\n")
-	PushStrLit(&fs, "#version 330 core\n")
+    i++
+	}
+  PushStrLit(&uniforms, "\}UNIS;\n")
+
+  PushStrLit(&uniforms_defines, "#define TIME UBO.TIME\n")
+
+	PushStr(&uniforms, &uniforms_defines)
+	PushStr(&uniforms, &uniforms_textures)
+
 
 	PushStr(&vs, &uniforms)
 	PushStr(&fs, &uniforms)
@@ -7070,18 +7165,25 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 		globals.temp_alloc.cur = prev_size
 		if f.name == "vertex"
 		{
-			i := 0
+			i = 0
 			for arg in f.args
 			{
+        //tinfo :type_layout_info
+        tinfo.count = 1
 				PushStrLit(&vs, "layout (location = {i}) in {builtin_type_to_string(&arg.tp)} {arg.name};\n")
+
+        tinfo.tp = from_lang_type_2_type_layout(&arg.tp)
+
+        dyn_add(&sh_create.verts_layout, &tinfo)
 				i++
 			}
 			globals.temp_alloc.cur = prev_size
 
+      i =0
 
 			for r in f.rets
 			{
-				PushStrLit(&vs, "out {builtin_type_to_string(&r.tp)} {r.name};\n")
+				PushStrLit(&vs, "layout(location={i}) out {builtin_type_to_string(&r.tp)} {r.name};\n")
 				i++
 			}
 			PushStrLit(&vs, "void main()")
@@ -7089,20 +7191,20 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 		}
 		else if f.name == "fragment"
 		{
-			i := 0
+			i = 0
 			for arg in f.args
 			{
-				PushStrLit(&fs, "in {builtin_type_to_string(&arg.tp)} {arg.name};\n")
+				PushStrLit(&fs, "layout(location={i}) in {builtin_type_to_string(&arg.tp)} {arg.name};\n")
 				i++
 			}
 			globals.temp_alloc.cur = prev_size
 
 			i = 0
 
-			PushStrLit(&fs, "out vec4 frag_Color;\n")
+			PushStrLit(&fs, "layout(location=0)out vec4 frag_Color;\n")
 			for r in f.rets
 			{
-				PushStrLit(&fs, "out {builtin_type_to_string(&r.tp)} {r.name};\n")
+				PushStrLit(&fs, "layout(location={i})out {builtin_type_to_string(&r.tp)} {r.name};\n")
 				i++
 			}
 			PushStrLit(&fs, "void main()")
@@ -7111,7 +7213,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 			globals.temp_alloc.cur = prev_size
 		}
 	}
-	shader := CompileShader(vs.data.data, vs.data.count, fs.data.data, fs.data.count)
+	shader := CompileShader(cast(*char)file_name_original, str_ln(file_name_original), vs.data.data, vs.data.count, fs.data.data, fs.data.count, sh_create.verts_layout.data, cast(u32)sh_create.verts_layout.count, sh_create.uniforms_layout.data, cast(u32)sh_create.uniforms_layout.count)
 	printf("compiled shader {shader} \n")
 	if !mat
 	{
@@ -7139,6 +7241,8 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 		dyn_clear(&mat.uniforms)
 	}
 	mat.cull_type = lang_stat.cull_type
+  mat.data_size = cur_uniform_offset
+  mat.textures_count = cast(u32)cur_textures
 
 	mat.shader_id = shader
 	total_texs :u32= 0
@@ -7151,12 +7255,12 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 		if u.tp.type == lang_type_type.SAMPLER2D
 		{
 			u.offset = cast(s32)total_texs
-			ValidateTextureSlot(shader, u.name.data.data, cast(u32)u.name.data.count, total_texs);
+			//ValidateTextureSlot(shader, u.name.data.data, cast(u32)u.name.data.count, total_texs);
 			total_texs++
 		}
 		else
 		{
-			u.offset = cast(s32)GetUniformLocation(shader, u.name.data.data, cast(u32)u.name.data.count)
+			//u.offset = cast(s32)GetUniformLocation(shader, u.name.data.data, cast(u32)u.name.data.count)
 		}
 		if u.offset == -1
 		{
@@ -7169,7 +7273,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 		AssignStr(&new_u.name, &u.name)
 		if u.tp.type == lang_type_type.STATIC_ARRAY
 		{
-			new_u.tp.STATIC_ARRAY.type = cast(*lang_type)heap_alloc(globals.perm_alloc, sizeof(lang_type))
+			//new_u.tp.STATIC_ARRAY.type = cast(*lang_type)heap_alloc(globals.perm_alloc, sizeof(lang_type))
 			*new_u.tp.STATIC_ARRAY.type = *u.tp.STATIC_ARRAY.type
 			//new_u.array_sz = u.type.STATIC_ARRAY.SZ
 		}
@@ -7300,6 +7404,7 @@ new_material_instance::fn(ctx : *scene_info, mat_id : *asset_index, ent : *entit
           dyn_add(&m.instances, &new_i)
           inst = dyn_last(&m.instances)
         }
+        inst.data = heap_alloc(globals.perm_alloc, m.data_size)
 	}
 	else
 	{
@@ -7333,7 +7438,7 @@ new_material_instance::fn(ctx : *scene_info, mat_id : *asset_index, ent : *entit
 			un_val.is_array = true
 			un_val.type = cast(u32)u.tp.STATIC_ARRAY.type.type
 			un_val.array_sz = u.tp.STATIC_ARRAY.sz
-			un_val.data = heap_alloc(globals.perm_alloc, sz)
+			un_val.data = ptr_offset(inst.data, u.offset, u8)
 
 			if un_val.type == cast(u32)lang_type_type.MAT4
 			{
@@ -8536,6 +8641,9 @@ main_loop::fn(ctx : *context)
 
 		m := get_model_ptr(&empty_a)
 		m.model = LoadModel(file_name)
+
+    printf("model idx {m.model}, name {m.name}\n")
+
 		m.name = new_str_lit(ctx.alloc, file_name)
 
 		if ModelHasAnim(m.model)
@@ -8626,6 +8734,7 @@ main_loop::fn(ctx : *context)
 	LinearInit(&globals.nodes_alloc, ctx.alloc, 1024)
 	LinearInit(&globals.ast_alloc, ctx.alloc, 1024)
 	LinearInit(&globals.scope_alloc, ctx.alloc, 32)
+	globals.scene_draw.buffer = heap_alloc(ctx.alloc, 1024 * 1024)
 
 	globals.aux_vertices_sz = 500
 	globals.aux_vertices = cast(*_vec)GetMem(globals.aux_vertices_sz * 3* sizeof(_vec))

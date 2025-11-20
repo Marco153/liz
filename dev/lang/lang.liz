@@ -1747,11 +1747,17 @@ lget_type_size::fn(tp : *lang_type) !u32
 		return 1;
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.U16 || cast(u32)tp.tp == cast(u32)lang_type_type.S16
 		return 2;
-	else if cast(u32)tp.tp == cast(u32)lang_type_type.U32 || cast(u32)tp.tp == cast(u32)lang_type_type.S32
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.U32 || cast(u32)tp.tp == cast(u32)lang_type_type.S32 || cast(u32)tp.tp == cast(u32)lang_type_type.F32
 		return 4;
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.U64 || cast(u32)tp.tp == cast(u32)lang_type_type.S64
 		|| cast(u32)tp.tp == cast(u32)lang_type_type.FUNC_DECL
 		return 8;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.V2
+		return 8;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.V3
+		return 12;
+	else if cast(u32)tp.tp == cast(u32)lang_type_type.V4
+		return 16;
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.MAT4
 		return 64;
 	else if cast(u32)tp.tp == cast(u32)lang_type_type.STATIC_ARRAY

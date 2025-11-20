@@ -1,14 +1,10 @@
-model:uniform mat4 
-view:uniform mat4 
-projection:uniform mat4 
 col:uniform v4 
 cam_pos:uniform v4 
 
 vertex:fn(pos : v3) ! (out_vert_col : v4)
 {
     aux_pos :v4=  v4(pos.xyz, 1.0)
-    aux_pos = aux_pos + cam_pos
-    POSITION = projection * view * aux_pos
+    POSITION = UBO.proj * UBO.view * aux_pos
 }
 fragment:fn(out_vert_col : v4)
 {

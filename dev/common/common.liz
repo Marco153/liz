@@ -109,6 +109,34 @@ create_event_info:struct
 {
 	using type : create_event_etruct
 }
+object_draw_info:struct
+{
+  pos : _vec
+  rot : _vec
+  size : _vec
+
+  shader_id : u32
+  model_id : u32
+  model_uniform_size : u32
+  textures_count : u32
+}
+scene_draw_info:struct
+{
+  cam_pos : _vec
+  cam_rot : _vec
+  cam_fw : _vec
+  cam_size : f32
+
+  count_opaques : u32
+  count_transparents : u32
+  opaques_cur_size:u32;
+  transparents_cur_size:u32;
+
+  opaques_ptr : *void
+  transparents_ptr : *void
+
+  buffer : *void
+}
 global_struct : struct
 {
 	entities : linear_alloc(entity),
@@ -206,6 +234,8 @@ global_struct : struct
 
   fill_bones_called : u32
   frames_total : u64
+
+  scene_draw : scene_draw_info
 }
 globals : global global_struct
 
@@ -489,6 +519,16 @@ stencil_func_enum : enum
 IsTerminalCharater::fn(c : char) ! bool
 {
 	return c == ' || c == '$ || c == '@ || c == '* || c == '- || c == '/ || c == '. || c == ', || c == '+ || c == '? || c == '! || c == '= || c == ': || c == '[ || c == '] || c == '( || c == ')  || c == '} || c == '{ || c == '* || c == '\n || c == cast(char)0xd;
+}
+draw_info3d2: struct
+{
+  cam_pos : v4
+  cam_rot : v4
+  cam_fw : v4
+  cam_size : f32
+  data : *void
+  total_opaques : u32
+  total_transparents : u32
 }
 
 draw_info3d: struct
@@ -790,9 +830,31 @@ euler_to_quaternion2::fn outsider(x : f32, y : f32, z : f32, out : *_vec);
 quat_mul2::fn outsider(a : *_vec, b : *_vec, out : *_vec);
 AddMemoryWatch::fn outsider(a : *void);
 
-CompileShader::fn outsider(vertex_shader : *char, vs_len : u64, fragment_shader : *char, fs_len : u64) ! u32;
+type_layout:enum
+{
+  FLOAT_R32G32B32A32,
+  FLOAT_R32G32B32,
+  FLOAT_R32G32,
+  FLOAT_R32,
+  INT_R32G32B32A32,
+  MAT4,
+  TEX2D,
+}
+type_layout_info:struct
+{
+  tp : type_layout
+  count : u32
+  flags:u32
+}
+shader_create_info:struct
+{
+  verts_layout:dyn_array(type_layout_info)
+  uniforms_layout:dyn_array(type_layout_info)
+}
+CompileShader::fn outsider(name : *char, name_len : u64, vertex_shader : *char, vs_len : u64, fragment_shader : *char, fs_len : u64, vertex_input : *type_layout_info, vertex_input_count : u32, uniforms : *type_layout_info, uniforms_count :u32) ! u32;
 GetUniformLocation::fn outsider(shader_id : u32, name_str : *char, name_len : u32) ! u32;
 SetShader::fn outsider(shader_id : u32);
+SetShaderUniform::fn outsider(uniform_id: u32, data : *void, size : u32, type : u32);
 
 InvertMatrix::fn outsider(src : *f32, dst : *f32);
 
@@ -832,6 +894,7 @@ ClearBackground::fn outsider(f32, f32, f32);
 ShouldClose::fn outsider(*u8) ! bool;
 Draw::fn outsider(*u8, *draw_info);
 Draw3D::fn outsider(*u8, *draw_info3d);
+Draw3D2::fn outsider(*u8, *scene_draw_info);
 Draw3DTransparency::fn outsider(*u8);
 EndFrame::fn outsider(wnd : *u8);
 
@@ -2005,6 +2068,7 @@ uniform_val:struct
 material_instance:struct
 {
 	uniforms : dyn_array(uniform_val)
+  data : *void
 	ent : *entity
 
 }
@@ -2014,6 +2078,8 @@ material_info :struct
 	shader_id : u32
 	uniforms : dyn_array(decl)
 	cull_type : u8
+  data_size : u32
+  textures_count : u32
 	instances : dyn_array(material_instance)
 	
 }

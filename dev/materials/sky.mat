@@ -1,7 +1,3 @@
-model:uniform mat4 
-view:uniform mat4 
-projection:uniform mat4 
-cam_pos:uniform v4 
 horizon_color:uniform v4 
 mid_horizon_color:uniform v4 
 sky_color:uniform v4 
@@ -12,11 +8,10 @@ cull(FACE_BACK)
 vertex:fn(pos : v3, uv : v2) ! (tex_coord : v2, frag_pos : v3)
 {
     tex_coord = uv
-    aux_pos :v4=  model * v4(pos.xyz, 1.0)
-    aux_pos = aux_pos + cam_pos
+    aux_pos :v4=  MODEL.mod * v4(pos.xyz, 1.0)
     aux_pos.w = 1.0
     frag_pos = v3(aux_pos.xyz)
-    POSITION = projection * view * aux_pos
+    POSITION = UBO.proj * UBO.view * aux_pos
 }
 fragment:fn(tex_coord : v2, frag_pos : v3)
 {

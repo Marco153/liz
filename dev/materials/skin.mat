@@ -1,6 +1,3 @@
-model:uniform mat4
-view:uniform mat4
-projection:uniform mat4
 color:uniform v4
 cam_pos:uniform v4
 tex:uniform sampler2d
@@ -28,10 +25,9 @@ vertex:fn(pos : v3, uv : v2, bones_id : iv4, weights : v4) ! (tex_coord : v2, fr
         mat = mat + bones[id] * weights.w
     }
 
-    aux_pos = model * mat * aux_pos
+    aux_pos = MODEL.mod * mat * aux_pos
     frag_pos = v3(aux_pos.xyz)
-    aux_pos = aux_pos + cam_pos
-    POSITION = projection * view * aux_pos
+    POSITION = UBO.proj * UBO.view * aux_pos
 }
 fragment:fn(tex_coord : v2, frag_pos : v3)
 {

@@ -1,6 +1,10 @@
 // #define USE_TEXT_EDITOR
+#include "include/vulkan_includes/shaderc/shaderc.h"
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
 #include <assimp/material.h>
+#include <complex>
+#include <cstdint>
+#include <functional>
 #define RAD_TO_DEG 57.29577
 #define DEG_TO_RAD (3.14159265f / 180.0f)
 #define LINUX
@@ -14,6 +18,7 @@
 #include <fcntl.h>
 #include <limits.h> //For PATH_MAX
 #include <pthread.h>
+#include <shaderc/shaderc.h>
 #include <signal.h> //For PATH_MAX
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,6 +118,7 @@ enum key_enum {
 #include "../include/GLFW/glfw3.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
+#include "backends/imgui_impl_vulkan.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
 #ifdef LINUX
@@ -471,6 +477,10 @@ struct bone {
   aiNodeAnim *keyframes;
   aiBone *b;
 };
+struct vulkan_buffer {
+  VkBuffer buffer;
+  VkDeviceMemory buffer_memory;
+};
 struct model_info {
   own_std::string name;
   u32 vbo;
@@ -478,6 +488,10 @@ struct model_info {
   u32 ebo;
   int indicies;
   int verts_size;
+#ifdef RENDERER_VULKAN
+  vulkan_buffer vbuffer;
+  vulkan_buffer ibuffer;
+#endif
 
   int vertex_stride;
 
@@ -491,9 +505,24 @@ struct model_info {
   own_std::vector<int> roots;
   aiScene *scene;
 };
+struct vulkan_image {
+  VkImage img;
+  VkImageView img_view;
+  VkDescriptorSet imgui_set;
+  VkDeviceMemory memory;
+
+  VkSampler sampler;
+};
+struct texture_abstract {
+#ifdef RENDERER_VULKAN
+  vulkan_image img;
+
+#else
+#endif
+};
 struct texture_info {
   bool used;
-  int id;
+  texture_abstract tex;
 };
 struct texture_raw {
   char *name;
@@ -531,32 +560,14 @@ struct WindowEditor {
 #define LANG_FILE HANDLE
 #endif
 
-struct object_draw_info
-{
-  v4 pos;
-  v4 rot;
-  v4 size;
-
-  int shader_id;
-  int model_id;
-  int model_uniform_size;
-  int textures_count;
-};
-struct scene_draw_info
-{
+struct draw_info3d2 {
   v4 cam_pos;
   v4 cam_rot;
   v4 cam_fw;
   float cam_size;
-
-  int count_opaques;
-  int count_transparents;
-  int opaques_cur_size;
-  int transparents_cur_size;
-
-  long long opaques_ptr;
-  long long transparents_ptr;
-  long long reserved3;
+  int data_offset;
+  int total_opaques;
+  int total_transparents;
 };
 struct draw_info3d {
   int model;
@@ -633,6 +644,20 @@ struct SwapchainData {
   VkImageView *imageViews;
 };
 
+struct vulkan_graphics_pipeline;
+typedef struct deferred_gbuffer {
+    vulkan_image albedo;
+    vulkan_image normal;
+    vulkan_image position;
+    vulkan_image depth;
+    VkFramebuffer framebuffer;
+} deferred_gbuffer;
+typedef struct {
+    VkVertexInputBindingDescription binding;
+    int total_attributes;
+    VkVertexInputAttributeDescription *attributes;
+} vertex_attributes_desc;
+
 struct vulkan_state {
   VkInstance instance = VK_NULL_HANDLE;
   VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -643,9 +668,46 @@ struct vulkan_state {
   VkCommandPool cmd_pool = VK_NULL_HANDLE;
   VkSemaphore render_complete = VK_NULL_HANDLE;
   VkSemaphore present_complete = VK_NULL_HANDLE;
+  VkRenderPass render_pass;
+  VkRenderPass offscreen_render_pass;
+  VkDescriptorPool descriptor_pool;
+  VkDescriptorSet global_ubos;
+
+  VkDescriptorSetLayout globals_ubo_layout;
+  VkDescriptorSetLayout model_layout;
+
+  VkRenderPass deferred_pass;
+  VkPipelineLayout general_depth_pass_pipeline_layout;
+  VkPipelineLayout general_offscreen_pass_pipeline_layout;
+  VkPipelineLayout general_screen_pass_pipeline_layout;
+  vulkan_graphics_pipeline screen_pipeline;
+
+  deferred_gbuffer gbuf;
+
+  GLFWwindow *window;
+
+  vulkan_graphics_pipeline graphics_pipeline_post;
+  vulkan_graphics_pipeline graphics_pipeline_imgui;
+  vulkan_graphics_pipeline graphics_pipeline_depth_onli;
+
+  vulkan_buffer ibuffer;
+  vulkan_buffer vbuffer;
+
+  vulkan_buffer ibuffer_post;
+  vulkan_buffer vbuffer_post;
+
+  vulkan_buffer ubo_buffer;
+  vulkan_buffer model_buffer;
+
+  vulkan_image offscreen_color;
+  vulkan_image offscreen_depth;
+
+  VkCommandBuffer cur_cmd;
 
   SwapchainData swap_chain;
   own_std::vector<VkCommandBuffer> cmd_buffers;
+  own_std::vector<VkFramebuffer> frame_buffers;
+  own_std::vector<vertex_attributes_desc> declared_attrs;
 };
 #endif
 struct open_gl_state {
@@ -1480,6 +1542,7 @@ void ScreenMouseToWorld(int thread_id, dbg_state *dbg) {
     ExitProcess(1);                                                            \
   }
 void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
+  /*
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 8 * 2];
 
@@ -1520,7 +1583,6 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
     shaderProgram = gl_state->shader_program3d_tex;
     glUseProgram(shaderProgram);
     int error = glGetError();
-    /*
     if(error != GL_NO_ERROR)
     {
             char buffer[64];
@@ -1549,7 +1611,6 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
             printf("\ngl error %d, line %d\n", error, __LINE__);
     fflush(stdout); ExitProcess(1);
     }
-            */
 
     shaderProgram = gl_state->shader_program3d_tex;
     glUseProgram(shaderProgram);
@@ -1777,8 +1838,252 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
     glDrawElements(GL_TRIANGLES, indicies_to_draw, GL_UNSIGNED_INT, 0);
   }
   glCullFace(GL_FRONT);
+  */
+}
+struct object_draw_info
+{
+  v4 pos;
+  v4 rot;
+  v4 size;
+
+  int shader_id;
+  int model_id;
+  int model_uniform_size;
+  int textures_count;
+};
+struct scene_draw_info
+{
+  v4 cam_pos;
+  v4 cam_rot;
+  v4 cam_fw;
+  float cam_size;
+
+  int count_opaques;
+  int count_transparents;
+  int opaques_cur_size;
+  int transparents_cur_size;
+
+  long long opaques_ptr;
+  long long transparents_ptr;
+  long long reserved3;
+};
+void updateUniformBuffer(VkDevice device, vulkan_buffer *buffer, void *src_data, int size,
+                         VkDescriptorSet set) {
+  void *dst_data;
+  vkMapMemory(device, buffer->buffer_memory, 0, size, 0, &dst_data);
+  memcpy(dst_data, src_data, size);
+  vkUnmapMemory(device, buffer->buffer_memory);
+
+  VkDescriptorBufferInfo bufferInfo = {
+      .buffer = buffer->buffer,
+      .offset = 0,
+      .range = size,
+  };
+
+  VkWriteDescriptorSet descriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = set,
+      .dstBinding = 0,
+      .dstArrayElement = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .descriptorCount = 1,
+      .pBufferInfo = &bufferInfo,
+  };
+
+  vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+}
+void updateImageUniform(VkDevice device, VkDescriptorSet descriptorSet,
+                        uint32_t binding, vulkan_image *img,
+                        VkImageLayout imageLayout, VkSampler sampler) {
+  // Describe how the shader will access this image
+  VkDescriptorImageInfo imageInfo = {
+      .sampler = sampler,
+      .imageView = img->img_view,
+      .imageLayout =
+          imageLayout, // usually VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+  };
+
+  // Describe the descriptor write operation
+  VkWriteDescriptorSet descriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = descriptorSet,
+      .dstBinding = binding, // binding = layout(binding = N)
+      .dstArrayElement = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .pImageInfo = &imageInfo,
+      .pBufferInfo = NULL,      // not a buffer
+      .pTexelBufferView = NULL, // not a texel buffer
+  };
+
+  // Update the descriptor set on the GPU
+  vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+}
+void vulkan_update_model_uniforms(int thread_id, dbg_state *dbg,  VkCommandBuffer cmd, vulkan_state *vk, vulkan_graphics_pipeline *sh, object_draw_info *per_frame_obj_info, model_info *model)
+{
+  open_gl_state *gl_state = (open_gl_state *)dbg->data;
+  float mat [16];
+
+  build_model_matrix(mat, (Vec3 *)&per_frame_obj_info->pos, (float *)&per_frame_obj_info->rot, (Vec3 *)&per_frame_obj_info->size);
+  updateUniformBuffer(vk->device, &vk->model_buffer,
+                      mat, sizeof(Mat4), sh->descriptor_sets[0]);
+
+  // updating misc and textures uniforms, respectively
+  updateUniformBuffer(vk->device, &vk->model_buffer,
+                      per_frame_obj_info + 1, per_frame_obj_info->model_uniform_size, sh->descriptor_sets[1]);
+
+  for(int t = 0; t < per_frame_obj_info->textures_count; t++)
+  {
+    int *cur_tex_idx = (int *)((char *)(per_frame_obj_info + 1) + per_frame_obj_info->model_uniform_size) + t;
+    texture_info *tex = &gl_state->textures[*cur_tex_idx];
+    
+    updateImageUniform(
+        vk->device, sh->descriptor_sets[2], t,
+        &tex->tex.img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, tex->tex.img.sampler);
+  }
+}
+void vulkan_bind_shader(int thread_id, dbg_state *dbg,  VkCommandBuffer cmd, vulkan_state *vk, vulkan_graphics_pipeline *sh)
+{
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sh->pipeline);
+}
+void vulkan_bind_model(int thread_id, dbg_state *dbg,  VkCommandBuffer cmd, vulkan_state *vk, model_info *m)
+{
+  VkDeviceSize offsets = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &m->vbuffer.buffer, &offsets);
+
+  // Bind index buffer
+  vkCmdBindIndexBuffer(cmd, m->ibuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+}
+void DrawObjects(int thread_id, dbg_state *dbg,  vulkan_state *vk, VkCommandBuffer cmd, scene_draw_info *draw, bool depth_only)
+{
+  auto gl_state = (open_gl_state *)dbg->data;
+  int *opaques_offset_idxs = (int *)(draw + 1);
+  for(int o = 0; o < draw->count_opaques; o++)
+  {
+    object_draw_info *cur_opaque = (object_draw_info *)((char *)(draw + 1) + opaques_offset_idxs[o]);
+
+    model_info *m = &gl_state->models[cur_opaque->model_id];
+
+    shader_info *_sh = dbg->handles[cur_opaque->shader_id].sh;
+    vulkan_graphics_pipeline *vk_shader = &_sh->vk;
+    if(depth_only)
+    {
+      vk_shader = &_sh->vk_depth_only;
+    }
+
+
+    vulkan_bind_shader(thread_id, dbg,  cmd, vk, vk_shader);
+    vulkan_bind_model(thread_id, dbg,  cmd, vk, m);
+    vulkan_update_model_uniforms(thread_id, dbg,  cmd, vk, &_sh->vk,  cur_opaque, m);
+
+    vkCmdDrawIndexed(cmd, m->indicies, 1, 0, 0, 0);
+
+
+    /*
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+  if (graphics_pipeline->descriptor_sets.size() > 0) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            graphics_pipeline->pipeline_layout, 0,
+                            graphics_pipeline->descriptor_sets.size(),
+                            &graphics_pipeline->descriptor_sets[0], 0, NULL);
+  }
+  VkDeviceSize offsets = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &vbuffer, &offsets);
+
+  // Bind index buffer
+  vkCmdBindIndexBuffer(cmd, ibuffer, 0, VK_INDEX_TYPE_UINT32);
+
+  // Draw using indices
+  vkCmdDrawIndexed(cmd, indices_count, 1, 0, 0, 0);
+  */
+
+
+  }
+}
+void DrawPass(int thread_id, dbg_state *dbg, scene_draw_info *draw)
+{
+  /*
+  VkClearValue clearColor = {.color = {{1.0f, 0.0f, 0.0f, 1.0f}}}; // red clear
+                                                                   //
+
+  VkRenderPassBeginInfo renderPassInfo = {
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+      .renderPass = rpass,
+      .framebuffer = frame_buffer,
+      .renderArea = {{0, 0}, vk_state->swap_chain.extent},
+      .clearValueCount = clear_color_count,
+      .pClearValues = clear_colors};
+
+  vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+  if (graphics_pipeline->descriptor_sets.size() > 0) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            graphics_pipeline->pipeline_layout, 0,
+                            graphics_pipeline->descriptor_sets.size(),
+                            &graphics_pipeline->descriptor_sets[0], 0, NULL);
+  }
+  VkDeviceSize offsets = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &vbuffer, &offsets);
+
+  // Bind index buffer
+  vkCmdBindIndexBuffer(cmd, ibuffer, 0, VK_INDEX_TYPE_UINT32);
+
+  // Draw using indices
+  vkCmdDrawIndexed(cmd, indices_count, 1, 0, 0, 0);
+
+  // vkCmdDraw(cmd, 3, 1, 0, 0);
+
+  if (end_render_pass)
+    vkCmdEndRenderPass(cmd);
+    */
+}
+void Draw3D2(int thread_id, dbg_state *dbg) {
+  auto gl_state = (open_gl_state *)dbg->data;
+
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  auto wnd = (GLFWwindow *)*(long long *)&dbg->mem_buffer[base_ptr + 8];
+  int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 16];
+  auto draw = (scene_draw_info *)(long long *)&dbg->mem_buffer[draw_addr];
+  // auto h = &dbg->handles[draw->shader_id];
+
+  // ASSERT(h->type == handle_enum::SHADER);
+
+#ifdef RENDERER_VULKAN
+  vulkan_state *vk_state = &gl_state->vk_state;
+  VkCommandBuffer cmd = vk_state->cmd_buffers[0];
+
+  vulkan_graphics_pipeline *sh = &h->sh->vk;
+
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk_state->graphics_pipeline_imgui);
+  DrawObjects(thread_id, dbg,  vk, cmd, draw, true);
+
+  /*
+  vulkan_graphics_pipeline *sh = &h->sh->vk;
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, sh.pipeline);
+
+  if (sh->descriptor_sets.size() > 0) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            sh->pipeline_layout, 0, sh->descriptor_sets.size(),
+                            &sh->descriptor_sets[0], 0, NULL);
+  }
+  VkDeviceSize offsets = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &vbuffer, &offsets);
+
+  // Bind index buffer
+  vkCmdBindIndexBuffer(cmd, ibuffer, 0, VK_INDEX_TYPE_UINT32);
+
+  // Draw using indices
+  vkCmdDrawIndexed(cmd, indices_count, 1, 0, 0, 0);
+  */
+#else
+#endif
 }
 void Draw3D(int thread_id, dbg_state *dbg) {
+  return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 8 * 2];
 
@@ -1798,6 +2103,7 @@ void Draw3D(int thread_id, dbg_state *dbg) {
   Draw3DBase(thread_id, dbg, draw);
 }
 void Draw(int thread_id, dbg_state *dbg) {
+  /*
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 8 * 2];
 
@@ -1992,9 +2298,8 @@ void ClearBackground(int thread_id, dbg_state *dbg) {
     glClearDepth(1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-    /*
-     */
   }
+     */
 }
 
 int FromGameToGLFWKey(int in) {
@@ -3801,8 +4106,14 @@ void ImGuiImage(int thread_id, dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
   texture_info *t = &gl_state->textures[id];
   // printf("ImGuiImage id is %d, glid is %d\n", id, t->id);
-  ImGui::Image((ImTextureID)(intptr_t)t->id, ImVec2(sz_x, sz_y), ImVec2(0, 1),
+#ifdef RENDERER_VULKAN
+  ImGui::Image((ImTextureID)t->tex.img.imgui_set, ImVec2(sz_x, sz_y), ImVec2(0, 1),
                ImVec2(1, 0));
+
+#else
+  ImGui::Image((ImTextureID)(intptr_t)t->tex., ImVec2(sz_x, sz_y), ImVec2(0, 1),
+               ImVec2(1, 0));
+#endif
 }
 void ImGuiEnd(int thread_id, dbg_state *dbg) {
   if (dbg->frame_is_from_dbg)
@@ -4048,6 +4359,8 @@ void CheckOpenGLError(const char *stmt, const char *fname, int line) {
 #define GL_CHECK(stmt) stmt
 #endif
 void UpdateTexture(int thread_id, dbg_state *dbg) {
+  ASSERT(0)
+    /*
   auto gl_state = (open_gl_state *)dbg->data;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int tex_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
@@ -4118,19 +4431,16 @@ void UpdateTexture(int thread_id, dbg_state *dbg) {
                        format, pixelType, NULL));
   GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, x_offset, y_offset, width, height,
                            format, pixelType, data_ptr));
-  /*
-  for(int i= 0; i < 32;i++)
-  {
-          printf("vals is %d\n", *((short *)data_ptr + i));
-  }
-          */
   // stbi_write_png("dbg_img.png", width, height, 4, data_ptr, width * 4);
   // HERE()
 
   // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
   // GL_UNSIGNED_BYTE, textureData.data());
+  // */
 }
 void CopyTextureToBuffer(dbg_state *dbg) {
+  ASSERT(0)
+  /*
   auto gl_state = (open_gl_state *)dbg->data;
   int base_ptr = *(int *)GetRegValPtr(0, dbg, STACK_PTR_REG);
   int tex_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
@@ -4251,9 +4561,248 @@ int GenRawTexture(int thread_id, dbg_state *dbg) {
   *(u64 *)GetRegValPtr(thread_id, dbg, RET_1_REG) = idx;
 
   return idx;
+  */
 }
-int GenTexture2(lang_state *lang_stat, open_gl_state *gl_state,
+uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter,
+                        VkMemoryPropertyFlags properties) {
+  VkPhysicalDeviceMemoryProperties memProperties;
+  vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+  for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+    if ((typeFilter & (1 << i)) &&
+        (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
+      return i;
+  }
+  fprintf(stderr, "Failed to find suitable memory type!\n");
+  exit(EXIT_FAILURE);
+}
+VkCommandBuffer beginSingleTimeCommands(VkDevice device,
+                                        VkCommandPool commandPool) {
+  VkCommandBufferAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandPool = commandPool,
+      .commandBufferCount = 1,
+  };
+
+  VkCommandBuffer cmd;
+  vkAllocateCommandBuffers(device, &allocInfo, &cmd);
+
+  VkCommandBufferBeginInfo beginInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+  };
+
+  vkBeginCommandBuffer(cmd, &beginInfo);
+  return cmd;
+}
+
+void endSingleTimeCommands(VkDevice device, VkCommandPool commandPool,
+                           VkQueue queue, VkCommandBuffer cmd) {
+  vkEndCommandBuffer(cmd);
+
+  VkSubmitInfo submitInfo = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &cmd,
+  };
+
+  vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(queue);
+
+  vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+}
+void transitionImageLayout(VkCommandBuffer cmd, VkImage image, VkFormat format,
+                           VkImageLayout oldLayout, VkImageLayout newLayout) {
+  VkImageMemoryBarrier barrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .oldLayout = oldLayout,
+      .newLayout = newLayout,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .image = image,
+      .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .subresourceRange.baseMipLevel = 0,
+      .subresourceRange.levelCount = 1,
+      .subresourceRange.baseArrayLayer = 0,
+      .subresourceRange.layerCount = 1,
+  };
+
+  VkPipelineStageFlags sourceStage;
+  VkPipelineStageFlags destinationStage;
+
+  if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+      newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  } else {
+    fprintf(stderr, "Unsupported layout transition!\n");
+    exit(EXIT_FAILURE);
+  }
+
+  vkCmdPipelineBarrier(cmd, sourceStage, destinationStage, 0, 0, NULL, 0, NULL,
+                       1, &barrier);
+}
+void createTexture( vulkan_state *vk, vulkan_image *out_tex, VkFormat format, u8 *pixels, int texWidth, int texHeight) {
+  VkDevice device = vk->device; 
+  VkPhysicalDevice physicalDevice = vk->physical_device;
+  VkCommandPool commandPool = vk->cmd_pool; 
+  VkQueue queue = vk->grphics_queue;
+  // Create staging buffer
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
+
+  int imageSize = texWidth * texHeight ;
+  switch(format)
+  {
+  case VK_FORMAT_R8G8B8A8_SRGB:
+  {
+    imageSize *= 4;
+  }break;
+  default: ASSERT(0)
+  }
+
+
+  VkBufferCreateInfo bufferInfo = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = imageSize,
+      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+  vkCreateBuffer(device, &bufferInfo, NULL, &stagingBuffer);
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device, stagingBuffer, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = memRequirements.size,
+      .memoryTypeIndex =
+          findMemoryType(physicalDevice, memRequirements.memoryTypeBits,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+  };
+  vkAllocateMemory(device, &allocInfo, NULL, &stagingBufferMemory);
+  vkBindBufferMemory(device, stagingBuffer, stagingBufferMemory, 0);
+
+  void *data;
+  vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+  memcpy(data, pixels, (size_t)imageSize);
+  vkUnmapMemory(device, stagingBufferMemory);
+
+  stbi_image_free(pixels);
+
+  // Create image
+  VkImageCreateInfo imageInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .imageType = VK_IMAGE_TYPE_2D,
+      .extent = {texWidth, texHeight, 1},
+      .mipLevels = 1,
+      .arrayLayers = 1,
+      .format = format,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+
+  vkCreateImage(device, &imageInfo, NULL, &out_tex->img);
+
+  vkGetImageMemoryRequirements(device, out_tex->img, &memRequirements);
+
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex =
+      findMemoryType(physicalDevice, memRequirements.memoryTypeBits,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  vkAllocateMemory(device, &allocInfo, NULL, &out_tex->memory);
+  vkBindImageMemory(device, out_tex->img, out_tex->memory, 0);
+
+  // Copy staging buffer to image
+  VkCommandBuffer cmd = beginSingleTimeCommands(device, commandPool);
+
+  transitionImageLayout(cmd, out_tex->img, format,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  VkBufferImageCopy region = {
+      .bufferOffset = 0,
+      .imageSubresource =
+          {
+              .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+              .mipLevel = 0,
+              .baseArrayLayer = 0,
+              .layerCount = 1,
+          },
+      .imageExtent = {texWidth, texHeight, 1},
+  };
+
+  vkCmdCopyBufferToImage(cmd, stagingBuffer, out_tex->img,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+  transitionImageLayout(cmd, out_tex->img, format,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  endSingleTimeCommands(device, commandPool, queue, cmd);
+
+  vkDestroyBuffer(device, stagingBuffer, NULL);
+  vkFreeMemory(device, stagingBufferMemory, NULL);
+
+  // Create image view
+  VkImageViewCreateInfo viewInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .image = out_tex->img,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = format,
+      .subresourceRange =
+          {
+              .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+              .baseMipLevel = 0,
+              .levelCount = 1,
+              .baseArrayLayer = 0,
+              .layerCount = 1,
+          },
+  };
+  vkCreateImageView(device, &viewInfo, NULL, &out_tex->img_view);
+
+  // Create sampler
+  VkSamplerCreateInfo samplerInfo = {
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+      .magFilter = VK_FILTER_LINEAR,
+      .minFilter = VK_FILTER_LINEAR,
+      .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .anisotropyEnable = VK_TRUE,
+      .maxAnisotropy = 16,
+      .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+      .unnormalizedCoordinates = VK_FALSE,
+      .compareEnable = VK_FALSE,
+      .compareOp = VK_COMPARE_OP_ALWAYS,
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+  };
+
+  vkCreateSampler(device, &samplerInfo, NULL, &out_tex->sampler);
+}
+texture_abstract GenTexture2(lang_state *lang_stat, open_gl_state *gl_state,
                 unsigned char *src, int width, int height) {
+  texture_abstract ret;
+#ifdef RENDERER_VULKAN
+  vulkan_state *vk = &gl_state->vk_state;
+  createTexture(vk, &ret.img, VK_FORMAT_B8G8R8A8_SRGB, src, width, height);
+#else
   unsigned int texture;
   glGenTextures(1, &texture);
   glBindTexture(GL_TEXTURE_2D, texture);
@@ -4276,21 +4825,14 @@ int GenTexture2(lang_state *lang_stat, open_gl_state *gl_state,
   tex->id = texture;
 
   // heap_free((mem_alloc*)__lang_globals.data, (char*)sp_data);
+#endif
 
-  return idx;
+  return ret;
 }
 int GenTexture(lang_state *lang_stat, open_gl_state *gl_state,
                unsigned char *src, int sp_width, int sp_height, int x_offset,
                int y_offset, int width, int height, int sp_idx) {
-  unsigned int texture;
-  glGenTextures(1, &texture);
-  glBindTexture(GL_TEXTURE_2D, texture);
-  // set the texture wrapping/filtering options (on the currently bound
-  // texture object)
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  texture_abstract texture;
   // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -4310,8 +4852,21 @@ int GenTexture(lang_state *lang_stat, open_gl_state *gl_state,
     int a = 0;
   }
   if (sp_data) {
+#ifdef RENDERER_VULKAN
+    vulkan_state *vk = &gl_state->vk_state;
+    createTexture(vk, &texture.img, VK_FORMAT_B8G8R8A8_SRGB, sp_data, sp_width, sp_height);
+#else
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    // set the texture wrapping/filtering options (on the currently bound
+    // texture object)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sp_width, sp_height, 0,
                          GL_RGBA, GL_UNSIGNED_BYTE, sp_data));
+#endif
     // GL_CALL(glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0));
 
     // GL_CALL(glGenerateMipmap(GL_TEXTURE_2D));
@@ -4322,7 +4877,7 @@ int GenTexture(lang_state *lang_stat, open_gl_state *gl_state,
   // 4);
   int idx = GetTextureSlotId(gl_state);
   texture_info *tex = &gl_state->textures[idx];
-  tex->id = texture;
+  tex->tex = texture;
 
   heap_free((mem_alloc *)__lang_globals.data, (char *)sp_data);
 
@@ -4406,6 +4961,8 @@ struct aux_cell_info {
 };
 
 void LoadSheetFromLayer(int thread_id, dbg_state *dbg) {
+  ASSERT(0)
+    /*
   auto gl_state = (open_gl_state *)dbg->data;
 
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -4425,7 +4982,7 @@ void LoadSheetFromLayer(int thread_id, dbg_state *dbg) {
   //*tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
   //*tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
   // int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
-  int tex_id =
+  texture_abstract tex_id =
       GenTexture2(dbg->lang_stat, gl_state, (u8 *)tex_data,
                   cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
   texture_info *t = &gl_state->textures[tex_id];
@@ -4453,11 +5010,14 @@ void LoadSheetFromLayer(int thread_id, dbg_state *dbg) {
   heap_free((mem_alloc *)__lang_globals.data, (char *)tex_data);
 
   *(u64 *)GetRegValPtr(thread_id, dbg, RET_1_REG) = tex_id;
+  */
 }
 
 int CreateSpriteFromLayer(lang_state *lang_stat, open_gl_state *gl_state,
                           aux_layer_info_struct *cur_layer,
                           aux_cell_info *cur_cell, char *str_table) {
+  ASSERT(0)
+    /*
   int px_width = cur_layer->pixels_per_width;
   char *aux_buffer = AllocMiscData(lang_stat, px_width * px_width * 4);
   int tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
@@ -4490,11 +5050,14 @@ int CreateSpriteFromLayer(lang_state *lang_stat, open_gl_state *gl_state,
   }
   heap_free((mem_alloc *)__lang_globals.data, (char *)aux_buffer);
   return 1;
+  */
 }
 
 int LoadSpriteSheet(dbg_state *dbg, own_std::string sp_file_name,
                     int *tex_width, int *tex_height, int *channels,
                     char **tex_data) {
+  ASSERT(0)
+    /*
   u32 read;
   char *file = ReadEntireFileLang((char *)sp_file_name.c_str(), &read);
 
@@ -4600,42 +5163,6 @@ int LoadSpriteSheet(dbg_state *dbg, own_std::string sp_file_name,
                                          cur_layer->total_of_used_cells);
         cur_layer = (aux_layer_info_struct *)cur_cell;
       }
-      /*
-      int px_width = cur_layer->pixels_per_width;
-      char* aux_buffer = AllocMiscData(dbg->lang_stat, px_width * px_width *
-      4); *tex_width = cur_layer->grid_x * cur_layer->pixels_per_width;
-      *tex_height = cur_layer->grid_y * cur_layer->pixels_per_width;
-      *tex_data = (char *) AllocMiscData(dbg->lang_stat, *tex_width *
-      *tex_height * 4);
-      //int sz = cur_layer->grid_x * px_width * cur_layer->grid_y * px_width;
-      tex_id = GenTexture2(dbg->lang_stat, gl_state, (u8*)*tex_data,
-      cur_layer->grid_x * px_width, cur_layer->grid_y * px_width);
-      texture_info* t = &gl_state->textures[tex_id];
-      glBindTexture(GL_TEXTURE_2D, t->id);
-
-      for (int c = 0; c < cur_layer->total_of_used_cells; c++)
-      {
-              char* tex_name = str_table + cur_cell->tex_name;
-              texture_raw* tex_src = HasRawTexture(gl_state, tex_name);
-
-              int x_offset = cur_cell->src_tex_offset_x / px_width;
-              int y_offset = cur_cell->src_tex_offset_y / px_width;
-              auto data_ptr = tex_src->data + x_offset * px_width * 4 +
-      y_offset
-      * tex_src->width * 4 * px_width; CopyFromSrcImgToBuffer((char*)data_ptr,
-      aux_buffer, px_width, px_width, tex_src->width);
-              //GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0,
-      GL_RGBA, GL_UNSIGNED_BYTE, NULL));
-      GL_CHECK(glTexSubImage2D(GL_TEXTURE_2D, 0, cur_cell->grid_x * px_width,
-      cur_cell->grid_y * px_width, px_width, px_width, GL_RGBA,
-      GL_UNSIGNED_BYTE, aux_buffer)
-              );
-
-              cur_cell = (aux_cell_info *)(((char*)cur_cell) +
-      cur_layer->cell_sz);
-      }
-      heap_free((mem_alloc*)__lang_globals.data, (char*)aux_buffer);
-      */
     } break;
     // colliders
     case 1: {
@@ -4656,7 +5183,8 @@ int LoadSpriteSheet(dbg_state *dbg, own_std::string sp_file_name,
     cur_layer = (aux_layer_info_struct *)cur_cell;
     cur_cell = (aux_cell_info *)(cur_layer + 1);
   }
-  return tex_id;
+  */
+  return -1;
 }
 
 void ReadFileInterp(int thread_id, dbg_state *dbg) {
@@ -4792,12 +5320,6 @@ struct create_mesh_info {
   u64 attribs_offset;
   int attribs_count;
 };
-void CreateMesh(int thread_id, dbg_state *dbg) {
-  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
-  int create_mesh_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
-
-}
-
 
 void CreateMesh(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -5393,6 +5915,105 @@ void LoadMesh(float *vertices, unsigned int *indices, aiMesh *mesh,
     indices[i * 3 + 2] = face->mIndices[2] + ind_offset;
   }
 }
+void createVertexBuffer(VkDevice device, VkPhysicalDevice phys, void *vertices,
+                        size_t vertex_buffer_size, VkBuffer *vbuffer,
+                        VkDeviceMemory *vbuffer_memory) {
+  VkDeviceSize bufferSize = vertex_buffer_size;
+
+  VkBufferCreateInfo bufferInfo = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = bufferSize,
+      .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+  vkCreateBuffer(device, &bufferInfo, NULL, vbuffer);
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device, *vbuffer, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = memRequirements.size,
+      .memoryTypeIndex = 0 // we'll pick it below
+  };
+
+  VkPhysicalDeviceMemoryProperties memProps;
+  vkGetPhysicalDeviceMemoryProperties(phys, &memProps);
+
+  for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
+    if ((memRequirements.memoryTypeBits & (1 << i)) &&
+        (memProps.memoryTypes[i].propertyFlags &
+         (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+            (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+      allocInfo.memoryTypeIndex = i;
+      break;
+    }
+  }
+
+  vkAllocateMemory(device, &allocInfo, NULL, vbuffer_memory);
+  vkBindBufferMemory(device, *vbuffer, *vbuffer_memory, 0);
+
+  void *data;
+  vkMapMemory(device, *vbuffer_memory, 0, bufferSize, 0, &data);
+  memcpy(data, vertices, (size_t)bufferSize);
+  vkUnmapMemory(device, *vbuffer_memory);
+}
+void createIndexBuffer(VkDevice device, VkPhysicalDevice phys,
+                       uint32_t *indices, size_t indexCount, VkBuffer *ibuffer,
+                       VkDeviceMemory *ibuffer_memory) {
+  VkDeviceSize bufferSize = sizeof(uint32_t) * indexCount;
+
+  VkBufferCreateInfo bufferInfo = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = bufferSize,
+      .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+  vkCreateBuffer(device, &bufferInfo, NULL, ibuffer);
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device, *ibuffer, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo = {.sType =
+                                        VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                                    .allocationSize = memRequirements.size,
+                                    .memoryTypeIndex = 0};
+
+  VkPhysicalDeviceMemoryProperties memProps;
+  vkGetPhysicalDeviceMemoryProperties(phys, &memProps);
+
+  for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
+    if ((memRequirements.memoryTypeBits & (1 << i)) &&
+        (memProps.memoryTypes[i].propertyFlags &
+         (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+            (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+      allocInfo.memoryTypeIndex = i;
+      break;
+    }
+  }
+
+  vkAllocateMemory(device, &allocInfo, NULL, ibuffer_memory);
+  vkBindBufferMemory(device, *ibuffer, *ibuffer_memory, 0);
+
+  void *data;
+  vkMapMemory(device, *ibuffer_memory, 0, bufferSize, 0, &data);
+  memcpy(data, indices, (size_t)bufferSize);
+  vkUnmapMemory(device, *ibuffer_memory);
+}
+void create_model_vulkan(vulkan_state *vk_state, void *vertices,
+                         int vertices_sz, void *indices, int indices_sz,
+                         model_info *m) {
+  createVertexBuffer(vk_state->device, vk_state->physical_device, vertices,
+                     vertices_sz, &m->vbuffer.buffer,
+                     &m->vbuffer.buffer_memory);
+  createIndexBuffer(vk_state->device, vk_state->physical_device,
+                    (uint32_t *)indices, indices_sz / sizeof(uint32_t),
+                    &m->ibuffer.buffer, &m->ibuffer.buffer_memory);
+}
 void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
                    int use_model_idx = -1) {
   auto gl_state = (open_gl_state *)dbg->data;
@@ -5513,6 +6134,12 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
   printf("Loaded mesh: %d vertices, %d indices\n", mesh->mNumVertices,
          index_count);
 
+#ifdef RENDERER_VULKAN
+  auto vk_state = &gl_state->vk_state;
+  create_model_vulkan(vk_state, vertices, sizeof(vertices), indices,
+                      index_count * sizeof(int), m);
+
+#else
   GLuint VAO, VBO, EBO;
   glGenVertexArrays(1, &VAO);
   glGenBuffers(1, &VBO);
@@ -5561,6 +6188,7 @@ void LoadModelBase(int thread_id, dbg_state *dbg, own_std::string full_path,
   m->vbo = VBO;
   m->vao = VAO;
   m->ebo = EBO;
+#endif
   m->indicies = index_count;
 
   m->model_verts_count = vert_offset;
@@ -5784,19 +6412,21 @@ void LoadTexFolder(int thread_id, dbg_state *dbg) {
     int p_idx = str.find_last_of('.');
     own_std::string ext = str.substr(p_idx + 1);
 
-    int tex_idx = 0;
+    texture_abstract tex_idx;
     int tex_width = 0;
     int tex_height = 0;
     int tex_channels = 4;
     char *tex_data = nullptr;
     if (ext == "sp") {
       continue;
+      /*
       tex_idx =
           LoadSpriteSheet(dbg, gl_state->texture_folder + name, &tex_width,
                           &tex_height, &tex_channels, &tex_data);
       if (tex_idx == -1) {
         cur_tex->idx = -1;
         continue;
+        */
       }
     } else if (ext == "png") {
       texture_raw *tex_raw = HasRawTexture(gl_state, str);
@@ -6591,11 +7221,808 @@ void SetUniform4f(int thread_id, dbg_state *dbg) {
 
   glUniform4f(uid, x, y, z, w);
 }
+void SetShaderUniform(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int uniform_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+  int data_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
+  int data_size = *(int *)&dbg->mem_buffer[base_ptr + 24];
+  int data_type = *(int *)&dbg->mem_buffer[base_ptr + 32];
+
+#ifdef RENDERER_VULKAN
+  /*
+  vulkan_state *vk_state = &gl_state->vk_state;
+  short set = uniform_id & 0xffff;
+  short binding = uniform_id >> 16;
+
+  VkDescriptorSet vk_set;
+  if (set == 0) {
+    vk_set = vk_state->global_ubos;
+  } else {
+    vk_set = vk_state->global_ubos;
+  }
+  */
+#else
+  ASSERT(false)
+#endif
+}
+
 void SetShader(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int shader_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
 
+  auto h = &dbg->handles[shader_id];
+
+  ASSERT(h->type == handle_enum::SHADER);
+
+#ifdef RENDERER_VULKAN
+  auto gl_state = (open_gl_state *)dbg->data;
+  auto vk_state = &gl_state->vk_state;
+  vkCmdBindPipeline(vk_state->cur_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    h->sh->vk.pipeline);
+#else
   glUseProgram(shader_id);
+#endif
+}
+
+enum class type_layout {
+  FLOAT_R32G32B32A32,
+  FLOAT_R32G32B32,
+  FLOAT_R32G32,
+  FLOAT_R32,
+  INT_R32G32B32A32,
+  MAT4,
+  TEX2D,
+};
+struct type_layout_info {
+  type_layout type;
+  int count;
+  int flags;
+};
+VkDescriptorSetLayout create_shader_uniform_from_ar(
+    vulkan_state *vk_state, own_std::vector<VkDescriptorSetLayoutBinding> *ar) {
+  VkDescriptorSetLayoutCreateInfo layoutInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+      .bindingCount = ar->size(),
+      .pBindings = &(*ar)[0],
+  };
+  VkDescriptorSetLayout descriptorSetLayout;
+  if (vkCreateDescriptorSetLayout(vk_state->device, &layoutInfo, NULL,
+                                  &descriptorSetLayout) != VK_SUCCESS) {
+    fprintf(stderr, "Failed to create descriptor set layout!\n");
+    exit(1);
+  }
+  return descriptorSetLayout;
+}
+void get_shader_attrs(
+    own_std::vector<VkFormat> *ar, VkVertexInputBindingDescription *binding,
+    own_std::vector<VkVertexInputAttributeDescription> *out_attrs) {
+  int stride = 0;
+  int i = 0;
+  FOR_VEC(c, *ar) {
+    VkVertexInputAttributeDescription aux;
+    aux.binding = 0;
+    aux.location = i;
+    aux.format = *c;
+    aux.offset = stride;
+    out_attrs->emplace_back(aux);
+
+    switch (*c) {
+    case VK_FORMAT_R32G32B32A32_SINT:
+    case VK_FORMAT_R32G32B32A32_SFLOAT: {
+      stride += 16;
+    } break;
+    case VK_FORMAT_R32G32B32_SFLOAT: {
+      stride += 12;
+    } break;
+    case VK_FORMAT_R32G32_SFLOAT: {
+      stride += 8;
+    } break;
+    case VK_FORMAT_R32_SFLOAT: {
+      stride += 4;
+    } break;
+    default:
+      ASSERT(0)
+    }
+    i++;
+  }
+  binding->inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  binding->stride = stride;
+  binding->binding = 0;
+}
+VkShaderModule compileShaderWithShaderc(VkDevice device, const char *source,
+                                        shaderc_shader_kind kind) {
+  shaderc_compiler_t compiler = shaderc_compiler_initialize();
+  shaderc_compile_options_t options = shaderc_compile_options_initialize();
+
+  shaderc_compilation_result_t result = shaderc_compile_into_spv(
+      compiler, source, strlen(source), kind, "shader.glsl", "main", options);
+
+  if (shaderc_result_get_compilation_status(result) !=
+      shaderc_compilation_status_success) {
+    fprintf(stderr, "Shader compile error: source:%s\n%s",
+            shaderc_result_get_error_message(result), source);
+    exit(EXIT_FAILURE);
+  }
+
+  const uint32_t *spirvCode =
+      (const uint32_t *)shaderc_result_get_bytes(result);
+  size_t codeSize = shaderc_result_get_length(result);
+
+  VkShaderModuleCreateInfo createInfo = {
+      .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+      .codeSize = codeSize,
+      .pCode = spirvCode,
+  };
+
+  VkShaderModule shaderModule;
+  vkCreateShaderModule(device, &createInfo, NULL, &shaderModule);
+
+  shaderc_result_release(result);
+  shaderc_compiler_release(compiler);
+  shaderc_compile_options_release(options);
+
+  return shaderModule;
+}
+// compiles a GLSL shader string into SPIR-V and returns a VkShaderModule
+// Convenience macro for error checking
+#define VK_CHECK(x)                                                            \
+  do {                                                                         \
+    VkResult _r = (x);                                                         \
+    if (_r != VK_SUCCESS) {                                                    \
+      fprintf(stderr, "Vulkan error %d at %s:%d\n", _r, __FILE__, __LINE__);   \
+      exit(EXIT_FAILURE);                                                      \
+    }                                                                          \
+  } while (0)
+
+VkPipeline createLightingPipeline(VkDevice device,
+                                  VkRenderPass renderPass,
+                                  VkPipelineLayout layout,
+                                  VkShaderModule vert,
+                                  VkShaderModule frag)
+{
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage = VK_SHADER_STAGE_VERTEX_BIT,
+          .module = vert,
+          .pName = "main" },
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+          .module = frag,
+          .pName = "main" }
+    };
+
+    // No vertex input (fullscreen triangle)
+    VkPipelineVertexInputStateCreateInfo vi = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    };
+
+    VkPipelineInputAssemblyStateCreateInfo ia = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+    };
+
+    VkPipelineRasterizationStateCreateInfo rs = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = VK_CULL_MODE_NONE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE
+    };
+
+    VkPipelineColorBlendAttachmentState blend = {
+        .colorWriteMask = 0xF
+    };
+
+    VkPipelineColorBlendStateCreateInfo cb = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = &blend
+    };
+
+    // No depth
+    VkGraphicsPipelineCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2,
+        .pStages = stages,
+        .pVertexInputState = &vi,
+        .pInputAssemblyState = &ia,
+        .pRasterizationState = &rs,
+        .pColorBlendState = &cb,
+        .layout = layout,
+        .renderPass = renderPass,
+        .subpass = 2
+    };
+
+    VkPipeline pipe;
+    vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &info, NULL, &pipe);
+
+    vkDestroyShaderModule(device, vert, NULL);
+    vkDestroyShaderModule(device, frag, NULL);
+    return pipe;
+}
+
+typedef struct {
+    VkVertexInputBindingDescription binding;
+    VkVertexInputAttributeDescription attributes[4];
+} GenralVertexInputDescription;
+
+GenralVertexInputDescription create_general_vertex_input_description(void) {
+    GeneralVertexInputDescription d = {0};
+
+    // --- Binding (one vertex = one struct) ---
+    d.binding.binding = 0;
+    d.binding.stride = sizeof(Vertex);
+    d.binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    // --- Attribute 0: position ---
+    d.attributes[0].location = 0;
+    d.attributes[0].binding  = 0;
+    d.attributes[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
+    d.attributes[0].offset   = offsetof(Vertex, pos);
+
+    // --- Attribute 1: normal ---
+    d.attributes[1].location = 1;
+    d.attributes[1].binding  = 0;
+    d.attributes[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+    d.attributes[1].offset   = offsetof(Vertex, normal);
+
+    // --- Attribute 2: uv ---
+    d.attributes[2].location = 2;
+    d.attributes[2].binding  = 0;
+    d.attributes[2].format   = VK_FORMAT_R32G32_SFLOAT;
+    d.attributes[2].offset   = offsetof(Vertex, uv);
+
+    // --- Attribute 3: color ---
+    d.attributes[3].location = 3;
+    d.attributes[3].binding  = 0;
+    d.attributes[3].format   = VK_FORMAT_R32G32B32A32_SFLOAT;
+    d.attributes[3].offset   = offsetof(Vertex, color);
+
+
+    return d;
+}
+VkPipeline createGbufferPipeline(VkDevice device,
+                                 VkRenderPass renderPass,
+                                 VkPipelineLayout layout,
+                                 VkShaderModule vert,
+                                 VkShaderModule frag)
+{
+
+  VertexInputInfo vertexInfo = create_general_vertex_input_description();
+
+  VkPipelineVertexInputStateCreateInfo vertexInput = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &vertexInfo.binding,
+      .vertexAttributeDescriptionCount = vertexInfo.attributeCount,
+      .pVertexAttributeDescriptions = vertexInfo.attributes,
+  };
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage = VK_SHADER_STAGE_VERTEX_BIT,
+          .module = vert,
+          .pName = "main" },
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+          .module = frag,
+          .pName = "main" }
+    };
+
+    // Input assembly
+    VkPipelineInputAssemblyStateCreateInfo ia = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+    };
+
+    // Rasterizer
+    VkPipelineRasterizationStateCreateInfo rs = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE
+    };
+
+    // 3 color attachments
+    VkPipelineColorBlendAttachmentState blends[3] = {
+        { .colorWriteMask = 0xF },
+        { .colorWriteMask = 0xF },
+        { .colorWriteMask = 0xF }
+    };
+
+    VkPipelineColorBlendStateCreateInfo cb = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = 3,
+        .pAttachments = blends
+    };
+
+    // Depth test + write
+    VkPipelineDepthStencilStateCreateInfo ds = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS
+    };
+
+    // Dynamic states
+    VkDynamicState dynStates[] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+
+    VkPipelineDynamicStateCreateInfo dyn = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = 2,
+        .pDynamicStates = dynStates
+    };
+
+    VkGraphicsPipelineCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2,
+        .pStages = stages,
+        .pInputAssemblyState = &ia,
+        .pRasterizationState = &rs,
+        .pColorBlendState = &cb,
+        .pDepthStencilState = &ds,
+        .pDynamicState = &dyn,
+        .layout = layout,
+        .renderPass = renderPass,
+        .subpass = 1
+    };
+
+    VkPipeline pipe;
+    vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &info, NULL, &pipe);
+
+    //vkDestroyShaderModule(device, vert, NULL);
+    //vkDestroyShaderModule(device, frag, NULL);
+    return pipe;
+}
+
+VkPipeline createDepthPipeline(VkDevice device,
+                               VkRenderPass renderPass,
+                               VkPipelineLayout layout,
+                               VkShaderModule vert)
+{
+  VertexInputInfo vertexInfo = create_general_vertex_input_description();
+
+  VkPipelineVertexInputStateCreateInfo vertexInput = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &vertexInfo.binding,
+      .vertexAttributeDescriptionCount = vertexInfo.attributeCount,
+      .pVertexAttributeDescriptions = vertexInfo.attributes,
+  };
+
+    VkPipelineShaderStageCreateInfo stage = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+        .module = vert,
+        .pName = "main"
+    };
+
+    // Input assembly (triangles)
+    VkPipelineInputAssemblyStateCreateInfo ia = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+    };
+
+    // Rasterizer
+    VkPipelineRasterizationStateCreateInfo rs = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .lineWidth = 1.0f
+    };
+
+    // No color outputs → attachmentCount = 0
+    VkPipelineColorBlendStateCreateInfo cb = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = 0
+    };
+
+    // Depth test/write
+    VkPipelineDepthStencilStateCreateInfo ds = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS
+    };
+
+    // Viewport/scissor dynamic
+    VkDynamicState dynStates[] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+
+    VkPipelineDynamicStateCreateInfo dyn = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+        .dynamicStateCount = 2,
+        .pDynamicStates = dynStates
+    };
+
+    VkGraphicsPipelineCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 1,
+        .pStages = &stage,
+        .pInputAssemblyState = &ia,
+        .pRasterizationState = &rs,
+        .pColorBlendState = &cb,
+        .pDepthStencilState = &ds,
+        .pDynamicState = &dyn,
+        .layout = layout,
+        .renderPass = renderPass,
+        .subpass = 0
+    };
+
+    VkPipeline pipe;
+    vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &info, NULL, &pipe);
+
+    vkDestroyShaderModule(device, vert, NULL);
+    return pipe;
+}
+VkRenderPass createDeferredRenderPass(VkDevice device,
+                                      VkFormat swapFormat,
+                                      VkFormat depthFormat)
+{
+    VkAttachmentDescription attachments[5] = {0};
+
+    // 0 = depth shared for all subpasses
+    attachments[0] = (VkAttachmentDescription){
+        .format = depthFormat,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE, // keep depth for lighting
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+    };
+
+    // 1 = albedo
+    attachments[1] = (VkAttachmentDescription){
+        .format = VK_FORMAT_R8G8B8A8_UNORM,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout   = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+
+    // 2 = normal
+    attachments[2] = attachments[1];
+    attachments[2].format = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    // 3 = position
+    attachments[3] = attachments[2];
+
+    // 4 = final color (swapchain)
+    attachments[4] = (VkAttachmentDescription){
+        .format = swapFormat,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout   = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+    };
+
+    //------------------------------------------------------------
+    // Subpass 0 — depth prepass
+    //------------------------------------------------------------
+    VkAttachmentReference depthRef0 = {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
+    VkSubpassDescription subpass0 = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .pDepthStencilAttachment = &depthRef0
+    };
+
+    //------------------------------------------------------------
+    // Subpass 1 — G-buffer
+    //------------------------------------------------------------
+    VkAttachmentReference colorRefs1[3] = {
+        {1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        {2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+        {3, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}
+    };
+
+    VkAttachmentReference depthRef1 = {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    };
+
+    VkAttachmentReference depthInput = {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+
+    VkSubpassDescription subpass1 = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 3,
+        .pColorAttachments = colorRefs1,
+        .pDepthStencilAttachment = &depthRef1,
+        .inputAttachmentCount = 1,
+        .pInputAttachments = &depthInput
+    };
+
+    //------------------------------------------------------------
+    // Subpass 2 — Final lighting
+    //------------------------------------------------------------
+    VkAttachmentReference inputs2[4] = {
+        {1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {2, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {3, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+        {0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL} // depth optional
+    };
+
+    VkAttachmentReference swapColorRef = {
+        .attachment = 4,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    };
+
+    VkSubpassDescription subpass2 = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &swapColorRef,
+        .inputAttachmentCount = 4,
+        .pInputAttachments = inputs2
+    };
+
+    //------------------------------------------------------------
+    // Subpass Dependencies
+    //------------------------------------------------------------
+    VkSubpassDependency deps[4] = {
+        // External → depth pass
+        {
+            .srcSubpass = VK_SUBPASS_EXTERNAL,
+            .dstSubpass = 0,
+            .srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+            .srcAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+            .dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+        },
+        // depth → gbuffer
+        {
+            .srcSubpass = 0,
+            .dstSubpass = 1,
+            .srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+        },
+        // gbuffer → lighting
+        {
+            .srcSubpass = 1,
+            .dstSubpass = 2,
+            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+        },
+        // final → external
+        {
+            .srcSubpass = 2,
+            .dstSubpass = VK_SUBPASS_EXTERNAL,
+            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+            .dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT
+        }
+    };
+
+    //------------------------------------------------------------
+    // Create render pass
+    //------------------------------------------------------------
+    VkSubpassDescription subpasses[3] = { subpass0, subpass1, subpass2 };
+
+    VkRenderPassCreateInfo rpInfo = {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 5,
+        .pAttachments = attachments,
+        .subpassCount = 3,
+        .pSubpasses = subpasses,
+        .dependencyCount = 4,
+        .pDependencies = deps
+    };
+
+    VkRenderPass renderPass;
+    vkCreateRenderPass(device, &rpInfo, NULL, &renderPass);
+    return renderPass;
+}
+VkPipelineLayout create_pipeline_layout(
+    VkDevice device,
+    const VkDescriptorSetLayout* setLayouts,
+    uint32_t setLayoutCount,
+    const VkPushConstantRange* pushRanges,
+    uint32_t pushRangeCount
+) {
+    VkPipelineLayoutCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pSetLayouts = setLayouts,
+        .setLayoutCount = setLayoutCount,
+        .pPushConstantRanges = pushRanges,
+        .pushConstantRangeCount = pushRangeCount,
+    };
+
+    VkPipelineLayout layout;
+    if (vkCreatePipelineLayout(device, &info, NULL, &layout) != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create pipeline layout\n");
+        return VK_NULL_HANDLE;
+    }
+    return layout;
+}
+VkPipeline createGraphicsPipeline(
+    vulkan_state *vk_state, vulkan_graphics_pipeline *out_pipeline,
+    VkDevice device, VkShaderModule vertModule, VkShaderModule fragModule,
+    VkRenderPass renderPass, VkExtent2D extent,
+    VkPipelineLayout *pipelineLayoutOut,
+    VkVertexInputBindingDescription *bindingDesc,
+    own_std::vector<VkVertexInputAttributeDescription> *attrDescs,
+    own_std::vector<VkDescriptorSetLayout> *sets) {
+  // --- Shader stages ---
+  VkPipelineShaderStageCreateInfo vertStageInfo = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_VERTEX_BIT,
+      .module = vertModule,
+      .pName = "main",
+      .pSpecializationInfo = NULL};
+  VkPipelineShaderStageCreateInfo fragStageInfo = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+      .module = fragModule,
+      .pName = "main",
+      .pSpecializationInfo = NULL};
+  VkPipelineShaderStageCreateInfo shaderStages[] = {vertStageInfo,
+                                                    fragStageInfo};
+
+  // --- Vertex input (empty -- adjust as needed) ---
+  VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = bindingDesc,
+      .vertexAttributeDescriptionCount = attrDescs->size(),
+      .pVertexAttributeDescriptions = &(*attrDescs)[0]};
+
+  // --- Input assembly ---
+  VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+      .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+      .primitiveRestartEnable = VK_FALSE};
+
+  VkPipelineDynamicStateCreateInfo dynamicState{};
+  VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT,
+                                    VK_DYNAMIC_STATE_SCISSOR};
+  dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+  dynamicState.dynamicStateCount = 2;
+  dynamicState.pDynamicStates = dynamicStates;
+
+  VkPipelineViewportStateCreateInfo viewportState{};
+  viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+  viewportState.viewportCount = 1;
+  viewportState.scissorCount = 1;
+
+  // --- Viewport & Scissor (we use dynamic states as an option, but here set
+  // static) ---
+  // --- Rasterizer ---
+  VkPipelineRasterizationStateCreateInfo rasterizer = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+      .depthClampEnable = VK_FALSE,
+      .rasterizerDiscardEnable = VK_FALSE,
+      .polygonMode = VK_POLYGON_MODE_FILL,
+      .cullMode = VK_CULL_MODE_NONE,
+      .frontFace =
+          VK_FRONT_FACE_COUNTER_CLOCKWISE, // adjust if your vertices are CCW
+      .depthBiasEnable = VK_FALSE,
+      .lineWidth = 1.0f};
+
+  // --- Multisampling (disabled) ---
+  VkPipelineMultisampleStateCreateInfo multisampling = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+      .sampleShadingEnable = VK_FALSE,
+  };
+
+  // --- Color blending ---
+  VkPipelineColorBlendAttachmentState colorBlendAttachment = {
+      .blendEnable = VK_FALSE,
+      .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+      .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+      .colorBlendOp = VK_BLEND_OP_ADD,
+      .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+      .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+      .alphaBlendOp = VK_BLEND_OP_ADD,
+      .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+
+  VkPipelineColorBlendStateCreateInfo colorBlending = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+      .logicOpEnable = VK_FALSE,
+      .attachmentCount = 1,
+      .pAttachments = &colorBlendAttachment};
+
+  // --- Depth/stencil (not used here) ---
+  VkPipelineDepthStencilStateCreateInfo depthStencil = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+      .depthTestEnable = VK_FALSE,
+      .depthWriteEnable = VK_FALSE,
+      .depthCompareOp = VK_COMPARE_OP_LESS,
+      .depthBoundsTestEnable = VK_FALSE,
+      .stencilTestEnable = VK_FALSE};
+
+  // --- Dynamic state (optional) ---
+  VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+  if (pipelineLayoutOut && *pipelineLayoutOut != VK_NULL_HANDLE) {
+    pipelineLayout = *pipelineLayoutOut;
+  } else {
+    // create a simple empty pipeline layout (no descriptor sets, no push
+    // constants)
+    printf("Vulkan: createGraphics sets size %d\n", sets->size());
+
+    VkPipelineLayoutCreateInfo layoutInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        // we sub 1 because the first layout is the globals ubo, we already
+        // have it generated for the whole programs lifecycle
+        .setLayoutCount = sets->size(),
+        .pSetLayouts = &(*sets)[0],
+        .pPushConstantRanges = NULL};
+    VK_CHECK(
+        vkCreatePipelineLayout(device, &layoutInfo, NULL, &pipelineLayout));
+    if (pipelineLayoutOut)
+      *pipelineLayoutOut = pipelineLayout;
+  }
+
+  VkDescriptorSetAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = vk_state->descriptor_pool, // pool to allocate from
+      .descriptorSetCount = sets->size() - 1,      // number of sets
+      .pSetLayouts = &(*sets)[1],                  // layout(s) describing them
+  };
+  out_pipeline->descriptor_sets.reserve(4);
+  out_pipeline->descriptor_sets.make_count(sets->size());
+
+  if (sets->size() > 1) {
+    if (vkAllocateDescriptorSets(device, &allocInfo,
+                                 &out_pipeline->descriptor_sets[0]) !=
+        VK_SUCCESS) {
+      printf("Failed to allocate descriptor set!\n");
+    }
+  }
+
+  // --- Graphics pipeline create info ---
+  VkGraphicsPipelineCreateInfo pipelineInfo = {
+      .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+      .stageCount = 2,
+      .pStages = shaderStages,
+      .pVertexInputState = &vertexInputInfo,
+      .pInputAssemblyState = &inputAssembly,
+      .pViewportState = &viewportState,
+      .pRasterizationState = &rasterizer,
+      .pMultisampleState = &multisampling,
+      .pDepthStencilState = &depthStencil,
+      .pColorBlendState = &colorBlending,
+      .pDynamicState = &dynamicState,
+      .layout = pipelineLayout,
+      .renderPass = renderPass,
+      .subpass = 0,
+      .basePipelineHandle = VK_NULL_HANDLE,
+      .basePipelineIndex = -1};
+
+  // If you prefer dynamic viewport/scissor instead of static above,
+  // uncomment: pipelineInfo.pViewportState = NULL; pipelineInfo.pDynamicState
+  // = &dynamicState;
+
+  VkPipeline graphicsPipeline;
+  VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo,
+                                     NULL, &graphicsPipeline));
+
+  printf("Vulkan graphics pipeline created\n");
+  out_pipeline->pipeline = graphicsPipeline;
+
+  return graphicsPipeline;
 }
 void CompileShader2(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -6603,9 +8030,158 @@ void CompileShader2(int thread_id, dbg_state *dbg) {
   int vs_len = *(int *)&dbg->mem_buffer[base_ptr + 16];
   int fs_offset = *(int *)&dbg->mem_buffer[base_ptr + 24];
   int fs_len = *(int *)&dbg->mem_buffer[base_ptr + 32];
+  int vertex_input_offset = *(int *)&dbg->mem_buffer[base_ptr + 40];
+  int vertex_input_len = *(int *)&dbg->mem_buffer[base_ptr + 48];
+  int uniforms_offset = *(int *)&dbg->mem_buffer[base_ptr + 56];
+  int uniforms_len = *(int *)&dbg->mem_buffer[base_ptr + 64];
+  int shader_resources_input_type  = *(int *)&dbg->mem_buffer[base_ptr + 70];
+
+
+  auto vertex_input_data =
+      (type_layout_info *)&dbg->mem_buffer[vertex_input_offset];
+  auto uniforms_data = (type_layout_info *)&dbg->mem_buffer[uniforms_offset];
 
   auto vs_str = (char *)&dbg->mem_buffer[vs_offset];
   auto fs_str = (char *)&dbg->mem_buffer[fs_offset];
+#ifdef RENDERER_VULKAN
+  auto gl_state = (open_gl_state *)dbg->data;
+  vulkan_state *vk_state = &gl_state->vk_state;
+  vertex_attributes_desc input_desc = vk_state->declared_attrs[shader_resources_input_type];
+
+  own_std::vector<VkDescriptorSetLayoutBinding> ar;
+  own_std::vector<VkDescriptorSetLayoutBinding> ar_texs;
+  own_std::vector<VkDescriptorSetLayout> sets_out;
+
+  sets_out.emplace_back(vk_state->globals_ubo_layout);
+  sets_out.emplace_back(vk_state->model_layout);
+
+  VkDescriptorSetLayoutBinding aux_binding = {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+      .pImmutableSamplers = NULL,
+  };
+  // ar.emplace_back(aux_binding);
+  int cur_texture = 0;
+  for (int i = 0; i < uniforms_len; i++) {
+    ar.clear();
+
+    auto cur = &uniforms_data[i];
+    aux_binding.descriptorCount = cur->count;
+    aux_binding.binding = 0;
+    if (cur->type == type_layout::TEX2D) {
+      aux_binding.binding = cur_texture;
+      aux_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      cur_texture++;
+
+      ar_texs.emplace_back(aux_binding);
+    } else {
+      ar.emplace_back(aux_binding);
+      VkDescriptorSetLayout descriptorSetLayout =
+          create_shader_uniform_from_ar(vk_state, &ar);
+      sets_out.emplace_back(descriptorSetLayout);
+    }
+  }
+  VkDescriptorSetLayout descriptorSetLayout =
+      create_shader_uniform_from_ar(vk_state, &ar_texs);
+  sets_out.emplace_back(descriptorSetLayout);
+
+  VkVertexInputBindingDescription bindingDesc;
+  own_std::vector<VkFormat> attrsIn;
+  own_std::vector<VkVertexInputAttributeDescription> attrDescs;
+
+  for (int i = 0; i < vertex_input_len; i++) {
+    type_layout_info *cur_attr = &vertex_input_data[i];
+    VkFormat format;
+    switch (cur_attr->type) {
+    case type_layout::FLOAT_R32: {
+      format = VK_FORMAT_R32_SFLOAT;
+    } break;
+    case type_layout::FLOAT_R32G32: {
+      format = VK_FORMAT_R32G32_SFLOAT;
+    } break;
+    case type_layout::FLOAT_R32G32B32: {
+      format = VK_FORMAT_R32G32B32_SFLOAT;
+    } break;
+    case type_layout::FLOAT_R32G32B32A32: {
+      format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    } break;
+    case type_layout::INT_R32G32B32A32: {
+      format = VK_FORMAT_R32G32B32A32_SINT;
+    } break;
+    case type_layout::MAT4: {
+      format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    } break;
+    default:
+      ASSERT(false)
+    }
+    attrsIn.emplace_back(format);
+  }
+  get_shader_attrs(&attrsIn, &bindingDesc, &attrDescs);
+
+  char prev_char = vs_str[vs_len];
+  vs_str[vs_len] = 0;
+
+  char prev_char_fs = fs_str[fs_len];
+  fs_str[fs_len] = 0;
+
+  int idx = GetFreeHandle(dbg);
+
+  handle_info *h = &dbg->handles[idx];
+  h->sh = (handle_info::shader *)AllocMiscData(dbg->lang_stat,
+                                               sizeof(handle_info::shader));
+
+  // printf("user gave %d uniforms, fs %s\n", uniforms_len, fs_str);
+  h->type = handle_enum::SHADER;
+
+  VkShaderModule vertShader = compileShaderWithShaderc(
+      vk_state->device, vs_str, shaderc_glsl_vertex_shader);
+
+  VkShaderModule fragShader = compileShaderWithShaderc(
+      vk_state->device, fs_str, shaderc_glsl_fragment_shader);
+
+  VkPipeline pipeline = createGraphicsPipeline(
+      vk_state, &h->sh->vk, vk_state->device, vertShader, fragShader,
+      vk_state->offscreen_render_pass, vk_state->swap_chain.extent,
+      &h->sh->vk.pipeline_layout, &bindingDesc, &attrDescs, &sets_out);
+
+  vs_str[vs_len] = prev_char;
+  fs_str[fs_len] = prev_char_fs;
+  printf("compiled vulkan shader\n");
+  auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+
+  *ret = idx;
+
+  /*
+   *
+  own_std::vector<own_std::vector<VkDescriptorSetLayoutBinding>> sets_in;
+  own_std::vector<VkDescriptorSetLayout> sets_out;
+
+  auto sets_in_aux = (own_std::vector<VkDescriptorSetLayoutBinding> *)malloc(
+      sizeof(own_std::vector<VkDescriptorSetLayoutBinding>));
+  memset(sets_in_aux, 0, sizeof(*sets_in_aux));
+
+  sets_in_aux->emplace_back(aux_binding);
+  sets_in.emplace_back(*sets_in_aux);
+
+  auto sets_in_aux2 = (own_std::vector<VkDescriptorSetLayoutBinding> *)malloc(
+      sizeof(own_std::vector<VkDescriptorSetLayoutBinding>));
+  memset(sets_in_aux2, 0, sizeof(*sets_in_aux2));
+  aux_binding = {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+      .pImmutableSamplers = NULL,
+
+  };
+  sets_in_aux2->emplace_back(aux_binding);
+  sets_in.emplace_back(*sets_in_aux2);
+  get_shader_uniforms(vk_state, &sets_in, &sets_out);
+  */
+
+#else
 
   char prev_char = vs_str[vs_len];
   vs_str[vs_len] = 0;
@@ -6623,130 +8199,13 @@ void CompileShader2(int thread_id, dbg_state *dbg) {
   GL_CALL(glAttachShader(shaderProgram, vs))
   GL_CALL(glAttachShader(shaderProgram, fs))
   GL_CALL(glLinkProgram(shaderProgram))
-
   auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+
   *ret = shaderProgram;
+#endif
 }
 void Init3D(dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
-    
-
-  char *vertexShaderSrc = "\n\
-	#version 330 core\n\
-	layout (location = 0) in vec3 aPos;\n\
-	layout(location = 1) in vec2 aTexCoord;\n\
-	out vec4 vColor;\n\
-	out vec3 fragPos;\n\
-	out vec2 TexCoord;\n\
-	uniform mat4 model;\n\
-	uniform vec4 rot;\n\
-	uniform vec4 cam_pos;\n\
-	uniform mat4 view;\n\
-	uniform mat4 projection;\n\
-	vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
-		// Extract quaternion components\n\
-		float w = q.w;\n\
-		vec3 u = q.xyz;\n\
-		// Apply rotation: v' = v + 2.0 * cross(u, cross(u, v) + w * v)\n\
-		return v + 2.0 * cross(u, cross(u, v) + w * v);\n\
-	}\n\
-	void main() {\n\
-		vec4 aux = model * vec4(aPos, 1.0);\n\
-		aux += cam_pos;\n\
-		fragPos = aux.xyz;\n\
-		gl_Position = projection * view * aux;\n\
-		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
-		TexCoord = aTexCoord;\n\
-	}\
-	";
-
-  char *terrainVertexShaderSrc = "\n\
-	#version 330 core\n\
-	layout (location = 0) in vec3 aPos;\n\
-	layout (location = 1) in vec3 vertexCol;\n\
-	out vec4 vColor;\n\
-	out vec3 fragPos;\n\
-	uniform mat4 model;\n\
-	uniform vec4 rot;\n\
-	uniform mat4 view;\n\
-	uniform mat4 projection;\n\
-	uniform mat4 time;\n\
-	uniform vec4 cam_pos;\n\
-	vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
-		// Extract quaternion components\n\
-		float w = q.w;\n\
-		vec3 u = q.xyz;\n\
-		// Apply rotation: v' = v + 2.0 * cross(u, cross(u, v) + w * v)\n\
-		return v + 2.0 * cross(u, cross(u, v) + w * v);\n\
-	}\n\
-	void main() {\n\
-		float t = time[0][0];\n\
-		vec4 aux = model * vec4(aPos, 1.0);\n\
-		aux += cam_pos;\n\
-		fragPos = aux.xyz;\n\
-		gl_Position = projection * view * aux;\n\
-		vColor = vec4(vertexCol.xyz, 1.0);\n\
-	}\n\
-	";
-
-  // Fragment Shader
-  char *fragmentShaderSrcTexNoLight = "\n\
-	#version 330 core\n\
-	out vec4 FragColor;\n\
-	in vec2 TexCoord;\n\
-	in vec4 vColor;\n\
-	in vec3 fragPos;\n\
-	uniform vec4 col;\n\
-	uniform vec2 tex_size;\n\
-	uniform vec2 tex_offset;\n\
-	uniform sampler2D tex;\n\
-	uniform vec4 sec_color;\n\
-	uniform float color_lerp;\n\
-	void main() {\n\
-		vec4 tex_col =  texture(tex, TexCoord);\n\
-		if(tex_col.a == 0.0){\n\
-			discard;\n\
-		}\n\
-		FragColor = col * vColor * tex_col;\n\
-		FragColor = (1.0 - color_lerp) * FragColor + color_lerp * sec_color;\n\
-	}\
-	";
-  char *fragmentShaderSrcTex = "\n\
-	#version 330 core\n\
-	out vec4 FragColor;\n\
-	in vec2 TexCoord;\n\
-	in vec4 vColor;\n\
-	in vec3 fragPos;\n\
-	uniform vec4 col;\n\
-	uniform vec4 sec_color;\n\
-	uniform float color_lerp;\n\
-	uniform vec2 tex_size;\n\
-	uniform vec2 tex_offset;\n\
-	uniform vec3 sun_dir;\n\
-	uniform vec4 sun_color;\n\
-	uniform sampler2D tex;\n\
-	void main() {\n\
-		vec4 tex_col =  texture(tex, TexCoord);\n\
-		vec3 dx = dFdx(fragPos);\n\
-		vec3 dy = dFdy(fragPos);\n\
-		vec3 norm = normalize(cross(dx, dy));\n\
-		vec3 lightDir = normalize(vec3(-0.5, 0.5, 0.0));\n\
-		float d = max(dot(sun_dir, norm), 0.2);\n\
-		FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
-		FragColor *= col * vColor * tex_col * sun_color;\n\
-		FragColor = (1.0 - color_lerp) * FragColor + color_lerp * sec_color;\n\
-	}\
-	";
-  char *fragmentShaderSrc = "\n\
-	#version 330 core\n\
-	out vec4 FragColor;\n\
-	in vec4 vColor;\n\
-	in vec3 fragPos;\n\
-	uniform vec4 col;\n\
-	void main() {\n\
-		FragColor = col;\n\
-	}\
-	";
 
   // Cube vertices with UVs (each face gets its own 4 vertices)
   GLfloat planeVerts[] = {
@@ -6783,7 +8242,7 @@ void Init3D(dbg_state *dbg) {
       0, 2, 1, 2, 0, 3, // Front face
       0, 1, 2, 2, 3, 0, // Front face
   };
-  GLuint indices[] = {
+  uint32_t indices[] = {
       0,  2,  1,  2,  0,  3,  // Front face
       4,  5,  6,  6,  7,  4,  // Back face
       8,  10, 9,  10, 8,  11, // Left face
@@ -6791,203 +8250,405 @@ void Init3D(dbg_state *dbg) {
       16, 17, 18, 18, 19, 16, // Top face
       20, 22, 21, 22, 20, 23  // Bottom face
   };
-
-  // Compile shaders
-  GLuint terrain_vs = compileShader(GL_VERTEX_SHADER, terrainVertexShaderSrc);
-  GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
-  GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
-  GLuint fs_tex_no_light =
-      compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTexNoLight);
-  GLuint fs_tex = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTex);
-  GLuint shaderProgram = glCreateProgram();
-
-  glAttachShader(shaderProgram, vs);
-  glAttachShader(shaderProgram, fs);
-  glLinkProgram(shaderProgram);
-  gl_state->shader_program3d = shaderProgram;
-
-  shaderProgram = glCreateProgram();
-  glAttachShader(shaderProgram, vs);
-  glAttachShader(shaderProgram, fs_tex);
-  glLinkProgram(shaderProgram);
-  gl_state->shader_program3d_tex = shaderProgram;
-
-  shaderProgram = glCreateProgram();
-  glAttachShader(shaderProgram, vs);
-  glAttachShader(shaderProgram, fs_tex_no_light);
-  glLinkProgram(shaderProgram);
-  gl_state->shader_program3d_tex_no_light = shaderProgram;
-
-  shaderProgram = glCreateProgram();
-  glAttachShader(shaderProgram, terrain_vs);
-  glAttachShader(shaderProgram, fs);
-  glLinkProgram(shaderProgram);
-  gl_state->terrain_shader_program3d = shaderProgram;
-
-  char *otherVertexShaderSrc = "\n\
-	#version 330 core\n\
-	layout (location = 0) in vec3 aPos;\n\
-	out vec4 vColor;\n\
-	uniform mat4 model;\n\
-	uniform vec4 rot;\n\
-	uniform mat4 view;\n\
-	uniform mat4 projection;\n\
-	uniform mat4 time;\n\
-	void main() {\n\
-		float t = time[0][0];\n\
-		vec4 aux = view * vec4(aPos, 1.0);\n\
-		gl_Position = projection * aux;\n\
-		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
-	}\
-	";
-
-  vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
-  shaderProgram = glCreateProgram();
-  glAttachShader(shaderProgram, vs);
-  glAttachShader(shaderProgram, fs);
-  glLinkProgram(shaderProgram);
-  gl_state->shader_program3d_line = shaderProgram;
-
-  otherVertexShaderSrc = "\n\
-	#version 330 core\n\
-	layout (location = 0) in vec3 aPos;\n\
-	out vec4 vColor;\n\
-	uniform mat4 model;\n\
-	uniform vec4 rot;\n\
-	uniform mat4 view;\n\
-	uniform mat4 projection;\n\
-	uniform mat4 time;\n\
-	void main() {\n\
-		float t = time[0][0];\n\
-		vec4 aux = view * vec4(aPos, 1.0);\n\
-		gl_Position = aux;\n\
-		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
-	}\
-	";
-
-  vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
-  shaderProgram = glCreateProgram();
-  glAttachShader(shaderProgram, vs);
-  glAttachShader(shaderProgram, fs);
-  glLinkProgram(shaderProgram);
-  gl_state->shader_program3d_line_no_proj = shaderProgram;
-
-  otherVertexShaderSrc = "\n\
-	#version 330 core\n\
-	layout (location = 0) in vec3 aPos;\n\
-	layout (location = 1) in vec3 normal;\n\
-	out vec4 vColor;\n\
-	uniform mat4 model;\n\
-	uniform vec4 rot;\n\
-	uniform mat4 view;\n\
-	uniform mat4 projection;\n\
-	uniform mat4 time;\n\
-	void main() {\n\
-		float t = time[0][0];\n\
-		vec4 aux = view * vec4(aPos, 1.0);\n\
-		gl_Position = projection * aux;\n\
-		vColor = vec4(1.0, 1.0, 1.0, 1.0);\
-	}\
-	";
-  vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
-  shaderProgram = glCreateProgram();
-  glAttachShader(shaderProgram, vs);
-  glAttachShader(shaderProgram, fs);
-  glLinkProgram(shaderProgram);
-  gl_state->shader_program3d_tri = shaderProgram;
-
-  // Vertex Array & Buffers
-  GLuint VAO, VBO, EBO;
-  glGenVertexArrays(1, &VAO);
-  glGenBuffers(1, &VBO);
-  glGenBuffers(1, &EBO);
-
-  glBindVertexArray(VAO);
-
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVerts), cubeVerts, GL_STATIC_DRAW);
-
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices,
-               GL_STATIC_DRAW);
-
-  // Position attribute (location = 0)
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
-  glEnableVertexAttribArray(0);
-
-  // UV attribute (location = 1)
-  glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
-                        (void *)(3 * sizeof(float)));
-  glEnableVertexAttribArray(1);
-
-  gl_state->vao3d = VAO;
+#ifdef RENDERER_VULKAN
+  auto vk_state = &gl_state->vk_state;
   model_info *cube_m = &gl_state->models[0];
+
+  create_model_vulkan(vk_state, cubeVerts, sizeof(cubeVerts), indices,
+                      sizeof(indices), cube_m);
   cube_m->name = "cube";
-  cube_m->vao = VAO;
-  cube_m->ebo = EBO;
-  cube_m->vbo = VBO;
   cube_m->indicies = 36;
 
-  glGenVertexArrays(1, &VAO);
-  glGenBuffers(1, &VBO);
+#else
 
-  glBindVertexArray(VAO);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6, cubeVerts,
-               GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
-  glEnableVertexAttribArray(0);
-  glBindVertexArray(0);
-  gl_state->vao3d_line = VAO;
-  gl_state->vbo3d_line = VBO;
+  char *vertexShaderSrc = "\n\
+        #version 330 core\n\
+        layout (location = 0) in vec3 aPos;\n\
+        layout(location = 1) in vec2 aTexCoord;\n\
+        out vec4 vColor;\n\
+        out vec3 fragPos;\n\
+        out vec2 TexCoord;\n\
+        uniform mat4 model;\n\
+        uniform vec4 rot;\n\
+        uniform vec4 cam_pos;\n\
+        uniform mat4 view;\n\
+        uniform mat4 projection;\n\
+        vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
+                // Extract quaternion components\n\
+                float w = q.w;\n\
+                vec3 u = q.xyz;\n\
+                // Apply rotation: v' = v + 2.0 * cross(u, cross(u, v) + w *
+v)\n\
+                return v + 2.0 * cross(u, cross(u, v) + w * v);
+  \n
+}
+\n void main() {
+  \n vec4 aux = model * vec4(aPos, 1.0);
+  \n aux += cam_pos;
+  \n fragPos = aux.xyz;
+  \n gl_Position = projection * view * aux;
+  \n vColor = vec4(1.0, 1.0, 1.0, 1.0);
+  TexCoord = aTexCoord;
+  \n
+}
+        ";
 
-  glGenVertexArrays(1, &VAO);
-  glGenBuffers(1, &VBO);
+  char *terrainVertexShaderSrc = "\n\
+        #version 330 core\n\
+        layout (location = 0) in vec3 aPos;\n\
+        layout (location = 1) in vec3 vertexCol;\n\
+        out vec4 vColor;\n\
+        out vec3 fragPos;\n\
+        uniform mat4 model;\n\
+        uniform vec4 rot;\n\
+        uniform mat4 view;\n\
+        uniform mat4 projection;\n\
+        uniform mat4 time;\n\
+        uniform vec4 cam_pos;\n\
+        vec3 rotate_by_quaternion(vec3 v, vec4 q) {\n\
+                // Extract quaternion components\n\
+                float w = q.w;\n\
+                vec3 u = q.xyz;\n\
+                // Apply rotation: v' = v + 2.0 * cross(u, cross(u, v) + w *
+v)\n\
+                return v + 2.0 * cross(u, cross(u, v) + w * v);
+        \n
+        }
+        \n void main() {
+          \n float t = time[0][0];
+          \n vec4 aux = model * vec4(aPos, 1.0);
+          \n aux += cam_pos;
+          \n fragPos = aux.xyz;
+          \n gl_Position = projection * view * aux;
+          \n vColor = vec4(vertexCol.xyz, 1.0);
+          \n
+        }
+        \n ";
 
-  glBindVertexArray(VAO);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, 18 * sizeof(float), cubeVerts,
-               GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
-  // normal
-  glEnableVertexAttribArray(0);
-  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                        (void *)(3 * sizeof(float)));
-  glEnableVertexAttribArray(1);
-  glBindVertexArray(0);
-  gl_state->vao3d_tri = VAO;
-  gl_state->vbo3d_tri = VBO;
+            // Fragment Shader
+            char *fragmentShaderSrcTexNoLight = "\n\
+        #version 330 core\n\
+        out vec4 FragColor;\n\
+        in vec2 TexCoord;\n\
+        in vec4 vColor;\n\
+        in vec3 fragPos;\n\
+        uniform vec4 col;\n\
+        uniform vec2 tex_size;\n\
+        uniform vec2 tex_offset;\n\
+        uniform sampler2D tex;\n\
+        uniform vec4 sec_color;\n\
+        uniform float color_lerp;\n\
+        void main() {\n\
+                vec4 tex_col =  texture(tex, TexCoord);\n\
+                if(tex_col.a == 0.0){\n\
+                        discard;\n\
+                }\n\
+                FragColor = col * vColor * tex_col;\n\
+                FragColor = (1.0 - color_lerp) * FragColor + color_lerp *
+            sec_color;
+        \n
+        }
+        ";
+            char *fragmentShaderSrcTex = "\n\
+        #version 330 core\n\
+        out vec4 FragColor;\n\
+        in vec2 TexCoord;\n\
+        in vec4 vColor;\n\
+        in vec3 fragPos;\n\
+        uniform vec4 col;\n\
+        uniform vec4 sec_color;\n\
+        uniform float color_lerp;\n\
+        uniform vec2 tex_size;\n\
+        uniform vec2 tex_offset;\n\
+        uniform vec3 sun_dir;\n\
+        uniform vec4 sun_color;\n\
+        uniform sampler2D tex;\n\
+        void main() {\n\
+                vec4 tex_col =  texture(tex, TexCoord);\n\
+                vec3 dx = dFdx(fragPos);\n\
+                vec3 dy = dFdy(fragPos);\n\
+                vec3 norm = normalize(cross(dx, dy));\n\
+                vec3 lightDir = normalize(vec3(-0.5, 0.5, 0.0));\n\
+                float d = max(dot(sun_dir, norm), 0.2);\n\
+                FragColor = vec4(vec3(1.0, 1.0, 1.0) * d, 1.0);\n\
+                FragColor *= col * vColor * tex_col * sun_color;\n\
+                FragColor = (1.0 - color_lerp) * FragColor + color_lerp *
+            sec_color;
+        \n
+        }
+        ";
+            char *fragmentShaderSrc = "\n\
+        #version 330 core\n\
+        out vec4 FragColor;\n\
+        in vec4 vColor;\n\
+        in vec3 fragPos;\n\
+        uniform vec4 col;\n\
+        void main() {\n\
+                FragColor = col;\n\
+        }\
+        ";
 
-  glEnable(GL_DEPTH_TEST);
+        // Compile shaders
+        GLuint terrain_vs =
+            compileShader(GL_VERTEX_SHADER, terrainVertexShaderSrc);
+        GLuint vs = compileShader(GL_VERTEX_SHADER, vertexShaderSrc);
+        GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrc);
+        GLuint fs_tex_no_light =
+            compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTexNoLight);
+        GLuint fs_tex = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSrcTex);
+        GLuint shaderProgram = glCreateProgram();
 
-  glGenVertexArrays(1, &VAO);
-  glGenBuffers(1, &VBO);
-  glGenBuffers(1, &EBO);
+        glAttachShader(shaderProgram, vs);
+        glAttachShader(shaderProgram, fs);
+        glLinkProgram(shaderProgram);
+        gl_state->shader_program3d = shaderProgram;
 
-  glBindVertexArray(VAO);
+        shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vs);
+        glAttachShader(shaderProgram, fs_tex);
+        glLinkProgram(shaderProgram);
+        gl_state->shader_program3d_tex = shaderProgram;
 
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(planeVerts), planeVerts, GL_STATIC_DRAW);
+        shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vs);
+        glAttachShader(shaderProgram, fs_tex_no_light);
+        glLinkProgram(shaderProgram);
+        gl_state->shader_program3d_tex_no_light = shaderProgram;
 
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indicesPlane), indicesPlane,
-               GL_STATIC_DRAW);
+        shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, terrain_vs);
+        glAttachShader(shaderProgram, fs);
+        glLinkProgram(shaderProgram);
+        gl_state->terrain_shader_program3d = shaderProgram;
 
-  // Position attribute (location = 0)
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
-  glEnableVertexAttribArray(0);
+        char *otherVertexShaderSrc = "\n\
+        #version 330 core\n\
+        layout (location = 0) in vec3 aPos;\n\
+        out vec4 vColor;\n\
+        uniform mat4 model;\n\
+        uniform vec4 rot;\n\
+        uniform mat4 view;\n\
+        uniform mat4 projection;\n\
+        uniform mat4 time;\n\
+        void main() {\n\
+                float t = time[0][0];\n\
+                vec4 aux = view * vec4(aPos, 1.0);\n\
+                gl_Position = projection * aux;\n\
+                vColor = vec4(1.0, 1.0, 1.0, 1.0);\
+        }\
+        ";
 
-  // UV attribute (location = 1)
-  glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
-                        (void *)(3 * sizeof(float)));
-  glEnableVertexAttribArray(1);
-  model_info *plane_m = &gl_state->models[1];
-  plane_m->name = "plane";
-  plane_m->vao = VAO;
-  plane_m->ebo = EBO;
-  plane_m->vbo = VBO;
-  plane_m->indicies = sizeof(indicesPlane) / sizeof(float);
+        vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
+        shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vs);
+        glAttachShader(shaderProgram, fs);
+        glLinkProgram(shaderProgram);
+        gl_state->shader_program3d_line = shaderProgram;
 
+        otherVertexShaderSrc = "\n\
+        #version 330 core\n\
+        layout (location = 0) in vec3 aPos;\n\
+        out vec4 vColor;\n\
+        uniform mat4 model;\n\
+        uniform vec4 rot;\n\
+        uniform mat4 view;\n\
+        uniform mat4 projection;\n\
+        uniform mat4 time;\n\
+        void main() {\n\
+                float t = time[0][0];\n\
+                vec4 aux = view * vec4(aPos, 1.0);\n\
+                gl_Position = aux;\n\
+                vColor = vec4(1.0, 1.0, 1.0, 1.0);\
+        }\
+        ";
+
+        vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
+        shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vs);
+        glAttachShader(shaderProgram, fs);
+        glLinkProgram(shaderProgram);
+        gl_state->shader_program3d_line_no_proj = shaderProgram;
+
+        otherVertexShaderSrc = "\n\
+        #version 330 core\n\
+        layout (location = 0) in vec3 aPos;\n\
+        layout (location = 1) in vec3 normal;\n\
+        out vec4 vColor;\n\
+        uniform mat4 model;\n\
+        uniform vec4 rot;\n\
+        uniform mat4 view;\n\
+        uniform mat4 projection;\n\
+        uniform mat4 time;\n\
+        void main() {\n\
+                float t = time[0][0];\n\
+                vec4 aux = view * vec4(aPos, 1.0);\n\
+                gl_Position = projection * aux;\n\
+                vColor = vec4(1.0, 1.0, 1.0, 1.0);\
+        }\
+        ";
+        vs = compileShader(GL_VERTEX_SHADER, otherVertexShaderSrc);
+        shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vs);
+        glAttachShader(shaderProgram, fs);
+        glLinkProgram(shaderProgram);
+        gl_state->shader_program3d_tri = shaderProgram;
+
+        // Vertex Array & Buffers
+        GLuint VAO, VBO, EBO;
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVerts), cubeVerts,
+                     GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices,
+                     GL_STATIC_DRAW);
+
+        // Position attribute (location = 0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
+                              (void *)0);
+        glEnableVertexAttribArray(0);
+
+        // UV attribute (location = 1)
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
+                              (void *)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+
+        gl_state->vao3d = VAO;
+        model_info *cube_m = &gl_state->models[0];
+        cube_m->name = "cube";
+        cube_m->vao = VAO;
+        cube_m->ebo = EBO;
+        cube_m->vbo = VBO;
+        cube_m->indicies = 36;
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6, cubeVerts,
+                     GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float),
+                              (void *)0);
+        glEnableVertexAttribArray(0);
+        glBindVertexArray(0);
+        gl_state->vao3d_line = VAO;
+        gl_state->vbo3d_line = VBO;
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, 18 * sizeof(float), cubeVerts,
+                     GL_DYNAMIC_DRAW); // Note: GL_DYNAMIC_DRAW
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                              (void *)0);
+        // normal
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                              (void *)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glBindVertexArray(0);
+        gl_state->vao3d_tri = VAO;
+        gl_state->vbo3d_tri = VBO;
+
+        glEnable(GL_DEPTH_TEST);
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(planeVerts), planeVerts,
+                     GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indicesPlane),
+                     indicesPlane, GL_STATIC_DRAW);
+
+        // Position attribute (location = 0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
+                              (void *)0);
+        glEnableVertexAttribArray(0);
+
+        // UV attribute (location = 1)
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
+                              (void *)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        model_info *plane_m = &gl_state->models[1];
+        plane_m->name = "plane";
+        plane_m->vao = VAO;
+        plane_m->ebo = EBO;
+        plane_m->vbo = VBO;
+        plane_m->indicies = sizeof(indicesPlane) / sizeof(float);
+
+        // gl_state->model[13] = -1.0f;  // translate view back
+        /*
+        unsigned int texture;
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        // set the texture wrapping/filtering options (on the currently bound
+        texture object) glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
+        GL_REPEAT); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,
+        GL_REPEAT); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+        GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+        GL_NEAREST);
+        // load and generate the texture
+        int width, height, nrChannels;
+        */
+
+        GLuint fbo, texture, depthBuffer;
+
+        // Create and bind the framebuffer
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        gl_state->frame_buffer = fbo;
+
+        // Create the texture to render to
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        gl_state->frame_buffer_tex = texture;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gl_state->width,
+                     gl_state->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        // Attach the texture to the framebuffer's color attachment
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, texture, 0);
+
+        // Create and attach a depth buffer (optional, for 3D scenes)
+        glGenRenderbuffers(1, &depthBuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT,
+                              gl_state->width, gl_state->height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                  GL_RENDERBUFFER, depthBuffer);
+
+        auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+        // Check framebuffer completeness
+        if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
+          printf("Error: Framebuffer is not complete!\n");
+          ASSERT(false);
+        }
+
+        // Unbind the framebuffer for now
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // Set the list of draw buffers.
+        // GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+        // glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+#endif
   loadIdentity(gl_state->model);
   loadIdentity(gl_state->view);
   loadIdentity(gl_state->projection);
@@ -6996,62 +8657,6 @@ void Init3D(dbg_state *dbg) {
               (float)gl_state->width / (float)gl_state->height, 0.01f, 500.0f);
   gl_state->view[14] = -5.0f; // translate view back
   gl_state->view[13] = -1.0f; // translate view back
-  // gl_state->model[13] = -1.0f;  // translate view back
-  /*
-  unsigned int texture;
-  glGenTextures(1, &texture);
-  glBindTexture(GL_TEXTURE_2D, texture);
-  // set the texture wrapping/filtering options (on the currently bound
-  texture object) glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
-  GL_REPEAT); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  // load and generate the texture
-  int width, height, nrChannels;
-  */
-
-  GLuint fbo, texture, depthBuffer;
-
-  // Create and bind the framebuffer
-  glGenFramebuffers(1, &fbo);
-  glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-  gl_state->frame_buffer = fbo;
-
-  // Create the texture to render to
-  glGenTextures(1, &texture);
-  glBindTexture(GL_TEXTURE_2D, texture);
-  gl_state->frame_buffer_tex = texture;
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gl_state->width, gl_state->height, 0,
-               GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-  // Attach the texture to the framebuffer's color attachment
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                         texture, 0);
-
-  // Create and attach a depth buffer (optional, for 3D scenes)
-  glGenRenderbuffers(1, &depthBuffer);
-  glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
-  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, gl_state->width,
-                        gl_state->height);
-  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                            GL_RENDERBUFFER, depthBuffer);
-
-  auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-
-  // Check framebuffer completeness
-  if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
-    printf("Error: Framebuffer is not complete!\n");
-    ASSERT(false);
-  }
-
-  // Unbind the framebuffer for now
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-  // Set the list of draw buffers.
-  // GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
-  // glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
 }
 void cursor_position_callback(GLFWwindow *window, double xpos, double ypos) {
   auto gl_state = (open_gl_state *)glfwGetWindowUserPointer(window);
@@ -7107,15 +8712,15 @@ void HideCursor(int thread_id, dbg_state *dbg) {
 #ifdef AOEOAE
     hide_cursor_x11((GLFWwindow *)gl_state->glfw_window);
 #else
-    glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR,
-                     GLFW_CURSOR_DISABLED);
+            glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR,
+                             GLFW_CURSOR_DISABLED);
 #endif
   } else {
 #ifdef AOEAOE
     show_cursor_x11((GLFWwindow *)gl_state->glfw_window);
 #else
-    glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR,
-                     GLFW_CURSOR_NORMAL);
+            glfwSetInputMode((GLFWwindow *)gl_state->glfw_window, GLFW_CURSOR,
+                             GLFW_CURSOR_NORMAL);
 #endif
   }
 }
@@ -7201,7 +8806,7 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, GLuint id,
 #ifdef _MSC_VER
     __debugbreak();
 #else
-    raise(SIGTRAP);
+            raise(SIGTRAP);
 #endif
   }
 }
@@ -7307,6 +8912,121 @@ static int audio_callback(const void *input, void *output,
   return paContinue; // Return `paComplete` to stop
 }
 #ifdef RENDERER_VULKAN
+
+typedef struct Texture {
+  VkImage image;
+  VkDeviceMemory memory;
+  VkImageView view;
+  VkSampler sampler;
+} Texture;
+
+// Helper: find memory type
+void transitionImageToShaderRead(VkCommandBuffer cmd, VkImage image,
+                                 VkImageLayout oldLayout,
+                                 VkAccessFlags srcAccessMask,
+                                 VkImageAspectFlags aspect) {
+  VkPipelineStageFlags srcStage;
+
+  // choose correct stage based on what kind of image this is
+  if (aspect & VK_IMAGE_ASPECT_DEPTH_BIT)
+    srcStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT; // for depth
+  else
+    srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // for color
+
+  VkImageMemoryBarrier barrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .oldLayout = oldLayout,
+      .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      .srcAccessMask = srcAccessMask,
+      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+      .image = image,
+      .subresourceRange.aspectMask = aspect,
+      .subresourceRange.levelCount = 1,
+      .subresourceRange.layerCount = 1,
+  };
+
+  vkCmdPipelineBarrier(
+      cmd,
+      srcStage,                              // <-- fixed
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, // next pass will sample
+      0, 0, NULL, 0, NULL, 1, &barrier);
+}
+// Helper: transition image layout
+
+// Helper: begin a one-time-use command buffer
+
+// --- MAIN TEXTURE CREATION ---
+
+typedef struct {
+  float pos[3];
+  float normal[3];
+  float uv[2];
+  float color[4];
+} GenralVertex;
+typedef struct {
+  float pos[2];
+  float uv[2];
+} VertexPost;
+
+struct uniform_type {
+  VkDescriptorType type;
+};
+
+static inline VkVertexInputBindingDescription getBindingDescriptionPost() {
+  VkVertexInputBindingDescription bindingDescription = {
+      .binding = 0,
+      .stride = sizeof(VertexPost),
+      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX};
+  return bindingDescription;
+}
+
+void get_shader_uniforms(
+    vulkan_state *vk_state,
+    own_std::vector<own_std::vector<VkDescriptorSetLayoutBinding>> *in,
+    own_std::vector<VkDescriptorSetLayout> *out) {
+  FOR_VEC(ar, *in) {
+
+    VkDescriptorSetLayout descriptorSetLayout =
+        create_shader_uniform_from_ar(vk_state, ar);
+    out->emplace_back(descriptorSetLayout);
+  }
+}
+static inline VkVertexInputBindingDescription getBindingDescription() {
+  VkVertexInputBindingDescription bindingDescription = {
+      .binding = 0,
+      .stride = sizeof(GeneralVertex),
+      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX};
+  return bindingDescription;
+}
+
+static inline void
+getAttributeDescriptionsPost(VkVertexInputAttributeDescription *attrs) {
+  // position (location = 0)
+  attrs[0].binding = 0;
+  attrs[0].location = 0;
+  attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
+  attrs[0].offset = offsetof(VertexPost, pos);
+
+  // color (location = 1)
+  attrs[1].binding = 0;
+  attrs[1].location = 1;
+  attrs[1].format = VK_FORMAT_R32G32_SFLOAT;
+  attrs[1].offset = offsetof(VertexPost, uv);
+}
+static inline void
+getAttributeDescriptions(VkVertexInputAttributeDescription *attrs) {
+  // position (location = 0)
+  attrs[0].binding = 0;
+  attrs[0].location = 0;
+  attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attrs[0].offset = offsetof(GeneralVertex, pos);
+
+  // color (location = 1)
+  attrs[1].binding = 0;
+  attrs[1].location = 1;
+  attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attrs[1].offset = offsetof(GeneralVertex, color);
+}
 void createSemaphores(VkDevice device, VkSemaphore *imageAvailable,
                       VkSemaphore *renderFinished) {
   VkSemaphoreCreateInfo semaphoreInfo = {
@@ -7337,25 +9057,120 @@ void beginCommandBuffer(VkCommandBuffer cmdBuf,
     exit(EXIT_FAILURE);
   }
 }
-void recordCommadBuffer(VkCommandBuffer cmd, VkImage img) {
-  VkClearColorValue clear_color = {1.0, 0.0, 0.0, 0.0};
+typedef struct UniformBufferObject {
+  Mat4 view;
+  Mat4 proj;
+} UniformBufferObject;
+void updateSamplerUniformBuffer(VkDevice device, VkBuffer buffer,
+                                VkDeviceMemory bufferMemory, void *src_data,
+                                int size, VkDescriptorSet set) {
+  void *dst_data;
+  vkMapMemory(device, bufferMemory, 0, size, 0, &dst_data);
+  memcpy(dst_data, src_data, size);
+  vkUnmapMemory(device, bufferMemory);
+
+  VkDescriptorBufferInfo bufferInfo = {
+      .buffer = buffer,
+      .offset = 0,
+      .range = size,
+  };
+
+  VkWriteDescriptorSet descriptorWrite = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = set,
+      .dstBinding = 0,
+      .dstArrayElement = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .descriptorCount = 1,
+      .pBufferInfo = &bufferInfo,
+  };
+
+  vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
+}
+void recordCommadBuffer(vulkan_state *vk_state,
+                        vulkan_graphics_pipeline *graphics_pipeline,
+                        VkCommandBuffer cmd, VkFramebuffer frame_buffer,
+                        VkPipeline pipeline, VkBuffer vbuffer, VkBuffer ibuffer,
+                        u32 indices_count, VkClearValue *clear_colors,
+                        int clear_color_count, VkRenderPass rpass,
+                        bool end_render_pass = true) {
+
+  VkClearValue clearColor = {.color = {{1.0f, 0.0f, 0.0f, 1.0f}}}; // red clear
+                                                                   //
+
+  VkRenderPassBeginInfo renderPassInfo = {
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+      .renderPass = rpass,
+      .framebuffer = frame_buffer,
+      .renderArea = {{0, 0}, vk_state->swap_chain.extent},
+      .clearValueCount = clear_color_count,
+      .pClearValues = clear_colors};
+
+  vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+  if (graphics_pipeline->descriptor_sets.size() > 0) {
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            graphics_pipeline->pipeline_layout, 0,
+                            graphics_pipeline->descriptor_sets.size(),
+                            &graphics_pipeline->descriptor_sets[0], 0, NULL);
+  }
+  VkDeviceSize offsets = 0;
+  vkCmdBindVertexBuffers(cmd, 0, 1, &vbuffer, &offsets);
+
+  // Bind index buffer
+  vkCmdBindIndexBuffer(cmd, ibuffer, 0, VK_INDEX_TYPE_UINT32);
+
+  // Draw using indices
+  vkCmdDrawIndexed(cmd, indices_count, 1, 0, 0, 0);
+
+  // vkCmdDraw(cmd, 3, 1, 0, 0);
+
+  if (end_render_pass)
+    vkCmdEndRenderPass(cmd);
+
+  /*
   VkImageSubresourceRange range = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
                                    .baseMipLevel = 0,
                                    .levelCount = 1,
                                    .baseArrayLayer = 0,
                                    .layerCount = 1};
+  VkImageMemoryBarrier barrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .image = img,
+      .subresourceRange = range,
+      .srcAccessMask = 0,
+      .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+  };
 
-  beginCommandBuffer(cmd, 0);
-  vkCmdClearColorImage(cmd, img, VK_IMAGE_LAYOUT_GENERAL, &clear_color, 1,
-                       &range);
-  vkEndCommandBuffer(cmd);
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1,
+                       &barrier);
+
+  vkCmdClearColorImage(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       &clear_color, 1, &range);
+
+  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = 0;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0,
+                       NULL, 1, &barrier);
+                       */
 }
 VkCommandPool createCommandPool(VkDevice device, uint32_t queueFamilyIndex) {
   VkCommandPoolCreateInfo poolInfo = {
       .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
       .queueFamilyIndex = queueFamilyIndex,
-      .flags =
-          VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT // allow re-recording
+      .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT // allow
+                                                               // re-recording
   };
 
   VkCommandPool commandPool;
@@ -7411,8 +9226,51 @@ VkPresentModeKHR choosePresentMode(const VkPresentModeKHR *availableModes,
   }
   return VK_PRESENT_MODE_FIFO_KHR; // always supported
 }
+int findGraphicsQueueFamily(VkPhysicalDevice device) {
+  uint32_t queueFamilyCount = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
 
-// Helper: choose swap extent (window size)
+  VkQueueFamilyProperties *queueFamilies = (VkQueueFamilyProperties *)malloc(
+      sizeof(VkQueueFamilyProperties) * queueFamilyCount);
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
+                                           queueFamilies);
+
+  int graphicsFamily = -1;
+
+  for (uint32_t i = 0; i < queueFamilyCount; i++) {
+    if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+      graphicsFamily = i;
+      break;
+    }
+  }
+
+  free(queueFamilies);
+  return graphicsFamily;
+}
+int findPresentQueueFamily(VkPhysicalDevice device, VkSurfaceKHR surface) {
+  uint32_t queueFamilyCount = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+
+  VkQueueFamilyProperties *queueFamilies = (VkQueueFamilyProperties *)malloc(
+      sizeof(VkQueueFamilyProperties) * queueFamilyCount);
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
+                                           queueFamilies);
+
+  int presentFamily = -1;
+
+  for (uint32_t i = 0; i < queueFamilyCount; i++) {
+    VkBool32 presentSupport = VK_FALSE;
+    vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+
+    if (presentSupport) {
+      presentFamily = (int)i;
+      break;
+    }
+  }
+
+  free(queueFamilies);
+  return presentFamily;
+}
 VkExtent2D chooseExtent(const VkSurfaceCapabilitiesKHR *caps,
                         GLFWwindow *window) {
   if (caps->currentExtent.width != UINT32_MAX)
@@ -7434,8 +9292,6 @@ VkExtent2D chooseExtent(const VkSurfaceCapabilitiesKHR *caps,
 
   return actual;
 }
-
-// Main function to create swapchain
 SwapchainData createSwapchain(VkPhysicalDevice physicalDevice, VkDevice device,
                               VkSurfaceKHR surface, int graphicsFamily,
                               int presentFamily, GLFWwindow *window) {
@@ -7486,7 +9342,8 @@ SwapchainData createSwapchain(VkPhysicalDevice physicalDevice, VkDevice device,
       .imageColorSpace = surfaceFormat.colorSpace,
       .imageExtent = extent,
       .imageArrayLayers = 1,
-      .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+      .imageUsage =
+          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
       .imageSharingMode = sharingMode,
       .queueFamilyIndexCount = (graphicsFamily != presentFamily) ? 2 : 0,
       .pQueueFamilyIndices =
@@ -7535,6 +9392,70 @@ SwapchainData createSwapchain(VkPhysicalDevice physicalDevice, VkDevice device,
   printf("Swapchain created with %u images.\n", sc.imageCount);
   return sc;
 }
+void createFramebuffers(VkDevice device, VkRenderPass renderPass,
+                        VkExtent2D swapchainExtent,
+                        VkImageView *swapchainImageViews, uint32_t imageCount,
+                        VkFramebuffer *framebuffers) {
+  for (uint32_t i = 0; i < imageCount; i++) {
+    VkImageView attachments[] = {swapchainImageViews[i]};
+
+    VkFramebufferCreateInfo framebufferInfo = {
+        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass = renderPass,
+        .attachmentCount = 1,
+        .pAttachments = attachments,
+        .width = swapchainExtent.width,
+        .height = swapchainExtent.height,
+        .layers = 1};
+
+    if (vkCreateFramebuffer(device, &framebufferInfo, NULL, &framebuffers[i]) !=
+        VK_SUCCESS) {
+      fprintf(stderr, "Failed to create framebuffer %d!\n", i);
+      exit(1);
+    }
+  }
+}
+void recreateSwapchain(vulkan_state *vk) {
+  int width = 0, height = 0;
+  glfwGetFramebufferSize(vk->window, &width, &height);
+  while (width == 0 || height == 0) {
+    glfwWaitEvents();
+    glfwGetFramebufferSize(vk->window, &width, &height);
+  }
+
+  vkDeviceWaitIdle(vk->device);
+
+  // 🔥 Destroy old swapchain-dependent resources
+  for (uint32_t i = 0; i < vk->swap_chain.imageCount; ++i) {
+    vkDestroyFramebuffer(vk->device, vk->frame_buffers[i], nullptr);
+    vkDestroyImageView(vk->device, vk->swap_chain.imageViews[i], nullptr);
+  }
+  // vkDestroyImageView(vk->device, vk->depthImageView, nullptr);
+  // vkDestroyImage(vk->device, vk->depthImage, nullptr);
+  // vkFreeMemory(vk->device, vk->depthImageMemory, nullptr);
+  vkDestroySwapchainKHR(vk->device, vk->swap_chain.swapchain, nullptr);
+
+  int graphicsFamily = findGraphicsQueueFamily(vk->physical_device);
+  if (graphicsFamily == -1) {
+    fprintf(stderr, "Failed to find graphics queue family!\n");
+    ASSERT(false)
+    return EXIT_FAILURE;
+  }
+
+  auto presentFamily = findPresentQueueFamily(vk->physical_device, vk->surface);
+
+  vk->swap_chain = createSwapchain(vk->physical_device, vk->device, vk->surface,
+                                   graphicsFamily, presentFamily, vk->window);
+
+  createFramebuffers(vk->device, vk->render_pass, vk->swap_chain.extent,
+                     vk->swap_chain.imageViews, vk->swap_chain.imageCount,
+                     &vk->frame_buffers[0]);
+
+  // 🧱 Update viewport/scissor if you stored them in pipeline state
+}
+// Helper: choose swap extent (window size)
+
+// Main function to create swapchain
 VKAPI_ATTR VkBool32 VKAPI_CALL
 vkDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                 VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -7593,27 +9514,6 @@ void pickPhysicalDevice(VkInstance instance, VkPhysicalDevice *outDevice) {
 
   free(devices);
 }
-int findGraphicsQueueFamily(VkPhysicalDevice device) {
-  uint32_t queueFamilyCount = 0;
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
-
-  VkQueueFamilyProperties *queueFamilies = (VkQueueFamilyProperties *)malloc(
-      sizeof(VkQueueFamilyProperties) * queueFamilyCount);
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
-                                           queueFamilies);
-
-  int graphicsFamily = -1;
-
-  for (uint32_t i = 0; i < queueFamilyCount; i++) {
-    if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-      graphicsFamily = i;
-      break;
-    }
-  }
-
-  free(queueFamilies);
-  return graphicsFamily;
-}
 
 VkDevice createLogicalDevice(VkPhysicalDevice physicalDevice,
                              int graphicsFamily, VkQueue *outQueue) {
@@ -7627,6 +9527,7 @@ VkDevice createLogicalDevice(VkPhysicalDevice physicalDevice,
 
   const char *deviceExtensions[] = {
       VK_KHR_SWAPCHAIN_EXTENSION_NAME, // needed for rendering to screen
+      VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
       VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME};
 
   VkPhysicalDeviceFeatures deviceFeatures = {0};
@@ -7651,41 +9552,366 @@ VkDevice createLogicalDevice(VkPhysicalDevice physicalDevice,
   vkGetDeviceQueue(device, (uint32_t)graphicsFamily, 0, outQueue);
   return device;
 }
-int findPresentQueueFamily(VkPhysicalDevice device, VkSurfaceKHR surface) {
-  uint32_t queueFamilyCount = 0;
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+VkRenderPass createRenderPass(VkDevice device, VkFormat swapchainImageFormat,
+                              own_std::vector<VkAttachmentDescription> *descs,
+                              own_std::vector<VkImageLayout> *layouts,
+                              bool create_depth_texture = false) {
 
-  VkQueueFamilyProperties *queueFamilies = (VkQueueFamilyProperties *)malloc(
-      sizeof(VkQueueFamilyProperties) * queueFamilyCount);
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
-                                           queueFamilies);
+  own_std::vector<VkAttachmentReference> refs;
+  refs.reserve(layouts->size());
+  auto i = 0;
+  FOR_VEC(r, *layouts) {
+    VkAttachmentReference att = {.attachment = i, .layout = *r};
+    refs.emplace_back(att);
+    i++;
+  }
 
-  int presentFamily = -1;
+  VkSubpassDescription subpass;
+  if (create_depth_texture) {
+    ASSERT(refs.back().layout ==
+           VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+    subpass = {.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+               .colorAttachmentCount = refs.size() - 1,
+               .pColorAttachments = &refs[0],
+               .pDepthStencilAttachment = &refs.back()};
+  } else {
+    subpass = {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = refs.size(),
+        .pColorAttachments = &refs[0],
+    };
+  }
+  // Make sure the layout transitions are properly synchronized
+  VkSubpassDependency dependency = {
+      .srcSubpass = VK_SUBPASS_EXTERNAL,
+      .dstSubpass = 0,
+      .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+      .srcAccessMask = 0,
+      .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+      .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT};
 
-  for (uint32_t i = 0; i < queueFamilyCount; i++) {
-    VkBool32 presentSupport = VK_FALSE;
-    vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+  VkRenderPassCreateInfo renderPassInfo = {
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+      .attachmentCount = descs->size(),
+      .pAttachments = &(*descs)[0],
+      .subpassCount = 1,
+      .pSubpasses = &subpass,
+      .dependencyCount = 1,
+      .pDependencies = &dependency};
 
-    if (presentSupport) {
-      presentFamily = (int)i;
+  VkRenderPass renderPass;
+  if (vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass) !=
+      VK_SUCCESS) {
+    fprintf(stderr, "Failed to create render pass!\n");
+    exit(1);
+  }
+
+  return renderPass;
+}
+
+/*
+ * Create a simple graphics pipeline.
+ *
+ * Parameters:
+ *   device         - logical device
+ *   vertModule     - vertex shader VkShaderModule (must be valid)
+ *   fragModule     - fragment shader VkShaderModule (must be valid)
+ *   renderPass     - render pass this pipeline will be used with
+ *   extent         - swapchain extent (viewport/scissor)
+ *   pipelineLayout - pointer to VkPipelineLayout. If *pipelineLayout ==
+ * VK_NULL_HANDLE, this function will create a simple empty pipeline layout
+ * and write it back.
+ *
+ * Returns:
+ *   VkPipeline (created). Caller must destroy pipeline with
+ * vkDestroyPipeline(device, pipeline, NULL). If a new pipeline layout was
+ * created, the created VkPipelineLayout is written to *pipelineLayout and
+ * must be destroyed by the caller when no longer needed
+ * (vkDestroyPipelineLayout).
+ */
+
+void createUniformBuffer(VkDevice device, VkPhysicalDevice physicalDevice,
+                         VkDeviceSize bufferSize, VkBuffer *buffer,
+                         VkDeviceMemory *bufferMemory) {
+  VkBufferCreateInfo bufferInfo = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+      .size = bufferSize,
+      .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+
+  if (vkCreateBuffer(device, &bufferInfo, NULL, buffer) != VK_SUCCESS) {
+    fprintf(stderr, "Failed to create uniform buffer!\n");
+    exit(1);
+  }
+
+  VkMemoryRequirements memRequirements;
+  vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
+
+  VkPhysicalDeviceMemoryProperties memProperties;
+  vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+  uint32_t memoryTypeIndex = UINT32_MAX;
+  for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+    if ((memRequirements.memoryTypeBits & (1 << i)) &&
+        (memProperties.memoryTypes[i].propertyFlags &
+         (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))) {
+      memoryTypeIndex = i;
       break;
     }
   }
 
-  free(queueFamilies);
-  return presentFamily;
+  if (memoryTypeIndex == UINT32_MAX) {
+    fprintf(stderr, "Failed to find suitable memory type for UBO!\n");
+    exit(1);
+  }
+
+  VkMemoryAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = memRequirements.size,
+      .memoryTypeIndex = memoryTypeIndex,
+  };
+
+  if (vkAllocateMemory(device, &allocInfo, NULL, bufferMemory) != VK_SUCCESS) {
+    fprintf(stderr, "Failed to allocate UBO memory!\n");
+    exit(1);
+  }
+
+  vkBindBufferMemory(device, *buffer, *bufferMemory, 0);
+}
+
+void createImage(vulkan_state *vk_state, vulkan_image *out_image,
+                 VkFormat format, int width, int height,
+                 VkImageUsageFlags usage, VkImageAspectFlags aspect_flags,
+                 VkSamplerAddressMode sample_mode) {
+  VkImage img;
+  VkImageCreateInfo imageInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+      .imageType = VK_IMAGE_TYPE_2D,
+      .format = format,
+      .extent = {width, height, 1},
+      .mipLevels = 1,
+      .arrayLayers = 1,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .tiling = VK_IMAGE_TILING_OPTIMAL,
+      .usage = usage,
+  };
+  vkCreateImage(vk_state->device, &imageInfo, NULL, &img);
+
+  // --- Allocate and bind memory ---
+  VkMemoryRequirements memRequirements;
+  vkGetImageMemoryRequirements(vk_state->device, img, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+      .allocationSize = memRequirements.size,
+      .memoryTypeIndex = findMemoryType(vk_state->physical_device,
+                                        memRequirements.memoryTypeBits,
+                                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+  };
+
+  VkDeviceMemory imgMemory;
+  vkAllocateMemory(vk_state->device, &allocInfo, NULL, &imgMemory);
+  vkBindImageMemory(vk_state->device, img, imgMemory, 0);
+  // --------------------------------
+
+  VkImageViewCreateInfo viewInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .image = img,
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = format,
+      .subresourceRange =
+          {
+              .aspectMask = aspect_flags,
+              .baseMipLevel = 0,
+              .levelCount = 1,
+              .baseArrayLayer = 0,
+              .layerCount = 1,
+          },
+  };
+  VkImageView imgView;
+  vkCreateImageView(vk_state->device, &viewInfo, NULL, &imgView);
+
+  VkSamplerCreateInfo samplerInfo = {
+      .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+      .magFilter = VK_FILTER_LINEAR,
+      .minFilter = VK_FILTER_LINEAR,
+      .addressModeU = sample_mode,
+      .addressModeV = sample_mode,
+      .addressModeW = sample_mode,
+  };
+
+  vkCreateSampler(vk_state->device, &samplerInfo, NULL, &out_image->sampler);
+
+  out_image->img = img;
+  out_image->img_view = imgView;
+}
+void InitImGui(GLFWwindow *window, open_gl_state *gl_state) {
+
+  // Setup Dear ImGui context
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  (void)io;
+
+  io.ConfigNavEscapeClearFocusItem = false;
+  io.ConfigFlags |=
+      ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+  io.ConfigFlags |=
+      ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
+  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+  io.ConfigWindowsMoveFromTitleBarOnly = true;
+
+  // Setup Dear ImGui style
+  ImGui::StyleColorsDark();
+  // ImGui::StyleColorsLight();
+
+#ifdef RENDERER_VULKAN
+  auto vk_state = &gl_state->vk_state;
+
+  VkDescriptorPoolSize pool_sizes[] = {
+      {VK_DESCRIPTOR_TYPE_SAMPLER, 1000},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+      {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000},
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000},
+      {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000},
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+      {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}};
+
+  VkDescriptorPoolCreateInfo pool_info = {};
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets = 1000;
+  pool_info.poolSizeCount =
+      (uint32_t)sizeof(pool_sizes) / sizeof(VkDescriptorPoolSize);
+  pool_info.pPoolSizes = pool_sizes;
+
+  VkDescriptorPool imguiPool;
+  VK_CHECK(vkCreateDescriptorPool(vk_state->device, &pool_info, nullptr,
+                                  &imguiPool));
+
+  ImGui_ImplVulkan_InitInfo init_info = {};
+  init_info.Instance = vk_state->instance;
+  init_info.PhysicalDevice = vk_state->physical_device;
+  init_info.Device = vk_state->device;
+  init_info.Queue = vk_state->grphics_queue;
+  init_info.DescriptorPool = imguiPool;
+  init_info.MinImageCount = vk_state->swap_chain.imageCount;
+  init_info.ImageCount = vk_state->swap_chain.imageCount;
+  init_info.RenderPass = vk_state->render_pass;
+  // init_info.UseDynamicRendering = true;
+
+  // dynamic rendering parameters for imgui to use
+  init_info.PipelineRenderingCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+  init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+  init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats =
+      &vk_state->swap_chain.imageFormat;
+
+  init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+  ImGui_ImplGlfw_InitForVulkan(window, true);
+  ImGui_ImplVulkan_Init(&init_info);
+
+  VkCommandBuffer cmd =
+      beginSingleTimeCommands(vk_state->device, vk_state->cmd_pool);
+  ImGui_ImplVulkan_CreateFontsTexture();
+  endSingleTimeCommands(vk_state->device, vk_state->cmd_pool,
+                        vk_state->grphics_queue, cmd);
+  // ImGui_ImplVulkan_DestroyFontUploadObjects();
+  // ImGui_ImplVulkan_CreateFontsTexture();
+#endif
+}
+void create_gbuffer_images(vulkan_state *vk, deferred_gbuffer *gbuf, int width, int height) {
+    
+    // Albedo (RGBA)
+    createImage(
+        vk, &gbuf->albedo,
+        VK_FORMAT_R8G8B8A8_UNORM,
+        width, height,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+
+    // Normal
+    createImage(
+        vk, &gbuf->normal,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        width, height,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+
+    // Position
+    createImage(
+        vk, &gbuf->position,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        width, height,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+
+    // Depth
+    createImage(
+        vk, &gbuf->depth,
+        VK_FORMAT_D32_SFLOAT,
+        width, height,
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_DEPTH_BIT,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+}
+void create_gbuffer_framebuffer(
+    vulkan_state *vk,
+    deferred_gbuffer *gbuf,
+    VkRenderPass deferred_pass,
+    int width,
+    int height)
+{
+    VkImageView attachments[] = {
+        gbuf->albedo.img_view,
+        gbuf->normal.img_view,
+        gbuf->position.img_view,
+        gbuf->depth.img_view
+    };
+
+    VkFramebufferCreateInfo fbInfo = {
+        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass = deferred_pass,
+        .attachmentCount = 4,
+        .pAttachments = attachments,
+        .width = width,
+        .height = height,
+        .layers = 1
+    };
+
+    if (vkCreateFramebuffer(vk->device, &fbInfo, NULL, &gbuf->framebuffer) != VK_SUCCESS)
+        printf("ERROR creating G-buffer framebuffer\n");
 }
 void InitVulkan(dbg_state *dbg, GLFWwindow *window) {
   auto gl_state = (open_gl_state *)dbg->data;
   vulkan_state *vk_state = &gl_state->vk_state;
   VkAllocationCallbacks *allocator = VK_NULL_HANDLE;
 
+  vk_state->window = window;
+
   own_std::vector<const char *> layers;
   layers.emplace_back("VK_LAYER_KHRONOS_validation");
 
   own_std::vector<const char *> extensions;
   extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
-  extensions.emplace_back("VK_KHR_wayland_surface");
+  // extensions.emplace_back("VK_KHR_wayland_surface");
   extensions.emplace_back("VK_KHR_xcb_surface");
   extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   extensions.emplace_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
@@ -7794,15 +10020,526 @@ void InitVulkan(dbg_state *dbg, GLFWwindow *window) {
   VkPipelineStageFlags wait_flags =
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
+  vk_state->frame_buffers.reserve(vk_state->swap_chain.imageCount);
+
+  VkAttachmentDescription colorAttachment = {
+      .format = vk_state->swap_chain.imageFormat,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,   // clear before drawing
+      .storeOp = VK_ATTACHMENT_STORE_OP_STORE, // store result
+      .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR // ready for presentation
+  };
+
+  own_std::vector<VkAttachmentDescription> descs;
+  own_std::vector<VkImageLayout> layouts;
+
+  layouts.emplace_back(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  descs.emplace_back(colorAttachment);
+
+  vk_state->render_pass = createRenderPass(
+      vk_state->device, vk_state->swap_chain.imageFormat, &descs, &layouts);
+
+  layouts.clear();
+  descs.clear();
+
+  colorAttachment = {
+      .format = vk_state->swap_chain.imageFormat,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+      .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+  };
+  VkAttachmentDescription depthAttachment = {
+      .format = VK_FORMAT_D32_SFLOAT,
+      .samples = VK_SAMPLE_COUNT_1_BIT,
+      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+      .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+      .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+      .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+  };
+  descs.emplace_back(colorAttachment);
+
+  descs.emplace_back(depthAttachment);
+
+  layouts.emplace_back(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  layouts.emplace_back(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+  vk_state->offscreen_render_pass =
+      createRenderPass(vk_state->device, vk_state->swap_chain.imageFormat,
+                       &descs, &layouts, true);
+
+  createFramebuffers(
+      vk_state->device, vk_state->render_pass, vk_state->swap_chain.extent,
+      vk_state->swap_chain.imageViews, vk_state->swap_chain.imageCount,
+      &vk_state->frame_buffers[0]);
+  printf("Vulkan: created postprocess frame buffers\n");
+
+  const char *vertGLSL = "#version 450\n"
+                         "layout(set = 0, binding = 0) uniform UBO {\n"
+                         "mat4 view;\n"
+                         "mat4 proj;\n"
+                         "} ubo;\n"
+                         "layout(set = 1, binding = 0) uniform MODEL {\n"
+                         "mat4 mod;\n"
+                         "} model;\n"
+                         "layout(location = 0) in vec3 inPos;\n"
+                         "layout(location = 1) in vec3 inColor;\n"
+                         "layout(location = 0) out vec3 fragColor;\n"
+                         "\n"
+                         "void main() {\n"
+                         "    fragColor = inColor;\n"
+                         "    gl_Position = model.mod * vec4(inPos,  1.0);\n"
+                         "}\n";
+
+  const char *fragGLSL = "#version 450\n"
+                         "layout(location = 0) in vec3 fragColor;\n"
+                         "layout(location = 0) out vec4 outColor;\n"
+                         "\n"
+                         "void main() {\n"
+                         "    outColor = vec4(fragColor, 1.0);\n"
+                         "}\n";
+
+  const char *vertImguiGLSL = "#version 450\n"
+                              "layout(location = 0) in vec3 inPos;\n"
+                              "\n"
+                              "void main() {\n"
+                              "    gl_Position = vec4(inPos, 1.0);\n"
+                              "}\n";
+
+  const char *fragImguiGLSL = "#version 450\n"
+                              "layout(location = 0) out vec4 outColor;\n"
+                              "\n"
+                              "void main() {\n"
+                              "    outColor = vec4(1.0, 1.0, 1.0, 1.0);\n"
+                              "}\n";
+
+  const char *vertPostGLSL = "#version 450\n"
+                             "layout(location = 0) in vec3 inPos;\n"
+                             "layout(location = 1) in vec2 uv;\n"
+                             "layout(location = 0) out vec2 out_uv;\n"
+                             "\n"
+                             "void main() {\n"
+                             "    out_uv = uv;\n"
+                             "    gl_Position = vec4(inPos, 1.0);\n"
+                             "}\n";
+
+  const char *fragPostGLSL = "#version 450\n"
+                             "layout(location = 0) in vec2 uv;\n"
+                             "layout(binding = 0) uniform sampler2D uColor;\n"
+                             "layout(binding = 1) uniform sampler2D uDepth;\n"
+                             "layout(location = 0) out vec4 outColor;\n"
+                             "\n"
+                             "void main() {\n"
+                             "    outColor = texture(uColor, uv);\n"
+                             "    outColor.r *= 0.1;\n"
+                             "    outColor.g *= 0.1;\n"
+                             "    outColor.b *= 0.1;\n"
+                             "}\n";
+
+  VkShaderModule vertShader = compileShaderWithShaderc(
+      vk_state->device, vertGLSL, shaderc_glsl_vertex_shader);
+
+  VkShaderModule fragShader = compileShaderWithShaderc(
+      vk_state->device, fragGLSL, shaderc_glsl_fragment_shader);
+
+  VkShaderModule vertShaderPost = compileShaderWithShaderc(
+      vk_state->device, vertPostGLSL, shaderc_glsl_vertex_shader);
+
+  VkShaderModule fragShaderPost = compileShaderWithShaderc(
+      vk_state->device, fragPostGLSL, shaderc_glsl_fragment_shader);
+
+  VkShaderModule vertShaderImgui = compileShaderWithShaderc(
+      vk_state->device, vertImguiGLSL, shaderc_glsl_vertex_shader);
+
+  VkShaderModule fragShaderImgui = compileShaderWithShaderc(
+      vk_state->device, fragImguiGLSL, shaderc_glsl_fragment_shader);
+
+  vulkan_graphics_pipeline graphics_pipeline;
+  VkPipelineLayout pipeline_layout;
+
+  vulkan_graphics_pipeline &graphics_pipeline_post =
+      vk_state->graphics_pipeline_post;
+  VkPipelineLayout pipeline_layout_post;
+
+  vulkan_graphics_pipeline &graphics_pipeline_imgui =
+      vk_state->graphics_pipeline_imgui;
+
+  VkDescriptorPoolSize poolSizes[] = {
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 16},
+  };
+
+  VkDescriptorPoolCreateInfo poolInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+      .poolSizeCount = 2,
+      .pPoolSizes = poolSizes,
+      .maxSets = 32,
+  };
+
+  if (vkCreateDescriptorPool(vk_state->device, &poolInfo, NULL,
+                             &vk_state->descriptor_pool) != VK_SUCCESS) {
+    printf("Failed to create descriptor pool!\n");
+  }
+
+  own_std::vector<own_std::vector<VkDescriptorSetLayoutBinding>> sets_in;
+  own_std::vector<VkDescriptorSetLayout> sets_out;
+
+  auto sets_in_aux = (own_std::vector<VkDescriptorSetLayoutBinding> *)malloc(
+      sizeof(own_std::vector<VkDescriptorSetLayoutBinding>));
+  memset(sets_in_aux, 0, sizeof(*sets_in_aux));
+
+  VkDescriptorSetLayoutBinding aux_binding = {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+      .pImmutableSamplers = NULL,
+  };
+  sets_in_aux->emplace_back(aux_binding);
+  sets_in.emplace_back(*sets_in_aux);
+
+  auto sets_in_aux2 = (own_std::vector<VkDescriptorSetLayoutBinding> *)malloc(
+      sizeof(own_std::vector<VkDescriptorSetLayoutBinding>));
+  memset(sets_in_aux2, 0, sizeof(*sets_in_aux2));
+  aux_binding = {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+      .pImmutableSamplers = NULL,
+  };
+  sets_in_aux2->emplace_back(aux_binding);
+
+  aux_binding = {
+      .binding = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+      .pImmutableSamplers = NULL,
+  };
+
+  sets_in_aux2->emplace_back(aux_binding);
+  aux_binding = {
+      .binding = 2,
+  };
+  sets_in_aux2->emplace_back(aux_binding);
+  aux_binding = {
+      .binding = 3,
+  };
+  sets_in_aux2->emplace_back(aux_binding);
+  aux_binding = {
+      .binding = 4,
+  };
+  sets_in_aux2->emplace_back(aux_binding);
+
+  sets_in.emplace_back(*sets_in_aux2);
+  get_shader_uniforms(vk_state, &sets_in, &sets_out);
+
+  vk_state->model_layout = sets_out[1];
+  vk_state->globals_ubo_layout = sets_out[0];
+
+  VkVertexInputBindingDescription bindingDesc;
+  own_std::vector<VkFormat> attrsIn;
+  own_std::vector<VkVertexInputAttributeDescription> attrDescs;
+
+  attrsIn.emplace_back(VK_FORMAT_R32G32B32_SFLOAT);
+  attrsIn.emplace_back(VK_FORMAT_R32G32B32_SFLOAT);
+
+  get_shader_attrs(&attrsIn, &bindingDesc, &attrDescs);
+
+  VkDescriptorSetAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = vk_state->descriptor_pool,  // pool to allocate from
+      .descriptorSetCount = 1,                      // number of sets
+      .pSetLayouts = &vk_state->globals_ubo_layout, // layout(s) describing them
+  };
+
+  if (vkAllocateDescriptorSets(vk_state->device, &allocInfo,
+                               &vk_state->global_ubos) != VK_SUCCESS) {
+    printf("Failed to allocate descriptor set!\n");
+  }
+  // vk_state->global_ubos = graphics_pipeline.descriptor_sets[0];
+  VkPipeline pipeline = createGraphicsPipeline(
+      vk_state, &graphics_pipeline, vk_state->device, vertShader, fragShader,
+      vk_state->offscreen_render_pass, vk_state->swap_chain.extent,
+      &graphics_pipeline.pipeline_layout, &bindingDesc, &attrDescs, &sets_out);
+
+  sets_in_aux->clear();
+  sets_in_aux2->clear();
+  sets_in.clear();
+  sets_out.clear();
+  attrsIn.clear();
+  attrDescs.clear();
+  /*
+  auto sets_in_aux = (own_std::vector<VkDescriptorSetLayoutBinding> *)malloc(
+      sizeof(own_std::vector<VkDescriptorSetLayoutBinding>));
+
+      */
+  aux_binding = {
+      .binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+      .pImmutableSamplers = NULL,
+  };
+  sets_in_aux->emplace_back(aux_binding);
+
+  /*
+  auto sets_in_aux2 = (own_std::vector<VkDescriptorSetLayoutBinding> *)malloc(
+      sizeof(own_std::vector<VkDescriptorSetLayoutBinding>));
+      */
+  aux_binding = {
+      .binding = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .descriptorCount = 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+      .pImmutableSamplers = NULL,
+  };
+  sets_in_aux->emplace_back(aux_binding);
+  sets_in.emplace_back(*sets_in_aux);
+  // sets_in_aux2->emplace_back(aux_binding);
+  // sets_in.emplace_back(*sets_in_aux2);
+  get_shader_uniforms(vk_state, &sets_in, &sets_out);
+
+  // VkVertexInputBindingDescription bindingDesc;
+  // own_std::vector<VkFormat> attrsIn;
+  // own_std::vector<VkVertexInputAttributeDescription> attrDescs;
+
+  attrsIn.emplace_back(VK_FORMAT_R32G32_SFLOAT);
+  attrsIn.emplace_back(VK_FORMAT_R32G32_SFLOAT);
+
+  get_shader_attrs(&attrsIn, &bindingDesc, &attrDescs);
+
+  VkPipeline pipeline_post = createGraphicsPipeline(
+      vk_state, &graphics_pipeline_post, vk_state->device, vertShaderPost,
+      fragShaderPost, vk_state->render_pass, vk_state->swap_chain.extent,
+      &graphics_pipeline_post.pipeline_layout, &bindingDesc, &attrDescs,
+      &sets_out);
+
+  sets_in_aux->clear();
+  sets_in_aux2->clear();
+  sets_in.clear();
+  sets_out.clear();
+  attrsIn.clear();
+  attrDescs.clear();
+  /*
+  auto sets_in_aux = (own_std::vector<VkDescriptorSetLayoutBinding> *)malloc(
+      sizeof(own_std::vector<VkDescriptorSetLayoutBinding>));
+
+      */
+
+  // VkVertexInputBindingDescription bindingDesc;
+  // own_std::vector<VkFormat> attrsIn;
+  // own_std::vector<VkVertexInputAttributeDescription> attrDescs;
+
+  attrsIn.emplace_back(VK_FORMAT_R32G32_SFLOAT);
+
+  get_shader_attrs(&attrsIn, &bindingDesc, &attrDescs);
+
+  VkPipeline pipeline_imgui = createGraphicsPipeline(
+      vk_state, &graphics_pipeline_imgui, vk_state->device, vertShaderImgui,
+      fragShaderImgui, vk_state->render_pass, vk_state->swap_chain.extent,
+      &graphics_pipeline_post.pipeline_layout, &bindingDesc, &attrDescs,
+      &sets_out);
+
+  VertexPost verticesPost[] = {
+      {{-0.5f, -0.5f}, {0.0f, 0.0f}}, // bottom-left
+      {{0.5f, -0.5f}, {1.0f, 0.0f}},  // bottom-right
+      {{0.5f, 0.5f}, {1.0f, 1.0f}},   // top-right
+      {{-0.5f, 0.5f}, {0.0f, 1.0f}},
+  };
+  uint32_t indicesPost[] = {0, 1, 2,  // first triangle
+                            2, 3, 0}; // second triangle
+  Vertex vertices[] = {
+      {{-0.5f, -0.5f, 0.0}, {1.0f, 0.0f, 0.0f}}, // bottom-left
+      {{0.5f, -0.5f, 0.0}, {0.0f, 1.0f, 0.0f}},  // bottom-right
+      {{0.5f, 0.5f, 0.0}, {0.0f, 0.0f, 1.0f}},   // top-right
+      {{-0.5f, 0.5f, 0.0}, {1.0f, 1.0f, 0.0f}},
+  };
+  uint32_t indices[] = {
+      0, 1, 2, // first triangle
+      2, 3, 0  // second triangle
+  };
+  u32 indices_count = sizeof(indices) / sizeof(int);
+
+  vulkan_buffer &vbuffer_post = vk_state->vbuffer_post;
+  vulkan_buffer &ibuffer_post = vk_state->ibuffer_post;
+  createVertexBuffer(vk_state->device, vk_state->physical_device, verticesPost,
+                     sizeof(verticesPost), &vbuffer_post.buffer,
+                     &vbuffer_post.buffer_memory);
+
+  createIndexBuffer(vk_state->device, vk_state->physical_device, indicesPost,
+                    indices_count, &ibuffer_post.buffer,
+                    &ibuffer_post.buffer_memory);
+
+  createVertexBuffer(vk_state->device, vk_state->physical_device, vertices,
+                     sizeof(vertices), &vk_state->vbuffer.buffer,
+                     &vk_state->ibuffer.buffer_memory);
+
+  createIndexBuffer(vk_state->device, vk_state->physical_device, indices,
+                    indices_count, &vk_state->ibuffer.buffer,
+                    &vk_state->vbuffer.buffer_memory);
+
+  Mat4 model;
+  float rot[4] = {0.0, 0.0, 0.0, 1.0};
+  Vec3 pos(0.0, 0.0, 0.0);
+  Vec3 scale(1.0, 1.0, 1.0);
+  createUniformBuffer(
+      vk_state->device, vk_state->physical_device, (VkDeviceSize)sizeof(Mat4),
+      &vk_state->model_buffer.buffer, &vk_state->model_buffer.buffer_memory);
+
+  /*
+  Texture tex;
+  createTexture(vk_state->device, vk_state->physical_device,
+  vk_state->cmd_pool, vk_state->grphics_queue, &tex);
+  */
+  VkImageView offscreenImageView;
+  VkFramebuffer offscreenFramebuffer;
+
+  vulkan_image &offscreen_color = vk_state->offscreen_color;
+  vulkan_image &offscreen_depth = vk_state->offscreen_depth;
+
+  createImage(vk_state, &offscreen_color, vk_state->swap_chain.imageFormat,
+              vk_state->swap_chain.extent.width,
+              vk_state->swap_chain.extent.height,
+              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                  VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+              VK_IMAGE_ASPECT_COLOR_BIT, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  createImage(
+      vk_state, &offscreen_depth, VK_FORMAT_D32_SFLOAT,
+      vk_state->swap_chain.extent.width, vk_state->swap_chain.extent.height,
+      VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      VK_IMAGE_ASPECT_DEPTH_BIT, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  /*
+void createImage(vulkan_state *vk_state, vulkan_image *out_image,
+               VkImageLayout layout, int width, int height,
+               VkImageUsageFlagBits usage) {
+               */
+
+  VkImageView views[2] = {offscreen_color.img_view, offscreen_depth.img_view};
+  VkFramebufferCreateInfo framebufferInfo = {
+      .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+      .renderPass = vk_state->offscreen_render_pass, // a render pass
+      .attachmentCount = 2,
+      .pAttachments = views,
+      .width = vk_state->swap_chain.extent.width,
+      .height = vk_state->swap_chain.extent.height,
+      .layers = 1,
+  };
+  vkCreateFramebuffer(vk_state->device, &framebufferInfo, NULL,
+                      &offscreenFramebuffer);
+  printf("Vulkan: created offscreen frame buffers\n");
+
+
+  vk_state->deferred_pass = createDeferredRenderPass(vk_state->device, vk_state->swap_chain.imageFormat, VK_FORMAT_D32_SFLOAT);
+
+  int width = vk_state->swap_chain.extent.width;
+  int height = vk_state->swap_chain.extent.height;
+  create_gbuffer_images(vk, &vk_state->gbuf, width, height);
+
+  create_gbuffer_framebuffer(
+      vk,
+      &vk_state->gbuf,
+      vk_state->deferred_pass, // your offline G-buffer renderpass
+      width,
+      height
+  );
+  return;
+  //  return;
+  InitImGui(window, gl_state);
+
   while (!glfwWindowShouldClose(window)) {
+    pos.x += 0.002;
+    glfwPollEvents();
     uint32_t imageIndex;
+
+    build_model_matrix(model.m, &pos, rot, &scale);
+    updateUniformBuffer(vk_state->device, &vk_state->model_buffer, &model,
+                        sizeof(Mat4), graphics_pipeline.descriptor_sets[1]);
+    auto cmd = vk_state->cmd_buffers[0];
+    VkClearValue clearValues[2];
+    clearValues[0].color = (VkClearColorValue){{0.2f, 0.2f, 0.4f, 1.0f}};
+    clearValues[1].depthStencil = (VkClearDepthStencilValue){1.0f, 0};
+
+    beginCommandBuffer(cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
+    recordCommadBuffer(vk_state, &graphics_pipeline, cmd, offscreenFramebuffer,
+                       pipeline, vk_state->vbuffer.buffer,
+                       vk_state->ibuffer.buffer, indices_count, clearValues, 2,
+                       vk_state->offscreen_render_pass);
+
+    //    printf("offscreen drawn\n");
+
+    transitionImageToShaderRead(
+        cmd, offscreen_color.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    transitionImageToShaderRead(
+        cmd, offscreen_depth.img,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submitInfo = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &cmd,
+    };
+    vkQueueSubmit(vk_state->grphics_queue, 1, &submitInfo, VK_NULL_HANDLE);
+
+    // 3. (optional) Wait or use a semaphore if the next pass depends on it
+    vkQueueWaitIdle(vk_state->grphics_queue);
+
     vkAcquireNextImageKHR(vk_state->device, vk_state->swap_chain.swapchain,
                           UINT64_MAX, vk_state->present_complete,
                           VK_NULL_HANDLE, &imageIndex);
-    recordCommadBuffer(vk_state->cmd_buffers[imageIndex],
-                       vk_state->swap_chain.images[imageIndex]);
 
-    VkSubmitInfo submitInfo = {
+    // imgui new frame
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    clearValues[0].color = (VkClearColorValue){{0.2f, 0.2f, 0.4f, 1.0f}};
+    cmd = vk_state->cmd_buffers[imageIndex];
+    updateImageUniform(
+        vk_state->device, graphics_pipeline_post.descriptor_sets[0], 0,
+        &offscreen_color, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    updateImageUniform(
+        vk_state->device, graphics_pipeline_post.descriptor_sets[0], 1,
+        &offscreen_depth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    // HERE()
+    beginCommandBuffer(cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
+
+    recordCommadBuffer(vk_state, &graphics_pipeline_post, cmd,
+                       vk_state->frame_buffers[imageIndex], pipeline_post,
+                       vbuffer_post.buffer, ibuffer_post.buffer, indices_count,
+                       clearValues, 1, vk_state->render_pass);
+    printf("post\n");
+    ImGui::ShowDemoWindow();
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+    vkEndCommandBuffer(cmd);
+
+    VkPresentInfoKHR presentInfo = {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &vk_state->render_complete,
+        .swapchainCount = 1,
+        .pSwapchains = &vk_state->swap_chain.swapchain,
+        .pImageIndices = &imageIndex,
+    };
+    submitInfo = {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &vk_state->present_complete,
@@ -7817,16 +10554,9 @@ void InitVulkan(dbg_state *dbg, GLFWwindow *window) {
                       VK_NULL_HANDLE) != VK_SUCCESS) {
       fprintf(stderr, "Failed to submit draw command buffer!\n");
     }
-    VkPresentInfoKHR presentInfo = {
-        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &vk_state->render_complete,
-        .swapchainCount = 1,
-        .pSwapchains = &vk_state->swap_chain.swapchain,
-        .pImageIndices = &imageIndex,
-    };
 
     vkQueuePresentKHR(vk_state->grphics_queue, &presentInfo);
+    vkQueueWaitIdle(vk_state->grphics_queue);
   }
 }
 #endif
@@ -7858,8 +10588,12 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
       wnd_height = 100;
     }
     printf("will try to resize %p\n", gl_state->glfw_window);
-    glfwSetWindowSize((GLFWwindow *)gl_state->glfw_window, wnd_width,
-                      wnd_height);
+#ifdef RENDERER_VULKAN
+    recreateSwapchain(&gl_state->vk_state);
+#else
+            glfwSetWindowSize((GLFWwindow *)gl_state->glfw_window, wnd_width,
+                              wnd_height);
+#endif
     gl_state->width = wnd_width;
     gl_state->height = wnd_height;
     *(long long *)GetRegValPtr(thread_id, dbg, RET_1_REG) =
@@ -7876,7 +10610,7 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
                                        .channelCount = 2, // Stereo
                                        .sampleFormat =
                                            paInt16, // 32-bit float samples
-                                       .suggestedLatency = 0.05, // 50ms latency
+                                       .suggestedLatency = 0.05, // 50ms
                                        .hostApiSpecificStreamInfo = NULL};
 
     err = Pa_OpenStream(&gl_state->pa_stream,
@@ -7911,22 +10645,27 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
   const char *glsl_version = "#version 430";
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-  //glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-  // glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-  glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required
-  //*/
-  //on Mac
-
-  // glfwWindowHint(GLFW_REFRESH_RATE, 60);
-
+#ifdef RENDERER_VULKAN
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   window = glfwCreateWindow(gl_state->width, gl_state->height, "Hello World",
                             NULL, NULL);
-  //InitVulkan(dbg, window);
-  //HERE()
+  InitVulkan(dbg, window);
+  // HERE()
+#else
+          glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+          glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+          window = glfwCreateWindow(gl_state->width, gl_state->height,
+                                    "Hello World", NULL, NULL);
+#endif
+
+  // glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+  /*
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+
+  only glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            //
+  Required on Mac
+  */
+
+  // glfwWindowHint(GLFW_REFRESH_RATE, 60);
 
   if (!window) {
     ASSERT(0);
@@ -7950,237 +10689,7 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
 
   *(long long *)GetRegValPtr(thread_id, dbg, RET_1_REG) = (long long)window;
 
-  // Setup Dear ImGui context
-  IMGUI_CHECKVERSION();
-  ImGui::CreateContext();
-  ImGuiIO &io = ImGui::GetIO();
-  (void)io;
-
-  io.ConfigNavEscapeClearFocusItem = false;
-  io.ConfigFlags |=
-      ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-  io.ConfigFlags |=
-      ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
-  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-  io.ConfigWindowsMoveFromTitleBarOnly = true;
-
-  // Setup Dear ImGui style
-  ImGui::StyleColorsDark();
-  // ImGui::StyleColorsLight();
-
-  // Setup Platform/Renderer backends
-  ImGui_ImplGlfw_InitForOpenGL(window, true);
-  ImGui_ImplOpenGL3_Init(glsl_version);
-
-  // Single initialization call
-  GLenum err = glewInit();
-  if (err != GLEW_OK) {
-    // Handle error
-  }
-  // int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
-  enableGLDebugging();
-
-  float vertices[] = {
-      // positions          // texture coords
-      1.0f, 1.0f, 0.0f, 1.0f, 1.0f, // top right
-      1.0f, 0.0f, 0.0f, 1.0f, 0.0f, // bottom right
-      0.0f, 0.0f, 0.0f, 0.0f, 0.0f, // bottom left
-      0.0f, 1.0f, 0.0f, 0.0f, 1.0f  // top left
-  };
-  unsigned int indices[] = {
-      // note that we start from 0!
-      0, 1, 3, // first triangle
-      1, 2, 3  // second triangle
-  };
-
-  unsigned int LINEVAO;
-  unsigned int VBO;
-  glGenVertexArrays(1, &LINEVAO);
-  glBindVertexArray(LINEVAO);
-  glGenBuffers(1, &VBO);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, 4 * 4, vertices, GL_DYNAMIC_DRAW);
-  GL_CALL(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float),
-                                (void *)0));
-  glEnableVertexAttribArray(0);
-
-  gl_state->line_vbo = VBO;
-
-  unsigned int VAO;
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO);
-  glGenBuffers(1, &VBO);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-  GL_CALL(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
-                                (void *)0));
-  GL_CALL(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float),
-                                (void *)(3 * sizeof(float))));
-  glEnableVertexAttribArray(0);
-  glEnableVertexAttribArray(1);
-
-  unsigned int EBO;
-  glGenBuffers(1, &EBO);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices,
-               GL_STATIC_DRAW);
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-
-  const char *lineVertexShaderSource =
-      "#version 330 core\n"
-      "layout (location = 0) in vec3 aPos;\n"
-      "layout (location = 1) in vec2 uv;\n"
-      "uniform vec3 pos;\n"
-      "uniform vec3 pivot;\n"
-      "uniform float cam_size;\n"
-      "uniform float screen_ratio;\n"
-      "uniform vec3 ent_size;\n"
-      "uniform vec3 cam_pos;\n"
-      "uniform vec3 cam_rot;\n"
-      "uniform vec3 ent_rot;\n"
-      "out vec2 TexCoord;\n"
-      "void main()\n"
-      "{\n"
-      "	mat3 A = mat3(cos(cam_rot.z), -sin(cam_rot.z), 0.0,\n"
-      "		 sin(cam_rot.z), cos(cam_rot.z), 0.0,\n"
-      "		 0.0, 0.0, 1.0);\n"
-      "	mat3 rot = mat3(cos(ent_rot.z), -sin(ent_rot.z), 0.0,\n"
-      "		 sin(ent_rot.z), cos(ent_rot.z), 0.0,\n"
-      "		 0.0, 0.0, 1.0);\n"
-      "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-      "   gl_Position.xy -= cam_pos.xy;\n"
-      "   gl_Position.xy /= cam_size;\n"
-      "   gl_Position = vec4(A * gl_Position.xyz, 1.0);\n"
-      "}\0";
-  u32 lineVertexShader;
-  lineVertexShader = glCreateShader(GL_VERTEX_SHADER);
-  GL_CALL(glShaderSource(lineVertexShader, 1, &lineVertexShaderSource, NULL));
-  GL_CALL(glCompileShader(lineVertexShader));
-
-  int success;
-  char infoLog[512];
-  glGetShaderiv(lineVertexShader, GL_COMPILE_STATUS, &success);
-
-  if (!success) {
-    glGetShaderInfoLog(lineVertexShader, 512, NULL, infoLog);
-    std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n"
-              << infoLog << std::endl;
-    ASSERT(false);
-  }
-
-  const char *vertexShaderSource =
-      "#version 330 core\n"
-      "layout (location = 0) in vec3 aPos;\n"
-      "layout (location = 1) in vec2 uv;\n"
-      "uniform vec3 pos;\n"
-      "uniform vec3 pivot;\n"
-      "uniform float cam_size;\n"
-      "uniform float screen_ratio;\n"
-      "uniform vec3 ent_size;\n"
-      "uniform vec3 cam_pos;\n"
-      "uniform vec3 cam_rot;\n"
-      "uniform vec3 ent_rot;\n"
-      "out vec2 TexCoord;\n"
-      "void main()\n"
-      "{\n"
-      "	mat3 A = mat3(cos(cam_rot.z), -sin(cam_rot.z), 0.0,\n"
-      "		 sin(cam_rot.z), cos(cam_rot.z), 0.0,\n"
-      "		 0.0, 0.0, 1.0);\n"
-      "	mat3 rot = mat3(cos(ent_rot.z), -sin(ent_rot.z), 0.0,\n"
-      "		 sin(ent_rot.z), cos(ent_rot.z), 0.0,\n"
-      "		 0.0, 0.0, 1.0);\n"
-      "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-      "   gl_Position.xy -= pivot.xy;\n"
-      "   gl_Position.xy *= ent_size.xy;\n"
-      "   gl_Position = vec4(rot * gl_Position.xyz, 1.0);\n"
-      "   gl_Position.xy += pos.xy;\n"
-      "   gl_Position.xy -= cam_pos.xy;\n"
-      "   gl_Position.xy /= cam_size;\n"
-      "   gl_Position = vec4(A * gl_Position.xyz, 1.0);\n"
-      "   gl_Position.x *= screen_ratio;\n"
-      "   gl_Position.z = pos.z;\n"
-      "   TexCoord = uv;\n"
-      "}\0";
-
-  u32 vertexShader = glCreateShader(GL_VERTEX_SHADER);
-  GL_CALL(glShaderSource(vertexShader, 1, &vertexShaderSource, NULL));
-  GL_CALL(glCompileShader(vertexShader));
-
-  glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-
-  if (!success) {
-    glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-    std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n"
-              << infoLog << std::endl;
-    ASSERT(false);
-  }
-  const char *fragmentShaderNoTextureSource =
-      "#version 330 core\n"
-      "out vec4 FragColor;\n"
-      "in vec2 TexCoord;\n"
-      "uniform vec4 color;\n"
-      "void main(){\n"
-      //"vec4 tex_col =  texture(tex, uv);\n"
-      "FragColor =  color;\n"
-      "}\n";
-  const char *fragmentShaderSource =
-      "#version 330 core\n"
-      "out vec4 FragColor;\n"
-      "in vec2 TexCoord;\n"
-      "uniform vec4 color;\n"
-      "uniform vec2 tex_size;\n"
-      "uniform vec2 tex_offset;\n"
-      "uniform sampler2D tex;\n"
-      "void main(){\n"
-      //"vec4 tex_col =  texture(tex, TexCoord + vec2(0.0, tex_size.y
-      /// 16.0));\n"
-      "vec4 tex_col =  texture(tex, (TexCoord + tex_offset)* tex_size);\n"
-      "if(tex_col.a == 0.0)discard;\n"
-      //"vec4 tex_col =  texture(tex, uv);\n"
-      "FragColor =  tex_col * color;\n"
-      "}\n";
-
-  unsigned int fragmentShader =
-      CompileShader((char *)fragmentShaderSource, GL_FRAGMENT_SHADER);
-  unsigned int fragmentNoTextureShader =
-      CompileShader((char *)fragmentShaderNoTextureSource, GL_FRAGMENT_SHADER);
-
-  unsigned int lineShaderProgram;
-  lineShaderProgram = glCreateProgram();
-  glAttachShader(lineShaderProgram, lineVertexShader);
-  glAttachShader(lineShaderProgram, fragmentNoTextureShader);
-  glLinkProgram(lineShaderProgram);
-  glUseProgram(lineShaderProgram);
-
-  unsigned int shaderProgram;
-  shaderProgram = glCreateProgram();
-  glAttachShader(shaderProgram, vertexShader);
-  glAttachShader(shaderProgram, fragmentShader);
-  glLinkProgram(shaderProgram);
-  glUseProgram(shaderProgram);
-
-  unsigned int shaderProgramNoTexture;
-  shaderProgramNoTexture = glCreateProgram();
-  glAttachShader(shaderProgramNoTexture, vertexShader);
-  glAttachShader(shaderProgramNoTexture, fragmentNoTextureShader);
-  glLinkProgram(shaderProgramNoTexture);
-  // glUseProgram(shaderProgram);
-
-  gl_state->vao = VAO;
-  gl_state->line_vao = LINEVAO;
-  gl_state->line_shader_program = lineShaderProgram;
-  gl_state->shader_program = shaderProgram;
-  gl_state->shader_program_no_texture = shaderProgramNoTexture;
-
-  glEnable(GL_BLEND);
-  glEnable(GL_DEPTH_TEST);
-  glDepthMask(GL_TRUE);
-  glDepthFunc(GL_LESS);
-
-  glEnable(GL_CULL_FACE);
-  glCullFace(GL_FRONT);
-
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  InitImGui(window, gl_state);
 
   Init3D(dbg);
 
@@ -8287,10 +10796,11 @@ void PrintV3Int(int thread_id, dbg_state *dbg) {
 #ifdef LINUX
   printf("x: %d, y: %d, z: %d\n", x, y, z);
 #else
-  char buffer[128];
-  int sz = snprintf(buffer, 128, "x: %d, y: %d, z: %d\n", x, y, z);
-  DWORD written = 0;
-  WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, sz, &written, NULL);
+          char buffer[128];
+          int sz = snprintf(buffer, 128, "x: %d, y: %d, z: %d\n", x, y, z);
+          DWORD written = 0;
+          WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, sz, &written,
+                    NULL);
 #endif
 
   //*(float*)GetRegValPtr(thread_id, dbg, RET_1_REG) = sinf(val);
@@ -8805,22 +11315,22 @@ int main(int argc, char *argv[]) {
   own_std::string exe_dir = exe_full.substr(0, last_bar + 1);
   chdir(exe_dir.c_str());
 #else
-  TCHAR buffer[MAX_PATH] = {0};
-  GetModuleFileName(NULL, buffer, MAX_PATH);
-  own_std::string exe_full = buffer;
-  int last_bar = exe_full.find_last_of("\\/");
-  own_std::string exe_dir = exe_full.substr(0, last_bar + 1);
-  SetCurrentDirectory(exe_dir.c_str());
+          TCHAR buffer[MAX_PATH] = {0};
+          GetModuleFileName(NULL, buffer, MAX_PATH);
+          own_std::string exe_full = buffer;
+          int last_bar = exe_full.find_last_of("\\/");
+          own_std::string exe_dir = exe_full.substr(0, last_bar + 1);
+          SetCurrentDirectory(exe_dir.c_str());
 #endif
 
   sound_state sound;
 #ifdef LINUX
 #else
-  sound.audio_class = new XAudioClass();
-  // memset(sound.audio_class, 0, sizeof(sound.audio_class));
-  sound.audio_class->sound = &sound;
+          sound.audio_class = new XAudioClass();
+          // memset(sound.audio_class, 0, sizeof(sound.audio_class));
+          sound.audio_class->sound = &sound;
 
-  InitXAudio2(sound, false);
+          InitXAudio2(sound, false);
 #endif
   /*
   auto addr = heap_alloc(&alloc, 12);
@@ -9205,4 +11715,82 @@ int main(int argc, char *argv[]) {
   }
   ExitProcess(1);
   int a = 0;
+}
+void EndDebugVulkanDraw(dbg_state *dbg, u32 imageIndex) {
+  auto gl_state = (open_gl_state *)dbg->data;
+  auto vk_state = &gl_state->vk_state;
+  auto cmd = vk_state->cmd_buffers[imageIndex];
+
+  // ImGui::ShowDemoWindow();
+  ImGui::Render();
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+  vkCmdEndRenderPass(cmd);
+  vkEndCommandBuffer(cmd);
+
+  VkPipelineStageFlags wait_flags =
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+  VkPresentInfoKHR presentInfo = {
+      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+      .waitSemaphoreCount = 1,
+      .pWaitSemaphores = &vk_state->render_complete,
+      .swapchainCount = 1,
+      .pSwapchains = &vk_state->swap_chain.swapchain,
+      .pImageIndices = &imageIndex,
+  };
+  VkSubmitInfo submitInfo = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .waitSemaphoreCount = 1,
+      .pWaitSemaphores = &vk_state->present_complete,
+      .pWaitDstStageMask = &wait_flags,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &vk_state->cmd_buffers[imageIndex],
+      .signalSemaphoreCount = 1,
+      .pSignalSemaphores = &vk_state->render_complete,
+  };
+
+  if (vkQueueSubmit(vk_state->grphics_queue, 1, &submitInfo, VK_NULL_HANDLE) !=
+      VK_SUCCESS) {
+    fprintf(stderr, "Failed to submit draw command buffer!\n");
+  }
+
+  vkQueuePresentKHR(vk_state->grphics_queue, &presentInfo);
+  vkQueueWaitIdle(vk_state->grphics_queue);
+}
+int BeginDebugVulkanDraw(dbg_state *dbg) {
+  u32 imageIndex = 0;
+  auto gl_state = (open_gl_state *)dbg->data;
+  auto vk_state = &gl_state->vk_state;
+
+  auto &graphics_pipeline_imgui = vk_state->graphics_pipeline_imgui;
+
+  VkResult res = vkAcquireNextImageKHR(
+      vk_state->device, vk_state->swap_chain.swapchain, UINT64_MAX,
+      vk_state->present_complete, VK_NULL_HANDLE, &imageIndex);
+
+  if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR) {
+    fprintf(stderr, "AcquireNextImageKHR failed: %d\n", res);
+    HERE();
+  }
+
+  // imgui new frame
+  ImGui_ImplVulkan_NewFrame();
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
+
+  VkClearValue clearValues[2];
+  clearValues[0].color = (VkClearColorValue){{0.2f, 0.2f, 0.4f, 1.0f}};
+  auto cmd = vk_state->cmd_buffers[imageIndex];
+  beginCommandBuffer(cmd, VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
+
+  // HERE()
+
+  recordCommadBuffer(
+      vk_state, &graphics_pipeline_imgui, cmd,
+      vk_state->frame_buffers[imageIndex], graphics_pipeline_imgui.pipeline,
+      vk_state->vbuffer_post.buffer, vk_state->ibuffer_post.buffer, 6,
+      clearValues, 1, vk_state->render_pass, false);
+
+  return imageIndex;
 }

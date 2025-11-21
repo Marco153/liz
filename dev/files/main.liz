@@ -4384,6 +4384,16 @@ OpenScene::fn coroutine(cor_ctx : *coroutine_ctx, ctx : *scene_info, stage : *lo
                   cid = cid_from_ast( *cur_ast.BIN.expr[1])
                   memcpy(buffer[0], cid.name, 12)
                   found = find_asset(ctx, cast(str_lit)buffer[0], &target_u.tex, ASSETS_TEXTURES_OFFSET)
+
+/*
+                  if str_cmp(cast(str_lit)buffer[0], "grass.png")
+                  {
+                    asset := globals.assets[cast(u64)target_u.tex.asset_idx]
+                    tidx := get_id_of_texture_asset(&target_u.tex)
+                    __dbg_break
+                  }
+                  */
+
                   ASSERT(found)
 
                 }
@@ -7083,21 +7093,20 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 
 	vs : string
 	fs : string
-  prologue := "layout(set = 0, binding = 0) uniform ubo \{
+  prologue := "layout(std140) uniform ubo \{
   mat4 view;
   mat4 proj;
   float TIME;
-  \} UBO;
-  layout(set = 1, binding = 0) uniform model \{
-  mat4 mod;
-  \} MODEL;"
+  \}UBO;"
 
-	PushStrLit(&vs, "#version 450 core\n")
-	PushStrLit(&fs, "#version 450 core\n")
+	PushStrLit(&vs, "#version 330 core\n")
+	PushStrLit(&fs, "#version 330 core\n")
   PushStrLit(&vs, prologue) 
   PushStrLit(&fs, prologue) 
 
-  PushStrLit(&uniforms, "\nlayout(set = 2, binding =0) uniform _UNIS\{\n")
+  PushStrLit(&uniforms, "\nlayout(std140) uniform _model\{
+  mat4 mod;
+    ")
   //PushStrLit(&uniforms_textures, "\nlayout(set = 3, binding =0) uniform _UNIS\{\n")
 
   i := 0
@@ -7107,7 +7116,12 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
   //tinfo.tp
   dyn_add(&sh_create.uniforms_layout, tinfo)
 
-  cur_uniform_offset:u32=0
+  // already accounting for mat4 mod
+  cur_uniform_offset:u32=64
+  tinfo.count = 1
+  tinfo.tp = type_layout.MAT4
+  dyn_add(&sh_create.uniforms_layout, tinfo)
+
 
 	for un in lang_stat.uniforms
 	{
@@ -7118,39 +7132,52 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
     //PushStrLit(&uniforms, "layout(set=1, binding={i})") 
 
     out_str := &uniforms
+    final_type:type_layout
 		if un.tp.type == lang_type_type.SAMPLER2D
     {
-      PushStrLit(&uniforms_textures, "\nlayout(set = 3, binding ={cur_textures}) ")
+      final_type = from_lang_type_2_type_layout(&un.tp)
+      tinfo.tp = from_lang_type_2_type_layout(&un.tp)
+      PushStrLit(&uniforms_textures, "\nuniform ")
       out_str = &uniforms_textures
 
       un.offset = cur_textures
 
       cur_textures++
-      tinfo.tp = from_lang_type_2_type_layout(&un.tp)
 
-      dyn_add(&sh_create.uniforms_layout, tinfo)
     }
     else
     {
-      PushStrLit(&uniforms_defines, "#define {un.name} UNIS.{un.name}\n")
+      if un.tp.type == lang_type_type.STATIC_ARRAY
+      {
+        final_type = from_lang_type_2_type_layout(un.tp.STATIC_ARRAY.type)
+        tinfo.count = un.tp.STATIC_ARRAY.sz
+      }
+      else
+      {
+        final_type = from_lang_type_2_type_layout(&un.tp)
+      }
+
+      PushStrLit(&uniforms_defines, "#define {un.name} MODEL.{un.name}\n")
       un.offset = cast(s32)cur_uniform_offset
       cur_uniform_offset += lget_type_size(&un.tp)
     }
+    tinfo.tp = final_type
+    dyn_add(&sh_create.uniforms_layout, tinfo)
 
 		if un.tp.type == lang_type_type.STATIC_ARRAY
 		{
 			sz := un.tp.STATIC_ARRAY.sz
 			tp := un.tp.STATIC_ARRAY.type
-			PushStrLit(out_str, "uniform {builtin_type_to_string(tp)} {un.name}[{sz}];\n")
+			PushStrLit(out_str, "{builtin_type_to_string(tp)} {un.name}[{sz}];\n")
 		}
 		else
 		{
-			PushStrLit(out_str, "uniform {builtin_type_to_string(&un.tp)} {un.name};\n")
+			PushStrLit(out_str, "{builtin_type_to_string(&un.tp)} {un.name};\n")
 		}
 
     i++
 	}
-  PushStrLit(&uniforms, "\}UNIS;\n")
+  PushStrLit(&uniforms, "\}MODEL;\n")
 
   PushStrLit(&uniforms_defines, "#define TIME UBO.TIME\n")
 
@@ -7170,7 +7197,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 			{
         //tinfo :type_layout_info
         tinfo.count = 1
-				PushStrLit(&vs, "layout (location = {i}) in {builtin_type_to_string(&arg.tp)} {arg.name};\n")
+				PushStrLit(&vs, "in {builtin_type_to_string(&arg.tp)} {arg.name};\n")
 
         tinfo.tp = from_lang_type_2_type_layout(&arg.tp)
 
@@ -7183,7 +7210,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 
 			for r in f.rets
 			{
-				PushStrLit(&vs, "layout(location={i}) out {builtin_type_to_string(&r.tp)} {r.name};\n")
+				PushStrLit(&vs, "out {builtin_type_to_string(&r.tp)} {r.name};\n")
 				i++
 			}
 			PushStrLit(&vs, "void main()")
@@ -7194,17 +7221,17 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 			i = 0
 			for arg in f.args
 			{
-				PushStrLit(&fs, "layout(location={i}) in {builtin_type_to_string(&arg.tp)} {arg.name};\n")
+				PushStrLit(&fs, "in {builtin_type_to_string(&arg.tp)} {arg.name};\n")
 				i++
 			}
 			globals.temp_alloc.cur = prev_size
 
 			i = 0
 
-			PushStrLit(&fs, "layout(location=0)out vec4 frag_Color;\n")
+			PushStrLit(&fs, "out vec4 frag_Color;\n")
 			for r in f.rets
 			{
-				PushStrLit(&fs, "layout(location={i})out {builtin_type_to_string(&r.tp)} {r.name};\n")
+				PushStrLit(&fs, "out {builtin_type_to_string(&r.tp)} {r.name};\n")
 				i++
 			}
 			PushStrLit(&fs, "void main()")
@@ -7215,6 +7242,8 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 	}
 	shader := CompileShader(cast(*char)file_name_original, str_ln(file_name_original), vs.data.data, vs.data.count, fs.data.data, fs.data.count, sh_create.verts_layout.data, cast(u32)sh_create.verts_layout.count, sh_create.uniforms_layout.data, cast(u32)sh_create.uniforms_layout.count)
 	printf("compiled shader {shader} \n")
+	globals.alloc = &ctx.main_alloc
+
 	if !mat
 	{
 		empty_idx := find_empty_asset(ASSETS_MATERIALS_OFFSET)
@@ -7249,13 +7278,14 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 
 	printf("new uniforms\n")
 
-	globals.alloc = &ctx.main_alloc
+
+
 	for u in lang_stat.uniforms
 	{
 		if u.tp.type == lang_type_type.SAMPLER2D
 		{
 			u.offset = cast(s32)total_texs
-			//ValidateTextureSlot(shader, u.name.data.data, cast(u32)u.name.data.count, total_texs);
+			ValidateTextureSlot(shader, u.name.data.data, cast(u32)u.name.data.count, total_texs);
 			total_texs++
 		}
 		else
@@ -7271,13 +7301,23 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 		memcpy(&new_u, *u, sizeof(decl))
 		memset(&new_u.name, 0, sizeof(new_u.name))
 		AssignStr(&new_u.name, &u.name)
+    add_mem_break := false
 		if u.tp.type == lang_type_type.STATIC_ARRAY
 		{
-			//new_u.tp.STATIC_ARRAY.type = cast(*lang_type)heap_alloc(globals.perm_alloc, sizeof(lang_type))
+      if str_cmp(file_name_original, "skin.mat"){
+        //__dbg_break
+        //add_mem_break = true
+      }
+			new_u.tp.STATIC_ARRAY.type = cast(*lang_type)heap_alloc(globals.perm_alloc, sizeof(lang_type))
 			*new_u.tp.STATIC_ARRAY.type = *u.tp.STATIC_ARRAY.type
 			//new_u.array_sz = u.type.STATIC_ARRAY.SZ
 		}
 		dyn_add(&mat.uniforms, &new_u)
+    if add_mem_break
+    {
+      last := dyn_last(&mat.uniforms)
+      AddMemoryWatch(last.tp.STATIC_ARRAY.type)
+    }
 		a:= 0
 	}
 
@@ -10541,6 +10581,17 @@ main_loop::fn(ctx : *context)
 
       DrawEnts(s, ctx.cam_pos_global, ctx.cam_rot_global, drw_set)
     }
+
+    scn := cast(*scene_draw_info)globals.scene_draw.buffer
+    scn.cam_pos = *drw_set.cam_pos
+    scn.cam_rot = *drw_set.cam_rot
+    scn.cam_fw = *drw_set.cam_forward
+    scn.cam_size = drw_set.cam_size
+
+    Draw3D2(drw_set.window, cast(*scene_draw_info)globals.scene_draw.buffer)
+
+    memset(scn, 0, sizeof(*scn))
+
 		LookAtPlayerEnts(ctx.cur_scn, drw_set)
 		items_func(ctx.cur_scn, dt, out_ent)
 
@@ -10885,11 +10936,12 @@ main:: fn(){
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.terrain_alloc, 10);
 	InitMemAlloc(&ctx.main_alloc, 458600);
-	InitMemAlloc(&ctx.compiling_shaders_alloc, 16000);
+	InitMemAlloc(&ctx.compiling_shaders_alloc, 17000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	InitMemAlloc(&ctx.ent_name_string_alloc, 16000);
 	ctx.alloc = &ctx.main_alloc;
   ctx.main_alloc.name = "main_alloc"
+  ctx.compiling_shaders_alloc.name = "compiling_shaders_alloc"
 	ctx.coroutines.alloc = ctx.alloc;
 	window := OpenWindow(900, 900);
 	//ctx.chunk_width = 16.0

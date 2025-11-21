@@ -236,6 +236,9 @@ global_struct : struct
   frames_total : u64
 
   scene_draw : scene_draw_info
+
+  test_dyn_init2_called_count :u32
+  first : bool
 }
 globals : global global_struct
 

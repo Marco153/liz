@@ -4,7 +4,7 @@
 #define RAD_TO_DEG 57.29577
 #define DEG_TO_RAD (3.14159265f / 180.0f)
 #define LINUX
-#define RENDERER_VULKAN
+//#define RENDERER_VULKAN
 
 #ifdef LINUX
 #include <assimp/cimport.h>
@@ -255,7 +255,20 @@ Vec3 rotate(const Vec3 &v, const Vec3 &axis, float angle) {
 
   return term1 + term2 + term3;
 }
+void mat4_transpose_inplace(float m[16]) {
+    #define SWAP(a,b) do { float tmp=a; a=b; b=tmp; } while(0)
 
+    SWAP(m[1],  m[4]);
+    SWAP(m[2],  m[8]);
+    SWAP(m[3],  m[12]);
+
+    SWAP(m[6],  m[9]);
+    SWAP(m[7],  m[13]);
+
+    SWAP(m[11], m[14]);
+
+    #undef SWAP
+}
 struct Mat4 {
   float m[16]; // Column-major 4x4 matrix
 
@@ -493,6 +506,7 @@ struct model_info {
 };
 struct texture_info {
   bool used;
+  own_std::string name;
   int id;
 };
 struct texture_raw {
@@ -557,6 +571,20 @@ struct scene_draw_info
   long long opaques_ptr;
   long long transparents_ptr;
   long long reserved3;
+};
+enum class type_layout {
+  FLOAT_R32G32B32A32,
+  FLOAT_R32G32B32,
+  FLOAT_R32G32,
+  FLOAT_R32,
+  INT_R32G32B32A32,
+  MAT4,
+  TEX2D,
+};
+struct type_layout_info {
+  type_layout type;
+  int count;
+  int flags;
 };
 struct draw_info3d {
   int model;
@@ -673,6 +701,15 @@ struct open_gl_state {
   int tex_offset;
   int pos_u;
 
+  int global_ubo_buffer;
+  int global_ubo_buffer_size;
+
+  float near_plane;
+  float far_plane;
+
+
+  int to_screen_shader;
+
 #ifdef RENDERER_VULKAN
   vulkan_state vk_state;
 #endif
@@ -713,8 +750,10 @@ struct open_gl_state {
 
   int scene_srceen_width;
   int scene_srceen_height;
-  int frame_buffer;
-  int frame_buffer_tex;
+  u32 depthFBO;
+  u32 depthTex;
+  u32 offscreenFBO;
+  u32 offscreenTex;
 
   int scroll;
 
@@ -1480,6 +1519,7 @@ void ScreenMouseToWorld(int thread_id, dbg_state *dbg) {
     ExitProcess(1);                                                            \
   }
 void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
+  return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 8 * 2];
 
@@ -3885,6 +3925,7 @@ void EndFrame(int thread_id, dbg_state *dbg) {
   // clear_color.w, clear_color.z * clear_color.w, clear_color.w);
   // glClear(GL_COLOR_BUFFER_BIT);
   ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
   glfwSwapBuffers(wnd);
   gl_state->scroll = 0;
 
@@ -4792,9 +4833,161 @@ struct create_mesh_info {
   u64 attribs_offset;
   int attribs_count;
 };
-void CreateMesh(int thread_id, dbg_state *dbg) {
+void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool depth_only)
+{
+  Mat4 global_ubo[2];
+  auto gl_state = (open_gl_state *)dbg->data;
+
+  memcpy(global_ubo, gl_state->view, 64);
+  //mat4_transpose_inplace((float *)global_ubo)
+  memcpy(&global_ubo[1], gl_state->projection, 64);
+
+  int *opaques_offset_idxs = (int *)(draw + 1);
+  glBindBuffer(GL_UNIFORM_BUFFER, gl_state->global_ubo_buffer);
+  glBufferSubData(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer_size, &global_ubo);
+  for(int o = 0; o < draw->count_opaques; o++)
+  {
+    object_draw_info *cur_opaque = (object_draw_info *)((char *)(draw + 1) + opaques_offset_idxs[o]);
+
+    model_info *m = &gl_state->models[cur_opaque->model_id];
+
+    shader_info *_sh = dbg->handles[cur_opaque->shader_id].sh;
+    /*
+    if(_sh->name == "skin.mat" || _sh->name == "tex2.mat")
+    {
+      HERE()
+    }
+    */
+    //HERE()
+    if(depth_only)
+    {
+      glUseProgram(_sh->depth_only_shader);
+    }
+    else
+    {
+      glUseProgram(_sh->id);
+    }
+
+    build_model_matrix((float *)(cur_opaque + 1), (const Vec3 *)&cur_opaque->pos.x,
+                      (const float *)&cur_opaque->rot,
+                      (const Vec3 *)&cur_opaque->size);
+
+    // gl_state->model[12] += -cam_pos_x;
+    // gl_state->model[13] += -cam_pos_y;
+    // gl_state->model[14] += -cam_pos_z;
+    //((float *)(cur_opaque + 1))[15] = 1.0f;
+    glBindVertexArray(m->vao);
+
+    /*
+    if(cur_opaque->model_uniform_size >= 2000)
+    {
+      HERE()
+    }
+    */
+
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer_size, global_ubo);
+
+    //GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, _sh->model_ubo_buffer));
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, _sh->model_ubo_buffer);
+    GL_CALL(glBufferSubData(GL_UNIFORM_BUFFER, 0, cur_opaque->model_uniform_size, cur_opaque + 1));
+
+    int *start_tex = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size);
+    for(int t = 0; t < cur_opaque->textures_count;t++)
+    {
+      texture_info *tex = &gl_state->textures[start_tex[t]];
+
+      // printf("1d %d, 2d %d\n", tex_id, t->id);
+      GL_CALL(glActiveTexture(GL_TEXTURE0 + t););
+      GL_CALL(glBindTexture(GL_TEXTURE_2D, tex->id););
+      GL_CALL(glActiveTexture(GL_TEXTURE0););
+    }
+
+    glDrawElements(GL_TRIANGLES, m->indicies, GL_UNSIGNED_INT, 0);
+  }
+}
+void Draw3D2(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
-  int create_mesh_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
+  auto gl_state = (open_gl_state *)dbg->data;
+
+  auto wnd = (GLFWwindow *)*(long long *)&dbg->mem_buffer[base_ptr + 8];
+  int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 16];
+
+  auto draw = (scene_draw_info *)(long long *)&dbg->mem_buffer[draw_addr];
+
+
+
+  Vec3 cameraPos = {draw->cam_pos.x, draw->cam_pos.y, draw->cam_pos.z};
+  Vec3 cameraFront = {draw->cam_fw.x, draw->cam_fw.y, draw->cam_fw.z};
+  Vec3 cameraUp = {0.0f, 1.0f, 0.0f};
+
+  float yaw = -draw->cam_rot.y * RAD_TO_DEG + -90.0;
+  float pitch = draw->cam_rot.x * RAD_TO_DEG;
+  float roll = draw->cam_rot.z * RAD_TO_DEG;
+  printf("x %.3f, y %.3f, z %.3f\n", draw->cam_pos.x, draw->cam_pos.y, draw->cam_pos.z);
+
+  update_camera_direction(yaw, pitch, roll, &cameraFront, &cameraUp);
+  Mat4 view =
+      mat4_lookAt(cameraPos, vec3_add(cameraPos, cameraFront), cameraUp);
+  memcpy(gl_state->view, view.m, sizeof(gl_state->view));
+  //mat4_transpose_inplace(gl_state->view);
+
+  // printf("sx %.3f, sy %.3f, sz %.3f\n", draw->ent_size_x, draw->ent_size_y,
+  // draw->ent_size_z); printf("sx %.3f, sy %.3f, sz %.3f\n", cam_forward_x,
+  // cam_forward_y, cam_forward_z); printf("cx %.3f, cy %.3f, cz %.3f, rx
+  // %.3f, ry %.3f, rz %.3f\n", cam_pos_x, cam_pos_y, cam_pos_z, cam_rot_x,
+  // cam_rot_y, cam_rot_z);
+  //gl_state->view[12] = 0.0;
+  //gl_state->view[13] = 0.0;
+  //gl_state->view[14] = 0.0;
+  //gl_state->view[15] = 1.0;
+
+  // auto h = &dbg->handles[draw->shader_id];
+  glBindFramebuffer(GL_FRAMEBUFFER, gl_state->depthFBO);
+  glViewport(0, 0, gl_state->width, gl_state->height);
+  glEnable(GL_DEPTH_TEST);
+  glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); // disable color writes
+  glClearDepth(1.0f);          // depth clear value (1.0 = far)
+  glClear(GL_DEPTH_BUFFER_BIT);
+  DrawObjects(thread_id, dbg, draw, true);
+  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+  glBindFramebuffer(GL_FRAMEBUFFER, gl_state->offscreenFBO);
+  glViewport(0, 0, gl_state->width, gl_state->height);
+  glEnable(GL_DEPTH_TEST);
+  glClearColor(0.5f, 0.2f, 0.4f, 1.0f); // background color
+  glClearDepth(1.0f);
+
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  DrawObjects(thread_id, dbg, draw, false);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+  glViewport(0, 0, gl_state->width, gl_state->height);
+  glUseProgram(gl_state->to_screen_shader);
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, gl_state->offscreenTex);
+
+  glActiveTexture(GL_TEXTURE0 + 1);
+  glBindTexture(GL_TEXTURE_2D, gl_state->depthTex);
+
+  // set sampler uniform
+  glUniform1i(glGetUniformLocation(gl_state->to_screen_shader, "uScene"), 0);
+  glUniform1i(glGetUniformLocation(gl_state->to_screen_shader, "uDepth"), 1);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_CULL_FACE);
+
+  int loc = glGetUniformLocation(gl_state->to_screen_shader, "uNear");
+  glUniform1f(loc, gl_state->near_plane);
+  loc = glGetUniformLocation(gl_state->to_screen_shader, "uFar");
+  glUniform1f(loc, gl_state->far_plane);
+
+  // draw fullscreen triangle with vertex IDs
+  glDrawArrays(GL_TRIANGLES, 0, 3);
+  glEnable(GL_CULL_FACE);
+
 
 }
 
@@ -5803,6 +5996,9 @@ void LoadTexFolder(int thread_id, dbg_state *dbg) {
 
       tex_idx = GenTexture2(dbg->lang_stat, gl_state, tex_raw->data,
                             tex_raw->width, tex_raw->height);
+
+      gl_state->textures[tex_idx].name = str;
+
       tex_width = tex_raw->width;
       tex_height = tex_raw->height;
       tex_channels = tex_raw->channels;
@@ -6439,7 +6635,7 @@ GLuint compileShader(GLenum type, const char *source) {
   glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
   if (!success) {
     char info[512];
-    printf("shader: %s", source);
+    printf("shader source: %s", source);
     glGetShaderInfoLog(shader, 512, NULL, info);
     std::cerr << "Shader error:\n" << info << std::endl;
     ASSERT(false)
@@ -6473,28 +6669,40 @@ void ValidateTextureSlot(int thread_id, dbg_state *dbg) {
   char prev_char = name_str[name_len];
   name_str[name_len] = 0;
 
+  shader_info *sh = dbg->handles[shader_id].sh;
+  shader_id = sh->id;
+
   glUseProgram(shader_id);
   auto error = glGetError();
   *ret = glGetUniformLocation(shader_id, name_str);
+
+  if (glGetError() != GL_NO_ERROR) {                                        
+    printf("\ngl error %d, line %d\n", glGetError(), __LINE__);                
+    fflush(stdout);                                                            
+    /*
+    int count;
+
+    glGetProgramiv(shader_id, GL_ACTIVE_UNIFORMS, &count);
+    printf("Active Uniforms: %d\n", count);
+
+    char buffer[64];
+    int len;
+    int size;
+    int type;
+    for (int i = 0; i < count; i++)
+    {
+      glGetActiveUniform(shader_id, (GLuint)i, 64, &len, &size, (GLenum
+      *)&type, buffer);
+
+      printf("Uniform #%d Type: %u Name: %s\n", i, type, buffer);
+    }
+    */
+    ExitProcess(1);                                                          
+  }
   glUniform1i(*ret, slot);
 
   /*
-  int count;
-  glGetProgramiv(shader_id, GL_ACTIVE_UNIFORMS, &count);
-  printf("Active Uniforms: %d\n", count);
-
-  char buffer[64];
-  int len;
-  int size;
-  int type;
-  for (int i = 0; i < count; i++)
-  {
-          glGetActiveUniform(shader_id, (GLuint)i, 64, &len, &size, (GLenum
-  *)&type, buffer);
-
-          printf("Uniform #%d Type: %u Name: %s\n", i, type, buffer);
-  }
-          */
+   */
 
   name_str[name_len] = prev_char;
 }
@@ -6597,18 +6805,64 @@ void SetShader(int thread_id, dbg_state *dbg) {
 
   glUseProgram(shader_id);
 }
+void enable_shader_uniforms(open_gl_state *gl_state, shader_info *sh, int shaderProgram)
+{
+  unsigned int uniformBlockUBO    = glGetUniformBlockIndex(shaderProgram, "ubo");
+  if (glGetError() != GL_NO_ERROR) {                                        
+    printf("\ngl error %d, line %d\n", glGetError(), __LINE__);                
+    fflush(stdout);                                                            
+    ExitProcess(1);                                                          
+  }
+  unsigned int uniformBlockMODEL    = glGetUniformBlockIndex(shaderProgram, "_model");
+  if (glGetError() != GL_NO_ERROR) {                                        
+    printf("\ngl error %d, line %d\n", glGetError(), __LINE__);                
+    fflush(stdout);                                                            
+    ExitProcess(1);                                                          
+  }
+
+  glUniformBlockBinding(shaderProgram, uniformBlockUBO, 0);
+  glUniformBlockBinding(shaderProgram, uniformBlockMODEL, 1);
+
+  glBindBufferBase(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer);
+  glBindBufferBase(GL_UNIFORM_BUFFER, 1, sh->model_ubo_buffer);
+  
+  //h->sh->global_ubo_idx = uniformBlockUBO;
+  //h->sh->model_ubo_idx = uniformBlockMODEL;
+
+}
 void CompileShader2(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
-  int vs_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
-  int vs_len = *(int *)&dbg->mem_buffer[base_ptr + 16];
-  int fs_offset = *(int *)&dbg->mem_buffer[base_ptr + 24];
-  int fs_len = *(int *)&dbg->mem_buffer[base_ptr + 32];
+  int file_name_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
+  int file_name_len = *(int *)&dbg->mem_buffer[base_ptr + 16];
+  int vs_offset = *(int *)&dbg->mem_buffer[base_ptr + 24];
+  int vs_len = *(int *)&dbg->mem_buffer[base_ptr + 32];
+  int fs_offset = *(int *)&dbg->mem_buffer[base_ptr + 40];
+  int fs_len = *(int *)&dbg->mem_buffer[base_ptr + 48];
+  int vertex_input_offset = *(int *)&dbg->mem_buffer[base_ptr + 56];
+  int vertex_input_len = *(int *)&dbg->mem_buffer[base_ptr + 64];
+  int uniforms_offset = *(int *)&dbg->mem_buffer[base_ptr + 72];
+  int uniforms_len = *(int *)&dbg->mem_buffer[base_ptr + 80];
 
+  auto uniforms_data = (type_layout_info *)&dbg->mem_buffer[uniforms_offset];
+
+  auto name_str = (char *)&dbg->mem_buffer[file_name_offset];
   auto vs_str = (char *)&dbg->mem_buffer[vs_offset];
   auto fs_str = (char *)&dbg->mem_buffer[fs_offset];
 
+  auto gl_state = (open_gl_state *)dbg->data;
+
+  int idx = GetFreeHandle(dbg);
+
+  handle_info *h = &dbg->handles[idx];
+  h->sh = (shader_info *)AllocMiscData(dbg->lang_stat,
+                                               sizeof(shader_info));
+  // printf("user gave %d uniforms, fs %s\n", uniforms_len, fs_str);
+  h->type = handle_enum::SHADER;
   char prev_char = vs_str[vs_len];
   vs_str[vs_len] = 0;
+
+  //HERE()
+  
   // printf("compiling vertex shader:\n%s\n", vs_str);
   GLuint vs = compileShader(GL_VERTEX_SHADER, vs_str);
   vs_str[vs_len] = prev_char;
@@ -6623,13 +6877,121 @@ void CompileShader2(int thread_id, dbg_state *dbg) {
   GL_CALL(glAttachShader(shaderProgram, vs))
   GL_CALL(glAttachShader(shaderProgram, fs))
   GL_CALL(glLinkProgram(shaderProgram))
+  h->sh->id = shaderProgram; 
 
+
+
+  char * empty_frag_str = "#version 330 core \n"
+  "void main(){};";
+  GLuint empty_fs = compileShader(GL_FRAGMENT_SHADER, empty_frag_str);
+
+
+  shaderProgram = glCreateProgram();
+  GL_CALL(glAttachShader(shaderProgram, vs))
+  GL_CALL(glAttachShader(shaderProgram, empty_fs))
+  GL_CALL(glLinkProgram(shaderProgram))
+
+  h->sh->depth_only_shader = shaderProgram;
+  h->sh->name = own_std::string(name_str, file_name_len);
   auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
-  *ret = shaderProgram;
+
+  int cur_texture = 0;
+  int model_uniform_size = 0;
+  for (int i = 0; i < uniforms_len; i++) {
+    auto cur = &uniforms_data[i];
+
+    switch (cur->type) {
+    case type_layout::FLOAT_R32: {
+      model_uniform_size += 4 * cur->count;
+    } break;
+    case type_layout::FLOAT_R32G32: {
+      model_uniform_size += 8 * cur->count;
+    } break;
+    case type_layout::FLOAT_R32G32B32: {
+      model_uniform_size += 12 * cur->count;
+    } break;
+    case type_layout::FLOAT_R32G32B32A32: {
+      model_uniform_size += 16 * cur->count;
+    } break;
+    case type_layout::TEX2D: {
+    } break;
+    case type_layout::INT_R32G32B32A32: {
+      model_uniform_size += 16 * cur->count;
+    } break;
+    case type_layout::MAT4: {
+      model_uniform_size += 64 * cur->count;
+    } break;
+    default:
+      ASSERT(false)
+    }
+  }
+
+  //printf("\n%s\n", vs_str);
+  glGenBuffers(1, (u32 *)&h->sh->model_ubo_buffer);
+  glBindBuffer(GL_UNIFORM_BUFFER, h->sh->model_ubo_buffer);
+  glBufferData(GL_UNIFORM_BUFFER, model_uniform_size, NULL, GL_DYNAMIC_DRAW);
+
+  h->sh->model_ubo_size = model_uniform_size;
+  enable_shader_uniforms(gl_state, h->sh, h->sh->id);
+  enable_shader_uniforms(gl_state, h->sh, h->sh->depth_only_shader);
+  glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+  *ret = idx;
+}
+void CreateFrameBuffer(dbg_state *dbg, u32 *fbo, u32 *texture, int internal_format, int format, int type, int attachment_type)
+{
+
+  auto gl_state = (open_gl_state *)dbg->data;
+  //GLuint fbo, texture, Buffer;
+  GLuint Buffer, offDepth;
+
+  // Create and bind the framebuffer
+  glGenFramebuffers(1, fbo);
+  glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
+
+  // Create the texture to render to
+  glGenTextures(1, texture);
+  glBindTexture(GL_TEXTURE_2D, *texture);
+  glTexImage2D(GL_TEXTURE_2D, 0, internal_format, gl_state->width, gl_state->height, 0,
+               format, type, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+  // Attach the texture to the framebuffer's color attachment
+  glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_type, GL_TEXTURE_2D,
+                         *texture, 0);
+
+  // Create and attach a depth buffer (optional, for 3D scenes)
+  glGenRenderbuffers(1, &Buffer);
+
+  if(attachment_type == GL_DEPTH_ATTACHMENT)
+  {
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+  }
+  else
+  {
+    glGenTextures(1, &offDepth);
+    glBindTexture(GL_TEXTURE_2D, offDepth);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24,
+                gl_state->width, gl_state->height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, offDepth, 0);
+  }
+  auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+  // Check framebuffer completeness
+  if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
+    printf("Error: Framebuffer is not complete!\n");
+    ASSERT(false);
+  }
+
+  // Unbind the framebuffer for now
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 void Init3D(dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
     
+
 
   char *vertexShaderSrc = "\n\
 	#version 330 core\n\
@@ -6748,6 +7110,13 @@ void Init3D(dbg_state *dbg) {
 	}\
 	";
 
+  gl_state->global_ubo_buffer_size = 128;
+  glGenBuffers(1, (u32 *)&gl_state->global_ubo_buffer);
+  glBindBuffer(GL_UNIFORM_BUFFER, gl_state->global_ubo_buffer);
+  glBufferData(GL_UNIFORM_BUFFER, gl_state->global_ubo_buffer_size, NULL, GL_DYNAMIC_DRAW);
+  glBindBufferBase(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer);
+  glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
   // Cube vertices with UVs (each face gets its own 4 vertices)
   GLfloat planeVerts[] = {
       // Front face
@@ -6805,6 +7174,58 @@ void Init3D(dbg_state *dbg) {
   glAttachShader(shaderProgram, fs);
   glLinkProgram(shaderProgram);
   gl_state->shader_program3d = shaderProgram;
+
+
+  const char* screenVertexShaderSrc =
+  "#version 330 core\n\
+  \n\
+  vec2 positions[3] = vec2[](\n\
+      vec2(-1.0, -1.0),\n\
+      vec2( 3.0, -1.0),\n\
+      vec2(-1.0,  3.0)\n\
+  );\n\
+  \n\
+  out vec2 vUV;\n\
+  \n\
+  void main() {\n\
+      vec2 pos = positions[gl_VertexID];\n\
+      vUV = pos * 0.5 + 0.5;\n\
+      gl_Position = vec4(pos, 0.0, 1.0);\n\
+  }\n\
+  ";
+
+  const char* screenFragmentShaderSrc =
+  "#version 330 core\n\
+  \n\
+  in vec2 vUV;\n\
+  out vec4 FragColor;\n\
+  \n\
+  uniform sampler2D uScene;\n\
+  uniform sampler2D uDepth;\n\
+  uniform float uNear;\n\
+  uniform float uFar;\n\
+  float LinearizeDepth(float depth){\n\
+      // depth is [0..1] non-linear depth buffer value\n\
+      float z = depth * 2.0 - 1.0;           // Back to NDC\n\
+      return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear));\n\
+  }\n\
+  \n\
+  void main() {\n\
+    float depth = texture(uDepth, vUV).r;\n\
+    float linear = LinearizeDepth(depth);\n\
+    float viewZ01 = (linear - uNear) / (uFar - uNear);\n\
+    FragColor = vec4(vec3(viewZ01), 1.0);\n\
+    FragColor = texture(uScene, vUV);\n\
+  }\n\
+  ";
+  shaderProgram = glCreateProgram();
+  GLuint screen_vs = compileShader(GL_VERTEX_SHADER, screenVertexShaderSrc);
+  GLuint screen_fs = compileShader(GL_FRAGMENT_SHADER, screenFragmentShaderSrc);
+  glAttachShader(shaderProgram, screen_vs);
+  glAttachShader(shaderProgram, screen_fs);
+  glLinkProgram(shaderProgram);
+  gl_state->to_screen_shader = shaderProgram;
+
 
   shaderProgram = glCreateProgram();
   glAttachShader(shaderProgram, vs);
@@ -6992,8 +7413,10 @@ void Init3D(dbg_state *dbg) {
   loadIdentity(gl_state->view);
   loadIdentity(gl_state->projection);
 
+  gl_state->near_plane = 0.1;
+  gl_state->far_plane = 500.0;
   perspective(gl_state->projection, 70.0f * (3.14159f / 180.0f),
-              (float)gl_state->width / (float)gl_state->height, 0.01f, 500.0f);
+              (float)gl_state->width / (float)gl_state->height, gl_state->near_plane, gl_state->far_plane);
   gl_state->view[14] = -5.0f; // translate view back
   gl_state->view[13] = -1.0f; // translate view back
   // gl_state->model[13] = -1.0f;  // translate view back
@@ -7009,49 +7432,8 @@ void Init3D(dbg_state *dbg) {
   // load and generate the texture
   int width, height, nrChannels;
   */
-
-  GLuint fbo, texture, depthBuffer;
-
-  // Create and bind the framebuffer
-  glGenFramebuffers(1, &fbo);
-  glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-  gl_state->frame_buffer = fbo;
-
-  // Create the texture to render to
-  glGenTextures(1, &texture);
-  glBindTexture(GL_TEXTURE_2D, texture);
-  gl_state->frame_buffer_tex = texture;
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gl_state->width, gl_state->height, 0,
-               GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-  // Attach the texture to the framebuffer's color attachment
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                         texture, 0);
-
-  // Create and attach a depth buffer (optional, for 3D scenes)
-  glGenRenderbuffers(1, &depthBuffer);
-  glBindRenderbuffer(GL_RENDERBUFFER, depthBuffer);
-  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, gl_state->width,
-                        gl_state->height);
-  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                            GL_RENDERBUFFER, depthBuffer);
-
-  auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-
-  // Check framebuffer completeness
-  if (fboStatus != GL_FRAMEBUFFER_COMPLETE) {
-    printf("Error: Framebuffer is not complete!\n");
-    ASSERT(false);
-  }
-
-  // Unbind the framebuffer for now
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-  // Set the list of draw buffers.
-  // GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
-  // glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+  CreateFrameBuffer(dbg, &gl_state->depthFBO, &gl_state->depthTex, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_FLOAT, GL_DEPTH_ATTACHMENT);
+  CreateFrameBuffer(dbg, &gl_state->offscreenFBO, &gl_state->offscreenTex, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_COLOR_ATTACHMENT0);
 }
 void cursor_position_callback(GLFWwindow *window, double xpos, double ypos) {
   auto gl_state = (open_gl_state *)glfwGetWindowUserPointer(window);
@@ -7911,13 +8293,10 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
   const char *glsl_version = "#version 430";
   glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-  //glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-  // glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
   glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
   glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required
+  //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+  //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required
   //*/
   //on Mac
 
@@ -9178,6 +9557,9 @@ int main(int argc, char *argv[]) {
                      (OutsiderFuncType)AddMemoryWatch);
   AssignOutsiderFunc(&lang_stat, "PrintCallStack",
                      (OutsiderFuncType)PrintCallStack);
+
+  AssignOutsiderFunc(&lang_stat, "Draw3D2",
+                     (OutsiderFuncType)Draw3D2);
   lang_stat.cur_decl = 0;
 
   opts.wasm_dir = wasm_dir;

@@ -2863,6 +2863,7 @@ enum class handle_enum
 	FILES_DIR,
 	THREAD,
 	FILE,
+  SHADER,
 };
 struct thread_creation
 {
@@ -2881,6 +2882,23 @@ struct thread_creation
 #endif
 	int args_addr;
 };
+
+struct shader_info
+{
+  own_std::string name;
+#ifdef RENDERER_VULKAN
+  own_std::string name;
+  vulkan_graphics_pipeline vk;
+  vulkan_graphics_pipeline vk_depth_only;
+#else
+  int model_ubo_buffer;
+  int global_ubo_idx;
+  int model_ubo_idx;
+  int id;
+  int depth_only_shader;
+  int model_ubo_size;
+#endif
+};
 struct handle_info
 {
 	handle_enum type;
@@ -2893,6 +2911,7 @@ struct handle_info
 	};
 	union
 	{
+    shader_info *sh;
 		dir_files *dir;
 		thread_creation *th;
 		FILE *file;
@@ -10166,6 +10185,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
       //printf("watch cur %d, prev %d\n", cur, m->prev_val);
       if(cur != m->prev_val)
       {
+        printf("mem watch triggered: addr %d value was %d, now is %d\n", m->address, m->prev_val, cur);
         breakpoint bp;
         bp.line = 0;
         bp.prev_inst = cur_bc->bc_type;
@@ -11207,7 +11227,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			edecl += addr;
 			if (addr >= strct->scp->vars.size())
 			{
-				ImGui::Text("idx too higher ");
+				ImGui::Text("idx too higher %d", addr);
 				return;
 			}
 

@@ -330,7 +330,7 @@ get_opaques_offset_ptr ::fn(size : u32)!*void
   cur := ptr_offset(start_count, scn.count_opaques, u32)
   *cur = scn.opaques_cur_size + DRAW_BUFFER_MAX_COUNT * 2 * 4
 
-  scn.opaques_cur_size += size
+  scn.opaques_cur_size += size + sizeof(object_draw_info)
   assert(scn.opaques_cur_size < DRAW_BUFFER_MAX_SIZE)
   scn.count_opaques++
 
@@ -378,12 +378,24 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
 
     memcpy(start_model_uniform, inst.data, m.data_size)
     i:= 0
+
+    //if m.textures_count >= 3 __dbg_break
+
     for u in inst.uniforms
     {
       if cast(lang_type_type)u.type == lang_type_type.SAMPLER2D
       {
         cur_texture_ptr := ptr_offset(start_texture_uniform, i, u32)
+        asset := globals.assets[cast(u64)u.tex.asset_idx]
         *cur_texture_ptr = get_id_of_texture_asset(&u.tex)
+        /*
+        if !globals.first
+        {
+            AddMemoryWatch(cur_texture_ptr)
+        }
+        globals.first = true
+        */
+
         i++
       }
     }
@@ -402,23 +414,6 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
 	}
   //__dbg_break
 
-  scn := cast(*scene_draw_info)globals.scene_draw.buffer
-  scn.cam_pos = *drw_set.cam_pos
-  scn.cam_rot = *drw_set.cam_rot
-  scn.cam_fw = *drw_set.cam_forward
-  scn.cam_size = drw_set.cam_size
-
-  Draw3D2(drw_set.window, cast(*scene_draw_info)globals.scene_draw.buffer)
-  /*
-	for e in ctx.transparent_ents
-	{
-		DrawEntity(ctx, *e, drw_set);
-	}
-	Draw3DTransparency(drw_set.window);
-	dyn_clear(&ctx.transparent_ents)
-  */
-
-  memset(scn, 0, sizeof(*scn))
 }
 custom_shader_setting::fn(ctx : *scene_info, ent : *entity, draw : *draw_info3d)
 {				

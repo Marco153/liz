@@ -1,0 +1,87 @@
+#version 430 core
+
+layout(std140) uniform ubo {
+    mat4 view;
+    mat4 proj;
+} UBO;
+
+layout(std140) uniform _model {
+    mat4 mod;
+} MODEL;
+
+layout(std140, binding = 0) buffer faces {
+  uint f [6 * 8 * 8 * 8];
+} FACES;
+out vec3 frag_pos;
+out vec2 out_uv;
+const vec3 face_offsets[6 * 6] = vec3[](
+    // ============================================================
+    // +X (RIGHT)
+    // ============================================================
+    vec3(1,0,0), vec3(1,1,0), vec3(1,1,1),
+    vec3(1,1,1), vec3(1,0,1), vec3(1,0,0),
+
+    // ============================================================
+    // -X (LEFT)
+    // ============================================================
+    vec3(0,0,0), vec3(0,0,1), vec3(0,1,1),
+    vec3(0,1,1), vec3(0,1,0), vec3(0,0,0),
+
+    // ============================================================
+    // +Y (TOP)
+    // ============================================================
+    vec3(0,1,0), vec3(1,1,0), vec3(1,1,1),
+    vec3(1,1,1), vec3(0,1,1), vec3(0,1,0),
+
+    // ============================================================
+    // -Y (BOTTOM)
+    // ============================================================
+    vec3(0,0,0), vec3(0,0,1), vec3(1,0,1),
+    vec3(1,0,1), vec3(1,0,0), vec3(0,0,0),
+
+    // ============================================================
+    // +Z (FRONT)
+    // ============================================================
+    vec3(0,0,1), vec3(1,0,1), vec3(1,1,1),
+    vec3(1,1,1), vec3(0,1,1), vec3(0,0,1),
+
+    // ============================================================
+    // -Z (BACK)
+    // ============================================================
+    vec3(0,0,0), vec3(0,1,0), vec3(1,1,0),
+    vec3(1,1,0), vec3(1,0,0), vec3(0,0,0)
+);
+const vec2 faces_uvs[6] = vec2[6](
+    vec2(0,0),
+    vec2(1,0),
+    vec2(1,1),
+    vec2(1,1),
+    vec2(0,1),
+    vec2(0,0)
+);
+const vec3 face_normals[6] = vec3[6](
+    vec3(1,0,0),
+    vec3(-1,0,0),
+    vec3(0,1,0),
+    vec3(0,-1,0),
+    vec3(0,0,1),
+    vec3(0,0,-1)
+);
+
+void main()
+{
+    // gl_VertexID goes 0..5*6*? depending on draw
+    uint cube_index = gl_VertexID / 24;    // 24 vertices per cube (6 faces × 4)
+    uint face_index_uniform = (gl_VertexID / 6);
+    uint face_in_uniform = FACES.f[face_index_uniform];
+    uint face_dir = face_in_uniform >> 13;
+    uint corner_index = gl_VertexID % 6;
+
+
+    vec3 local_vertex = face_offsets[face_dir * 6 + corner_index];
+    vec3 world_pos = (MODEL.mod * vec4(local_vertex,1.0)).xyz;
+    frag_pos = world_pos;
+    out_uv = faces_uvs[corner_index];
+
+    gl_Position = UBO.proj * UBO.view * vec4(world_pos.xyz, 1.0);
+}

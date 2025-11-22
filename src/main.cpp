@@ -545,6 +545,15 @@ struct WindowEditor {
 #define LANG_FILE HANDLE
 #endif
 
+#define OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK 1
+#define OBJ_DRAW_FLAGS_UPDATE_TERRAIN_CHUNK 2
+struct terrain_chunk_draw_info
+{
+  int new_data_offset;
+  int new_data_size;
+  int total_faces;
+  int ubo;
+};
 struct object_draw_info
 {
   v4 pos;
@@ -555,6 +564,7 @@ struct object_draw_info
   int model_id;
   int model_uniform_size;
   int textures_count;
+  int flags;
 };
 struct scene_draw_info
 {
@@ -707,6 +717,9 @@ struct open_gl_state {
   float near_plane;
   float far_plane;
 
+  int terrain_chunk_shader_depth_only;
+  int terrain_chunk_shader;
+  int terrain_chunk_shader_faces_uniform;
 
   int to_screen_shader;
 
@@ -4859,13 +4872,25 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
     }
     */
     //HERE()
+    int shaderProgram = 0;
     if(depth_only)
     {
-      glUseProgram(_sh->depth_only_shader);
+      shaderProgram = _sh->depth_only_shader;
     }
     else
     {
-      glUseProgram(_sh->id);
+      shaderProgram = _sh->id;
+    }
+
+    glUseProgram(shaderProgram);
+
+    auto after_model_data = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size);
+    auto trn_chnk = (terrain_chunk_draw_info *)after_model_data;
+    if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_UPDATE_TERRAIN_CHUNK))
+    {
+      char *new_data_ptr =(char *)&dbg->mem_buffer[trn_chnk->new_data_offset];
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, gl_state->terrain_chunk_shader_faces_uniform);
+      GL_CALL(glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, trn_chnk->new_data_size, new_data_ptr));
     }
 
     build_model_matrix((float *)(cur_opaque + 1), (const Vec3 *)&cur_opaque->pos.x,
@@ -4878,12 +4903,6 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
     //((float *)(cur_opaque + 1))[15] = 1.0f;
     glBindVertexArray(m->vao);
 
-    /*
-    if(cur_opaque->model_uniform_size >= 2000)
-    {
-      HERE()
-    }
-    */
 
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer_size, global_ubo);
@@ -4903,7 +4922,15 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
       GL_CALL(glActiveTexture(GL_TEXTURE0););
     }
 
-    glDrawElements(GL_TRIANGLES, m->indicies, GL_UNSIGNED_INT, 0);
+    if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK))
+    {
+      glDrawArrays(GL_TRIANGLES, 0, trn_chnk->total_faces * 6); // 4 vertices per face
+    }
+    else
+    {
+      glDrawElements(GL_TRIANGLES, m->indicies, GL_UNSIGNED_INT, 0);
+
+    }
   }
 }
 void Draw3D2(int thread_id, dbg_state *dbg) {
@@ -6529,6 +6556,138 @@ void Perlin2D(int thread_id, dbg_state *dbg) {
   *(float *)GetRegValPtr(thread_id, dbg, RET_1_REG) =
       perlin2d(x, y, freq, depth);
 }
+static const int32_t perm[512] = {
+    151,160,137,91,90,15,
+    131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,
+    8,99,37,240,21,10,23,
+    190, 6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,
+    35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,
+    168, 68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,
+    111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,
+    102,143,54, 65,25,63,161, 1,216,80,73,209,76,132,187,208,
+    89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,
+    186, 3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,
+    // repeat
+    151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,
+    8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,
+    35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,
+    134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,
+    55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,
+    18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,
+    250,124,123,5,202,38,147,118,126,255
+};
+
+static double dot(const int8_t g[3], double x, double y, double z) {
+    return g[0]*x + g[1]*y + g[2]*z;
+}
+
+static const int8_t grad3[12][3] = {
+    {1,1,0}, {-1,1,0}, {1,-1,0}, {-1,-1,0},
+    {1,0,1}, {-1,0,1}, {1,0,-1}, {-1,0,-1},
+    {0,1,1}, {0,-1,1}, {0,1,-1}, {0,-1,-1}
+};
+
+double simplex3d(double x, double y, double z) {
+    // Skew constants
+    const double F3 = 1.0 / 3.0;
+    const double G3 = 1.0 / 6.0;
+
+    double s = (x + y + z) * F3;
+    int i = floor(x + s);
+    int j = floor(y + s);
+    int k = floor(z + s);
+
+    double t = (i + j + k) * G3;
+    double X0 = i - t;
+    double Y0 = j - t;
+    double Z0 = k - t;
+
+    double x0 = x - X0;
+    double y0 = y - Y0;
+    double z0 = z - Z0;
+
+    // Determine simplex corner ordering
+    int i1, j1, k1;
+    int i2, j2, k2;
+
+    if (x0 >= y0) {
+        if (y0 >= z0)       { i1=1; j1=0; k1=0; i2=1; j2=1; k2=0; }
+        else if (x0 >= z0) { i1=1; j1=0; k1=0; i2=1; j2=0; k2=1; }
+        else               { i1=0; j1=0; k1=1; i2=1; j2=0; k2=1; }
+    } else {
+        if (y0 < z0)        { i1=0; j1=0; k1=1; i2=0; j2=1; k2=1; }
+        else if (x0 < z0)   { i1=0; j1=1; k1=0; i2=0; j2=1; k2=1; }
+        else                { i1=0; j1=1; k1=0; i2=1; j2=1; k2=0; }
+    }
+
+    double x1 = x0 - i1 + G3;
+    double y1 = y0 - j1 + G3;
+    double z1 = z0 - k1 + G3;
+
+    double x2 = x0 - i2 + 2.0*G3;
+    double y2 = y0 - j2 + 2.0*G3;
+    double z2 = z0 - k2 + 2.0*G3;
+
+    double x3 = x0 - 1.0 + 3.0*G3;
+    double y3 = y0 - 1.0 + 3.0*G3;
+    double z3 = z0 - 1.0 + 3.0*G3;
+
+    // Calculate hashed gradient indices
+    int gi0 = perm[i + perm[j + perm[k]]] % 12;
+    int gi1 = perm[i + i1 + perm[j + j1 + perm[k + k1]]] % 12;
+    int gi2 = perm[i + i2 + perm[j + j2 + perm[k + k2]]] % 12;
+    int gi3 = perm[i + 1 + perm[j + 1 + perm[k + 1]]] % 12;
+
+    // Contribution from each corner
+    double n0=0, n1=0, n2=0, n3=0;
+
+    double t0 = 0.6 - x0*x0 - y0*y0 - z0*z0;
+    if (t0 > 0) {
+        t0 *= t0;
+        n0 = t0 * t0 * dot(grad3[gi0], x0, y0, z0);
+    }
+
+    double t1 = 0.6 - x1*x1 - y1*y1 - z1*z1;
+    if (t1 > 0) {
+        t1 *= t1;
+        n1 = t1 * t1 * dot(grad3[gi1], x1, y1, z1);
+    }
+
+    double t2 = 0.6 - x2*x2 - y2*y2 - z2*z2;
+    if (t2 > 0) {
+        t2 *= t2;
+        n2 = t2 * t2 * dot(grad3[gi2], x2, y2, z2);
+    }
+
+    double t3 = 0.6 - x3*x3 - y3*y3 - z3*z3;
+    if (t3 > 0) {
+        t3 *= t3;
+        n3 = t3 * t3 * dot(grad3[gi3], x3, y3, z3);
+    }
+
+    // Final noise value scaled to roughly [-1,1]
+    return 32.0 * (n0 + n1 + n2 + n3);
+}
+double fbm3d(double x, double y, double z,
+             int octaves,
+             double lacunarity,    // frequency multiplier (e.g. 2.0)
+             double persistence) { // amplitude multiplier (e.g. 0.5)
+    double sum = 0.0;
+    double amplitude = 1.0;
+    double frequency = 1.0;
+    double maxAmplitude = 0.0;
+
+    for (int i = 0; i < octaves; ++i) {
+        sum += simplex3d(x * frequency, y * frequency, z * frequency) * amplitude;
+        maxAmplitude += amplitude;
+        amplitude *= persistence;    // reduce amplitude each octave
+        frequency *= lacunarity;    // increase frequency each octave
+    }
+
+    // Normalize to approximately [-1, 1]
+    if (maxAmplitude > 0.0) sum /= maxAmplitude;
+    return sum;
+}
 void LoadClip(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
 
@@ -6805,30 +6964,51 @@ void SetShader(int thread_id, dbg_state *dbg) {
 
   glUseProgram(shader_id);
 }
+void enable_shader_uniform(open_gl_state *gl_state, shader_info *sh, char *name, int binding, int shaderProgram, int ubo)
+{
+  unsigned int uniformBlockUBO    = glGetUniformBlockIndex(shaderProgram, name);
+  if (glGetError() != GL_NO_ERROR) {                                        
+    printf("\ngl error %d, line %d\n", glGetError(), __LINE__);                
+    fflush(stdout);                                                            
+    ExitProcess(1);                                                          
+  }
+
+  glUniformBlockBinding(shaderProgram, uniformBlockUBO, binding);
+
+  glBindBufferBase(GL_UNIFORM_BUFFER, binding, ubo);
+
+}
 void enable_shader_uniforms(open_gl_state *gl_state, shader_info *sh, int shaderProgram)
 {
-  unsigned int uniformBlockUBO    = glGetUniformBlockIndex(shaderProgram, "ubo");
-  if (glGetError() != GL_NO_ERROR) {                                        
-    printf("\ngl error %d, line %d\n", glGetError(), __LINE__);                
-    fflush(stdout);                                                            
-    ExitProcess(1);                                                          
-  }
-  unsigned int uniformBlockMODEL    = glGetUniformBlockIndex(shaderProgram, "_model");
-  if (glGetError() != GL_NO_ERROR) {                                        
-    printf("\ngl error %d, line %d\n", glGetError(), __LINE__);                
-    fflush(stdout);                                                            
-    ExitProcess(1);                                                          
-  }
+  enable_shader_uniform(gl_state, sh, "ubo", 0, shaderProgram, gl_state->global_ubo_buffer);
+  enable_shader_uniform(gl_state, sh, "_model", 1, shaderProgram, sh->model_ubo_buffer);
 
-  glUniformBlockBinding(shaderProgram, uniformBlockUBO, 0);
-  glUniformBlockBinding(shaderProgram, uniformBlockMODEL, 1);
+}
+void UpdateUniformBuffer(int thread_id, dbg_state *dbg)
+{
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int storage_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+  int data_offset = *(int *)&dbg->mem_buffer[base_ptr + 16];
+  int data_size = *(int *)&dbg->mem_buffer[base_ptr + 24];
 
-  glBindBufferBase(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer);
-  glBindBufferBase(GL_UNIFORM_BUFFER, 1, sh->model_ubo_buffer);
-  
-  //h->sh->global_ubo_idx = uniformBlockUBO;
-  //h->sh->model_ubo_idx = uniformBlockMODEL;
+  int *data_ptr = (int *)&dbg->mem_buffer[data_offset];
 
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, storage_id);
+  glBufferData(GL_SHADER_STORAGE_BUFFER, data_size, data_ptr, GL_DYNAMIC_DRAW);
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+}
+void CreateUniformBuffer(int thread_id, dbg_state *dbg)
+{
+  auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+
+  GLuint faces_ssbo;
+  glGenBuffers(1, &faces_ssbo);                  // generate buffer
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, faces_ssbo);
+  glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW); // no data yet
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+  *ret = faces_ssbo;
 }
 void CompileShader2(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -6990,8 +7170,66 @@ void CreateFrameBuffer(dbg_state *dbg, u32 *fbo, u32 *texture, int internal_form
 }
 void Init3D(dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
-    
 
+  char *empty_fs_str = "#version 330\n void main(){}";
+    
+  int idx = GetFreeHandle(dbg);
+
+  handle_info *h = &dbg->handles[idx];
+  h->sh = (shader_info *)AllocMiscData(dbg->lang_stat,
+                                               sizeof(shader_info));
+  // printf("user gave %d uniforms, fs %s\n", uniforms_len, fs_str);
+  h->type = handle_enum::SHADER;
+  h->sh->name = "terrain";
+  u32 read;
+  char buf[1024];
+  if (getcwd(buf, sizeof(buf)) != NULL)
+      printf("Current dir: %s\n", buf);
+  else
+      perror("getcwd");
+  own_std::string cur_cwd = buf;
+
+  own_std::string cur_file = cur_cwd + "/../dev/builtin_materials/chunk_vs.glsl";
+  char *chunk_vs_str = ReadEntireFileLang(cur_file.c_str(), &read);
+
+  cur_file = cur_cwd + "/../dev/builtin_materials/chunk_fs.glsl";
+  char *chunk_fs_str = ReadEntireFileLang(cur_file.c_str(), &read);
+
+  GLuint chunk_terrain_vs = compileShader(GL_VERTEX_SHADER, chunk_vs_str);
+  GLuint chunk_terrain_fs = compileShader(GL_FRAGMENT_SHADER, chunk_fs_str);
+  GLuint empty_fs = compileShader(GL_FRAGMENT_SHADER, empty_fs_str);
+  GLuint terrainShaderProgram = glCreateProgram();
+
+  glAttachShader(terrainShaderProgram, chunk_terrain_vs);
+  glAttachShader(terrainShaderProgram, chunk_terrain_fs);
+  glLinkProgram(terrainShaderProgram);
+  h->sh->id = terrainShaderProgram;
+
+
+  terrainShaderProgram = glCreateProgram();
+  glAttachShader(terrainShaderProgram, chunk_terrain_vs);
+  glAttachShader(terrainShaderProgram, empty_fs);
+  glLinkProgram(terrainShaderProgram);
+  h->sh->depth_only_shader = terrainShaderProgram;
+
+  /*
+  auto trn_ubo = (u32 *)&gl_state->terrain_chunk_shader_faces_uniform;
+  glGenBuffers(1, trn_ubo);
+  glBindBuffer(GL_UNIFORM_BUFFER, *trn_ubo);
+  glBufferData(GL_UNIFORM_BUFFER, 4 * 6 * 8 * 8 * 8, NULL, GL_DYNAMIC_DRAW);
+  glBindBufferBase(GL_UNIFORM_BUFFER, 0, *trn_ubo);
+  glBindBuffer(GL_UNIFORM_BUFFER, 0);
+  */
+  glGenBuffers(1, (u32 *)&h->sh->model_ubo_buffer);
+  glBindBuffer(GL_UNIFORM_BUFFER, h->sh->model_ubo_buffer);
+  glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
+  enable_shader_uniforms(gl_state, h->sh, h->sh->id);
+  enable_shader_uniforms(gl_state, h->sh, h->sh->depth_only_shader);
+
+  //void enable_shader_uniform(open_gl_state *gl_state, shader_info *sh, char *name, int binding, int shaderProgram, int ubo)
+
+  //enable_shader_uniform(gl_state, h->sh, "faces", 2, h->sh->id, *trn_ubo);
+  //enable_shader_uniform(gl_state, h->sh, "faces", 2, h->sh->depth_only_shader, *trn_ubo);
 
   char *vertexShaderSrc = "\n\
 	#version 330 core\n\

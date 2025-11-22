@@ -216,6 +216,34 @@ anim_manager:struct
 	sec_clip_timer : f32
 	loop_sec_clip : bool
 }
+chunk_face_info:struct
+{
+  pos : u16
+  light : u8
+  tex : u8
+}
+CHUNK_SIZE:const s32=8
+block_type:enum
+{
+  AIR,
+  STONE,
+  DIRT
+}
+terrain_chunk_info:struct
+{
+  pos_x:u32
+  pos_y:u32
+  pos_z:u32
+
+  faces:dyn_array(u16)
+  ubo : u32
+}
+terrain2:struct
+{
+
+  chunks : dyn_array(terrain_chunk_info)
+}
+
 entity:struct
 {
 	type : ent_type,
@@ -227,6 +255,7 @@ entity:struct
 		mov_info : *player_info,
 		en_info : *enemy_info,
 		parent_col : *entity
+    trn : *terrain2
 	}
 
 	//using base : base_entity

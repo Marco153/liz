@@ -2757,7 +2757,6 @@ ser_test_e: etruct
 		ch : char,
 		#serializable(ch)
 	)
-
 }
 
 ser_test_st :struct
@@ -2766,6 +2765,28 @@ ser_test_st :struct
 
 	u : u32,
 	#serializable(val)
+}
+
+generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk_info)
+{
+  for y in 0..CHUNK_SIZE
+  {
+    for z in 0..CHUNK_SIZE
+    {
+      for x in 0..CHUNK_SIZE
+      {
+        if y > 3
+        {
+          dyn_add(&out.faces, cast(u16)block_type.AIR)
+        }
+        else
+        {
+          dyn_add(&out.faces, cast(u16)block_type.STONE)
+        }
+      }
+    }
+  }
+
 }
 
 main :: fn(){

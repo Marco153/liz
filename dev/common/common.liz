@@ -109,6 +109,13 @@ create_event_info:struct
 {
 	using type : create_event_etruct
 }
+terrain_chunk_draw_info:struct
+{
+  new_data_offset:u32
+  new_data_len:u32
+  total_faces:u32
+  ubo:u32;
+}
 object_draw_info:struct
 {
   pos : _vec
@@ -119,6 +126,7 @@ object_draw_info:struct
   model_id : u32
   model_uniform_size : u32
   textures_count : u32
+  flags:u32
 }
 scene_draw_info:struct
 {

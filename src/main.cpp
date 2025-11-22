@@ -9224,10 +9224,104 @@ void _WaitThread(int thread_id, dbg_state *dbg) {
   int th_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
 
   handle_info *h = &dbg->handles[th_id];
+  ASSERT(h->type == handle_enum::THREAD)
   // printf("trying to resume %d\n", th_id);
 #ifdef LINUX
   pthread_mutex_lock(&h->th->mutex);
   pthread_mutex_unlock(&h->th->mutex);
+#else
+#endif
+}
+own_mutex *CreateMutexBase()
+{
+  auto mutex = (own_mutex *)__lang_globals.alloc(__lang_globals.data, sizeof(own_mutex));
+#ifdef LINUX
+  pthread_cond_init(&mutex->cond, NULL);
+  pthread_mutex_init(&mutex->mutex, NULL);
+#else
+#endif
+  return mutex;
+}
+void CreateMutex(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int th_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+  printf("creating mutex\n");
+  int idx = GetFreeHandle(dbg);
+
+  handle_info *h = &dbg->handles[idx];
+  h->type = handle_enum::MUTEX;
+
+  h->mutex = CreateMutexBase();
+  int *ret = (int *)GetRegValPtr(thread_id, dbg, RET_1_REG);
+  *ret = idx;
+}
+void WaitMutexBase(own_mutex *m)
+{
+#ifdef LINUX
+  pthread_cond_wait(&m->cond, &m->mutex);
+#else
+#endif
+
+}
+void SignalMutexBase(own_mutex *m)
+{
+#ifdef LINUX
+  pthread_cond_signal(&m->cond);
+#else
+#endif
+
+}
+void SignalMutex(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+  handle_info *h = &dbg->handles[id];
+  ASSERT(h->type == handle_enum::MUTEX)
+  SignalMutexBase(h->mutex);
+}
+void WaitMutex(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+  handle_info *h = &dbg->handles[id];
+  ASSERT(h->type == handle_enum::MUTEX)
+  WaitMutexBase(h->mutex);
+}
+void BroadcastMutexBase(own_mutex *m) {
+#ifdef LINUX
+  pthread_cond_broadcast(&m->cond);
+#else
+#endif
+}
+void LockMutexBase(own_mutex *m) {
+#ifdef LINUX
+  pthread_mutex_lock(&m->mutex);
+#else
+#endif
+}
+void UnlockMutexBase(own_mutex *m) {
+#ifdef LINUX
+  pthread_mutex_unlock(&m->mutex);
+#else
+#endif
+}
+void UnlockMutex(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+  handle_info *h = &dbg->handles[id];
+  ASSERT(h->type == handle_enum::MUTEX)
+  UnlockMutexBase(h->mutex);
+}
+void LockMutex(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+  handle_info *h = &dbg->handles[id];
+  ASSERT(h->type == handle_enum::MUTEX)
+#ifdef LINUX
+  pthread_mutex_lock(&h->mutex->mutex);
 #else
 #endif
 }
@@ -9236,7 +9330,8 @@ void _ResumeThread(int thread_id, dbg_state *dbg) {
   int th_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
 
   handle_info *h = &dbg->handles[th_id];
-  // printf("trying to resume %d\n", th_id);
+  ASSERT(h->type == handle_enum::THREAD)
+   printf("trying to resume %d\n", th_id);
 #ifdef LINUX
   pthread_mutex_lock(&h->th->mutex);
   pthread_cond_signal(&h->th->cond);
@@ -9246,6 +9341,7 @@ void _ResumeThread(int thread_id, dbg_state *dbg) {
 }
 void SuspendThread(thread_creation *th, dbg_state *dbg) {
 #ifdef LINUX
+  //HERE()
 
   pthread_mutex_lock(&th->mutex);
   printf("\nthread %d will sleep\n", th->thread_id);
@@ -9260,6 +9356,7 @@ void _SuspendThread(int thread_id, dbg_state *dbg) {
   int th_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
 
   handle_info *h = &dbg->handles[th_id];
+  ASSERT(h->type == handle_enum::THREAD)
   SuspendThread(h->th, dbg);
 }
 void _JoinThread(int thread_id, dbg_state *dbg) {
@@ -9267,6 +9364,7 @@ void _JoinThread(int thread_id, dbg_state *dbg) {
   int th_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
 
   handle_info *h = &dbg->handles[th_id];
+  ASSERT(h->type == handle_enum::THREAD)
 
 #ifdef LINUX
   pthread_join(h->th->thread, NULL);
@@ -9283,17 +9381,21 @@ void _CreateThread(int thread_id, dbg_state *dbg) {
   handle_info *h = &dbg->handles[idx];
   h->th =
       (thread_creation *)AllocMiscData(dbg->lang_stat, sizeof(thread_creation));
-  auto args = h->th;
+  thread_creation *args = h->th;
   h->type = handle_enum::THREAD;
 #ifdef LINUX
   memset(args, 0, sizeof(thread_creation));
 
   args->args_addr = *(int *)&dbg->mem_buffer[base_ptr + 16];
+  pthread_cond_init(&args->cond, NULL);
+  pthread_mutex_init(&args->mutex, NULL);
+  
 
   args->dbg = dbg;
   args->thread_id = new_thread_id;
   args->func_bc_idx = func_addr;
   args->parent_thread = thread_id;
+  args->heandle_id = idx;
 
   pthread_create(&args->thread, NULL, CreateThreadAux, args);
 
@@ -9798,6 +9900,17 @@ int main(int argc, char *argv[]) {
                      (OutsiderFuncType)CreateStorageBuffer);
   AssignOutsiderFunc(&lang_stat, "UpdateStorageBuffer",
                      (OutsiderFuncType)UpdateStorageBuffer);
+
+  AssignOutsiderFunc(&lang_stat, "CreateMutex",
+                     (OutsiderFuncType)CreateMutex);
+  AssignOutsiderFunc(&lang_stat, "SignalMutex",
+                     (OutsiderFuncType)SignalMutex);
+  AssignOutsiderFunc(&lang_stat, "WaitMutex",
+                     (OutsiderFuncType)WaitMutex);
+  AssignOutsiderFunc(&lang_stat, "LockMutex",
+                     (OutsiderFuncType)LockMutex);
+  AssignOutsiderFunc(&lang_stat, "UnlockMutex",
+                     (OutsiderFuncType)UnlockMutex);
   lang_stat.cur_decl = 0;
 
   opts.wasm_dir = wasm_dir;

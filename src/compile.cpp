@@ -1,3 +1,4 @@
+#include <pthread.h>
 typedef unsigned long long u64;
 typedef unsigned int u32;
 typedef unsigned short u16;
@@ -2870,9 +2871,24 @@ enum class handle_enum
 {
 	FILES_DIR,
 	THREAD,
+	MUTEX,
 	FILE,
   SHADER,
 };
+struct own_mutex
+{
+#ifdef LINUX
+	pthread_cond_t cond;
+	pthread_mutex_t mutex;
+#else
+#endif
+};
+own_mutex *CreateMutexBase();
+void WaitMutexBase(own_mutex*);
+void SignalMutexBase(own_mutex*);
+void LockMutexBase(own_mutex*);
+void UnlockMutexBase(own_mutex*);
+void BroadcastMutexBase(own_mutex*);
 struct thread_creation
 {
 	int parent_thread;
@@ -2923,9 +2939,14 @@ struct handle_info
 		dir_files *dir;
 		thread_creation *th;
 		FILE *file;
+    own_mutex *mutex;
 	};
 };
 #define TOTAL_HANDLES 16
+struct per_thread_dbg_info
+{
+
+};
 struct dbg_state
 {
 	dbg_break_type break_type;
@@ -2943,9 +2964,12 @@ struct dbg_state
 	int mem_size;
 	func_decl* cur_func;
 	bool frame_is_from_dbg;
+	bool in_debug_mode;
 	bool aux_break;
 	bool aux_break2;
 	func_decl* prev_func;
+
+  own_mutex *dbg_mutex;
 
 	thread_creation *thread;
 	
@@ -9945,6 +9969,14 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
 	while(true)
 	{
 
+    //printf("on worker c++\n");
+    if(dbg->in_debug_mode)
+    {
+      LockMutexBase(dbg->dbg_mutex);
+    }
+
+    //printf("on worker unlocked c++\n");
+
 		bool inc_ptr = true;
 		bool valid = false;
 		Bc2Logic(thread_id, dbg, rip_ptr, &inc_ptr, &valid, 0);
@@ -9958,10 +9990,18 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
 		}
 		if((*rip_ptr)->type == INT3)
 		{
+      LockMutexBase(dbg->dbg_mutex);
+      printf("worker is in __dbg_break\n");
 			dbg->thread = thread;
 			dbg->cur_func = nullptr;
-			SuspendThread(thread, dbg);
+      dbg->in_debug_mode = true;
+      printf("worker is out of __dbg_break\n");
+      UnlockMutexBase(dbg->dbg_mutex);
 		}
+    if(dbg->in_debug_mode)
+    {
+      UnlockMutexBase(dbg->dbg_mutex);
+    }
 	}
 }
 void HackFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
@@ -10038,6 +10078,18 @@ bool ImGuiHasMissignEndChild(const ImGui::ImGuiErrorRecoveryState* state_in)
 
 void PrintCallBasedOnBc(dbg_state *dbg, byte_code2 *bc);
 
+void ExitDebugMode(dbg_state* dbg)
+{
+  dbg->in_debug_mode = false;
+  BroadcastMutexBase(dbg->dbg_mutex);
+  //UnlockMutexBase(dbg->dbg_mutex);
+
+}
+void EnterDebugMode(dbg_state* dbg)
+{
+  LockMutexBase(dbg->dbg_mutex);
+  dbg->in_debug_mode = true;
+}
 void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 {
 	char buffer[512];
@@ -10109,14 +10161,15 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			dbg->prev_valid_bc = cur_bc;
 		}
 		cur_bc = *(byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
-		int offset = cur_bc - start_bc;
 		if(dbg->thread != nullptr)
 		{
+      HERE()
 			thread_creation * th = dbg->thread;
 			cur_bc = *th->rip_ptr;
 			rip_ptr = th->rip_ptr;
 			thread_id = th->thread_id;
 		}
+		int offset = cur_bc - start_bc;
 
 
 		switch (dbg->break_type)
@@ -10141,9 +10194,11 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				dbg->cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
 				if (dbg->cur_func)
 				{
+          printf("cur func %s, thread %p\n", dbg->cur_func->name.c_str(), dbg->thread);
 					cur_st = GetStmntBasedOnOffset(&dbg->cur_func->wasm_stmnts, offset);
 					if (cur_st && cur_st != dbg->prev_st)
 					{
+            printf("cur func stat line %d\n", cur_st->line);
 						MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
 						dbg->prev_st = cur_st;
 					}
@@ -10205,15 +10260,20 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
         dbg->breakpoints.emplace_back(bp);
         dbg->mem_watches.remove(i);
         cur_bc->bc_type = INT3;
-        //HERE()
       }
       i++;
     }
 		//printf("%p\n", *rip_ptr);
 		if(dbg->thread == nullptr)
 		{
+      /*
+      if(i_ % 16 == 0)
+      {
+        printf("on main %d\n", i_);
+      }
+      */
 			Bc2Logic(0, dbg, (byte_code2**)&dbg->mem_buffer[RIP_REG * 8], &inc_ptr, &valid, offset);
-			auto a= 0;
+			i_++;
 		}
 		else
 		{
@@ -10234,6 +10294,8 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		}
 		if (cur_bc->type == INT3 || dbg->thread != nullptr)
 		{
+      EnterDebugMode(dbg);
+
 			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
 			dbg->frame_is_from_dbg = true;
@@ -10453,7 +10515,6 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			{
 				auto a = 0;
 			}
-      //HERE()
 
 			FOR_VEC(b, dbg->breakpoints)
 			{
@@ -10501,8 +10562,12 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				release_inst = true;
 				dbg->break_type = DBG_NO_BREAK;
 			}
-			if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F10) || f11_pressed_but_dint_find_call_so_normal_step)
+			if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F8) || IsKeyRepeat(0, dbg->data, GLFW_KEY_F10) || f11_pressed_but_dint_find_call_so_normal_step)
 			{
+        if(IsKeyRepeat(0, dbg->data, GLFW_KEY_F8))
+        {
+          //HERE()
+        }
 				//raise(SIGTRAP);
 				dbg->prev_bc = cur_bc;
 				if (show_bc)
@@ -10514,6 +10579,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					stmnt_dbg* next_st = cur_st + 1;
 					dbg->prev_st = cur_st;
 					byte_code2* out;
+          printf("step cur func %s, next stat line %d\n", dbg->cur_func->name.c_str(), next_st->line);
 					if (next_st < dbg->cur_func->wasm_stmnts.end())
 					{
 						dbg->break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
@@ -10530,6 +10596,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 			if (release_inst)
 			{
+        //ExitDebugMode(dbg);
 				if (bp)
 				{
 					cur_bc->type = bp->prev_inst;
@@ -10561,15 +10628,16 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 			//auto a = 0;
 			//ir_rep *ir = GetIrBasedOnOffset(dbg, offset);
+      UnlockMutexBase(dbg->dbg_mutex);
 		}
 		else
 		{
-			i_++;
 		}
 	}
 }
 void GetMsgFromGame(void* gl_state);
 int GetMem(dbg_state* dbg, int sz);
+own_mutex *CreateMutexBase();
 void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int len, own_std::string func_start, long long* args, int total_args)
 {
 	char buffer[64];
@@ -10645,6 +10713,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 #ifndef  WASM_DBG
 	dbg.lang_stat->is_x64_bc_backend = true;
+  dbg.dbg_mutex = CreateMutexBase();
 	Bc2Interpreter(&dbg, window, cur_func);
 	//raise(SIGTRAP);
 	dbg.lang_stat->is_x64_bc_backend = false;

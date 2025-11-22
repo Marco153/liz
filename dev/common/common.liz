@@ -246,6 +246,7 @@ global_struct : struct
 
   test_dyn_init2_called_count :u32
   first : bool
+  worker_mutex:u32
 }
 globals : global global_struct
 
@@ -864,6 +865,11 @@ shader_create_info:struct
 CreateStorageBuffer::fn outsider()!u32;
 UpdateStorageBuffer::fn outsider(ubo : u32, data : *void, data_size:u32);
 
+WaitMutex::fn outsider(id : u32);
+SignalMutex::fn outsider(id:u32);
+LockMutex::fn outsider(id : u32);
+UnlockMutex::fn outsider(id:u32);
+CreateMutex::fn outsider()!u32;
 CompileShader::fn outsider(name : *char, name_len : u64, vertex_shader : *char, vs_len : u64, fragment_shader : *char, fs_len : u64, vertex_input : *type_layout_info, vertex_input_count : u32, uniforms : *type_layout_info, uniforms_count :u32) ! u32;
 GetUniformLocation::fn outsider(shader_id : u32, name_str : *char, name_len : u32) ! u32;
 SetShader::fn outsider(shader_id : u32);
@@ -884,7 +890,7 @@ GetInfoFromModel::fn outsider(model : u32, out_verts_count : *u32, out_indices_c
 
 SetCulling::fn outsider(flags :u32);
 
-CreateThread::fn outsider(fn(u32, *void), *void)!u32;
+CreateThread::fn outsider(fn(thread_id:u32, *void), *void)!u32;
 JoinThread::fn outsider(u32)!u32;
 WaitThread::fn outsider(u32)!u32;
 ResumeThread::fn outsider(u32)!u32;

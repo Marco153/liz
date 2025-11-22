@@ -7056,6 +7056,65 @@ make_face_val::fn macro(assign_to : _expr, x : _expr, y: _expr, z : _expr, face_
   assign_to = assign_to | cast(u32)(z << 6)
   assign_to = assign_to | cast(u32)((light) << 6)
 }
+fmix32::fn( h:u32)!u32
+{
+    h = h >> 16
+    h = h ^ h
+
+    h = h * 0x85EBCA6B;
+    h = h >> 13;
+    h = h ^h
+
+    h = h * 0xC2B2AE35;
+    h = h * h
+    h = h >> 16;
+    h = h ^h
+    return h;
+}
+hash32_triplet::fn(x:u32,  y:u32, z:u32) !u32
+{
+    h :u32= 0;
+
+    h = x * 0x9E3779B9;
+    h = h ^ h
+
+    h = y * 0x85EBCA6B;
+    h = h ^ h
+
+    h = z * 0xC2B2AE35;
+    h = h ^ h
+
+    return fmix32(h);
+}
+remove_new_chunk::fn(trn :*terrain2, id : u32)
+{
+  ch := ptr_offset(trn.chunks_table, id, terrain_chunk_info)
+  ch.in_use = false
+  
+}
+get_new_chunk::fn(trn :*terrain2, x : u32, y : u32, z :u32)!u32
+{
+  ret :u32
+  
+  i :u32
+  while true
+  {
+    ret = hash32_triplet(x, y, z) % trn.max_chunks
+    test := ptr_offset(trn.chunks_table, ret, terrain_chunk_info)
+    if test.in_use == false
+    {
+      test.in_use = true
+      break
+    }
+    if i >= 16
+    {
+      // max iterations
+      __dbg_break
+    }
+    i++
+  }
+  return ret
+}
 update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_info)
 {
   working_buffer := cast(*u32)ptr_offset(ctx.buffer_for_creating_faces, FACES_BUFFER_MAX_SIZE * thread_id, u8)
@@ -8685,8 +8744,72 @@ change_ents_visibility_based_on_play_mode::fn(ctx : *context)
   }
 }
 FACES_BUFFER_MAX_SIZE:const s32= 4 * 6 * 8 * 8 * 8
+chunk_thread_work_type:etruct
+{
+  CREATE_CHUNK(
+    x : u32
+    y : u32
+    z : u32
+  ),
+  UPDATE_CHUNK(
+    chunk_idx : u32
+  )
+}
+chunk_thread_info:struct
+{
+  has_work:bool
+  ctx : *context
+  using type:chunk_thread_work_type
+  trn : *terrain2
+}
+chunk_thread_worker::fn(thread_id : u32, data : *void)
+{
+  printf("worker began\n")
+  work := cast(*chunk_thread_info)data
+  while true
+  {
+    LockMutex(globals.worker_mutex)
+
+    while !work.has_work
+    {
+      printf("no work\n")
+      WaitMutex(globals.worker_mutex)
+    }
+    printf("has work will unlocked\n")
+    UnlockMutex(globals.worker_mutex)
+    printf("unlocked!!\n")
+    __dbg_break
+    on work.type
+    {
+    chunk_thread_work_type.CREATE_CHUNK
+    {
+      x := work.CREATE_CHUNK.x
+      y := work.CREATE_CHUNK.y
+      z := work.CREATE_CHUNK.z
+      chunk_idx := get_new_chunk(work.trn, x, y, z)
+      chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
+      generate_terrain_chunk(x, y, z, chunk_info)
+    }
+    chunk_thread_work_type.UPDATE_CHUNK
+    {
+      chunk_info := ptr_offset(work.trn.chunks_table, work.UPDATE_CHUNK.chunk_idx, terrain_chunk_info)
+      update_terrain_chunk(work.ctx, 0, chunk_info)
+    }
+    }
+
+    printf("work done\n")
+    work.has_work = false
+  }
+}
+init_terrain2::fn(trn : *terrain2, max_chunks : u32, alloc : *mem_alloc)
+{
+  trn.max_chunks = max_chunks
+  trn.chunks_table = cast(*terrain_chunk_info)heap_alloc(alloc, max_chunks * sizeof(terrain_chunk_info))
+  memset(trn.chunks_table, 0, max_chunks * sizeof(terrain_chunk_info))
+}
 main_loop::fn(ctx : *context)
 {
+  globals.worker_mutex = CreateMutex()
 	MODELS_DIR:= "../models/"
 
   ctx.buffer_for_creating_faces = cast(*u32)heap_alloc(ctx.alloc, FACES_BUFFER_MAX_SIZE * 4)
@@ -8814,7 +8937,6 @@ main_loop::fn(ctx : *context)
 		empty_a:asset_index
 		empty_a.asset_idx = cast(u32)empty_idx
 
-		//__dbg_break
 
 		a := globals.assets[empty_idx]
 		a.cid.id.a_type = cast(u8)cast(u32)asset_type.MODEL
@@ -9224,15 +9346,31 @@ main_loop::fn(ctx : *context)
   trn_ent.type = ent_type.TERRAIN2
 	trn_ent.flags = trn_ent.flags | ENTITY_DONT_FREE
 	trn_ent.flags = trn_ent.flags & ~ENTITY_SERIALIZE
-  __dbg_break
   trn_ent.trn = cast(*terrain2)heap_alloc(ctx.alloc, sizeof(*trn_ent.trn))
   memset(trn_ent.trn, 0, sizeof(*trn_ent.trn))
-  chunk_info:terrain_chunk_info
-  generate_terrain_chunk(0, 0, 0, &chunk_info)
-  update_terrain_chunk(ctx, 0, &chunk_info)
-  dyn_add(&trn_ent.trn.chunks, &chunk_info)
+
+  init_terrain2(trn_ent.trn, 512, ctx.alloc)
+
+  thread_func_info:chunk_thread_info
+  thread_func_info.trn = trn_ent.trn
+  thread_func_info.ctx = ctx
+  thread_func_info.type = chunk_thread_work_type.CREATE_CHUNK
+  thread_func_info.CREATE_CHUNK.x = 0
+  thread_func_info.CREATE_CHUNK.y = 0
+  thread_func_info.CREATE_CHUNK.z = 0
+
+  __dbg_break
+  thread_id := CreateThread(chunk_thread_worker, &thread_func_info)
+
+  LockMutex(globals.worker_mutex)
+  thread_func_info.has_work = true
+  SignalMutex(globals.worker_mutex)
+  UnlockMutex(globals.worker_mutex)
+  //dyn_add(&trn_ent.trn.chunks, &chunk_info)
 
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
+	mx := 0.0
+	my := 0.0
 
 /*
 	terrain.tex = &ctx.terrain_tex
@@ -9270,8 +9408,6 @@ main_loop::fn(ctx : *context)
 	*/
 
 
-	mx := 0.0
-	my := 0.0
 
 	player_ent.forward.z = -1.0
 

@@ -1822,7 +1822,6 @@ tests::fn(ret : *u32)
 		debug_break();
 
   xor := 2
-  __dbg_break
   xor = xor ^ 3
   if xor != 1
   {

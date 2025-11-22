@@ -232,17 +232,20 @@ block_type:enum
 }
 terrain_chunk_info:struct
 {
+  in_use : bool
   pos_x:u32
   pos_y:u32
   pos_z:u32
 
   blocks:dyn_array(u32)
   ubo : u32
+  idx_on_table : u32
 }
 terrain2:struct
 {
-
-  chunks : dyn_array(terrain_chunk_info)
+  chunks_enabled : dyn_array(*terrain_chunk_info)
+  chunks_table : *terrain_chunk_info
+  max_chunks : u32
 }
 
 entity:struct

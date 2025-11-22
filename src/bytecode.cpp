@@ -1780,6 +1780,18 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			CreateImmToReg(0x2c, 0x2d, 5, &*bc, ret);
 			break;
 
+		case XOR_I_2_M:
+			CreateImmToMem(&*bc, 0x0, ret);
+		break;
+		case XOR_R_2_R:
+			CreateRegToReg(&*bc, 0x30, 0x31, &ret);
+			break;
+		case XOR_I_2_R:
+			CreateImmToReg(0x34, 0x35, 6, &*bc, ret);
+			break;
+		case XOR_R_2_M:
+			CreateRegToMem(&*bc, 0x30, 0x31, ret);
+		break;
 
 
 		case ADD_M_2_M:

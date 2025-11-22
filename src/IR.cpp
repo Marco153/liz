@@ -352,6 +352,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
     case T_MINUS_EQUAL:
     case T_COND_EQ:
     case T_AMPERSAND:
+    case T_HAT:
     case T_LESSER_THAN:
     case T_GREATER_EQ:
     case T_GREATER_THAN:

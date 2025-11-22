@@ -549,8 +549,6 @@ struct WindowEditor {
 #define OBJ_DRAW_FLAGS_UPDATE_TERRAIN_CHUNK 2
 struct terrain_chunk_draw_info
 {
-  int new_data_offset;
-  int new_data_size;
   int total_faces;
   int ubo;
 };
@@ -4886,11 +4884,9 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
 
     auto after_model_data = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size);
     auto trn_chnk = (terrain_chunk_draw_info *)after_model_data;
-    if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_UPDATE_TERRAIN_CHUNK))
+    if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK))
     {
-      char *new_data_ptr =(char *)&dbg->mem_buffer[trn_chnk->new_data_offset];
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, gl_state->terrain_chunk_shader_faces_uniform);
-      GL_CALL(glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, trn_chnk->new_data_size, new_data_ptr));
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, trn_chnk->ubo);
     }
 
     build_model_matrix((float *)(cur_opaque + 1), (const Vec3 *)&cur_opaque->pos.x,
@@ -6984,7 +6980,7 @@ void enable_shader_uniforms(open_gl_state *gl_state, shader_info *sh, int shader
   enable_shader_uniform(gl_state, sh, "_model", 1, shaderProgram, sh->model_ubo_buffer);
 
 }
-void UpdateUniformBuffer(int thread_id, dbg_state *dbg)
+void UpdateStorageBuffer(int thread_id, dbg_state *dbg)
 {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int storage_id = *(int *)&dbg->mem_buffer[base_ptr + 8];
@@ -6998,7 +6994,7 @@ void UpdateUniformBuffer(int thread_id, dbg_state *dbg)
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
 }
-void CreateUniformBuffer(int thread_id, dbg_state *dbg)
+void CreateStorageBuffer(int thread_id, dbg_state *dbg)
 {
   auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
 
@@ -9798,6 +9794,10 @@ int main(int argc, char *argv[]) {
 
   AssignOutsiderFunc(&lang_stat, "Draw3D2",
                      (OutsiderFuncType)Draw3D2);
+  AssignOutsiderFunc(&lang_stat, "CreateStorageBuffer",
+                     (OutsiderFuncType)CreateStorageBuffer);
+  AssignOutsiderFunc(&lang_stat, "UpdateStorageBuffer",
+                     (OutsiderFuncType)UpdateStorageBuffer);
   lang_stat.cur_decl = 0;
 
   opts.wasm_dir = wasm_dir;

@@ -88,8 +88,16 @@ typedef long long s64;
 //#define DEBUG_GLOBAL_NOT_FOUND 
 
 
-#define INSTS_SWITCH(type, add, sub, cmp, equal, lea, or_, and_, mod, mul, div, shiftl, shiftr)\
+#define INSTS_SWITCH(type, add, sub, cmp, equal, lea, or_, and_, mod, mul, div, shiftl, shiftr, xor)\
 	switch(type){\
+	case XOR_M_2_M:\
+	case XOR_R_2_M:\
+	case XOR_M_2_R:\
+	case XOR_I_2_R:\
+	case XOR_I_2_M:\
+	case XOR_R_2_R:\
+			xor;\
+		break;\
 	case MOD_M_2_M:\
 	case MOD_R_2_M:\
 	case MOD_M_2_R:\
@@ -8393,7 +8401,7 @@ void Write(HANDLE hFile, char *str, int sz)
 
 tkn_type2 GetOpBasedOnInst(byte_code_enum type)
 {
-	INSTS_SWITCH(type, return T_PLUS, return T_MINUS, return T_MINUS, return T_EQUAL, return T_EQUAL, return T_PIPE, return T_AMPERSAND, return T_PERCENT, return T_MUL, return T_DIV, return T_SHIFT_LEFT, return T_SHIFT_RIGHT);
+	INSTS_SWITCH(type, return T_PLUS, return T_MINUS, return T_MINUS, return T_EQUAL, return T_EQUAL, return T_PIPE, return T_AMPERSAND, return T_PERCENT, return T_MUL, return T_DIV, return T_SHIFT_LEFT, return T_SHIFT_RIGHT, return T_HAT);
 }
 void DoOperationOnPtrFloat(char* ptr, char sz, float rhs, tkn_type2 op)
 {
@@ -8508,7 +8516,7 @@ char *SizeToStr(char sz)
 }
 char *InstToStr(byte_code_enum type)
 {
-	INSTS_SWITCH(type, return "add", return "sub", return "cmp", return "mov", return "lea", return "or", return "and", return "mod", return "mul", return "div", return "shl", return "shr");
+	INSTS_SWITCH(type, return "add", return "sub", return "cmp", return "mov", return "lea", return "or", return "and", return "mod", return "mul", return "div", return "shl", return "shr", return "xor");
 }
 void MemToString(dbg_state *dbg, char *buffer, char reg, int mem_offset, char sz)
 {
@@ -9212,6 +9220,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case ADD_M_2_R:
 	case SUB_M_2_R:
 	case MUL_M_2_R:
+	case XOR_M_2_R:
 	case DIV_M_2_R:
 	case AND_M_2_R:
 	case OR_M_2_R:
@@ -9231,6 +9240,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case MUL_R_2_R:
 	case MOD_R_2_R:
 	case ADD_R_2_R:
+	case XOR_R_2_R:
 	case AND_R_2_R:
 	case OR_R_2_R:
 	case MOV_R:
@@ -9288,6 +9298,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case SHIFTR_I_2_R:
 	case DIV_I_2_R:
 	case ADD_I_2_R:
+	case XOR_I_2_R:
 	case SUB_I_2_R:
 	{
 
@@ -14007,6 +14018,10 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		case T_SHIFT_LEFT:
 			base_inst = SHIFTL_M_2_M;
 			break;
+		case T_HAT:
+			base_inst = XOR_M_2_M;
+			base_inst_sse = XOR_SSE_2_SSE;
+			break;
 		case T_MINUS:
 			base_inst = SUB_M_2_M;
 			base_inst_sse = SUB_SSE_2_SSE;
@@ -16159,6 +16174,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case SUB_M_2_R:
 		case CMP_M_2_R:
 		case AND_M_2_R:
+		case XOR_M_2_R:
 		case DIV_M_2_R:
 		case MUL_M_2_R:
 		case MOD_M_2_R:
@@ -16190,6 +16206,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case SUB_R_2_R:
 		case DIV_R_2_R:
 		case MUL_R_2_R:
+		case XOR_R_2_R:
 		case SQRT_SSE:
 		case AND_R_2_R:
 		case OR_R_2_R:
@@ -16230,6 +16247,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case ADD_I_2_M:
 		case SUB_I_2_M:
 		case MUL_I_2_M:
+		case XOR_I_2_M:
 		case OR_I_2_M:
 		case AND_I_2_M:
 		case DIV_I_2_M:
@@ -16248,6 +16266,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case SUB_R_2_M:
 		case MUL_R_2_M:
 		case CMP_R_2_M:
+		case XOR_R_2_M:
 		case CMP_SSE_2_MEM:
 		case ADD_SSE_2_MEM:
 		case SUB_SSE_2_MEM:
@@ -16300,6 +16319,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case AND_I_2_R:
 		case OR_I_2_R:
 		case MUL_I_2_R:
+		case XOR_I_2_R:
 		case DIV_I_2_R:
 		case MOD_I_2_R:
 		case MOV_I:

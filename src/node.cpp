@@ -412,6 +412,7 @@ bool node_iter::is_operator(token2 *tkn, int *precedence) {
   case tkn_type2::T_PLUS_PLUS:
   case tkn_type2::T_SHIFT_RIGHT:
   case tkn_type2::T_SHIFT_LEFT:
+  case tkn_type2::T_HAT:
   case tkn_type2::T_MINUS_MINUS: {
     *precedence = PREC_PLUS;
     return true;
@@ -3256,6 +3257,8 @@ template <typename T> T GetExpressionValT(tkn_type2 tp, T a, T b) {
     return a * b;
   case tkn_type2::T_DIV:
     return a / b;
+  case tkn_type2::T_HAT:
+    return a ^ b;
   case tkn_type2::T_SHIFT_LEFT:
     return a << b;
   case tkn_type2::T_SHIFT_RIGHT:
@@ -9435,6 +9438,7 @@ void ModifyNodeAndDoOperationsIfItsOnlyIntOrFloats(node *n, type2 &ltp,
                                                    type2 &ret_type) {
   ModifyNodeIntOrFloat(ltp, n->l);
   ModifyNodeIntOrFloat(rtp, n->r);
+  BREAK(n->t->line == 7073)
 
   ret_type = ltp;
 
@@ -9867,6 +9871,15 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
   } break;
   case node_type::N_UNOP: {
     switch (n->t->type) {
+    case tkn_type2::T_TILDE: {
+      ret_type = DescendNode(lang_stat, n->r, scp);
+      if(ret_type.type == TYPE_INT)
+      {
+        n->type = N_INT;
+        n->t->i = ~ret_type.i;
+        ret_type.i = ~ret_type.i;
+      }
+    } break;
       // getting array instantiation size
     case tkn_type2::T_DOLLAR: {
 
@@ -10835,8 +10848,13 @@ if(!decl)
     case tkn_type2::T_DIV:
     case tkn_type2::T_MINUS:
     case tkn_type2::T_PIPE:
+    case tkn_type2::T_SHIFT_LEFT:
+    case tkn_type2::T_HAT:
+    case tkn_type2::T_SHIFT_RIGHT:
+    case tkn_type2::T_AMPERSAND:
     case tkn_type2::T_PERCENT:
     case tkn_type2::T_PLUS: {
+      //BREAK(n->t->line == 1825)
       type2 ltp = DescendNode(lang_stat, n->l, scp);
       type2 rtp = DescendNode(lang_stat, n->r, scp);
 
@@ -10972,6 +10990,7 @@ if (!is_correct_ovrld)
     case tkn_type2::T_MINUS_EQUAL:
     case tkn_type2::T_PLUS_EQUAL:
     case tkn_type2::T_EQUAL: {
+      //BREAK(n->t->line == 7073)
       if (IS_PRS_FLAG_ON(PSR_FLAGS_ON_ENUM_DECL))
         break;
       // return ret_type;

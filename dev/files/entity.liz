@@ -325,7 +325,7 @@ get_opaques_offset_ptr ::fn(size : u32)!*void
   start_count := start
   start_data := cast(*void)ptr_offset(start, DRAW_BUFFER_MAX_COUNT * 2, u8)
 
-  scn.opaques_ptr = start_data
+  scn.opaques_ptr = start_data  
 
   cur := ptr_offset(start_count, scn.count_opaques, u32)
   *cur = scn.opaques_cur_size + DRAW_BUFFER_MAX_COUNT * 2 * 4
@@ -338,6 +338,18 @@ get_opaques_offset_ptr ::fn(size : u32)!*void
 
   return ptr_offset(start, *cur, u8)
 }
+fill_terrain2_draw_data::fn(ctx : *scene_info, ent : *entity)
+{
+  trn := ent.trn
+
+  for ch in trn.chunks
+  {
+    data:*object_draw_info
+    data = cast(*object_draw_info)get_opaques_offset_ptr(64 + sizeof(terrain_chunk_draw_info))
+    //data.pos.x = 
+    //data.pos = e.pos
+  }
+}
 DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *draw_settings)
 {
 	if ctx.drawable_ents.count == 0
@@ -348,6 +360,11 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
 	{
 		if e.is_active == false
 			continue
+		if e.type == ent_type.TERRAIN2
+    {
+      fill_terrain2_draw_data(ctx, *e)
+      continue
+    }
 
     //printf("ent {e.name}\n")
 
@@ -356,6 +373,7 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
     m := get_material_ptr(&e.material_idx)
     inst := m.instances[cast(u64)e.in_material_instance]
     size := m.data_size + m.textures_count * 4
+
 		if is_flag_on(e.flags, ENTITY_TRANSPARENT)
 		{
       data = cast(*object_draw_info)get_transparents_offset_ptr(size)

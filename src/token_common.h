@@ -34,6 +34,7 @@ enum tkn_type2 : unsigned char
 	T_COLON,
 	T_CLOSE_CURLY,
 	T_TILDE,
+	T_HAT,
 	T_COMMA,
 	T_POINT,
 	T_SHIFT_LEFT,

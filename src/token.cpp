@@ -656,6 +656,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 		bool found_char = false;
 		switch(ch[0])
 		{
+			case '^':
+			{
+				found_char = true;
+				tkn.type = T_HAT;
+			}break;
 			case '~':
 			{
 				found_char = true;

@@ -7034,7 +7034,7 @@ should_facing_this_idx_have_a_face::fn(ctx : *context, thread_id : u32, out : *t
     return true
   }
 
-  f := cast(block_type)(*out.blocks[cast(u64)(y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x)] & 0xf)
+  f := cast(block_type)*out.blocks[cast(u64)(y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x)]
 
   if f == block_type.AIR return true
 
@@ -7069,7 +7069,7 @@ update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_i
       {
         block := out.blocks[cast(u64)(y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x)]
         // atm we're not doint any lighting, making everything have max light
-        *block = *block | (15 << 16)
+        *block = *block | (16 << 16)
 
         block_light_val := (*block >> 16) & 0xf
 
@@ -7095,7 +7095,7 @@ update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_i
         }
         if has_left_face
         {
-          make_face_val(val, x, y, z, 1, block_light_val)
+          make_face_val(val, x-1, y, z, 1, block_light_val)
 
           *cur_face_ptr = val
           cur_face_ptr =ptr_offset(cur_face_ptr, 1, u32)
@@ -7105,7 +7105,7 @@ update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_i
 
         if has_up_face
         {
-          make_face_val(val, x, y, z, 2, block_light_val)
+          make_face_val(val, x, y + 1, z, 2, block_light_val)
 
           *cur_face_ptr = val
           cur_face_ptr =ptr_offset(cur_face_ptr, 1, u32)
@@ -7114,7 +7114,7 @@ update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_i
         }
         if has_down_face
         {
-          make_face_val(val, x, y , z, 3, block_light_val)
+          make_face_val(val, x, y - 1, z, 3, block_light_val)
 
           *cur_face_ptr = val
           cur_face_ptr =ptr_offset(cur_face_ptr, 1, u32)
@@ -7124,7 +7124,7 @@ update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_i
 
         if has_back_face
         {
-          make_face_val(val, x, y, z, 4, block_light_val)
+          make_face_val(val, x, y, z - 1, 4, block_light_val)
 
           *cur_face_ptr = val
           cur_face_ptr =ptr_offset(cur_face_ptr, 1, u32)
@@ -7133,7 +7133,7 @@ update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_i
         }
         if has_forward_face
         {
-          make_face_val(val, x, y, z, 5, block_light_val)
+          make_face_val(val, x, y, z + 1, 5, block_light_val)
 
           *cur_face_ptr = val
           cur_face_ptr =ptr_offset(cur_face_ptr, 1, u32)
@@ -9224,12 +9224,10 @@ main_loop::fn(ctx : *context)
   trn_ent.type = ent_type.TERRAIN2
 	trn_ent.flags = trn_ent.flags | ENTITY_DONT_FREE
 	trn_ent.flags = trn_ent.flags & ~ENTITY_SERIALIZE
-  __dbg_break
   trn_ent.trn = cast(*terrain2)heap_alloc(ctx.alloc, sizeof(*trn_ent.trn))
-  memset(trn_ent.trn, 0, sizeof(*trn_ent.trn))
+  memset(trn_ent, 0, sizeof(trn_ent.trn))
   chunk_info:terrain_chunk_info
   generate_terrain_chunk(0, 0, 0, &chunk_info)
-  update_terrain_chunk(ctx, 0, &chunk_info)
   dyn_add(&trn_ent.trn.chunks, &chunk_info)
 
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))

@@ -16,6 +16,7 @@ ent_type:enum
 	FLOATY_PLATFORM,
 	INTERACT,
 	TERRAIN,
+	TERRAIN2,
 	AXIS,
 	EMMITTER,
 	GRID,
@@ -235,7 +236,7 @@ terrain_chunk_info:struct
   pos_y:u32
   pos_z:u32
 
-  faces:dyn_array(u16)
+  blocks:dyn_array(u32)
   ubo : u32
 }
 terrain2:struct

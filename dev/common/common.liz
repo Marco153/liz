@@ -111,11 +111,10 @@ create_event_info:struct
 }
 terrain_chunk_draw_info:struct
 {
-  new_data_offset:u32
-  new_data_len:u32
   total_faces:u32
   ubo:u32;
 }
+OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK:const s32= 1
 object_draw_info:struct
 {
   pos : _vec
@@ -862,6 +861,9 @@ shader_create_info:struct
   verts_layout:dyn_array(type_layout_info)
   uniforms_layout:dyn_array(type_layout_info)
 }
+CreateStorageBuffer::fn outsider()!u32;
+UpdateStorageBuffer::fn outsider(ubo : u32, data : *void, data_size:u32);
+
 CompileShader::fn outsider(name : *char, name_len : u64, vertex_shader : *char, vs_len : u64, fragment_shader : *char, fs_len : u64, vertex_input : *type_layout_info, vertex_input_count : u32, uniforms : *type_layout_info, uniforms_count :u32) ! u32;
 GetUniformLocation::fn outsider(shader_id : u32, name_str : *char, name_len : u32) ! u32;
 SetShader::fn outsider(shader_id : u32);

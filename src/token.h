@@ -934,6 +934,10 @@ const char* OperatorToStringConst(tkn_type2 type)
 {
 	switch(type)
 	{
+		case tkn_type2::T_HAT:
+		{
+			return "^";
+		}break;
 		case tkn_type2::T_PIPE:
 		{
 			return "|";
@@ -1063,6 +1067,10 @@ own_std::string OperatorToString(tkn_type2 type)
 {
 	switch(type)
 	{
+		case tkn_type2::T_HAT:
+		{
+			return own_std::string("^");
+		}break;
 		case tkn_type2::T_PIPE:
 		{
 			return own_std::string("|");

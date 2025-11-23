@@ -5841,7 +5841,7 @@ func_decl *GetFuncBasedOnBc2(dbg_state *dbg, byte_code2 *bc)
 	}
 	return nullptr;
 }
-void SHowMemWindow(int thread_id, dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type, int &mem_wnd_offset, int total_items, int stack_reg, func_decl *fdecl)
+void ShowMemWindow(int thread_id, dbg_state &dbg, char *mem_wnd_items[], int &mem_wnd_show_type, int &mem_wnd_offset, int total_items, int stack_reg, func_decl *fdecl)
 {
 	ImGui::BeginChild("mem", ImVec2(500, 400));
 
@@ -9953,7 +9953,7 @@ bool StatHasInst(stmnt_dbg *cur_st, byte_code2 *start_bc, byte_code2 **out, byte
 	}
 	return false;
 }
-void CheckDbgStmnt(dbg_state *dbg, int thread_id, stmnt_dbg *cur_st, byte_code2 *cur_bc, int offset)
+void CheckDbgStmnt(dbg_state *dbg, int thread_id, stmnt_dbg **cur_st, byte_code2 *cur_bc, int offset)
 {
   switch (dbg->dbg_threads[thread_id].break_type)
   {
@@ -9964,11 +9964,12 @@ void CheckDbgStmnt(dbg_state *dbg, int thread_id, stmnt_dbg *cur_st, byte_code2 
     if (dbg->dbg_threads[thread_id].next_stat_break_func && ((dbg->dbg_threads[thread_id].same_func_stack_ptr == rsp ) && offset >= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_start && offset <= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_end))
     {
       breakpoint bp;
-      cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].next_stat_break_func->wasm_stmnts, offset);
-      if (cur_st && cur_st != dbg->dbg_threads[thread_id].prev_st)
+      (*cur_st) = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].next_stat_break_func->wasm_stmnts, offset);
+      if ((*cur_st) && (*cur_st) != dbg->dbg_threads[thread_id].prev_st)
       {
-        MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
-        dbg->dbg_threads[thread_id].prev_st = cur_st;
+        //HERE()
+        MakeCurBcToBeBreakpoint(dbg, cur_bc, (*cur_st)->line);
+        dbg->dbg_threads[thread_id].prev_st = (*cur_st);
       }
     }
   }break;
@@ -9977,13 +9978,13 @@ void CheckDbgStmnt(dbg_state *dbg, int thread_id, stmnt_dbg *cur_st, byte_code2 
       dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
       if (dbg->dbg_threads[thread_id].cur_func)
       {
-        printf("cur func %s, thread %p\n", dbg->dbg_threads[thread_id].cur_func->name.c_str(), dbg->thread);
-        cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts, offset);
-        if (cur_st && cur_st != dbg->dbg_threads[thread_id].prev_st)
+        //printf("cur func %s, thread %p\n", dbg->dbg_threads[thread_id].cur_func->name.c_str(), dbg->thread);
+        (*cur_st) = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts, offset);
+        if ((*cur_st) && (*cur_st) != dbg->dbg_threads[thread_id].prev_st)
         {
-          printf("cur func stat line %d\n", cur_st->line);
-          MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
-          dbg->dbg_threads[thread_id].prev_st = cur_st;
+          //printf("cur func stat line %d\n", (*cur_st)->line);
+          MakeCurBcToBeBreakpoint(dbg, cur_bc, (*cur_st)->line);
+          dbg->dbg_threads[thread_id].prev_st = (*cur_st);
         }
       }
   }break;
@@ -9996,10 +9997,10 @@ void CheckDbgStmnt(dbg_state *dbg, int thread_id, stmnt_dbg *cur_st, byte_code2 
       {
         dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
       }
-      cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts, offset);
-      if (cur_st)
+      (*cur_st) = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts, offset);
+      if ((*cur_st))
       {
-        MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+        MakeCurBcToBeBreakpoint(dbg, cur_bc, (*cur_st)->line);
         dbg->dbg_threads[thread_id].prev_bc = cur_bc;
       }
     }
@@ -10014,10 +10015,10 @@ void CheckDbgStmnt(dbg_state *dbg, int thread_id, stmnt_dbg *cur_st, byte_code2 
       dbg->dbg_threads[thread_id].prev_bc != cur_bc)
     {
       breakpoint bp;
-      cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].next_stat_break_func->wasm_stmnts, offset);
-      if (cur_st)
+      (*cur_st) = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].next_stat_break_func->wasm_stmnts, offset);
+      if ((*cur_st))
       {
-        MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+        MakeCurBcToBeBreakpoint(dbg, cur_bc, (*cur_st)->line);
         dbg->dbg_threads[thread_id].prev_bc = cur_bc;
       }
     }
@@ -10045,9 +10046,15 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
 		auto cur_bc = *thread->rip_ptr;
 		int offset = cur_bc - start_bc;
 
-    CheckDbgStmnt(dbg, thread_id, dbg->dbg_threads[thread_id].cur_st, cur_bc, offset);
+    CheckDbgStmnt(dbg, thread_id, &dbg->dbg_threads[thread_id].cur_st, cur_bc, offset);
 
 		Bc2Logic(thread_id, dbg, rip_ptr, &inc_ptr, &valid, 0);
+    func_decl *cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+    stmnt_dbg *cur_st;
+    if (cur_func)
+    {
+      cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
+    }
 		if (inc_ptr)
 		{
 			(*rip_ptr)++;
@@ -10075,7 +10082,7 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
       }
       printf("worker is out of __dbg_break c++ ptr %p\n", *rip_ptr);
       UnlockMutexBase(dbg->dbg_mutex);
-      (*rip_ptr)++;
+      //(*rip_ptr)++;
 		}
 	}
 }
@@ -10158,7 +10165,7 @@ void ExitDebugMode(dbg_state* dbg)
   for(int i = 0;i < dbg->total_threads + 1; i++)
   {
     dbg->dbg_threads[i].in_debug_mode = false;
-    printf("thread %d not in dbg mode anymore\n", i);
+    //printf("thread %d not in dbg mode anymore\n", i);
   }
   BroadcastMutexBase(dbg->dbg_mutex);
   //UnlockMutexBase(dbg->dbg_mutex);
@@ -10238,7 +10245,6 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	while (cur_bc != nullptr)
 	{
 		byte_code2** rip_ptr = (byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
-    stmnt_dbg* cur_st = dbg->dbg_threads[thread_id].cur_st;
 
 		__lang_globals.data = prev_data;
 		__lang_globals.alloc = prev_alloc;
@@ -10255,8 +10261,6 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		{
       //HERE()
 			thread_creation * th = dbg->thread;
-			cur_bc = *th->rip_ptr;
-			rip_ptr = th->rip_ptr;
 			thread_id = th->thread_id;
       //printf("thread mode %d\n", (int)dbg->dbg_threads[thread_id].in_debug_mode);
       LockMutexBase(dbg->dbg_mutex);
@@ -10265,11 +10269,14 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
         WaitMutexBase(dbg->dbg_mutex);
       }
       UnlockMutexBase(dbg->dbg_mutex);
+			cur_bc = *th->rip_ptr;
+			rip_ptr = th->rip_ptr;
 		}
+    stmnt_dbg* cur_st = dbg->dbg_threads[thread_id].cur_st;
 		int offset = cur_bc - start_bc;
 
 
-    CheckDbgStmnt(dbg, thread_id, cur_st, cur_bc, offset);
+    CheckDbgStmnt(dbg, thread_id, &cur_st, cur_bc, offset);
 
 		
 		bool inc_ptr = true;
@@ -10512,6 +10519,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 								}
 								//ImGui::TextColored(ImVec4(0.4, 0.4, 0.4, 1.0), "%d|", offset_bc);
 								ImGui::SameLine();
+                //BREAK(offset_bc == 37394);
 								Bc2ToString(dbg, aux_bc, buffer, 512);
 								if (cur_bc == aux_bc)
 								{
@@ -10572,7 +10580,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			ImGui::EndChild();
 
 			ImGui::SameLine();
-			SHowMemWindow(thread_id, *dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items, PRE_X64_RSP_REG, dbg->dbg_threads[thread_id].cur_func);
+			ShowMemWindow(thread_id, *dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items, PRE_X64_RSP_REG, dbg->dbg_threads[thread_id].cur_func);
 
 			int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 			BeginLocalsChild(*dbg, base_ptr, cur_scp);
@@ -10616,7 +10624,10 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			}
 			if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F8) || IsKeyRepeat(0, dbg->data, GLFW_KEY_F10) || f11_pressed_but_dint_find_call_so_normal_step)
 			{
-        //HERE()
+        if(IsKeyRepeat(0, dbg->data, GLFW_KEY_F8))
+        {
+          HERE()
+        }
 				//raise(SIGTRAP);
 				dbg->dbg_threads[thread_id].prev_bc = cur_bc;
 				if (show_bc)
@@ -10667,7 +10678,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 				dbg->return_stack_bc2_func.clear();
 				if(!show_bc)
 					center_inst = true;
-        dbg->thread = nullptr;
+        //dbg->thread = nullptr;
 			}
 
 
@@ -18158,6 +18169,9 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 			if (iterations >= 1050)
 			{
         printf("descend name finding iterations were now enough\n");
+        lang_stat->something_was_declared = false;
+        can_continue = false;
+        break;
         HERE()
 				FOR_VEC(cur, names_not_found)
 				{

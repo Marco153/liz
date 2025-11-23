@@ -7366,8 +7366,16 @@ int CheckForHashtags(lang_state *lang_stat, node *n, func_decl* fdecl, scope* sc
 			ASSERT(0);
 		}
 	}break;
-	default:
-	{
+  case N_STR_LIT:
+  {
+		return 0;
+  }break;
+  case N_UNOP:
+  {
+		return CheckForHashtags(lang_stat, n->r, fdecl, scp);
+  }break;
+  case N_BINOP:
+  {
 		auto a = CheckForHashtags(lang_stat, n->l, fdecl, scp);
 		auto b = CheckForHashtags(lang_stat, n->r, fdecl, scp);
 		if(a == 1 || b == 1)
@@ -7376,6 +7384,10 @@ int CheckForHashtags(lang_state *lang_stat, node *n, func_decl* fdecl, scope* sc
 			return 1;
 		else if(a == 2 && b == 2)
 			return 2;
+  }break;
+	default:
+	{
+    ASSERT(false);
 	}break;
 	}
 	return 0;

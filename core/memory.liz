@@ -430,6 +430,8 @@ heap_clear::fn(alloc : *mem_alloc)
 }
 heap_free::fn(alloc : *mem_alloc, ptr : *void)
 {
+  LockMutex(alloc.mutex)
+
   if ptr == nil
   {
 		assert(false, "cant free nil");
@@ -534,6 +536,7 @@ heap_free::fn(alloc : *mem_alloc, ptr : *void)
 	}
 	*/
 	//memset(chunk_to_free.addr, 'x', chunk_to_free.size * BYTES_PER_CHUNK);
+  UnlockMutex(alloc.mutex)
 
 }
 heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8

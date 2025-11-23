@@ -4907,6 +4907,8 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl,
       if (d->to_assign_value->type == N_STR_LIT &&
           d->to_assign_value->t->str == "__SRC_LINE__") {
         node *new_n = new_node(lang_stat, ncall);
+        new_n->l = nullptr;
+        new_n->r = nullptr;
         new_n->type = N_STR_LIT;
         own_std::vector<char *> *lines = &lang_stat->cur_file->lines;
         char *cur_line = (*lines)[ncall->t->line - 1];
@@ -7150,6 +7152,7 @@ case node_type::N_SCOPE:
       ASSERT(0);
     }
   } break;
+  
   default: {
     auto a = CheckForHashtags(lang_stat, n->l, fdecl, scp);
     auto b = CheckForHashtags(lang_stat, n->r, fdecl, scp);

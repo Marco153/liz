@@ -7207,6 +7207,7 @@ update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_i
 }
 generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk_info)
 {
+  __dbg_break
   for y in 0..CHUNK_SIZE
   {
     for z in 0..CHUNK_SIZE
@@ -7225,6 +7226,7 @@ generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk
       }
     }
   }
+  __dbg_break
 
   out.ubo = CreateStorageBuffer()
 
@@ -8778,7 +8780,6 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
     }
     printf("has work will unlocked\n")
     UnlockMutex(globals.worker_mutex)
-    __dbg_break
     printf("unlocked!!\n")
     on work.type
     {
@@ -9362,6 +9363,7 @@ main_loop::fn(ctx : *context)
   thread_func_info.CREATE_CHUNK.z = 0
 
   __dbg_break
+  //get_new_chunk(trn_ent.trn, 0, 0, 0)
   thread_id := CreateThread(chunk_thread_worker, &thread_func_info)
 
   LockMutex(globals.worker_mutex)

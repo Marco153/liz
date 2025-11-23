@@ -65,7 +65,7 @@ typedef long long s64;
 //#define MEM_ALLOC_ADDR 17000
 #define MEM_PTR_CUR_ADDR 10000
 #define STACK_PTR_START 100000
-#define STACK_PTR_START_THREAD2 (STACK_PTR_START + 10000)
+#define STACK_PTR_START_THREAD2 (STACK_PTR_START + 20000)
 #define MEM_PTR_START_ADDR (STACK_PTR_START_THREAD2)
 #define MEM_PTR_MAX_ADDR 18008
 
@@ -240,6 +240,7 @@ struct comp_time_type_info
 struct dbg_state;
 struct block_linked;
 struct linear_alloc;
+struct own_mutex;
 
 typedef void* (*FreeTypeFunc)(void* this_ptr, void* ptr);
 typedef void* (*AllocTypeFunc)(void* this_ptr, u64 sz);
@@ -263,6 +264,7 @@ struct global_variables_lang
 
 	bool use_cached_decls = true;
 
+  own_mutex *mutex;
 
 	//LangArray<type_struct2> *structs;
 	//LangArray<type_struct2> *template_strcts;
@@ -2945,11 +2947,22 @@ struct handle_info
 #define TOTAL_HANDLES 16
 struct per_thread_dbg_info
 {
-
+	own_std::vector<byte_code2 **> return_stack_bc2;
+	union
+	{
+		func_decl* next_stat_break_func;
+		func_decl* info_cur_func;
+	};
+	long long same_func_stack_ptr;
+	func_decl* cur_func;
+	dbg_break_type break_type;
+  byte_code2* prev_bc;
+	stmnt_dbg* prev_st;
+	stmnt_dbg* cur_st;
+	bool in_debug_mode;
 };
 struct dbg_state
 {
-	dbg_break_type break_type;
 	dbg_print_numbers_format print_numbers_format;
 	wasm_bc **cur_bc;
 	byte_code2 **cur_bc2;
@@ -2958,13 +2971,10 @@ struct dbg_state
 	union
 	{
 		ir_rep* prev_break_ir;
-		byte_code2* prev_bc;
 	};
 	char* mem_buffer;
 	int mem_size;
-	func_decl* cur_func;
 	bool frame_is_from_dbg;
-	bool in_debug_mode;
 	bool aux_break;
 	bool aux_break2;
 	func_decl* prev_func;
@@ -2976,22 +2986,15 @@ struct dbg_state
 	byte_code2* thread_bc;
 
 	int total_threads;
-	union
-	{
-		func_decl* next_stat_break_func;
-		func_decl* info_cur_func;
-	};
-	stmnt_dbg* cur_st;
-	stmnt_dbg* prev_st;
 
 	own_std::vector<char> imgui_begins;
+  per_thread_dbg_info dbg_threads[2];
 
 	own_std::vector<breakpoint> breakpoints;
 	own_std::vector<func_decl*> func_stack;
 	own_std::vector<block_linked *> block_stack;
 	own_std::vector<wasm_bc*> return_stack;
 	own_std::vector<ir_rep*> return_stack_ir;
-	own_std::vector<byte_code2 **> return_stack_bc2;
 	own_std::vector<call_stack_info> return_stack_bc2_func;
 	own_std::vector<wasm_bc> bcs;
 	own_std::vector<wasm_stack_val> wasm_stack;
@@ -2999,7 +3002,6 @@ struct dbg_state
 	own_std::vector<dbg_expr2 *> exprs2;
 	own_std::vector<memory_watch> mem_watches;
 	own_std::string scene_folder;
-	long long same_func_stack_ptr;
 	//own_std::vector<command_info> cmds;
 
 	command_info* global_cmd;
@@ -3366,7 +3368,7 @@ own_std::string WasmGetBCString(dbg_state *dbg, func_decl* func, wasm_bc *bc, ow
 		wasm_bc* probable_var_offset = bc + 2;
 		own_std::string loaded_var = "";
 		decl2* var;
-		if (loading_var_address && FindVarWithOffset(func, probable_var_offset->i, &var, dbg->cur_st->line))
+		if (loading_var_address && FindVarWithOffset(func, probable_var_offset->i, &var, dbg->dbg_threads[0].cur_st->line))
 		{
 			loaded_var = own_std::string("\t//pushing $") + var->name + " on the stack";
 		}
@@ -3382,7 +3384,7 @@ u64 WasmGetRegVal(dbg_state* dbg, int reg)
 	return *(u64*)&dbg->mem_buffer[reg * 8];
 
 }
-own_std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
+own_std::string WasmIrValToString(int thread_id, dbg_state* dbg, ir_val* val)
 {
 	own_std::string ret = "";
 	char buffer[64];
@@ -3398,6 +3400,8 @@ own_std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 		ret += "*";
 		ptr++;
 	}
+  func_decl *cur_func = dbg->dbg_threads[thread_id].cur_func;
+
 	switch (val->type)
 	{
 	case IR_TYPE_REG:
@@ -3423,24 +3427,24 @@ own_std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 		{
 		case ON_STACK_STRUCT_RET:
 		{
-			base_ptr = (base_ptr - dbg->cur_func->strct_ret_size_per_statement_offset);
+			base_ptr = (base_ptr - cur_func->strct_ret_size_per_statement_offset);
 			snprintf(buffer, 64, "struct ret(start: %s, at: %s, sz: %d)", 
 				WasmNumToString(dbg, base_ptr).c_str(), 
 				WasmNumToString(dbg, val->i).c_str(), 0);
 			base_ptr += val->i;
 			stack_type_name = buffer;
-			//base_ptr -= dbg->cur_func->strct_ret_size_per_statement_offset;
+			//base_ptr -= cur_func->strct_ret_size_per_statement_offset;
 			
 		}break;
 		case ON_STACK_STRUCT_CONSTR:
 		{
 			stack_type_name = "struct constr";
-			base_ptr = base_ptr - (dbg->cur_func->strct_constrct_at_offset - val->i);
+			base_ptr = base_ptr - (cur_func->strct_constrct_at_offset - val->i);
 		}break;
 		case ON_STACK_SPILL:
 		{
 			stack_type_name = "spill";
-			base_ptr = base_ptr - (dbg->cur_func->to_spill_offset - val->i);
+			base_ptr = base_ptr - (cur_func->to_spill_offset - val->i);
 		}break;
 		default:
 			ASSERT(0);
@@ -3489,27 +3493,27 @@ own_std::string WasmIrValToString(dbg_state* dbg, ir_val* val)
 	return ret;
 }
 
-own_std::string WasmGetBinIR(dbg_state* dbg, ir_rep* ir)
+own_std::string WasmGetBinIR(int thread_id,dbg_state* dbg, ir_rep* ir)
 {
 	char buffer[64];
-	own_std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
-	own_std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+	own_std::string lhs = WasmIrValToString(thread_id, dbg, &ir->bin.lhs);
+	own_std::string rhs = WasmIrValToString(thread_id, dbg, &ir->bin.rhs);
 	own_std::string op = OperatorToString(ir->bin.op);
 	snprintf(buffer, 64, "%s %s %s", lhs.c_str(), op.c_str(), rhs.c_str());
 	return buffer;
 }
 
-own_std::string WasmIrAssignment(dbg_state* dbg, assign_info* assign)
+own_std::string WasmIrAssignment(int thread_id, dbg_state* dbg, assign_info* assign)
 {
 	char buffer[128];
 	own_std::string ret = "";
-	own_std::string to_assign = WasmIrValToString(dbg, &assign->to_assign);
-	own_std::string lhs = WasmIrValToString(dbg, &assign->lhs);
+	own_std::string to_assign = WasmIrValToString(thread_id, dbg, &assign->to_assign);
+	own_std::string lhs = WasmIrValToString(thread_id, dbg, &assign->lhs);
 	if (assign->only_lhs)
 		snprintf(buffer, 128, "%s = %s", to_assign.c_str(), lhs.c_str());
 	else
 	{
-		own_std::string rhs = WasmIrValToString(dbg, &assign->rhs);
+		own_std::string rhs = WasmIrValToString(thread_id, dbg, &assign->rhs);
 		own_std::string op = OperatorToString(assign->op);
 		snprintf(buffer, 128, "%s = %s %s %s", to_assign.c_str(), lhs.c_str(), op.c_str(), rhs.c_str());
 	}
@@ -3518,7 +3522,7 @@ own_std::string WasmIrAssignment(dbg_state* dbg, assign_info* assign)
 	return ret;
 
 }
-void WasmIrToString(dbg_state* dbg, ir_rep *ir, own_std::string &ret)
+void WasmIrToString(int thread_id, dbg_state* dbg, ir_rep *ir, own_std::string &ret)
 {
 	char buffer[128];
 	ret="";
@@ -3528,7 +3532,7 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, own_std::string &ret)
 	{
 		ret += "ret: ";
 		if(!ir->ret.no_ret_val)
-			ret += WasmIrAssignment(dbg, &ir->ret.assign) + "\n";
+			ret += WasmIrAssignment(thread_id, dbg, &ir->ret.assign) + "\n";
 		else
 			ret += " no return val\n";
 	}break;
@@ -3554,8 +3558,8 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, own_std::string &ret)
 	}break;
 	case IR_CAST_INT_TO_INT:
 	{
-		own_std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
-		own_std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		own_std::string lhs = WasmIrValToString(thread_id, dbg, &ir->bin.lhs);
+		own_std::string rhs = WasmIrValToString(thread_id, dbg, &ir->bin.rhs);
 		snprintf(buffer, 64, "cast int to int: %s = %s\n", lhs.c_str(), rhs.c_str());
 		ret = buffer;
 	}break;
@@ -3566,7 +3570,7 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, own_std::string &ret)
 	case IR_CMP_LE:
 	case IR_CMP_GE:
 	{
-		ret = WasmGetBinIR(dbg, ir) + "\n";
+		ret = WasmGetBinIR(thread_id, dbg, ir) + "\n";
 	}break;
 	case IR_BEGIN_BLOCK:
 	{
@@ -3615,8 +3619,8 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, own_std::string &ret)
 	case IR_CAST_INT_TO_F32:
 	{
 		ret = "cast int to f32\n";
-		own_std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
-		own_std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		own_std::string lhs = WasmIrValToString(thread_id, dbg, &ir->bin.lhs);
+		own_std::string rhs = WasmIrValToString(thread_id, dbg, &ir->bin.rhs);
 		snprintf(buffer, 64, "cast int to f32: %s = %s\n", lhs.c_str(), rhs.c_str());
 		ret = buffer;
 	}break;
@@ -3626,8 +3630,8 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, own_std::string &ret)
 	}break;
 	case IR_CAST_F32_TO_INT:
 	{
-		own_std::string lhs = WasmIrValToString(dbg, &ir->bin.lhs);
-		own_std::string rhs = WasmIrValToString(dbg, &ir->bin.rhs);
+		own_std::string lhs = WasmIrValToString(thread_id, dbg, &ir->bin.lhs);
+		own_std::string rhs = WasmIrValToString(thread_id, dbg, &ir->bin.rhs);
 		snprintf(buffer, 64, "cast f32 to int: %s = %s\n", lhs.c_str(), rhs.c_str());
 		ret = buffer;
 	}break;
@@ -3663,7 +3667,7 @@ void WasmIrToString(dbg_state* dbg, ir_rep *ir, own_std::string &ret)
 	}break;
 	case IR_ASSIGNMENT:
 	{
-		ret+= WasmIrAssignment(dbg, &ir->assign);
+		ret+= WasmIrAssignment(thread_id, dbg, &ir->assign);
 		ret += "\n";
 	}break;
 	default:
@@ -3675,9 +3679,9 @@ void WasmGetIrWithIdx(dbg_state* dbg, func_decl *func, int idx, ir_rep **ir_star
 {
 
 	if (start == -1)
-		dbg->cur_st->start;
+		dbg->dbg_threads[0].cur_st->start;
 	if (end == -1)
-		dbg->cur_st->end;
+		dbg->dbg_threads[0].cur_st->end;
 	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &func->ir;
 	ir_rep* ir = ir_ar->begin();
 	for (int i = 0; i < ir_ar->size(); i++)
@@ -3699,17 +3703,17 @@ void WasmGetIrWithIdx(dbg_state* dbg, func_decl *func, int idx, ir_rep **ir_star
 	*ir_start = nullptr;
 }
 
-own_std::string WasmPrintVars(dbg_state *dbg)
+own_std::string WasmPrintVars(int thread_id, dbg_state *dbg)
 {
 	own_std::string ret = "";
 	char* mem_buffer = dbg->mem_buffer;
-	func_decl* func = dbg->cur_func;
-	stmnt_dbg* stmnt = dbg->cur_st;
+	func_decl* func = dbg->dbg_threads[thread_id].cur_func;
+	stmnt_dbg* stmnt = dbg->dbg_threads[thread_id].cur_st;
 	own_std::vector<wasm_bc>* bcs = &dbg->bcs;
 
 	int base_stack_ptr = *(int *)&mem_buffer[BASE_STACK_PTR_REG * 8];
 	printf("**vars and params\n");
-	scope* cur_scp = FindScpWithLine(func, dbg->cur_st->line);
+	scope* cur_scp = FindScpWithLine(func, dbg->dbg_threads[thread_id].cur_st->line);
 	while(cur_scp->parent)
 	{
 		FOR_VEC(decl, cur_scp->vars)
@@ -3748,9 +3752,9 @@ long long WasmInterpGetReVal(char* mem_buffer, int reg, bool deref)
 	return ptr;
 }
 
-ir_rep* GetIrBasedOnOffset(dbg_state* dbg, int offset, int start_ir, int end_ir)
+ir_rep* GetIrBasedOnOffset(dbg_state* dbg, int offset, int start_ir, int end_ir, func_decl *cur_func)
 {
-	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &dbg->cur_func->ir;
+	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &cur_func->ir;
 	ir_rep* ir = ir_ar->begin() + start_ir;
 	ir_rep* end = ir_ar->begin() + end_ir;
 	while(ir < end)
@@ -3761,9 +3765,9 @@ ir_rep* GetIrBasedOnOffset(dbg_state* dbg, int offset, int start_ir, int end_ir)
 	}
 	return nullptr;
 }
-ir_rep *GetIrBasedOnOffset(dbg_state *dbg, int offset)
+ir_rep *GetIrBasedOnOffset(dbg_state *dbg, int offset, func_decl *cur_func)
 {
-	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &dbg->cur_func->ir;
+	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &cur_func->ir;
 	ir_rep* ir = ir_ar->begin();
 	ir_rep* end = ir_ar->end();
 	while(ir < end)
@@ -4362,27 +4366,27 @@ void WasmPrintExpressions(dbg_state* dbg)
 /*
 void WasmPrintStackAndBcs(dbg_state* dbg, int max_bcs = -1)
 {
-	printf("%s\n", WasmPrintCodeGranular(dbg, dbg->cur_func, *dbg->cur_bc, dbg->cur_st->start, dbg->cur_st->end, max_bcs).c_str());
+	printf("%s\n", WasmPrintCodeGranular(dbg, dbg->dbg_threads[thread_id].cur_func, *dbg->cur_bc, dbg->dbg_threads[thread_id].cur_st->start, dbg->dbg_threads[thread_id].cur_st->end, max_bcs).c_str());
 	printf("%s\n", WasmGetStack(dbg).c_str());
 }
 */
 
-void WasmBreakOnNextStmnt(dbg_state* dbg, bool *args_break)
+void WasmBreakOnNextStmnt(int thread_id, dbg_state* dbg, bool *args_break, func_decl *cur_func)
 {
-	stmnt_dbg* next = dbg->cur_st;
+	stmnt_dbg* next = dbg->dbg_threads[thread_id].cur_st;
 	stmnt_dbg* prev = next;
 	next++;
-	while (next->line == prev->line && next <= &dbg->cur_func->wasm_stmnts.back())
+	while (next->line == prev->line && next <= &cur_func->wasm_stmnts.back())
 	{
 		prev = next;
 		next++;
 	}
-	if (next <= &dbg->cur_func->wasm_stmnts.back())
+	if (next <= &cur_func->wasm_stmnts.back())
 	{
 		wasm_bc* next_bc = dbg->bcs.begin() + next->start;
 		next_bc->one_time_dbg_brk = true;
-		dbg->next_stat_break_func = dbg->cur_func;
-		dbg->break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
+		//dbg->dbg_threads[thread_id].next_stat_break_func = dbg->dbg_threads[thread_id].cur_func;
+		dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
 	}
 
 	*args_break = true;
@@ -4487,15 +4491,16 @@ void InsertSuggestion(dbg_state* dbg, own_std::string &input, int *cursor_pos)
 	}
 }
 
+/*
 dbg_expr* WasmGetExprFromTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 {
-	func_decl* func = dbg->cur_func;
+	func_decl* func = dbg->dbg_threads[thread_id].cur_func;
 	node_iter niter = node_iter(tkns, dbg->lang_stat);
 	node *n = niter.parse_all();
 
 	type_struct2* strct_for_filter;
 	//Scope
-	scope* cur_scp = FindScpWithLine(func, dbg->cur_st->line);
+	scope* cur_scp = FindScpWithLine(func, dbg->dbg_threads[thread_id].cur_st->line);
 
 	if (IS_COMMA(n))
 	{
@@ -4563,17 +4568,10 @@ dbg_expr* WasmGetExprFromTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 	ast_rep* ast = AstFromNode(dbg->lang_stat, n, cur_scp);
 
 	n->FreeTree();
-	/*
-	int last_idx = dbg->lang_stat->allocated_vectors.size() - 1;
-	if(last_idx >= 0)
-	{
-	dbg->lang_stat->allocated_vectors[last_idx]->~vector();
-	dbg->lang_stat->allocated_vectors.pop_back();
-	*/
 
 	auto exp = (dbg_expr*)AllocMiscData(dbg->lang_stat, sizeof(dbg_expr));
 	//exp->exp_str = exp_str.substr();
-	exp->from_func = dbg->cur_func;
+	exp->from_func = dbg->dbg_threads[thread_id].cur_func;
 
 	//exp_str = "";
 	if (ast->type == AST_BINOP && ast->op == T_COMMA)
@@ -4609,14 +4607,17 @@ dbg_expr* WasmGetExprFromTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 
 	return exp;
 }
+*/
+/*
 dbg_expr* WasmGetExprFromStr(dbg_state* dbg, own_std::string exp_str)
 {
-	func_decl* func = dbg->cur_func;
+	func_decl* func = dbg->dbg_threads[thread_id].cur_func;
 
 	own_std::vector<token2> tkns;
 	Tokenize2((char *)exp_str.c_str(), exp_str.size(), &tkns);
 	return WasmGetExprFromTkns(dbg, &tkns);
 }
+*/
 
 u64 DoAndOpInValBasedOnSize(u64 lhs_val, char size)
 {
@@ -4671,7 +4672,7 @@ T WasmIrInterpGetIrVal2(dbg_state* dbg, ir_val* val)
 	}break;
 	case IR_TYPE_ON_STACK:
 	{
-		offset = GetOnStackTypeOffset(dbg->cur_func, val);
+		offset = GetOnStackTypeOffset(dbg->dbg_threads[0].cur_func, val);
 		offset = WasmGetMemOffsetVal(dbg, BASE_STACK_PTR_REG * 8) + offset;
 		if (val->deref < 0)
 		{
@@ -4921,7 +4922,7 @@ void WasmIrInterpAssign2(dbg_state* dbg, ir_rep *ir)
 		}
 		else if (ir->assign.to_assign.type == IR_TYPE_ON_STACK)
 		{
-			offset = GetOnStackTypeOffset(dbg->cur_func, &ir->assign.to_assign);
+			offset = GetOnStackTypeOffset(dbg->dbg_threads[0].cur_func, &ir->assign.to_assign);
 			offset = WasmGetMemOffsetVal(dbg, BASE_STACK_PTR_REG * 8) + offset;
 			sz = ir->assign.to_assign.reg_sz;
 		}
@@ -5186,7 +5187,7 @@ void WasmCallX64(int thread_id, wasm_interp* winterp, dbg_state& dbg, unsigned c
 OPT_ON
 void WasmDoCallInstructionIr(dbg_state *dbg, ir_rep **bc, block_linked **cur, func_decl *call_f)
 {
-	dbg->cur_func = call_f;
+	dbg->dbg_threads[0].cur_func = call_f;
 	dbg->func_stack.emplace_back(call_f);
 	//dbg->block_stack.emplace_back(*cur);
 	dbg->return_stack_ir.emplace_back(*bc);
@@ -5204,7 +5205,7 @@ void IrEndStack(dbg_state* dbg, ir_rep** ptr, ir_rep* start)
 {
 	auto base = (u64 *)GetRegValPtr(0, dbg, BASE_STACK_PTR_REG);
 	auto stack = (u64 *)GetRegValPtr(0, dbg, STACK_PTR_REG);
-	*stack += dbg->cur_func->stack_size + 8;
+	*stack += dbg->dbg_threads[0].cur_func->stack_size + 8;
 	*base = *(u64 *)&dbg->mem_buffer[*stack];
 	*stack += 8;
 
@@ -5213,8 +5214,8 @@ void IrEndStack(dbg_state* dbg, ir_rep** ptr, ir_rep* start)
 	{
 		return;
 	}
-	func_decl* prev_func = dbg->cur_func;
-	dbg->cur_func = dbg->func_stack.back();
+	func_decl* prev_func = dbg->dbg_threads[0].cur_func;
+	dbg->dbg_threads[0].cur_func = dbg->func_stack.back();
 
 	*ptr = dbg->return_stack_ir.back();
 	dbg->return_stack_ir.pop_back();
@@ -5400,7 +5401,7 @@ bool IrLogic2(dbg_state* dbg, ir_rep** ptr, ir_rep *start)
 	}break;
 
 	default:
-		stmnt_dbg* st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts, ir->idx);
+		stmnt_dbg* st = GetStmntBasedOnOffsetIr(&dbg->dbg_threads[0].cur_func->wasm_stmnts, ir->idx);
 		ASSERT(0);
 	}
 	return true;
@@ -5661,12 +5662,13 @@ void UpdateExprWindow(dbg_state& dbg, int stack_reg, int line)
 	}
 	memcpy(dbg.mem_buffer, saved_regs, 258);
 }
+/*
 void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int line)
 {
 	dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
 	//own_std::vector<token2> tkns;
 	//Tokenize2((char *)str.c_str(), str.size(), &tkns);
-	scope* scp = FindScpWithLine(dbg->cur_func, line);
+	scope* scp = FindScpWithLine(dbg->dbg_threads[thread_id].cur_func, line);
 
 	if (!scp)
 		return;
@@ -5757,6 +5759,7 @@ void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int
 
 	UpdateExprWindow(*dbg, stack_reg, line);
 }
+*/
 
 
 void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char ptr_decl);
@@ -5904,7 +5907,7 @@ void SHowMemWindow(int thread_id, dbg_state &dbg, char *mem_wnd_items[], int &me
 	auto a = &dbg.return_stack_bc2_func.ar;
 	if (dbg.return_stack_bc2_func.size() == 0)
 	{
-		FOR_VEC(bc, dbg.return_stack_bc2)
+		FOR_VEC(bc, dbg.dbg_threads[thread_id].return_stack_bc2)
 		{
 			func_decl* f = GetFuncBasedOnBc2(&dbg, **bc);
 			if (!f)
@@ -5941,7 +5944,7 @@ void PrintExpressionTkns(dbg_state* dbg, own_std::vector<token2> *tkns)
 	if (val == 0)
 	{
 		dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
-		exp = WasmGetExprFromTkns(dbg, tkns);
+		//exp = WasmGetExprFromTkns(dbg, tkns);
 	}
 	// error
 	else if (val == 1)
@@ -5970,18 +5973,18 @@ void WasmOnArgs(dbg_state* dbg)
 
 		if (first_timer)
 		{
-			if ((dbg->break_type == DBG_BREAK_ON_NEXT_BC)
+			if ((dbg->dbg_threads[thread_id].break_type == DBG_BREAK_ON_NEXT_BC)
 				|| (*dbg->cur_bc)->dbg_brk || (*dbg->cur_bc)->one_time_dbg_brk)
 			{
 				//WasmPrintStackAndBcs(dbg, 16);
 			}
-			dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
+			dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT;
 			(*dbg->cur_bc)->one_time_dbg_brk = false;
 		}
 		first_timer = false;
 
-		func_decl* func = dbg->cur_func;
-		stmnt_dbg* stmnt = dbg->cur_st;
+		func_decl* func = dbg->dbg_threads[thread_id].cur_func;
+		stmnt_dbg* stmnt = dbg->dbg_threads[thread_id].cur_st;
 
 
 		for (int i = stmnt->line - 2; i < (stmnt->line + 1); i++)
@@ -6073,9 +6076,9 @@ void WasmOnArgs(dbg_state* dbg)
 				i++;
 				bool can_break = false;
 
-				func_decl* fdecl = dbg->cur_func;
+				func_decl* fdecl = dbg->dbg_threads[thread_id].cur_func;
 				wasm_bc* cur_bc = *dbg->cur_bc;
-				stmnt_dbg* cur_st = dbg->cur_st;
+				stmnt_dbg* cur_st = dbg->dbg_threads[thread_id].cur_st;
 
 				int lines = -1;
 				if (tkns[i].type == T_INT)
@@ -6308,7 +6311,7 @@ void WasmOnArgs(dbg_state* dbg)
 		}
 		else if (args[0] == "con")
 		{
-			dbg->break_type = DBG_NO_BREAK;
+			dbg->dbg_threads[thread_id].break_type = DBG_NO_BREAK;
 			args_break = true;
 		}
 		else if (args[0] == "abs")
@@ -6328,7 +6331,7 @@ void WasmOnArgs(dbg_state* dbg)
 				continue;
 			}
 			int offset = atof(args[1].c_str());
-			auto ir = (own_std::vector<ir_rep>*) &dbg->cur_func->ir;
+			auto ir = (own_std::vector<ir_rep>*) &dbg->dbg_threads[thread_id].cur_func->ir;
 			ir_rep* i = &((*ir)[offset]);
 			int bc_idx = i->start;
 			wasm_bc* wbc = &dbg->bcs[bc_idx];
@@ -6391,7 +6394,7 @@ void WasmOnArgs(dbg_state* dbg)
 		else if (args[0] == "si")
 		{
 			wasm_bc* cur = *dbg->cur_bc;
-			wasm_bc* end = dbg->bcs.begin() + dbg->cur_st->end;
+			wasm_bc* end = dbg->bcs.begin() + dbg->dbg_threads[thread_id].cur_st->end;
 			while (cur <= end && (cur->type != WASM_INST_CALL && cur->type != WASM_INST_INDIRECT_CALL))
 			{
 				cur++;
@@ -6441,12 +6444,12 @@ void WasmOnArgs(dbg_state* dbg)
 			cur_ir_bc->one_time_dbg_brk = true;
 			dbg->some_bc_modified = true;
 
-			dbg->break_type = DBG_NO_BREAK;
+			dbg->dbg_threads[thread_id].break_type = DBG_NO_BREAK;
 		}
 		else if (args[0] == "nw")
 		{
 			args_break = true;
-			dbg->break_type = DBG_BREAK_ON_NEXT_BC;
+			dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_NEXT_BC;
 
 		}
 	}
@@ -6460,7 +6463,7 @@ void JsPrint(dbg_state* dbg)
 }
 void WasmDoCallInstruction(dbg_state *dbg, wasm_bc **bc, block_linked **cur, func_decl *call_f)
 {
-	dbg->cur_func = call_f;
+	dbg->dbg_threads[0].cur_func = call_f;
 	dbg->func_stack.emplace_back(call_f);
 	dbg->block_stack.emplace_back(*cur);
 	dbg->return_stack.emplace_back(*bc);
@@ -7765,6 +7768,7 @@ inline bool GetWasmBcsBlockJmpsTo(own_std::vector<wasm_bc> *ar)
 
 bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigned char* mem_buffer, block_linked** cur, bool &can_break)
 {
+  /*
 	own_std::vector<wasm_stack_val> &wasm_stack = dbg.wasm_stack;
 	wasm_stack_val val = {};
 	switch ((*cur_bc)->type)
@@ -7778,19 +7782,17 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 	{
 		int i = 0;
 		wasm_bc *label;
-		/*
 		while (i < (*cur_bc)->i)
 		{
 			(*cur) = (*cur)->parent;
 			FreeBlock((*cur));
 			i++;
 		}
-		*/
 		if ((*cur_bc)->jmps_to->type == WASM_INST_LOOP)
 		{
 			wasm_bc* prev_bc = (*cur_bc);
 			(*cur_bc) = prev_bc->jmps_to + 1;
-			if (prev_bc->break_on_first_loop_bc || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && dbg.next_stat_break_func == dbg.cur_func)
+			if (prev_bc->break_on_first_loop_bc || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && dbg.dbg_threads[thread_id].next_stat_break_func == dbg.cur_func)
 			{
 				(*cur_bc)->one_time_dbg_brk = true;
 				prev_bc->break_on_first_loop_bc = false;
@@ -7811,17 +7813,15 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 			break;
 		wasm_bc *label;
 		int i = 0;
-		/*
 		while (i < (*cur_bc)->i)
 		{
 			(*cur) = (*cur)->parent;
 			FreeBlock((*cur));
 			i++;
 		}
-		*/
 		wasm_bc* prev_bc = (*cur_bc);
 		(*cur_bc) = prev_bc->jmps_to;
-		if (prev_bc->break_on_first_loop_bc || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && dbg.next_stat_break_func == dbg.cur_func)
+		if (prev_bc->break_on_first_loop_bc || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && dbg.dbg_threads[thread_id].next_stat_break_func == dbg.cur_func)
 		{
 			((*cur_bc) + 1)->one_time_dbg_brk = true;
 			prev_bc->break_on_first_loop_bc = false;
@@ -7880,9 +7880,9 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 		func_decl* prev_func = dbg.cur_func;
 		dbg.cur_func = dbg.func_stack.back();
 
-		if (prev_func == dbg.next_stat_break_func)
+		if (prev_func == dbg.dbg_threads[thread_id].next_stat_break_func)
 		{
-			dbg.next_stat_break_func = dbg.cur_func;
+			dbg.dbg_threads[thread_id].next_stat_break_func = dbg.cur_func;
 		}
 		
 		(*cur_bc) = dbg.return_stack.back();
@@ -8320,19 +8320,18 @@ bool WasmBcLogic(wasm_interp* winterp, dbg_state& dbg, wasm_bc** cur_bc, unsigne
 	}break;
 	case WASM_INST_END:
 	{
-		/*
 		if ((*cur))
 		{
 			FreeBlock((*cur));
 			(*cur) = (*cur)->parent;
 		}
-		*/
 
 	}break;
 	default:
 		ASSERT(0)
 	}
 
+*/
 	return false;
 }
 void OpenWindow(int, dbg_state* dbg);
@@ -8660,6 +8659,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case MOD_R_2_R:
 	case OR_R_2_R:
 	case DIV_R_2_R:
+	case XOR_R_2_R:
 	case MUL_R_2_R:
 	case MOV_R:
 	case SUB_R_2_R:
@@ -8678,6 +8678,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case MOD_I_2_R:
 	case MUL_I_2_R:
 	case DIV_I_2_R:
+	case XOR_I_2_R:
 	case MOV_I:
 	{
 		 inst_name = InstToStr(bc->bc_type);
@@ -8797,6 +8798,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case AND_M_2_R:
 	case OR_M_2_R:
 	case MOD_M_2_R:
+	case XOR_M_2_R:
 	case DIV_M_2_R:
 	case MUL_M_2_R:
 	case INST_LEA:
@@ -8895,6 +8897,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case AND_R_2_M:
 	case MUL_R_2_M:
 	case DIV_R_2_M:
+	case XOR_R_2_M:
 	case STORE_R_2_M:
 	{
 		 inst_name = InstToStr(bc->bc_type);
@@ -9133,14 +9136,19 @@ inline void DoMovZXInts(dbg_state* dbg, u64* dst_ptr, u64* src_ptr, int sz)
 
 void MakeCurBcToBeBreakpoint(dbg_state* dbg, byte_code2* bc, int line, bool one_time = true)
 {
+  //HERE()
+  printf("adding bp\n");
 	breakpoint bp;
 	bp.line = line;
 	bp.prev_inst = bc->bc_type;
 	bp.bc = bc;
 	bp.one_time_bp = one_time;
+  LockMutexBase(dbg->dbg_mutex);
+  //HERE()
 	dbg->breakpoints.emplace_back(bp);
 
 	bc->type = INT3;
+  UnlockMutexBase(dbg->dbg_mutex);
 }
 #pragma optimize("", off)
 void Bc2CallX64(int thread_id, dbg_state* dbg, byte_code2** ptr, func_decl *call_f)
@@ -9170,7 +9178,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	if (bc < dbg->lang_stat->bcs2_start || bc > dbg->lang_stat->bcs2_end)
 	{
 		*inc_ptr = false;
-		if (dbg->break_type != DBG_BREAK_RIP_CORRUPTED)
+		if (dbg->dbg_threads[thread_id].break_type != DBG_BREAK_RIP_CORRUPTED)
 		{
 			func_decl* f = GetFuncBasedOnBc2(dbg, dbg->prev_valid_bc);
 			int offset = dbg->prev_valid_bc - dbg->lang_stat->bcs2_start;
@@ -9181,7 +9189,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 				dbg->prev_valid_bc = dbg->lang_stat->bcs2_start + st->start;
 			}
 			MakeCurBcToBeBreakpoint(dbg, dbg->prev_valid_bc, st->line);
-			dbg->break_type = DBG_BREAK_RIP_CORRUPTED;
+			dbg->dbg_threads[thread_id].break_type = DBG_BREAK_RIP_CORRUPTED;
 			*valid = false;
 		}
 		return;
@@ -9710,23 +9718,19 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		(*reg_stack_ptr) += 8;
 		*inc_ptr = false;
 
-		if(thread_id == 0)
-		{
-			dbg->return_stack_bc2.pop_back();
-		}
+    dbg->dbg_threads[thread_id].return_stack_bc2.pop_back();
 
-		switch (dbg->break_type)
+		switch (dbg->dbg_threads[thread_id].break_type)
 		{
 		case DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC:
 		{
-			if(offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end)
-				dbg->break_type = DBG_BREAK_ON_DIFF_IR;
+			if(offset >= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_start && offset <= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_end)
+				dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_IR;
 		}break;
 		case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
 		{
-
-			if((dbg->same_func_stack_ptr == *reg_stack_ptr )&& offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end || dbg->same_func_stack_ptr < *reg_stack_ptr)
-				dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
+			if((dbg->dbg_threads[thread_id].same_func_stack_ptr == *reg_stack_ptr) && offset >= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_start && offset <= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_end || dbg->dbg_threads[thread_id].same_func_stack_ptr < *reg_stack_ptr)
+				dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT;
 		}break;
 		}
 	}break;
@@ -9830,10 +9834,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		(*reg_stack_ptr) -= 8;
 		u64* mem_ptr = GetMemValPtr(thread_id, dbg, PRE_X64_RSP_REG, 0);
 		*mem_ptr = (u64)(*ptr + 1);
-		if(thread_id == 0)
-		{
-			dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
-		}
+    dbg->dbg_threads[thread_id].return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
 		*ptr += imm;
 		*inc_ptr = false;
 	}break;
@@ -9844,10 +9845,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		(*reg_stack_ptr) -= 8;
 		u64* mem_ptr = GetMemValPtr(thread_id, dbg, PRE_X64_RSP_REG, 0);
 		*mem_ptr = (u64)(*ptr + 1);
-		if(thread_id == 0)
-		{
-			dbg->return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
-		}
+    dbg->dbg_threads[thread_id].return_stack_bc2.emplace_back((byte_code2**)(mem_ptr));
 		*ptr = dbg->lang_stat->bcs2_start + (int)*reg_src_ptr;
 		*inc_ptr = false;
 	}break;
@@ -9955,6 +9953,78 @@ bool StatHasInst(stmnt_dbg *cur_st, byte_code2 *start_bc, byte_code2 **out, byte
 	}
 	return false;
 }
+void CheckDbgStmnt(dbg_state *dbg, int thread_id, stmnt_dbg *cur_st, byte_code2 *cur_bc, int offset)
+{
+  switch (dbg->dbg_threads[thread_id].break_type)
+  {
+  case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
+  {
+    int rsp = *(int*)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
+
+    if (dbg->dbg_threads[thread_id].next_stat_break_func && ((dbg->dbg_threads[thread_id].same_func_stack_ptr == rsp ) && offset >= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_start && offset <= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_end))
+    {
+      breakpoint bp;
+      cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].next_stat_break_func->wasm_stmnts, offset);
+      if (cur_st && cur_st != dbg->dbg_threads[thread_id].prev_st)
+      {
+        MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+        dbg->dbg_threads[thread_id].prev_st = cur_st;
+      }
+    }
+  }break;
+  case DBG_BREAK_ON_DIFF_STAT:
+  {
+      dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+      if (dbg->dbg_threads[thread_id].cur_func)
+      {
+        printf("cur func %s, thread %p\n", dbg->dbg_threads[thread_id].cur_func->name.c_str(), dbg->thread);
+        cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts, offset);
+        if (cur_st && cur_st != dbg->dbg_threads[thread_id].prev_st)
+        {
+          printf("cur func stat line %d\n", cur_st->line);
+          MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+          dbg->dbg_threads[thread_id].prev_st = cur_st;
+        }
+      }
+  }break;
+  case DBG_BREAK_ON_DIFF_IR:
+  {
+    if (cur_bc != dbg->dbg_threads[thread_id].prev_bc)
+    {
+      breakpoint bp;
+      if (!dbg->dbg_threads[thread_id].cur_func || dbg->dbg_threads[thread_id].cur_func && (offset < dbg->dbg_threads[thread_id].cur_func->bcs2_start || offset > dbg->dbg_threads[thread_id].cur_func->bcs2_end))
+      {
+        dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+      }
+      cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts, offset);
+      if (cur_st)
+      {
+        MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+        dbg->dbg_threads[thread_id].prev_bc = cur_bc;
+      }
+    }
+  }break;
+  case DBG_BREAK_RIP_CORRUPTED:
+  {
+    cur_bc = dbg->prev_valid_bc;
+  }break;
+  case DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC:
+  {
+    if (dbg->dbg_threads[thread_id].next_stat_break_func && (offset >= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_start && offset <= dbg->dbg_threads[thread_id].next_stat_break_func->bcs2_end) &&
+      dbg->dbg_threads[thread_id].prev_bc != cur_bc)
+    {
+      breakpoint bp;
+      cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].next_stat_break_func->wasm_stmnts, offset);
+      if (cur_st)
+      {
+        MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
+        dbg->dbg_threads[thread_id].prev_bc = cur_bc;
+      }
+    }
+  }break;
+  }
+
+}
 
 void SuspendThread(thread_creation *th, dbg_state *dbg);
 void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
@@ -9965,20 +10035,18 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
 	*rip_ptr = cur_bc;
 
 	thread->rip_ptr = rip_ptr;
+	byte_code2* start_bc = dbg->lang_stat->bcs2_start;
 
 	while(true)
 	{
-
-    //printf("on worker c++\n");
-    if(dbg->in_debug_mode)
-    {
-      LockMutexBase(dbg->dbg_mutex);
-    }
-
-    //printf("on worker unlocked c++\n");
-
 		bool inc_ptr = true;
 		bool valid = false;
+
+		auto cur_bc = *thread->rip_ptr;
+		int offset = cur_bc - start_bc;
+
+    CheckDbgStmnt(dbg, thread_id, dbg->dbg_threads[thread_id].cur_st, cur_bc, offset);
+
 		Bc2Logic(thread_id, dbg, rip_ptr, &inc_ptr, &valid, 0);
 		if (inc_ptr)
 		{
@@ -9991,17 +10059,24 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
 		if((*rip_ptr)->type == INT3)
 		{
       LockMutexBase(dbg->dbg_mutex);
-      printf("worker is in __dbg_break\n");
+      printf("worker is in __dbg_break c++, time %.4f(), mode %d\n", (float)glfwGetTime(), (int)dbg->dbg_threads[thread_id].in_debug_mode);
 			dbg->thread = thread;
-			dbg->cur_func = nullptr;
-      dbg->in_debug_mode = true;
-      printf("worker is out of __dbg_break\n");
+			dbg->dbg_threads[thread_id].cur_func = nullptr;
+			dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
+      dbg->dbg_threads[thread_id].in_debug_mode = true;
+      BroadcastMutexBase(dbg->dbg_mutex);
       UnlockMutexBase(dbg->dbg_mutex);
+
+      LockMutexBase(dbg->dbg_mutex);
+      while(dbg->dbg_threads[thread_id].in_debug_mode)
+      {
+        printf("worker will wait, time %.4f(), mode %d\n", (float)glfwGetTime(), (int)dbg->dbg_threads[thread_id].in_debug_mode);
+        WaitMutexBase(dbg->dbg_mutex);
+      }
+      printf("worker is out of __dbg_break c++ ptr %p\n", *rip_ptr);
+      UnlockMutexBase(dbg->dbg_mutex);
+      (*rip_ptr)++;
 		}
-    if(dbg->in_debug_mode)
-    {
-      UnlockMutexBase(dbg->dbg_mutex);
-    }
 	}
 }
 void HackFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur_bc)
@@ -10023,7 +10098,7 @@ void HackFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur
 
 	cur_bc->i = (int)(s64)(dst_bc - cur_bc);
 
-	int ret_sz = dbg->return_stack_bc2.size();
+	int ret_sz = dbg->dbg_threads[thread_id].return_stack_bc2.size();
 	while(true)
 	{
 
@@ -10034,7 +10109,7 @@ void HackFunc(int thread_id, dbg_state *dbg, GLFWwindow *window, byte_code2 *cur
 		{
 			(*rip_ptr)++;
 		}
-		if(ret_sz >= dbg->return_stack_bc2.size())
+		if(ret_sz >= dbg->dbg_threads[thread_id].return_stack_bc2.size())
 		{
 			break;
 		}
@@ -10080,7 +10155,11 @@ void PrintCallBasedOnBc(dbg_state *dbg, byte_code2 *bc);
 
 void ExitDebugMode(dbg_state* dbg)
 {
-  dbg->in_debug_mode = false;
+  for(int i = 0;i < dbg->total_threads + 1; i++)
+  {
+    dbg->dbg_threads[i].in_debug_mode = false;
+    printf("thread %d not in dbg mode anymore\n", i);
+  }
   BroadcastMutexBase(dbg->dbg_mutex);
   //UnlockMutexBase(dbg->dbg_mutex);
 
@@ -10088,7 +10167,11 @@ void ExitDebugMode(dbg_state* dbg)
 void EnterDebugMode(dbg_state* dbg)
 {
   LockMutexBase(dbg->dbg_mutex);
-  dbg->in_debug_mode = true;
+  for(int i = 0;i < dbg->total_threads + 1; i++)
+  {
+    dbg->dbg_threads[i].in_debug_mode = true;
+  }
+  //dbg->dbg_threads[thread_id].in_debug_mode = true;
 }
 void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 {
@@ -10116,11 +10199,13 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	new(&dbg->return_stack_bc2_func)own_std::vector<call_stack_info>();
 	dbg->return_stack_bc2_func.reserve(16);
 	dbg->return_stack_bc2_func.clear();
-	dbg->return_stack_bc2.reserve(16);
-	dbg->return_stack_bc2.clear();
+	dbg->dbg_threads[0].return_stack_bc2.reserve(16);
+	dbg->dbg_threads[0].return_stack_bc2.clear();
+	dbg->dbg_threads[1].return_stack_bc2.reserve(16);
+	dbg->dbg_threads[1].return_stack_bc2.clear();
 
 	volatile auto funcs_ret = &dbg->return_stack_bc2_func.ar;
-	volatile auto funcs_ = &dbg->return_stack_bc2.ar;
+	volatile auto funcs_ = &dbg->dbg_threads[0].return_stack_bc2.ar;
 
 	scope* cur_scp = nullptr;
 	bool done = false;
@@ -10133,10 +10218,11 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 	int total_items = IM_ARRAYSIZE(mem_wnd_items);
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-	stmnt_dbg* cur_st = nullptr;
+	//stmnt_dbg&* cur_st = 
 
 	func_decl* aux_func = nullptr;
-	dbg->cur_func = nullptr;
+	dbg->dbg_threads[0].cur_func = nullptr;
+	dbg->dbg_threads[1].cur_func = nullptr;
 	bool center_inst = true;
 	dbg->cur_bc2 = &cur_bc;
 
@@ -10148,98 +10234,42 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 	auto i_ = 0;
 
+  int thread_id = 0;
 	while (cur_bc != nullptr)
 	{
 		byte_code2** rip_ptr = (byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
-		int thread_id = 0;
+    stmnt_dbg* cur_st = dbg->dbg_threads[thread_id].cur_st;
 
+		__lang_globals.data = prev_data;
+		__lang_globals.alloc = prev_alloc;
+		__lang_globals.free = prev_free;
 
 		lalloc.cur = 0;
 
-		if (dbg->break_type != DBG_BREAK_RIP_CORRUPTED)
+		if (dbg->dbg_threads[thread_id].break_type != DBG_BREAK_RIP_CORRUPTED)
 		{
 			dbg->prev_valid_bc = cur_bc;
 		}
 		cur_bc = *(byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
 		if(dbg->thread != nullptr)
 		{
-      HERE()
+      //HERE()
 			thread_creation * th = dbg->thread;
 			cur_bc = *th->rip_ptr;
 			rip_ptr = th->rip_ptr;
 			thread_id = th->thread_id;
+      //printf("thread mode %d\n", (int)dbg->dbg_threads[thread_id].in_debug_mode);
+      LockMutexBase(dbg->dbg_mutex);
+      while(!dbg->dbg_threads[thread_id].in_debug_mode)
+      {
+        WaitMutexBase(dbg->dbg_mutex);
+      }
+      UnlockMutexBase(dbg->dbg_mutex);
 		}
 		int offset = cur_bc - start_bc;
 
 
-		switch (dbg->break_type)
-		{
-		case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
-		{
-			int rsp = *(int*)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
-
-			if (dbg->next_stat_break_func && ((dbg->same_func_stack_ptr == rsp ) && offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end))
-			{
-				breakpoint bp;
-				cur_st = GetStmntBasedOnOffset(&dbg->next_stat_break_func->wasm_stmnts, offset);
-				if (cur_st && cur_st != dbg->prev_st)
-				{
-					MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
-					dbg->prev_st = cur_st;
-				}
-			}
-		}break;
-		case DBG_BREAK_ON_DIFF_STAT:
-		{
-				dbg->cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
-				if (dbg->cur_func)
-				{
-          printf("cur func %s, thread %p\n", dbg->cur_func->name.c_str(), dbg->thread);
-					cur_st = GetStmntBasedOnOffset(&dbg->cur_func->wasm_stmnts, offset);
-					if (cur_st && cur_st != dbg->prev_st)
-					{
-            printf("cur func stat line %d\n", cur_st->line);
-						MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
-						dbg->prev_st = cur_st;
-					}
-				}
-		}break;
-		case DBG_BREAK_ON_DIFF_IR:
-		{
-			if (cur_bc != dbg->prev_bc)
-			{
-				breakpoint bp;
-				if (!dbg->cur_func || dbg->cur_func && (offset < dbg->cur_func->bcs2_start || offset > dbg->cur_func->bcs2_end))
-				{
-					dbg->cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
-				}
-				cur_st = GetStmntBasedOnOffset(&dbg->cur_func->wasm_stmnts, offset);
-				if (cur_st)
-				{
-					MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
-					dbg->prev_bc = cur_bc;
-				}
-			}
-		}break;
-		case DBG_BREAK_RIP_CORRUPTED:
-		{
-			cur_bc = dbg->prev_valid_bc;
-		}break;
-		case DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC:
-		{
-			if (dbg->next_stat_break_func && (offset >= dbg->next_stat_break_func->bcs2_start && offset <= dbg->next_stat_break_func->bcs2_end) &&
-				dbg->prev_bc != cur_bc)
-			{
-				breakpoint bp;
-				cur_st = GetStmntBasedOnOffset(&dbg->next_stat_break_func->wasm_stmnts, offset);
-				if (cur_st)
-				{
-					MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st->line);
-					dbg->prev_bc = cur_bc;
-				}
-			}
-		}break;
-		}
+    CheckDbgStmnt(dbg, thread_id, cur_st, cur_bc, offset);
 
 		
 		bool inc_ptr = true;
@@ -10280,9 +10310,6 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			inc_ptr = false;
 		}
 
-		__lang_globals.data = prev_data;
-		__lang_globals.alloc = prev_alloc;
-		__lang_globals.free = prev_free;
 
 		if (!valid)
 			continue;
@@ -10292,31 +10319,51 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 		{
 			(*rip_ptr)++;
 		}
-		if (cur_bc->type == INT3 || dbg->thread != nullptr)
+		if (cur_bc->type == INT3)
 		{
+      //printf("entering debug mode, time %.4f, mode %d\n", glfwGetTime(), dbg->dbg_threads[thread_id].in_debug_mode);
+
       EnterDebugMode(dbg);
+
+      struct defer_strct
+      {
+        dbg_state* dbg;
+        defer_strct(dbg_state* d)
+        {
+          dbg = d;
+        }
+        ~defer_strct()
+        {
+          //dbg->thread = nullptr;
+          UnlockMutexBase(dbg->dbg_mutex);
+        }
+      };
+      defer_strct dfr(dbg);
 
 			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
 			dbg->frame_is_from_dbg = true;
-			if (!dbg->cur_func || dbg->cur_func != dbg->prev_func)
+			if (!dbg->dbg_threads[thread_id].cur_func || dbg->dbg_threads[thread_id].cur_func != dbg->prev_func)
 			{
-				dbg->cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
-				func_end_bc = dbg->lang_stat->bcs2_start + dbg->cur_func->bcs2_end;
-				dbg->prev_func = dbg->cur_func;
+				dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+				func_end_bc = dbg->lang_stat->bcs2_start + dbg->dbg_threads[thread_id].cur_func->bcs2_end;
+				dbg->prev_func = dbg->dbg_threads[thread_id].cur_func;
 			}
-			if (!dbg->cur_func)
+			if (!dbg->dbg_threads[thread_id].cur_func)
+      {
+        printf("no cur func for dbg, thread %d\n", thread_id);
 				continue;
+      }
 			offset = cur_bc - start_bc;
 			if (!cur_scp)
 			{
-				cur_st = GetStmntBasedOnOffset(&dbg->cur_func->wasm_stmnts, offset);
+				cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts, offset);
 				if (cur_st)
 				{
-					cur_scp = FindScpWithLine(dbg->cur_func, cur_st->line);
+					cur_scp = FindScpWithLine(dbg->dbg_threads[thread_id].cur_func, cur_st->line);
 					UpdateExprWindow(*dbg, PRE_X64_RSP_REG, cur_st->line);
 					auto a = 0;
-					dbg->cur_st = cur_st;
+					dbg->dbg_threads[thread_id].cur_st = cur_st;
 				}
 				else
 				{
@@ -10344,7 +10391,8 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 			if (!bp && !cur_st)
 			{
-				dbg->cur_func = nullptr;
+				dbg->dbg_threads[thread_id].cur_func = nullptr;
+        printf("no st found, thread %d\n", thread_id);
 				continue;
 			}
       //if(ImGuiHasMissignEndChild(&GImGui->StackSizesInNewFrame))
@@ -10371,6 +10419,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0)
 			{
 				ImGui_ImplGlfw_Sleep(10);
+        printf("weird glfw error, thread %d\n", thread_id);
 				continue;
 			}
 
@@ -10395,7 +10444,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			__lang_globals.alloc = (AllocTypeFunc)linear_alloc_func; 
 			__lang_globals.free = (FreeTypeFunc)linear_free_stub;
 
-			if (dbg->break_type == DBG_BREAK_RIP_CORRUPTED)
+			if (dbg->dbg_threads[thread_id].break_type == DBG_BREAK_RIP_CORRUPTED)
 			{
 				cur_bc = dbg->prev_valid_bc;
 				ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "rip got corrupted");
@@ -10418,13 +10467,13 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			if (cur_st)
 			{
 				stmnt_dbg* next_st = cur_st + 1;
-				stmnt_dbg* start_func_st = dbg->cur_func->wasm_stmnts.begin();;
+				stmnt_dbg* start_func_st = dbg->dbg_threads[thread_id].cur_func->wasm_stmnts.begin();;
 				stmnt_dbg* aux_cur_st = start_func_st;
 				bool first_stat = true;
 				//int max_ir = min(irs_to_show, ir_ar->size());
 				byte_code2* end = func_end_bc;
-				int line_start = dbg->cur_func->scp->line_start;
-				int line_end = dbg->cur_func->scp->line_end;
+				int line_start = dbg->dbg_threads[thread_id].cur_func->scp->line_start;
+				int line_end = dbg->dbg_threads[thread_id].cur_func->scp->line_end;
 
 
 				for (int i = line_start; i <= line_end; i++)
@@ -10432,14 +10481,14 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					auto prev_alloc_sz = lalloc.cur;
 					if (show_bc)
 					{
-						ir_rep* start_ir = ((own_std::vector<ir_rep > *) & dbg->cur_func->ir)->begin();
+						ir_rep* start_ir = ((own_std::vector<ir_rep > *) & dbg->dbg_threads[thread_id].cur_func->ir)->begin();
 						ir_rep* cur_ir = start_ir + aux_cur_st->start_ir;
 						int st_idx = 0;
 						while (aux_cur_st->line > 0 && i > aux_cur_st->line)
 						{
 
-							stmnt_dbg* start_func_st = dbg->cur_func->wasm_stmnts.begin();;
-							func_start_bc = start_bc + dbg->cur_func->bcs2_start;
+							stmnt_dbg* start_func_st = dbg->dbg_threads[thread_id].cur_func->wasm_stmnts.begin();;
+							func_start_bc = start_bc + dbg->dbg_threads[thread_id].cur_func->bcs2_start;
 							byte_code2* aux_bc = start_bc + aux_cur_st->start;
 							byte_code2* bc_end_st = start_bc + aux_cur_st->end;
 							int bc_idx = 0;
@@ -10450,7 +10499,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
 								while (cur_ir->start == offset_bc)
 								{
-									WasmIrToString(dbg, cur_ir, aux_string);
+									WasmIrToString(thread_id, dbg, cur_ir, aux_string);
 									ImGui::TextColored(ImVec4(0.6, 0.4, 0.6, 1.0), "%d|%s", cur_ir->idx, aux_string.c_str());
 									cur_ir++;
 								}
@@ -10498,10 +10547,10 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 							ImGui::SetScrollY(pos.y - height / 2);
 							center_inst = false;
 						}
-						ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", i, GetFileLn(dbg->lang_stat, i - 1, dbg->cur_func->from_file));
+						ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", i, GetFileLn(dbg->lang_stat, i - 1, dbg->dbg_threads[thread_id].cur_func->from_file));
 					}
 					else
-						ImGui::Text("%d: %s", i, GetFileLn(dbg->lang_stat, i - 1, dbg->cur_func->from_file));
+						ImGui::Text("%d: %s", i, GetFileLn(dbg->lang_stat, i - 1, dbg->dbg_threads[thread_id].cur_func->from_file));
 					lalloc.cur = prev_alloc_sz;
 					//printf("line %d\n", i);
 					fflush(stdout);
@@ -10511,7 +10560,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			else
 			{
 			}
-			if (offset < dbg->cur_func->bcs2_start || offset > dbg->cur_func->bcs2_end)
+			if (offset < dbg->dbg_threads[thread_id].cur_func->bcs2_start || offset > dbg->dbg_threads[thread_id].cur_func->bcs2_end)
 			{
 				auto a = 0;
 			}
@@ -10523,7 +10572,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			ImGui::EndChild();
 
 			ImGui::SameLine();
-			SHowMemWindow(thread_id, *dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items, PRE_X64_RSP_REG, dbg->cur_func);
+			SHowMemWindow(thread_id, *dbg, (char **)&mem_wnd_items, mem_wnd_show_type, mem_wnd_offset, total_items, PRE_X64_RSP_REG, dbg->dbg_threads[thread_id].cur_func);
 
 			int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 			BeginLocalsChild(*dbg, base_ptr, cur_scp);
@@ -10547,12 +10596,12 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					//MakeCurBcToBeBreakpoint(dbg, func_call_first_st_bc, found_f_first_stat->line);
 					*/
 					release_inst = true;
-					dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
+					dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT;
 					byte_code2* dst_bc = out + out->i;
 					func_decl *dst_func = GetFuncBasedOnBc2(dbg, dst_bc);
-					dbg->next_stat_break_func = dst_func;
-					dbg->cur_func = nullptr;
-					dbg->prev_st = cur_st;
+					dbg->dbg_threads[thread_id].next_stat_break_func = dst_func;
+					dbg->dbg_threads[thread_id].cur_func = nullptr;
+					dbg->dbg_threads[thread_id].prev_st = cur_st;
 				}
 				else
 					f11_pressed_but_dint_find_call_so_normal_step = true;
@@ -10560,43 +10609,47 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F5))
 			{
 				release_inst = true;
-				dbg->break_type = DBG_NO_BREAK;
+				dbg->dbg_threads[thread_id].break_type = DBG_NO_BREAK;
+        ExitDebugMode(dbg);
+        dbg->thread = nullptr;
+				//release_inst = true;
 			}
 			if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F8) || IsKeyRepeat(0, dbg->data, GLFW_KEY_F10) || f11_pressed_but_dint_find_call_so_normal_step)
 			{
-        if(IsKeyRepeat(0, dbg->data, GLFW_KEY_F8))
-        {
-          //HERE()
-        }
+        //HERE()
 				//raise(SIGTRAP);
-				dbg->prev_bc = cur_bc;
+				dbg->dbg_threads[thread_id].prev_bc = cur_bc;
 				if (show_bc)
 				{
-					dbg->break_type = DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC;
+					dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC;
 				}
 				else
 				{
 					stmnt_dbg* next_st = cur_st + 1;
-					dbg->prev_st = cur_st;
+					dbg->dbg_threads[thread_id].prev_st = cur_st;
 					byte_code2* out;
-          printf("step cur func %s, next stat line %d\n", dbg->cur_func->name.c_str(), next_st->line);
-					if (next_st < dbg->cur_func->wasm_stmnts.end())
+          //printf("step cur func %s, next stat line %d\n", dbg->dbg_threads[thread_id].cur_func->name.c_str(), next_st->line);
+					if (next_st < dbg->dbg_threads[thread_id].cur_func->wasm_stmnts.end())
 					{
-						dbg->break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
+						dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
 					}
 					else
 					{
-						dbg->break_type = DBG_BREAK_ON_DIFF_STAT;
+						dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT;
 					}
 				}
-				dbg->next_stat_break_func = dbg->cur_func;
-				dbg->same_func_stack_ptr = *(int*) & dbg->mem_buffer[PRE_X64_RSP_REG * 8];
-				release_inst = true;
+				dbg->dbg_threads[thread_id].next_stat_break_func = dbg->dbg_threads[thread_id].cur_func;
+				dbg->dbg_threads[thread_id].same_func_stack_ptr = *(int*) GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
+
+        //ExitDebugMode(dbg);
+				//cur_scp = nullptr;
+        release_inst = true;
 			}
 
 			if (release_inst)
 			{
-        //ExitDebugMode(dbg);
+        ExitDebugMode(dbg);
+        //BroadcastMutexBase(dbg->dbg_mutex);
 				if (bp)
 				{
 					cur_bc->type = bp->prev_inst;
@@ -10608,12 +10661,13 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 					(*rip_ptr)++;
 					//cur_bc++;
 				}
-				//dbg->cur_func = nullptr;
+				//dbg->dbg_threads[thread_id].cur_func = nullptr;
 
 				cur_scp = nullptr;
 				dbg->return_stack_bc2_func.clear();
 				if(!show_bc)
 					center_inst = true;
+        dbg->thread = nullptr;
 			}
 
 
@@ -10629,6 +10683,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			//auto a = 0;
 			//ir_rep *ir = GetIrBasedOnOffset(dbg, offset);
       UnlockMutexBase(dbg->dbg_mutex);
+      //printf("exiting debug mode, time %.4f\n", glfwGetTime());
 		}
 		else
 		{
@@ -10680,11 +10735,11 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 
 
 	dbg.cur_bc = &bc;
-	dbg.cur_func = cur_func;
+	dbg.dbg_threads[0].cur_func = cur_func;
 	dbg.mem_buffer = (char *)mem_buffer;
 	dbg.wasm_state = winterp;
 
-	int first_start_offset = dbg.cur_func->wasm_stmnts[0].start;
+	int first_start_offset = dbg.dbg_threads[0].cur_func->wasm_stmnts[0].start;
 	//bcs[first_start_offset].one_time_dbg_brk = true;
 	
 	// WASM BYTECODE
@@ -10692,7 +10747,8 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	bool can_break = false;
 	bool can_execute = true;
 	dbg.can_execute = &can_execute;
-	dbg.break_type = DBG_BREAK_ON_NEXT_STAT;
+	dbg.dbg_threads[0].break_type = DBG_BREAK_ON_NEXT_STAT;
+	dbg.dbg_threads[1].break_type = DBG_BREAK_ON_NEXT_STAT;
 
 	own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &cur_func->ir;
 	//ir_rep* cur_ir = ir_ar->begin();
@@ -10761,58 +10817,21 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 	func_stack.clear();
 	return;
+  int thread_id = 0;
 	while(!can_break)
 	{
+    /*
 		int bc_idx = (long long)(bc - &bcs[0]);
 		
 		wasm_stack_val val = {};
 		if(dbg.break_type == DBG_BREAK_ON_DIFF_STAT || dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC)
-			cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
+			cur_st = GetStmntBasedOnOffset(&dbg.dbg_threads[thread_id].cur_func->wasm_stmnts, bc_idx);
 		//cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
 		bool found_stat = cur_st && dbg.cur_st;
 		bool is_different_stmnt =  found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT && cur_st->line != dbg.cur_st->line;
-		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.next_stat_break_func == dbg.cur_func;
+		bool is_different_stmnt_same_func = found_stat && dbg.break_type == DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC && cur_st->line != dbg.cur_st->line && dbg.dbg_threads[thread_id].next_stat_break_func == dbg.cur_func;
 
-		/*
-		if ( dbg.break_type == DBG_BREAK_ON_NEXT_BC || is_different_stmnt || is_different_stmnt_same_func || bc->dbg_brk || bc->one_time_dbg_brk)
-		{
-			if (!cur_st)
-				cur_st = &dbg.cur_func->wasm_stmnts[0];
-			dbg.cur_st = cur_st;
-			dbg.cur_ir = cur_ir;
-			WasmOnArgs(&dbg);
-			if (dbg.some_bc_modified)
-			{
-				dbg.some_bc_modified = false;
-				continue;
-			}
-			if (bc->type == WASM_INST_DBG_BREAK)
-			{
-				bc++;
-				continue;
-			}
-			bc->one_time_dbg_brk = false;
-		}
-		*/
-		//bool res = WasmBcLogic(winterp, dbg, &bc, mem_buffer, &cur, can_break);
 
-		/*
-		if (!dbg.lang_stat->is_engine)
-		{
-			CheckPipeAndGetString(std_in, from_engine_str);
-
-			if (from_engine_str.size() > 0)
-			{
-				Write(std_out, (char *)from_engine_str.data(), from_engine_str.size());
-				FlushFileBuffers(std_out);
-			}
-
-		}
-		else
-		{
-			GetMsgFromGame(dbg.data);
-		}
-		*/
 
 
 		if((!bc->dbg_brk || bc->dont_dbg_brk) && !bc->one_time_dbg_brk && can_execute && !is_different_stmnt_same_func)
@@ -10832,7 +10851,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 		//IrLogic(dbg_state* dbg, ir_rep* ir)
 		if(is_different_stmnt_same_func || !can_execute|| bc->type == WASM_INST_DBG_BREAK || 
 			(bc->dbg_brk && !bc->dont_dbg_brk && !got_executed_because_its_from_engine_so_no_need_brk_again)|| 
-			bc->one_time_dbg_brk || dbg.break_type == DBG_BREAK_ON_NEXT_BC && dbg.cur_func == dbg.next_stat_break_func && !bc->dont_dbg_brk)
+			bc->one_time_dbg_brk || dbg.break_type == DBG_BREAK_ON_NEXT_BC && dbg.cur_func == dbg.dbg_threads[thread_id].next_stat_break_func && !bc->dont_dbg_brk)
 		{
 			//bc->dbg_brk = true;
 			can_execute = false;
@@ -10842,7 +10861,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				cur_st = GetStmntBasedOnOffset(&dbg.cur_func->wasm_stmnts, bc_idx);
 				if (cur_st)
 				{
-					cur_ir = GetIrBasedOnOffset(&dbg, bc_idx);
+					cur_ir = GetIrBasedOnOffset(&dbg, bc_idx, dbg.dbg_threads[0].cur_func);
 					cur_scp = FindScpWithLine(dbg.cur_func, cur_st->line);
 					auto a = 0;
 					dbg.cur_st = cur_st;
@@ -10891,7 +10910,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 					{
 						for (int i = 0; i < wasm_bcs_to_show; i++)
 						{
-							cur_ir = GetIrBasedOnOffset(&dbg, aux_bc->start_code, cur_st->start_ir, cur_st->end_ir);
+							cur_ir = GetIrBasedOnOffset(&dbg, aux_bc->start_code, cur_st->start_ir, cur_st->end_ir, dbg.dbg_threads[0].cur_func);
 							if (cur_ir)
 							{
 								//ImGui::Text("%s", WasmIrToString(&dbg, cur_ir).c_str());
@@ -11080,10 +11099,10 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 				}
 				else
 				{
-					WasmBreakOnNextStmnt(&dbg, &dummy_bool);
+					WasmBreakOnNextStmnt(&dbg, &dummy_bool, dbg.dbg_threads[thread_id].cur_func);
 					//dbg.break_type = DBG_BREAK_ON_DIFF_STAT;
 				}
-				dbg.next_stat_break_func = dbg.cur_func;
+				dbg.dbg_threads[thread_id].next_stat_break_func = dbg.cur_func;
 
 				bool was_brk = bc->dbg_brk;
 				//bc->dbg_brk = false;
@@ -11144,6 +11163,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 			}
 		}
 
+    */
 	}
 	EndTimer(&tm);
 	time = GetTimerMSFloat(&tm);
@@ -12407,28 +12427,29 @@ void WasmIrInterp(dbg_state* dbg, GLFWwindow *window, func_decl *start)
 
 	while (dbg->func_stack.size() > 0)
 	{
-		//dbg->cur_st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts,ir->idx);
-		if(cur_func != dbg->cur_func)
+		//dbg->dbg_threads[thread_id].cur_st = GetStmntBasedOnOffsetIr(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts,ir->idx);
+		if(cur_func != dbg->dbg_threads[0].cur_func)
 		{
-			ir_ar = (own_std::vector<ir_rep>*) & dbg->cur_func->ir;
+			ir_ar = (own_std::vector<ir_rep>*) & dbg->dbg_threads[0].cur_func->ir;
 			start_ir = ir_ar->begin();
-			cur_func = dbg->cur_func;
+			cur_func = dbg->dbg_threads[0].cur_func;
 		}
-		if (dbg->break_type == DBG_BREAK_ON_DIFF_IR && dbg->prev_break_ir != ir && IsExecutableIr(ir))
+		if (dbg->dbg_threads[0].break_type == DBG_BREAK_ON_DIFF_IR && dbg->prev_break_ir != ir && IsExecutableIr(ir))
 			ir->one_dbg_break = true;
-		if (dbg->break_type == DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC && dbg->cur_func == dbg->next_stat_break_func && dbg->prev_break_ir != ir && IsExecutableIr(ir))
+
+		if (dbg->dbg_threads[0].break_type == DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC && dbg->dbg_threads[0].cur_func == dbg->dbg_threads[0].next_stat_break_func && dbg->prev_break_ir != ir && IsExecutableIr(ir))
 			ir->one_dbg_break = true;
 		/*
 		if (ir->type == IR_DBG_BREAK || ir->dbg_break || ir->one_dbg_break)
 		{
 			if (!cur_scp)
 			{
-				cur_st = GetStmntBasedOnOffsetIr(&dbg->cur_func->wasm_stmnts,ir->idx);
+				cur_st = GetStmntBasedOnOffsetIr(&dbg->dbg_threads[thread_id].cur_func->wasm_stmnts,ir->idx);
 				if (cur_st)
 				{
-					cur_scp = FindScpWithLine(dbg->cur_func, cur_st->line);
+					cur_scp = FindScpWithLine(dbg->dbg_threads[thread_id].cur_func, cur_st->line);
 					auto a = 0;
-					dbg->cur_st = cur_st;
+					dbg->dbg_threads[thread_id].cur_st = cur_st;
 				}
 			}
 
@@ -12474,9 +12495,9 @@ void WasmIrInterp(dbg_state* dbg, GLFWwindow *window, func_decl *start)
 					if ((new_stat || first_stat) && aux_cur_st->line != 0)
 					{
 						if(first_stat)
-							ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->cur_func->from_file));
+							ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->dbg_threads[thread_id].cur_func->from_file));
 						else
-							ImGui::Text("%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->cur_func->from_file));
+							ImGui::Text("%d: %s", aux_cur_st->line, GetFileLn(dbg->lang_stat, aux_cur_st->line - 1, dbg->dbg_threads[thread_id].cur_func->from_file));
 						first_stat = false;
 					}
 					if (show_ir)
@@ -12501,8 +12522,8 @@ void WasmIrInterp(dbg_state* dbg, GLFWwindow *window, func_decl *start)
 				{
 					cur_scp = nullptr;
 					dbg->prev_break_ir = ir;
-					dbg->break_type = DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC;
-					dbg->next_stat_break_func = dbg->cur_func;
+					dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC;
+					dbg->dbg_threads[thread_id].next_stat_break_func = dbg->dbg_threads[thread_id].cur_func;
 					if (!ir->one_dbg_break && !ir->dbg_break)
 					{
 						ir++;
@@ -15030,7 +15051,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	int total_args = 0;
 	int cur_line = 0;
 	int start = ret.size();
-	lang_stat->dstate->cur_func = gen_state->cur_func;
+	lang_stat->dstate->dbg_threads[0].cur_func = gen_state->cur_func;
 	lang_stat->cur_func = gen_state->cur_func;
 	ret.emplace_back(byte_code(byte_code_enum::BEGIN_FUNC_FOR_INTERPRETER, gen_state->cur_func));
 
@@ -17126,7 +17147,7 @@ int ExecuteString(code_info *info, own_std::string str, int param)
 		auto ir = (own_std::vector<ir_rep>*) &fdecl->ir;
 
 		info->lang_stat->dstate->print_numbers_format = dbg_print_numbers_format::DBG_PRINT_HEX;
-		info->lang_stat->dstate->cur_func = fdecl;
+		info->lang_stat->dstate->dbg_threads[0].cur_func = fdecl;
 		own_std::string all;
 		for (int i = 0; i < ir->size(); i++)
 		{
@@ -17134,7 +17155,7 @@ int ExecuteString(code_info *info, own_std::string str, int param)
 			ir_rep* ir_cur = ir->data() + i;
 			ir_cur->idx = info->lang_stat->cur_idx;
 			own_std::string ir_str;
-			WasmIrToString(info->lang_stat->dstate, ir_cur, ir_str);
+			WasmIrToString(0, info->lang_stat->dstate, ir_cur, ir_str);
 			if (ir_str.size() != 0)
 			{
 				snprintf(buffer, 512, "\t%d: %s", ir_cur->idx, ir_str.c_str());

@@ -7213,6 +7213,7 @@ generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk
     {
       for x in 0..CHUNK_SIZE
       {
+        printf("loops\n")
         if y > 3
         {
           dyn_add(&out.blocks, cast(u16)block_type.AIR)
@@ -8764,7 +8765,7 @@ chunk_thread_info:struct
 }
 chunk_thread_worker::fn(thread_id : u32, data : *void)
 {
-  printf("worker began\n")
+  printf("worker began interpreter\n")
   work := cast(*chunk_thread_info)data
   while true
   {
@@ -8777,8 +8778,8 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
     }
     printf("has work will unlocked\n")
     UnlockMutex(globals.worker_mutex)
-    printf("unlocked!!\n")
     __dbg_break
+    printf("unlocked!!\n")
     on work.type
     {
     chunk_thread_work_type.CREATE_CHUNK
@@ -8788,7 +8789,9 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
       z := work.CREATE_CHUNK.z
       chunk_idx := get_new_chunk(work.trn, x, y, z)
       chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
+      printf("generating terrain\n")
       generate_terrain_chunk(x, y, z, chunk_info)
+      printf("terrain generated\n")
     }
     chunk_thread_work_type.UPDATE_CHUNK
     {
@@ -8809,7 +8812,6 @@ init_terrain2::fn(trn : *terrain2, max_chunks : u32, alloc : *mem_alloc)
 }
 main_loop::fn(ctx : *context)
 {
-  globals.worker_mutex = CreateMutex()
 	MODELS_DIR:= "../models/"
 
   ctx.buffer_for_creating_faces = cast(*u32)heap_alloc(ctx.alloc, FACES_BUFFER_MAX_SIZE * 4)
@@ -11222,6 +11224,7 @@ find_bone::fn(name : str_lit, b : *bone_animation) ! *bone_animation
 }
 
 main:: fn(){
+  globals.worker_mutex = CreateMutex()
 	q := euler_to_quaternion(-8.103, 0.0, 8.103)
 	q_aux2 :_vec
 	euler_to_quaternion2(-8.103, 0.0, 8.103, &q_aux2)

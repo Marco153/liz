@@ -1,6 +1,7 @@
 // #define USE_TEXT_EDITOR
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
 #include <assimp/material.h>
+#include <thread>
 #define RAD_TO_DEG 57.29577
 #define DEG_TO_RAD (3.14159265f / 180.0f)
 #define LINUX
@@ -2386,7 +2387,7 @@ void ImGuiEnumCombo(int thread_id, dbg_state *dbg) {
   int var_addr_offset = *(int *)&dbg->mem_buffer[base_ptr + 24];
   int *var_addr = (int *)&dbg->mem_buffer[var_addr_offset];
 
-  scope *scp = FindScpWithLine(dbg->cur_func, line);
+  scope *scp = FindScpWithLine(dbg->dbg_threads[thread_id].cur_func, line);
   type2 dummy;
   own_std::string str(name);
   decl2 *e = FindIdentifier(str, scp, &dummy);
@@ -3818,7 +3819,7 @@ void PrintCallBasedOnBc(dbg_state *dbg, byte_code2 *bc) {
   fflush(stdout);
 }
 void PrintCallStack(int thread_id, dbg_state *dbg) {
-  FOR_VEC(bc, dbg->return_stack_bc2) { PrintCallBasedOnBc(dbg, **bc); }
+  FOR_VEC(bc, dbg->dbg_threads[thread_id].return_stack_bc2) { PrintCallBasedOnBc(dbg, **bc); }
   PrintCallBasedOnBc(dbg, *dbg->cur_bc2);
 }
 /*
@@ -4720,7 +4721,7 @@ void ReadFileInterp(int thread_id, dbg_state *dbg) {
   char *buffer_ptr = (char *)&dbg->mem_buffer[buffer_offset];
 
   u32 size;
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   work_dir = work_dir + name;
   char *file = ReadEntireFileLang((char *)work_dir.c_str(), &size);
   memcpy(buffer_ptr, file, size);
@@ -4730,7 +4731,19 @@ void GetFileSize(int thread_id, dbg_state *dbg) {
   int name_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   char *name = (char *)&dbg->mem_buffer[name_offset];
 
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  func_decl *cur_func = dbg->dbg_threads[thread_id].cur_func;
+  if(cur_func == nullptr)
+  {
+    cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+    dbg->dbg_threads[thread_id].cur_func = cur_func;
+    if(!cur_func)
+    {
+      *(s64 *)GetRegValPtr(thread_id, dbg, RET_1_REG) = -1;
+      printf("no func for getting file size, exiting, threadid %d\n", thread_id);
+      return;
+    }
+  }
+  own_std::string work_dir = cur_func->from_file->path;
   work_dir = work_dir + name;
 #ifdef LINUX
   struct stat st;
@@ -4780,7 +4793,7 @@ void LoadSceneFolder(int thread_id, dbg_state *dbg) {
   auto ar = (own_std::vector<int> *)&dbg->mem_buffer[ar_offset];
 
   // new(&dbg->scene_folder)own_std::string(folder_name);
-  dbg->scene_folder = dbg->cur_func->from_file->path + folder_name;
+  dbg->scene_folder = dbg->dbg_threads[thread_id].cur_func->from_file->path + folder_name;
   // dbg->scene_folder = (const char *)folder_name;
   // MaybeAddBarToEndOfStr(&dbg->scene_folder);
 
@@ -5930,10 +5943,10 @@ void LoadModelFolder(int thread_id, dbg_state *dbg) {
 
   auto gl_state = (open_gl_state *)dbg->data;
   gl_state->texture_folder = folder_name;
-  if (!dbg->cur_func) {
-    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  if (!dbg->dbg_threads[thread_id].cur_func) {
+    dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
   }
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   // MaybeAddBarToEndOfStr(&work_dir);
 
   gl_state->model_folder = work_dir + gl_state->model_folder;
@@ -5952,10 +5965,10 @@ void LoadTexFolder(int thread_id, dbg_state *dbg) {
 
   auto gl_state = (open_gl_state *)dbg->data;
   gl_state->texture_folder = folder_name;
-  if (!dbg->cur_func) {
-    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  if (!dbg->dbg_threads[thread_id].cur_func) {
+    dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
   }
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   // MaybeAddBarToEndOfStr(&work_dir);
 
   gl_state->texture_folder = work_dir + gl_state->texture_folder;
@@ -6236,10 +6249,10 @@ void AssignSoundFolder(int thread_id, dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
 
   own_std::string sound_folder;
-  if (!dbg->cur_func) {
-    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  if (!dbg->dbg_threads[thread_id].cur_func) {
+    dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
   }
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   // MaybeAddBarToEndOfStr(&work_dir);
   sound_folder = work_dir + name_str;
   MaybeAddBarToEndOfStr(&sound_folder);
@@ -6270,10 +6283,10 @@ void AssignModelFolder(int thread_id, dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
 
   gl_state->model_folder = name_str;
-  if (!dbg->cur_func) {
-    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  if (!dbg->dbg_threads[thread_id].cur_func) {
+    dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
   }
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   // MaybeAddBarToEndOfStr(&work_dir);
 
   gl_state->model_folder = work_dir + gl_state->model_folder;
@@ -6297,10 +6310,10 @@ void FileChangeTime(int thread_id, dbg_state *dbg) {
 
   char *name_ptr = (char *)&dbg->mem_buffer[name];
 
-  if (!dbg->cur_func) {
-    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  if (!dbg->dbg_threads[thread_id].cur_func) {
+    dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
   }
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   // MaybeAddBarToEndOfStr(&work_dir);
 
   auto final_name = work_dir + name_ptr;
@@ -6373,10 +6386,10 @@ void HandleForGettingFilesInDir(int thread_id, dbg_state *dbg) {
       dbg->lang_stat, sizeof(handle_info::dir_files));
   h->type = handle_enum::FILES_DIR;
 
-  if (!dbg->cur_func) {
-    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  if (!dbg->dbg_threads[thread_id].cur_func) {
+    dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
   }
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   h->dir->path = work_dir + name_str;
   MaybeAddBarToEndOfStr(&h->dir->path);
   GetFilesInDirectory((char *)h->dir->path.c_str(), nullptr, &h->dir->files);
@@ -6443,10 +6456,10 @@ void OpenFile(int thread_id, dbg_state *dbg) {
   handle_info *hfile = &dbg->handles[idx];
   hfile->type = handle_enum::FILE;
 
-  if (!dbg->cur_func) {
-    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  if (!dbg->dbg_threads[thread_id].cur_func) {
+    dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
   }
-  own_std::string work_dir = dbg->cur_func->from_file->path + name;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path + name;
   FILE *file = fopen(work_dir.c_str(), "wb");
   if (!file) {
     printf("Failed to open %s ", name);
@@ -6465,10 +6478,10 @@ void AssignTexFolder(int thread_id, dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
 
   gl_state->texture_folder = name_str;
-  if (!dbg->cur_func) {
-    dbg->cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+  if (!dbg->dbg_threads[thread_id].cur_func) {
+    dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
   }
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   // MaybeAddBarToEndOfStr(&work_dir);
 
   gl_state->texture_folder = work_dir + gl_state->texture_folder;
@@ -9012,7 +9025,7 @@ void WriteFileInterpreter(int thread_id, dbg_state *dbg) {
   auto name_ptr = (char *)&dbg->mem_buffer[name_offset];
   auto buffer_ptr = (char *)&dbg->mem_buffer[buffer_offset];
 
-  own_std::string work_dir = dbg->cur_func->from_file->path;
+  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
   // MaybeAddBarToEndOfStr(&work_dir);
 
   work_dir = work_dir + name_ptr;

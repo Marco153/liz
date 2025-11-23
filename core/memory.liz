@@ -31,6 +31,7 @@ mem_alloc : struct
     probable_unallocated : **mem_chunk,
 	chunks_cap :u32,
 	hash_table_size : u32,
+  mutex : u32
 }
 
 BYTES_PER_CHUNK : const s32= 8;
@@ -158,6 +159,7 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 {
 	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
+  /*
 	if (sz % 16) == 0
 	{
 		total := sz / 16
@@ -181,12 +183,13 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 	}
 	else
 	{
+    */
 		while i < sz
 		{
 			*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
 			i++;
 		}
-	}
+	//}
 }
 MEM_TYPE: const s32 = 0;
 
@@ -535,8 +538,9 @@ heap_free::fn(alloc : *mem_alloc, ptr : *void)
 }
 heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 {
-	//return (char *)malloc(size);
-    cur:*mem_chunk= alloc.head_free;
+  LockMutex(alloc.mutex)
+
+  cur:*mem_chunk= alloc.head_free;
 	ASSERT(alloc.id == 0x1234);
 
     while cur != nil && (cur.size * BYTES_PER_CHUNK) < size
@@ -603,11 +607,13 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 	HHashStore(alloc, cur.addr, cast(*u8)cur);
 	cur.size = min_alloc_size / BYTES_PER_CHUNK;
 
+  UnlockMutex(alloc.mutex)
 	ASSERT(cur.next != cur);
     return cur.addr;
 }
 InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 {
+  alloc.mutex = globals.worker_mutex
 	alloc.id = 0x1234;
 	aux := chunks_cap / 4
 	alloc.chunks_cap = chunks_cap;

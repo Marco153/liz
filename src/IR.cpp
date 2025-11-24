@@ -3161,6 +3161,7 @@ if(e->line_number == 1467)
         stack.emplace_back(val);
       } break;
       default: {
+        //BREAK(e->line_number == 7104)
         ir_val *top = &stack[stack.size() - 1];
         ir_val *one_minus_top = &stack[stack.size() - 2];
 
@@ -3195,6 +3196,7 @@ if(e->line_number == 1467)
 
         ir.assign.to_assign.is_float = ir.assign.lhs.is_float;
         ir.assign.to_assign.is_packed_float = ir.assign.lhs.is_packed_float;
+        ir.assign.to_assign.is_unsigned = ir.assign.lhs.is_unsigned || ir.assign.rhs.is_unsigned;
 
         ASSERT(e->op != T_COND_AND && e->op != T_COND_OR);
 
@@ -3975,6 +3977,9 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
       default:
         ASSERT(0)
       }
+      //BREAK(ast->line_number == 7104)
+      ir.assign.to_assign.is_unsigned = rhs_top.is_unsigned;
+      ir.assign.to_assign.is_unsigned |= ir.assign.lhs.is_unsigned;
 
       int had_spilled_reg = -1;
       MaybeSpillRegisters(lang_stat, lhs_ast, &had_spilled_reg, out);

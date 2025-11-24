@@ -9296,9 +9296,15 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 
 
 		if(is_unsigned)
+    {
+      //printf("mod u\n");
 			DoOperationOnPtrUnsigned((char *)reg_dst_ptr, sz, *reg_src_ptr, op);
+    }
 		else
+    {
+      //printf("mod s\n");
 			DoOperationOnPtr((char *)reg_dst_ptr, sz, *reg_src_ptr, op);
+    }
 	}break;
 	case POP_R:
 	{
@@ -10081,7 +10087,7 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
 		if((*rip_ptr)->type == INT3)
 		{
       LockMutexBase(dbg->dbg_mutex);
-      printf("worker is in __dbg_break c++, time %.4f(), mode %d\n", (float)glfwGetTime(), (int)dbg->dbg_threads[thread_id].in_debug_mode);
+      //printf("worker is in __dbg_break c++, time %.4f(), mode %d\n", (float)glfwGetTime(), (int)dbg->dbg_threads[thread_id].in_debug_mode);
 			dbg->thread = thread;
 			dbg->dbg_threads[thread_id].cur_func = nullptr;
 			dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
@@ -10092,10 +10098,10 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
       LockMutexBase(dbg->dbg_mutex);
       while(dbg->dbg_threads[thread_id].in_debug_mode)
       {
-        printf("worker will wait, time %.4f(), mode %d\n", (float)glfwGetTime(), (int)dbg->dbg_threads[thread_id].in_debug_mode);
+        //printf("worker will wait, time %.4f(), mode %d\n", (float)glfwGetTime(), (int)dbg->dbg_threads[thread_id].in_debug_mode);
         WaitMutexBase(dbg->dbg_mutex);
       }
-      printf("worker is out of __dbg_break c++ ptr %p\n", *rip_ptr);
+      //printf("worker is out of __dbg_break c++ ptr %p\n", *rip_ptr);
       UnlockMutexBase(dbg->dbg_mutex);
       //(*rip_ptr)++;
 		}
@@ -10357,6 +10363,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
         ~defer_strct()
         {
           //dbg->thread = nullptr;
+          ExitDebugMode(dbg);
           UnlockMutexBase(dbg->dbg_mutex);
         }
       };

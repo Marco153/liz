@@ -708,6 +708,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
                           ret->call.args.begin() + var_arg_start_idx);
 
       // rel_array
+      // filling rel_array variambles, ptr to args, and total of varags
       ast_rep *offset_to_var_args = NewAst();
       offset_to_var_args->type = AST_INT;
       // 16 is the size of rel_array struct
@@ -719,19 +720,33 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
       total_var_args_ast->type = AST_INT;
       total_var_args_ast->num = total_var_args;
       var_arg_info.emplace_back(total_var_args_ast);
+      //---------
 
       ast_rep *zero = NewAst();
       zero->type = AST_INT;
       zero->num = 0;
 
       for (int i = var_arg_start_idx; i < ret->call.args.size(); i++) {
+        // now filling data for this struct
+        /*
+        var_arg:struct
+        {
+          type : type_enum,
+          type_info : *type_data,
+          ptr : u8,
+          val : *void,
+        }
+        */
         ast_rep *cur_arg = ret->call.args[i];
 
+        //***** type : type_enum
         ast_rep *type_int = NewAst();
         type_int->type = AST_INT;
         type_int->num = cur_arg->lhs_tp.type;
         var_arg_info.emplace_back(type_int);
+        //***
 
+        //***** type_info : *type_data
         if (cur_arg->lhs_tp.type == TYPE_STRUCT) {
           type_int = NewAst();
           type_int->type = AST_INT;
@@ -740,15 +755,19 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
           var_arg_info.emplace_back(type_int);
         } else
           var_arg_info.emplace_back(zero);
+        //*****
 
+        //***** ptr : u8
         ast_rep *ptr = NewAst();
         ptr->type = AST_INT;
         ptr->num = cur_arg->lhs_tp.ptr;
         var_arg_info.emplace_back(ptr);
+        //***** 
 
         // casting to the highest type so that we zero the
         // rest of the register when generating the code
 
+        //***** val : *void
         ast_rep *arg = cur_arg;
         if (cur_arg->lhs_tp.type == TYPE_STRUCT) {
           ast_rep *ref = NewAst();
@@ -1947,6 +1966,10 @@ void GenIrToArgReg(lang_state *lang_stat, own_std::vector<ir_val> &stack,
       IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_DEREF)) {
     // top->deref--;
   }
+  if (top->type == IR_TYPE_REG && top->deref == -1 && top->ptr > 0)
+  {
+    top->deref++;
+  }
   ir.assign.lhs = *top;
 
   ir.assign.lhs.reg_sz = 8;
@@ -2113,6 +2136,7 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
           max(cur_biggest, e->call.args.size());
 
       int more_stack_vals = stack.size() - e->call.args.size();
+      //BREAK(e->line_number == 8839)
       if (more_stack_vals > 0) {
         // spilling
         ir_val *to_spill = stack.begin();
@@ -2141,6 +2165,8 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
             }
                     */
             ir.assign.lhs = *to_spill;
+            to_spill->reg_ex &= 0xff;
+            to_spill->ptr = 0;
             // ir.assign.lhs.deref = -1;
             if (to_spill->deref >= 0) {
               to_spill->deref = -1;
@@ -2648,6 +2674,7 @@ if(e->line_number == 1467)
           e->cast.type.type == TYPE_S64 || e->cast.type.type == TYPE_U64;
 
       // HERE();
+      //BREAK(e->line_number == 1669)
 
       if (is_int && top->is_float == true && top->ptr == 0) {
         ir = {};
@@ -2715,20 +2742,31 @@ if(e->line_number == 1467)
         out->emplace_back(ir);
 
       } else if (top->ptr > 0 && e->cast.type.ptr > 0 && top->deref >= 0) {
-        ir = {};
-        ir.type = IR_ASSIGNMENT;
-        ir.assign.to_assign.type = IR_TYPE_REG;
-        ir.assign.to_assign.reg = AllocReg(lang_stat);
-        ir.assign.to_assign.deref = -1;
-        ir.assign.to_assign.reg_sz = 8;
-        ir.assign.only_lhs = true;
-        ir.assign.lhs = *top;
-        ir.assign.lhs.is_float = false;
-        ir.assign.lhs.is_packed_float = false;
-        // ir.assign.lhs.deref = 0;
+        if(e->cast.type.ptr == top->ptr && top->type == IR_TYPE_REG && IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT))
+        {
+          //top->ptr = e->cast.type.ptr;
+          top->deref = -1;
+          //top->is_float = false;
+          //top->is_packed_float = false;
+        }
+        else
+        {
+          ir = {};
+          ir.type = IR_ASSIGNMENT;
+          ir.assign.to_assign.type = IR_TYPE_REG;
+          ir.assign.to_assign.reg = AllocReg(lang_stat);
+          ir.assign.to_assign.deref = -1;
+          ir.assign.to_assign.reg_sz = 8;
+          ir.assign.only_lhs = true;
+          ir.assign.lhs = *top;
+          ir.assign.lhs.is_float = false;
+          ir.assign.lhs.is_packed_float = false;
+          // ir.assign.lhs.deref = 0;
 
-        out->emplace_back(ir);
-        *top = ir.assign.to_assign;
+          out->emplace_back(ir);
+          *top = ir.assign.to_assign;
+
+        }
       } else if (top->ptr > 0 && e->cast.type.ptr == 0) {
         ir = {};
         ir.type = IR_ASSIGNMENT;
@@ -2746,7 +2784,7 @@ if(e->line_number == 1467)
         *top = ir.assign.to_assign;
       }
       if (top->type == IR_TYPE_REG &&
-          IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT)) {
+          IS_FLAG_ON(top->reg_ex, IR_VAL_FROM_POINT) && top->ptr != e->cast.type.ptr) {
 
         if (top->reg_sz > GetTypeSize(&e->cast.type) && !top->is_float &&
             !e->cast.type.IsFloat()) {
@@ -3229,6 +3267,10 @@ if(e->line_number == 1467)
       ASSERT(0);
     }
     *top_info = stack.back();
+  }
+  if(top_info->deref == -1 && top_info->type == IR_TYPE_REG && top_info->ptr > 0 && IS_FLAG_ON(top_info->reg_ex, IR_VAL_FROM_POINT))
+  {
+    top_info->deref++;
   }
 }
 

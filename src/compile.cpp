@@ -3021,6 +3021,7 @@ struct dbg_state
 	void* data;
 };
 u64* GetRegValPtr(int thread_id, dbg_state* dbg, short reg);
+u64 *GetFloatRegValPtr(int thread_id, dbg_state *dbg, short reg);
 
 int GetFreeHandle(dbg_state *dbg)
 {
@@ -5165,7 +5166,7 @@ void WasmCallX64(int thread_id, wasm_interp* winterp, dbg_state& dbg, unsigned c
 			}
 			else if (call_f->ret_type.type == TYPE_VECTOR)
 			{
-				_mm_store_ps((float*)&dbg.mem_buffer[FLOAT_REG_0 * FLOAT_REG_SIZE_BYTES], vec_ret);
+				_mm_store_ps((float *)GetFloatRegValPtr(thread_id, &dbg, FLOAT_REG_0), vec_ret);
 			}
 			*(long long *)GetRegValPtr(thread_id, &dbg, RET_1_REG) = (long long) final_val;
 
@@ -5867,6 +5868,18 @@ void ShowMemWindow(int thread_id, dbg_state &dbg, char *mem_wnd_items[], int &me
 			addr_name += "(base_stack)";
 		else if (cur_addr == (stack_reg))
 			addr_name += "(top_stack)";
+
+		ImGui::Text("%s: %s", addr_name.c_str(), mem_val.c_str());
+	}
+
+	ImGui::Text("memory: ");
+	for (int r = 0; r <= (BASE_STACK_PTR_REG + 7); r++)
+	{
+		mem_val = GetMemAddrString(dbg, mem_wnd_offset + r * 8, type_sz, 8, mem_wnd_show_type);
+
+		own_std::string addr_name = WasmNumToString(&dbg, mem_wnd_offset + r * 8);
+
+		int cur_addr = mem_wnd_offset + r;
 
 		ImGui::Text("%s: %s", addr_name.c_str(), mem_val.c_str());
 	}
@@ -9153,7 +9166,7 @@ void MakeCurBcToBeBreakpoint(dbg_state* dbg, byte_code2* bc, int line, bool one_
 #pragma optimize("", off)
 void Bc2CallX64(int thread_id, dbg_state* dbg, byte_code2** ptr, func_decl *call_f)
 {
-	auto stack_reg = (u64 *)&dbg->mem_buffer[PRE_X64_RSP_REG * 8];
+	auto stack_reg = (u64 *)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 	*stack_reg -= 8;
 	WasmCallX64(thread_id, dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_reg);
 	*stack_reg += 8;
@@ -10049,12 +10062,14 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
     CheckDbgStmnt(dbg, thread_id, &dbg->dbg_threads[thread_id].cur_st, cur_bc, offset);
 
 		Bc2Logic(thread_id, dbg, rip_ptr, &inc_ptr, &valid, 0);
+    /*
     func_decl *cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
     stmnt_dbg *cur_st;
     if (cur_func)
     {
       cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
     }
+    */
 		if (inc_ptr)
 		{
 			(*rip_ptr)++;

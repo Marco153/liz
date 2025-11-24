@@ -1244,7 +1244,7 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 				*ptr_offset(aux_num_buffer[0], num_ln, u8) = '.
 				num_ln2: = num_2_str(cast(s64)rhs, aux_num_buffer[num_ln + 1], 16);
 
-				memcpy(ptr_offset(buffer, buffer_idx, u8), aux_num_buffer, num_ln + num_ln2 + 1);
+				memcpy(ptr_offset(buffer, buffer_idx, u8), aux_num_buffer[0], num_ln + num_ln2 + 1);
 				buffer_idx += num_ln + num_ln2 + 1;
 
 

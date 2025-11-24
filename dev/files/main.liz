@@ -7214,7 +7214,7 @@ generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk
     {
       for x in 0..CHUNK_SIZE
       {
-        printf("loops\n")
+        printf("h {6}\n")
         if y > 3
         {
           dyn_add(&out.blocks, cast(u16)block_type.AIR)
@@ -9362,7 +9362,6 @@ main_loop::fn(ctx : *context)
   thread_func_info.CREATE_CHUNK.y = 0
   thread_func_info.CREATE_CHUNK.z = 0
 
-  __dbg_break
   //get_new_chunk(trn_ent.trn, 0, 0, 0)
   thread_id := CreateThread(chunk_thread_worker, &thread_func_info)
 

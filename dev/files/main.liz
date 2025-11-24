@@ -7207,14 +7207,12 @@ update_terrain_chunk::fn(ctx : *context, thread_id : u32, out : *terrain_chunk_i
 }
 generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk_info)
 {
-  __dbg_break
   for y in 0..CHUNK_SIZE
   {
     for z in 0..CHUNK_SIZE
     {
       for x in 0..CHUNK_SIZE
       {
-        printf("h {6}\n")
         if y > 3
         {
           dyn_add(&out.blocks, cast(u16)block_type.AIR)
@@ -7225,6 +7223,7 @@ generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk
         }
       }
     }
+    printf("h {y}\n")
   }
   __dbg_break
 

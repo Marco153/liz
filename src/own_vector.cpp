@@ -894,7 +894,7 @@ namespace own_std
 		heap_hash table;
 		hash_map ()
 		{
-			table.hash_table_size = 64;
+			table.hash_table_size = 128;
 			table.data = (heap_hash::inner *)__lang_globals.alloc(__lang_globals.data, table.hash_table_size * sizeof(heap_hash::inner));
 		}
 		hash_map (int size)

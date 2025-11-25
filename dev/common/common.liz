@@ -2201,6 +2201,8 @@ ImGuiSetKeyboardFocusHere::fn outsider(u32);
 HideCursor::fn outsider(bool);
 IsMouseOnGameWindow::fn outsider()!bool;
 
+Rdtsc::fn outsider()!u64;
+
 GetMouseVelX::fn outsider() ! f32;
 GetMouseVelY::fn outsider() ! f32;
 GetMouseScreenPosX::fn outsider() ! f32;

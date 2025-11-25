@@ -5290,6 +5290,9 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	final_pos :_vec= get_keyframe_pos(b, time, cl)
 	final_rot :_vec= get_keyframe_rot(b, time, cl)
 	final_scale :_vec= get_keyframe_scale(b, time, cl)
+	//final_pos :_vec
+	//final_rot :_vec
+	//final_scale :_ver
 
 	if b.has_sec_clip
 	{
@@ -10055,7 +10058,7 @@ main_loop::fn(ctx : *context)
 		dt: = 0.017;
 
     dt_aux = 1.0/dt_aux
-		//printf("dt {dt_aux}, tris checkd {globals.tris_checked}\n")
+		//printf("dt {dt_aux}\n")
 
 		ctx.i_clicked = IsKeyDown(key_enum.KEY_I)
 		globals.timer = 0.0;

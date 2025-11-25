@@ -8509,6 +8509,7 @@ u64 *GetRegValPtr(int thread_id, dbg_state *dbg, short reg)
 u64 *GetMemValPtr(int thread_id, dbg_state *dbg, short reg, int offset)
 {
 	auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg);
+  /*
   if(*reg_src_ptr > dbg->mem_size)
   {
       stmnt_dbg* cur_st;
@@ -8521,6 +8522,7 @@ u64 *GetMemValPtr(int thread_id, dbg_state *dbg, short reg, int offset)
 
     HERE()
   }
+  */
 	u64 offset_ = *reg_src_ptr + offset;
 	return (u64*)&dbg->mem_buffer[offset_];
 }

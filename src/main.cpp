@@ -1,6 +1,7 @@
 // #define USE_TEXT_EDITOR
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
 #include <assimp/material.h>
+#include <time.h>
 #include <thread>
 #define RAD_TO_DEG 57.29577
 #define DEG_TO_RAD (3.14159265f / 180.0f)
@@ -1342,6 +1343,7 @@ void euler_to_quaternion2(int thread_id, dbg_state *dbg) {
 }
 void Draw3DBase(int, dbg_state *dbg, draw_info3d *draw);
 void Draw3DTransparency(int thread_id, dbg_state *dbg) {
+  return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 8 * 2];
 
@@ -1831,6 +1833,7 @@ void Draw3DBase(int thread_id, dbg_state *dbg, draw_info3d *draw) {
   glCullFace(GL_FRONT);
 }
 void Draw3D(int thread_id, dbg_state *dbg) {
+  return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 8 * 2];
 
@@ -1850,6 +1853,7 @@ void Draw3D(int thread_id, dbg_state *dbg) {
   Draw3DBase(thread_id, dbg, draw);
 }
 void Draw(int thread_id, dbg_state *dbg) {
+  return;
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int draw_addr = *(int *)&dbg->mem_buffer[base_ptr + 8 * 2];
 
@@ -9462,6 +9466,10 @@ void _CreateThread(int thread_id, dbg_state *dbg) {
   int *ret = (int *)GetRegValPtr(thread_id, dbg, RET_1_REG);
   *ret = idx;
 }
+void RDTSC(int thread_id, dbg_state *dbg) {
+  auto r = ((unsigned int)rand()) % 20000;
+  *(u64 *)GetRegValPtr(thread_id, dbg, RET_1_REG) = __rdtsc();
+}
 void Rand01(int thread_id, dbg_state *dbg) {
   auto r = ((unsigned int)rand()) % 20000;
   double f = (double)r / 20000;
@@ -9971,6 +9979,8 @@ int main(int argc, char *argv[]) {
                      (OutsiderFuncType)LockMutex);
   AssignOutsiderFunc(&lang_stat, "UnlockMutex",
                      (OutsiderFuncType)UnlockMutex);
+  AssignOutsiderFunc(&lang_stat, "Rdtsc",
+                     (OutsiderFuncType)RDTSC);
   lang_stat.cur_decl = 0;
 
   opts.wasm_dir = wasm_dir;

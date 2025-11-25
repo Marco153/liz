@@ -6727,7 +6727,7 @@ void TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2* decl_exist)
 	decl_exist->type.overload_funcs = (func_overload_strct*)AllocMiscData(lang_stat, sizeof(func_overload_strct));
 	//memset(decl_exist->type.overload_funcs, 0, sizeof(func_overload_strct));
 
-	new(&decl_exist->type.overload_funcs->cached)own_std::hash_map<node *, func_decl *>(64);
+	new(&decl_exist->type.overload_funcs->cached)own_std::hash_map<node *, func_decl *>(128);
 
 	decl_exist->type.overload_funcs->name = decl_exist->name;
 

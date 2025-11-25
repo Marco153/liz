@@ -296,7 +296,7 @@ LookAtPlayerEnts::fn(ctx : *scene_info, drw_set : *draw_settings)
 DRAW_BUFFER_MAX_COUNT:const s32= 256
 DRAW_BUFFER_MAX_SIZE:const s32= 1024 * 32
 
-get_transparents_offset_ptr ::fn(size : u32)!*void
+get_transparents_offset_ptr ::fn(size : u32)!*object_draw_info
 {
   scn := cast(*scene_draw_info)globals.scene_draw.buffer
   start := cast(*void)ptr_offset(scn, 1, scene_draw_info)
@@ -315,9 +315,12 @@ get_transparents_offset_ptr ::fn(size : u32)!*void
 
   scn.count_transparents = scn.count_transparents
 
-  return ptr_offset(start, *cur, u8)
+  ret := cast(*object_draw_info)ptr_offset(start, *cur, u8)
+  ret.flags = 0
+
+  return ret
 }
-get_opaques_offset_ptr ::fn(size : u32)!*void
+get_opaques_offset_ptr ::fn(size : u32)!*object_draw_info
 {
   scn := cast(*scene_draw_info)globals.scene_draw.buffer
   start := cast(*void)ptr_offset(scn, 1, scene_draw_info)
@@ -336,17 +339,49 @@ get_opaques_offset_ptr ::fn(size : u32)!*void
 
   scn.count_opaques = scn.count_opaques
 
-  return ptr_offset(start, *cur, u8)
+  ret := cast(*object_draw_info)ptr_offset(start, *cur, u8)
+  ret.flags = 0
+
+  return ret
 }
 fill_terrain2_draw_data::fn(ctx : *scene_info, ent : *entity)
 {
+  MODEL_SIZE_UBO :u32= 64
   trn := ent.trn
 
   for ch in trn.chunks_enabled
   {
     data:*object_draw_info
-    data = cast(*object_draw_info)get_opaques_offset_ptr(64 + sizeof(terrain_chunk_draw_info))
-    //data.pos.x = 
+    // 64 is for the model matrix, the rendrer still expects us to have a space for the model matrix there, because it will perform the matrix mul there, and update the uniform with it
+    total_size:u32= MODEL_SIZE_UBO + sizeof(terrain_chunk_draw_info)
+
+    data = cast(*object_draw_info)get_opaques_offset_ptr(total_size + 4)
+    data.pos.x = cast(f32)ch.pos_x
+    data.pos.y = cast(f32)ch.pos_y
+    data.pos.z = cast(f32)ch.pos_z
+    data.size.x = 1.0
+    data.size.y = 1.0
+    data.size.z = 1.0
+    data.rot.x = 0.0
+    data.rot.y = 0.0
+    data.rot.z = 0.0
+    data.rot.w = 1.0
+    data.textures_count = 1
+    data.flags = OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK
+    data.model_uniform_size = MODEL_SIZE_UBO
+    // this is unrealiable behaviour, but the first shader the we create is the terrain shader, so thats the zero
+    data.shader_id = 0
+
+    chunk_draw := cast(*terrain_chunk_draw_info )ptr_offset(data, MODEL_SIZE_UBO + sizeof(object_draw_info), u8)
+    chunk_draw.total_faces = ch.total_faces
+    //printf("drawing chunk: total_faces {ch.total_faces}")
+    chunk_draw.ubo = ch.ubo
+
+
+    texture_ptr := cast(*u32)ptr_offset(chunk_draw, 1, terrain_chunk_draw_info)
+    *texture_ptr = globals.terrain_tex.asset_idx
+
+    //i++
     //data.pos = e.pos
   }
 }

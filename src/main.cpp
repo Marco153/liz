@@ -4897,9 +4897,14 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
 
     auto after_model_data = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size);
     auto trn_chnk = (terrain_chunk_draw_info *)after_model_data;
+      glFrontFace(GL_CCW);  
+    int *start_tex = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size);
     if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK))
     {
-      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, trn_chnk->ubo);
+      //printf("drawing chunk, faces %d, ubo %d\n", trn_chnk->total_faces, trn_chnk->ubo);
+      glFrontFace(GL_CW);  
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, trn_chnk->ubo);
+      start_tex = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size + sizeof(terrain_chunk_draw_info));
     }
 
     build_model_matrix((float *)(cur_opaque + 1), (const Vec3 *)&cur_opaque->pos.x,
@@ -4920,7 +4925,6 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
     glBindBufferBase(GL_UNIFORM_BUFFER, 1, _sh->model_ubo_buffer);
     GL_CALL(glBufferSubData(GL_UNIFORM_BUFFER, 0, cur_opaque->model_uniform_size, cur_opaque + 1));
 
-    int *start_tex = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size);
     for(int t = 0; t < cur_opaque->textures_count;t++)
     {
       texture_info *tex = &gl_state->textures[start_tex[t]];
@@ -4960,7 +4964,7 @@ void Draw3D2(int thread_id, dbg_state *dbg) {
   float yaw = -draw->cam_rot.y * RAD_TO_DEG + -90.0;
   float pitch = draw->cam_rot.x * RAD_TO_DEG;
   float roll = draw->cam_rot.z * RAD_TO_DEG;
-  printf("x %.3f, y %.3f, z %.3f\n", draw->cam_pos.x, draw->cam_pos.y, draw->cam_pos.z);
+  //printf("x %.3f, y %.3f, z %.3f\n", draw->cam_pos.x, draw->cam_pos.y, draw->cam_pos.z);
 
   update_camera_direction(yaw, pitch, roll, &cameraFront, &cameraUp);
   Mat4 view =
@@ -6976,7 +6980,7 @@ void SetShader(int thread_id, dbg_state *dbg) {
 void enable_shader_uniform(open_gl_state *gl_state, shader_info *sh, char *name, int binding, int shaderProgram, int ubo)
 {
   unsigned int uniformBlockUBO    = glGetUniformBlockIndex(shaderProgram, name);
-  if (glGetError() != GL_NO_ERROR) {                                        
+  if (glGetError() == GL_INVALID_INDEX) {                                        
     printf("\ngl error %d, line %d\n", glGetError(), __LINE__);                
     fflush(stdout);                                                            
     ExitProcess(1);                                                          
@@ -7178,6 +7182,7 @@ void CreateFrameBuffer(dbg_state *dbg, u32 *fbo, u32 *texture, int internal_form
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 void Init3D(dbg_state *dbg) {
+    printf("GL version: %s\n", glGetString(GL_VERSION));
   auto gl_state = (open_gl_state *)dbg->data;
 
   char *empty_fs_str = "#version 330\n void main(){}";
@@ -7213,6 +7218,14 @@ void Init3D(dbg_state *dbg) {
   glAttachShader(terrainShaderProgram, chunk_terrain_fs);
   glLinkProgram(terrainShaderProgram);
   h->sh->id = terrainShaderProgram;
+  GLint linked = 0;
+  glGetProgramiv(terrainShaderProgram, GL_LINK_STATUS, &linked);
+
+  if (!linked) {
+      char log[2048];
+      glGetProgramInfoLog(terrainShaderProgram, sizeof(log), NULL, log);
+      printf("LINK ERROR:\n%s\n", log);
+  }
 
 
   terrainShaderProgram = glCreateProgram();
@@ -7220,6 +7233,7 @@ void Init3D(dbg_state *dbg) {
   glAttachShader(terrainShaderProgram, empty_fs);
   glLinkProgram(terrainShaderProgram);
   h->sh->depth_only_shader = terrainShaderProgram;
+  h->sh->model_ubo_size = 64;
 
   /*
   auto trn_ubo = (u32 *)&gl_state->terrain_chunk_shader_faces_uniform;
@@ -9307,6 +9321,22 @@ void BroadcastMutexBase(own_mutex *m) {
 #else
 #endif
 }
+void TryLockMutexBase(own_mutex *m) {
+#ifdef LINUX
+  if (pthread_mutex_trylock(&m->mutex) == 0) {
+      printf("Acquired lock!\n");
+
+      // Do your work here
+      //pthread_mutex_unlock(&lock);
+  } else {
+      if (errno == EBUSY)
+          printf("Lock is already taken!\n");
+      else
+          perror("pthread_mutex_trylock");
+  }
+#else
+#endif
+}
 void LockMutexBase(own_mutex *m) {
 #ifdef LINUX
   pthread_mutex_lock(&m->mutex);
@@ -9327,6 +9357,17 @@ void UnlockMutex(int thread_id, dbg_state *dbg) {
   ASSERT(h->type == handle_enum::MUTEX)
   UnlockMutexBase(h->mutex);
 }
+void TryLockMutex(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  int id = *(int *)&dbg->mem_buffer[base_ptr + 8];
+
+  handle_info *h = &dbg->handles[id];
+  ASSERT(h->type == handle_enum::MUTEX)
+#ifdef LINUX
+  TryLockMutexBase(h->mutex);
+#else
+#endif
+}
 void LockMutex(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int id = *(int *)&dbg->mem_buffer[base_ptr + 8];
@@ -9334,7 +9375,7 @@ void LockMutex(int thread_id, dbg_state *dbg) {
   handle_info *h = &dbg->handles[id];
   ASSERT(h->type == handle_enum::MUTEX)
 #ifdef LINUX
-  pthread_mutex_lock(&h->mutex->mutex);
+  LockMutexBase(h->mutex);
 #else
 #endif
 }
@@ -9920,6 +9961,8 @@ int main(int argc, char *argv[]) {
                      (OutsiderFuncType)SignalMutex);
   AssignOutsiderFunc(&lang_stat, "WaitMutex",
                      (OutsiderFuncType)WaitMutex);
+  AssignOutsiderFunc(&lang_stat, "TryLockMutex",
+                     (OutsiderFuncType)TryLockMutex);
   AssignOutsiderFunc(&lang_stat, "LockMutex",
                      (OutsiderFuncType)LockMutex);
   AssignOutsiderFunc(&lang_stat, "UnlockMutex",

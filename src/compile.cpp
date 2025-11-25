@@ -2944,7 +2944,7 @@ struct handle_info
     own_mutex *mutex;
 	};
 };
-#define TOTAL_HANDLES 16
+#define TOTAL_HANDLES 32
 struct per_thread_dbg_info
 {
 	own_std::vector<byte_code2 **> return_stack_bc2;

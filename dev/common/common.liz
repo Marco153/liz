@@ -44,6 +44,11 @@ toggle_flag::fn(out : *u32, flag : u32)
 
 	*out = *out | val_aux
 }
+LinearInitRawMem::fn{T}(linear_al : *linear_alloc(T), max : u32)
+{
+	linear_al.start = cast(*T)GetMem(max * sizeof(T))
+	linear_al.max = max
+}
 LinearInit::fn{T}(linear_al : *linear_alloc(T), alloc : *mem_alloc, max : u32)
 {
 	linear_al.start = cast(*T)heap_alloc(alloc, max * sizeof(T))
@@ -247,6 +252,10 @@ global_struct : struct
   test_dyn_init2_called_count :u32
   first : bool
   worker_mutex:u32
+  modifying_work_to_do_mutex:u32
+  modifying_work_done_mutex:u32
+  modifying_face_flags_mutex:u32
+  terrain_tex : asset_index
 }
 globals : global global_struct
 
@@ -868,6 +877,7 @@ UpdateStorageBuffer::fn outsider(ubo : u32, data : *void, data_size:u32);
 WaitMutex::fn outsider(id : u32);
 SignalMutex::fn outsider(id:u32);
 LockMutex::fn outsider(id : u32);
+TryLockMutex::fn outsider(id : u32);
 UnlockMutex::fn outsider(id:u32);
 CreateMutex::fn outsider()!u32;
 CompileShader::fn outsider(name : *char, name_len : u64, vertex_shader : *char, vs_len : u64, fragment_shader : *char, fs_len : u64, vertex_input : *type_layout_info, vertex_input_count : u32, uniforms : *type_layout_info, uniforms_count :u32) ! u32;

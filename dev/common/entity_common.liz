@@ -240,11 +240,48 @@ terrain_chunk_info:struct
   blocks:dyn_array(u32)
   ubo : u32
   idx_on_table : u32
+  total_faces : u32
+}
+done_work_thread:etruct
+{
+  DONE_CREATE_CHUNK(
+    chunk_idx : u32
+  ),
+  DONE_UPDATE_CHUNK(
+    idx_on_chunk_table : u32
+    idx_of_buffer_in_flags : u8
+  )
+}
+begin_work_thread:etruct
+{
+  CREATE_CHUNK(
+    x : u32
+    y : u32
+    z : u32
+  ),
+  UPDATE_CHUNK(
+    chunk_idx : u32
+  )
+}
+chunk_thread_info:struct
+{
+  has_work:bool
+  modifying_work_to_do_array : bool
+  modifying_work_done_array : bool
+  modifying_face_buffers_flags : bool
+
+  trn : *terrain2
+  work_to_do : linear_alloc(begin_work_thread)
+  work_done : linear_alloc(done_work_thread)
+  face_buffers : *u8
+  face_buffers_flags : u8
+  temp_buffer: *u8
 }
 terrain2:struct
 {
   chunks_enabled : dyn_array(*terrain_chunk_info)
   chunks_table : *terrain_chunk_info
+  thread_func_info : chunk_thread_info
   max_chunks : u32
 }
 

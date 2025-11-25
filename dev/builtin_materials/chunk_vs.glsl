@@ -9,7 +9,7 @@ layout(std140) uniform _model {
     mat4 mod;
 } MODEL;
 
-layout(std140, binding = 0) buffer faces {
+layout(std430, binding = 0) buffer faces {
   uint f [6 * 8 * 8 * 8];
 } FACES;
 out vec3 frag_pos;
@@ -27,17 +27,18 @@ const vec3 face_offsets[6 * 6] = vec3[](
     vec3(0,0,0), vec3(0,0,1), vec3(0,1,1),
     vec3(0,1,1), vec3(0,1,0), vec3(0,0,0),
 
+
     // ============================================================
     // +Y (TOP)
     // ============================================================
-    vec3(0,1,0), vec3(1,1,0), vec3(1,1,1),
-    vec3(1,1,1), vec3(0,1,1), vec3(0,1,0),
+    vec3(0,1,0), vec3(1,1,1), vec3(1,1,0),
+    vec3(1,1,1), vec3(0,1,0), vec3(0,1,1),
 
     // ============================================================
     // -Y (BOTTOM)
     // ============================================================
-    vec3(0,0,0), vec3(0,0,1), vec3(1,0,1),
-    vec3(1,0,1), vec3(1,0,0), vec3(0,0,0),
+    vec3(0,0,0), vec3(1,0,1), vec3(0,0,1),
+    vec3(1,0,1), vec3(0,0,0), vec3(1,0,0),
 
     // ============================================================
     // +Z (FRONT)
@@ -74,14 +75,21 @@ void main()
     uint cube_index = gl_VertexID / 24;    // 24 vertices per cube (6 faces × 4)
     uint face_index_uniform = (gl_VertexID / 6);
     uint face_in_uniform = FACES.f[face_index_uniform];
-    uint face_dir = face_in_uniform >> 13;
+    uint x = face_in_uniform & 0x7;
+    uint y = (face_in_uniform >> 3) & 0x7;
+    uint z = (face_in_uniform >> 6) & 0x7;
+    uint face_dir = (face_in_uniform >> 13) & 0x7;
     uint corner_index = gl_VertexID % 6;
 
 
     vec3 local_vertex = face_offsets[face_dir * 6 + corner_index];
+
+    local_vertex.x += x;
+    local_vertex.y += y;
+    local_vertex.z += z;
     vec3 world_pos = (MODEL.mod * vec4(local_vertex,1.0)).xyz;
     frag_pos = world_pos;
     out_uv = faces_uvs[corner_index];
 
-    gl_Position = UBO.proj * UBO.view * vec4(world_pos.xyz, 1.0);
+    gl_Position =  UBO.proj * UBO.view * vec4(world_pos.xyz, 1.0);
 }

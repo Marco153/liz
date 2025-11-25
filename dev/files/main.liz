@@ -7385,7 +7385,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 	{
     tinfo.count = 1
 
-		globals.temp_alloc.cur = prev_size
+		globals.sprintf_alloc.cur = prev_size
 
     //PushStrLit(&uniforms, "layout(set=1, binding={i})") 
 
@@ -7447,7 +7447,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 	PushStr(&fs, &uniforms)
 	for f in lang_stat.funcs
 	{
-		globals.temp_alloc.cur = prev_size
+		globals.sprintf_alloc.cur = prev_size
 		if f.name == "vertex"
 		{
 			i = 0
@@ -7462,7 +7462,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
         dyn_add(&sh_create.verts_layout, &tinfo)
 				i++
 			}
-			globals.temp_alloc.cur = prev_size
+			globals.sprintf_alloc.cur = prev_size
 
       i =0
 
@@ -7482,7 +7482,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 				PushStrLit(&fs, "in {builtin_type_to_string(&arg.tp)} {arg.name};\n")
 				i++
 			}
-			globals.temp_alloc.cur = prev_size
+			globals.sprintf_alloc.cur = prev_size
 
 			i = 0
 
@@ -7495,7 +7495,7 @@ compile_shader::fn(ctx : *context, file_name : str_lit, mat : *material_info) ! 
 			PushStrLit(&fs, "void main()")
 			ast_to_string(f.ast.FUNC.scp_ast, &fs)
 
-			globals.temp_alloc.cur = prev_size
+			globals.sprintf_alloc.cur = prev_size
 		}
 	}
 	shader := CompileShader(cast(*char)file_name_original, str_ln(file_name_original), vs.data.data, vs.data.count, fs.data.data, fs.data.count, sh_create.verts_layout.data, cast(u32)sh_create.verts_layout.count, sh_create.uniforms_layout.data, cast(u32)sh_create.uniforms_layout.count)
@@ -8045,10 +8045,12 @@ assign_mesh_to_chunks::fn(ctx : *scene_info, ent : *entity)
 assign_bodies_to_chunks::fn(ctx : *scene_info)
 {
   if ctx.col_chunks == nil return
+  i:=0
 	for e_ in ctx.bodies
 	{
 		e := *e_
 
+    i++
     if e.cols.count == 0 continue
 
 		c1 := *e.cols[0]
@@ -8546,6 +8548,7 @@ get_not_used_scene::fn(ctx : *context, name : str_lit, was_already_loaded : *boo
   {
     if s.in_use == false
     {
+      //__dbg_break
       prev_idx := s.alloc_idx
       prev_alloc := s.alloc
       memset(s, 0, sizeof(*s))
@@ -8564,7 +8567,7 @@ get_not_used_scene::fn(ctx : *context, name : str_lit, was_already_loaded : *boo
       add_axis_ents_to_scene(ctx, s)
       globals.alloc = prev_alloc
 
-      dyn_add(&s.bodies, ctx.player.mov_info.trigger)
+      //dyn_add(&s.bodies, ctx.player.mov_info.trigger)
       return s
     }
   }
@@ -8898,12 +8901,21 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
     done:done_work_thread=?
 
 
-    if work.work_to_do.cur > 0
+    work_to_do_count := get_work_to_do_count(work)
+    globals.temp_alloc.cur = 0
+    printf("worker thread: unlocked!! total_work_to_do {work_to_do_count}\n")
+    if work_to_do_count > 0
     {
+      printf("worker thread: will lock work_to_do_mutex\n")
       LockMutex(globals.modifying_work_to_do_mutex)
-      copy := *work.work_to_do.start
-      printf("worker thread: will lock work_to_do_mutex, first work type {cast(u32)copy.type}\n")
+      //__dbg_break
+      copy:begin_work_thread=?
+      memcpy(&copy, work.work_to_do.start, sizeof(begin_work_thread))
+
+      //copy := *work.work_to_do.start
       UnlockMutex(globals.modifying_work_to_do_mutex)
+
+      printf("worker thread: locked work_to_do_mutex, first work type {cast(u32)copy.type}\n")
 
       on copy
       {
@@ -8965,17 +8977,18 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
       }
     }
 
-    LockMutex(globals.modifying_work_to_do_mutex)
-    if work.work_to_do.cur == 0
+    work_to_do_count = get_work_to_do_count(work)
+
+    if work_to_do_count == 0
     {
       printf("work done\n")
       LockMutex(globals.worker_mutex)
       work.has_work = false
       SignalMutex(globals.worker_mutex)
-
       UnlockMutex(globals.worker_mutex)
+
+
     }
-    UnlockMutex(globals.modifying_work_to_do_mutex)
   }
 }
 wait_for_work_done::fn(thread_func_info : *chunk_thread_info)
@@ -9041,16 +9054,39 @@ get_available_face_buffer_idx::fn(info : *chunk_thread_info) ! s8
 
   return -1
 }
+get_work_to_do_count::fn(thread_func_info : *chunk_thread_info)!u32
+{
+  ret :u32= 0
+
+  LockMutex(globals.modifying_work_to_do_mutex)
+  ret = thread_func_info.work_to_do.cur
+  UnlockMutex(globals.modifying_work_to_do_mutex)
+
+  return ret
+}
+get_work_done_count::fn(thread_func_info : *chunk_thread_info)!u32
+{
+  ret :u32= 0
+
+  LockMutex(globals.modifying_work_done_mutex)
+  ret = thread_func_info.work_done.cur
+  UnlockMutex(globals.modifying_work_done_mutex)
+
+  return ret
+}
 check_work_done::fn(trn : *terrain2)
 {
   thread_func_info:= &trn.thread_func_info
 
-  if thread_func_info.work_done.cur == 0 return 
+  work_done_count := get_work_done_count(thread_func_info)
+
+  if work_done_count == 0 return 
+
   work :begin_work_thread
 
   while true
   {
-    globals.temp_alloc.cur = 0;
+    //globals.temp_alloc.cur = 0;
     //printf("main thread: LOCKED work_done_mutex\n")
     LockMutex(globals.modifying_work_done_mutex)
     done := *thread_func_info.work_done.start
@@ -9098,14 +9134,12 @@ check_work_done::fn(trn : *terrain2)
     remove_thread_work_done(thread_func_info, 0)
     //printf("main thread: removed work_done, cur is {thread_func_info.work_done.cur}\n")
 
-    LockMutex(globals.modifying_work_done_mutex)
-    if thread_func_info.work_done.cur == 0
+    work_done_count = get_work_done_count(thread_func_info)
+    if work_done_count == 0
     {
-      UnlockMutex(globals.modifying_work_done_mutex)
       printf("main thread: no more work_done\n")
       break
     }
-    UnlockMutex(globals.modifying_work_done_mutex)
 
   }
   //printf("main thread: UNLOCKED work_done_mutex\n")
@@ -9137,7 +9171,7 @@ init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem
   work.CREATE_CHUNK.z = 0
   add_thread_work_to_do(thread_func_info, &work)
 
-  work.CREATE_CHUNK.x = 1
+  work.CREATE_CHUNK.x = CHUNK_SIZE
   add_thread_work_to_do(thread_func_info, &work)
 
   printf("first chunk added\n")
@@ -9982,6 +10016,7 @@ main_loop::fn(ctx : *context)
 
 	while !ShouldClose(ctx.window)
 	{
+    //__dbg_break
     check_work_done(trn_ent.trn)
     //ptr := tex_mat.instances[0].uniforms.count
     //printf("total uniforms {ptr}\n")
@@ -11593,6 +11628,7 @@ main:: fn(){
 	globals.assets.count = ASSETS_MAX
 
 	LinearInit(&globals.temp_alloc, ctx.alloc, 1024 * 4)
+	LinearInit(&globals.sprintf_alloc, ctx.alloc, 1024 * 4)
 
 	//__dbg_break
 	bytes_per_mesh := MESH_WIDTH * MESH_WIDTH * TERRAIN_VERTEX_SIZE * 4

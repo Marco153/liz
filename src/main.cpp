@@ -4904,7 +4904,12 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
       //printf("drawing chunk, faces %d, ubo %d\n", trn_chnk->total_faces, trn_chnk->ubo);
       glFrontFace(GL_CW);  
       glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, trn_chnk->ubo);
+
       start_tex = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size + sizeof(terrain_chunk_draw_info));
+    }
+    else
+    {
+      glBindVertexArray(m->vao);
     }
 
     build_model_matrix((float *)(cur_opaque + 1), (const Vec3 *)&cur_opaque->pos.x,
@@ -4915,7 +4920,6 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
     // gl_state->model[13] += -cam_pos_y;
     // gl_state->model[14] += -cam_pos_z;
     //((float *)(cur_opaque + 1))[15] = 1.0f;
-    glBindVertexArray(m->vao);
 
 
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer);

@@ -154,6 +154,7 @@ global_struct : struct
 	entities : linear_alloc(entity),
 	str_alloc : linear_alloc(u8),
 	temp_alloc : linear_alloc(u8),
+	sprintf_alloc : linear_alloc(u8),
 	allocs_occured : linear_alloc(*u8),
 	nodes_alloc : linear_alloc(node),
 	ast_alloc : linear_alloc(ast_rep),

@@ -2009,7 +2009,7 @@ void GinIRCheckNilPtr(lang_state *lang_stat, own_std::vector<ir_rep> *out,
   aux_ir.bin.lhs.is_packed_float = false;
 
   aux_ir.bin.rhs.type = IR_TYPE_INT;
-  aux_ir.bin.rhs.i = 1024;
+  aux_ir.bin.rhs.i = 2024;
   aux_ir.bin.rhs.is_unsigned = top_info->is_unsigned;
   out->emplace_back(aux_ir);
 

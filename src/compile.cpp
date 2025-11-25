@@ -2957,9 +2957,11 @@ struct per_thread_dbg_info
 	func_decl* cur_func;
 	dbg_break_type break_type;
   byte_code2* prev_bc;
+  byte_code2** rip_ptr;
 	stmnt_dbg* prev_st;
 	stmnt_dbg* cur_st;
 	bool in_debug_mode;
+  thread_creation thread;
 };
 struct dbg_state
 {
@@ -8507,6 +8509,18 @@ u64 *GetRegValPtr(int thread_id, dbg_state *dbg, short reg)
 u64 *GetMemValPtr(int thread_id, dbg_state *dbg, short reg, int offset)
 {
 	auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg);
+  if(*reg_src_ptr > dbg->mem_size)
+  {
+      stmnt_dbg* cur_st;
+      func_decl *cur_func = GetFuncBasedOnBc2(dbg, *dbg->dbg_threads[thread_id].rip_ptr);
+      if (cur_func)
+      {
+        int offset = *dbg->dbg_threads[thread_id].rip_ptr - dbg->lang_stat->bcs2_start;
+        cur_st = GetStmntBasedOnOffset(&cur_func->wasm_stmnts, offset);
+      }
+
+    HERE()
+  }
 	u64 offset_ = *reg_src_ptr + offset;
 	return (u64*)&dbg->mem_buffer[offset_];
 }
@@ -9178,7 +9192,7 @@ void Bc2CallX64(int thread_id, dbg_state* dbg, byte_code2** ptr, func_decl *call
 	}
 	else
 	{
-		auto reg_dst_ptr = (u64*)&dbg->mem_buffer[0];
+		auto reg_dst_ptr = GetRegValPtr(thread_id, dbg, 0);
 		*reg_dst_ptr = *reg_src_ptr;
 	}
 
@@ -10055,6 +10069,7 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
 	*rip_ptr = cur_bc;
 
 	thread->rip_ptr = rip_ptr;
+  dbg->dbg_threads[thread->thread_id].rip_ptr = rip_ptr;
 	byte_code2* start_bc = dbg->lang_stat->bcs2_start;
 
 	while(true)
@@ -10228,6 +10243,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	dbg->return_stack_bc2_func.reserve(16);
 	dbg->return_stack_bc2_func.clear();
 	dbg->dbg_threads[0].return_stack_bc2.reserve(16);
+	dbg->dbg_threads[0].rip_ptr = rip_ptr;
 	dbg->dbg_threads[0].return_stack_bc2.clear();
 	dbg->dbg_threads[1].return_stack_bc2.reserve(16);
 	dbg->dbg_threads[1].return_stack_bc2.clear();

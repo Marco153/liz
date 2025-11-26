@@ -1510,6 +1510,7 @@ void ScreenMouseToWorld(int thread_id, dbg_state *dbg) {
 
   auto gl_state = (open_gl_state *)dbg->data;
   float screen_ratio = (float)gl_state->height / (float)gl_state->width;
+  //printf("mx %.3f, my %.3f, width %d, height %d\n", mx, my, gl_state->width, gl_state->height);
   // my *= screen_ratio;
 
   Mat4 view;
@@ -3947,6 +3948,7 @@ void EndFrame(int thread_id, dbg_state *dbg) {
   // glClear(GL_COLOR_BUFFER_BIT);
   ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+  glViewport(0, 0, gl_state->width, gl_state->height);
   glfwSwapBuffers(wnd);
   gl_state->scroll = 0;
 
@@ -8562,6 +8564,15 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
     *(long long *)GetRegValPtr(thread_id, dbg, RET_1_REG) =
         (long long)gl_state->glfw_window;
     printf("resized");
+    perspective(gl_state->projection, 70.0f * (3.14159f / 180.0f),
+                (float)gl_state->width / (float)gl_state->height, gl_state->near_plane, gl_state->far_plane);
+    glDeleteBuffers(1,&gl_state->depthFBO);
+    glDeleteBuffers(1,&gl_state->offscreenFBO);
+    glDeleteTextures(1, &gl_state->depthTex);
+    glDeleteTextures(1, &gl_state->offscreenTex);
+    CreateFrameBuffer(dbg, &gl_state->depthFBO, &gl_state->depthTex, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_FLOAT, GL_DEPTH_ATTACHMENT);
+    CreateFrameBuffer(dbg, &gl_state->offscreenFBO, &gl_state->offscreenTex, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_COLOR_ATTACHMENT0);
+    glViewport(0, 0, gl_state->width, gl_state->height);
     return;
   }
 
@@ -8643,6 +8654,7 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
   glfwSetCursorPosCallback(window, cursor_position_callback);
 
   *(long long *)GetRegValPtr(thread_id, dbg, RET_1_REG) = (long long)window;
+
 
   // Setup Dear ImGui context
   IMGUI_CHECKVERSION();
@@ -8878,6 +8890,8 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
 
   Init3D(dbg);
 
+  perspective(gl_state->projection, 70.0f * (3.14159f / 180.0f),
+              (float)gl_state->width / (float)gl_state->height, gl_state->near_plane, gl_state->far_plane);
   // Vertex Shader
 }
 void AddMemoryWatch(int thread_id, dbg_state *dbg) {

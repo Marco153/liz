@@ -11293,7 +11293,7 @@ void ImGuiPrintVar(char* buffer_in, dbg_state& dbg, decl2* d, int base_ptr, char
 			d->type.ptr--;
 			int tp_sz = GetTypeSize(&d->type);
 			d->flags &= ~DECL_PTR_HAS_LEN;
-			len = clamp(len, 0, 128);
+			len = clamp(len, 0, 300);
 			for (int i = 0; i < len; i++)
 			{
 				int cur_addr = addr + i * tp_sz;

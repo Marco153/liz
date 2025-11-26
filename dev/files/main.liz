@@ -6588,11 +6588,13 @@ editor_window::fn(ctx : *context, out_ent : **entity, dt : f32)
 		//__dbg_break
 		ctx.anim_timer += dt
 		time := ctx.anim_timer * ANIM_TICKS_PER_SEC
+    /*
 		for b in ctx.model_anim.roots
 		{
 			identity_matrix4x4(cast(*f32)&bone3_mat)
 			//fill_bones(matrices, *b, &bone3_mat, time)
 		}
+    */
 	}
   if open_scene
   {
@@ -7258,9 +7260,11 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
         yf = yf / 16.0
         zf = zf / 16.0
         s := Simplex3D(xf, yf, zf)
-        //printf("s is {s}\n")
-        if s > -0.1 && s < 0.5
-        //if (y % 2) == 0
+        if x == 0 && y == 0 && z == 0
+        {
+          dyn_add(&out.blocks, cast(u16)block_type.STONE)
+        }
+        else if s > -0.1 && s < 0.5
         {
           dyn_add(&out.blocks, cast(u16)block_type.AIR)
         }
@@ -8876,6 +8880,9 @@ add_thread_work_to_do::fn(info : *chunk_thread_info, work : *begin_work_thread)
 
   info.modifying_work_to_do_array = false
   UnlockMutex(globals.modifying_work_to_do_mutex)
+
+  signal_work(info)
+
 }
 chunk_thread_worker::fn(thread_id : u32, data : *void)
 {
@@ -9096,10 +9103,23 @@ check_work_done::fn(trn : *terrain2)
       idx_of_buffer_in_flags := done.DONE_UPDATE_CHUNK.idx_of_buffer_in_flags
 
       chunk := ptr_offset(trn.chunks_table, idx, terrain_chunk_info)
-      printf("main thread: pick up DONE_UPDATE_CHUNK({chunk.pos_x}, {chunk.pos_y}, {chunk.pos_z})\n")
+      printf("main thread: pick up DONE_UPDATE_CHUNK({chunk.pos_x}, {chunk.pos_y}, {chunk.pos_z}), faces {chunk.total_faces}\n")
       working_buffer := ptr_offset(thread_func_info.face_buffers, FACES_BUFFER_MAX_SIZE * idx_of_buffer_in_flags, u8)
+
       UpdateStorageBuffer(chunk.ubo, working_buffer, chunk.total_faces * 4)
-      dyn_add(&trn.chunks_enabled, chunk)
+
+      already_in_array := false
+      for ch in trn.chunks_enabled
+      {
+        if ch.pos_x == chunk.pos_x && ch.pos_y == chunk.pos_y && ch.pos_z == chunk.pos_z
+        {
+          already_in_array = true
+        }
+      }
+      if !already_in_array
+      {
+        dyn_add(&trn.chunks_enabled, chunk)
+      }
 
       //printf("main thread: will try to free the idx, which is on the {idx_of_buffer_in_flags} bit\n")
       free_face_buffer_idx(thread_func_info, idx_of_buffer_in_flags)
@@ -9168,7 +9188,7 @@ init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem
   add_thread_work_to_do(thread_func_info, &work)
 
   work.CREATE_CHUNK.x = CHUNK_SIZE
-  add_thread_work_to_do(thread_func_info, &work)
+  //add_thread_work_to_do(thread_func_info, &work)
 
   printf("first chunk added\n")
 
@@ -9896,6 +9916,7 @@ main_loop::fn(ctx : *context)
   fl_sz:s64
   file_data := cast(str_lit)read_entire_file("../scenes/02", &fl_sz)
   
+  /*
   while stage != loading_stage.DONE
   {
     OpenScene(&ctx.coroutines, ctx.cur_scn, &stage, file_data, fl_sz, &cor)
@@ -9904,6 +9925,7 @@ main_loop::fn(ctx : *context)
   {
     add_change_scene_event(ctx, *sname, true, false)
   }
+  */
 
   cor.regs.rip = 0
 
@@ -10775,7 +10797,6 @@ main_loop::fn(ctx : *context)
           y_axis_ent.pos = out_ent.pos
           
           z_axis_ent.pos = out_ent.pos
-          print_vec(&x_axis_ent.pos)
           
           //all_axis_ent.pos = out_ent.pos
 
@@ -10950,7 +10971,7 @@ main_loop::fn(ctx : *context)
     //__dbg_break
 			playble_ents_logic(ctx.cur_scn, &dt)
 			to_deactivate_func(ctx.cur_scn, dt)
-			UpdateEntsWithClips(ctx.cur_scn, dt)
+			//UpdateEntsWithClips(ctx.cur_scn, dt)
 
       c1 := *player_ent.cols[0]
       p_aabb :aabb = ?
@@ -11036,19 +11057,20 @@ main_loop::fn(ctx : *context)
 		}
     block_and_ch_idx:u32
     ctx.has_block_selection = false
+    //printf("mx {curmx}, my {curmy}\n")
     if raycast_dda(&cam_pos, &mouse_dir, 10.0, trn_ent.trn, &block_and_ch_idx)
     {
       aux := block_and_ch_idx
-      x := aux & 0x3
-      y := (aux >> 3) & 0x3
-      z := (aux >> 6) & 0x3
+      x := aux & 0x7
+      y := (aux >> 3) & 0x7
+      z := (aux >> 6) & 0x7
 
       
       ch_idx := aux >> 16
-      printf("ch idx {ch_idx}\n")
+      //printf("ch idx {ch_idx}\n")
 
       chunk := cast(*terrain_chunk_info)ptr_offset(trn_ent.trn.chunks_table, ch_idx, terrain_chunk_info)
-      block := *chunk.blocks[cast(u64)get_block_idx(x, y, z)]
+      block := chunk.blocks[cast(u64)get_block_idx(x, y, z)]
       final_x := cast(f32)x + cast(f32)chunk.pos_x
       final_y := cast(f32)y + cast(f32)chunk.pos_y
       final_z := cast(f32)z + cast(f32)chunk.pos_z
@@ -11056,6 +11078,17 @@ main_loop::fn(ctx : *context)
       ctx.block_selection_pos.y = final_y
       ctx.block_selection_pos.z = final_z
       ctx.has_block_selection = true
+      if IsMouseDown(mouse_enum.LEFT) 
+      {
+        *block = 0;
+        
+        work : begin_work_thread
+        work.type = begin_work_thread.UPDATE_CHUNK
+        work.UPDATE_CHUNK.chunk_idx = ch_idx
+
+        //__dbg_break
+        add_thread_work_to_do(&trn_ent.trn.thread_func_info, &work)
+      }
     }
 		
 		if IsKeyDown(key_enum.KEY_F3)
@@ -11287,12 +11320,13 @@ main_loop::fn(ctx : *context)
 
       data := cast(*object_draw_info)get_opaques_offset_ptr(total_size)
       data.pos = ctx.block_selection_pos
-      data.pos.x -= 0.02
-      data.pos.y -= 0.02
-      data.pos.z -= 0.02
-      data.size.x = 1.04
-      data.size.y = 1.04
-      data.size.z = 1.04
+      width:=0.01
+      data.pos.x -= width*0.5
+      data.pos.y -= width*0.5
+      data.pos.z -= width*0.5
+      data.size.x = 1.0 + width
+      data.size.y = 1.0 + width
+      data.size.z = 1.0 + width
       data.rot.x = 0.0
       data.rot.y = 0.0
       data.rot.z = 0.0

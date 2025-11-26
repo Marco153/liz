@@ -1760,6 +1760,11 @@ void CreateOppositeRegAssigmentAfterCondChecking(
   IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
 }
 void GinIRMemCpy(lang_state *lang_stat, own_std::vector<ir_rep> *out) {
+  /*
+  ir.type = IR_REP_WRITE;
+  out->emplace_back(ir);
+  return;
+  */
   ir_rep ir = {};
 
   ir.type = IR_ASSIGNMENT;
@@ -2380,6 +2385,7 @@ if(e->line_number == 1467)
       }
       val.is_packed_float = e->call.fdecl->ret_type.type == TYPE_VECTOR;
       val.is_float = val.is_float || val.is_packed_float;
+      val.is_unsigned = IsUnsigned(e->call.fdecl->ret_type.type);
       val.deref = -1;
 
       if (call->ret_type.type != TYPE_VOID || call->ret_type.ptr > 0) {

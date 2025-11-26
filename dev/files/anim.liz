@@ -52,7 +52,7 @@ UpdateClip2::fn(e : *entity, dt : f32)
 
     //globals.fill_bones_called = 0
 
-    printf("\n\n")
+    //printf("\n\n")
 		for b in mod.roots
 		{
 			identity_matrix4x4(cast(*f32)&matrix)

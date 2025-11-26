@@ -233,9 +233,9 @@ block_type:enum
 terrain_chunk_info:struct
 {
   in_use : bool
-  pos_x:u32
-  pos_y:u32
-  pos_z:u32
+  pos_x:s32
+  pos_y:s32
+  pos_z:s32
 
   blocks:dyn_array(u32)
   ubo : u32
@@ -255,9 +255,9 @@ done_work_thread:etruct
 begin_work_thread:etruct
 {
   CREATE_CHUNK(
-    x : u32
-    y : u32
-    z : u32
+    x : s32
+    y : s32
+    z : s32
   ),
   UPDATE_CHUNK(
     chunk_idx : u32
@@ -283,6 +283,171 @@ terrain2:struct
   chunks_table : *terrain_chunk_info
   thread_func_info : chunk_thread_info
   max_chunks : u32
+}
+fmix32::fn( h:u32)!u32
+{
+    aux := h >> 16
+    h = h ^ aux
+
+    aux = h * 0x85EBCA6B;
+    aux = aux >> 13;
+    h = aux ^h
+
+    aux = h * 0xC2B2AE35;
+    aux = aux * aux
+    aux = aux >> 16;
+    h = h ^aux
+    return h;
+}
+hash32_triplet::fn(x:u32,  y:u32, z:u32) !u32
+{
+    h :u32= 0;
+
+    aux := x * 0x9E3779B9;
+    h = h ^ aux
+
+    aux = y * 0x85EBCA6B;
+    h = h ^ aux
+
+    aux = z * 0xC2B2AE35;
+    h = h ^ aux
+
+    return fmix32(h);
+}
+get_existing_chunk::fn(trn :*terrain2, x : s32, y : s32, z :s32)!s32
+{
+  idx := hash32_triplet(cast(u32)x, cast(u32)y, cast(u32)z) % trn.max_chunks
+  i :u32
+  while i < 8
+  {
+    ch := cast(*terrain_chunk_info)ptr_offset(trn.chunks_table, i + idx, terrain_chunk_info)
+
+    if ch.pos_x == x && ch.pos_y == y && ch.pos_z == z
+    {
+      return cast(s32)(i + idx)
+    }
+    i++
+  }
+
+  return -1
+}
+get_block_idx::fn macro(x : _expr, y : _expr, z : _expr)
+{
+  ((y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x)
+}
+
+get_block_terrain::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : *u32) ! block_type
+{
+  ch_x := x / CHUNK_SIZE
+  ch_y := y / CHUNK_SIZE
+  ch_z := z / CHUNK_SIZE
+
+  ch_x = ch_x * CHUNK_SIZE
+  ch_y = ch_y * CHUNK_SIZE
+  ch_z = ch_z * CHUNK_SIZE
+
+  ch_idx := get_existing_chunk(trn, ch_x, ch_y, ch_z)
+
+  if ch_idx == -1 return block_type.AIR
+
+  chunk := cast(*terrain_chunk_info)ptr_offset(trn.chunks_table, ch_idx, terrain_chunk_info)
+  
+  block_x := x - ch_x
+  block_y := y - ch_y
+  block_z := z - ch_z
+
+  block_x = clamp(block_x, 0, CHUNK_SIZE)
+  block_y = clamp(block_y, 0, CHUNK_SIZE)
+  block_z = clamp(block_z, 0, CHUNK_SIZE)
+
+  aux := cast(u32)block_x
+  aux = aux | cast(u32)(block_y << 3)
+  aux = aux | cast(u32)(block_z << 6)
+  aux = aux | (cast(u32)ch_idx << 16)
+
+  *out = cast(u32)aux
+
+
+  idx := cast(u64)get_block_idx(block_x, block_y, block_z)
+  ptr := chunk.blocks[idx]
+  block := (*ptr & 0xffff)
+
+  return cast(block_type)block
+}
+raycast_dda::fn(start : *_vec, dir : *_vec, max_dist : f32, trn : *terrain2, ret : *u32) ! bool
+{
+    // Normalize direction
+    d := normalize_vec(dir);
+
+    // Current voxel (integers)
+    vx := floor(start.x);
+    vy := floor(start.y);
+    vz := floor(start.z);
+
+    // Step direction (-1 or +1)
+    step_x := sign(d.x);
+    step_y := sign(d.y);
+    step_z := sign(d.z);
+
+    // Distance to first voxel boundary
+    t_delta_x := absf(1.0 / d.x);
+    t_delta_y := absf(1.0 / d.y);
+    t_delta_z := absf(1.0 / d.z);
+
+    // Compute initial t_max: distance until first grid intersection
+    t_max_x : f32;
+    t_max_y : f32;
+    t_max_z : f32;
+
+    if d.x >= 0.0
+        t_max_x = ((vx + 1.0) - start.x) * (1.0 / absf(d.x));
+    else
+        t_max_x = (start.x - vx) * (1.0 / absf(d.x));
+
+    if d.y >= 0.0
+        t_max_y = ((vy + 1.0) - start.y) * (1.0 / absf(d.y));
+    else
+        t_max_y = (start.y - vy) * (1.0 / absf(d.y));
+
+    if d.z >= 0.0
+        t_max_z = ((vz + 1.0) - start.z) * (1.0 / absf(d.z));
+    else
+        t_max_z = (start.z - vz) * (1.0 / absf(d.z));
+
+
+    // --- Main DDA Loop ---
+    dist : f32 = 0.0;
+
+    while dist <= max_dist
+    {
+        // Check current voxel
+        if get_block_terrain(cast(s32)vx, cast(s32)vy, cast(s32)vz, trn, ret) != block_type.AIR
+        {
+            return true
+        }
+
+        // Step toward next voxel
+        if (t_max_x < t_max_y) && (t_max_x < t_max_z)
+        {
+            vx = vx + step_x;
+            dist = t_max_x;
+            t_max_x = t_max_x + t_delta_x;
+        }
+        else if (t_max_y < t_max_z)
+        {
+            vy = vy + step_y;
+            dist = t_max_y;
+            t_max_y = t_max_y + t_delta_y;
+        }
+        else
+        {
+            vz = vz + step_z;
+            dist = t_max_z;
+            t_max_z = t_max_z + t_delta_z;
+        }
+    }
+
+    return false
 }
 
 entity:struct

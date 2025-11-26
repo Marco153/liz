@@ -120,6 +120,7 @@ terrain_chunk_draw_info:struct
   ubo:u32;
 }
 OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK:const s32= 1
+OBJ_DRAW_FLAGS_IS_CUBE_EDGES:const s32= 2
 object_draw_info:struct
 {
   pos : _vec
@@ -910,6 +911,7 @@ SuspendThread::fn outsider(u32)!u32;
 UpdateModel::fn outsider(model : u32, verts : *f32, ) ! _vec;
 ScreenMouseToWorld::fn outsider(mx : f32, my : f32) ! _vec;
 Perlin2D::fn outsider(x:f32, y:f32, freq:f32, depth : u32) ! f32;
+Simplex3D::fn outsider(x:f32, y:f32, z:f32)!f32;
 CreateMesh::fn outsider(*create_mesh_info) ! u32;
 LoadModel::fn outsider(name : str_lit) ! u32;
 ReloadModel::fn outsider(idx:u32);
@@ -2850,4 +2852,10 @@ FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : 
     }
 
     return score;
+}
+clamp ::fn{T}(v : T, _min :T, _max : T) ! T
+{
+	if v <= _min return _min;
+	if v >= _max return _max;
+	return v;
 }

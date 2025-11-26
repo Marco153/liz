@@ -1,3 +1,5 @@
+#include "include/simplex/SimplexNoise.h"
+#include <locale>
 #include <pthread.h>
 typedef unsigned long long u64;
 typedef unsigned int u32;
@@ -2970,6 +2972,7 @@ struct dbg_state
 	byte_code2 **cur_bc2;
 	ir_rep *cur_ir;
 	byte_code2* prev_valid_bc;
+  Simplex::SimplexNoise simplex;
 	union
 	{
 		ir_rep* prev_break_ir;
@@ -8604,11 +8607,17 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	int mem_offset = bc->mem_offset;
 	char sz = bc->regs >> REG_SZ_BIT;
 	char* sz_str = SizeToStr(sz);
+	bool is_unsigned = IS_FLAG_ON(bc->regs, 1<<FLAG_UNSIGNED);
 
 	char* reg_src_str = GetRegStr(reg_src, sz, buffer + 64);
 	char* reg_dst_str = GetRegStr(reg_dst, sz, buffer + 128);
 	char aux_buffer[64];
 	char* inst_name;
+  char *signdness = "s";
+  if(is_unsigned)
+  {
+    signdness = "u";
+  }
 	switch (bc->bc_type)
 	{
 	case RELOC:
@@ -8694,7 +8703,8 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case SUB_R_2_R:
 	{
 		inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s, %s", inst_name, reg_dst_str, reg_src_str);
+
+		snprintf(buffer, 128, "%s_%s %s, %s", inst_name, signdness, reg_dst_str, reg_src_str);
 		
 	}break;
 	case ADD_I_2_R:
@@ -8711,7 +8721,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case MOV_I:
 	{
 		 inst_name = InstToStr(bc->bc_type);
-		snprintf(buffer, 128, "%s %s, %d", inst_name, reg_dst_str, imm);
+		snprintf(buffer, 128, "%s_%s %s, %d", inst_name, signdness, reg_dst_str, imm);
 		
 	}break;
 	case RET:

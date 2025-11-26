@@ -23,6 +23,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vulkan/vulkan.h>
+namespace Simplex
+{
+#include "include/simplex/SimplexNoise.h"
+#include "include/simplex/SimplexNoise.cpp"
+};
 struct memory_watch {
   int address;
   int prev_val;
@@ -548,7 +553,7 @@ struct WindowEditor {
 #endif
 
 #define OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK 1
-#define OBJ_DRAW_FLAGS_UPDATE_TERRAIN_CHUNK 2
+#define OBJ_DRAW_FLAGS_IS_CUBE_EDGES 2
 struct terrain_chunk_draw_info
 {
   int total_faces;
@@ -4911,6 +4916,10 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
 
       start_tex = (int *)((char *)(cur_opaque + 1) + cur_opaque->model_uniform_size + sizeof(terrain_chunk_draw_info));
     }
+    else if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_IS_CUBE_EDGES))
+    {
+
+    }
     else
     {
       glBindVertexArray(m->vao);
@@ -4946,6 +4955,11 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
     if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK))
     {
       glDrawArrays(GL_TRIANGLES, 0, trn_chnk->total_faces * 6); // 4 vertices per face
+    }
+    else if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_IS_CUBE_EDGES))
+    {
+      //printf("drawing cube edges\n");
+      glDrawArrays(GL_LINES, 0, 24);
     }
     else
     {
@@ -6689,6 +6703,14 @@ double simplex3d(double x, double y, double z) {
     // Final noise value scaled to roughly [-1,1]
     return 32.0 * (n0 + n1 + n2 + n3);
 }
+void Simplex3d(int thread_id, dbg_state *dbg) {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
+  float x = *(float *)&dbg->mem_buffer[base_ptr + 8];
+  float y = *(float *)&dbg->mem_buffer[base_ptr + 16];
+  float z = *(float *)&dbg->mem_buffer[base_ptr + 24];
+  //printf("x %.3f, y %.3f, z %.3f\n", x, y, z);
+  *(float *)GetRegValPtr(thread_id, dbg, RET_1_REG) = (float)simplex3d(x, y, z);
+}
 double fbm3d(double x, double y, double z,
              int octaves,
              double lacunarity,    // frequency multiplier (e.g. 2.0)
@@ -7189,10 +7211,9 @@ void CreateFrameBuffer(dbg_state *dbg, u32 *fbo, u32 *texture, int internal_form
   // Unbind the framebuffer for now
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
-void Init3D(dbg_state *dbg) {
-    printf("GL version: %s\n", glGetString(GL_VERSION));
+void CreateShaderAndDepthOnly(dbg_state *dbg, char *shader_name, char *vs_str, char *fs_str)
+{
   auto gl_state = (open_gl_state *)dbg->data;
-
   char *empty_fs_str = "#version 330\n void main(){}";
     
   int idx = GetFreeHandle(dbg);
@@ -7202,46 +7223,71 @@ void Init3D(dbg_state *dbg) {
                                                sizeof(shader_info));
   // printf("user gave %d uniforms, fs %s\n", uniforms_len, fs_str);
   h->type = handle_enum::SHADER;
-  h->sh->name = "terrain";
+  h->sh->name = shader_name;
+
+
+  GLuint vs = compileShader(GL_VERTEX_SHADER, vs_str);
+  GLuint fs = compileShader(GL_FRAGMENT_SHADER, fs_str);
+  GLuint empty_fs = compileShader(GL_FRAGMENT_SHADER, empty_fs_str);
+  GLuint program = glCreateProgram();
+
+  glAttachShader(program, vs);
+  glAttachShader(program, fs);
+  glLinkProgram(program);
+  h->sh->id = program;
+  GLint linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+
+  if (!linked) {
+      char log[2048];
+      glGetProgramInfoLog(program, sizeof(log), NULL, log);
+      printf("LINK ERROR:\n%s\n", log);
+  }
+
+
+  program = glCreateProgram();
+  glAttachShader(program, vs);
+  glAttachShader(program, empty_fs);
+  glLinkProgram(program);
+  h->sh->depth_only_shader = program;
+  h->sh->model_ubo_size = 64;
+
+  glGenBuffers(1, (u32 *)&h->sh->model_ubo_buffer);
+  glBindBuffer(GL_UNIFORM_BUFFER, h->sh->model_ubo_buffer);
+  glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
+  enable_shader_uniforms(gl_state, h->sh, h->sh->id);
+  enable_shader_uniforms(gl_state, h->sh, h->sh->depth_only_shader);
+
+
+}
+void Init3D(dbg_state *dbg) {
+    printf("GL version: %s\n", glGetString(GL_VERSION));
+  auto gl_state = (open_gl_state *)dbg->data;
+
   u32 read;
   char buf[1024];
   if (getcwd(buf, sizeof(buf)) != NULL)
       printf("Current dir: %s\n", buf);
   else
       perror("getcwd");
-  own_std::string cur_cwd = buf;
 
+  own_std::string cur_cwd = buf;
   own_std::string cur_file = cur_cwd + "/../dev/builtin_materials/chunk_vs.glsl";
   char *chunk_vs_str = ReadEntireFileLang(cur_file.c_str(), &read);
 
   cur_file = cur_cwd + "/../dev/builtin_materials/chunk_fs.glsl";
   char *chunk_fs_str = ReadEntireFileLang(cur_file.c_str(), &read);
 
-  GLuint chunk_terrain_vs = compileShader(GL_VERTEX_SHADER, chunk_vs_str);
-  GLuint chunk_terrain_fs = compileShader(GL_FRAGMENT_SHADER, chunk_fs_str);
-  GLuint empty_fs = compileShader(GL_FRAGMENT_SHADER, empty_fs_str);
-  GLuint terrainShaderProgram = glCreateProgram();
+  CreateShaderAndDepthOnly(dbg, "terrain", chunk_vs_str, chunk_fs_str);
+  printf("compiled terrain\n");
 
-  glAttachShader(terrainShaderProgram, chunk_terrain_vs);
-  glAttachShader(terrainShaderProgram, chunk_terrain_fs);
-  glLinkProgram(terrainShaderProgram);
-  h->sh->id = terrainShaderProgram;
-  GLint linked = 0;
-  glGetProgramiv(terrainShaderProgram, GL_LINK_STATUS, &linked);
+  cur_file = cur_cwd + "/../dev/builtin_materials/cube_edgs_vs.glsl";
+  char *cube_edgs_vs_str = ReadEntireFileLang(cur_file.c_str(), &read);
 
-  if (!linked) {
-      char log[2048];
-      glGetProgramInfoLog(terrainShaderProgram, sizeof(log), NULL, log);
-      printf("LINK ERROR:\n%s\n", log);
-  }
-
-
-  terrainShaderProgram = glCreateProgram();
-  glAttachShader(terrainShaderProgram, chunk_terrain_vs);
-  glAttachShader(terrainShaderProgram, empty_fs);
-  glLinkProgram(terrainShaderProgram);
-  h->sh->depth_only_shader = terrainShaderProgram;
-  h->sh->model_ubo_size = 64;
+  cur_file = cur_cwd + "/../dev/builtin_materials/cube_edgs_fs.glsl";
+  char *cube_edgs_fs_str = ReadEntireFileLang(cur_file.c_str(), &read);
+  
+  CreateShaderAndDepthOnly(dbg, "cube_edges", cube_edgs_vs_str, cube_edgs_fs_str);
 
   /*
   auto trn_ubo = (u32 *)&gl_state->terrain_chunk_shader_faces_uniform;
@@ -7251,11 +7297,6 @@ void Init3D(dbg_state *dbg) {
   glBindBufferBase(GL_UNIFORM_BUFFER, 0, *trn_ubo);
   glBindBuffer(GL_UNIFORM_BUFFER, 0);
   */
-  glGenBuffers(1, (u32 *)&h->sh->model_ubo_buffer);
-  glBindBuffer(GL_UNIFORM_BUFFER, h->sh->model_ubo_buffer);
-  glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
-  enable_shader_uniforms(gl_state, h->sh, h->sh->id);
-  enable_shader_uniforms(gl_state, h->sh, h->sh->depth_only_shader);
 
   //void enable_shader_uniform(open_gl_state *gl_state, shader_info *sh, char *name, int binding, int shaderProgram, int ubo)
 
@@ -8486,6 +8527,11 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
   int wnd_width = *(int *)&dbg->mem_buffer[base_ptr + 8];
   int wnd_height = *(int *)&dbg->mem_buffer[base_ptr + 16];
   // open_simplex_noise(77374, &dbg->simplex_ctx);
+#ifdef LINUX
+  // forcing stdout to be line-buffered
+  setvbuf(stdout, NULL, _IONBF, 0);
+#else
+#endif
 
   auto gl_state = (open_gl_state *)dbg->data;
   gl_state->mouse_vel_x = 0.0;
@@ -9981,6 +10027,8 @@ int main(int argc, char *argv[]) {
                      (OutsiderFuncType)UnlockMutex);
   AssignOutsiderFunc(&lang_stat, "Rdtsc",
                      (OutsiderFuncType)RDTSC);
+  AssignOutsiderFunc(&lang_stat, "Simplex3D",
+                     (OutsiderFuncType)Simplex3d);
   lang_stat.cur_decl = 0;
 
   opts.wasm_dir = wasm_dir;

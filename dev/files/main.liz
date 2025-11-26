@@ -388,6 +388,9 @@ context: struct
 
   eng_events : dyn_array(engine_event)
 
+  has_block_selection : bool
+  block_selection_pos : _vec
+
   out_ent : **entity
   //empty_scn : scene_info
 }
@@ -994,12 +997,6 @@ change_state::fn(e : *entity, state : entity_state, timer :f32=0.0)
 }
 
 
-clamp ::fn{T}(v : T, _min :T, _max : T) ! T
-{
-	if v <= _min return _min;
-	if v >= _max return _max;
-	return v;
-}
 PrevInvItem::fn(inv : *inventory, cur : **inv_slot)
 {
 	start := inv.items[0];
@@ -5188,7 +5185,7 @@ set_path_on_terrain::fn(ctx : *context, trn : *entity)
 }
 find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32, start : u64) ! u64
 {
-	ret : u64=start
+	ret : s64=cast(s64)start
   for i in start..ar.count
 	{
     k := ar[i]
@@ -5199,7 +5196,17 @@ find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32, start : u64) ! u64
 		ret++
 	}
 	ret--
-	return ret
+  // IM NOT JOKING IM GOING INSANE
+  // after hours of debug, and days of tolarating a fucking hicup in the game
+  // i discovered that i have to print a newline here?????????????????????????????????????????????
+  // this has to be either a clang or OS bug
+  // DONT REMOVE THIS FOR NOW
+  //PrintStr("\n")
+  if ret < 0 ret = 0
+  
+
+  //printf("ret{ret}")
+	return cast(u64)ret
 }
 get_keyframe_rot::fn(b : *bone_animation, time : f32, cl : *clip3d) ! _vec
 {
@@ -5285,14 +5292,21 @@ get_keyframe_pos::fn(b : *bone_animation, time : f32, cl : *clip3d) ! _vec
 }
 fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_mat : *mat4x4, time : f32, dt : f32, cl : *clip3d)
 {
+	anim_local:mat4x4=?;
+
+
+	pos_mat :mat4x4=?
+	scale_mat :mat4x4=?
+	rot_mat :mat4x4=?
+
   //globals.fill_bones_called++
 	a_man := ent.anim_man
-	final_pos :_vec= get_keyframe_pos(b, time, cl)
-	final_rot :_vec= get_keyframe_rot(b, time, cl)
-	final_scale :_vec= get_keyframe_scale(b, time, cl)
 	//final_pos :_vec
 	//final_rot :_vec
 	//final_scale :_ver
+	final_pos :_vec= get_keyframe_pos(b, time, cl)
+	final_rot :_vec= get_keyframe_rot(b, time, cl)
+	final_scale :_vec= get_keyframe_scale(b, time, cl)
 
 	if b.has_sec_clip
 	{
@@ -5317,13 +5331,8 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 
 	}
 
+
 	mat_ptr := ptr_offset(out_matrices, 16 * b.id, f32)
-	anim_local:mat4x4=?;
-
-
-	pos_mat :mat4x4=?
-	scale_mat :mat4x4=?
-	rot_mat :mat4x4=?
 
 	
 	p := b.target_world_pos.w
@@ -5340,27 +5349,26 @@ fill_bones::fn(ent : *entity, out_matrices : *f32, b : *bone_animation, parent_m
 	build_scale_matrix(&scale_mat, &final_scale)
 	build_rotation_matrix(&rot_mat, &q)
 
-	anim_local = pos_mat * rot_mat * scale_mat
-	anim_local = *parent_mat * anim_local
+	//anim_local = pos_mat * rot_mat * scale_mat
+  aux:mat4x4=?
+  mat_mul_mat(&pos_mat, &rot_mat, &anim_local)
+  mat_mul_mat(&anim_local, &scale_mat, &aux)
+  mat_mul_mat(parent_mat, &aux, &anim_local)
 
-	offset :=  anim_local * b.local_matrix
+  offset :mat4x4=?
+
+  mat_mul_mat(&anim_local, &b.local_matrix, &offset)
+
 	memcpy(mat_ptr, &offset, sizeof(mat4x4));
 	//__dbg_break
 	for ch in b.children
 	{
 		fill_bones(ent, out_matrices, *ch, &anim_local, time, dt, cl)
 	}
-	/*
-	if str_cmp(b.name, "spine")
-	{
-		print_vec(&final_pos)
-	}
-	*/
-
 	b.vel = final_pos - b.final_pos
-	b.final_pos = *parent_mat * final_pos
+  b.final_pos = mul_mat_vec(parent_mat, &final_pos)
+	//b.final_pos = *parent_mat * final_pos
 	b.final_rot = final_rot
-
 }
 input_text::fn(ctx : *context, label_name : str_lit, name : *str_lit, buffer : *char, free_name :bool=true)
 {
@@ -7060,50 +7068,20 @@ make_face_val::fn macro(assign_to : _expr, x : _expr, y: _expr, z : _expr, face_
   assign_to = assign_to | cast(u32)((light) << 9)
   assign_to = assign_to | cast(u32)((face_dir) << 13)
 }
-fmix32::fn( h:u32)!u32
-{
-    aux := h >> 16
-    h = h ^ aux
-
-    aux = h * 0x85EBCA6B;
-    aux = aux >> 13;
-    h = aux ^h
-
-    aux = h * 0xC2B2AE35;
-    aux = aux * aux
-    aux = aux >> 16;
-    h = h ^aux
-    return h;
-}
-hash32_triplet::fn(x:u32,  y:u32, z:u32) !u32
-{
-    h :u32= 0;
-
-    aux := x * 0x9E3779B9;
-    h = h ^ aux
-
-    aux = y * 0x85EBCA6B;
-    h = h ^ aux
-
-    aux = z * 0xC2B2AE35;
-    h = h ^ aux
-
-    return fmix32(h);
-}
 remove_new_chunk::fn(trn :*terrain2, id : u32)
 {
   ch := ptr_offset(trn.chunks_table, id, terrain_chunk_info)
   ch.in_use = false
   
 }
-get_new_chunk::fn(trn :*terrain2, x : u32, y : u32, z :u32)!u32
+get_new_chunk::fn(trn :*terrain2, x : s32, y : s32, z :s32)!u32
 {
   ret :u32
   
   i :u32
   while true
   {
-    aux := hash32_triplet(x, y, z)  
+    aux := hash32_triplet(cast(u32)x, cast(u32)y, cast(u32)z)  
     ret = aux % trn.max_chunks
     test := ptr_offset(trn.chunks_table, ret, terrain_chunk_info)
     if test.in_use == false
@@ -7131,10 +7109,16 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
   i := 0
   for y in 0..CHUNK_SIZE
   {
+
     for z in 0..CHUNK_SIZE
     {
       for x in 0..CHUNK_SIZE
       {
+        print_info = 0
+        if x == 2 && y == 6
+        {
+          print_info = 1
+        }
         globals.temp_alloc.cur = 0
         if print_info == 1
         {
@@ -7255,7 +7239,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
   out.total_faces = faces_added
   return faces_added
 }
-generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk_info)
+generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk_info)
 {
   out.pos_x = chx
   out.pos_y = chy
@@ -7267,7 +7251,16 @@ generate_terrain_chunk::fn(chx : u32, chy : u32, chz : u32, out : *terrain_chunk
     {
       for x in 0..CHUNK_SIZE
       {
-        if Rand01() > 0.5
+        xf := cast(f32)chx + cast(f32)x
+        yf := cast(f32)chy + cast(f32)y
+        zf := cast(f32)chz + cast(f32)z
+        xf = xf / 16.0
+        yf = yf / 16.0
+        zf = zf / 16.0
+        s := Simplex3D(xf, yf, zf)
+        //printf("s is {s}\n")
+        if s > -0.1 && s < 0.5
+        //if (y % 2) == 0
         {
           dyn_add(&out.blocks, cast(u16)block_type.AIR)
         }
@@ -8927,8 +8920,8 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         x := copy.CREATE_CHUNK.x
         y := copy.CREATE_CHUNK.y
         z := copy.CREATE_CHUNK.z
-        printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z})\n")
         chunk_idx := get_new_chunk(work.trn, x, y, z)
+        printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}\n")
         chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
         generate_terrain_chunk(x, y, z, chunk_info)
         //printf("terrain generated\n")
@@ -10019,11 +10012,11 @@ main_loop::fn(ctx : *context)
 
 	while !ShouldClose(ctx.window)
 	{
-    //__dbg_break
     check_work_done(trn_ent.trn)
     //ptr := tex_mat.instances[0].uniforms.count
     //printf("total uniforms {ptr}\n")
     process_engine_events(ctx)
+    //__dbg_break
 		//aux_c := *ctx.test_ent.cols[0]
 /*
 
@@ -10069,6 +10062,7 @@ main_loop::fn(ctx : *context)
 		curmx := GetMouseScreenPosX();
 		curmy := GetMouseScreenPosY();
 		dir := ScreenMouseToWorld(screenmx, screenmy)
+    mouse_dir := dir
 		
 		//dir.y = -dir.y
 		cam_dir := cam_pos + dir * 20.0
@@ -10953,6 +10947,7 @@ main_loop::fn(ctx : *context)
 			
 			*/
 
+    //__dbg_break
 			playble_ents_logic(ctx.cur_scn, &dt)
 			to_deactivate_func(ctx.cur_scn, dt)
 			UpdateEntsWithClips(ctx.cur_scn, dt)
@@ -11039,6 +11034,29 @@ main_loop::fn(ctx : *context)
 				i++
 			}
 		}
+    block_and_ch_idx:u32
+    ctx.has_block_selection = false
+    if raycast_dda(&cam_pos, &mouse_dir, 10.0, trn_ent.trn, &block_and_ch_idx)
+    {
+      aux := block_and_ch_idx
+      x := aux & 0x3
+      y := (aux >> 3) & 0x3
+      z := (aux >> 6) & 0x3
+
+      
+      ch_idx := aux >> 16
+      printf("ch idx {ch_idx}\n")
+
+      chunk := cast(*terrain_chunk_info)ptr_offset(trn_ent.trn.chunks_table, ch_idx, terrain_chunk_info)
+      block := *chunk.blocks[cast(u64)get_block_idx(x, y, z)]
+      final_x := cast(f32)x + cast(f32)chunk.pos_x
+      final_y := cast(f32)y + cast(f32)chunk.pos_y
+      final_z := cast(f32)z + cast(f32)chunk.pos_z
+      ctx.block_selection_pos.x = final_x
+      ctx.block_selection_pos.y = final_y
+      ctx.block_selection_pos.z = final_z
+      ctx.has_block_selection = true
+    }
 		
 		if IsKeyDown(key_enum.KEY_F3)
 		{
@@ -11262,6 +11280,28 @@ main_loop::fn(ctx : *context)
     scn.cam_rot = *drw_set.cam_rot
     scn.cam_fw = *drw_set.cam_forward
     scn.cam_size = drw_set.cam_size
+    ctx.has_block_selection = true
+    if ctx.has_block_selection
+    {
+      total_size:u32= 64
+
+      data := cast(*object_draw_info)get_opaques_offset_ptr(total_size)
+      data.pos = ctx.block_selection_pos
+      data.pos.x -= 0.02
+      data.pos.y -= 0.02
+      data.pos.z -= 0.02
+      data.size.x = 1.04
+      data.size.y = 1.04
+      data.size.z = 1.04
+      data.rot.x = 0.0
+      data.rot.y = 0.0
+      data.rot.z = 0.0
+      data.rot.w = 1.0
+      data.flags = OBJ_DRAW_FLAGS_IS_CUBE_EDGES
+      data.model_uniform_size = 64
+      // this is unrealiable behaviour, but the second shader the we create is the cube edges, so thats the one
+      data.shader_id = 1
+    }
 
     Draw3D2(drw_set.window, cast(*scene_draw_info)globals.scene_draw.buffer)
 

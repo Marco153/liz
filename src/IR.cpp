@@ -1255,7 +1255,7 @@ void MaybeUnspillRegisters(lang_state *lang_stat, int *had_spilled_reg,
   }
 }
 int SpillRegisters(lang_state *lang_stat, int spilled_reg,
-                   own_std::vector<ir_rep> *out) {
+                   own_std::vector<ir_rep> *out, bool is_float, bool is_packed_float) {
   ir_rep ir;
   int spill_offset = 0;
   ir = {};
@@ -1265,24 +1265,28 @@ int SpillRegisters(lang_state *lang_stat, int spilled_reg,
   ir.assign.to_assign.deref = -1;
   ir.assign.to_assign.on_stack_type = ON_STACK_SPILL;
   ir.assign.to_assign.i = spill_offset;
+  ir.assign.to_assign.is_float = is_float;
+  ir.assign.to_assign.is_packed_float = is_packed_float;
   ir.assign.only_lhs = true;
   ir.assign.lhs.type = IR_TYPE_REG;
   ir.assign.lhs.reg_sz = 8;
   ir.assign.lhs.reg = spilled_reg;
   ir.assign.lhs.deref = -1;
+  ir.assign.lhs.is_float = is_float;
+  ir.assign.lhs.is_packed_float = is_packed_float;
   out->emplace_back(ir);
   return spill_offset;
   // we should only have one reg used
 }
 void MaybeSpillRegisters(lang_state *lang_stat, ast_rep *ast,
-                         int *had_spilled_reg, own_std::vector<ir_rep> *out) {
+                         int *had_spilled_reg, own_std::vector<ir_rep> *out, bool is_float, bool is_packed_float) {
   ir_rep ir;
   if (HasCall(lang_stat, ast)) {
     for (int i = 0; i < 9; i++) {
       if (i == PRE_X64_RSP_REG || i == AUX_DECL_REG)
         continue;
       if (IS_FLAG_ON(lang_stat->regs[i], REG_USED_FLAG)) {
-        SpillRegisters(lang_stat, i, out);
+        SpillRegisters(lang_stat, i, out, is_float, is_packed_float);
         *had_spilled_reg = i;
       }
     }
@@ -1362,7 +1366,32 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin,
     if (HasCall(lang_stat, ast_bin->e_holder.expr[0]) &&
         ir.bin.rhs.type == IR_TYPE_REG) {
       had_spilled_reg = ir.bin.rhs.reg;
-      SpillRegisters(lang_stat, had_spilled_reg, out);
+      int allocated_reg = 1;
+      if (ir.bin.rhs.deref >=0)
+      {
+        ir_rep aux;
+        aux.type = IR_ASSIGNMENT;
+        aux.assign.only_lhs = true;
+        aux.assign.lhs = ir.bin.rhs;
+
+        aux.assign.to_assign.type = IR_TYPE_REG;
+        aux.assign.to_assign.is_packed_float = ir.bin.rhs.is_packed_float;
+        aux.assign.to_assign.is_float = ir.bin.rhs.is_float;
+        if(ir.bin.rhs.is_float)
+        {
+          aux.assign.to_assign.reg = AllocFloatReg(lang_stat);
+        }
+        else
+        {
+          aux.assign.to_assign.reg = AllocReg(lang_stat);
+        }
+        allocated_reg = aux.assign.to_assign.reg;
+        aux.assign.to_assign.reg_sz = 8;
+        out->emplace_back(aux);
+        had_spilled_reg = allocated_reg; 
+
+      }
+      SpillRegisters(lang_stat, had_spilled_reg, out, ir.bin.rhs.is_float, ir.bin.rhs.is_packed_float);
     }
     GenStackThenIR(lang_stat, ast_bin->e_holder.expr[0], out, &ir.bin.lhs,
                    &ir.bin.lhs);
@@ -2136,6 +2165,7 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
         lhs_expr = stack.back();
         stack.pop_back();
       }
+      //BREAK(e->line_number == 1723)
       int cur_biggest = e->call.in_func->biggest_call_args;
       lang_stat->cur_func->biggest_call_args =
           max(cur_biggest, e->call.args.size());
@@ -3988,7 +4018,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
       ir.assign.to_assign.is_unsigned |= ir.assign.lhs.is_unsigned;
 
       int had_spilled_reg = -1;
-      MaybeSpillRegisters(lang_stat, lhs_ast, &had_spilled_reg, out);
+      MaybeSpillRegisters(lang_stat, lhs_ast, &had_spilled_reg, out, ir.assign.lhs.is_float, ir.assign.lhs.is_packed_float);
 
       GenStackThenIR(lang_stat, lhs_ast, out, &ir.assign.to_assign,
                      &ir.assign.to_assign);

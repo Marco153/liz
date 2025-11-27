@@ -92,6 +92,15 @@ collider : struct
 	_max : _vec
 	rel_chunk_min : _vec
 	rel_chunk_max : _vec
+
+	trn_chunk_min_x : s32
+	trn_chunk_min_y : s32
+	trn_chunk_min_z : s32
+	trn_chunk_max_x : s32
+	trn_chunk_max_y : s32
+	trn_chunk_max_z : s32
+
+  in_trn_chunks : dyn_array(*terrain_chunk_info)
 	data_ready : bool
 	no_rotation_ent : bool
 

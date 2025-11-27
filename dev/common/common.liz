@@ -258,6 +258,8 @@ global_struct : struct
   modifying_work_done_mutex:u32
   modifying_face_flags_mutex:u32
   terrain_tex : asset_index
+
+  chunks_added : bool
 }
 globals : global global_struct
 

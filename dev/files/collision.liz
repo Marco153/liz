@@ -1622,9 +1622,196 @@ check_maybe_resolve_collision::fn(ctx : *scene_info, gjk : *gjk_state, e : *enti
 		//CopyVerts(c1, &p_aabb._min, &p_aabb._max)
 	}
 }
+resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u8) ! bool
+{
+  c := ent.cols[0]
+  on c.type
+  {
+  CAPSULE
+  {
+    //__dbg_break
+    pp := ent.pos
+    bp := *block_pos
+    b2p := pp - *block_pos
+    clamped_dist:_vec=?
+    clamped_dist.x = clamp(b2p.x, -0.5, 0.5)
+    clamped_dist.y = clamp(b2p.y, -0.5, 0.5)
+    clamped_dist.z = clamp(b2p.z, -0.5, 0.5)
+
+    clamped_dist.y = 0.0
+
+    from_block_2_clm := *block_pos + clamped_dist
+
+    dir :_vec
+    dir.x = from_block_2_clm.x - pp.x
+    dir.z = from_block_2_clm.z - pp.z
+
+    r := c.CAPSULE.radius
+    h := c.CAPSULE.height
+    r2 := r * r
+    
+    d := dot_vec(&dir, &dir)
+
+    in_col_horizontal := r2 > d
+
+    z_forward_limit := bp.z + 0.5
+    z_back_limit := bp.z - 0.5
+    x_right_limit := bp.x + 0.5
+    x_left_limit := bp.x - 0.5
+    y_up_limit := bp.y + 0.5
+    y_down_limit := bp.y - 0.5
+
+    y_cur_down := pp.y - h * 0.5
+    y_cur_up := pp.y + h * 0.5
+    z_cur_forward := pp.z + r
+    z_cur_back := pp.z - r
+    x_cur_right := pp.x + r
+    x_cur_left := pp.x - r
+    
+    y_dist := pp.y - block_pos.y
+    // 0.5 is the dist from the block center to either top or bottom
+    in_col_vertical := absf(y_dist) < ((h * 0.5) + 0.5)
+
+    
+    collided := false
+    
+    diff :f32= 1000.0
+    normal :_vec
+    
+    // top face
+    printf("begin \n")
+    if y_cur_down < y_up_limit && in_col_horizontal && in_col_vertical && y_cur_down > bp.y
+    {
+      //print_vec(block_pos)
+      *face_dir = FACE_UP
+      aux := absf(y_up_limit - y_cur_down)
+
+      if aux < diff
+      {
+        normal.x = 0.0
+        normal.y = 1.0
+        normal.z = 0.0
+
+        diff = aux
+        collided = true
+        printf("collided with top\n")
+      }
+
+    }
+    if in_col_horizontal && in_col_vertical 
+    {
+      l := len_vec(&dir) 
+      pen := r - l
+      printf("l is {l}, pen is {pen}, diff {diff}\n")
+      if l > 0.000001
+      {
+        //print_vec(&(dir / l))
+        print_vec(&dir)
+      }
+      if absf(l) > 0.000001 && pen < diff
+      {
+        printf("we're in\n")
+        dir.x = dir.x / l
+        dir.z = dir.z / l
+        diff = pen
+
+        print_vec(&dir)
+        _x := absf(dir.x)
+        _z := absf(dir.z)
+        printf("_x {_x}, _z {_z}\n")
+        if dir.x > -1.1 && dir.x < -0.9 __dbg_break
+        if absf(dir.x) > absf(dir.z)
+        {
+          normal.x = -dir.x
+          printf("x path\n")
+          normal.y = 0.0
+          normal.z = 0.0
+        }
+        else
+        {
+          printf("z path\n")
+          normal.x = 0.0
+          normal.y = 0.0
+          normal.z = -dir.z
+
+        }
+        collided = true
+      }
+      print_vec(&normal)
+    }
+    printf("end \n")
+    if collided
+    {
+      //print_vec(&normal)
+      ent.pos += normal *diff
+    }
+
+    return collided
+  }
+  default:
+  {
+    __dbg_break
+  }
+  }
+  return false;
+}
+test_col_with_block::fn(e : *entity, ch :*terrain_chunk_info, x : s32, y : s32, z : s32, blocks_collided_count: *u8, blocks_collided_ptr : *u64)
+{
+  idx := *ch.blocks[cast(u64)get_block_idx(x, y, z)]
+  block := cast(block_type)(idx & 0xffff)
+  //printf("cur_block_pos x {x}, y {y}, z {z}\n")
+  if block != block_type.AIR
+  {
+    bpos :_vec=?
+    bpos.x = cast(f32)x + 0.5 + cast(f32)ch.pos_x
+    bpos.y = cast(f32)y + 0.5 + cast(f32)ch.pos_y
+    bpos.z = cast(f32)z + 0.5 + cast(f32)ch.pos_z
+
+    face_dir:u8
+    if resolve_collision_with_block(e, &bpos, &face_dir)
+    {
+      //cur_col := ptr_offset(blocks_collided_ptr,cast(u64)blocks_collided_count]
+      //blocks_collided_count:u8=0
+      if e.type == ent_type.PLAYER
+      {
+        normal :_vec
+        on face_dir
+        {
+        FACE_RIGHT
+        {
+          normal.x = 1.0
+        }
+        FACE_LEFT
+        {
+          normal.x = -1.0
+        }
+        FACE_UP
+        {
+          e.on_ground = true
+          //printf("on ground {globals.frames_total}\n")
+          normal.y = 1.0
+        }
+        FACE_DOWN
+        {
+          normal.y = -1.0
+        }
+        FACE_FORWARD
+        {
+          normal.z = 1.0
+        }
+        FACE_BACK
+        {
+          normal.z = -1.0
+        }
+        }
+        e.normal_col = normal
+      }
+    }
+  }
+}
 StepCol::fn(ctx : *scene_info, dt : f32)
 {
-  if ctx.col_chunks == nil return
+  //if ctx.col_chunks == nil return
 
 	gjk := cast(*gjk_state)globals.gjk
 	globals.ctx = cast(*void)ctx
@@ -1667,6 +1854,7 @@ StepCol::fn(ctx : *scene_info, dt : f32)
 
     l_area :*area_col_info
     in_range := false
+    /*
     for a in ctx.areas_col
     {
       if get_rel_size_from_min_and_max_pos_in_col_chunk(ctx, a, &c1._min, &c1._max, &aux_min, &aux_max)
@@ -1728,6 +1916,49 @@ StepCol::fn(ctx : *scene_info, dt : f32)
 			//printf("new test, total {c1.ents_of_gotten_chunks.count}\n")
 			e.flags = e.flags & ~ENTITY_COL_CHUNK_WAS_MODIFIED
 		}
+    */
+    for ch in c1.in_trn_chunks
+    {
+      //__dbg_break
+      min_pos_x : s32=? 
+      min_pos_y : s32=? 
+      min_pos_z : s32=? 
+      max_pos_x : s32=? 
+      max_pos_y : s32=? 
+      max_pos_z : s32=? 
+
+      window := 3
+
+      min_pos_x = cast(s32)e.pos.x - window
+      max_pos_x = cast(s32)e.pos.x + window
+      min_pos_y = cast(s32)e.pos.y - window
+      max_pos_y = cast(s32)e.pos.y + window
+      min_pos_z = cast(s32)e.pos.z - window
+      max_pos_z = cast(s32)e.pos.z + window
+
+      min_pos_x = clamp(min_pos_x - ch.pos_x, 0, CHUNK_SIZE)
+      max_pos_x = clamp(max_pos_x - ch.pos_x, 0, CHUNK_SIZE)
+      min_pos_y = clamp(min_pos_y - ch.pos_y, 0, CHUNK_SIZE)
+      max_pos_y = clamp(max_pos_y - ch.pos_y, 0, CHUNK_SIZE)
+      min_pos_z = clamp(min_pos_z - ch.pos_z, 0, CHUNK_SIZE)
+      max_pos_z = clamp(max_pos_z - ch.pos_z, 0, CHUNK_SIZE)
+
+      blocks_collided_ptr:[8]u64
+      blocks_collided_count:u8=0
+
+      for y in min_pos_y..max_pos_y
+      {
+        for z in min_pos_z..max_pos_z
+        {
+          for x in min_pos_x..max_pos_x
+          {
+            test_col_with_block(e, *ch, cast(s32)x, cast(s32)y, cast(s32)z, &blocks_collided_count, blocks_collided_ptr[0])
+          }
+        }
+      }
+    }
+    continue
+
 
 
 		for _e2 in c1.ents_of_gotten_chunks
@@ -1749,6 +1980,10 @@ StepCol::fn(ctx : *scene_info, dt : f32)
 
 			in_col :bool= false
 
+			if e2.type == ent_type.TERRAIN2
+      {
+        __dbg_break
+      }
 			if e2.type == ent_type.TERRAIN
 			{
 				gjk.col1 = c1
@@ -1848,10 +2083,86 @@ StepCol::fn(ctx : *scene_info, dt : f32)
       }
 		}
 	}
+}
+get_chunk_pos_by_world_pos::fn(pos : *_vec, x : *s32, y : *s32, z : *s32)
+{
+  *x = (cast(s32)pos.x / CHUNK_SIZE) * CHUNK_SIZE
+  *y = (cast(s32)pos.y / CHUNK_SIZE) * CHUNK_SIZE
+  *z = (cast(s32)pos.z / CHUNK_SIZE) * CHUNK_SIZE
+}
+cmp_ivec3_s32::fn(a : *s32, b : *s32) !bool
+{
+  if *a != *b return false
+  if *ptr_offset(a, 1, s32) != *ptr_offset(b, 1, s32) return false
+  if *ptr_offset(a, 2, s32) != *ptr_offset(b, 2, s32) return false
 
+  return true
 }
 PhysicsUpdate::fn(ctx : *scene_info, dt : f32)
 {
+  for e in ctx.bodies
+  {
+    if e.type == ent_type.PLAYER
+    {
+      c := e.cols[0]
+
+
+      min_chunk : [3]s32=?
+      max_chunk : [3]s32=?
+
+      min_p := e.pos + _vec{-2.0, -2.0, -2.0}
+      max_p := e.pos + _vec{2.0, 2.0, 2.0}
+
+      get_chunk_pos_by_world_pos(&min_p, min_chunk[0], min_chunk[1], min_chunk[2])
+      get_chunk_pos_by_world_pos(&max_p, max_chunk[0], max_chunk[1], max_chunk[2])
+
+      if *max_chunk[0] == *min_chunk[0]
+      {
+        *max_chunk[0] += CHUNK_SIZE
+      }
+      if *max_chunk[1] == *min_chunk[1]
+      {
+        *max_chunk[1] += CHUNK_SIZE
+      }
+      if *max_chunk[2] == *min_chunk[2]
+      {
+        *max_chunk[2] += CHUNK_SIZE
+      }
+
+      trn := ctx.trn_ent.trn
+      cond := globals.chunks_added || !cmp_ivec3_s32(min_chunk[0], &c.trn_chunk_min_x) || !cmp_ivec3_s32(max_chunk[0], &c.trn_chunk_max_x)
+
+
+      if !cond continue
+
+
+      dyn_clear(&c.in_trn_chunks)
+
+      memcpy(&c.trn_chunk_min_x, min_chunk[0], 12)
+      memcpy(&c.trn_chunk_max_x, max_chunk[0], 12)
+
+
+      for y in c.trn_chunk_min_y..c.trn_chunk_max_y
+      {
+        for z in c.trn_chunk_min_z..c.trn_chunk_max_z
+        {
+          for x in c.trn_chunk_min_x..c.trn_chunk_max_x
+          {
+            ch_idx := get_existing_chunk(trn, cast(s32)x, cast(s32)y, cast(s32)z)
+
+            if ch_idx == -1 continue
+
+            chunk := ptr_offset(trn.chunks_table, ch_idx, terrain_chunk_info)
+
+            dyn_add(&c.in_trn_chunks, chunk)
+            x += CHUNK_SIZE - 1
+          }
+          z += CHUNK_SIZE - 1
+        }
+        y += CHUNK_SIZE - 1
+      }
+    }
+  }
 	for e in ctx.bodies
 	{
     if e.cols.count == 0 continue

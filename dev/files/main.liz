@@ -45,6 +45,8 @@ scene_info:struct
 
   tkns : dyn_array(token)
 
+  trn_ent : *entity
+
   scenes_to_be_loaded : dyn_array(str_lit)
 
   ents : dyn_array(*entity)
@@ -1774,6 +1776,44 @@ draw_line::fn(ctx : *context, start : *_vec, end : *_vec, col : *_vec, flags : u
 
 }
 
+fps_cam::fn(ctx : *context, mx : f32, my : f32)
+{
+	axis : _vec
+	axis.y = 1.0
+	axis.x = 0.0
+	axis.z = 0.0
+	cam_forward := ctx.cam_forward_global
+	cam_pos := ctx.cam_pos_global
+	cam_rot := ctx.cam_rot_global
+
+	speed := 10.0
+	dt := 0.017
+
+  mx = -mx
+  my = -my
+
+
+	cross := cross_vec(cam_forward, &axis)
+
+	axis = cross * radians_to_degree(-cam_rot.x)
+	aux_rot := euler_to_quaternion(axis.x , axis.y, axis.z)
+
+	actual_forward := aux_rot * *cam_forward
+
+
+  //if absf(mx) > 0.1 || absf(my) > 0.1
+  //printf("mx {mx}, my {my}\n")
+
+	//if IsMouseHeld(mouse_enum.RIGHT)
+	{
+		*cam_forward = euler_to_quaternion(0.0, radians_to_degree(mx), 0.0) * *cam_forward
+
+		cam_rot.y += mx
+		cam_rot.x += my
+
+    cam_rot.x = clamp(cam_rot.x, -1.5, 1.5)
+	}
+}
 cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 {
 	axis : _vec
@@ -1806,12 +1846,13 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 	{
 		globals.tog = !globals.tog
 	}
-	cross := cross_vec(cam_forward, &axis)
+	cross := -cross_vec(cam_forward, &axis)
 
 	axis = cross * radians_to_degree(-cam_rot.x)
 	aux_rot := euler_to_quaternion(axis.x , axis.y, axis.z)
 
-	actual_forward := aux_rot * *cam_forward
+	actual_forward := aux_rot * -*cam_forward
+
 
 	if IsKeyHeld(key_enum.KEY_A)
 	{
@@ -2610,7 +2651,10 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	grav := &mov.gravity_vel
 	cam_pos := *ctx.cam_pos_global
 	cam_rot := *ctx.cam_rot_global
-	//printf("wal {mov.facing_wall}\n")
+
+  //print_vec(aux_forward)
+
+	//printf("player_mov: on ground {player_ent.on_ground}\n")
 
 	//print_vec(&mov.hand_bone.final_pos)
 
@@ -3237,6 +3281,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 	mov.up_col = false
 	mov.just_hit_ground = false
 	mov.facing_wall = false
+	player_ent.on_ground = false
 }
 
 MESH_WIDTH :const s32= 33
@@ -5201,7 +5246,7 @@ find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32, start : u64) ! u64
   // i discovered that i have to print a newline here?????????????????????????????????????????????
   // this has to be either a clang or OS bug
   // DONT REMOVE THIS FOR NOW
-  //PrintStr("\n")
+  PrintStr("\n")
   if ret < 0 ret = 0
   
 
@@ -7053,6 +7098,12 @@ should_facing_this_idx_have_a_face::fn(thread_id : u32, out : *terrain_chunk_inf
 
   return false
 }
+FACE_RIGHT:const s32= 0
+FACE_LEFT:const s32= 1
+FACE_UP:const s32= 2
+FACE_DOWN:const s32= 3
+FACE_FORWARD:const s32= 4
+FACE_BACK:const s32= 5
 //face
 //0-2 bits   = posx
 //3-5 bits   = posy
@@ -7148,7 +7199,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         cur_face_ptr :=ptr_offset(working_buffer, faces_added, u32)
         if has_right_face
         {
-          make_face_val(val, x, y, z, 0, block_light_val)
+          make_face_val(val, x, y, z, FACE_RIGHT, block_light_val)
           if print_info == 1
           {
             printf("\thas right face\n")
@@ -7161,7 +7212,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         }
         if has_left_face
         {
-          make_face_val(val, x, y, z, 1, block_light_val)
+          make_face_val(val, x, y, z, FACE_LEFT, block_light_val)
           if print_info == 1
           {
             printf("\thas left face, val {val}\n")
@@ -7175,7 +7226,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
 
         if has_up_face
         {
-          make_face_val(val, x, y, z, 2, block_light_val)
+          make_face_val(val, x, y, z, FACE_UP, block_light_val)
 
           if print_info == 1
           {
@@ -7188,7 +7239,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         }
         if has_down_face
         {
-          make_face_val(val, x, y , z, 3, block_light_val)
+          make_face_val(val, x, y , z, FACE_DOWN, block_light_val)
           if print_info == 1
           {
             printf("\thas down face, val {val}\n")
@@ -7202,20 +7253,20 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
 
         if has_forward_face
         {
-          make_face_val(val, x, y, z, 4, block_light_val)
+          make_face_val(val, x, y, z, FACE_FORWARD, block_light_val)
           if print_info == 1
           {
             printf("\thas forward face, val {val}\n")
           }
 
           *cur_face_ptr = val
-          cur_face_ptr =ptr_offset(cur_face_ptr, 1, u32)
+          cur_face_ptr =ptr_offset(cur_face_ptr, FACE_FORWARD, u32)
 
           faces_added++
         }
         if has_back_face
         {
-          make_face_val(val, x, y, z, 5, block_light_val)
+          make_face_val(val, x, y, z, FACE_BACK, block_light_val)
           if print_info == 1
           {
             printf("\thas back face, val {val}, facedir {(val >> 13)&0x5}\n")
@@ -8930,6 +8981,9 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         chunk_idx := get_new_chunk(work.trn, x, y, z)
         printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}\n")
         chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
+
+        chunk_info.idx_on_table = chunk_idx
+
         generate_terrain_chunk(x, y, z, chunk_info)
         //printf("terrain generated\n")
 
@@ -9125,6 +9179,7 @@ check_work_done::fn(trn : *terrain2)
       free_face_buffer_idx(thread_func_info, idx_of_buffer_in_flags)
 
       //printf("main thread: removed the buffer idx in flags\n")
+      globals.chunks_added = true
     }
     done_work_thread.DONE_CREATE_CHUNK
     {
@@ -9274,6 +9329,8 @@ main_loop::fn(ctx : *context)
     dyn_init2(&scn.drawable_ents, 4, scn.alloc);
   }
   ctx.cur_scn = get_not_used_scene(ctx, "02")
+
+
 
   test_c : u32
   for i in 0..2
@@ -9544,6 +9601,8 @@ main_loop::fn(ctx : *context)
   ctx.scenes[0].alloc = prev_alloc
   globals.alloc = prev_alloc2
 
+  dyn_add(&ctx.cur_scn.bodies, player_ent);
+
 	player_ent.type = ent_type.PLAYER
 	player_ent.anim_mul = 1.0
 	player_ent.dont_res_cols_with_layers = LAYER_ENEMY
@@ -9737,9 +9796,9 @@ main_loop::fn(ctx : *context)
 	globals.after_init = true
 
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = 0.0
-	player_ent.pos.y = 2.0
-	player_ent.pos.z = 0.0
+	player_ent.pos.x = 4.5
+	player_ent.pos.y = 20.0
+	player_ent.pos.z = 6.5
 
 	player_ent.mov_info.stamina = 1.0
 	player_ent.mov_info.stamina_recover_rate = 0.05
@@ -9752,6 +9811,9 @@ main_loop::fn(ctx : *context)
 	trn_ent.flags = trn_ent.flags & ~ENTITY_SERIALIZE
   trn_ent.trn = cast(*terrain2)heap_alloc(ctx.alloc, sizeof(*trn_ent.trn))
   memset(trn_ent.trn, 0, sizeof(*trn_ent.trn))
+  dyn_add(&ctx.cur_scn.bodies, trn_ent);
+  ctx.cur_scn.trn_ent = trn_ent
+  //__dbg_break
 
   init_terrain2(ctx, trn_ent.trn, 512, ctx.alloc)
 
@@ -10031,10 +10093,20 @@ main_loop::fn(ctx : *context)
   find_asset(ctx.cur_scn, "texture.mat", &tst_idx, start=ASSETS_MATERIALS_OFFSET)
   tex_mat := get_material_ptr(&tst_idx)
   */
+  in_pause_mode := false
 
 	while !ShouldClose(ctx.window)
 	{
     check_work_done(trn_ent.trn)
+    can_step := false
+    if IsKeyDown(key_enum.KEY_F11)
+    {
+      in_pause_mode = !in_pause_mode
+    }
+    if IsKeyDown(key_enum.KEY_F10)
+    {
+      can_step = true
+    }
     //ptr := tex_mat.instances[0].uniforms.count
     //printf("total uniforms {ptr}\n")
     process_engine_events(ctx)
@@ -10926,7 +10998,7 @@ main_loop::fn(ctx : *context)
 			cam_forward = euler_to_quaternion(0.0 , radians_to_degree(cam_rot.y), 0.0) * aux_forward
 			*/
 			
-			player_mov(ctx, &-aux_forward, &dt)
+			player_mov(ctx, &cam_forward, &dt)
 
 			sky.pos = player_ent.pos
 
@@ -10938,6 +11010,7 @@ main_loop::fn(ctx : *context)
       out_pos:_vec
 
       cam_dist := 5.0
+      /*
       if !ctx.cam_follow_player_pos_anim
       {
         if raycast_against_chunk_tris(ctx, &player_ent.pos, &end, &out_pos)
@@ -10947,8 +11020,14 @@ main_loop::fn(ctx : *context)
           cam_dist = cam_dist * 0.9
         }
       }
+      */
       cam_dist = clamp(cam_dist, 0.0, 5.0)
-			gameplay_cam(ctx, dt, cam_dist)
+			//gameplay_cam(ctx, dt, cam_dist)
+      mvx := GetMouseVelX() * dt
+      mvy := GetMouseVelY() * dt
+			fps_cam(ctx, mvx, mvy);
+      cam_pos = player_ent.pos
+      cam_pos.y += player_ent.cols[0].CAPSULE.height * 0.4
 
 
 			
@@ -10981,6 +11060,7 @@ main_loop::fn(ctx : *context)
       found := 1.0
       dyn_clear(&in_scenes)
 
+/*
       for s in ctx.scenes
       {
         if s.loading continue
@@ -10998,15 +11078,21 @@ main_loop::fn(ctx : *context)
           }
         }
       }
+      */
+      dyn_add(&in_scenes, ctx.cur_scn)
+
       for s in in_scenes
       {
-        delete_ent_from_scene_add_to_another(ctx.cur_scn, *s, player_ent)
+        //delete_ent_from_scene_add_to_another(ctx.cur_scn, *s, player_ent)
 
         ctx.cur_scn = *s
         div := cast(f32)in_scenes.count
         dt = dt / div
         //printf("div {div}, s {s.name}\n")
-        PhysicsUpdate(*s, dt)
+        if in_pause_mode && can_step || !in_pause_mode
+        {
+          PhysicsUpdate(*s, dt)
+        }
 
       }
 
@@ -11058,7 +11144,22 @@ main_loop::fn(ctx : *context)
     block_and_ch_idx:u32
     ctx.has_block_selection = false
     //printf("mx {curmx}, my {curmy}\n")
-    if raycast_dda(&cam_pos, &mouse_dir, 10.0, trn_ent.trn, &block_and_ch_idx)
+
+    aux_fw :_vec
+    aux_fw.z = -1.0
+    fw := euler_to_quaternion(0.0, radians_to_degree(cam_rot.y), 0.0) * aux_fw
+    cross = cross_vec (&fw, &globals.up)
+
+    q := create_from_axis_angle(cross.x, cross.y, cross.z, cam_rot.x)
+    fw = q * fw
+
+    //fw.x = -fw.x
+    //fw.z = -fw.z
+
+    //print_vec(&fw)
+    
+    //__dbg_break
+    if raycast_dda(&cam_pos, &fw, 10.0, trn_ent.trn, &block_and_ch_idx)
     {
       aux := block_and_ch_idx
       x := aux & 0x7
@@ -11529,6 +11630,7 @@ main_loop::fn(ctx : *context)
 			ctx.can_deactivate_path_ents = false
 		}
     globals.selected_ent = out_ent
+    globals.chunks_added = false
 	}
 }
 
@@ -11932,6 +12034,7 @@ main:: fn(){
   r.str = "1.5_val"
   dyn_add(&test, &r)
 
+  //__dbg_break
   sort_array(&test)
 
 	ASSERT(sizeof(custom_id)==16)

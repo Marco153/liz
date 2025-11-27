@@ -523,6 +523,7 @@ entity:struct
 	axe : *axe_info,
 
 	ents_in_collision : dyn_array(in_col_ent),
+	blocks_in_collision : dyn_array(u64),
 	c_type :clip_type
 	using clip_union::union
 	{

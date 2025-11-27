@@ -2522,7 +2522,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		*stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
 		cur_ir->fdecl->strct_constrct_at_offset = *stack_size;
 
-		*stack_size += cur_ir->fdecl->to_spill_size * 8;
+		*stack_size += cur_ir->fdecl->to_spill_size * 16;
 		cur_ir->fdecl->to_spill_offset = *stack_size;
 
 		*stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
@@ -15239,7 +15239,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 			//gen_state->to_spill_offset = stack_size;
 			cur_ir->fdecl->to_spill_offset = stack_size;
-			stack_size += cur_ir->fdecl->to_spill_size * 8;
+			stack_size += cur_ir->fdecl->to_spill_size * 16;
 
 			//gen_state->strcts_ret_stack_offset = stack_size;
 			cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;

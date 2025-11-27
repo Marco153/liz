@@ -96,11 +96,11 @@ ASSERT::fn macro(exp : _expr)
 }
 is_flag_off::fn macro(val : _expr, flag : _expr)
 {
-	((val & flag) == 0)
+	((val & (flag)) == 0)
 }
 is_flag_on::fn macro(val : _expr, flag : _expr)
 {
-	((val & flag) != 0)
+	((val & (flag)) != 0)
 }
 _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 {

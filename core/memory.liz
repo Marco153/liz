@@ -1835,4 +1835,8 @@ tests::fn(ret : *u32)
 		debug_break();
   }
 
+  test_s8 :s8= -1
+  if test_s8 != -1
+		debug_break();
+
 }

@@ -692,7 +692,7 @@ bool CompareTypes(type2 *lhs, type2 *rhs, bool assert = false) {
     break;
   case enum_type2::TYPE_S8:
     cond = (rhs->type == enum_type2::TYPE_S8 ||
-            (rhs->type == enum_type2::TYPE_INT));
+            (rhs->type == enum_type2::TYPE_INT && rhs->s64 > -128 && rhs->s64 < 128));
     break;
 
   case enum_type2::TYPE_U64:
@@ -3297,7 +3297,7 @@ template <> float GetExpressionValT(tkn_type2 tp, float a, float b) {
   }
   return 0;
 }
-int GetExpressionVal(node *n, scope *scp) {
+long long GetExpressionVal(node *n, scope *scp) {
   switch (n->type) {
   case node_type::N_FLOAT:
     return n->t->f;
@@ -4023,6 +4023,7 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
   } break;
   case node_type::N_INT: {
     ret_type.type = enum_type2::TYPE_S32;
+    //if(n->t->i > 40000000)
     return true;
   } break;
   case node_type::N_ARRAY_CONSTRUCTION: {
@@ -6029,7 +6030,7 @@ node *NewIntNode(lang_state *lang_stat, long long i, token2 *t) {
   auto new_tkn = (token2 *)AllocMiscData(lang_stat, sizeof(token2));
   memset(new_tkn, 0, sizeof(token2));
   new_tkn->type = tkn_type2::T_INT;
-  new_tkn->i = (int)i;
+  new_tkn->u64 = i;
   new_tkn->line = t->line;
   new_tkn->line_offset = t->line_offset;
   new_tkn->line_str = t->line_str;

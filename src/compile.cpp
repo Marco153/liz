@@ -2811,6 +2811,7 @@ enum dbg_break_type
 	DBG_BREAK_ON_NEXT_IR,
 	DBG_BREAK_ON_DIFF_IR,   
 	DBG_BREAK_ON_DIFF_IR_BUT_SAME_FUNC,   
+	DBG_BREAK_NOW,   
 };
 enum dbg_expr_type
 {
@@ -2963,7 +2964,7 @@ struct per_thread_dbg_info
 	stmnt_dbg* prev_st;
 	stmnt_dbg* cur_st;
 	bool in_debug_mode;
-  thread_creation thread;
+  thread_creation *thread;
 };
 struct dbg_state
 {
@@ -9033,7 +9034,33 @@ inline void DoCmpInstFloat(float lhs, float rhs, u64* eflags)
 		*eflags |= !below * EFLAGS_ABOVE;
 	}
 }
-inline void DoCmpInst(void* dst, u64 in_val, u64* eflags, char sz)
+inline void DoCmpInstSigned(void* dst, s64 in_val, u64* eflags, char sz)
+{
+	switch (sz)
+	{
+	case 0:
+	{
+		auto val = (*(char*)dst) - (char)in_val;
+		CheckValAssignFlags(eflags, val, 1<<7);
+	}break;
+	case 1:
+	{
+		auto val = (*(short*)dst) - (short)in_val;
+		CheckValAssignFlags(eflags, val, 1<<15);
+	}break;
+	case 2:
+	{
+		auto val = (*(int*)dst) - (int)in_val;
+		CheckValAssignFlags(eflags, val, 1<<31);
+	}break;
+	case 3:
+	{
+		auto val = (*(long long*)dst) - in_val;
+		CheckValAssignFlags(eflags, val, (long long)1<<63);
+	}break;
+	}
+}
+inline void DoCmpInstUnsigned(void* dst, u64 in_val, u64* eflags, char sz)
 {
 	switch (sz)
 	{
@@ -9395,7 +9422,12 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		u64* eflags = GetRegValPtr(thread_id, dbg, EFLAGS_REG);
 		*eflags = 0;
 
-		DoCmpInst(reg_dst_ptr, imm, eflags, sz);
+		if(is_unsigned)
+      DoCmpInstUnsigned(reg_dst_ptr, imm, eflags, sz);
+		else
+      DoCmpInstSigned(reg_dst_ptr, (s64)imm, eflags, sz);
+
+		//DoCmpInstUnsigned(reg_dst_ptr, imm, eflags, sz);
 		//bool sgnd =
 	}break;
 	case CMP_R_2_R:
@@ -9406,7 +9438,11 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		u64* eflags = GetRegValPtr(thread_id, dbg, EFLAGS_REG);
 		*eflags = 0;
 
-		DoCmpInst(reg_dst_ptr, *reg_src_ptr, eflags, sz);
+		if(is_unsigned)
+      DoCmpInstUnsigned(reg_dst_ptr, *reg_src_ptr, eflags, sz);
+		else
+      DoCmpInstSigned(reg_dst_ptr, (s64)*reg_src_ptr, eflags, sz);
+		//DoCmpInstUnsigned(reg_dst_ptr, *reg_src_ptr, eflags, sz);
 		//bool sgnd =
 	}break;
 	case CMP_M_2_R:
@@ -9421,7 +9457,11 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		u64* eflags = GetRegValPtr(thread_id, dbg, EFLAGS_REG);
 		*eflags = 0;
 
-		DoCmpInst(reg_dst_ptr, *mem_ptr, eflags, sz);
+		if(is_unsigned)
+      DoCmpInstUnsigned(reg_dst_ptr, *mem_ptr, eflags, sz);
+		else
+      DoCmpInstSigned(reg_dst_ptr, (s64)*mem_ptr, eflags, sz);
+		//DoCmpInstUnsigned(reg_dst_ptr, *mem_ptr, eflags, sz);
 		//bool sgnd =
 	}break;
 	case CMP_R_2_M:
@@ -9435,8 +9475,12 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 
 		u64* eflags = GetRegValPtr(thread_id, dbg, EFLAGS_REG);
 		*eflags = 0;
+		if(is_unsigned)
+      DoCmpInstUnsigned(dst, *reg_src_ptr, eflags, sz);
+		else
+      DoCmpInstSigned(dst, (s64)*reg_src_ptr, eflags, sz);
 
-		DoCmpInst(dst, *reg_src_ptr, eflags, sz);
+		//DoCmpInstUnsigned(dst, *reg_src_ptr, eflags, sz);
 		//bool sgnd =
 	}break;
 	case FILL_SSE_2_PCKED_SSE:
@@ -9519,7 +9563,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 			ASSERT(false)
 		}
 		_mm_store_ss((float *)&aux, a);
-		DoCmpInst((void *)&aux, 0xffff, eflags, 1);
+		DoCmpInstUnsigned((void *)&aux, 0xffff, eflags, 1);
 	}break;
 	case CMP_SSE_2_SSE:
 	{
@@ -9553,7 +9597,10 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
     }
     */
 
-		DoCmpInst(dst, imm, eflags, sz);
+		if(is_unsigned)
+      DoCmpInstUnsigned(dst, imm, eflags, sz);
+		else
+      DoCmpInstSigned(dst, imm, eflags, sz);
 		//bool sgnd =
 	}break;
 	case JMP_E:
@@ -10002,6 +10049,20 @@ void CheckDbgStmnt(dbg_state *dbg, int thread_id, stmnt_dbg **cur_st, byte_code2
 {
   switch (dbg->dbg_threads[thread_id].break_type)
   {
+  case DBG_BREAK_NOW:
+  {
+    breakpoint bp;
+    func_decl *fdecl = dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+    (*cur_st) = GetStmntBasedOnOffset(&fdecl->wasm_stmnts, offset);
+    if ((*cur_st) && (*cur_st) != dbg->dbg_threads[thread_id].prev_st)
+    {
+      //HERE()
+      MakeCurBcToBeBreakpoint(dbg, cur_bc, (*cur_st)->line);
+      dbg->dbg_threads[thread_id].prev_st = (*cur_st);
+    }
+    dbg->dbg_threads[thread_id].break_type = DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC;
+
+  }break;
   case DBG_BREAK_ON_DIFF_STAT_BUT_SAME_FUNC:
   {
     int rsp = *(int*)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
@@ -10095,6 +10156,29 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
     CheckDbgStmnt(dbg, thread_id, &dbg->dbg_threads[thread_id].cur_st, cur_bc, offset);
 
 		Bc2Logic(thread_id, dbg, rip_ptr, &inc_ptr, &valid, 0);
+
+    /*
+    FOR_VEC(m, dbg->mem_watches)
+    {
+      int cur = *(int *)&dbg->mem_buffer[m->address];
+      //printf("watch cur %d, prev %d\n", cur, m->prev_val);
+      if(cur != m->prev_val)
+      {
+        func_decl *fdecl = dbg->dbg_threads[thread_id].cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+        auto cur_st = GetStmntBasedOnOffset(&fdecl->wasm_stmnts, offset);
+        if (cur_st)
+        {
+          printf("worker thread %d: func name %s, st line %d\n", thread_id, fdecl->name.c_str(), cur_st->line);
+          //HERE()
+          //MakeCurBcToBeBreakpoint(dbg, cur_bc, cur_st)->line);
+          //dbg->dbg_threads[thread_id].prev_st = (*cur_st);
+        }
+        HERE()
+
+      }
+      //i++;
+    }
+    */
     /*
     func_decl *cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
     stmnt_dbg *cur_st;
@@ -10228,6 +10312,25 @@ void EnterDebugMode(dbg_state* dbg)
   }
   //dbg->dbg_threads[thread_id].in_debug_mode = true;
 }
+void ChangeThread(dbg_state *dbg, scope **cur_scp, int *thread_id, int dst_thread_id, stmnt_dbg **cur_st)
+{
+  if(dst_thread_id > 0)
+  {
+    dbg->thread = dbg->dbg_threads[dst_thread_id].thread;
+  }
+
+  byte_code2 *cur_bc = *dbg->dbg_threads[dst_thread_id].rip_ptr;
+
+  dbg->dbg_threads[dst_thread_id].cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
+
+  *thread_id = dst_thread_id;
+
+  dbg->prev_func = nullptr;
+
+  int offset = cur_bc - dbg->lang_stat->bcs2_start;
+  *cur_st = GetStmntBasedOnOffset(&dbg->dbg_threads[*thread_id].cur_func->wasm_stmnts, offset);
+  *cur_scp = FindScpWithLine(dbg->dbg_threads[*thread_id].cur_func, (*cur_st)->line);
+}
 void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 {
 	char buffer[512];
@@ -10291,6 +10394,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 	auto i_ = 0;
 
   int thread_id = 0;
+
 	while (cur_bc != nullptr)
 	{
 		byte_code2** rip_ptr = (byte_code2**)&dbg->mem_buffer[RIP_REG * 8];
@@ -10337,6 +10441,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
       //printf("watch cur %d, prev %d\n", cur, m->prev_val);
       if(cur != m->prev_val)
       {
+        HERE()
         printf("mem watch triggered: addr %d value was %d, now is %d\n", m->address, m->prev_val, cur);
         breakpoint bp;
         bp.line = 0;
@@ -10346,6 +10451,12 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
         dbg->breakpoints.emplace_back(bp);
         dbg->mem_watches.remove(i);
         cur_bc->bc_type = INT3;
+
+        dbg->thread = dbg->dbg_threads[1].thread;
+        dbg->dbg_threads[1].break_type = DBG_BREAK_NOW;
+        dbg->dbg_threads[0].break_type = DBG_BREAK_NOW;
+        thread_id = 1;
+        cur_scp = nullptr;
       }
       i++;
     }
@@ -10384,14 +10495,17 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
       struct defer_strct
       {
         dbg_state* dbg;
+        bool exit_debbuger;
         defer_strct(dbg_state* d)
         {
           dbg = d;
+          exit_debbuger = true;
         }
         ~defer_strct()
         {
           //dbg->thread = nullptr;
-          ExitDebugMode(dbg);
+          if(exit_debbuger)
+            ExitDebugMode(dbg);
           UnlockMutexBase(dbg->dbg_mutex);
         }
       };
@@ -10505,6 +10619,19 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 			{
 				cur_bc = dbg->prev_valid_bc;
 				ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "rip got corrupted");
+			}
+			if (ImGui::Selectable("thread1", false))
+			{
+        printf("changed to 1\n");
+        ChangeThread(dbg, &cur_scp, &thread_id, 1, &cur_st);
+        //dfr.exit_debbuger = false;
+			}
+			if (ImGui::Selectable("thread0", false))
+			{
+        HERE()
+        ChangeThread(dbg, &cur_scp, &thread_id, 0, &cur_st);
+        dfr.exit_debbuger = false;
+        dbg->thread = nullptr;
 			}
 			if (ImGui::Selectable("show bc", &show_bc))
 			{

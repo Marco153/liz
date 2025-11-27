@@ -75,7 +75,7 @@ struct token2
 		own_std::string str;
 		union
 		{
-			int i;
+			long long i;
 			long long i64;
 			unsigned long long u64;
 		};

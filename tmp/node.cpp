@@ -753,7 +753,7 @@ bool CompareTypes(type2* lhs, type2* rhs, bool assert = false)
 		break;
 	case enum_type2::TYPE_S8:
 		cond = (rhs->type == enum_type2::TYPE_S8 ||
-			(rhs->type == enum_type2::TYPE_INT)
+			(rhs->type == enum_type2::TYPE_INT && rhs->i <= 255)
 			);
 		break;
 
@@ -9117,6 +9117,7 @@ decl2* DescendNameFinding(lang_state *lang_stat, node* n, scope* given_scp)
 				}break;
 				case node_type::N_BINOP:
 				{
+          BREAK(n->t->line == 9004)
 					switch (n->r->t->type)
 					{
 					case tkn_type2::T_COLON:
@@ -10372,6 +10373,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 		}break;
 		case tkn_type2::T_MUL:
 		{
+
 			ret_type = DescendNode(lang_stat, n->r, scp);
 
 			// overload mul deref when the struct is value
@@ -11109,6 +11111,7 @@ type2 DescendNode(lang_state *lang_stat, node* n, scope* given_scp)
 	}break;
 	case node_type::N_BINOP:
 	{
+    BREAK(n->t->line == 9004)
 		switch (n->t->type)
 		{
 		case tkn_type2::T_COND_AND:

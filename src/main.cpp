@@ -8895,7 +8895,7 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
   // Vertex Shader
 }
 void AddMemoryWatch(int thread_id, dbg_state *dbg) {
-  int base = *(int *)GetRegValPtr(0, dbg, STACK_PTR_REG);
+  int base = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int address = *(int *)&dbg->mem_buffer[base + 8];
 
   int val = *(int *)&dbg->mem_buffer[address];
@@ -9107,7 +9107,20 @@ void WriteFileInterpreter(int thread_id, dbg_state *dbg) {
   auto name_ptr = (char *)&dbg->mem_buffer[name_offset];
   auto buffer_ptr = (char *)&dbg->mem_buffer[buffer_offset];
 
-  own_std::string work_dir = dbg->dbg_threads[thread_id].cur_func->from_file->path;
+  func_decl *cur_func =dbg->dbg_threads[thread_id].cur_func;
+  if(cur_func == nullptr)
+  {
+    cur_func = GetFuncBasedOnBc2(dbg, *dbg->cur_bc2);
+    dbg->dbg_threads[thread_id].cur_func = cur_func;
+    if(!cur_func)
+    {
+      ASSERT(false)
+      *(s64 *)GetRegValPtr(thread_id, dbg, RET_1_REG) = -1;
+      printf("no func for getting file size, exiting, threadid %d\n", thread_id);
+      return;
+    }
+  }
+  own_std::string work_dir = cur_func->from_file->path;
   // MaybeAddBarToEndOfStr(&work_dir);
 
   work_dir = work_dir + name_ptr;
@@ -9518,6 +9531,8 @@ void _CreateThread(int thread_id, dbg_state *dbg) {
   args->func_bc_idx = func_addr;
   args->parent_thread = thread_id;
   args->heandle_id = idx;
+
+  dbg->dbg_threads[new_thread_id].thread = args;
 
   pthread_create(&args->thread, NULL, CreateThreadAux, args);
 

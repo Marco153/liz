@@ -2682,7 +2682,7 @@ if(e->line_number == 1467)
           e->cast.type.type == TYPE_S64 || e->cast.type.type == TYPE_U64;
 
       // HERE();
-      //BREAK(e->line_number == 1669)
+      //BREAK(e->line_number == 9004 && e->cast.type.type == TYPE_U8)
 
       if (is_int && top->is_float == true && top->ptr == 0) {
         ir = {};
@@ -3172,6 +3172,7 @@ if(e->line_number == 1467)
         //BREAK(e->line_number == 7104)
         ir_val *top = &stack[stack.size() - 1];
         ir_val *one_minus_top = &stack[stack.size() - 2];
+        //BREAK(e->line_number == 9004 && e->cast.type.type == TYPE_U8)
 
         // ir.assign.to_assign.reg = AllocReg(lang_stat);
         ir.type = IR_ASSIGNMENT;

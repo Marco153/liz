@@ -209,7 +209,7 @@ struct type2
 	int flags;
 	union
 	{
-		int i;
+		long long i;
 		float f;
 
 		unsigned char u8;

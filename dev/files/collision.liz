@@ -1632,7 +1632,7 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
     //__dbg_break
 
     bp := *block_pos
-    if globals.frames_total == 49 && bp.x >= 4.4 && bp.x < 4.6 && bp.z >= 6.4 && bp.z < 6.6 __dbg_break
+    //if globals.frames_total == 49 && bp.x >= 4.4 && bp.x < 4.6 && bp.z >= 6.4 && bp.z < 6.6 __dbg_break
     pp := ent.pos
     b2p := pp - *block_pos
     clamped_dist:_vec=?
@@ -1672,7 +1672,8 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
     
     y_dist := pp.y - block_pos.y
     // 0.5 is the dist from the block center to either top or bottom
-    in_col_vertical := absf(y_dist) < ((h * 0.5) + 0.5)
+    ab := absf(y_dist)
+    in_col_vertical := ab < ((h * 0.5) + 0.5)
 
     
     collided := false
@@ -1681,7 +1682,7 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
     normal :_vec
     
     // top face
-    printf("begin \n")
+    //printf("begin \n")
     if y_cur_down < y_up_limit && in_col_horizontal && in_col_vertical && y_cur_down > bp.y
     {
       //print_vec(block_pos)
@@ -1696,42 +1697,42 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
 
         diff = aux
         collided = true
-        printf("collided with top\n")
+        //printf("collided with top\n")
       }
 
     }
-    if in_col_horizontal && in_col_vertical 
+    if in_col_horizontal && in_col_vertical  && y_cur_down < (y_up_limit - 0.1)
     {
       l := len_vec(&dir) 
       pen := r - l
-      printf("l is {l}, pen is {pen}, diff {diff}\n")
+      //printf("l is {l}, pen is {pen}, diff {diff}\n")
       if l > 0.000001
       {
         //print_vec(&(dir / l))
-        print_vec(&dir)
+        //print_vec(&dir)
       }
       if absf(l) > 0.000001 && pen < diff
       {
-        printf("we're in, {globals.frames_total}\n")
+        //printf("we're in, {globals.frames_total}\n")
         dir.x = dir.x / l
         dir.z = dir.z / l
         diff = pen
 
-        print_vec(&dir)
+        //print_vec(&dir)
         _x := absf(dir.x)
         _z := absf(dir.z)
-        printf("_x {_x}, _z {_z}\n")
-        if dir.x > -1.1 && dir.x < -0.9 __dbg_break
+        //printf("_x {_x}, _z {_z}\n")
+        //if dir.x > -1.1 && dir.x < -0.9 __dbg_break
         if _x > _z
         {
           normal.x = -dir.x
-          printf("x path\n")
+          //printf("x path\n")
           normal.y = 0.0
           normal.z = 0.0
         }
         else
         {
-          printf("z path\n")
+          //printf("z path\n")
           normal.x = 0.0
           normal.y = 0.0
           normal.z = -dir.z
@@ -1739,9 +1740,9 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
         }
         collided = true
       }
-      print_vec(&normal)
+      //print_vec(&normal)
     }
-    printf("end \n")
+    //printf("end \n")
     if collided
     {
       //print_vec(&normal)

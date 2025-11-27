@@ -7168,7 +7168,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
       for x in 0..CHUNK_SIZE
       {
         print_info = 0
-        if x == 2 && y == 6
+        if x == 1 && y == 6 && z == 7
         {
           print_info = 1
         }
@@ -7260,7 +7260,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
           }
 
           *cur_face_ptr = val
-          cur_face_ptr =ptr_offset(cur_face_ptr, FACE_FORWARD, u32)
+          cur_face_ptr =ptr_offset(cur_face_ptr, 1, u32)
 
           faces_added++
         }
@@ -7269,7 +7269,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
           make_face_val(val, x, y, z, FACE_BACK, block_light_val)
           if print_info == 1
           {
-            printf("\thas back face, val {val}, facedir {(val >> 13)&0x5}\n")
+            printf("\thas back face, val {val}, facedir {(val >> 13)&0x7}, idx {faces_added}\n")
           }
 
           *cur_face_ptr = val
@@ -11168,7 +11168,7 @@ main_loop::fn(ctx : *context)
 
       
       ch_idx := aux >> 16
-      //printf("ch idx {ch_idx}\n")
+      printf("dda x {x}, y {y}, z{z}\n")
 
       chunk := cast(*terrain_chunk_info)ptr_offset(trn_ent.trn.chunks_table, ch_idx, terrain_chunk_info)
       block := chunk.blocks[cast(u64)get_block_idx(x, y, z)]
@@ -12034,7 +12034,7 @@ main:: fn(){
   r.str = "1.5_val"
   dyn_add(&test, &r)
 
-  __dbg_break
+  //__dbg_break
   sort_array(&test)
 
 	ASSERT(sizeof(custom_id)==16)

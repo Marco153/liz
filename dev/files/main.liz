@@ -1829,8 +1829,7 @@ cam_mov_editor::fn(ctx : *context, mx : f32, my : f32)
 
 	if IsKeyHeld(key_enum.KEY_SHIFT)
 	{
-
-		speed = speed * 4.0
+		speed = speed * 2.0
 	}
 
 
@@ -2679,17 +2678,8 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 	if on_ground
 	{
-		if absf(mov.h) > 0.1 || absf(mov.v) > 0.1
-		{
-			d := dot_vec(&player_ent.normal_col, &player_ent.forward)
-			//printf("d is {d}\n")
-			grav.y = -2.05 + d
-		}
-		else
-		{
-			grav.y = -0.05
+    grav.y = -0.05
 
-		}
 		reset_jmp(mov)
 	}
 	else
@@ -3042,6 +3032,7 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			if !mov.exhausted
 			{
 				player_ent.vel.y = 0.0
+        //__dbg_break
 				mov.jmp.vel.y = 1.0 * mov.jmp.speed
 				mov.jmp.jmpd = true
 				player_ent.on_ground = false
@@ -3096,7 +3087,6 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 
 
 
-		player_ent.vel += mov.jmp.vel + mov.platform_vel
 		if dot_vec(&actual_forward, &actual_forward) > 0.01 && !mov.on_rotating_cam
 		{
 			*forward = normalize_vec(&actual_forward)
@@ -3164,6 +3154,9 @@ player_mov::fn(ctx : *context, aux_forward : *_vec, dt : *f32)
 			}
 		}
 		player_ent.vel = actual_forward * speed + *grav
+		player_ent.vel += mov.jmp.vel; //+ mov.platform_vel
+    print_vec(grav)
+
 	}
 	entity_state.SURF
 	{
@@ -9607,8 +9600,8 @@ main_loop::fn(ctx : *context)
 	player_ent.anim_mul = 1.0
 	player_ent.dont_res_cols_with_layers = LAYER_ENEMY
 
-	player_ent.mov_info.speed = 2.5
-	player_ent.mov_info.jmp.speed = 2.1
+	player_ent.mov_info.speed = 1.5
+	player_ent.mov_info.jmp.speed = 4.1
 
 	find_asset(ctx.scenes[0], "bones.fbx", &player_ent.model)
 	player_ent.material_idx = find_shader(ctx.scenes[0], "skin.mat")
@@ -11168,7 +11161,7 @@ main_loop::fn(ctx : *context)
 
       
       ch_idx := aux >> 16
-      printf("dda x {x}, y {y}, z{z}\n")
+      //printf("dda x {x}, y {y}, z{z}\n")
 
       chunk := cast(*terrain_chunk_info)ptr_offset(trn_ent.trn.chunks_table, ch_idx, terrain_chunk_info)
       block := chunk.blocks[cast(u64)get_block_idx(x, y, z)]
@@ -11189,6 +11182,7 @@ main_loop::fn(ctx : *context)
 
         //__dbg_break
         add_thread_work_to_do(&trn_ent.trn.thread_func_info, &work)
+        ctx.has_block_selection = false
       }
     }
 		

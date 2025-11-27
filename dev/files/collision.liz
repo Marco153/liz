@@ -1701,6 +1701,24 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
       }
 
     }
+    if y_cur_up > y_down_limit && in_col_horizontal && in_col_vertical && y_cur_up < bp.y
+    {
+      //print_vec(block_pos)
+      *face_dir = FACE_DOWN
+      aux := absf(y_cur_up - y_down_limit)
+
+      if aux < diff
+      {
+        normal.x = 0.0
+        normal.y = -1.0
+        normal.z = 0.0
+
+        diff = aux
+        collided = true
+        //printf("collided with top\n")
+      }
+
+    }
     if in_col_horizontal && in_col_vertical  && y_cur_down < (y_up_limit - 0.1)
     {
       l := len_vec(&dir) 

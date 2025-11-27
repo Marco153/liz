@@ -1630,8 +1630,10 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
   CAPSULE
   {
     //__dbg_break
-    pp := ent.pos
+
     bp := *block_pos
+    if globals.frames_total == 49 && bp.x >= 4.4 && bp.x < 4.6 && bp.z >= 6.4 && bp.z < 6.6 __dbg_break
+    pp := ent.pos
     b2p := pp - *block_pos
     clamped_dist:_vec=?
     clamped_dist.x = clamp(b2p.x, -0.5, 0.5)
@@ -1710,7 +1712,7 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
       }
       if absf(l) > 0.000001 && pen < diff
       {
-        printf("we're in\n")
+        printf("we're in, {globals.frames_total}\n")
         dir.x = dir.x / l
         dir.z = dir.z / l
         diff = pen
@@ -1720,7 +1722,7 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
         _z := absf(dir.z)
         printf("_x {_x}, _z {_z}\n")
         if dir.x > -1.1 && dir.x < -0.9 __dbg_break
-        if absf(dir.x) > absf(dir.z)
+        if _x > _z
         {
           normal.x = -dir.x
           printf("x path\n")

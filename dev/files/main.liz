@@ -12034,7 +12034,7 @@ main:: fn(){
   r.str = "1.5_val"
   dyn_add(&test, &r)
 
-  //__dbg_break
+  __dbg_break
   sort_array(&test)
 
 	ASSERT(sizeof(custom_id)==16)

@@ -1237,7 +1237,7 @@ bool HasCall(lang_state *lang_stat, ast_rep *ast) {
 }
 
 void MaybeUnspillRegisters(lang_state *lang_stat, int *had_spilled_reg,
-                           own_std::vector<ir_rep> *out) {
+                           own_std::vector<ir_rep> *out, bool is_float, bool is_packed_float) {
   ir_rep ir;
   if (*had_spilled_reg != -1) {
     ir = {};
@@ -1246,11 +1246,15 @@ void MaybeUnspillRegisters(lang_state *lang_stat, int *had_spilled_reg,
     ir.assign.to_assign.reg_sz = 8;
     ir.assign.to_assign.deref = -1;
     ir.assign.to_assign.reg = *had_spilled_reg;
+    ir.assign.to_assign.is_float = is_float;
+    ir.assign.to_assign.is_packed_float = is_packed_float;
     ir.assign.only_lhs = true;
     ir.assign.lhs.type = IR_TYPE_ON_STACK;
     ir.assign.lhs.deref = 0;
     ir.assign.lhs.reg_sz = 8;
     ir.assign.lhs.on_stack_type = ON_STACK_SPILL;
+    ir.assign.lhs.is_float = is_float;
+    ir.assign.lhs.is_packed_float = is_packed_float;
     out->emplace_back(ir);
   }
 }
@@ -1338,7 +1342,8 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin,
     GenStackThenIR(lang_stat, ast_bin->e_holder.expr[1], out, &ir.bin.rhs,
                    &ir.bin.rhs);
 
-    if (ir.bin.rhs.type == IR_TYPE_RET_REG) {
+    if (ir.bin.rhs.type == IR_TYPE_RET_REG) 
+    {
       // at the moment not allowing fonction calls at conds
       // ASSERT(false);
       ir_val saved = ir.bin.rhs;
@@ -1353,7 +1358,9 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin,
       if (ir.bin.rhs.is_float) {
         ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
       } else
-        ir.assign.to_assign.reg = AllocReg(lang_stat);
+      {
+        ir.assign.to_assign.reg = ir.bin.rhs.reg;
+      }
 
       out->emplace_back(ir);
       ir.bin.rhs = ir.assign.to_assign;
@@ -1363,10 +1370,10 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin,
     ir.bin.lhs.reg = AllocReg(lang_stat);
     int had_spilled_reg = -1;
 
+    int allocated_reg = -1;
     if (HasCall(lang_stat, ast_bin->e_holder.expr[0]) &&
         ir.bin.rhs.type == IR_TYPE_REG) {
       had_spilled_reg = ir.bin.rhs.reg;
-      int allocated_reg = 1;
       if (ir.bin.rhs.deref >=0)
       {
         ir_rep aux;
@@ -1379,11 +1386,13 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin,
         aux.assign.to_assign.is_float = ir.bin.rhs.is_float;
         if(ir.bin.rhs.is_float)
         {
+
           aux.assign.to_assign.reg = AllocFloatReg(lang_stat);
         }
         else
         {
-          aux.assign.to_assign.reg = AllocReg(lang_stat);
+          aux.assign.to_assign.reg = ir.bin.rhs.reg;
+          //aux.assign.to_assign.reg = AllocReg(lang_stat);
         }
         allocated_reg = aux.assign.to_assign.reg;
         aux.assign.to_assign.reg_sz = 8;
@@ -1395,7 +1404,18 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin,
     }
     GenStackThenIR(lang_stat, ast_bin->e_holder.expr[0], out, &ir.bin.lhs,
                    &ir.bin.lhs);
-    MaybeUnspillRegisters(lang_stat, &had_spilled_reg, out);
+    if(ir.bin.lhs.type == IR_TYPE_RET_REG)
+    {
+      if(ir.bin.rhs.is_float)
+      {
+        had_spilled_reg = AllocFloatReg(lang_stat);
+      }
+      else
+      {
+        //had_spilled_reg = AllocReg(lang_stat);
+      }
+    }
+    MaybeUnspillRegisters(lang_stat, &had_spilled_reg, out, ir.bin.rhs.is_float, ir.bin.rhs.is_packed_float);
 
     if (ir.bin.lhs.ptr > 0 && ir.bin.lhs.deref == 0) {
       ir.bin.lhs.is_float = false;
@@ -4024,7 +4044,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
                      &ir.assign.to_assign);
       ir.assign.to_assign.deref--;
 
-      MaybeUnspillRegisters(lang_stat, &had_spilled_reg, out);
+      MaybeUnspillRegisters(lang_stat, &had_spilled_reg, out, ir.assign.lhs.is_float, ir.assign.lhs.is_packed_float);
 
       // CheckIrValIsPointIncDeref(&ir.assign.to_assign);
       if (IS_FLAG_ON(ir.assign.to_assign.reg_ex, IR_VAL_FROM_POINT) &&

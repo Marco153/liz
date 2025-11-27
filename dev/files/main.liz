@@ -9012,7 +9012,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
           //printf("worker thread: will try to add DONE_UPDATE_CHUNK\n")
           add_thread_work_done(work, &done)
-          WriteFile("../tmp/{chunk_info.pos_x}_{chunk_info.pos_y}_{chunk_info.pos_z}", cast(*u8)working_buffer, chunk_info.total_faces * 4)
+          //WriteFile("../tmp/{chunk_info.pos_x}_{chunk_info.pos_y}_{chunk_info.pos_z}", cast(*u8)working_buffer, chunk_info.total_faces * 4)
 
 /*
           if chunk_info.pos_x == 0 && chunk_info.pos_y == 0 && chunk_info.pos_z == 0
@@ -9170,7 +9170,7 @@ check_work_done::fn(trn : *terrain2)
       printf("main thread: pick up DONE_UPDATE_CHUNK({chunk.pos_x}, {chunk.pos_y}, {chunk.pos_z}), faces {chunk.total_faces}, face_buffer_idx {idx_of_buffer_in_flags}\n")
       working_buffer := ptr_offset(thread_func_info.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx_of_buffer_in_flags, u8)
 
-      WriteFile("../tmp/{chunk.pos_x}_{chunk.pos_y}_{chunk.pos_z}_final", cast(*u8)working_buffer, chunk.total_faces * 4)
+      //WriteFile("../tmp/{chunk.pos_x}_{chunk.pos_y}_{chunk.pos_z}_final", cast(*u8)working_buffer, chunk.total_faces * 4)
 
       UpdateStorageBuffer(chunk.ubo, working_buffer, chunk.total_faces * 4)
 

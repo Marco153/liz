@@ -8896,10 +8896,14 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
     {
       can_create_new_work := true
       ptr : *done_create_chunk_work=?
-      __dbg_break
+
       dequeue_and_enqueue(&work.create_chunk_queue, &work.done_create_chunk_queue, create_chunk_copy, ptr, done_create_chunk_work)
 
-      if !can_create_new_work break;
+      if !can_create_new_work
+      {
+        //printf("worker thread: couldnt do create chunk, cr_ch cur is {work.create_chunk_queue.cur}, cr_ch cur is {work.done_create_chunk_queue.cur}\n")
+        break;
+      }
 
       globals.temp_alloc.cur = 0
 
@@ -8908,7 +8912,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
       z := create_chunk_copy.z
       chunk_idx := get_new_chunk(work.trn, x, y, z)
       chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
-      printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
+      //printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
 
       chunk_info.idx_on_table = chunk_idx
 
@@ -8928,7 +8932,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
       //printf("worker thread: first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
 
-      printf("worker thread: finished CREATE_CHUNK, ch idx {chunk_idx}, dn_cr_ch cur is {work.done_create_chunk_queue.cur}\n")
+      //printf("worker thread: finished CREATE_CHUNK, ch idx {chunk_idx}, dn_cr_ch cur is {work.done_create_chunk_queue.cur}\n")
 
 
     }
@@ -8953,14 +8957,18 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
       }
       else
       {
+        //printf("worker thread: couldnt do UPDATE_CHUNK, face idx {idx}, dn_up_cur {*dn_up_cur}, up_ch_q cur {work.update_chunk_queue.cur}\n")
         can_create_new_work = false
+        if idx != -1
+        {
+            free_face_buffer_idx(work, cast(u8)idx)
+        }
       }
       UnlockMutex(work.update_chunk_queue.mutex)
       UnlockMutex(work.done_update_chunk_queue.mutex)
 
 
       if !can_create_new_work break;
-      __dbg_break
 
       chunk_idx := update_chunk_copy.chunk_idx
       assert(chunk_idx < work.trn.max_chunks)
@@ -8970,7 +8978,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
       //printf("worker thread: update_chunk idx is {idx}\n")
       //__dbg_break
       working_buffer := cast(*u32)ptr_offset(work.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx, u8)
-      printf("worker thread: pick up UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z}), face_buffer idx {idx}, working buffer {cast(u64)working_buffer}\n")
+      //printf("worker thread: pick up UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z}), face_buffer idx {idx}, working buffer {cast(u64)working_buffer}\n")
 
       update_terrain_chunk(0, chunk_info, working_buffer)
 
@@ -8999,7 +9007,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
     //printf("\n")
 
 
-    printf("some work done\n")
+    //printf("some work done\n")
     LockMutex(globals.worker_mutex)
     work.has_work = false
     SignalMutex(globals.worker_mutex)
@@ -9100,7 +9108,7 @@ check_work_done::fn(trn : *terrain2)
   update_ch_ptr : *update_chunk_work
 
 
-  printf("\nmain thread checking works\n")
+  //printf("\nmain thread checking works\n")
   while true
   {
     can_create_new_work := true
@@ -9112,7 +9120,7 @@ check_work_done::fn(trn : *terrain2)
 
     idx := done_create_ch_copy.chunk_idx
 
-    printf("main thread: pick up DONE_CREATE_CHUNK, ch idx {idx}, work addr {cast(u64)&idx}\n")
+    //printf("main thread: pick up DONE_CREATE_CHUNK, ch idx {idx}, work addr {cast(u64)&idx}\n")
     chunk := ptr_offset(trn.chunks_table, idx, terrain_chunk_info)
     chunk.ubo = CreateStorageBuffer()
 
@@ -9125,7 +9133,7 @@ check_work_done::fn(trn : *terrain2)
     //printf("main thread: about to add new work\n")
     //enqueue_fixed(&thread_func_info.update_chunk_queue, &work)
     //add_thread_work_to_do(thread_func_info, &work)
-    printf("main thread: created new work_to_do(UPDATE_CHUNK), idx {cast(u64)update_ch_ptr.chunk_idx}\n")
+    //printf("main thread: created new work_to_do(UPDATE_CHUNK), idx {cast(u64)update_ch_ptr.chunk_idx}\n")
     //assert(*cast(*u32)thread_func_info.work_to_do.start != idx)
     chunk.created = true
 
@@ -9168,9 +9176,10 @@ check_work_done::fn(trn : *terrain2)
   }
   if thread_func_info.update_chunk_queue.cur > 0 || thread_func_info.create_chunk_queue.cur > 0
   {
+    //printf("main thread: signaling has work\n")
     signal_work(thread_func_info)
   }
-  printf("main thread done works\n")
+  //printf("main thread done works\n")
 
   //printf("main thread: UNLOCKED work_done_mutex\n")
 }
@@ -9198,7 +9207,7 @@ continuous_terrain_gen::fn(ctx :*context, trn : *terrain2, start_x : *s32, start
           ptr = ptr_offset(create_ch_q.start, create_ch_q.cur, create_chunk_work)
           create_ch_q.cur++
         }
-        UnlockMutex(create_ch_q.mutex)
+        defer UnlockMutex(create_ch_q.mutex)
 
         if !can_create_new_work return;
           
@@ -10154,8 +10163,8 @@ main_loop::fn(ctx : *context)
     {
       //PrintStr("\n")
     }
-    //if (ctx.frames_total % 1) == 0
-    if IsKeyDown(key_enum.KEY_F6)
+    if (ctx.frames_total % 1) == 0
+    //if IsKeyDown(key_enum.KEY_F6)
     {
       continuous_terrain_gen(ctx, trn_ent.trn, &ch_x, &ch_y, &ch_z)
     }

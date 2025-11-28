@@ -81,7 +81,7 @@ ast_rep *CreateAstBin(lang_state *lang_stat, tkn_type2 op, ast_rep *lhs,
 
   return ret;
 }
-void InsertDeferd(ast_rep **out, scope *scp, bool recursive) {
+void InsertDeferd(ast_rep **out, scope *scp, bool recursive, bool is_break) {
   auto start_func = scp->fdecl;
   while (scp && scp->fdecl == start_func) {
     if (scp->defered.size() > 0) {
@@ -97,6 +97,10 @@ void InsertDeferd(ast_rep **out, scope *scp, bool recursive) {
     }
     if (!recursive)
       return;
+    if(is_break && scp->is_loop)
+    {
+      return;
+    }
     scp = scp->parent;
   }
 }
@@ -407,6 +411,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
     } break;
     case KW_BREAK: {
       ret->type = AST_BREAK;
+      //BREAK(n->t->line == 7400)
+      InsertDeferd(&ret, scp, true, true);
     } break;
     case KW_USING: {
       ret->type = AST_EMPTY;
@@ -463,7 +469,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
         ret->ret.ast = AstFromNode(lang_stat, n->r, scp);
         ret->ret.tp = DescendNode(lang_stat, n->r, scp);
       }
-      InsertDeferd(&ret, scp, true);
+      InsertDeferd(&ret, scp, true, false);
     } break;
     default:
       ASSERT(0);
@@ -481,7 +487,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
       INSERT_VEC(ret->stats, rhs->stats);
     else
       ret->stats.emplace_back(rhs);
-    InsertDeferd(&ret, n->scp, false);
+    InsertDeferd(&ret, n->scp, false, false);
     /*
     if (n->r && n->r->type != N_STMNT && n->r->type != N_IF)
     {
@@ -620,7 +626,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
                                     coroutine_prolegue->stats.end());
     }
 
-    InsertDeferd(&ret->func.stats, scp, false);
+    InsertDeferd(&ret->func.stats, scp, false, false);
 
     lang_stat->cur_func = last;
 

@@ -44,6 +44,117 @@ toggle_flag::fn(out : *u32, flag : u32)
 
 	*out = *out | val_aux
 }
+mutex_fixed_queue:struct(T)
+{
+  start : *T
+  cur : u32
+  max : u32
+  mutex :u32
+  temp_buffer : *T
+	#make_ptr_len(start, cur)
+}
+init_mutex_fixed_queue::fn{T}(q : *mutex_fixed_queue(T), max : u32, alloc : *mem_alloc)
+{
+  q.start = cast(*T)heap_alloc(alloc, max *sizeof(T))
+  q.max   = max
+  q.cur   = 0
+  q.mutex = CreateMutex()
+
+  q.temp_buffer = cast(*T)heap_alloc(alloc, max *sizeof(T))
+}
+can_enqueue_fixed::fn{T}(q : *mutex_fixed_queue(T)) ! bool
+{
+  ret : bool=true
+  LockMutex(q.mutex)
+  if (q.cur + 1) >= q.max 
+  {
+    ret = false
+  }
+  UnlockMutex(q.mutex)
+  return ret
+}
+dequeue_fixed_lock::fn{T}(q : *mutex_fixed_queue(T), out : *T) ! u32
+{
+  ret :u32
+  LockMutex(q.mutex)
+  defer UnlockMutex(q.mutex)
+  if q.cur == 0 return 0
+
+  ret = q.cur
+
+  memcpy(out, q.start, sizeof(T))
+
+  memcpy(q.temp_buffer, q.start, q.cur * sizeof(T))
+  q.cur--;
+
+  src:=ptr_offset(q.temp_buffer, 1, T)
+
+  //first:= ptr_offset(q.start, 0, T)
+  //sec:= ptr_offset(info.work_to_do.start, 1, begin_work_thread)
+  //printf("*****on dequeue: first type prev is {cast(u32)first.type}, sec type {cast(u64)sec.type}, cur {info.work_to_do.cur}\n")
+
+  memcpy(q.start, src, q.cur * sizeof(T))
+
+  //printf("*****on remove worktodo: first type after is {cast(u32)first.type}\n")
+
+
+  return ret
+}
+dequeue_fixed_no_lock::fn{T}(q : *mutex_fixed_queue(T), out : *T) ! u32
+{
+  ret :u32
+  //LockMutex(q.mutex)
+  //defer UnlockMutex(q.mutex)
+  if q.cur == 0 return 0
+
+  ret = q.cur
+
+  memcpy(out, q.start, sizeof(T))
+
+  memcpy(q.temp_buffer, q.start, q.cur * sizeof(T))
+  q.cur--;
+
+  src:=ptr_offset(q.temp_buffer, 1, T)
+
+  //first:= ptr_offset(q.start, 0, T)
+  //sec:= ptr_offset(info.work_to_do.start, 1, begin_work_thread)
+  //printf("*****on dequeue: first type prev is {cast(u32)first.type}, sec type {cast(u64)sec.type}, cur {info.work_to_do.cur}\n")
+
+  memcpy(q.start, src, q.cur * sizeof(T))
+
+  //printf("*****on remove worktodo: first type after is {cast(u32)first.type}\n")
+
+
+  return ret
+}
+enqueue_fixed_lock::fn{T}(q : *mutex_fixed_queue(T), val : *T)
+{
+  LockMutex(q.mutex)
+  assert(q.cur + 1 < q.max)
+
+  ptr := ptr_offset(q.start, q.cur, T)
+  q.cur++
+
+  memcpy(ptr, val, sizeof(T))
+  SignalMutex(q.mutex)
+
+  UnlockMutex(q.mutex)
+
+}
+enqueue_fixed_no_lock::fn{T}(q : *mutex_fixed_queue(T), val : *T)
+{
+  //LockMutex(q.mutex)
+  assert(q.cur + 1 < q.max)
+
+  ptr := ptr_offset(q.start, q.cur, T)
+  q.cur++
+
+  memcpy(ptr, val, sizeof(T))
+  //SignalMutex(q.mutex)
+
+  //UnlockMutex(q.mutex)
+
+}
 LinearInitRawMem::fn{T}(linear_al : *linear_alloc(T), max : u32)
 {
 	linear_al.start = cast(*T)GetMem(max * sizeof(T))

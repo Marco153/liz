@@ -9689,6 +9689,7 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
     }
     */
     DescendNode(lang_stat, n->r, scp);
+    n->r->scp->is_loop = true;
 
   } break;
   case node_type::N_WHILE: {
@@ -9704,6 +9705,7 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
     // checking if the scope isn't zero and descending it
     if (n->r && n->r->r != nullptr) {
       DescendNode(lang_stat, n->r, scp);
+      n->r->scp->is_loop = true;
     }
   } break;
   case node_type::N_DESUGARED: {

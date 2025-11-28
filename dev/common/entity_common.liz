@@ -253,16 +253,24 @@ done_work_thread:etruct
     idx_of_buffer_in_flags : u8
   )
 }
-begin_work_thread:etruct
+done_create_chunk_work:struct
 {
-  CREATE_CHUNK(
-    x : s32
-    y : s32
-    z : s32
-  ),
-  UPDATE_CHUNK(
-    chunk_idx : u32
-  )
+  chunk_idx : u32
+}
+done_update_chunk_work:struct
+{
+  idx_on_chunk_table : u32
+  idx_of_buffer_in_flags : u8
+}
+create_chunk_work:struct
+{
+  x : s32
+  y : s32
+  z : s32
+}
+update_chunk_work:struct
+{
+  chunk_idx : u32
 }
 chunk_thread_info:struct
 {
@@ -272,8 +280,13 @@ chunk_thread_info:struct
   modifying_face_buffers_flags : bool
 
   trn : *terrain2
-  work_to_do : linear_alloc(begin_work_thread)
-  work_done : linear_alloc(done_work_thread)
+
+  create_chunk_queue : mutex_fixed_queue(create_chunk_work)
+  update_chunk_queue : mutex_fixed_queue(update_chunk_work)
+  done_create_chunk_queue : mutex_fixed_queue(done_create_chunk_work)
+  done_update_chunk_queue : mutex_fixed_queue(done_update_chunk_work)
+  //work_to_do : linear_alloc(begin_work_thread)
+  //work_done : linear_alloc(done_work_thread)
   face_buffers : *u8
   face_buffers_flags : u8
   temp_buffer_work_to_do: *u8

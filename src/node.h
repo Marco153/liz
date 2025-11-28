@@ -371,6 +371,7 @@ struct scope
 	own_std::vector<scope *> children;
 	own_std::vector<ast_rep *> defered;
 	own_std::vector<template_to_be_assigned> templs_to_be_assigned;
+  bool is_loop;
 
 	own_std::vector<decl2 *> imports;
 

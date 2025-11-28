@@ -293,8 +293,8 @@ LookAtPlayerEnts::fn(ctx : *scene_info, drw_set : *draw_settings)
 	}
 }
 
-DRAW_BUFFER_MAX_COUNT:const s32= 256
-DRAW_BUFFER_MAX_SIZE:const s32= 1024 * 32
+DRAW_BUFFER_MAX_COUNT:const s32= 512
+DRAW_BUFFER_MAX_SIZE:const s32= 1024 * 256
 
 get_transparents_offset_ptr ::fn(size : u32)!*object_draw_info
 {

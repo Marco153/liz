@@ -3,6 +3,8 @@
 layout(std140) uniform ubo {
     mat4 view;
     mat4 proj;
+    vec4 sun_dir;
+    vec4 sun_color;
 } UBO;
 
 layout(std140) uniform _model {
@@ -14,6 +16,7 @@ layout(std430, binding = 0) buffer faces {
 } FACES;
 out vec3 frag_pos;
 out vec2 out_uv;
+out vec3 normal;
 const vec3 face_offsets[6 * 6] = vec3[](
     // ============================================================
     // +X (RIGHT)
@@ -90,6 +93,8 @@ void main()
     vec3 world_pos = (MODEL.mod * vec4(local_vertex,1.0)).xyz;
     frag_pos = world_pos;
     out_uv = faces_uvs[corner_index];
+
+    normal = face_normals[face_dir];
 
     gl_Position =  UBO.proj * UBO.view * vec4(world_pos.xyz, 1.0);
 }

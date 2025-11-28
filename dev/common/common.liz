@@ -138,6 +138,8 @@ scene_draw_info:struct
   cam_pos : _vec
   cam_rot : _vec
   cam_fw : _vec
+  sun_dir : _vec
+  sun_color : _vec
   cam_size : f32
 
   count_opaques : u32

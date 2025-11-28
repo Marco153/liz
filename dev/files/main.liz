@@ -1201,6 +1201,23 @@ FreeArrayOfEnts::fn(ar : *dyn_array(*entity))
 	}
 }
 
+max2 :: fn(a : s32, b : s32) ! s32
+{
+	if a > b return a;
+	return b;
+}
+max2 :: fn(a : u32, b : u32) ! u32
+{
+	if a > b return a;
+	return b;
+}
+max2 :: fn(a : f32, b : f32) ! f32
+{
+	if a > b return a;
+	return b;
+}
+
+
 min :: fn(a : s32, b : s32) ! s32
 {
 	if a < b return a;
@@ -5233,12 +5250,15 @@ find_keyframe::fn(ar : *dyn_array(keyframe_psr), time : f32, start : u64) ! u64
 		ret++
 	}
 	ret--
+  // WTF_MAN
   // IM NOT JOKING IM GOING INSANE
   // after hours of debug, and days of tolarating a fucking hicup in the game
   // i discovered that i have to print a newline here?????????????????????????????????????????????
-  // this has to be either a clang or OS bug
+  // this has to be either a clang or OS bug, or a bug in my compiler, idk
+  // maybe this is an OS scheduler problem?
+  // maybe a syncronisation issue with the renderer? 
   // DONT REMOVE THIS FOR NOW
-  PrintStr("\n")
+  //PrintStr("\n")
   if ret < 0 ret = 0
   
 
@@ -7123,15 +7143,17 @@ get_new_chunk::fn(trn :*terrain2, x : s32, y : s32, z :s32)!u32
 {
   ret :u32
   
+  //__dbg_break
   i :u32
+  aux := hash32_triplet(cast(u32)x, cast(u32)y, cast(u32)z)  
+  ret = aux % trn.max_chunks
   while true
   {
-    aux := hash32_triplet(cast(u32)x, cast(u32)y, cast(u32)z)  
-    ret = aux % trn.max_chunks
-    test := ptr_offset(trn.chunks_table, ret, terrain_chunk_info)
+    test := ptr_offset(trn.chunks_table, ret + i, terrain_chunk_info)
     if test.in_use == false
     {
       test.in_use = true
+      ret += i
       break
     }
     if i >= 16
@@ -7147,7 +7169,7 @@ get_new_chunk::fn(trn :*terrain2, x : s32, y : s32, z :s32)!u32
 update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buffer : *u32)! u32
 {
   print_info:= 0
-  printf("started updating\n")
+  //printf("started updating\n")
 
   faces_added:u32
 
@@ -7280,7 +7302,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
     printf("too many faces added, {faces_added}\n")
     ASSERT(false)
   }
-  printf("ended updating\n")
+  //printf("ended updating\n")
   out.total_faces = faces_added
   return faces_added
 }
@@ -7321,7 +7343,7 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
   }
 
   //__dbg_break
-  printf("terrain chunk generated")
+  printf("terrain chunk generated\n")
 
 
 }
@@ -8947,20 +8969,14 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
     done:done_work_thread=?
 
 
-    work_to_do_count := get_work_to_do_count(work)
+    copy:begin_work_thread=?
+    work_to_do_count := get_work_to_do_count(work, &copy)
     globals.temp_alloc.cur = 0
     //printf("worker thread: unlocked!! total_work_to_do {work_to_do_count}\n")
     //printf("\n")
     if work_to_do_count > 0
     {
       //printf("worker thread: will lock work_to_do_mutex\n")
-      LockMutex(globals.modifying_work_to_do_mutex)
-      //__dbg_break
-      copy:begin_work_thread=?
-      memcpy(&copy, work.work_to_do.start, sizeof(begin_work_thread))
-
-      //copy := *work.work_to_do.start
-      UnlockMutex(globals.modifying_work_to_do_mutex)
 
       //printf("worker thread: locked work_to_do_mutex, first work type {cast(u32)copy.type}\n")
 
@@ -8972,8 +8988,8 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         y := copy.CREATE_CHUNK.y
         z := copy.CREATE_CHUNK.z
         chunk_idx := get_new_chunk(work.trn, x, y, z)
-        //printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}\n")
         chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
+        printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
 
         chunk_info.idx_on_table = chunk_idx
 
@@ -9002,7 +9018,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
           //printf("worker thread: update_chunk idx is {idx}\n")
           //__dbg_break
           working_buffer := cast(*u32)ptr_offset(work.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx, u8)
-          printf("worker thread: pick up UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z}), face_buffer idx {idx}, working buffer {cast(u64)working_buffer}\n")
+          //printf("worker thread: pick up UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z}), face_buffer idx {idx}, working buffer {cast(u64)working_buffer}\n")
 
           update_terrain_chunk(0, chunk_info, working_buffer)
 
@@ -9026,7 +9042,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
           //printf("worker thread: will try to remove work_to_do\n")
           remove_thread_work_to_do(work, 0)
-          printf("worker thread: finished UPDATE_CHUNK, faces {chunk_info.total_faces}\n")
+          //printf("worker thread: finished UPDATE_CHUNK, faces {chunk_info.total_faces}\n")
         }
         else
         {
@@ -9043,7 +9059,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
       }
     }
 
-    work_to_do_count = get_work_to_do_count(work)
+    work_to_do_count = get_work_to_do_count(work, &copy)
 
     if work_to_do_count == 0
     {
@@ -9073,7 +9089,7 @@ signal_work::fn(thread_func_info : *chunk_thread_info)
   thread_func_info.has_work = true
   SignalMutex(globals.worker_mutex)
   UnlockMutex(globals.worker_mutex)
-  printf("main thread: signaled has work\n")
+  //printf("main thread: signaled has work\n")
 }
 free_face_buffer_idx::fn(info : *chunk_thread_info, bit_idx : u8)
 {
@@ -9120,22 +9136,24 @@ get_available_face_buffer_idx::fn(info : *chunk_thread_info) ! s8
 
   return -1
 }
-get_work_to_do_count::fn(thread_func_info : *chunk_thread_info)!u32
+get_work_to_do_count::fn(thread_func_info : *chunk_thread_info, out : *begin_work_thread)!u32
 {
   ret :u32= 0
 
   LockMutex(globals.modifying_work_to_do_mutex)
   ret = thread_func_info.work_to_do.cur
+  memcpy(out, thread_func_info.work_to_do.start, sizeof(begin_work_thread))
   UnlockMutex(globals.modifying_work_to_do_mutex)
 
   return ret
 }
-get_work_done_count::fn(thread_func_info : *chunk_thread_info)!u32
+get_work_done_count::fn(thread_func_info : *chunk_thread_info, out : *done_work_thread)!u32
 {
   ret :u32= 0
 
   LockMutex(globals.modifying_work_done_mutex)
   ret = thread_func_info.work_done.cur
+  memcpy(out, thread_func_info.work_done.start, sizeof(done_work_thread))
   UnlockMutex(globals.modifying_work_done_mutex)
 
   return ret
@@ -9144,7 +9162,8 @@ check_work_done::fn(trn : *terrain2)
 {
   thread_func_info:= &trn.thread_func_info
 
-  work_done_count := get_work_done_count(thread_func_info)
+  done :done_work_thread=?
+  work_done_count := get_work_done_count(thread_func_info, &done)
 
   if work_done_count == 0 return 
 
@@ -9154,9 +9173,6 @@ check_work_done::fn(trn : *terrain2)
   {
     //globals.temp_alloc.cur = 0;
     //printf("main thread: LOCKED work_done_mutex\n")
-    LockMutex(globals.modifying_work_done_mutex)
-    done := *thread_func_info.work_done.start
-    UnlockMutex(globals.modifying_work_done_mutex)
     printf("\n")
 
     on done.type
@@ -9167,7 +9183,7 @@ check_work_done::fn(trn : *terrain2)
       idx_of_buffer_in_flags := done.DONE_UPDATE_CHUNK.idx_of_buffer_in_flags
 
       chunk := ptr_offset(trn.chunks_table, idx, terrain_chunk_info)
-      printf("main thread: pick up DONE_UPDATE_CHUNK({chunk.pos_x}, {chunk.pos_y}, {chunk.pos_z}), faces {chunk.total_faces}, face_buffer_idx {idx_of_buffer_in_flags}\n")
+      //printf("main thread: pick up DONE_UPDATE_CHUNK({chunk.pos_x}, {chunk.pos_y}, {chunk.pos_z}), faces {chunk.total_faces}, face_buffer_idx {idx_of_buffer_in_flags}\n")
       working_buffer := ptr_offset(thread_func_info.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx_of_buffer_in_flags, u8)
 
       //WriteFile("../tmp/{chunk.pos_x}_{chunk.pos_y}_{chunk.pos_z}_final", cast(*u8)working_buffer, chunk.total_faces * 4)
@@ -9206,6 +9222,7 @@ check_work_done::fn(trn : *terrain2)
       //__dbg_break
       add_thread_work_to_do(thread_func_info, &work)
       //printf("main thread: created new work_to_do(UPDATE_CHUNK)\n")
+      chunk.created = true
 
       signal_work(thread_func_info)
       
@@ -9217,15 +9234,52 @@ check_work_done::fn(trn : *terrain2)
     remove_thread_work_done(thread_func_info, 0)
     //printf("main thread: removed work_done, cur is {thread_func_info.work_done.cur}\n")
 
-    work_done_count = get_work_done_count(thread_func_info)
+    work_done_count = get_work_done_count(thread_func_info, &done)
     if work_done_count == 0
     {
       printf("main thread: no more work_done\n")
+      //__dbg_break
       break
     }
 
   }
   //printf("main thread: UNLOCKED work_done_mutex\n")
+}
+continuous_terrain_gen::fn(ctx :*context, trn : *terrain2, start_x : *s32, start_y : *s32, start_z : *s32)
+{
+  thread_func_info := &trn.thread_func_info
+  generated :u32
+  while *start_y < 3
+  {
+    while *start_z < 16
+    {
+      while *start_x < 16
+      {
+        work :begin_work_thread
+        work.type = begin_work_thread.CREATE_CHUNK
+        work.CREATE_CHUNK.x = *start_x * CHUNK_SIZE
+        work.CREATE_CHUNK.y = *start_y * CHUNK_SIZE
+        work.CREATE_CHUNK.z = *start_z * CHUNK_SIZE
+
+        add_thread_work_to_do(thread_func_info, &work)
+
+        printf("x {*start_x}, y {*start_y}, z {*start_z}\n")
+
+        generated++
+
+        *start_x = *start_x + 1
+
+        if generated >= 16 return
+      }
+      *start_z = *start_z + 1
+
+      *start_x = 0;
+    }
+
+    *start_y = *start_y + 1
+
+    *start_z = 0;
+  }
 }
 init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem_alloc)
 {
@@ -9238,37 +9292,43 @@ init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem
   thread_func_info.trn = trn
   thread_func_info.face_buffers = cast(*u8)heap_alloc(alloc, FACES_BUFFER_MAX_SIZE * 4)
 
-  LinearInit(&thread_func_info.work_to_do, alloc, 128)
-  LinearInit(&thread_func_info.work_done, alloc, 128)
+  max_works :u32= 1024
 
-  thread_func_info.temp_buffer = cast(*u8)heap_alloc(alloc, 1024 * 2);
+  LinearInit(&thread_func_info.work_to_do, alloc, max_works)
+  LinearInit(&thread_func_info.work_done, alloc, max_works)
+
+  
+  bigger_size :u32= cast(u32)max2(sizeof(begin_work_thread), sizeof(done_work_thread))
+
+  thread_func_info.temp_buffer = cast(*u8)heap_alloc(alloc, (max_works + 8) * bigger_size);
 
   thread_id := CreateThread(chunk_thread_worker, thread_func_info)
 
   printf("main thread: worker created\n")
-
-  for y in 0..2
+  /*
+  for z in 0..4
   {
-    for z in 0..2
+    for x in 0..16 
     {
-      for x in 0..2
-      {
-        work :begin_work_thread
-        work.type = begin_work_thread.CREATE_CHUNK
-        work.CREATE_CHUNK.x = cast(s32)x * CHUNK_SIZE
-        work.CREATE_CHUNK.y = cast(s32)y * CHUNK_SIZE
-        work.CREATE_CHUNK.z = cast(s32)z * CHUNK_SIZE
-        add_thread_work_to_do(thread_func_info, &work)
-      }
+      work :begin_work_thread
+      work.type = begin_work_thread.CREATE_CHUNK
+      work.CREATE_CHUNK.x = cast(s32)x * CHUNK_SIZE
+      work.CREATE_CHUNK.y = 0
+      work.CREATE_CHUNK.z = cast(s32)z * CHUNK_SIZE
+
+      add_thread_work_to_do(thread_func_info, &work)
     }
   }
+  */
+
+
 
 
   printf("first chunk added\n")
 
   signal_work(thread_func_info)
   //printf("main thread: will wait for work done\n")
-  wait_for_work_done(thread_func_info)
+  //wait_for_work_done(thread_func_info)
   //printf("main thread: woke up\n")
 
 
@@ -9284,6 +9344,16 @@ init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem
   //
 
    
+}
+show_terrain_2::fn(trn : *terrain2)
+{
+  idx := 2 * 16 + 7
+  cur :*terrain_chunk_info
+  if idx < cast(s32)trn.chunks_enabled.count
+  {
+    cur = *trn.chunks_enabled[cast(u64)idx]
+  }
+  OpenLocalsWindow(__LINE__)
 }
 
 main_loop::fn(ctx : *context)
@@ -9305,7 +9375,7 @@ main_loop::fn(ctx : *context)
 
   drw_set := new_ptr(draw_settings)
   memset(drw_set, 0 , sizeof(draw_settings))
-  for i in 0..5
+  for i in 0..2
   {
     scn := ctx.scenes[cast(u64)i]
     scn.name = new_str_lit(ctx.alloc, "alloc_{i}")
@@ -9834,7 +9904,7 @@ main_loop::fn(ctx : *context)
   ctx.cur_scn.trn_ent = trn_ent
   //__dbg_break
 
-  init_terrain2(ctx, trn_ent.trn, 512, ctx.alloc)
+  init_terrain2(ctx, trn_ent.trn, 2058, ctx.alloc)
 
 
 
@@ -9947,6 +10017,8 @@ main_loop::fn(ctx : *context)
 	y_axis_ent := new_axis_ent(ctx.scenes[0], "y_axis", &_vec{0.2, 1.0, 0.2}, &_vec{0.0, 1.0, 0.0, 1.0})
 	z_axis_ent := new_axis_ent(ctx.scenes[0], "z_axis", &_vec{0.2, 0.2, 1.0}, &_vec{0.0, 0.0, 1.0, 1.0})
 
+  //AddMemoryWatch(z_axis_ent.cols.data)
+
 	ctx.x_axis_ent = x_axis_ent
 	ctx.y_axis_ent = y_axis_ent
 	ctx.z_axis_ent = z_axis_ent
@@ -10052,8 +10124,8 @@ main_loop::fn(ctx : *context)
 
 	out_verts_count:u32
 	out_indices_count:u32
-	drw_set.sun_color = _vec{1.0, 0.6, 0.3, 1.0}
-	drw_set.sun_dir = normalize_vec(&_vec{0.5, 0.2, 0.5, 0.0})
+	drw_set.sun_color = _vec{1.0, 1.0, 1.0, 1.0}
+	drw_set.sun_dir = normalize_vec(&_vec{0.5, 1.0, 0.5, 0.0})
 	
 	//CopyDataFromModel(2, ctx.aux_vertices, globals.aux_vertices_sz, ctx.aux_indices, ctx.aux_indices_sz, &out_verts_count, &out_indices_count)
 
@@ -10114,9 +10186,28 @@ main_loop::fn(ctx : *context)
   */
   in_pause_mode := false
 
+  first_frame := true
+  ch_x :s32
+  ch_y :s32
+  ch_z :s32
+  ctx.editor_cam = true
 	while !ShouldClose(ctx.window)
 	{
+    // search for WTF_MAN in this file to see why this loop is here. dont remove it
+    for i in 0..128
+    {
+      PrintStr("\n")
+    }
+    if (ctx.frames_total % 15) == 0
+    {
+      continuous_terrain_gen(ctx, trn_ent.trn, &ch_x, &ch_y, &ch_z)
+    }
+    //show_terrain_2(trn_ent.trn)
+    //first_frame = false
+
     check_work_done(trn_ent.trn)
+    first_chnk := trn_ent.trn.chunks_table
+
     can_step := false
     if IsKeyDown(key_enum.KEY_F11)
     {
@@ -10233,7 +10324,7 @@ main_loop::fn(ctx : *context)
 		}
 		if ctx.editor_cam
 		{
-			check_if_any_models_file_changed()
+			//check_if_any_models_file_changed()
 			//printf("model {ctx.grid_ent.model}\n")
 			if IsKeyHeld(key_enum.KEY_LCTRL) && IsKeyDown(key_enum.KEY_S)
 			{
@@ -11108,6 +11199,10 @@ main_loop::fn(ctx : *context)
         div := cast(f32)in_scenes.count
         dt = dt / div
         //printf("div {div}, s {s.name}\n")
+        if first_chnk.in_use
+        {
+          //printf("chunk blocks ar addr {cast(*u64)first_chnk}\n")
+        }
         if in_pause_mode && can_step || !in_pause_mode
         {
           PhysicsUpdate(*s, dt)
@@ -11434,7 +11529,10 @@ main_loop::fn(ctx : *context)
     scn.cam_rot = *drw_set.cam_rot
     scn.cam_fw = *drw_set.cam_forward
     scn.cam_size = drw_set.cam_size
+    scn.sun_dir = drw_set.sun_dir
+    scn.sun_color = drw_set.sun_color
     ctx.has_block_selection = true
+
     if ctx.has_block_selection
     {
       total_size:u32= 64
@@ -11810,7 +11908,7 @@ main:: fn(){
 	ctx.tedit.terrain_height_max = 65000.0
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.terrain_alloc, 10);
-	InitMemAlloc(&ctx.main_alloc, 458600);
+	InitMemAlloc(&ctx.main_alloc, 858600);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 17000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	InitMemAlloc(&ctx.ent_name_string_alloc, 16000);

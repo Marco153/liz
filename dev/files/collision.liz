@@ -1653,6 +1653,7 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
     r2 := r * r
     
     d := dot_vec(&dir, &dir)
+    diff_h := r2 - d
 
     in_col_horizontal := r2 > d
 
@@ -1683,8 +1684,9 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
     
     // top face
     //printf("begin \n")
-    if y_cur_down < y_up_limit && in_col_horizontal && in_col_vertical && y_cur_down > bp.y
+    if y_cur_down < y_up_limit && in_col_horizontal && in_col_vertical && y_cur_down > bp.y && diff_h > 0.01
     {
+      //printf("diff_h {diff_h}\n")
       //print_vec(block_pos)
       *face_dir = FACE_UP
       aux := absf(y_up_limit - y_cur_down)
@@ -1747,6 +1749,13 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
           //printf("x path\n")
           normal.y = 0.0
           normal.z = 0.0
+          if _x < 0.0
+          {
+            *face_dir = FACE_LEFT
+          }
+          else
+            *face_dir = FACE_RIGHT;
+
         }
         else
         {
@@ -1754,6 +1763,12 @@ resolve_collision_with_block::fn(ent : *entity, block_pos : *_vec, face_dir : *u
           normal.x = 0.0
           normal.y = 0.0
           normal.z = -dir.z
+          if _z < 0.0
+          {
+            *face_dir = FACE_BACK
+          }
+          else
+            *face_dir = FACE_FORWARD;
 
         }
         collided = true
@@ -2184,13 +2199,18 @@ PhysicsUpdate::fn(ctx : *scene_info, dt : f32)
       }
     }
   }
+  //__dbg_break
+  u := 0
 	for e in ctx.bodies
 	{
     if e.cols.count == 0 continue
 
 		c1 := e.cols[0]
 		c1.no_rotation_ent = is_flag_on(e.flags, ENTITY_NO_ROTATION_ON_COLLISION)
+    //printf("u {u}\n")
+    u++
 	}
+  //__dbg_break
 	steps := 1
 
 	globals.tris_checked = 0

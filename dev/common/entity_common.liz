@@ -233,6 +233,7 @@ block_type:enum
 terrain_chunk_info:struct
 {
   in_use : bool
+  created : bool
   pos_x:s32
   pos_y:s32
   pos_z:s32
@@ -301,6 +302,7 @@ fmix32::fn( h:u32)!u32
 }
 hash32_triplet::fn(x:u32,  y:u32, z:u32) !u32
 {
+    
     h :u32= 0;
 
     aux := x * 0x9E3779B9;
@@ -322,7 +324,7 @@ get_existing_chunk::fn(trn :*terrain2, x : s32, y : s32, z :s32)!s32
   {
     ch := cast(*terrain_chunk_info)ptr_offset(trn.chunks_table, i + idx, terrain_chunk_info)
 
-    if ch.pos_x == x && ch.pos_y == y && ch.pos_z == z
+    if ch.created && ch.pos_x == x && ch.pos_y == y && ch.pos_z == z
     {
       return cast(s32)(i + idx)
     }

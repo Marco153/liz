@@ -40,6 +40,7 @@ void ExitProcess(int val) {
   *(int *)0 = 0;
   _exit(val);
 }
+
 #else
 #include <dsound.h>
 #include <sndfile.h> // Library for reading WAV files
@@ -576,6 +577,8 @@ struct scene_draw_info
   v4 cam_pos;
   v4 cam_rot;
   v4 cam_fw;
+  v4 sun_dir;
+  v4 sun_color;
   float cam_size;
 
   int count_opaques;
@@ -772,6 +775,7 @@ struct open_gl_state {
   u32 depthTex;
   u32 offscreenFBO;
   u32 offscreenTex;
+  u32 offscreenNormalTex;
 
   int scroll;
 
@@ -4722,6 +4726,23 @@ int LoadSpriteSheet(dbg_state *dbg, own_std::string sp_file_name,
   }
   return tex_id;
 }
+own_std::string GetCurrentDirectory()
+{
+#ifdef LINUX
+  u32 read;
+  char buf[1024];
+  if (getcwd(buf, sizeof(buf)) != NULL)
+      printf("Current dir: %s\n", buf);
+  else
+      perror("getcwd");
+  return buf;
+
+#else
+  ASSERT(false)
+
+#endif
+
+}
 
 void ReadFileInterp(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
@@ -4868,14 +4889,23 @@ struct create_mesh_info {
   u64 attribs_offset;
   int attribs_count;
 };
+struct ubo_struct
+{
+  Mat4 view;
+  Mat4 proj;
+  v4 sun_dir;
+  v4 sun_color;
+};
 void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool depth_only)
 {
-  Mat4 global_ubo[2];
+  ubo_struct global_ubo;
   auto gl_state = (open_gl_state *)dbg->data;
 
-  memcpy(global_ubo, gl_state->view, 64);
+  memcpy(&global_ubo.view, gl_state->view, 64);
   //mat4_transpose_inplace((float *)global_ubo)
-  memcpy(&global_ubo[1], gl_state->projection, 64);
+  memcpy(&global_ubo.proj, gl_state->projection, 64);
+  global_ubo.sun_color = draw->sun_color;
+  global_ubo.sun_dir = draw->sun_dir;
 
   int *opaques_offset_idxs = (int *)(draw + 1);
   glBindBuffer(GL_UNIFORM_BUFFER, gl_state->global_ubo_buffer);
@@ -4938,7 +4968,7 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
 
 
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer);
-    glBufferSubData(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer_size, global_ubo);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, gl_state->global_ubo_buffer_size, &global_ubo);
 
     //GL_CALL(glBindBuffer(GL_UNIFORM_BUFFER, _sh->model_ubo_buffer));
     glBindBufferBase(GL_UNIFORM_BUFFER, 1, _sh->model_ubo_buffer);
@@ -5037,9 +5067,13 @@ void Draw3D2(int thread_id, dbg_state *dbg) {
   glActiveTexture(GL_TEXTURE0 + 1);
   glBindTexture(GL_TEXTURE_2D, gl_state->depthTex);
 
+  glActiveTexture(GL_TEXTURE0 + 2);
+  glBindTexture(GL_TEXTURE_2D, gl_state->offscreenNormalTex);
+
   // set sampler uniform
   glUniform1i(glGetUniformLocation(gl_state->to_screen_shader, "uScene"), 0);
   glUniform1i(glGetUniformLocation(gl_state->to_screen_shader, "uDepth"), 1);
+  glUniform1i(glGetUniformLocation(gl_state->to_screen_shader, "uNormal"), 2);
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_CULL_FACE);
 
@@ -5047,6 +5081,12 @@ void Draw3D2(int thread_id, dbg_state *dbg) {
   glUniform1f(loc, gl_state->near_plane);
   loc = glGetUniformLocation(gl_state->to_screen_shader, "uFar");
   glUniform1f(loc, gl_state->far_plane);
+
+  loc = glGetUniformLocation(gl_state->to_screen_shader, "sun_color");
+  glUniform4f(loc, draw->sun_color.x, draw->sun_color.y, draw->sun_color.z, draw->sun_color.w);
+  loc = glGetUniformLocation(gl_state->to_screen_shader, "sun_dir");
+  glUniform4f(loc, draw->sun_dir.x, draw->sun_dir.y, draw->sun_dir.z, draw->sun_dir.w);
+
 
   // draw fullscreen triangle with vertex IDs
   glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -7163,7 +7203,8 @@ void CompileShader2(int thread_id, dbg_state *dbg) {
 
   *ret = idx;
 }
-void CreateFrameBuffer(dbg_state *dbg, u32 *fbo, u32 *texture, int internal_format, int format, int type, int attachment_type)
+
+void CreateFrameBuffer(dbg_state *dbg, u32 *fbo, u32 *texture, u32 *normal_texture, int internal_format, int format, int type, int attachment_type)
 {
 
   auto gl_state = (open_gl_state *)dbg->data;
@@ -7201,6 +7242,18 @@ void CreateFrameBuffer(dbg_state *dbg, u32 *fbo, u32 *texture, int internal_form
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24,
                 gl_state->width, gl_state->height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, offDepth, 0);
+
+    glGenTextures(1, normal_texture);
+    glBindTexture(GL_TEXTURE_2D, *normal_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, gl_state->width, gl_state->height, 0,
+                GL_RGBA, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    // Attach the texture to the framebuffer's color attachment
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D,
+                          *normal_texture, 0);
+    GLenum bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, bufs);
   }
   auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 
@@ -7212,6 +7265,11 @@ void CreateFrameBuffer(dbg_state *dbg, u32 *fbo, u32 *texture, int internal_form
 
   // Unbind the framebuffer for now
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+void CreateAllFrameBuffers(dbg_state *dbg, open_gl_state *gl_state)
+{
+  CreateFrameBuffer(dbg, &gl_state->depthFBO, &gl_state->depthTex, nullptr, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_FLOAT, GL_DEPTH_ATTACHMENT);
+  CreateFrameBuffer(dbg, &gl_state->offscreenFBO, &gl_state->offscreenTex, &gl_state->offscreenNormalTex, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_COLOR_ATTACHMENT0);
 }
 void CreateShaderAndDepthOnly(dbg_state *dbg, char *shader_name, char *vs_str, char *fs_str)
 {
@@ -7260,20 +7318,15 @@ void CreateShaderAndDepthOnly(dbg_state *dbg, char *shader_name, char *vs_str, c
   enable_shader_uniforms(gl_state, h->sh, h->sh->id);
   enable_shader_uniforms(gl_state, h->sh, h->sh->depth_only_shader);
 
-
 }
+
 void Init3D(dbg_state *dbg) {
     printf("GL version: %s\n", glGetString(GL_VERSION));
   auto gl_state = (open_gl_state *)dbg->data;
 
-  u32 read;
-  char buf[1024];
-  if (getcwd(buf, sizeof(buf)) != NULL)
-      printf("Current dir: %s\n", buf);
-  else
-      perror("getcwd");
 
-  own_std::string cur_cwd = buf;
+  u32 read;
+  own_std::string cur_cwd = GetCurrentDirectory();
   own_std::string cur_file = cur_cwd + "/../dev/builtin_materials/chunk_vs.glsl";
   char *chunk_vs_str = ReadEntireFileLang(cur_file.c_str(), &read);
 
@@ -7422,7 +7475,7 @@ void Init3D(dbg_state *dbg) {
 	}\
 	";
 
-  gl_state->global_ubo_buffer_size = 128;
+  gl_state->global_ubo_buffer_size = sizeof(ubo_struct);
   glGenBuffers(1, (u32 *)&gl_state->global_ubo_buffer);
   glBindBuffer(GL_UNIFORM_BUFFER, gl_state->global_ubo_buffer);
   glBufferData(GL_UNIFORM_BUFFER, gl_state->global_ubo_buffer_size, NULL, GL_DYNAMIC_DRAW);
@@ -7506,30 +7559,9 @@ void Init3D(dbg_state *dbg) {
   }\n\
   ";
 
-  const char* screenFragmentShaderSrc =
-  "#version 330 core\n\
-  \n\
-  in vec2 vUV;\n\
-  out vec4 FragColor;\n\
-  \n\
-  uniform sampler2D uScene;\n\
-  uniform sampler2D uDepth;\n\
-  uniform float uNear;\n\
-  uniform float uFar;\n\
-  float LinearizeDepth(float depth){\n\
-      // depth is [0..1] non-linear depth buffer value\n\
-      float z = depth * 2.0 - 1.0;           // Back to NDC\n\
-      return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear));\n\
-  }\n\
-  \n\
-  void main() {\n\
-    float depth = texture(uDepth, vUV).r;\n\
-    float linear = LinearizeDepth(depth);\n\
-    float viewZ01 = (linear - uNear) / (uFar - uNear);\n\
-    FragColor = vec4(vec3(viewZ01), 1.0);\n\
-    FragColor = texture(uScene, vUV);\n\
-  }\n\
-  ";
+
+  const char* screenFragmentShaderSrc = ReadEntireFileLang((cur_cwd + "/../dev/builtin_materials/to_screen.fs").c_str(), &read);
+
   shaderProgram = glCreateProgram();
   GLuint screen_vs = compileShader(GL_VERTEX_SHADER, screenVertexShaderSrc);
   GLuint screen_fs = compileShader(GL_FRAGMENT_SHADER, screenFragmentShaderSrc);
@@ -7744,8 +7776,7 @@ void Init3D(dbg_state *dbg) {
   // load and generate the texture
   int width, height, nrChannels;
   */
-  CreateFrameBuffer(dbg, &gl_state->depthFBO, &gl_state->depthTex, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_FLOAT, GL_DEPTH_ATTACHMENT);
-  CreateFrameBuffer(dbg, &gl_state->offscreenFBO, &gl_state->offscreenTex, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_COLOR_ATTACHMENT0);
+  CreateAllFrameBuffers(dbg, gl_state);
 }
 void cursor_position_callback(GLFWwindow *window, double xpos, double ypos) {
   auto gl_state = (open_gl_state *)glfwGetWindowUserPointer(window);
@@ -8570,8 +8601,7 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
     glDeleteBuffers(1,&gl_state->offscreenFBO);
     glDeleteTextures(1, &gl_state->depthTex);
     glDeleteTextures(1, &gl_state->offscreenTex);
-    CreateFrameBuffer(dbg, &gl_state->depthFBO, &gl_state->depthTex, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_FLOAT, GL_DEPTH_ATTACHMENT);
-    CreateFrameBuffer(dbg, &gl_state->offscreenFBO, &gl_state->offscreenTex, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_COLOR_ATTACHMENT0);
+    CreateAllFrameBuffers(dbg, gl_state);
     glViewport(0, 0, gl_state->width, gl_state->height);
     return;
   }
@@ -9405,7 +9435,7 @@ void BroadcastMutexBase(own_mutex *m) {
 void TryLockMutexBase(own_mutex *m) {
 #ifdef LINUX
   if (pthread_mutex_trylock(&m->mutex) == 0) {
-      printf("Acquired lock!\n");
+      //printf("Acquired lock!\n");
 
       // Do your work here
       //pthread_mutex_unlock(&lock);

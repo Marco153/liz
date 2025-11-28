@@ -10157,7 +10157,6 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
 
 		Bc2Logic(thread_id, dbg, rip_ptr, &inc_ptr, &valid, 0);
 
-    /*
     FOR_VEC(m, dbg->mem_watches)
     {
       int cur = *(int *)&dbg->mem_buffer[m->address];
@@ -10178,7 +10177,6 @@ void ThreadFunc(thread_creation *thread, dbg_state *dbg, GLFWwindow *window, byt
       }
       //i++;
     }
-    */
     /*
     func_decl *cur_func = GetFuncBasedOnBc2(dbg, cur_bc);
     stmnt_dbg *cur_st;
@@ -10441,7 +10439,7 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
       //printf("watch cur %d, prev %d\n", cur, m->prev_val);
       if(cur != m->prev_val)
       {
-        HERE()
+        //HERE()
         printf("mem watch triggered: addr %d value was %d, now is %d\n", m->address, m->prev_val, cur);
         breakpoint bp;
         bp.line = 0;

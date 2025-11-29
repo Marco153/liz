@@ -7135,8 +7135,8 @@ make_face_val::fn macro(assign_to : _expr, x : _expr, y: _expr, z : _expr, face_
   assign_to = assign_to | cast(u32)(z << 6)
   assign_to = assign_to | cast(u32)((light) << 9)
   assign_to = assign_to | cast(u32)((face_dir) << 13)
-  //assign_to = assign_to | cast(u32)((tex_x) << 24)
-  //assign_to = assign_to | cast(u32)((tex_y) << 28)
+  assign_to = assign_to | cast(u32)((tex_x) << 24)
+  assign_to = assign_to | cast(u32)((tex_y) << 28)
 }
 remove_new_chunk::fn(trn :*terrain2, id : u32)
 {
@@ -7204,6 +7204,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         // atm we're not doint any lighting, making everything have max light
         *block = *block | (15 << 16)
 
+        block_t = block_t - 1
         x_tex := block_t % 16
         y_tex := block_t / 16
 
@@ -8962,13 +8963,13 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         z := copy.CREATE_CHUNK.z
         chunk_idx := get_new_chunk(work.trn, x, y, z)
         chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
-        printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
+        //printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
 
         chunk_info.idx_on_table = chunk_idx
 
-        printf("worker thread: about to generate generated\n")
+        //printf("worker thread: about to generate generated\n")
         generate_terrain_chunk(x, y, z, chunk_info)
-        printf("worker thread: terrain generated\n")
+        //printf("worker thread: terrain generated\n")
 
         done.type = done_work_thread.DONE_CREATE_CHUNK
         done.DONE_CREATE_CHUNK.chunk_idx = chunk_idx
@@ -8978,14 +8979,14 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         sec:= ptr_offset(work.work_to_do.start, 1, begin_work_thread)
 
         globals.temp_alloc.cur = 0
-        printf("worker thread: about to remove first work to do, first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
+        //printf("worker thread: about to remove first work to do, first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
 
         remove_thread_work_to_do(work, cur)
-        printf("worker thread: first work to do removed\n")
+        //printf("worker thread: first work to do removed\n")
 
         //printf("worker thread: first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
 
-        printf("worker thread: finished CREATE_CHUNK, remaining work_to_do {cast(u64)cur.next}\n")
+        //printf("worker thread: finished CREATE_CHUNK, remaining work_to_do {cast(u64)cur.next}\n")
 
       }
       begin_work_thread.UPDATE_CHUNK
@@ -9001,7 +9002,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
           //printf("worker thread: update_chunk idx is {idx}\n")
           //__dbg_break
           working_buffer := cast(*u32)ptr_offset(work.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx, u8)
-          printf("worker thread: pick up UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z}), face_buffer idx {idx}, working buffer {cast(u64)working_buffer}\n")
+          //printf("worker thread: pick up UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z}), face_buffer idx {idx}, working buffer {cast(u64)working_buffer}\n")
 
           update_terrain_chunk(0, chunk_info, working_buffer)
 
@@ -9025,7 +9026,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
           //printf("worker thread: will try to remove work_to_do\n")
           remove_thread_work_to_do(work, cur)
-          printf("worker thread: finished UPDATE_CHUNK, faces {chunk_info.total_faces}\n")
+          //printf("worker thread: finished UPDATE_CHUNK, faces {chunk_info.total_faces}\n")
         }
         else
         {

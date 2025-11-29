@@ -21,7 +21,7 @@ in vec2 out_uv;
 flat in uvec2 tex_uv;
 uniform sampler2D tex;
 void main(){
-  ivec2 uv = ivec2(out_uv.x * (16.0 ), out_uv.y * 16.0);
+  ivec2 uv = ivec2(out_uv.x * (16.0) + (16 * tex_uv.x), out_uv.y * 16.0 + ((15 - tex_uv.y) * 16));
 
   FragColor =  texelFetch(tex, uv, 0);
   vec3 aux = normal;

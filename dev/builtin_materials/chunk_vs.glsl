@@ -86,6 +86,8 @@ void main()
     uint corner_index = gl_VertexID % 6;
     uint tex_x = (face_in_uniform >> 24) & 0xf;
     uint tex_y = (face_in_uniform >> 28) & 0xf;
+    tex_uv.x = tex_x;
+    tex_uv.y = tex_y;
 
 
     vec3 local_vertex = face_offsets[face_dir * 6 + corner_index];

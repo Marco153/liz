@@ -63,7 +63,6 @@ scene_info:struct
 	items_ents : dyn_array(*entity),
 	terrain_chunks_to_col : dyn_array(*chunk_col_info)
 	to_deactivate: dyn_array(*entity),
-
 	waypoints:dyn_array(waypoint)
 
   draw_col : bool
@@ -395,6 +394,10 @@ context: struct
 
   out_ent : **entity
   //empty_scn : scene_info
+  cur_player_chunk_pos_x : s32
+  cur_player_chunk_pos_y : s32
+  cur_player_chunk_pos_z : s32
+
 }
 add_event::fn(ctx : *context, ev : *engine_event)
 {
@@ -7311,6 +7314,8 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
   out.pos_x = chx
   out.pos_y = chy
   out.pos_z = chz
+  out.only_air_chunk = true
+
 
   for y in 0..CHUNK_SIZE
   {
@@ -7321,9 +7326,13 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
         xf := cast(f32)chx + cast(f32)x
         yf := cast(f32)chy + cast(f32)y
         zf := cast(f32)chz + cast(f32)z
-        //s := Simplex3D(xf, yf, zf)
-        //
-        p:= Perlin2D(xf / 16.0, zf / 16.0, 1.0, 2) * 20.0
+        xf = xf / 16.0
+        //yf = yf / 16.0
+        zf = zf / 16.0
+        s := Simplex3D(xf, yf, zf)
+        p:=Perlin2D(xf, zf, 1.0, 2) * 2.0
+        p2:=Perlin2D(xf*0.1, zf * 0.1, 1.0, 2) * 8.0
+        p += p2
 
         if yf > p
         {
@@ -7332,6 +7341,7 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
         else
         {
           dyn_add(&out.blocks, cast(u16)block_type.STONE)
+          out.only_air_chunk = false
         }
       }
     }
@@ -8844,6 +8854,7 @@ change_ents_visibility_based_on_play_mode::fn(ctx : *context)
       }
       }
     }
+
   }
   else
   {
@@ -8869,8 +8880,28 @@ wait_for_cond_be_val::fn(cond : bool, target : bool, mutex : u32)
     {
       WaitMutex(mutex)
     }
-    LockMutex(mutex)
+    UnlockMutex(mutex)
   }
+}
+remove_thread_work_done::fn(info : *chunk_thread_info, lnk : *linked_chunk)
+{
+  linked_remove(&info.work_done, lnk)
+}
+add_thread_work_done::fn(info : *chunk_thread_info, work : *done_work_thread, line : u32)
+{
+  linked_add(&info.work_done, work, line)
+}
+remove_thread_work_to_do::fn(info : *chunk_thread_info, lnk : *linked_chunk) ! *linked_chunk
+{
+  //__dbg_break
+  return linked_remove(&info.work_to_do, lnk)
+}
+add_thread_work_to_do::fn(info : *chunk_thread_info, work : *begin_work_thread, line : u32)
+{
+  linked_add(&info.work_to_do, work, line)
+
+  signal_work(info)
+
 }
 chunk_thread_worker::fn(thread_id : u32, data : *void)
 {
@@ -8882,138 +8913,139 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
     while !work.has_work
     {
-      printf("worker thread: no work\n")
+      //printf("worker thread: no work\n")
       WaitMutex(globals.worker_mutex)
     }
     //printf("worker thread: has work will unlocked\n")
     UnlockMutex(globals.worker_mutex)
     //printf("worker thread: unlocked!!\n")
 
+    done:done_work_thread=?
 
 
-    create_chunk_copy:create_chunk_work=?
-    while true
-    {
-      can_create_new_work := true
-      ptr : *done_create_chunk_work=?
-
-      dequeue_and_enqueue(&work.create_chunk_queue, &work.done_create_chunk_queue, create_chunk_copy, ptr, done_create_chunk_work)
-
-      if !can_create_new_work
-      {
-        //printf("worker thread: couldnt do create chunk, cr_ch cur is {work.create_chunk_queue.cur}, cr_ch cur is {work.done_create_chunk_queue.cur}\n")
-        break;
-      }
-
-      globals.temp_alloc.cur = 0
-
-      x := create_chunk_copy.x
-      y := create_chunk_copy.y
-      z := create_chunk_copy.z
-      chunk_idx := get_new_chunk(work.trn, x, y, z)
-      chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
-      //printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
-
-      chunk_info.idx_on_table = chunk_idx
-
-      generate_terrain_chunk(x, y, z, chunk_info)
-      //printf("terrain generated\n")
-
-      ptr.chunk_idx = chunk_idx
-
-      //add_thread_work_done(work, &done)
-
-      //first:= ptr_offset(work.work_to_do.start, 0, begin_work_thread)
-      //sec:= ptr_offset(work.work_to_do.start, 1, begin_work_thread)
-
-      //printf("worker thread: about to remove first work to do, first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
-
-      //printf("worker thread: first work to do removed\n")
-
-      //printf("worker thread: first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
-
-      //printf("worker thread: finished CREATE_CHUNK, ch idx {chunk_idx}, dn_cr_ch cur is {work.done_create_chunk_queue.cur}\n")
-
-
-    }
-    update_chunk_copy:update_chunk_work=?
-    while true
-    {
-      can_create_new_work := true
-      ptr : *done_update_chunk_work=?
-
-    
-      LockMutex(work.update_chunk_queue.mutex)
-      LockMutex(work.done_update_chunk_queue.mutex)
-
-      idx := get_available_face_buffer_idx(work)
-
-      dn_up_cur := &work.done_update_chunk_queue.cur
-      if idx != -1 && (*dn_up_cur + 1) < work.done_update_chunk_queue.max && work.update_chunk_queue.cur > 0
-      {
-        dequeue_fixed_no_lock(&work.update_chunk_queue, &update_chunk_copy)
-        ptr = ptr_offset(work.done_update_chunk_queue.start, *dn_up_cur, done_update_chunk_work)
-        *dn_up_cur = *dn_up_cur + 1
-      }
-      else
-      {
-        //printf("worker thread: couldnt do UPDATE_CHUNK, face idx {idx}, dn_up_cur {*dn_up_cur}, up_ch_q cur {work.update_chunk_queue.cur}\n")
-        can_create_new_work = false
-        if idx != -1
-        {
-            free_face_buffer_idx(work, cast(u8)idx)
-        }
-      }
-      UnlockMutex(work.update_chunk_queue.mutex)
-      UnlockMutex(work.done_update_chunk_queue.mutex)
-
-
-      if !can_create_new_work break;
-
-      chunk_idx := update_chunk_copy.chunk_idx
-      assert(chunk_idx < work.trn.max_chunks)
-
-      chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
-
-      //printf("worker thread: update_chunk idx is {idx}\n")
-      //__dbg_break
-      working_buffer := cast(*u32)ptr_offset(work.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx, u8)
-      //printf("worker thread: pick up UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z}), face_buffer idx {idx}, working buffer {cast(u64)working_buffer}\n")
-
-      update_terrain_chunk(0, chunk_info, working_buffer)
-
-      ptr.idx_on_chunk_table = chunk_idx
-      ptr.idx_of_buffer_in_flags = cast(u8)idx
-
-      //printf("worker thread: will try to add DONE_UPDATE_CHUNK\n")
-      //enqueue_fixed(&work.done_update_chunk_queue, &done)
-      //WriteFile("../tmp/{chunk_info.pos_x}_{chunk_info.pos_y}_{chunk_info.pos_z}", cast(*u8)working_buffer, chunk_info.total_faces * 4)
-
-/*
-      if chunk_info.pos_x == 0 && chunk_info.pos_y == 0 && chunk_info.pos_z == 0
-      {
-        ptr := ptr_offset(working_buffer, 58, u8)
-        AddMemoryWatch(ptr)
-      }
-      */
-
-      //printf("worker thread: added DONE_UPDATE_CHUNK\n")
-
-      //printf("worker thread: will try to remove work_to_do\n")
-      //printf("worker thread: finished UPDATE_CHUNK, faces {chunk_info.total_faces}\n")
-    }
-
+    copy:begin_work_thread=?
+    globals.temp_alloc.cur = 0
     //printf("worker thread: unlocked!! total_work_to_do {work_to_do_count}\n")
     //printf("\n")
+    cur := work.work_to_do.start
 
+    while cur != nil
+    {
+      globals.temp_alloc.cur = 0
+      /*
+      can_add_new_work:=true
+      printf("worker thead: attempt to lock work_done on CREATE_CHUNK\n")
+      LockMutex(work.work_done.mutex)
+      if (work.work_done.used_chunks + 1) >= work.work_done.total_chunks 
+        can_add_new_work = false;
+      UnlockMutex(work.work_done.mutex)
+      printf("work thead: unlock work_done on CREATE_CHUNK\n")
 
-    //printf("some work done\n")
+      if !can_add_new_work break;
+      */
+
+      memcpy(&copy, cur.ptr, sizeof(begin_work_thread))
+
+      on copy
+      {
+      begin_work_thread.CREATE_CHUNK
+      {
+        
+        x := copy.CREATE_CHUNK.x
+        y := copy.CREATE_CHUNK.y
+        z := copy.CREATE_CHUNK.z
+        chunk_idx := get_new_chunk(work.trn, x, y, z)
+        chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
+        printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
+
+        chunk_info.idx_on_table = chunk_idx
+
+        printf("worker thread: about to generate generated\n")
+        generate_terrain_chunk(x, y, z, chunk_info)
+        printf("worker thread: terrain generated\n")
+
+        done.type = done_work_thread.DONE_CREATE_CHUNK
+        done.DONE_CREATE_CHUNK.chunk_idx = chunk_idx
+        add_thread_work_done(work, &done, __LINE__)
+
+        first:= ptr_offset(work.work_to_do.start, 0, begin_work_thread)
+        sec:= ptr_offset(work.work_to_do.start, 1, begin_work_thread)
+
+        globals.temp_alloc.cur = 0
+        printf("worker thread: about to remove first work to do, first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
+
+        remove_thread_work_to_do(work, cur)
+        printf("worker thread: first work to do removed\n")
+
+        //printf("worker thread: first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
+
+        printf("worker thread: finished CREATE_CHUNK, remaining work_to_do {cast(u64)cur.next}\n")
+
+      }
+      begin_work_thread.UPDATE_CHUNK
+      {
+
+        //assert(copy.UPDATE_CHUNK.chunk_idx < work.trn.max_chunks)
+
+        chunk_info := ptr_offset(work.trn.chunks_table, copy.UPDATE_CHUNK.chunk_idx, terrain_chunk_info)
+        idx := get_available_face_buffer_idx(work)
+
+        if (idx != -1)
+        {
+          //printf("worker thread: update_chunk idx is {idx}\n")
+          //__dbg_break
+          working_buffer := cast(*u32)ptr_offset(work.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx, u8)
+          printf("worker thread: pick up UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z}), face_buffer idx {idx}, working buffer {cast(u64)working_buffer}\n")
+
+          update_terrain_chunk(0, chunk_info, working_buffer)
+
+          done.type = done_work_thread.DONE_UPDATE_CHUNK
+          done.DONE_UPDATE_CHUNK.idx_on_chunk_table = copy.UPDATE_CHUNK.chunk_idx
+          done.DONE_UPDATE_CHUNK.idx_of_buffer_in_flags = cast(u8)idx
+
+          //printf("worker thread: will try to add DONE_UPDATE_CHUNK\n")
+          add_thread_work_done(work, &done, __LINE__)
+          //WriteFile("../tmp/{chunk_info.pos_x}_{chunk_info.pos_y}_{chunk_info.pos_z}", cast(*u8)working_buffer, chunk_info.total_faces * 4)
+
+/*
+          if chunk_info.pos_x == 0 && chunk_info.pos_y == 0 && chunk_info.pos_z == 0
+          {
+            ptr := ptr_offset(working_buffer, 58, u8)
+            AddMemoryWatch(ptr)
+          }
+          */
+
+          //printf("worker thread: added DONE_UPDATE_CHUNK\n")
+
+          //printf("worker thread: will try to remove work_to_do\n")
+          remove_thread_work_to_do(work, cur)
+          printf("worker thread: finished UPDATE_CHUNK, faces {chunk_info.total_faces}\n")
+        }
+        else
+        {
+          printf("worker thread: no working buffre available UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z})\n")
+
+        }
+      }
+      default
+      {
+        printf("worker thread: unrecognized work {cast(u32)copy.type}\n")
+        __dbg_break
+
+      }
+      }
+      //printf("worker thead: attempt to lock work_to_do\n")
+      LockMutex(work.work_to_do.mutex)
+      cur = cur.next
+      UnlockMutex(work.work_to_do.mutex)
+      //printf("worker thead: unlocked work_to_do\n")
+    }
+
+    //printf("work done\n")
     LockMutex(globals.worker_mutex)
     work.has_work = false
     SignalMutex(globals.worker_mutex)
     UnlockMutex(globals.worker_mutex)
-
-
   }
 }
 wait_for_work_done::fn(thread_func_info : *chunk_thread_info)
@@ -9038,7 +9070,7 @@ free_face_buffer_idx::fn(info : *chunk_thread_info, bit_idx : u8)
 {
   /*
   m1 := globals.worker_mutex
-  m2 := globals.modifying_work_to_do_mutex
+  m2 := info.work_to_do.mutex
   m3 := globals.modifying_work_done_mutex
   m4 := globals.modifying_face_flags_mutex
   __dbg_break
@@ -9079,173 +9111,213 @@ get_available_face_buffer_idx::fn(info : *chunk_thread_info) ! s8
 
   return -1
 }
-dequeue_and_enqueue::fn macro(dequeue_q : _expr, enqueue_q : _expr, dequeue_copy : _expr, enqueue_ptr : _expr, enqueue_type : _expr)
-{
-  LockMutex(dequeue_q.mutex)
-  LockMutex(enqueue_q.mutex)
-  if (enqueue_q.cur + 1) < enqueue_q.max && dequeue_q.cur > 0
-  {
-    dequeue_fixed_no_lock(dequeue_q, &dequeue_copy)
-    enqueue_ptr = ptr_offset(enqueue_q.start, enqueue_q.cur, enqueue_type)
-    enqueue_q.cur++
-  }
-  else
-  {
-    can_create_new_work = false
-  }
-  UnlockMutex(dequeue_q.mutex)
-  defer UnlockMutex(enqueue_q.mutex)
-
-}
 check_work_done::fn(trn : *terrain2)
 {
+  //printf("main thread: begin of work done\n")
   thread_func_info:= &trn.thread_func_info
 
-  update_ch_q := &thread_func_info.update_chunk_queue
-  done_create_ch_q := &thread_func_info.done_create_chunk_queue
+  done :done_work_thread=?
 
-  done_create_ch_copy : done_create_chunk_work=?
-  update_ch_ptr : *update_chunk_work
+  work :begin_work_thread=?
 
+  cur :*linked_chunk= thread_func_info.work_done.start
 
-  //printf("\nmain thread checking works\n")
-  while true
+  while cur
   {
-    can_create_new_work := true
+    //globals.temp_alloc.cur = 0;
+    //printf("main thread: there is done work\n")
+    //printf("\n")
+    memcpy(&done, cur.ptr, sizeof(done_work_thread))
 
-    dequeue_and_enqueue(done_create_ch_q, update_ch_q, done_create_ch_copy, update_ch_ptr, update_chunk_work)
+    //cur :=thread_func_info.work_to_do
 
-
-    if !can_create_new_work break;
-
-    idx := done_create_ch_copy.chunk_idx
-
-    //printf("main thread: pick up DONE_CREATE_CHUNK, ch idx {idx}, work addr {cast(u64)&idx}\n")
-    chunk := ptr_offset(trn.chunks_table, idx, terrain_chunk_info)
-    chunk.ubo = CreateStorageBuffer()
-
-    //printf("main thread: creating work for UPDATE_CHUNK\n")
-    //wupda/__dbg_break
-    //
-    update_ch_ptr.chunk_idx = idx
-
-    //__dbg_break
-    //printf("main thread: about to add new work\n")
-    //enqueue_fixed(&thread_func_info.update_chunk_queue, &work)
-    //add_thread_work_to_do(thread_func_info, &work)
-    //printf("main thread: created new work_to_do(UPDATE_CHUNK), idx {cast(u64)update_ch_ptr.chunk_idx}\n")
-    //assert(*cast(*u32)thread_func_info.work_to_do.start != idx)
-    chunk.created = true
-
-    signal_work(thread_func_info)
-
-  }
-
-  done_update_chunk_copy:done_update_chunk_work=?
-  while dequeue_fixed_lock(&thread_func_info.done_update_chunk_queue, &done_update_chunk_copy) > 0
-  {
-    idx := done_update_chunk_copy.idx_on_chunk_table
-    idx_of_buffer_in_flags := done_update_chunk_copy.idx_of_buffer_in_flags
-
-    chunk := ptr_offset(trn.chunks_table, idx, terrain_chunk_info)
-    //printf("main thread: pick up DONE_UPDATE_CHUNK({chunk.pos_x}, {chunk.pos_y}, {chunk.pos_z}), faces {chunk.total_faces}, face_buffer_idx {idx_of_buffer_in_flags}\n")
-    working_buffer := ptr_offset(thread_func_info.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx_of_buffer_in_flags, u8)
-
-    //WriteFile("../tmp/{chunk.pos_x}_{chunk.pos_y}_{chunk.pos_z}_final", cast(*u8)working_buffer, chunk.total_faces * 4)
-
-    UpdateStorageBuffer(chunk.ubo, working_buffer, chunk.total_faces * 4)
-
-    already_in_array := false
-    for ch in trn.chunks_enabled
+    on done.type
     {
-      if ch.pos_x == chunk.pos_x && ch.pos_y == chunk.pos_y && ch.pos_z == chunk.pos_z
+    done_work_thread.DONE_UPDATE_CHUNK
+    {
+      idx := done.DONE_UPDATE_CHUNK.idx_on_chunk_table
+      idx_of_buffer_in_flags := done.DONE_UPDATE_CHUNK.idx_of_buffer_in_flags
+
+      chunk := ptr_offset(trn.chunks_table, idx, terrain_chunk_info)
+      //printf("main thread: pick up DONE_UPDATE_CHUNK({chunk.pos_x}, {chunk.pos_y}, {chunk.pos_z}), faces {chunk.total_faces}, face_buffer_idx {idx_of_buffer_in_flags}\n")
+      working_buffer := ptr_offset(thread_func_info.face_buffers, FACES_BUFFER_MAX_SIZE * cast(u32)idx_of_buffer_in_flags, u8)
+
+      //WriteFile("../tmp/{chunk.pos_x}_{chunk.pos_y}_{chunk.pos_z}_final", cast(*u8)working_buffer, chunk.total_faces * 4)
+
+      UpdateStorageBuffer(chunk.ubo, working_buffer, chunk.total_faces * 4)
+
+      already_in_array := false
+      if !chunk.only_air_chunk 
       {
-        already_in_array = true
+        for ch in trn.chunks_enabled
+        {
+          if ch.pos_x == chunk.pos_x && ch.pos_y == chunk.pos_y && ch.pos_z == chunk.pos_z
+          {
+            already_in_array = true
+          }
+        }
+        if !already_in_array
+        {
+          dyn_add(&trn.chunks_enabled, chunk)
+        }
       }
+
+      //printf("main thread: will try to free the idx, which is on the {idx_of_buffer_in_flags} bit\n")
+      free_face_buffer_idx(thread_func_info, idx_of_buffer_in_flags)
+
+      //printf("main thread: removed the buffer idx in flags\n")
+      globals.chunks_added = true
+      remove_thread_work_done(thread_func_info, cur)
     }
-    if !already_in_array
+    done_work_thread.DONE_CREATE_CHUNK
     {
-      dyn_add(&trn.chunks_enabled, chunk)
+      can_add_new_work := true
+
+      //printf("main thead: attempt to lock work_to_do\n")
+      LockMutex(thread_func_info.work_to_do.mutex)
+      if (thread_func_info.work_to_do.used_chunks + 1) >= thread_func_info.work_to_do.total_chunks 
+        can_add_new_work = false;
+      UnlockMutex(thread_func_info.work_to_do.mutex)
+      //printf("main thead: unlock work_to_do\n")
+
+      if !can_add_new_work{
+        //printf("main thread: trying to add UPDATE_CHUNK, but used chunks + 1({thread_func_info.work_to_do.used_chunks + 1}) is more than max {thread_func_info.work_to_do.total_chunks}\n")
+        break;
+      }
+
+      idx := done.DONE_CREATE_CHUNK.chunk_idx
+      //printf("main thread: pick up DONE_CREATE_CHUNK, ch idx {idx}, work addr {cast(u64)&idx}\n")
+      chunk := ptr_offset(trn.chunks_table, idx, terrain_chunk_info)
+      chunk.ubo = CreateStorageBuffer()
+      //printf("main thread: creating work for UPDATE_CHUNK\n")
+      work.type = begin_work_thread.UPDATE_CHUNK
+      //__dbg_break
+      work.UPDATE_CHUNK.chunk_idx = idx
+
+      //__dbg_break
+      //printf("main thread: about to add new work\n")
+      add_thread_work_to_do(thread_func_info, &work, __LINE__)
+      //printf("main thread: created new work_to_do(UPDATE_CHUNK)\n")
+      //assert(*cast(*u32)thread_func_info.work_to_do.start != idx)
+      chunk.created = true
+      remove_thread_work_done(thread_func_info, cur)
+      //printf("main thread: removed work done\n")
+
+      signal_work(thread_func_info)
+      
+    }
     }
 
-    //printf("main thread: will try to free the idx, which is on the {idx_of_buffer_in_flags} bit\n")
-    free_face_buffer_idx(thread_func_info, idx_of_buffer_in_flags)
-
-    //printf("main thread: removed the buffer idx in flags\n")
-    globals.chunks_added = true
+    //printf("main thread: about to lock work done\n")
+    LockMutex(thread_func_info.work_done.mutex)
+    cur = cur.next
+    UnlockMutex(thread_func_info.work_done.mutex)
+    //printf("main thread: unlocked work done\n")
   }
-  if thread_func_info.update_chunk_queue.cur > 0 || thread_func_info.create_chunk_queue.cur > 0
+  if thread_func_info.work_to_do.used_chunks > 0
   {
-    //printf("main thread: signaling has work\n")
+    //printf("main thread: has work to do \n")
     signal_work(thread_func_info)
   }
-  //printf("main thread done works\n")
-
-  //printf("main thread: UNLOCKED work_done_mutex\n")
+  //printf("main thread: end of work done\n")
 }
-MAX_TERRAIN_Y:const s32=128
-continuous_terrain_gen::fn(ctx :*context, trn : *terrain2, start_x : *s32, start_y : *s32, start_z : *s32)
+TERRAIN_MAX_Y:const s32= 128
+continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, trn : *terrain2)
 {
   thread_func_info := &trn.thread_func_info
   generated :u32
-  create_ch_q := &thread_func_info.create_chunk_queue
-  while *start_y < (MAX_TERRAIN_Y / CHUNK_SIZE)
+  //if IsKeyDown(key_enum.KEY_JMP) __dbg_break;
+
+  pp := *ctx.cam_pos_global
+  window :_vec
+  window.x = cast(f32)(CHUNK_SIZE * 6)
+  window.y = cast(f32)(CHUNK_SIZE * 2)
+  window.z = cast(f32)(CHUNK_SIZE * 6)
+
+  min_pos := pp - window
+  max_pos := pp + window
+
+  min_p_x := (cast(s32)min_pos.x / CHUNK_SIZE) * CHUNK_SIZE
+  min_p_y := (cast(s32)min_pos.y / CHUNK_SIZE) * CHUNK_SIZE
+  min_p_z := (cast(s32)min_pos.z / CHUNK_SIZE) * CHUNK_SIZE
+  max_p_x := (cast(s32)max_pos.x / CHUNK_SIZE) * CHUNK_SIZE
+  max_p_y := (cast(s32)max_pos.y / CHUNK_SIZE) * CHUNK_SIZE
+  max_p_z := (cast(s32)max_pos.z / CHUNK_SIZE) * CHUNK_SIZE
+
+  chunk_size := CHUNK_SIZE * 4
+  cur_pp_x := (cast(s32)pp.x / chunk_size) * chunk_size
+  cur_pp_y := (cast(s32)pp.y / chunk_size) * chunk_size
+  cur_pp_z := (cast(s32)pp.z / chunk_size) * chunk_size
+
+  is_diff := (cur_pp_x != ctx.cur_player_chunk_pos_x || cur_pp_y != ctx.cur_player_chunk_pos_y || cur_pp_z != ctx.cur_player_chunk_pos_z)
+  if !is_diff return;
+  //__dbg_break
+
+
+  ctx.cur_player_chunk_pos_x = cur_pp_x
+  ctx.cur_player_chunk_pos_y = cur_pp_y
+  ctx.cur_player_chunk_pos_z = cur_pp_z
+
+  start_x :s32=min_p_x
+  start_y :s32=min_p_y
+  start_z :s32=min_p_z
+  while start_y < max_p_y
   {
-    while *start_z < 16
+    while start_z < max_p_z
     {
-      while *start_x < 16
+      while start_x < max_p_x
       {
-        can_create_new_work := true
-        ptr :*create_chunk_work
-        LockMutex(create_ch_q.mutex)
-        if (create_ch_q.cur + 1) >= create_ch_q.max
+        idx := get_existing_chunk(trn, start_x, start_y, start_z)
+        if idx == - 1
         {
-          can_create_new_work = false
+          can_add_new_work:=true
+          LockMutex(thread_func_info.work_to_do.mutex)
+          if (thread_func_info.work_to_do.used_chunks + 6) >= thread_func_info.work_to_do.total_chunks 
+            can_add_new_work = false;
+          UnlockMutex(thread_func_info.work_to_do.mutex)
+
+          if !can_add_new_work{
+            //printf("main thread: cant add new chunks\n")
+            return;
+          }
+          //printf("main thread: adding new chunks\n")
+          globals.temp_alloc.cur = 0
+          work :begin_work_thread
+          work.type = begin_work_thread.CREATE_CHUNK
+          work.CREATE_CHUNK.x = start_x
+          work.CREATE_CHUNK.y = start_y
+          work.CREATE_CHUNK.z = start_z
+
+          first:= ptr_offset(thread_func_info.work_to_do.start, 0, begin_work_thread)
+          sec:= ptr_offset(thread_func_info.work_to_do.start, 1, begin_work_thread)
+
+          //printf("main thread: terain_gen about to add work\n")
+
+          add_thread_work_to_do(thread_func_info, &work,  __LINE__)
+          //printf("main thread: terrain_gen addee work\n")
+
+          //printf("main thread: first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
+
+          //printf("main thread: generated CREATE CHUNK(x {start_x}, y {start_y}, z {start_z})\n")
+
+          generated++
+
+
+          if generated >= 32 return
         }
-        else
-        {
-          ptr = ptr_offset(create_ch_q.start, create_ch_q.cur, create_chunk_work)
-          create_ch_q.cur++
-        }
-        defer UnlockMutex(create_ch_q.mutex)
-
-        if !can_create_new_work return;
-          
-        //work.type = begin_work_thread.CREATE_CHUNK
-        ptr.x = *start_x * CHUNK_SIZE
-        ptr.y = *start_y * CHUNK_SIZE
-        ptr.z = *start_z * CHUNK_SIZE
-
-        //first:= ptr_offset(thread_func_info.work_to_do.start, 0, begin_work_thread)
-        //sec:= ptr_offset(thread_func_info.work_to_do.start, 1, begin_work_thread)
-
-        printf("main thread: new CREATE_CHUNK({ptr.x}, {ptr.y}, {ptr.z})\n")
-        //__dbg_break
-
-        signal_work(thread_func_info)
-        //__dbg_break
-
-        //add_thread_work_to_do(thread_func_info, &work)
-
-        //printf("main thread: first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")
-
-        //printf("x {*start_x}, y {*start_y}, z {*start_z}\n")
-
-        generated++
-
-        *start_x = *start_x + 1
-
-        if generated >= 16 return
+        start_x = start_x + CHUNK_SIZE
       }
-      *start_z = *start_z + 1
+      start_z = start_z + CHUNK_SIZE
 
-      *start_x = 0;
+      start_x = min_p_x;
     }
 
-    *start_y = *start_y + 1
+    start_y = start_y + CHUNK_SIZE
 
-    *start_z = 0;
+    start_z = min_p_z;
   }
+  _found.regs.rip =0
+  //printf("main thread: terrain gen end\n")
 }
 init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem_alloc)
 {
@@ -9254,34 +9326,43 @@ init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem
   trn.chunks_table = cast(*terrain_chunk_info)heap_alloc(alloc, max_chunks * sizeof(terrain_chunk_info))
   memset(trn.chunks_table, 0, max_chunks * sizeof(terrain_chunk_info))
 
+
   thread_func_info:= &trn.thread_func_info
   thread_func_info.trn = trn
   thread_func_info.face_buffers = cast(*u8)heap_alloc(alloc, FACES_BUFFER_MAX_SIZE * 4)
 
-  max_works :u32= 128
+  init_linked_list_mutex(&thread_func_info.work_to_do, 16, alloc)
+  init_linked_list_mutex(&thread_func_info.work_done, 16, alloc)
 
-  init_mutex_fixed_queue(&thread_func_info.create_chunk_queue, max_works, alloc)
-  init_mutex_fixed_queue(&thread_func_info.update_chunk_queue, max_works, alloc)
-  init_mutex_fixed_queue(&thread_func_info.done_create_chunk_queue, max_works, alloc)
-  init_mutex_fixed_queue(&thread_func_info.done_update_chunk_queue, max_works, alloc)
+  max_works :u32= 1024
+
+  //LinearInit(&thread_func_info.work_to_do, alloc, max_works)
   //LinearInit(&thread_func_info.work_done, alloc, max_works)
 
+  
+  bigger_size :u32= cast(u32)max2(sizeof(begin_work_thread), sizeof(done_work_thread))
+
+  thread_func_info.temp_buffer_work_to_do = cast(*u8)heap_alloc(alloc, (max_works + 8) * sizeof(begin_work_thread));
+  thread_func_info.temp_buffer_work_done = cast(*u8)heap_alloc(alloc, (max_works + 8) * sizeof(done_work_thread));
 
   thread_id := CreateThread(chunk_thread_worker, thread_func_info)
 
+  /*
   printf("main thread: worker created\n")
+  work :begin_work_thread
+  work.type = begin_work_thread.CREATE_CHUNK
+  work.CREATE_CHUNK.x = -8
+  work.CREATE_CHUNK.y = -8
+  work.CREATE_CHUNK.z = 0
+
+
+  add_thread_work_to_do(thread_func_info, &work, __LINE__)
+  */
   /*
   for z in 0..4
   {
     for x in 0..16 
     {
-      work :begin_work_thread
-      work.type = begin_work_thread.CREATE_CHUNK
-      work.CREATE_CHUNK.x = cast(s32)x * CHUNK_SIZE
-      work.CREATE_CHUNK.y = 0
-      work.CREATE_CHUNK.z = cast(s32)z * CHUNK_SIZE
-
-      add_thread_work_to_do(thread_func_info, &work)
     }
   }
   */
@@ -9869,7 +9950,7 @@ main_loop::fn(ctx : *context)
   ctx.cur_scn.trn_ent = trn_ent
   //__dbg_break
 
-  init_terrain2(ctx, trn_ent.trn, 2058, ctx.alloc)
+  init_terrain2(ctx, trn_ent.trn, 8000, ctx.alloc)
 
 
 
@@ -10164,9 +10245,8 @@ main_loop::fn(ctx : *context)
       //PrintStr("\n")
     }
     if (ctx.frames_total % 1) == 0
-    //if IsKeyDown(key_enum.KEY_F6)
     {
-      continuous_terrain_gen(ctx, trn_ent.trn, &ch_x, &ch_y, &ch_z)
+      continuous_terrain_gen(&ctx.coroutines, ctx, trn_ent.trn)
     }
     //show_terrain_2(trn_ent.trn)
     //first_frame = false
@@ -11239,6 +11319,9 @@ main_loop::fn(ctx : *context)
     //print_vec(&fw)
     
     //__dbg_break
+    //if IsKeyDown(key_enum.KEY_JMP) __dbg_break
+    //print_vec(&cam_pos)
+
     if raycast_dda(&cam_pos, &fw, 10.0, trn_ent.trn, &block_and_ch_idx)
     {
       aux := block_and_ch_idx
@@ -11248,10 +11331,10 @@ main_loop::fn(ctx : *context)
 
       
       ch_idx := aux >> 16
-      //printf("dda x {x}, y {y}, z{z}\n")
 
       chunk := cast(*terrain_chunk_info)ptr_offset(trn_ent.trn.chunks_table, ch_idx, terrain_chunk_info)
-      block := chunk.blocks[cast(u64)get_block_idx(x, y, z)]
+      idx := cast(u64)get_block_idx(x, y, z)
+      block := chunk.blocks[idx]
       final_x := cast(f32)x + cast(f32)chunk.pos_x
       final_y := cast(f32)y + cast(f32)chunk.pos_y
       final_z := cast(f32)z + cast(f32)chunk.pos_z
@@ -11261,13 +11344,16 @@ main_loop::fn(ctx : *context)
       ctx.has_block_selection = true
       if IsMouseDown(mouse_enum.LEFT) 
       {
+        printf("\ndda x {x}, y {y}, z {z}\n")
+        printf("block idx {idx} removed, ch idx {ch_idx}\n")
         *block = 0;
         
-        work : update_chunk_work
-        work.chunk_idx = ch_idx
+        work : begin_work_thread
+        work.type = begin_work_thread.UPDATE_CHUNK
+        work.UPDATE_CHUNK.chunk_idx = ch_idx
 
         //__dbg_break
-        enqueue_fixed_lock(&trn_ent.trn.thread_func_info.update_chunk_queue, &work)
+        add_thread_work_to_do(&trn_ent.trn.thread_func_info, &work, __LINE__)
         ctx.has_block_selection = false
       }
     }
@@ -11858,9 +11944,41 @@ find_bone::fn(name : str_lit, b : *bone_animation) ! *bone_animation
 	return nil
 }
 
+test_linked_func::fn(ctx : *context)
+{
+  test_linked :linked_list_mutex(u32)
+
+  init_linked_list_mutex(&test_linked, 5, ctx.alloc)
+  t : u32=5
+
+  //__dbg_break
+  linked_add(&test_linked, &t, 0)
+
+  t =6
+  linked_add(&test_linked, &t, 1)
+
+  t =7
+  linked_add(&test_linked, &t, 3)
+  linked_remove(&test_linked, test_linked.start.next)
+
+  ptr := cast(*u32)test_linked.start.next.ptr
+  
+  ASSERT(*ptr == 7)
+
+  linked_remove(&test_linked, test_linked.start)
+
+  ptr = cast(*u32)test_linked.start.ptr
+  ASSERT(*ptr == 7)
+
+  linked_remove(&test_linked, test_linked.start)
+
+  ASSERT(test_linked.start == nil)
+  //__dbg_break
+
+}
 main:: fn(){
   globals.worker_mutex = CreateMutex()
-  globals.modifying_work_to_do_mutex = CreateMutex()
+  //info.work_to_do.mutex = CreateMutex()
   globals.modifying_work_done_mutex = CreateMutex()
   globals.modifying_face_flags_mutex = CreateMutex()
 	q := euler_to_quaternion(-8.103, 0.0, 8.103)
@@ -11873,7 +11991,7 @@ main:: fn(){
 	ctx.tedit.terrain_height_max = 65000.0
 	AssignCtxAddr(&ctx);
 	InitMemAlloc(&ctx.terrain_alloc, 10);
-	InitMemAlloc(&ctx.main_alloc, 958600);
+	InitMemAlloc(&ctx.main_alloc, 4158600);
 	InitMemAlloc(&ctx.compiling_shaders_alloc, 17000);
 	InitMemAlloc(&ctx.per_scene_alloc, 16000);
 	InitMemAlloc(&ctx.ent_name_string_alloc, 16000);
@@ -12121,5 +12239,9 @@ main:: fn(){
   sort_array(&test)
 
 	ASSERT(sizeof(custom_id)==16)
+  test_linked_func(&ctx)
+
+
+
 	main_loop(&ctx);
 }

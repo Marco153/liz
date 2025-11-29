@@ -146,6 +146,7 @@ struct ast_if
     ast_rep * cond;
     own_std::vector<ast_rep *> elses;
     ast_rep *scope;
+    bool from_on_ast;
 	type2 expr_type;
 };
 struct on_cond_ast
@@ -285,6 +286,9 @@ enum ir_type
 
 	IR_BEGIN_IF_EXPR_BLOCK,
 	IR_END_IF_EXPR_BLOCK,
+
+	IR_BEGIN_ON_BLOCK,
+	IR_END_ON_BLOCK,
 
 	IR_BEGIN_IF_BLOCK,
 	IR_END_IF_BLOCK,

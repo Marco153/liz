@@ -2146,8 +2146,9 @@ PhysicsUpdate::fn(ctx : *scene_info, dt : f32)
       min_chunk : [3]s32=?
       max_chunk : [3]s32=?
 
-      min_p := e.pos + _vec{-2.0, -2.0, -2.0}
-      max_p := e.pos + _vec{2.0, 2.0, 2.0}
+      window :=_vec{16.0, 16.0, 16.0}
+      min_p := e.pos - window
+      max_p := e.pos + window
 
       get_chunk_pos_by_world_pos(&min_p, min_chunk[0], min_chunk[1], min_chunk[2])
       get_chunk_pos_by_world_pos(&max_p, max_chunk[0], max_chunk[1], max_chunk[2])
@@ -2186,7 +2187,8 @@ PhysicsUpdate::fn(ctx : *scene_info, dt : f32)
           {
             ch_idx := get_existing_chunk(trn, cast(s32)x , cast(s32)y, cast(s32)z)
 
-            if ch_idx == -1 continue
+            if ch_idx == -1 continue;
+            //printf("col with {x}, {y}, {z}\n")
 
             chunk := ptr_offset(trn.chunks_table, ch_idx, terrain_chunk_info)
 

@@ -44,117 +44,6 @@ toggle_flag::fn(out : *u32, flag : u32)
 
 	*out = *out | val_aux
 }
-mutex_fixed_queue:struct(T)
-{
-  start : *T
-  cur : u32
-  max : u32
-  mutex :u32
-  temp_buffer : *T
-	#make_ptr_len(start, cur)
-}
-init_mutex_fixed_queue::fn{T}(q : *mutex_fixed_queue(T), max : u32, alloc : *mem_alloc)
-{
-  q.start = cast(*T)heap_alloc(alloc, max *sizeof(T))
-  q.max   = max
-  q.cur   = 0
-  q.mutex = CreateMutex()
-
-  q.temp_buffer = cast(*T)heap_alloc(alloc, max *sizeof(T))
-}
-can_enqueue_fixed::fn{T}(q : *mutex_fixed_queue(T)) ! bool
-{
-  ret : bool=true
-  LockMutex(q.mutex)
-  if (q.cur + 1) >= q.max 
-  {
-    ret = false
-  }
-  UnlockMutex(q.mutex)
-  return ret
-}
-dequeue_fixed_lock::fn{T}(q : *mutex_fixed_queue(T), out : *T) ! u32
-{
-  ret :u32
-  LockMutex(q.mutex)
-  defer UnlockMutex(q.mutex)
-  if q.cur == 0 return 0
-
-  ret = q.cur
-
-  memcpy(out, q.start, sizeof(T))
-
-  memcpy(q.temp_buffer, q.start, q.cur * sizeof(T))
-  q.cur--;
-
-  src:=ptr_offset(q.temp_buffer, 1, T)
-
-  //first:= ptr_offset(q.start, 0, T)
-  //sec:= ptr_offset(info.work_to_do.start, 1, begin_work_thread)
-  //printf("*****on dequeue: first type prev is {cast(u32)first.type}, sec type {cast(u64)sec.type}, cur {info.work_to_do.cur}\n")
-
-  memcpy(q.start, src, q.cur * sizeof(T))
-
-  //printf("*****on remove worktodo: first type after is {cast(u32)first.type}\n")
-
-
-  return ret
-}
-dequeue_fixed_no_lock::fn{T}(q : *mutex_fixed_queue(T), out : *T) ! u32
-{
-  ret :u32
-  //LockMutex(q.mutex)
-  //defer UnlockMutex(q.mutex)
-  if q.cur == 0 return 0
-
-  ret = q.cur
-
-  memcpy(out, q.start, sizeof(T))
-
-  memcpy(q.temp_buffer, q.start, q.cur * sizeof(T))
-  q.cur--;
-
-  src:=ptr_offset(q.temp_buffer, 1, T)
-
-  //first:= ptr_offset(q.start, 0, T)
-  //sec:= ptr_offset(info.work_to_do.start, 1, begin_work_thread)
-  //printf("*****on dequeue: first type prev is {cast(u32)first.type}, sec type {cast(u64)sec.type}, cur {info.work_to_do.cur}\n")
-
-  memcpy(q.start, src, q.cur * sizeof(T))
-
-  //printf("*****on remove worktodo: first type after is {cast(u32)first.type}\n")
-
-
-  return ret
-}
-enqueue_fixed_lock::fn{T}(q : *mutex_fixed_queue(T), val : *T)
-{
-  LockMutex(q.mutex)
-  assert(q.cur + 1 < q.max)
-
-  ptr := ptr_offset(q.start, q.cur, T)
-  q.cur++
-
-  memcpy(ptr, val, sizeof(T))
-  SignalMutex(q.mutex)
-
-  UnlockMutex(q.mutex)
-
-}
-enqueue_fixed_no_lock::fn{T}(q : *mutex_fixed_queue(T), val : *T)
-{
-  //LockMutex(q.mutex)
-  assert(q.cur + 1 < q.max)
-
-  ptr := ptr_offset(q.start, q.cur, T)
-  q.cur++
-
-  memcpy(ptr, val, sizeof(T))
-  //SignalMutex(q.mutex)
-
-  //UnlockMutex(q.mutex)
-
-}
 LinearInitRawMem::fn{T}(linear_al : *linear_alloc(T), max : u32)
 {
 	linear_al.start = cast(*T)GetMem(max * sizeof(T))
@@ -229,6 +118,135 @@ terrain_chunk_draw_info:struct
 {
   total_faces:u32
   ubo:u32;
+}
+linked_chunk : struct
+{
+  in_use : bool
+  idx : u32
+  ptr : *void
+  next : *linked_chunk
+  prev : *linked_chunk
+}
+linked_list_mutex:struct(T)
+{
+  buffer_data : *T
+  start : *linked_chunk
+  buffer_chunks : *linked_chunk
+  total_chunks : u32
+  used_chunks : u32
+  mutex : u32
+}
+init_linked_list_mutex::fn{T}(l : *linked_list_mutex(T), total : u32, alloc : *mem_alloc)
+{
+  chunks_size := sizeof(linked_chunk) * total
+
+  l.buffer_chunks = cast(*linked_chunk)heap_alloc(alloc, chunks_size)
+  l.buffer_data   = cast(*T)heap_alloc(alloc, sizeof(T) * total)
+
+  memset(l.buffer_chunks, 0, chunks_size)
+  l.total_chunks = total
+
+  l.mutex = CreateMutex()
+
+}
+linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_chunk
+{
+  LockMutex(l.mutex)
+  aux := ptr
+  end := cast(u64)ptr_offset(l.buffer_chunks, l.total_chunks, linked_chunk)
+  if cast(u64)aux < cast(u64)l.buffer_chunks || cast(u64)aux > end
+  {
+    __dbg_break
+  }
+  prev := aux.prev
+  next := aux.next 
+  if prev != nil && next == nil
+  {
+    prev.next = nil
+  }
+  else if prev != nil && next != nil
+  {
+    prev.next = aux.next
+    next.prev = aux.prev
+  }
+  else if prev == nil && next != nil
+  {
+    next.prev = nil
+  }
+  if aux == l.start
+  {
+    ASSERT(aux.prev == nil)
+    if next != nil
+    {
+      l.start = next
+    }
+    else
+    {
+      l.start = nil
+    }
+  }
+  aux.in_use = false
+  l.used_chunks--
+
+  UnlockMutex(l.mutex)
+  return aux.next
+}
+linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  LockMutex(l.mutex)
+  defer UnlockMutex(l.mutex)
+
+  if (l.used_chunks + 1) > l.total_chunks return nil
+
+  aux :*linked_chunk
+  for i in 0..l.total_chunks
+  {
+    cur := ptr_offset(l.buffer_chunks, i, linked_chunk)
+    if !cur.in_use
+    {
+      cur.next = nil
+      cur.prev = nil
+      cur.idx = cast(u32)i
+      cur.ptr = ptr_offset(l.buffer_data, i, T)
+      cur.in_use = true
+      aux = cur
+      break
+    }
+  }
+  if(aux == nil)
+  {
+      __dbg_break
+    }
+
+  memcpy(aux.ptr, data, sizeof(T));
+  
+  start := l.start
+  if start == nil
+  {
+    l.start = aux
+    start = aux
+  }
+  else
+  {
+    i:= 0
+    while start.next != nil
+    {
+      //ASSERT(start.next != start)
+      start = start.next
+      i++
+      if i > 1024 {
+        __dbg_break;
+        return aux;
+      }
+    }
+    start.next = aux
+    aux.prev = start
+  }
+  l.used_chunks++
+
+  SignalMutex(l.mutex)
+
+  return aux
 }
 OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK:const s32= 1
 OBJ_DRAW_FLAGS_IS_CUBE_EDGES:const s32= 2

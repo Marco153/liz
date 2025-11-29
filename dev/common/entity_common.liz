@@ -242,6 +242,8 @@ terrain_chunk_info:struct
   ubo : u32
   idx_on_table : u32
   total_faces : u32
+
+  only_air_chunk : bool
 }
 done_work_thread:etruct
 {
@@ -253,24 +255,16 @@ done_work_thread:etruct
     idx_of_buffer_in_flags : u8
   )
 }
-done_create_chunk_work:struct
+begin_work_thread:etruct
 {
-  chunk_idx : u32
-}
-done_update_chunk_work:struct
-{
-  idx_on_chunk_table : u32
-  idx_of_buffer_in_flags : u8
-}
-create_chunk_work:struct
-{
-  x : s32
-  y : s32
-  z : s32
-}
-update_chunk_work:struct
-{
-  chunk_idx : u32
+  CREATE_CHUNK(
+    x : s32
+    y : s32
+    z : s32
+  ),
+  UPDATE_CHUNK(
+    chunk_idx : u32
+  )
 }
 chunk_thread_info:struct
 {
@@ -281,10 +275,9 @@ chunk_thread_info:struct
 
   trn : *terrain2
 
-  create_chunk_queue : mutex_fixed_queue(create_chunk_work)
-  update_chunk_queue : mutex_fixed_queue(update_chunk_work)
-  done_create_chunk_queue : mutex_fixed_queue(done_create_chunk_work)
-  done_update_chunk_queue : mutex_fixed_queue(done_update_chunk_work)
+  work_to_do : linked_list_mutex(begin_work_thread)
+  work_done : linked_list_mutex(done_work_thread)
+
   //work_to_do : linear_alloc(begin_work_thread)
   //work_done : linear_alloc(done_work_thread)
   face_buffers : *u8
@@ -354,9 +347,25 @@ get_block_idx::fn macro(x : _expr, y : _expr, z : _expr)
 
 get_block_terrain::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : *u32) ! block_type
 {
-  ch_x := x / CHUNK_SIZE
-  ch_y := y / CHUNK_SIZE
-  ch_z := z / CHUNK_SIZE
+  ch_x :s32= x / CHUNK_SIZE
+  ch_y :s32= y / CHUNK_SIZE
+  ch_z :s32= z / CHUNK_SIZE
+  
+  if x < 0 
+  {
+    ch_x = (x + 1) / CHUNK_SIZE
+    ch_x -= 1
+  }
+  if y < 0
+  {
+      ch_y = (y + 1) / CHUNK_SIZE
+      ch_y -= 1
+  }
+  if z < 0
+  {
+      ch_z = (z + 1) / CHUNK_SIZE
+      ch_z -= 1
+  }
 
   ch_x = ch_x * CHUNK_SIZE
   ch_y = ch_y * CHUNK_SIZE
@@ -372,9 +381,9 @@ get_block_terrain::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : *u32) ! 
   block_y := y - ch_y
   block_z := z - ch_z
 
-  block_x = clamp(block_x, 0, CHUNK_SIZE)
-  block_y = clamp(block_y, 0, CHUNK_SIZE)
-  block_z = clamp(block_z, 0, CHUNK_SIZE)
+  block_x = clamp(block_x, 0, (CHUNK_SIZE -1))
+  block_y = clamp(block_y, 0, (CHUNK_SIZE -1))
+  block_z = clamp(block_z, 0, (CHUNK_SIZE -1))
 
   aux := cast(u32)block_x
   aux = aux | cast(u32)(block_y << 3)
@@ -396,10 +405,36 @@ raycast_dda::fn(start : *_vec, dir : *_vec, max_dist : f32, trn : *terrain2, ret
     d := normalize_vec(dir);
 
     // Current voxel (integers)
-    vx := floor(start.x);
-    vy := floor(start.y);
-    vz := floor(start.z);
 
+    vx :f32
+    vy :f32
+    vz :f32
+    if start.x > 0.0
+    {
+      vx = floor(start.x);
+    }
+    else
+    {
+      vx = ceiling(start.x);
+    }
+
+    if start.y > 0.0
+    {
+      vy = floor(start.y);
+    }
+    else
+    {
+      vy = ceiling(start.y);
+    }
+
+    if start.z > 0.0
+    {
+      vz = floor(start.z);
+    }
+    else
+    {
+      vz = ceiling(start.z);
+    }
     // Step direction (-1 or +1)
     step_x := sign(d.x);
     step_y := sign(d.y);
@@ -434,12 +469,40 @@ raycast_dda::fn(start : *_vec, dir : *_vec, max_dist : f32, trn : *terrain2, ret
     // --- Main DDA Loop ---
     dist : f32 = 0.0;
 
+    closest_block_dist :f32=99999.0
+    block_found := false
+    
     while dist <= max_dist
     {
         // Check current voxel
-        if get_block_terrain(cast(s32)vx, cast(s32)vy, cast(s32)vz, trn, ret) != block_type.AIR
+        aux_val:u32
+        if get_block_terrain(cast(s32)vx, cast(s32)vy, cast(s32)vz, trn, &aux_val) != block_type.AIR
         {
-            return true
+          aux := aux_val
+          x := cast(s32)(aux & 0x7)
+          y := cast(s32)((aux >> 3) & 0x7)
+          z := cast(s32)((aux >> 6) & 0x7)
+
+          
+          ch_idx := (aux >> 16)
+          //printf("dda x {x}, y {y}, z{z}\n")
+
+          chunk := cast(*terrain_chunk_info)ptr_offset(trn.chunks_table, ch_idx, terrain_chunk_info)
+          b_pos:_vec
+          b_pos.x = cast(f32)(x + chunk.pos_x)
+          b_pos.y = cast(f32)(y + chunk.pos_y)
+          b_pos.z = cast(f32)(z + chunk.pos_z)
+
+          to_start := *start - b_pos
+
+          cur_d:= dot_vec(&to_start, &to_start)
+          if cur_d < closest_block_dist
+          {
+            closest_block_dist = cur_d
+            *ret = aux_val
+          }
+          block_found = true
+
         }
 
         // Step toward next voxel
@@ -463,7 +526,7 @@ raycast_dda::fn(start : *_vec, dir : *_vec, max_dist : f32, trn : *terrain2, ret
         }
     }
 
-    return false
+    return block_found
 }
 
 entity:struct

@@ -575,6 +575,10 @@ mix::fn(a : *_vec, b : *_vec, t: f32) ! _vec
 	ret.w = a.w *(1.0 - t) + b.w * t
 	return ret
 }
+ceiling::fn(x:f32) ! f32
+ {
+	return cast(f32)cast(s32)x
+}
 floor::fn(x:f32) ! f32
  {
     i := cast(s32)x;

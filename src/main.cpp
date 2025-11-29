@@ -6631,7 +6631,7 @@ void Perlin2D(int thread_id, dbg_state *dbg) {
   float freq = *(float *)&dbg->mem_buffer[base_ptr + 24];
   int depth = *(int *)&dbg->mem_buffer[base_ptr + 32];
   *(float *)GetRegValPtr(thread_id, dbg, RET_1_REG) =
-      perlin2d(x, y, freq, depth);
+      dbg->simplex.noise(x, y);
 }
 static const int32_t perm[512] = {
     151,160,137,91,90,15,
@@ -6751,7 +6751,7 @@ void Simplex3d(int thread_id, dbg_state *dbg) {
   float y = *(float *)&dbg->mem_buffer[base_ptr + 16];
   float z = *(float *)&dbg->mem_buffer[base_ptr + 24];
   //printf("x %.3f, y %.3f, z %.3f\n", x, y, z);
-  *(float *)GetRegValPtr(thread_id, dbg, RET_1_REG) = (float)simplex3d(x, y, z);
+  *(float *)GetRegValPtr(thread_id, dbg, RET_1_REG) = (float)dbg->simplex.noise(x, y, z);
 }
 double fbm3d(double x, double y, double z,
              int octaves,
@@ -8918,6 +8918,9 @@ void OpenWindow(int thread_id, dbg_state *dbg) {
 
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+
+  dbg->simplex = Simplex::SimplexNoise();
+  
   Init3D(dbg);
 
   perspective(gl_state->projection, 70.0f * (3.14159f / 180.0f),
@@ -9449,6 +9452,7 @@ void TryLockMutexBase(own_mutex *m) {
 #endif
 }
 void LockMutexBase(own_mutex *m) {
+
 #ifdef LINUX
   pthread_mutex_lock(&m->mutex);
 #else
@@ -9485,10 +9489,18 @@ void LockMutex(int thread_id, dbg_state *dbg) {
 
   handle_info *h = &dbg->handles[id];
   ASSERT(h->type == handle_enum::MUTEX)
+
 #ifdef LINUX
   LockMutexBase(h->mutex);
 #else
 #endif
+  /*
+  func_decl *fdecl = GetFuncBasedOnBc2(dbg, *dbg->dbg_threads[thread_id].rip_ptr);
+  int offset = *dbg->dbg_threads[thread_id].rip_ptr - dbg->lang_stat->bcs2_start;
+  stmnt_dbg *st = GetStmntBasedOnOffset(&fdecl->wasm_stmnts, offset);
+  h->mutex->fdecl = fdecl;
+  h->mutex->st = st;
+  */
 }
 void _ResumeThread(int thread_id, dbg_state *dbg) {
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);

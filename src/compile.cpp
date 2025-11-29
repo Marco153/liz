@@ -88,6 +88,11 @@ typedef long long s64;
 #define RIP_REG 34
 #define GLOBALS_OFFSET 11000
 
+#define EFLAGS_REG 28
+#define EFLAGS_ZERO 1
+#define EFLAGS_ABOVE 2
+#define EFLAGS_BELOW 4
+
 //#define DEBUG_GLOBAL_NOT_FOUND 
 
 
@@ -2289,6 +2294,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	case IR_BEGIN_AND_BLOCK:
 	case IR_BEGIN_OR_BLOCK:
 	case IR_BEGIN_COND_BLOCK:
+	case IR_BEGIN_ON_BLOCK:
 	case IR_BEGIN_IF_BLOCK:
 	{
 		code_sect.emplace_back(0x2);
@@ -2301,6 +2307,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	case IR_END_AND_BLOCK:
 	case IR_END_OR_BLOCK:
 	case IR_END_COND_BLOCK:
+	case IR_END_ON_BLOCK:
 	case IR_END_SUB_IF_BLOCK:
 	case IR_END_IF_BLOCK:
 	{
@@ -2887,6 +2894,8 @@ struct own_mutex
 	pthread_mutex_t mutex;
 #else
 #endif
+  func_decl *fdecl;
+  stmnt_dbg *st;
 };
 own_mutex *CreateMutexBase();
 void WaitMutexBase(own_mutex*);
@@ -5877,6 +5886,22 @@ void ShowMemWindow(int thread_id, dbg_state &dbg, char *mem_wnd_items[], int &me
 
 		ImGui::Text("%s: %s", addr_name.c_str(), mem_val.c_str());
 	}
+  own_std::string f;
+  auto ereg = GetRegValPtr(thread_id, &dbg, EFLAGS_REG);
+
+  if(IS_FLAG_ON(*ereg, EFLAGS_ZERO))
+  {
+    f = "=, ";
+  }
+  if(IS_FLAG_ON(*ereg, EFLAGS_ABOVE))
+  {
+    f = "+, ";
+  }
+  if(IS_FLAG_ON(*ereg, EFLAGS_BELOW))
+  {
+    f = "-";
+  }
+  ImGui::Text("%s: %s", "EFLAGS", f.c_str());
 
 	ImGui::Text("memory: ");
 	for (int r = 0; r <= (BASE_STACK_PTR_REG + 7); r++)
@@ -8498,10 +8523,6 @@ void DoOperationOnPtr(char* ptr, char sz, u64 val, tkn_type2 op)
 }
 
 #define REG_PARAM_START 0
-#define EFLAGS_REG 28
-#define EFLAGS_ZERO 1
-#define EFLAGS_ABOVE 2
-#define EFLAGS_BELOW 4
 u64 *GetFloatRegValPtr(int thread_id, dbg_state *dbg, short reg)
 {
 	return (u64*)&dbg->mem_buffer[END_OF_REGS * thread_id + reg  * FLOAT_REG_SIZE_BYTES];
@@ -10426,6 +10447,12 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
     stmnt_dbg* cur_st = dbg->dbg_threads[thread_id].cur_st;
 		int offset = cur_bc - start_bc;
 
+    if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F7))
+    {
+      dbg->dbg_threads[0].break_type = DBG_BREAK_NOW;
+      dbg->dbg_threads[1].break_type = DBG_BREAK_NOW;
+
+    }
 
     CheckDbgStmnt(dbg, thread_id, &cur_st, cur_bc, offset);
 
@@ -15986,6 +16013,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_BEGIN_BLOCK:
 		case IR_BEGIN_COND_BLOCK:
 		case IR_BEGIN_IF_BLOCK:
+		case IR_BEGIN_ON_BLOCK:
 		{
 			cur = NewBlock(cur);
 			cur->ir = ir;
@@ -15998,7 +16026,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			block_linked* aux = cur;
 			while (aux->parent)
 			{
-				if (aux->ir->type == IR_BEGIN_LOOP_BLOCK)
+				if (aux->ir->type == IR_BEGIN_LOOP_BLOCK || aux->ir->type == IR_BEGIN_ON_BLOCK)
 					break;
 				depth++;
 				aux = aux->parent;
@@ -16105,6 +16133,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_END_AND_BLOCK:
 		case IR_END_OR_BLOCK:
 		case IR_END_COND_BLOCK:
+		case IR_END_ON_BLOCK:
 		case IR_END_IF_BLOCK:
 		{
 			PatchJmps(ret, cur);

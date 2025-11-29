@@ -3700,6 +3700,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
     ast_rep *if_ast = NewAstLinear(lang_stat);
     ast_rep *cur_if = if_ast;
     cur_if->type = AST_IF;
+    cur_if->cond.from_on_ast = true;
 
     ast_rep *main_ast = ast->on.main;
 
@@ -4312,6 +4313,11 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
     if (!lang_stat->ir_in_stmnt && !lang_stat->no_stmnt_of_conds)
       stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT,
                                      (void *)(long long)ast->line_number);
+    int on_idx = 0;
+    if(ast->cond.from_on_ast)
+    {
+      on_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_ON_BLOCK);
+    }
     int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
 
     bool has_elses = ast->cond.elses.size();
@@ -4376,6 +4382,10 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
     }
 
     IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
+    if(ast->cond.from_on_ast)
+    {
+      IRCreateEndBlock(lang_stat, on_idx, out, IR_END_ON_BLOCK);
+    }
     if (is_stmnt_without_semicolon)
       lang_stat->ir_in_stmnt = was_in_stmnt;
 

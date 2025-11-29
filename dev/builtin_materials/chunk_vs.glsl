@@ -17,6 +17,7 @@ layout(std430, binding = 0) buffer faces {
 out vec3 frag_pos;
 out vec2 out_uv;
 out vec3 normal;
+flat out uvec2 tex_uv;
 const vec3 face_offsets[6 * 6] = vec3[](
     // ============================================================
     // +X (RIGHT)
@@ -83,6 +84,8 @@ void main()
     uint z = (face_in_uniform >> 6) & 0x7;
     uint face_dir = (face_in_uniform >> 13) & 0x7;
     uint corner_index = gl_VertexID % 6;
+    uint tex_x = (face_in_uniform >> 24) & 0xf;
+    uint tex_y = (face_in_uniform >> 28) & 0xf;
 
 
     vec3 local_vertex = face_offsets[face_dir * 6 + corner_index];

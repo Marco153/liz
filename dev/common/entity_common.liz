@@ -226,9 +226,10 @@ chunk_face_info:struct
 CHUNK_SIZE:const s32=8
 block_type:enum
 {
-  AIR,
+  DIRT,
+  SAND = 16,
   STONE,
-  DIRT
+  AIR,
 }
 terrain_chunk_info:struct
 {

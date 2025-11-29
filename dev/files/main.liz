@@ -7128,13 +7128,15 @@ FACE_BACK:const s32= 5
 //16-22 bits = not used
 //24-31 bits = texture idx
 
-make_face_val::fn macro(assign_to : _expr, x : _expr, y: _expr, z : _expr, face_dir : _expr, light : _expr)
+make_face_val::fn macro(assign_to : _expr, x : _expr, y: _expr, z : _expr, face_dir : _expr, light : _expr, tex_x : _expr, tex_y : _expr)
 {
   assign_to = cast(u32)x
   assign_to = assign_to | cast(u32)(y << 3)
   assign_to = assign_to | cast(u32)(z << 6)
   assign_to = assign_to | cast(u32)((light) << 9)
   assign_to = assign_to | cast(u32)((face_dir) << 13)
+  //assign_to = assign_to | cast(u32)((tex_x) << 24)
+  //assign_to = assign_to | cast(u32)((tex_y) << 28)
 }
 remove_new_chunk::fn(trn :*terrain2, id : u32)
 {
@@ -7196,10 +7198,14 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         }
         block := out.blocks[cast(u64)(y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x)]
 
-        if *block == cast(u32)block_type.AIR continue;
+        block_t := *block&0xff
+        if (block_t) == cast(u32)block_type.AIR continue;
 
         // atm we're not doint any lighting, making everything have max light
         *block = *block | (15 << 16)
+
+        x_tex := block_t % 16
+        y_tex := block_t / 16
 
         block_light_val := (*block >> 16) & 0xf
 
@@ -7216,7 +7222,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         cur_face_ptr :=ptr_offset(working_buffer, faces_added, u32)
         if has_right_face
         {
-          make_face_val(val, x, y, z, FACE_RIGHT, block_light_val)
+          make_face_val(val, x, y, z, FACE_RIGHT, block_light_val, x_tex, y_tex)
           if print_info == 1
           {
             printf("\thas right face\n")
@@ -7229,7 +7235,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         }
         if has_left_face
         {
-          make_face_val(val, x, y, z, FACE_LEFT, block_light_val)
+          make_face_val(val, x, y, z, FACE_LEFT, block_light_val, x_tex, y_tex)
           if print_info == 1
           {
             printf("\thas left face, val {val}\n")
@@ -7243,7 +7249,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
 
         if has_up_face
         {
-          make_face_val(val, x, y, z, FACE_UP, block_light_val)
+          make_face_val(val, x, y, z, FACE_UP, block_light_val, x_tex, y_tex)
 
           if print_info == 1
           {
@@ -7256,7 +7262,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         }
         if has_down_face
         {
-          make_face_val(val, x, y , z, FACE_DOWN, block_light_val)
+          make_face_val(val, x, y , z, FACE_DOWN, block_light_val, x_tex, y_tex)
           if print_info == 1
           {
             printf("\thas down face, val {val}\n")
@@ -7270,7 +7276,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
 
         if has_forward_face
         {
-          make_face_val(val, x, y, z, FACE_FORWARD, block_light_val)
+          make_face_val(val, x, y, z, FACE_FORWARD, block_light_val, x_tex, y_tex)
           if print_info == 1
           {
             printf("\thas forward face, val {val}\n")
@@ -7283,7 +7289,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         }
         if has_back_face
         {
-          make_face_val(val, x, y, z, FACE_BACK, block_light_val)
+          make_face_val(val, x, y, z, FACE_BACK, block_light_val, x_tex, y_tex)
           if print_info == 1
           {
             printf("\thas back face, val {val}, facedir {(val >> 13)&0x7}, idx {faces_added}\n")
@@ -9952,8 +9958,6 @@ main_loop::fn(ctx : *context)
 
   init_terrain2(ctx, trn_ent.trn, 8000, ctx.alloc)
 
-
-
 	terrain := cast(*terrain_info)heap_alloc(ctx.alloc, sizeof(terrain_info))
 	mx := 0.0
 	my := 0.0
@@ -11346,7 +11350,7 @@ main_loop::fn(ctx : *context)
       {
         printf("\ndda x {x}, y {y}, z {z}\n")
         printf("block idx {idx} removed, ch idx {ch_idx}\n")
-        *block = 0;
+        *block = cast(u32)block_type.AIR;
         
         work : begin_work_thread
         work.type = begin_work_thread.UPDATE_CHUNK

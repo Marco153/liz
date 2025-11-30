@@ -9336,6 +9336,15 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		DoOperationOnPtr((char *)mem_ptr, sz, *reg_src_ptr, T_EQUAL); 
 
 	}break;
+	case MOV_M64:
+	{
+		//tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
+		u64* mem_ptr = GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
+		u64* reg = GetRegValPtr(thread_id, dbg, reg_dst);
+
+    *reg = *mem_ptr;
+		//DoOperationOnPtr((char *)reg, sz, *mem_ptr, op); 
+	}break;
 	case ADD_M_2_R:
 	case SUB_M_2_R:
 	case MUL_M_2_R:
@@ -9344,7 +9353,6 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case AND_M_2_R:
 	case OR_M_2_R:
 	case MOD_M_2_R:
-	case MOV_M:
 	{
 		tkn_type2 op = GetOpBasedOnInst(bc->bc_type);
 		u64* mem_ptr = GetMemValPtr(thread_id, dbg, reg_src, mem_offset);
@@ -9415,6 +9423,46 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 			DoOperationOnPtr(reg_dst_ptr, sz, imm, op);
 			*/
 	}break;
+	case ADD_I_2_R_64_SIGNED:
+  {
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
+    *(s64*)reg_dst_ptr += (s64)imm;
+  }break;
+	case ADD_I_2_R_32_SIGNED:
+  {
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
+    *(short*)reg_dst_ptr += (short)imm;
+  }break;
+	case ADD_I_2_R_16_SIGNED:
+  {
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
+    *(short*)reg_dst_ptr += (short)imm;
+  }break;
+	case ADD_I_2_R_8_SIGNED:
+  {
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
+    *(char*)reg_dst_ptr += (char)imm;
+  }break;
+	case ADD_I_2_R_64_UNSIGNED:
+  {
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
+    *(u64*)reg_dst_ptr += (u64)imm;
+  }break;
+	case ADD_I_2_R_32_UNSIGNED:
+  {
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
+    *(u32*)reg_dst_ptr += (u32)imm;
+  }break;
+	case ADD_I_2_R_16_UNSIGNED:
+  {
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
+    *(u16*)reg_dst_ptr += (u16)imm;
+  }break;
+	case ADD_I_2_R_8_UNSIGNED:
+  {
+		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
+    *(u8*)reg_dst_ptr += (u8)imm;
+  }break;
 	case OR_I_2_R:
 	case AND_I_2_R:
 	case MOD_I_2_R:
@@ -9813,14 +9861,45 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 		__m128 summed = _mm_add_ps(dst, src);
 		_mm_storeu_ps(reg_dst_ptr, summed);
 	}break;
-	case STORE_R_2_M:
+	case STORE_R_2_M64:
 	{
 		u64* reg_src_ptr = GetRegValPtr(thread_id, dbg, reg_src);
 		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
 		u64 offset = *reg_dst_ptr + mem_offset;
 		
 		auto dst = (char*)&dbg->mem_buffer[offset];
-		DoOperationOnPtr(dst, sz, *reg_src_ptr, T_EQUAL);
+    *(u64*)dst = *(u64*)reg_src_ptr;
+		//DoOperationOnPtr(dst, sz, *reg_src_ptr, T_EQUAL);
+	}break;
+	case STORE_R_2_M32:
+	{
+		u64* reg_src_ptr = GetRegValPtr(thread_id, dbg, reg_src);
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
+		u64 offset = *reg_dst_ptr + mem_offset;
+		
+		auto dst = (char*)&dbg->mem_buffer[offset];
+    *(u32*)dst = *(u32*)reg_src_ptr;
+		//DoOperationOnPtr(dst, sz, *reg_src_ptr, T_EQUAL);
+	}break;
+	case STORE_R_2_M16:
+	{
+		u64* reg_src_ptr = GetRegValPtr(thread_id, dbg, reg_src);
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
+		u64 offset = *reg_dst_ptr + mem_offset;
+		
+		auto dst = (char*)&dbg->mem_buffer[offset];
+    *(u16*)dst = *(u16*)reg_src_ptr;
+		//DoOperationOnPtr(dst, sz, *reg_src_ptr, T_EQUAL);
+	}break;
+	case STORE_R_2_M8:
+	{
+		u64* reg_src_ptr = GetRegValPtr(thread_id, dbg, reg_src);
+		auto reg_dst_ptr = (u64*)GetRegValPtr(thread_id, dbg, reg_dst);
+		u64 offset = *reg_dst_ptr + mem_offset;
+		
+		auto dst = (char*)&dbg->mem_buffer[offset];
+    *(u8*)dst = *(u8*)reg_src_ptr;
+		//DoOperationOnPtr(dst, sz, *reg_src_ptr, T_EQUAL);
 	}break;
 	case RET:
 	{
@@ -16383,6 +16462,43 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	free(cur);
 }
 
+#define GET_INST_SIGNED_OR_UNSIGNED_INST(prefix)\
+      if(from_bc->bin.is_unsigned){\
+        switch(from_bc->bin.lhs.reg_sz){\
+        case 1:{\
+          bc.type = prefix##_8_##SIGNED;\
+        }break;\
+        case 2:{\
+          bc.type = prefix##_16_##SIGNED;\
+        }break;\
+        case 4:{\
+          bc.type = prefix##_32_##SIGNED;\
+        }break;\
+        case 8:{\
+          bc.type = prefix##_64_##SIGNED;\
+        }break;\
+        default:\
+          ASSERT(false)\
+        }\
+      }\
+      else{\
+        switch(from_bc->bin.lhs.reg_sz){\
+        case 1:{\
+          bc.type = prefix##_8_##UNSIGNED;\
+        }break;\
+        case 2:{\
+          bc.type = prefix##_16_##UNSIGNED;\
+        }break;\
+        case 4:{\
+          bc.type = prefix##_32_##UNSIGNED;\
+        }break;\
+        case 8:{\
+          bc.type = prefix##_64_##UNSIGNED;\
+        }break;\
+        default:\
+          ASSERT(false)\
+        }\
+      }
 
 //#pragma optimize("", off)
 void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *from, own_std::vector<byte_code2> *to)
@@ -16467,6 +16583,33 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 				ASSERT(0);
 			}
 		}break;
+		case MOV_M:
+		{
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.rhs.voffset;
+      switch(from_bc->bin.lhs.reg_sz)
+      {
+      case 1:
+      {
+        bc.type = MOV_M8;
+      }break;
+      case 2:
+      {
+        bc.type = MOV_M16;
+      }break;
+      case 4:
+      {
+        bc.type = MOV_M32;
+      }break;
+      case 8:
+      {
+        bc.type = MOV_M64;
+      }break;
+      default: ASSERT(false)
+      }
+		}break;
 		case BEGIN_FUNC:
 		case RET:
 		case BEGIN_FUNC_FOR_INTERPRETER:
@@ -16491,7 +16634,6 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case DIV_MEM_2_SSE:
 		case CMP_MEM_2_SSE:
 		case MOV_M_2_PCKD_SSE:
-		case MOV_M:
 		{
 			bc.regs = from_bc->bin.lhs.reg;
 			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
@@ -16565,6 +16707,34 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			bc.mem_offset = from_bc->bin.lhs.voffset;
 			bc.i = from_bc->bin.rhs.i;
 		}break;
+		case STORE_R_2_M:
+    {
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= from_bc->bin.rhs.reg << RHS_REG_BIT;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.mem_offset = from_bc->bin.lhs.voffset;
+      switch(from_bc->bin.lhs.reg_sz)
+      {
+      case 1:
+      {
+        bc.type = STORE_R_2_M8;
+      }break;
+      case 2:
+      {
+        bc.type = STORE_R_2_M16;
+      }break;
+      case 4:
+      {
+        bc.type = STORE_R_2_M32;
+      }break;
+      case 8:
+      {
+        bc.type = STORE_R_2_M64;
+      }break;
+      default: ASSERT(false)
+      }
+
+    }
 		case STORE_REG_PARAM:
 		case MOV_SSE_2_MEM:
 		case ADD_R_2_M:
@@ -16579,7 +16749,6 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		case DIV_SSE_2_MEM:
 		case MOV_PCKD_SSE_2_M:
 		case DIV_R_2_M:
-		case STORE_R_2_M:
 		case AND_R_2_M:
 		case OR_R_2_M:
 		case MOD_R_2_M:
@@ -16616,6 +16785,12 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			bc.i = from_bc->val;
 		}break;
 		case ADD_I_2_R:
+    {
+			bc.regs = from_bc->bin.lhs.reg;
+			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
+			bc.i = from_bc->bin.rhs.i;
+      GET_INST_SIGNED_OR_UNSIGNED_INST(ADD_I_2_R)
+    }break;
 		case MOV_I_2_REG_PARAM:
 		case SUB_I_2_R:
 		case CMP_I_2_R:

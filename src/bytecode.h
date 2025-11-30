@@ -180,6 +180,15 @@ enum byte_code_enum : unsigned char
 	ADD_SSE_2_MEM,
 	ADD_PCKD_SSE_2_PCKD_SSE,
 
+	ADD_I_2_R_8_SIGNED,
+	ADD_I_2_R_16_SIGNED,
+	ADD_I_2_R_32_SIGNED,
+	ADD_I_2_R_64_SIGNED,
+	ADD_I_2_R_8_UNSIGNED,
+	ADD_I_2_R_16_UNSIGNED,
+	ADD_I_2_R_32_UNSIGNED,
+	ADD_I_2_R_64_UNSIGNED,
+
 	STORE_M_2_M,
 	STORE_R_2_M,
 	STORE_I_2_M,
@@ -188,6 +197,11 @@ enum byte_code_enum : unsigned char
 	STORE_RM_2_RM,
 	STORE_R_2_RM,
 	STORE_I_2_RM,
+
+	STORE_R_2_M8,
+	STORE_R_2_M16,
+	STORE_R_2_M32,
+	STORE_R_2_M64,
 
 	CVTSS_MEM_2_SD,
 	CVTSD_MEM_2_SS,
@@ -225,6 +239,10 @@ enum byte_code_enum : unsigned char
 	MOV_R,
 	MOV_RM,
 	MOV_M,
+	MOV_M8,
+	MOV_M16,
+	MOV_M32,
+	MOV_M64,
 
 	PUSH_STACK_SIZE,
 	POP_STACK_SIZE,

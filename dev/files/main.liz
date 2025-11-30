@@ -7317,6 +7317,39 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
   out.total_faces = faces_added
   return faces_added
 }
+get_block_type::fn(xf : f32, yf : f32, zf : f32) ! block_type
+{
+  s := absf(Simplex3D(xf, yf/16.0, zf))
+  //printf("s {s}\n")
+  p:=Perlin2D(xf, zf, 1.0, 2) * 2.0
+  p2:=Perlin2D(xf*0.1, zf * 0.1, 1.0, 2) * 8.0
+  p += p2
+
+  if yf > p
+  {
+    return block_type.AIR
+  }
+  else
+  {
+    if yf > (p - 4.0)
+    {
+      return  block_type.DIRT
+    }
+    else
+    {
+      if s < 0.2
+      {
+        return block_type.AIR
+
+      }
+      else
+      {
+        return block_type.STONE
+      }
+    }
+  }
+  return block_type.AIR
+}
 generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk_info)
 {
   out.pos_x = chx
@@ -7338,25 +7371,13 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
         xf = xf / 16.0
         //yf = yf / 16.0
         zf = zf / 16.0
-        s := Simplex3D(xf, yf, zf)
-        p:=Perlin2D(xf, zf, 1.0, 2) * 2.0
-        p2:=Perlin2D(xf*0.1, zf * 0.1, 1.0, 2) * 8.0
-        p += p2
 
-        if yf > p
+        b := get_block_type(xf, yf, zf)
+        if b != block_type.AIR
         {
-          *cur_block = cast(u32)block_type.AIR
-        }
-        else
-        {
-          if yf > (p - 4.0)
-          {
-            *cur_block = cast(u32)block_type.DIRT
-          }
-          else
-            *cur_block = cast(u32)block_type.STONE
           out.only_air_chunk = false
         }
+        *cur_block = cast(u32)b
       }
     }
     //printf("chunk y {y}\n");
@@ -8976,6 +8997,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
         //printf("worker thread: about to generate generated\n")
         lnk := linked_add(&work.trn.chunk_blocks_pool, nil, __LINE__)
+        //if IsKeyDown(key_enum.KEY_JMP) __dbg_break
 
         chunk_info.blocks.data = cast(*u32)lnk.ptr
         chunk_info.blocks.cap = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE
@@ -9088,6 +9110,7 @@ wait_for_work_done::fn(thread_func_info : *chunk_thread_info)
 }
 signal_work::fn(thread_func_info : *chunk_thread_info)
 {
+
   LockMutex(globals.worker_mutex)
   //printf("main thread: will signal has work\n")
   thread_func_info.has_work = true
@@ -9251,11 +9274,16 @@ check_work_done::fn(trn : *terrain2)
   //printf("main thread: end of work done\n")
 }
 TERRAIN_MAX_Y:const s32= 128
-continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, trn : *terrain2)
+print_ivec::fn(x : s32, y : s32, z : s32)
 {
+  printf("x: {x}, y {y}, z {z}\n")
+}
+continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, trn : *terrain2, done : *bool, cor :**coroutine_func_saved)
+{
+  *cor = _found
   thread_func_info := &trn.thread_func_info
   generated :u32
-  //if IsKeyDown(key_enum.KEY_JMP) __dbg_break;
+  //if IsKeyHeld(key_enum.KEY_JMP) __dbg_break;
 
   pp := globals.player.pos
   window :_vec
@@ -9279,8 +9307,11 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
   cur_pp_z := (cast(s32)pp.z / chunk_size) * chunk_size
 
   is_diff := (cur_pp_x != ctx.cur_player_chunk_pos_x || cur_pp_y != ctx.cur_player_chunk_pos_y || cur_pp_z != ctx.cur_player_chunk_pos_z)
-  if !is_diff return;
-  //__dbg_break
+  if !is_diff{
+    printf
+    *done = true
+    return;
+  }
 
 
   ctx.cur_player_chunk_pos_x = cur_pp_x
@@ -9346,7 +9377,7 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
     start_z = min_p_z;
   }
   _found.regs.rip =0
-  //printf("main thread: terrain gen end\n")
+  *done = true
 }
 init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem_alloc)
 {
@@ -10274,7 +10305,15 @@ main_loop::fn(ctx : *context)
     }
     if (ctx.frames_total % 1) == 0
     {
-      continuous_terrain_gen(&ctx.coroutines, ctx, trn_ent.trn)
+        //if IsKeyDown(key_enum.KEY_JMP) __dbg_break
+      done:bool=false
+      continuous_terrain_gen(&ctx.coroutines, ctx, trn_ent.trn, &done, &cor)
+
+      if done
+      {
+        printf("done\n");
+        cor.regs.rip = 0
+      }
     }
     //show_terrain_2(trn_ent.trn)
     //first_frame = false
@@ -12270,6 +12309,7 @@ main:: fn(){
   test_linked_func(&ctx)
 
 
+  ctx.cur_player_chunk_pos_y = 999999999999999
 
 	main_loop(&ctx);
 }

@@ -1839,4 +1839,5 @@ tests::fn(ret : *u32)
   if test_s8 != -1
 		debug_break();
 
+  //double :f64
 }

@@ -3943,6 +3943,7 @@ void EndFrame(int thread_id, dbg_state *dbg) {
   auto wnd = (GLFWwindow *)*(long long *)&dbg->mem_buffer[base_ptr + 8];
   auto gl_state = (open_gl_state *)dbg->data;
   gl_state->last_time = glfwGetTime();
+  //dbg->last_time = gl_state->last_time;
   ImGui::Render();
   // int display_w, display_h;
   // glfwGetFramebufferSize(window, &display_w, &display_h);
@@ -6751,6 +6752,7 @@ void Simplex3d(int thread_id, dbg_state *dbg) {
   float y = *(float *)&dbg->mem_buffer[base_ptr + 16];
   float z = *(float *)&dbg->mem_buffer[base_ptr + 24];
   //printf("x %.3f, y %.3f, z %.3f\n", x, y, z);
+  
   *(float *)GetRegValPtr(thread_id, dbg, RET_1_REG) = (float)dbg->simplex.noise(x, y, z);
 }
 double fbm3d(double x, double y, double z,
@@ -6852,6 +6854,7 @@ void UpdateLastTime(int thread_id, dbg_state *dbg) {
   auto gl_state = (open_gl_state *)dbg->data;
   if (gl_state)
     gl_state->last_time = glfwGetTime();
+
 }
 
 void SetIsEngine(int thread_id, dbg_state *dbg) {

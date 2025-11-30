@@ -2982,6 +2982,7 @@ struct dbg_state
 	byte_code2 **cur_bc2;
 	ir_rep *cur_ir;
 	byte_code2* prev_valid_bc;
+  float last_time;
   Simplex::SimplexNoise simplex;
 	union
 	{
@@ -7064,6 +7065,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_INT:
 		case TYPE_F32_RAW:
 		case TYPE_F32:
+		case TYPE_F64:
 		case TYPE_U8:
 		case TYPE_S8:
 		case TYPE_U16:
@@ -7081,6 +7083,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_CHAR_TYPE:
 		case TYPE_VECTOR_TYPE:
 		case TYPE_U8_TYPE:
+		case TYPE_F64_TYPE:
 		case TYPE_U16_TYPE:
 		case TYPE_U32_TYPE:
 		case TYPE_U64_TYPE:
@@ -7555,6 +7558,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 			int a = 0;
 		}break;
 		case TYPE_F32:
+		case TYPE_F64:
 		case TYPE_U8:
 		case TYPE_S8:
 		case TYPE_S32:
@@ -7574,6 +7578,7 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_U64_TYPE:
 		case TYPE_S64_TYPE:
 		case TYPE_F32_TYPE:
+		case TYPE_F64_TYPE:
 
 		case TYPE_CHAR_TYPE:
 		case TYPE_VECTOR_TYPE:
@@ -10528,10 +10533,23 @@ void Bc2Interpreter(dbg_state* dbg, GLFWwindow *window, func_decl* start_f)
 
     if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F7))
     {
+      //printf("can print")
       dbg->dbg_threads[0].break_type = DBG_BREAK_NOW;
       dbg->dbg_threads[1].break_type = DBG_BREAK_NOW;
 
     }
+    /*
+    if((i_ % 10000) == 0)
+    {
+      auto diff = glfwGetTime() - dbg->last_time;
+      if(diff > 5.0)
+      {
+        dbg->dbg_threads[0].break_type = DBG_BREAK_NOW;
+        dbg->dbg_threads[1].break_type = DBG_BREAK_NOW;
+      }
+    }
+    */
+
 
     CheckDbgStmnt(dbg, thread_id, &cur_st, cur_bc, offset);
 

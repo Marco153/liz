@@ -478,8 +478,10 @@ raycast_dda::fn(start : *_vec, dir : *_vec, max_dist : f32, trn : *terrain2, ret
 
     closest_block_dist :f32=99999.0
     block_found := false
+    max_its := cast(s32)(max_dist * 4.0)
     
-    while dist <= max_dist
+    i:= 0
+    while absf(dist) <= max_dist && i < max_its
     {
         // Check current voxel
         aux_val:u32
@@ -531,6 +533,7 @@ raycast_dda::fn(start : *_vec, dir : *_vec, max_dist : f32, trn : *terrain2, ret
             dist = t_max_z;
             t_max_z = t_max_z + t_delta_z;
         }
+        i++
     }
 
     return block_found

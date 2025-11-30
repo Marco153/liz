@@ -2996,6 +2996,7 @@ struct dbg_state
 	func_decl* prev_func;
 
   own_mutex *dbg_mutex;
+  own_mutex *x64_call_mutex;
 
 	thread_creation *thread;
 	
@@ -5170,17 +5171,20 @@ void WasmCallX64(int thread_id, wasm_interp* winterp, dbg_state& dbg, unsigned c
 
 	if (!((call_f->ret_type.type == TYPE_VOID || call_f->ret_type.type == TYPE_AUTO) && call_f->ret_type.ptr <= 0))
 	{
-		call_f->ret_type.ptr--;
-		if (call_f->ret_type.ptr < 0)
+    type2 aux_type ;
+    memcpy(&aux_type, &call_f->ret_type, sizeof(type2));
+    aux_type.ptr = call_f->ret_type.ptr - 1;
+
+		if (aux_type.ptr < 0)
 		{
 			void* final_val = addr;
 			
-			if (call_f->ret_type.type == TYPE_STRUCT)
+			if (aux_type.type == TYPE_STRUCT)
 			{
-				memcpy(&dbg.mem_buffer[2000], addr, GetTypeSize(&call_f->ret_type));
+				memcpy(&dbg.mem_buffer[2000], addr, GetTypeSize(&aux_type));
 				final_val = (void *)(long long)2000;
 			}
-			else if (call_f->ret_type.type == TYPE_VECTOR)
+			else if (aux_type.type == TYPE_VECTOR)
 			{
 				_mm_store_ps((float *)GetFloatRegValPtr(thread_id, &dbg, FLOAT_REG_0), vec_ret);
 			}
@@ -5194,7 +5198,7 @@ void WasmCallX64(int thread_id, wasm_interp* winterp, dbg_state& dbg, unsigned c
 			else
 				*(long long *)GetRegValPtr(thread_id, &dbg, RET_1_REG) = (long long) (addr);
 		}
-		call_f->ret_type.ptr++;
+		//call_f->ret_type.ptr++;
 	}
 
 
@@ -9247,7 +9251,9 @@ void Bc2CallX64(int thread_id, dbg_state* dbg, byte_code2** ptr, func_decl *call
 {
 	auto stack_reg = (u64 *)GetRegValPtr(thread_id, dbg, PRE_X64_RSP_REG);
 	*stack_reg -= 8;
+
 	WasmCallX64(thread_id, dbg->wasm_state, *dbg, (u8 *)dbg->mem_buffer, call_f, *stack_reg);
+
 	*stack_reg += 8;
 	auto reg_src_ptr = (u64*)GetRegValPtr(thread_id, dbg, RET_1_REG);
 	if (call_f->ret_type.IsFloat())
@@ -9436,7 +9442,7 @@ void Bc2Logic(int thread_id, dbg_state* dbg, byte_code2 **ptr, bool *inc_ptr, bo
 	case ADD_I_2_R_32_SIGNED:
   {
 		auto reg_dst_ptr = (char*)GetRegValPtr(thread_id, dbg, reg_dst);
-    *(short*)reg_dst_ptr += (short)imm;
+    *(int*)reg_dst_ptr += (int)imm;
   }break;
 	case ADD_I_2_R_16_SIGNED:
   {
@@ -11080,6 +11086,7 @@ void WasmInterpRun(wasm_interp* winterp, unsigned char* mem_buffer, unsigned int
 #ifndef  WASM_DBG
 	dbg.lang_stat->is_x64_bc_backend = true;
   dbg.dbg_mutex = CreateMutexBase();
+  dbg.x64_call_mutex = CreateMutexBase();
 	Bc2Interpreter(&dbg, window, cur_func);
 	//raise(SIGTRAP);
 	dbg.lang_stat->is_x64_bc_backend = false;

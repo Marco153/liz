@@ -231,6 +231,10 @@ block_type:enum
   SAND = 17,
   STONE,
 }
+chunk_blocks_aux:struct
+{
+  blk : [CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]u32
+}
 terrain_chunk_info:struct
 {
   in_use : bool
@@ -289,6 +293,7 @@ chunk_thread_info:struct
 terrain2:struct
 {
   chunks_enabled : dyn_array(*terrain_chunk_info)
+  chunk_blocks_pool : linked_list_mutex(chunk_blocks_aux)
   chunks_table : *terrain_chunk_info
   thread_func_info : chunk_thread_info
   max_chunks : u32

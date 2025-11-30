@@ -348,6 +348,7 @@ fill_terrain2_draw_data::fn(ctx : *scene_info, ent : *entity)
 {
   MODEL_SIZE_UBO :u32= 64
   trn := ent.trn
+  printf("total chunks {trn.chunks_enabled.count}\n")
 
   for ch in trn.chunks_enabled
   {

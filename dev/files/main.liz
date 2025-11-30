@@ -7097,6 +7097,28 @@ from_lang_type_2_type_layout::fn(tp : *lang_type)!type_layout
   }
   }
 }
+/*
+get_block_from_chunk::fn(ch : *terrain_chunk_info, x : u32, y : u32, z : u32) ! *u32
+{
+  return ptr_offset(ch.blocks, y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x, u32)
+}
+
+should_facing_this_idx_have_a_face::fn(thread_id : u32, out : *terrain_chunk_info, x : s64, y : s64, z : s64) ! bool
+{
+
+  idx :u64=?
+  if x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE
+  {
+    return true
+  }
+
+  f := cast(block_type)(*get_block_from_chunk(out, cast(u32)x, casty, z) & 0xf)
+
+  if f == block_type.AIR return true
+
+  return false
+}
+*/
 
 should_facing_this_idx_have_a_face::fn(thread_id : u32, out : *terrain_chunk_info, x : s64, y : s64, z : s64) ! bool
 {
@@ -7347,7 +7369,12 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
         }
         else
         {
-          dyn_add(&out.blocks, cast(u16)block_type.STONE)
+          if yf > (p - 4.0)
+          {
+            dyn_add(&out.blocks, cast(u16)block_type.DIRT)
+          }
+          else
+            dyn_add(&out.blocks, cast(u16)block_type.STONE)
           out.only_air_chunk = false
         }
       }
@@ -9235,7 +9262,7 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
   generated :u32
   //if IsKeyDown(key_enum.KEY_JMP) __dbg_break;
 
-  pp := *ctx.cam_pos_global
+  pp := globals.player.pos
   window :_vec
   window.x = cast(f32)(CHUNK_SIZE * 6)
   window.y = cast(f32)(CHUNK_SIZE * 2)
@@ -9340,6 +9367,7 @@ init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem
 
   init_linked_list_mutex(&thread_func_info.work_to_do, 16, alloc)
   init_linked_list_mutex(&thread_func_info.work_done, 16, alloc)
+  init_linked_list_mutex(&trn.chunk_blocks_pool, 2048, alloc)
 
   max_works :u32= 1024
 

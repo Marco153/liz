@@ -8980,16 +8980,25 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         chunk_info.blocks.data = cast(*u32)lnk.ptr
         chunk_info.blocks.cap = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE
         chunk_info.blocks.count = chunk_info.blocks.cap
+        chunk_info.lnk = lnk
 
         generate_terrain_chunk(x, y, z, chunk_info)
-        //printf("worker thread: terrain generated\n")
+        if chunk_info.only_air_chunk
+        {
+          linked_remove(&work.trn.chunk_blocks_pool, lnk)
+          chunk_info.in_use = false
+        }
+        else
+        {
+          //printf("worker thread: terrain generated\n")
 
-        done.type = done_work_thread.DONE_CREATE_CHUNK
-        done.DONE_CREATE_CHUNK.chunk_idx = chunk_idx
-        add_thread_work_done(work, &done, __LINE__)
+          done.type = done_work_thread.DONE_CREATE_CHUNK
+          done.DONE_CREATE_CHUNK.chunk_idx = chunk_idx
+          add_thread_work_done(work, &done, __LINE__)
 
-        first:= ptr_offset(work.work_to_do.start, 0, begin_work_thread)
-        sec:= ptr_offset(work.work_to_do.start, 1, begin_work_thread)
+          first:= ptr_offset(work.work_to_do.start, 0, begin_work_thread)
+          sec:= ptr_offset(work.work_to_do.start, 1, begin_work_thread)
+        }
 
         globals.temp_alloc.cur = 0
         //printf("worker thread: about to remove first work to do, first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")

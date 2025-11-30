@@ -234,7 +234,7 @@ linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_ch
     i:= 0
     while start.next != nil
     {
-      //ASSERT(start.next != start)
+      ASSERT(start.next != start)
       start = start.next
       i++
       if i > 1024 {

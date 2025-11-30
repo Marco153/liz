@@ -247,6 +247,7 @@ terrain_chunk_info:struct
   ubo : u32
   idx_on_table : u32
   total_faces : u32
+  lnk : *linked_chunk
 
   only_air_chunk : bool
 }

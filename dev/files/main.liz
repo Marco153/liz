@@ -7097,39 +7097,18 @@ from_lang_type_2_type_layout::fn(tp : *lang_type)!type_layout
   }
   }
 }
-/*
-get_block_from_chunk::fn(ch : *terrain_chunk_info, x : u32, y : u32, z : u32) ! *u32
-{
-  return ptr_offset(ch.blocks, y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x, u32)
-}
+
 
 should_facing_this_idx_have_a_face::fn(thread_id : u32, out : *terrain_chunk_info, x : s64, y : s64, z : s64) ! bool
 {
 
-  idx :u64=?
   if x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE
   {
     return true
   }
 
-  f := cast(block_type)(*get_block_from_chunk(out, cast(u32)x, casty, z) & 0xf)
-
-  if f == block_type.AIR return true
-
-  return false
-}
-*/
-
-should_facing_this_idx_have_a_face::fn(thread_id : u32, out : *terrain_chunk_info, x : s64, y : s64, z : s64) ! bool
-{
-
-  idx :u64=?
-  if x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE
-  {
-    return true
-  }
-
-  f := cast(block_type)(*out.blocks[cast(u64)(y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x)] & 0xf)
+  idx := cast(u64)(y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x)
+  f := cast(block_type)(*out.blocks[idx] & 0xf)
 
   if f == block_type.AIR return true
 
@@ -7352,6 +7331,7 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
     {
       for x in 0..CHUNK_SIZE
       {
+        cur_block := out.blocks[cast(u64)get_block_idx(x, y, z)]
         xf := cast(f32)chx + cast(f32)x
         yf := cast(f32)chy + cast(f32)y
         zf := cast(f32)chz + cast(f32)z
@@ -7365,16 +7345,16 @@ generate_terrain_chunk::fn(chx : s32, chy : s32, chz : s32, out : *terrain_chunk
 
         if yf > p
         {
-          dyn_add(&out.blocks, cast(u16)block_type.AIR)
+          *cur_block = cast(u32)block_type.AIR
         }
         else
         {
           if yf > (p - 4.0)
           {
-            dyn_add(&out.blocks, cast(u16)block_type.DIRT)
+            *cur_block = cast(u32)block_type.DIRT
           }
           else
-            dyn_add(&out.blocks, cast(u16)block_type.STONE)
+            *cur_block = cast(u32)block_type.STONE
           out.only_air_chunk = false
         }
       }
@@ -8995,6 +8975,12 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         chunk_info.idx_on_table = chunk_idx
 
         //printf("worker thread: about to generate generated\n")
+        lnk := linked_add(&work.trn.chunk_blocks_pool, nil, __LINE__)
+
+        chunk_info.blocks.data = cast(*u32)lnk.ptr
+        chunk_info.blocks.cap = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE
+        chunk_info.blocks.count = chunk_info.blocks.cap
+
         generate_terrain_chunk(x, y, z, chunk_info)
         //printf("worker thread: terrain generated\n")
 

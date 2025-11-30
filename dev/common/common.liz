@@ -218,7 +218,10 @@ linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_ch
       __dbg_break
     }
 
-  memcpy(aux.ptr, data, sizeof(T));
+  if data != nil
+  {
+    memcpy(aux.ptr, data, sizeof(T));
+  }
   
   start := l.start
   if start == nil

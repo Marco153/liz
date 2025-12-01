@@ -4977,9 +4977,13 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
 
     for(int t = 0; t < cur_opaque->textures_count;t++)
     {
-      texture_info *tex = &gl_state->textures[start_tex[t]];
-
-      // printf("1d %d, 2d %d\n", tex_id, t->id);
+      int tidx =start_tex[t];
+      texture_info *tex = &gl_state->textures[tidx];
+      if(tidx < 0 || tidx > TOTAL_TEXTURES)
+      {
+        printf("WARNING: DrawObjects, opaque idx %d, texture invalid %d\n", o, tidx);
+      }
+       //printf("DrawObjects: t %d\n", start_tex[t]);
       GL_CALL(glActiveTexture(GL_TEXTURE0 + t););
       GL_CALL(glBindTexture(GL_TEXTURE_2D, tex->id););
       GL_CALL(glActiveTexture(GL_TEXTURE0););
@@ -9346,18 +9350,34 @@ void *CreateThreadAux(void *data) {
   int addr = a->args_addr;
 
   auto stack_ptr = GetRegValPtr(a->thread_id, dbg, PRE_X64_RSP_REG);
-  *stack_ptr = STACK_PTR_START_THREAD2;
+
+  int thread_start =0;
+  if(a->thread_id == 1)
+  {
+    thread_start = STACK_PTR_START_THREAD2;
+  }
+  else if(a->thread_id == 2)
+  {
+    thread_start = STACK_PTR_START_THREAD3;
+  }
+  else
+  {
+    ASSERT(false)
+  }
+
+  *stack_ptr = thread_start;
+
 
   // thread_id
-  int *offset = (int *)&dbg->mem_buffer[STACK_PTR_START_THREAD2 + 8];
+  int *offset = (int *)&dbg->mem_buffer[thread_start + 8];
   *offset = a->heandle_id;
 
   // args for thread
-  offset = (int *)&dbg->mem_buffer[STACK_PTR_START_THREAD2 + 16];
+  offset = (int *)&dbg->mem_buffer[thread_start + 16];
   *offset = addr;
 
   // nulling the ret address
-  offset = (int *)(int *)&dbg->mem_buffer[STACK_PTR_START_THREAD2];
+  offset = (int *)(int *)&dbg->mem_buffer[thread_start];
   *offset = 0;
 
   ThreadFunc(a, a->dbg, window, start);

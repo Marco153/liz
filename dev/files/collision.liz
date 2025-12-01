@@ -1963,7 +1963,7 @@ StepCol::fn(ctx : *scene_info, dt : f32)
       max_pos_y : s32=? 
       max_pos_z : s32=? 
 
-      window := 3
+      window := 2
 
       min_pos_x = cast(s32)e.pos.x - window
       max_pos_x = cast(s32)e.pos.x + window

@@ -7337,7 +7337,7 @@ get_block_type::fn(xf : f32, yf : f32, zf : f32) ! block_type
     }
     else
     {
-      if s < 0.2
+      if s < 0.15
       {
         return block_type.AIR
 
@@ -9008,7 +9008,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         if chunk_info.only_air_chunk
         {
           linked_remove(&work.trn.chunk_blocks_pool, lnk)
-          chunk_info.in_use = false
+          //chunk_info.in_use = false
         }
         else
         {
@@ -9992,8 +9992,8 @@ main_loop::fn(ctx : *context)
 	globals.after_init = true
 
 	player_ent.flags = player_ent.flags | ENTITY_3D
-	player_ent.pos.x = 4.5
-	player_ent.pos.y = 20.0
+	player_ent.pos.x = 10.5
+	player_ent.pos.y = -10.0
 	player_ent.pos.z = 6.5
 
 	player_ent.mov_info.stamina = 1.0
@@ -10301,7 +10301,7 @@ main_loop::fn(ctx : *context)
     // search for WTF_MAN in this file to see why this loop is here. dont remove it
     for i in 0..128
     {
-      //PrintStr("\n")
+      PrintStr("\n")
     }
     if (ctx.frames_total % 1) == 0
     {
@@ -11668,6 +11668,7 @@ main_loop::fn(ctx : *context)
       data.rot.y = 0.0
       data.rot.z = 0.0
       data.rot.w = 1.0
+      data.textures_count = 0
       data.flags = OBJ_DRAW_FLAGS_IS_CUBE_EDGES
       data.model_uniform_size = 64
       // this is unrealiable behaviour, but the second shader the we create is the cube edges, so thats the one

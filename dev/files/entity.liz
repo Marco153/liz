@@ -350,8 +350,21 @@ fill_terrain2_draw_data::fn(ctx : *scene_info, ent : *entity)
   trn := ent.trn
   printf("total chunks {trn.chunks_enabled.count}\n")
 
+  i := 0
   for ch in trn.chunks_enabled
   {
+    
+    ch_pos:_vec=?
+    ch_pos.x = cast(f32)ch.pos_x
+    ch_pos.y = cast(f32)ch.pos_y
+    ch_pos.z = cast(f32)ch.pos_z
+    dir := globals.player.pos - ch_pos
+
+    d := dot_vec(&dir, &dir)
+
+    if d > 512.0 || ch.only_air_chunk continue 
+
+
     data:*object_draw_info
     // 64 is for the model matrix, the rendrer still expects us to have a space for the model matrix there, because it will perform the matrix mul there, and update the uniform with it
     total_size:u32= MODEL_SIZE_UBO + sizeof(terrain_chunk_draw_info)
@@ -381,8 +394,9 @@ fill_terrain2_draw_data::fn(ctx : *scene_info, ent : *entity)
 
     texture_ptr := cast(*u32)ptr_offset(chunk_draw, 1, terrain_chunk_draw_info)
     *texture_ptr = globals.terrain_tex.asset_idx
+    //printf("chunk draw idx {i}, tex id {globals.terrain_tex.asset_idx}\n")
 
-    //i++
+    i++
     //data.pos = e.pos
   }
 }
@@ -434,6 +448,7 @@ DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *dra
     i:= 0
 
     //if m.textures_count >= 3 __dbg_break
+    //printf("drawing ent name {e.name}\n")
 
     for u in inst.uniforms
     {

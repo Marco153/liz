@@ -237,7 +237,7 @@ linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_ch
       ASSERT(start.next != start)
       start = start.next
       i++
-      if i > l.total_chunks{
+      if i >= l.total_chunks{
         __dbg_break;
         return aux;
       }

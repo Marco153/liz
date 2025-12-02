@@ -18,6 +18,7 @@ out vec3 frag_pos;
 out vec2 out_uv;
 out vec3 normal;
 flat out uvec2 tex_uv;
+flat out float face_light;
 const vec3 face_offsets[6 * 6] = vec3[](
     // ============================================================
     // +X (RIGHT)
@@ -82,6 +83,7 @@ void main()
     uint x = face_in_uniform & 0x7;
     uint y = (face_in_uniform >> 3) & 0x7;
     uint z = (face_in_uniform >> 6) & 0x7;
+    uint light = (face_in_uniform >> 9) & 0xf;
     uint face_dir = (face_in_uniform >> 13) & 0x7;
     uint corner_index = gl_VertexID % 6;
     uint tex_x = (face_in_uniform >> 24) & 0xf;
@@ -98,6 +100,8 @@ void main()
     vec3 world_pos = (MODEL.mod * vec4(local_vertex,1.0)).xyz;
     frag_pos = world_pos;
     out_uv = faces_uvs[corner_index];
+
+    face_light = float(light)/15;
 
     normal = face_normals[face_dir];
 

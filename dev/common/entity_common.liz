@@ -235,6 +235,7 @@ chunk_blocks_aux:struct
 {
   blk : [CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]u32
 }
+TRN_CHUNK_FLAGS_SKY_LIGHT_DONE :const s32= 1
 terrain_chunk_info:struct
 {
   in_use : bool
@@ -250,6 +251,7 @@ terrain_chunk_info:struct
   lnk : *linked_chunk
 
   only_air_chunk : bool
+  flags : u32
 }
 done_work_thread:etruct
 {
@@ -270,6 +272,8 @@ begin_work_thread:etruct
   ),
   UPDATE_CHUNK(
     chunk_idx : u32
+  ),
+  LIGHT(
   )
 }
 chunk_thread_info:struct
@@ -290,6 +294,12 @@ chunk_thread_info:struct
   face_buffers_flags : u8
   temp_buffer_work_to_do: *u8
   temp_buffer_work_done: *u8
+
+  generated_chunks : linked_list_mutex(u32)
+  sky_ligths_calculated_for_top_chunks : dyn_array(u64)
+
+  cur_x_chunk_sky_light : s32
+  cur_z_chunk_sky_light : s32
 }
 terrain2:struct
 {
@@ -297,6 +307,7 @@ terrain2:struct
   chunk_blocks_pool : linked_list_mutex(chunk_blocks_aux)
   chunks_table : *terrain_chunk_info
   thread_func_info : chunk_thread_info
+
   max_chunks : u32
 }
 fmix32::fn( h:u32)!u32
@@ -330,15 +341,15 @@ hash32_triplet::fn(x:u32,  y:u32, z:u32) !u32
 
     return fmix32(h);
 }
-get_existing_chunk::fn(trn :*terrain2, x : s32, y : s32, z :s32)!s32
+get_existing_chunk::fn(trn :*terrain2, x : s32, y : s32, z :s32, get_created : bool = false)!s32
 {
   idx := hash32_triplet(cast(u32)x, cast(u32)y, cast(u32)z) % trn.max_chunks
   i :u32
-  while i < 8
+  while i < 16
   {
     ch := cast(*terrain_chunk_info)ptr_offset(trn.chunks_table, i + idx, terrain_chunk_info)
 
-    if ch.created && ch.pos_x == x && ch.pos_y == y && ch.pos_z == z
+    if (!get_created && ch.created || get_created) && ch.pos_x == x && ch.pos_y == y && ch.pos_z == z
     {
       return cast(s32)(i + idx)
     }
@@ -352,6 +363,58 @@ get_block_idx::fn macro(x : _expr, y : _expr, z : _expr)
   ((y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x)
 }
 
+get_block_terrain2::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : **u32) ! bool
+{
+  ch_x :s32= x / CHUNK_SIZE
+  ch_y :s32= y / CHUNK_SIZE
+  ch_z :s32= z / CHUNK_SIZE
+  
+  if x < 0 
+  {
+    ch_x = (x + 1) / CHUNK_SIZE
+    ch_x -= 1
+  }
+  if y < 0
+  {
+      ch_y = (y + 1) / CHUNK_SIZE
+      ch_y -= 1
+  }
+  if z < 0
+  {
+      ch_z = (z + 1) / CHUNK_SIZE
+      ch_z -= 1
+  }
+
+  ch_x = ch_x * CHUNK_SIZE
+  ch_y = ch_y * CHUNK_SIZE
+  ch_z = ch_z * CHUNK_SIZE
+
+  ch_idx := get_existing_chunk(trn, ch_x, ch_y, ch_z, get_created=true)
+
+  if ch_idx == -1 return false
+
+  chunk := cast(*terrain_chunk_info)ptr_offset(trn.chunks_table, ch_idx, terrain_chunk_info)
+  
+  block_x := x - ch_x
+  block_y := y - ch_y
+  block_z := z - ch_z
+
+  block_x = clamp(block_x, 0, (CHUNK_SIZE -1))
+  block_y = clamp(block_y, 0, (CHUNK_SIZE -1))
+  block_z = clamp(block_z, 0, (CHUNK_SIZE -1))
+
+  aux := cast(u32)block_x
+  aux = aux | cast(u32)(block_y << 3)
+  aux = aux | cast(u32)(block_z << 6)
+  aux = aux | (cast(u32)ch_idx << 16)
+
+
+  idx := cast(u64)get_block_idx(block_x, block_y, block_z)
+  ptr := chunk.blocks[idx]
+  *out = ptr
+
+  return true
+}
 get_block_terrain::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : *u32) ! block_type
 {
   ch_x :s32= x / CHUNK_SIZE
@@ -416,32 +479,11 @@ raycast_dda::fn(start : *_vec, dir : *_vec, max_dist : f32, trn : *terrain2, ret
     vx :f32
     vy :f32
     vz :f32
-    if start.x > 0.0
-    {
-      vx = floor(start.x);
-    }
-    else
-    {
-      vx = ceiling(start.x);
-    }
 
-    if start.y > 0.0
-    {
-      vy = floor(start.y);
-    }
-    else
-    {
-      vy = ceiling(start.y);
-    }
+    vx = floor(start.x);
+    vy = floor(start.y);
+    vz = floor(start.z);
 
-    if start.z > 0.0
-    {
-      vz = floor(start.z);
-    }
-    else
-    {
-      vz = ceiling(start.z);
-    }
     // Step direction (-1 or +1)
     step_x := sign(d.x);
     step_y := sign(d.y);
@@ -514,7 +556,7 @@ raycast_dda::fn(start : *_vec, dir : *_vec, max_dist : f32, trn : *terrain2, ret
 
         }
 
-        // Step toward next voxel
+        // Step towards next voxel
         if (t_max_x < t_max_y) && (t_max_x < t_max_z)
         {
             vx = vx + step_x;

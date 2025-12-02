@@ -19,11 +19,13 @@ in vec2 frag_pos;
 in vec3 normal;
 in vec2 out_uv;
 flat in uvec2 tex_uv;
+flat in float face_light;
 uniform sampler2D tex;
 void main(){
   ivec2 uv = ivec2(out_uv.x * (16.0) + (16 * tex_uv.x), out_uv.y * 16.0 + ((15 - tex_uv.y) * 16));
 
-  FragColor =  texelFetch(tex, uv, 0);
+  float l = float(face_light) * 0.75;
+  FragColor =  texelFetch(tex, uv, 0) * l;
   vec3 aux = normal;
   aux.x = (aux.x + 1.0) * 0.5;
   aux.y = (aux.y + 1.0) * 0.5;

@@ -5014,6 +5014,8 @@ void Draw3D2(int thread_id, dbg_state *dbg) {
 
   auto draw = (scene_draw_info *)(long long *)&dbg->mem_buffer[draw_addr];
 
+  glfwMakeContextCurrent(wnd);
+
 
 
   Vec3 cameraPos = {draw->cam_pos.x, draw->cam_pos.y, draw->cam_pos.z};

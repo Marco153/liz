@@ -8739,6 +8739,14 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 		snprintf(buffer, 128, "%s_%s %s, %s", inst_name, signdness, reg_dst_str, reg_src_str);
 		
 	}break;
+	case ADD_I_2_R_64_SIGNED:
+	case ADD_I_2_R_32_SIGNED:
+	case ADD_I_2_R_16_SIGNED:
+	case ADD_I_2_R_8_SIGNED:
+	case ADD_I_2_R_64_UNSIGNED:
+	case ADD_I_2_R_32_UNSIGNED:
+	case ADD_I_2_R_16_UNSIGNED:
+	case ADD_I_2_R_8_UNSIGNED:
 	case ADD_I_2_R:
 	case OR_I_2_R:
 	case CMP_I_2_R:
@@ -8874,6 +8882,7 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case MUL_M_2_R:
 	case INST_LEA:
 	case MOV_M:
+	case MOV_M64:
 	{
 		 inst_name = InstToStr(bc->bc_type);
 		snprintf(buffer, 128, "%s %s, %s[%s + %d]", inst_name, reg_dst_str, sz_str, reg_src_str, mem_offset);

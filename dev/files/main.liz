@@ -7202,8 +7202,10 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         block_t := *block&0xff
         if (block_t) == cast(u32)block_type.AIR continue;
 
+        has_covered_top := is_flag_on(*block, 1 << 24)
+
         // atm we're not doint any lighting, making everything have max light
-        *block = *block | (15 << 16)
+        //*block = *block | (15 << 16)
 
         block_t = block_t - 1
         x_tex := block_t % 16
@@ -7222,9 +7224,18 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
 
         val:u32=?
         cur_face_ptr :=ptr_offset(working_buffer, faces_added, u32)
+        horizontal_covered_y_tex := y_tex
+        top_covered_y_tex := y_tex
+
+        if has_covered_top
+        {
+          top_covered_y_tex = 13
+          horizontal_covered_y_tex = 14
+        }
+
         if has_right_face
         {
-          make_face_val(val, x, y, z, FACE_RIGHT, block_light_val, x_tex, y_tex)
+          make_face_val(val, x, y, z, FACE_RIGHT, block_light_val, x_tex, horizontal_covered_y_tex)
           if print_info == 1
           {
             printf("\thas right face\n")
@@ -7237,7 +7248,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         }
         if has_left_face
         {
-          make_face_val(val, x, y, z, FACE_LEFT, block_light_val, x_tex, y_tex)
+          make_face_val(val, x, y, z, FACE_LEFT, block_light_val, x_tex, horizontal_covered_y_tex)
           if print_info == 1
           {
             printf("\thas left face, val {val}\n")
@@ -7251,7 +7262,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
 
         if has_up_face
         {
-          make_face_val(val, x, y, z, FACE_UP, block_light_val, x_tex, y_tex)
+          make_face_val(val, x, y, z, FACE_UP, block_light_val, x_tex, top_covered_y_tex)
 
           if print_info == 1
           {
@@ -7278,7 +7289,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
 
         if has_forward_face
         {
-          make_face_val(val, x, y, z, FACE_FORWARD, block_light_val, x_tex, y_tex)
+          make_face_val(val, x, y, z, FACE_FORWARD, block_light_val, x_tex, horizontal_covered_y_tex)
           if print_info == 1
           {
             printf("\thas forward face, val {val}\n")
@@ -7291,7 +7302,7 @@ update_terrain_chunk::fn(thread_id : u32, out : *terrain_chunk_info, working_buf
         }
         if has_back_face
         {
-          make_face_val(val, x, y, z, FACE_BACK, block_light_val, x_tex, y_tex)
+          make_face_val(val, x, y, z, FACE_BACK, block_light_val, x_tex, horizontal_covered_y_tex)
           if print_info == 1
           {
             printf("\thas back face, val {val}, facedir {(val >> 13)&0x7}, idx {faces_added}\n")
@@ -8962,7 +8973,9 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
     globals.temp_alloc.cur = 0
     //printf("worker thread: unlocked!! total_work_to_do {work_to_do_count}\n")
     //printf("\n")
+    LockMutex(work.work_to_do.mutex)
     cur := work.work_to_do.start
+    UnlockMutex(work.work_to_do.mutex)
 
     while cur != nil
     {
@@ -8983,6 +8996,111 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
       on copy
       {
+      begin_work_thread.LIGHT
+      {
+        LockMutex(work.generated_chunks.mutex)
+        cur_ch_idx := work.generated_chunks.start
+        UnlockMutex(work.generated_chunks.mutex)
+
+        while cur_ch_idx != nil
+        {
+          globals.temp_alloc.cur = 0
+
+          ch_idx := *cast(*u32)cur_ch_idx.ptr
+          ch := ptr_offset(work.trn.chunks_table, ch_idx, terrain_chunk_info)
+
+          top_chunk_already_calculated:=false
+          printf("on light update for ch_idx {ch_idx}\n");
+
+          done.type = done_work_thread.DONE_CREATE_CHUNK
+          done.DONE_CREATE_CHUNK.chunk_idx = ch_idx
+          add_thread_work_done(work, &done, __LINE__)
+
+
+          for top_ch in work.sky_ligths_calculated_for_top_chunks
+          {
+            x := cast(s32)((*top_ch)&0xffffffff)
+            z := cast(s32)((*top_ch >> 32)&0xffffffff)
+
+            if x == ch.pos_x && z == ch.pos_z
+            {
+              top_chunk_already_calculated = true
+              break
+            }
+          }
+          if ch_idx == 5079 __dbg_break
+          defer {
+            LockMutex(work.generated_chunks.mutex)
+            cur_ch_idx = cur_ch_idx.next
+            UnlockMutex(work.generated_chunks.mutex)
+          }
+
+          if top_chunk_already_calculated continue
+
+          for z in 0..CHUNK_SIZE
+          {
+            for x in 0..CHUNK_SIZE
+            {
+              prev_block_was_air := true
+              max := TERRAIN_MAX_Y - 1
+              neg_max := -max
+
+              light_val :u8=16
+
+              for y in neg_max..max
+              {
+                inv := -y
+                val :*u32
+                globals.temp_alloc.cur = 0
+
+                if !get_block_terrain2(cast(s32)x + ch.pos_x, cast(s32)inv, cast(s32)z + ch.pos_z, work.trn, &val)
+                {
+                  y+=CHUNK_SIZE -1 
+                  continue
+                }
+
+                btype := cast(block_type)(*val &0xff)
+                if btype != block_type.AIR
+                {
+                  *val = *val | (light_val << 16)
+                  if prev_block_was_air 
+                  {
+                    *val = *val | (1<<24)
+                  }
+                  light_val--
+                  prev_block_was_air = false
+                }
+                else
+                {
+                  prev_block_was_air = true
+                }
+
+                if light_val ==0
+                {
+                  break
+                }
+              }
+            }
+          }
+
+
+          pos :u64
+          pos = cast(u64)ch.pos_x
+          pos = pos | (cast(u64)ch.pos_z << 32)
+          dyn_add(&work.sky_ligths_calculated_for_top_chunks, pos)
+
+        
+          //prev := cur_ch_idx
+
+          //linked_remove(&work.generated_chunks, prev)
+        }
+        dyn_clear(&work.sky_ligths_calculated_for_top_chunks)
+        //dyn_clear(&work.generated_chunks)
+
+        remove_thread_work_to_do(work, cur)
+
+
+      }
       begin_work_thread.CREATE_CHUNK
       {
         
@@ -8994,6 +9112,8 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         //printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
 
         chunk_info.idx_on_table = chunk_idx
+        gen_lnk := linked_add(&work.generated_chunks, nil, __LINE__)
+        *cast(*u32)gen_lnk.ptr = chunk_idx
 
         //printf("worker thread: about to generate generated\n")
         lnk := linked_add(&work.trn.chunk_blocks_pool, nil, __LINE__)
@@ -9008,15 +9128,17 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         if chunk_info.only_air_chunk
         {
           linked_remove(&work.trn.chunk_blocks_pool, lnk)
-          //chunk_info.in_use = false
+          chunk_info.in_use = false
         }
         else
         {
           //printf("worker thread: terrain generated\n")
 
+/*
           done.type = done_work_thread.DONE_CREATE_CHUNK
           done.DONE_CREATE_CHUNK.chunk_idx = chunk_idx
           add_thread_work_done(work, &done, __LINE__)
+          */
 
           first:= ptr_offset(work.work_to_do.start, 0, begin_work_thread)
           sec:= ptr_offset(work.work_to_do.start, 1, begin_work_thread)
@@ -9074,7 +9196,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         }
         else
         {
-          printf("worker thread: no working buffre available UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z})\n")
+          //printf("worker thread: no working buffre available UPDATE_CHUNK({chunk_info.pos_x}, {chunk_info.pos_y}, {chunk_info.pos_z})\n")
 
         }
       }
@@ -9233,12 +9355,14 @@ check_work_done::fn(trn : *terrain2)
       //printf("main thead: unlock work_to_do\n")
 
       if !can_add_new_work{
-        //printf("main thread: trying to add UPDATE_CHUNK, but used chunks + 1({thread_func_info.work_to_do.used_chunks + 1}) is more than max {thread_func_info.work_to_do.total_chunks}\n")
+        printf("main thread: trying to add UPDATE_CHUNK, but used chunks + 1({thread_func_info.work_to_do.used_chunks + 1}) is more than max {thread_func_info.work_to_do.total_chunks}\n")
         break;
       }
+      //__dbg_break
 
       idx := done.DONE_CREATE_CHUNK.chunk_idx
-      //printf("main thread: pick up DONE_CREATE_CHUNK, ch idx {idx}, work addr {cast(u64)&idx}\n")
+     
+      printf("main thread: pick up DONE_CREATE_CHUNK, ch idx {idx}, work addr {cast(u64)&idx}\n")
       chunk := ptr_offset(trn.chunks_table, idx, terrain_chunk_info)
       chunk.ubo = CreateStorageBuffer()
       //printf("main thread: creating work for UPDATE_CHUNK\n")
@@ -9249,6 +9373,7 @@ check_work_done::fn(trn : *terrain2)
       //__dbg_break
       //printf("main thread: about to add new work\n")
       add_thread_work_to_do(thread_func_info, &work, __LINE__)
+
       //printf("main thread: created new work_to_do(UPDATE_CHUNK)\n")
       //assert(*cast(*u32)thread_func_info.work_to_do.start != idx)
       chunk.created = true
@@ -9287,9 +9412,10 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
 
   pp := globals.player.pos
   window :_vec
-  window.x = cast(f32)(CHUNK_SIZE * 6)
-  window.y = cast(f32)(CHUNK_SIZE * 2)
-  window.z = cast(f32)(CHUNK_SIZE * 6)
+  window_size := 2
+  window.x = cast(f32)(CHUNK_SIZE * window_size * 2)
+  window.y = cast(f32)(CHUNK_SIZE * window_size)
+  window.z = cast(f32)(CHUNK_SIZE * window_size * 2)
 
   min_pos := pp - window
   max_pos := pp + window
@@ -9301,7 +9427,7 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
   max_p_y := (cast(s32)max_pos.y / CHUNK_SIZE) * CHUNK_SIZE
   max_p_z := (cast(s32)max_pos.z / CHUNK_SIZE) * CHUNK_SIZE
 
-  chunk_size := CHUNK_SIZE * 4
+  chunk_size := CHUNK_SIZE * window_size
   cur_pp_x := (cast(s32)pp.x / chunk_size) * chunk_size
   cur_pp_y := (cast(s32)pp.y / chunk_size) * chunk_size
   cur_pp_z := (cast(s32)pp.z / chunk_size) * chunk_size
@@ -9317,6 +9443,10 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
   ctx.cur_player_chunk_pos_x = cur_pp_x
   ctx.cur_player_chunk_pos_y = cur_pp_y
   ctx.cur_player_chunk_pos_z = cur_pp_z
+
+  max_p_x += CHUNK_SIZE * 2
+  max_p_y += CHUNK_SIZE * 2
+  max_p_z += CHUNK_SIZE * 2
 
   start_x :s32=min_p_x
   start_y :s32=min_p_y
@@ -9376,6 +9506,9 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
 
     start_z = min_p_z;
   }
+  work :begin_work_thread
+  work.type = begin_work_thread.LIGHT
+  add_thread_work_to_do(thread_func_info, &work,  __LINE__)
   _found.regs.rip =0
   *done = true
 }
@@ -9393,6 +9526,8 @@ init_terrain2::fn(ctx :*context, trn : *terrain2, max_chunks : u32, alloc : *mem
 
   init_linked_list_mutex(&thread_func_info.work_to_do, 16, alloc)
   init_linked_list_mutex(&thread_func_info.work_done, 16, alloc)
+  init_linked_list_mutex(&thread_func_info.generated_chunks, 512, alloc)
+  init_linked_list_mutex(&trn.chunk_blocks_pool, 2048, alloc)
   init_linked_list_mutex(&trn.chunk_blocks_pool, 2048, alloc)
 
   max_works :u32= 1024
@@ -10301,7 +10436,7 @@ main_loop::fn(ctx : *context)
     // search for WTF_MAN in this file to see why this loop is here. dont remove it
     for i in 0..128
     {
-      PrintStr("\n")
+      //PrintStr("\n")
     }
     if (ctx.frames_total % 1) == 0
     {
@@ -10311,7 +10446,7 @@ main_loop::fn(ctx : *context)
 
       if done
       {
-        printf("done\n");
+        //printf("done\n");
         cor.regs.rip = 0
       }
     }
@@ -11374,11 +11509,11 @@ main_loop::fn(ctx : *context)
 
     aux_fw :_vec
     aux_fw.z = -1.0
-    fw := euler_to_quaternion(0.0, radians_to_degree(cam_rot.y), 0.0) * aux_fw
-    cross = cross_vec (&fw, &globals.up)
+    fw := euler_to_quaternion(0.0, -radians_to_degree(cam_rot.y) - 90.0, 0.0) * aux_fw
+    cross = cross_vec (&cam_forward, &globals.up)
 
     q := create_from_axis_angle(cross.x, cross.y, cross.z, cam_rot.x)
-    fw = q * fw
+    fw = q * cam_forward
 
     //fw.x = -fw.x
     //fw.z = -fw.z
@@ -11387,7 +11522,12 @@ main_loop::fn(ctx : *context)
     
     //__dbg_break
     //if IsKeyDown(key_enum.KEY_JMP) __dbg_break
-    //print_vec(&cam_pos)
+    //print_vec(&fw)
+    /*
+    fw.x = 0.0
+    fw.y = 0.0
+    fw.z = 1.0
+    */
 
     if raycast_dda(&cam_pos, &fw, 10.0, trn_ent.trn, &block_and_ch_idx)
     {
@@ -11395,6 +11535,7 @@ main_loop::fn(ctx : *context)
       x := aux & 0x7
       y := (aux >> 3) & 0x7
       z := (aux >> 6) & 0x7
+      printf("\ndda x {x}, y {y}, z {z}\n")
 
       
       ch_idx := aux >> 16
@@ -11639,7 +11780,7 @@ main_loop::fn(ctx : *context)
         s.color.x = 1.0
       }
 
-      DrawEnts(s, ctx.cam_pos_global, ctx.cam_rot_global, drw_set)
+      DrawEnts(s, ctx.cam_pos_global, ctx.cam_rot_global, drw_set, &fw)
     }
 
     scn := cast(*scene_draw_info)globals.scene_draw.buffer

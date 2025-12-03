@@ -191,13 +191,8 @@ linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_c
   UnlockMutex(l.mutex)
   return aux.next
 }
-linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+linked_add_base::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
 {
-  LockMutex(l.mutex)
-  defer UnlockMutex(l.mutex)
-
-  if (l.used_chunks + 1) > l.total_chunks return nil
-
   aux :*linked_chunk
   for i in 0..l.total_chunks
   {
@@ -250,6 +245,18 @@ linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_ch
   SignalMutex(l.mutex)
 
   return aux
+}
+linked_add_no_lock::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  if (l.used_chunks + 1) > l.total_chunks __dbg_break
+  return linked_add_base(l, data, line)
+
+}
+linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  LockMutex(l.mutex)
+  defer UnlockMutex(l.mutex)
+  return linked_add_base(l, data, line)
 }
 OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK:const s32= 1
 OBJ_DRAW_FLAGS_IS_CUBE_EDGES:const s32= 2

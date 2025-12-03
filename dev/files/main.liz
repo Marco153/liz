@@ -9001,6 +9001,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         LockMutex(work.generated_chunks.mutex)
         cur_ch_idx := work.generated_chunks.start
         UnlockMutex(work.generated_chunks.mutex)
+        can_remove_work := true
 
         while cur_ch_idx != nil
         {
@@ -9008,12 +9009,27 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
           ch_idx := *cast(*u32)cur_ch_idx.ptr
           ch := ptr_offset(work.trn.chunks_table, ch_idx, terrain_chunk_info)
+          //if ch_idx == 5079 __dbg_break
 
           top_chunk_already_calculated:=false
-          printf("on light update for ch_idx {ch_idx}\n");
+          printf("worker thread: on light update for ch_idx {ch_idx}, work_done count {work.work_done.used_chunks}\n");
 
           done.type = done_work_thread.DONE_CREATE_CHUNK
           done.DONE_CREATE_CHUNK.chunk_idx = ch_idx
+
+          can_add_work_done := true
+          LockMutex(work.work_done.mutex)
+          if (work.work_done.used_chunks+5) >= work.work_done.total_chunks 
+            can_add_work_done = false
+          UnlockMutex(work.work_done.mutex)
+
+          if !can_add_work_done
+          {
+            aux_test := work.generated_chunks.start
+            ptr_tst := *cast(*u32)aux_test.ptr
+            can_remove_work = false
+            break
+          }
           add_thread_work_done(work, &done, __LINE__)
 
 
@@ -9028,11 +9044,15 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
               break
             }
           }
-          if ch_idx == 5079 __dbg_break
+          //if ch_idx == 5079 __dbg_break
+            //__dbg_break
           defer {
             LockMutex(work.generated_chunks.mutex)
+            prev := cur_ch_idx
             cur_ch_idx = cur_ch_idx.next
             UnlockMutex(work.generated_chunks.mutex)
+
+            linked_remove(&work.generated_chunks, prev)
           }
 
           if top_chunk_already_calculated continue
@@ -9088,16 +9108,16 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
           pos = cast(u64)ch.pos_x
           pos = pos | (cast(u64)ch.pos_z << 32)
           dyn_add(&work.sky_ligths_calculated_for_top_chunks, pos)
+            //__dbg_break
 
-        
-          //prev := cur_ch_idx
-
-          //linked_remove(&work.generated_chunks, prev)
         }
-        dyn_clear(&work.sky_ligths_calculated_for_top_chunks)
-        //dyn_clear(&work.generated_chunks)
+        if can_remove_work
+        {
+          dyn_clear(&work.sky_ligths_calculated_for_top_chunks)
+          //dyn_clear(&work.generated_chunks)
 
-        remove_thread_work_to_do(work, cur)
+          remove_thread_work_to_do(work, cur)
+        }
 
 
       }
@@ -9109,7 +9129,7 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
         z := copy.CREATE_CHUNK.z
         chunk_idx := get_new_chunk(work.trn, x, y, z)
         chunk_info := ptr_offset(work.trn.chunks_table, chunk_idx, terrain_chunk_info)
-        //printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
+        printf("worker thread: picked up CREATE_CHUNK({x}, {y}, {z}), idx {chunk_idx}, chunk_addr {cast(s64)chunk_info}\n")
 
         chunk_info.idx_on_table = chunk_idx
         gen_lnk := linked_add(&work.generated_chunks, nil, __LINE__)
@@ -9162,8 +9182,13 @@ chunk_thread_worker::fn(thread_id : u32, data : *void)
 
         chunk_info := ptr_offset(work.trn.chunks_table, copy.UPDATE_CHUNK.chunk_idx, terrain_chunk_info)
         idx := get_available_face_buffer_idx(work)
+        can_add_work_done := true
+        LockMutex(work.work_done.mutex)
+        if work.work_done.used_chunks >= work.work_done.total_chunks 
+          can_add_work_done = false
+        UnlockMutex(work.work_done.mutex)
 
-        if (idx != -1)
+        if (idx != -1 && can_add_work_done)
         {
           //printf("worker thread: update_chunk idx is {idx}\n")
           //__dbg_break
@@ -9349,13 +9374,13 @@ check_work_done::fn(trn : *terrain2)
 
       //printf("main thead: attempt to lock work_to_do\n")
       LockMutex(thread_func_info.work_to_do.mutex)
-      if (thread_func_info.work_to_do.used_chunks + 1) >= thread_func_info.work_to_do.total_chunks 
+      if (thread_func_info.work_to_do.used_chunks + 5) >= thread_func_info.work_to_do.total_chunks 
         can_add_new_work = false;
       UnlockMutex(thread_func_info.work_to_do.mutex)
       //printf("main thead: unlock work_to_do\n")
 
       if !can_add_new_work{
-        printf("main thread: trying to add UPDATE_CHUNK, but used chunks + 1({thread_func_info.work_to_do.used_chunks + 1}) is more than max {thread_func_info.work_to_do.total_chunks}\n")
+        printf("main thread: trying to add UPDATE_CHUNK, but used chunks + 1({thread_func_info.work_to_do.used_chunks + 1}) is more than max {thread_func_info.work_to_do.total_chunks}, work done count {thread_func_info.work_done.used_chunks}\n")
         break;
       }
       //__dbg_break
@@ -9393,7 +9418,7 @@ check_work_done::fn(trn : *terrain2)
   }
   if thread_func_info.work_to_do.used_chunks > 0
   {
-    //printf("main thread: has work to do \n")
+    printf("main thread: has work to do \n")
     signal_work(thread_func_info)
   }
   //printf("main thread: end of work done\n")
@@ -9444,9 +9469,9 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
   ctx.cur_player_chunk_pos_y = cur_pp_y
   ctx.cur_player_chunk_pos_z = cur_pp_z
 
-  max_p_x += CHUNK_SIZE * 2
-  max_p_y += CHUNK_SIZE * 2
-  max_p_z += CHUNK_SIZE * 2
+  max_p_x += CHUNK_SIZE
+  max_p_y += CHUNK_SIZE
+  max_p_z += CHUNK_SIZE
 
   start_x :s32=min_p_x
   start_y :s32=min_p_y
@@ -9461,9 +9486,14 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
         if idx == - 1
         {
           can_add_new_work:=true
+          work :*begin_work_thread
           LockMutex(thread_func_info.work_to_do.mutex)
           if (thread_func_info.work_to_do.used_chunks + 6) >= thread_func_info.work_to_do.total_chunks 
             can_add_new_work = false;
+
+          lnk := linked_add_no_lock(&thread_func_info.work_to_do, nil, __LINE__)
+          work = cast(*begin_work_thread)lnk.ptr
+
           UnlockMutex(thread_func_info.work_to_do.mutex)
 
           if !can_add_new_work{
@@ -9472,7 +9502,6 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
           }
           //printf("main thread: adding new chunks\n")
           globals.temp_alloc.cur = 0
-          work :begin_work_thread
           work.type = begin_work_thread.CREATE_CHUNK
           work.CREATE_CHUNK.x = start_x
           work.CREATE_CHUNK.y = start_y
@@ -9483,7 +9512,7 @@ continuous_terrain_gen::fn coroutine(cor_ctx : *coroutine_ctx, ctx :*context, tr
 
           //printf("main thread: terain_gen about to add work\n")
 
-          add_thread_work_to_do(thread_func_info, &work,  __LINE__)
+          //add_thread_work_to_do(thread_func_info, &work,  __LINE__)
           //printf("main thread: terrain_gen addee work\n")
 
           //printf("main thread: first type {cast(u32)first.type}, sec {cast(u32)sec.type}\n")

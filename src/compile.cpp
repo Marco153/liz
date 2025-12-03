@@ -183,6 +183,14 @@ typedef long long s64;
 	case ADD_I_2_R:\
 	case ADD_I_2_M:\
 	case ADD_R_2_R:\
+	case ADD_I_2_R_64_SIGNED:\
+	case ADD_I_2_R_32_SIGNED:\
+	case ADD_I_2_R_16_SIGNED:\
+	case ADD_I_2_R_8_SIGNED:\
+	case ADD_I_2_R_64_UNSIGNED:\
+	case ADD_I_2_R_32_UNSIGNED:\
+	case ADD_I_2_R_16_UNSIGNED:\
+	case ADD_I_2_R_8_UNSIGNED:\
 	case ADD_SSE_2_SSE:\
 	case ADD_MEM_2_SSE:\
 	case ADD_PCKD_SSE_2_PCKD_SSE:\
@@ -213,6 +221,10 @@ typedef long long s64;
 		sub;\
 		break;\
 	case STORE_I_2_M:\
+	case STORE_R_2_M64:\
+	case STORE_R_2_M32:\
+	case STORE_R_2_M16:\
+	case STORE_R_2_M8:\
 	case MOV_I_2_REG_PARAM:\
 	case MOV_R_2_REG_PARAM:\
 	case MOV_M_2_REG_PARAM:\
@@ -225,6 +237,7 @@ typedef long long s64;
 	case MOV_PCKD_SSE_2_M:\
 	case MOV_PCKD_SSE_2_PCKD_SSE:\
 	case MOV_M:\
+	case MOV_M64:\
 	case MOV_R:\
 	case MOV_I:\
 		equal;\
@@ -8881,8 +8894,8 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case DIV_M_2_R:
 	case MUL_M_2_R:
 	case INST_LEA:
-	case MOV_M:
 	case MOV_M64:
+	case MOV_M:
 	{
 		 inst_name = InstToStr(bc->bc_type);
 		snprintf(buffer, 128, "%s %s, %s[%s + %d]", inst_name, reg_dst_str, sz_str, reg_src_str, mem_offset);
@@ -8979,6 +8992,10 @@ void Bc2ToString(dbg_state *dbg, byte_code2* bc, char *buffer, int buffer_size)
 	case DIV_R_2_M:
 	case XOR_R_2_M:
 	case STORE_R_2_M:
+	case STORE_R_2_M64:
+	case STORE_R_2_M32:
+	case STORE_R_2_M16:
+	case STORE_R_2_M8:
 	{
 		 inst_name = InstToStr(bc->bc_type);
 		MemToString(dbg, aux_buffer, reg_dst, mem_offset, sz);

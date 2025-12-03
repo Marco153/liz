@@ -405,6 +405,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
     switch (n->kw) {
     case KW_CONTINUE: {
       ret->type = AST_CONTINUE;
+      InsertDeferd(&ret, scp, true, true);
     } break;
     case KW_DBG_BREAK: {
       ret->type = AST_DBG_BREAK;
@@ -633,6 +634,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
   } break;
   case node_type::N_DEFER: {
     ret = AstFromNode(lang_stat, n->r, scp);
+    //BREAK(n->t->line 9032)
     if (ret->type == AST_STATS) {
       INSERT_VEC(scp->defered, ret->stats);
     } else {

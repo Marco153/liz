@@ -7084,20 +7084,29 @@ void UpdateStorageBuffer(int thread_id, dbg_state *dbg)
   int data_size = *(int *)&dbg->mem_buffer[base_ptr + 24];
 
   int *data_ptr = (int *)&dbg->mem_buffer[data_offset];
-
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, storage_id);
-  glBufferData(GL_SHADER_STORAGE_BUFFER, data_size, data_ptr, GL_DYNAMIC_DRAW);
+  void *ptr = glMapBufferRange(
+      GL_SHADER_STORAGE_BUFFER,
+      0,
+      data_size,
+      GL_MAP_WRITE_BIT |
+      GL_MAP_INVALIDATE_BUFFER_BIT |
+      GL_MAP_UNSYNCHRONIZED_BIT);
+  memcpy(ptr, data_ptr, data_size);
+  glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
 }
 void CreateStorageBuffer(int thread_id, dbg_state *dbg)
 {
+  int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   auto ret = GetRegValPtr(thread_id, dbg, RET_1_REG);
+  int size = *(int *)&dbg->mem_buffer[base_ptr + 8];
 
   GLuint faces_ssbo;
   glGenBuffers(1, &faces_ssbo);                  // generate buffer
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, faces_ssbo);
-  glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW); // no data yet
+  glBufferData(GL_SHADER_STORAGE_BUFFER, size, NULL, GL_DYNAMIC_DRAW); // no data yet
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
   *ret = faces_ssbo;

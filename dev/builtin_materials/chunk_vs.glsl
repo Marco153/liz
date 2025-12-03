@@ -23,7 +23,7 @@ const vec3 face_offsets[6 * 6] = vec3[](
     // ============================================================
     // +X (RIGHT)
     // ============================================================
-    vec3(1,0,0), vec3(1,1,0), vec3(1,1,1),
+    vec3(1,0,0), vec3(1,1,0), vec3(1,1,1),  
     vec3(1,1,1), vec3(1,0,1), vec3(1,0,0),
 
     // ============================================================
@@ -57,13 +57,25 @@ const vec3 face_offsets[6 * 6] = vec3[](
     vec3(0,0,0), vec3(0,1,0), vec3(1,1,0),
     vec3(1,1,0), vec3(1,0,0), vec3(0,0,0)
 );
-const vec2 faces_uvs[6] = vec2[6](
-    vec2(0,0),
-    vec2(1,0),
-    vec2(1,1),
-    vec2(1,1),
-    vec2(0,1),
-    vec2(0,0)
+
+const vec2 faces_uvs[6 * 6] = vec2[36](
+    // +X (RIGHT) - using Y,Z for UVs
+    vec2(0,0), vec2(0,1), vec2(1,1), vec2(1,1), vec2(1,0), vec2(0,0),
+    
+    // -X (LEFT) - using Z,Y for UVs (mirrored)
+    vec2(1,0), vec2(0,0), vec2(0,1), vec2(0,1), vec2(1,1), vec2(1,0),
+    
+    // +Y (TOP) - using X,Z for UVs
+    vec2(0,1), vec2(1,1), vec2(1,0), vec2(1,0), vec2(0,0), vec2(0,1),
+    
+    // -Y (BOTTOM) - using X,Z for UVs
+    vec2(0,0), vec2(1,0), vec2(1,1), vec2(1,1), vec2(0,1), vec2(0,0),
+    
+    // +Z (FRONT) - using X,Y for UVs
+    vec2(0,0), vec2(1,0), vec2(1,1), vec2(1,1), vec2(0,1), vec2(0,0),
+    
+    // -Z (BACK) - using Y,X for UVs (rotated)
+    vec2(1,0), vec2(1,1), vec2(0,1), vec2(0,1), vec2(0,0), vec2(1,0)
 );
 const vec3 face_normals[6] = vec3[6](
     vec3(1,0,0),
@@ -83,8 +95,8 @@ void main()
     uint x = face_in_uniform & 0x7;
     uint y = (face_in_uniform >> 3) & 0x7;
     uint z = (face_in_uniform >> 6) & 0x7;
-    uint light = (face_in_uniform >> 9) & 0xf;
     uint face_dir = (face_in_uniform >> 13) & 0x7;
+    uint light = (face_in_uniform >> 16) & 0xf;
     uint corner_index = gl_VertexID % 6;
     uint tex_x = (face_in_uniform >> 24) & 0xf;
     uint tex_y = (face_in_uniform >> 28) & 0xf;
@@ -99,9 +111,9 @@ void main()
     local_vertex.z += z;
     vec3 world_pos = (MODEL.mod * vec4(local_vertex,1.0)).xyz;
     frag_pos = world_pos;
-    out_uv = faces_uvs[corner_index];
+    out_uv = faces_uvs[face_dir * 6 + corner_index];
 
-    face_light = float(light)/15;
+    face_light = float(light)/15.0;
 
     normal = face_normals[face_dir];
 

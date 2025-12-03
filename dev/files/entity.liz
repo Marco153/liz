@@ -402,6 +402,7 @@ fill_terrain2_draw_data::fn(ctx : *scene_info, ent : *entity, cam_fw : *_vec)
     i++
     //data.pos = e.pos
   }
+  //printf("drawn chunks {i}\n")
 }
 DrawEnts::fn(ctx : *scene_info, cam_pos : *_vec, cam_rot : *_vec, drw_set : *draw_settings, cam_fw : *_vec)
 {

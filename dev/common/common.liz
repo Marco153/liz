@@ -1016,7 +1016,7 @@ shader_create_info:struct
   verts_layout:dyn_array(type_layout_info)
   uniforms_layout:dyn_array(type_layout_info)
 }
-CreateStorageBuffer::fn outsider()!u32;
+CreateStorageBuffer::fn outsider(size : u32)!u32;
 UpdateStorageBuffer::fn outsider(ubo : u32, data : *void, data_size:u32);
 
 WaitMutex::fn outsider(id : u32);

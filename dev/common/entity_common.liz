@@ -297,6 +297,7 @@ chunk_thread_info:struct
 
   generated_chunks : linked_list_mutex(u32)
   sky_ligths_calculated_for_top_chunks : dyn_array(u64)
+  chunks_to_update_after_light_update : dyn_array(u32)
 
   cur_x_chunk_sky_light : s32
   cur_z_chunk_sky_light : s32
@@ -363,7 +364,7 @@ get_block_idx::fn macro(x : _expr, y : _expr, z : _expr)
   ((y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x)
 }
 
-get_block_terrain2::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : **u32) ! bool
+get_block_terrain2::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : **u32, chunk_idx : *u32) ! bool
 {
   ch_x :s32= x / CHUNK_SIZE
   ch_y :s32= y / CHUNK_SIZE
@@ -394,6 +395,7 @@ get_block_terrain2::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : **u32) 
   if ch_idx == -1 return false
 
   chunk := cast(*terrain_chunk_info)ptr_offset(trn.chunks_table, ch_idx, terrain_chunk_info)
+  if !chunk.in_use return false
   
   block_x := x - ch_x
   block_y := y - ch_y
@@ -412,6 +414,7 @@ get_block_terrain2::fn(x : s32, y : s32, z : s32, trn : *terrain2, out : **u32) 
   idx := cast(u64)get_block_idx(block_x, block_y, block_z)
   ptr := chunk.blocks[idx]
   *out = ptr
+  *chunk_idx = cast(u32)ch_idx
 
   return true
 }

@@ -3370,41 +3370,56 @@ decl2 *FromBuiltinTypeToDecl(lang_state *lang_stat, enum_type2 tp)
 	{
 		return lang_stat->u64_decl;
 	}break;
+	case enum_type2::TYPE_S64_TYPE:
 	case enum_type2::TYPE_S64:
 		return lang_stat->s64_decl;
 
+	case enum_type2::TYPE_S32_TYPE:
 	case enum_type2::TYPE_S32:
 		return lang_stat->s32_decl;
 
+	case enum_type2::TYPE_S16_TYPE:
 	case enum_type2::TYPE_S16:
 		return lang_stat->s16_decl;
 
+	case enum_type2::TYPE_S8_TYPE:
 	case enum_type2::TYPE_S8:
 		return lang_stat->s8_decl;
 
+	case enum_type2::TYPE_VECTOR_TYPE:
 	case enum_type2::TYPE_VECTOR:
 		return lang_stat->_vec_strct;
+
+	case enum_type2::TYPE_U64_TYPE:
 	case enum_type2::TYPE_U64:
 		return lang_stat->u64_decl;
 
 	case enum_type2::TYPE_ENUM:
+	case enum_type2::TYPE_U32_TYPE:
 	case enum_type2::TYPE_U32:
 		return lang_stat->u32_decl;
 
+	case enum_type2::TYPE_U16_TYPE:
 	case enum_type2::TYPE_U16:
 		return lang_stat->u16_decl;
 
+	case enum_type2::TYPE_U8_TYPE:
 	case enum_type2::TYPE_U8:
 		return lang_stat->u8_decl;
+	case enum_type2::TYPE_F64_TYPE:
 	case enum_type2::TYPE_F64:
 		return lang_stat->f64_decl;
+	case enum_type2::TYPE_F32_TYPE:
 	case enum_type2::TYPE_F32:
 		return lang_stat->f32_decl;
 
+	case enum_type2::TYPE_BOOL_TYPE:
 	case enum_type2::TYPE_BOOL:
 		return lang_stat->bool_decl;
+	case enum_type2::TYPE_CHAR_TYPE:
 	case enum_type2::TYPE_CHAR:
 		return lang_stat->char_decl;
+	case enum_type2::TYPE_VOID_TYPE:
 	case enum_type2::TYPE_VOID:
 		return lang_stat->void_decl;
 

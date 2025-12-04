@@ -342,6 +342,7 @@ struct byte_code2
 		float f32;
 		int mem_offset2;
 	};
+  int pad;
 };
 struct lea_strct
 {

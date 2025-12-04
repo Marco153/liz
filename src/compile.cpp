@@ -7112,6 +7112,7 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_S64_TYPE:
 		case TYPE_CHAR:
 		case TYPE_VECTOR:
+		case TYPE_TYPEDEF:
 		
 		break;
 		default:
@@ -7597,6 +7598,8 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 		case TYPE_S64_TYPE:
 		case TYPE_F32_TYPE:
 		case TYPE_F64_TYPE:
+
+		case TYPE_TYPEDEF:
 
 		case TYPE_CHAR_TYPE:
 		case TYPE_VECTOR_TYPE:

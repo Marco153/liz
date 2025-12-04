@@ -227,7 +227,7 @@ struct type2
 		own_std::string template_name;
 		char *str_lit;
 		void (*macro_builtin)(node *, node *, node *, void *);
-        decl2 *type_def_decl;
+    decl2 *type_def_decl;
 
 		func_decl *fdecl;
 		func_overload_strct *overload_funcs;

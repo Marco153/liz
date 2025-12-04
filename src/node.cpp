@@ -1256,10 +1256,16 @@ node *node_iter::parse_expr() {
       n->l = new_node(lang_stat, cur_tkn);
     } else if (cur_tkn->str == "typedef") {
       n->type = node_type::N_TYPEDEF;
-      n->r = parse_(PREC_SEMI_COLON, parser_cond::LESSER_EQUAL);
+      auto name = get_tkn();
 
       // we probobly declared an inline struct
       if (peek_tkn()->str == "as") {
+
+        //ASSERT(IsNodeOperator(n->r, tkn_type2::T_COLON));
+        auto as = get_tkn();
+        // it should only be name after as
+        //ASSERT(peek_tkn()->type == tkn_type2::T_SEMI_COLON);
+        n->r = parse_expr();
         if (n->r->type == N_STRUCT_DECL) {
           own_std::string name =
               own_std::string("unamed") + own_std::to_string(rand() % 0xffffff);
@@ -1268,15 +1274,8 @@ node *node_iter::parse_expr() {
                                        new_node(lang_stat, n->r));
           memcpy(n->r, decl_nd, sizeof(node));
         }
-
-        // we shouldve declared a struct
-        ASSERT(IsNodeOperator(n->r, tkn_type2::T_COLON));
-        auto as = get_tkn();
-        auto name = get_tkn();
-        // it should only be name after as
-        ASSERT(peek_tkn()->type == tkn_type2::T_SEMI_COLON);
-        auto bin = NewBinOpNode(lang_stat, n->r, tkn_type2::T_PLUS,
-                                NewIdentNode(lang_stat, name->str, n->r->t));
+        auto bin = NewBinOpNode(lang_stat, NewIdentNode(lang_stat, name->str, n->r->t), tkn_type2::T_PLUS,
+                                n->r);
         bin->t = as;
         n->r = bin;
 
@@ -4930,6 +4929,8 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl,
 //$CallNode
 bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
               decl2 *decl_func) {
+
+  //BREAK(ncall->t->line == 250)
   char msg_hdr[256];
   decl2 aux_decl;
   decl2 *lhs;
@@ -5041,6 +5042,7 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
 
   bool rhs_type_not_done_but_its_ptr = false;
   if (ncall->r && !DescendNameFinding(lang_stat, ncall->r, scp)) {
+    BREAK(ncall->t->line == 244)
     if (ncall->r->type != N_BINOP &&
         NameFindingGetType(
             lang_stat, ncall->r, scp, dummy_type,
@@ -7533,21 +7535,33 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
   case node_type::N_TYPEDEF: {
     ASSERT(n->r->type == node_type::N_BINOP && n->r->t->str == "as");
 
-    if (!DescendNameFinding(lang_stat, n->r->l, scp))
+    //HERE()
+    if (!DescendNameFinding(lang_stat, n->r->r, scp))
+    {
+      if (IS_FLAG_ON(lang_stat->flags,
+                      PSR_FLAGS_REPORT_UNDECLARED_IDENTS)) {
+        ReportUndeclaredIdentifier(lang_stat, n->r->r->t);
+      }
       return nullptr;
+    }
 
     type2 other_type;
 
-    own_std::string name = n->r->r->t->str;
+    own_std::string name = n->r->l->t->str;
     auto decl_exist = FindIdentifier(name, scp, &other_type);
 
     if (!decl_exist) {
-      other_type = DescendNode(lang_stat, n->r->l, scp);
+      other_type = DescendNode(lang_stat, n->r->r, scp);
 
       decl2 *type_decl = FromTypeToDecl(lang_stat, &other_type);
       other_type.type = TYPE_TYPEDEF;
-      other_type.type_def_decl = type_decl;
-      DeclareDeclToScopeAndMaybeToFunc(lang_stat, n->r->r->t->str, &other_type,
+
+      auto new_d = (decl2 *)AllocMiscData(lang_stat, sizeof(decl2));
+      new_d->type = type_decl->type;
+      new_d->type.type = FromVarTypeToType(new_d->type.type);
+
+      other_type.type_def_decl = new_d;
+      DeclareDeclToScopeAndMaybeToFunc(lang_stat, n->r->l->t->str, &other_type,
                                        scp, n);
     }
   } break;
@@ -8542,6 +8556,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
           tstrct->strct_node = snode;
           tstrct->scp = child_scp;
           ret_type.strct = tstrct;
+
 
           if (snode->l == nullptr) {
             if (n->r->type == N_ETRUCT_DECL &&

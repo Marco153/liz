@@ -235,16 +235,19 @@ chunk_blocks_aux:struct
 {
   blk : [CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE]u32
 }
+
+
 TRN_CHUNK_FLAGS_SKY_LIGHT_DONE :const s32= 1
+typedef chunk_block_type as u32
 terrain_chunk_info:struct
 {
+  blocks:dyn_array(chunk_block_type)
   in_use : bool
   created : bool
   pos_x:s32
   pos_y:s32
   pos_z:s32
 
-  blocks:dyn_array(u32)
   ubo : u32
   idx_on_table : u32
   total_faces : u32

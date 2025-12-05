@@ -598,6 +598,70 @@ struct lang_state
 
 struct type_struct2;
 
+char* ReadEntireFileMalloc(char* name, unsigned int* read_out)
+{
+#ifdef LINUX
+	int fh, n;
+	struct stat v;
+
+	fh = open(name, O_RDONLY);
+	if (fh == -1) {
+		perror("open");
+		printf("file not found\"%s\"", name);
+		close(fh);
+		return nullptr;
+	}
+
+	/* first find the size of file .. use stat() system call */
+	stat(name, &v);
+
+	char* string = (char*)malloc(v.st_size + 1);
+	ASSERT(string);
+	int res=read(fh, string, v.st_size);
+	if (res == -1) {
+		perror("read");
+		close(fh);
+		return nullptr;
+	}
+	close(fh);
+
+	string[v.st_size] = 0;
+	*read_out = v.st_size + 1;
+	return string;
+#else
+	HANDLE file = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
+	if (file == nullptr )
+	{
+		printf("file \"%s\" not found", name);
+		ExitProcess(0);
+	}
+	if (file == INVALID_HANDLE_VALUE)
+	{
+		TCHAR buffer[MAX_PATH] = { 0 };
+		GetCurrentDirectory(MAX_PATH, buffer);
+		//TCHAR full_file_path[MAX_PATH] = { 0 };
+		//GetFullPathName(filename, MAX_PATH, fullFilename, nullptr);
+
+
+		printf("file \"%s\" was invalid handle, last error %d, full exe path %s", name, GetLastError(), buffer);
+
+		ExitProcess(0);
+	}
+
+	LARGE_INTEGER file_size;
+	GetFileSizeEx(file, &file_size);
+	char* f = (char*)__lang_globals.alloc(__lang_globals.data, file_size.QuadPart + 1);
+
+	int bytes_read;
+	ReadFile(file, (void*)f, file_size.QuadPart, (LPDWORD)&bytes_read, 0);
+	f[file_size.QuadPart] = 0;
+
+	*read = bytes_read;
+
+	CloseHandle(file);
+	return f;
+#endif
+}
 char* ReadEntireFileLang(char* name, unsigned int* read_out)
 {
 #ifdef LINUX
@@ -5526,6 +5590,8 @@ struct dbg_file_seriealize
 	int code_sect;
 	int ir_sect;
 	int files_sect;
+	int x64_rels_sect;
+	int x64_rels_sect_size;
 
 	int bc2_sect;
 	int bc2_sect_size;
@@ -6690,6 +6756,7 @@ struct serialize_state
 	own_std::vector<unsigned char> file_sect;
 	own_std::vector<unsigned char> data_sect;
 	own_std::vector<unsigned char> x64_code;
+	own_std::vector<unsigned char> x64_rels;
 
 	own_std::vector<func_decl*> serialized_funcs;
 
@@ -7209,13 +7276,38 @@ void WasmSerializePushString(serialize_state* ser_state, own_std::string* name, 
 	ASSERT(out->name_len <= 128 && out->name_on_string_sect >= 0);
 	ser_state->string_sect.insert(ser_state->string_sect.end(), (unsigned char *)name->data(), (unsigned char *)(name->data() + name->size()));
 }
-void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char>& code, own_std::vector<byte_code2> &bcs2)
+
+struct dbg_rel
+{
+  machine_rel_type type;
+  str_dbg name;
+  int code_offset;
+};
+void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char>& code, own_std::vector<byte_code2> &bcs2, machine_code *mcode)
 {
 	own_std::vector<unsigned char> final_buffer;
 	final_buffer.reserve(1024 * 8);
 	serialize_state ser_state;
+
+  
+  HERE()
+  FOR_VEC(r, mcode->rels)
+  {
+    own_std::string aux=r->name;
+
+    int offset = ser_state.x64_rels.size();
+
+    ser_state.x64_rels.make_count(ser_state.x64_rels.size() + sizeof(dbg_rel));
+    dbg_rel *out = (dbg_rel *)(ser_state.x64_rels.begin() + offset);
+		WasmSerializePushString(&ser_state, &aux, &out->name);
+
+    out->type = r->type;
+    out->code_offset = r->idx;
+  }
+
 	//printf("\nscop : \n%s\n", wasm_state->lang_stat->root->Print(0).c_str());
 	
+  //HERE()
 	FOR_VEC(func, wasm_state->funcs)
 	{
 		func_decl* f = *func;
@@ -7328,6 +7420,11 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	INSERT_VEC(final_buffer, wasm_state->lang_stat->code_sect);
 	file.x64_code_sect_size = wasm_state->lang_stat->code_sect.size();
 	file.x64_code_type_sect_size = wasm_state->lang_stat->type_sect.size();
+
+	file.x64_rels_sect = final_buffer.size();
+	file.x64_rels_sect_size = ser_state.x64_rels.size();
+
+	INSERT_VEC(final_buffer, ser_state.x64_rels);
 
 	file.data_sect = final_buffer.size();
 
@@ -17434,7 +17531,7 @@ Your browser does not support the audio element.\
 
 #ifndef LANG_NO_ENGINE
 	if(!wasm_state->lang_stat->release)
-		WasmSerialize(wasm_state, final_code_sect, bcs2);
+		WasmSerialize(wasm_state, final_code_sect, bcs2, &mcode);
 #endif
 
 	//WasmInterp(final_code_sect, buffer, mem_size, "wasm_test_func_ptr", wasm_state, args, 3);

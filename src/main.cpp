@@ -23,6 +23,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vulkan/vulkan.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 namespace Simplex
 {
 #include "include/simplex/SimplexNoise.h"
@@ -4726,6 +4728,20 @@ int LoadSpriteSheet(dbg_state *dbg, own_std::string sp_file_name,
     cur_cell = (aux_cell_info *)(cur_layer + 1);
   }
   return tex_id;
+}
+void GetCurrentDirectory(char *buffer, int size)
+{
+#ifdef LINUX
+  u32 read;
+  if (getcwd(buffer, size) != NULL)
+      printf("Current dir: %s\n", buffer);
+  else
+      perror("getcwd");
+#else
+  ASSERT(false)
+
+#endif
+
 }
 own_std::string GetCurrentDirectory()
 {
@@ -9706,8 +9722,78 @@ AudioClip *CreateNewAudioClip(open_gl_state *gl_state, char *name) {
   */
   return ret;
 }
+bool cmp_str_dbg(char *str_sect, str_dbg *s1, str_dbg *s2)
+{
+  if (s1->name_len != s2->name_len) return false;
+
+  if(memcmp(str_sect + s1->name_on_string_sect, str_sect + s2->name_on_string_sect, s1->name_len) !=0)return false;
+
+  return true;
+}
+
+#ifdef LINUX
+typedef pid_t _pid;
+#endif
+_pid ChildProcess()
+{
+#ifdef LINUX
+  //_pid pid = fork();
+  _pid pid = 1;
+  if (pid != 0) {
+    //HERE();
+    printf("Child: sending SIGSTOP (sleep)\n");
+    //raise(SIGSTOP);  // puts itself to sleep
+    printf("Child: resumed!\n");
+
+    u32 read;
+    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("tests.dbg", &read);
+    auto file = (dbg_file_seriealize*)(file_ptr);
+    char buffer[1024];
+    GetCurrentDirectory(buffer, 1024);
+
+    std::vector<func_dbg *>fdecls;
+    int total_rels = file->x64_rels_sect_size / sizeof(dbg_rel);
+    char *data = (char *)(file + 1);
+    char *code = (char *)(data + file->x64_code_sect + file->serialized_types_sect);
+    char *str_sect = (char *)(data + file->string_sect);
+    for (int f = 0; f < file->total_funcs; f++)
+    {
+      auto fdbg = (func_dbg*)(data + file->func_sect + f * sizeof(func_dbg));
+      if (IS_FLAG_ON(fdbg->flags, FUNC_DECL_MACRO))
+        continue;
+
+      printf("func name: %.*s\n", fdbg->name.name_len,str_sect+fdbg->name.name_on_string_sect);
+      fdecls.emplace_back(fdbg);
+    }
+    HERE()
+
+    for (int i = 0; i < total_rels; i++)
+    {
+      auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
+      printf("rel to name: %.*s\n", r->name.name_len, str_sect+r->name.name_on_string_sect);
+      for(int f = 0; f < file->total_funcs; f++)
+      {
+        auto fdbg = fdecls[f];
+        char *fdbg_start = code + fdbg->x64_code_start;
+        if(cmp_str_dbg(str_sect, &r->name, &fdbg->name))
+        {
+          int *call_offset = (int*)(code + r->code_offset);
+          *call_offset = (int)((long long)(fdbg_start - fdbg->x64_code_start));
+          auto a = 0;
+        }
+      }
+    }
+    exit(0);
+  }
+  else {
+  }
+  return pid;
+#endif
+}
 
 int main(int argc, char *argv[]) {
+
+  //_pid child_p = ChildProcess();
   auto ttt = 0;
   mem_alloc alloc;
   alloc.main_buffer = nullptr;
@@ -9826,6 +9912,16 @@ int main(int argc, char *argv[]) {
   auto folder_name = std_str_to_heap2(&opts.folder_name);
 
   Compile(&lang_stat, &opts);
+  _pid child_p = ChildProcess();
+  printf("Parent: sending SIGCONT (wake)\n");
+  kill(child_p, SIGCONT);
+
+  waitpid(child_p, NULL, 0);
+  while(true)
+  {
+
+  }
+
   memset(&lang_stat, 0, sizeof(lang_stat));
   InitMemAlloc(&alloc);
   InitLang(&lang_stat, (AllocTypeFunc)heap_alloc, (FreeTypeFunc)heap_free,

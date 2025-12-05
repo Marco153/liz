@@ -1,0 +1,6 @@
+PrintStr::fn outsider(str : str_lit);
+main::fn()!u32
+{
+  PrintStr("hello world\n")
+  return 6
+}

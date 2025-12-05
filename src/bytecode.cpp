@@ -1013,6 +1013,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case INST_CALL_OUTSIDER:
 		{
+      HERE()
 			
 			machine_rel_type r_type = bc->out_func.is_link_name ? DLL_FUNC :DLL_FUNC_NO_IMP_ADDING; 
 

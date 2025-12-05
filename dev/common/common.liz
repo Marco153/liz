@@ -191,6 +191,9 @@ linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_c
   UnlockMutex(l.mutex)
   return aux.next
 }
+linked_acquire_first::fn{T}(l : *linked_list_mutex(T), thread_id : u32) ! *linked_chunk
+{
+}
 linked_add_base::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
 {
   aux :*linked_chunk

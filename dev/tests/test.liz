@@ -1,6 +1,14 @@
 PrintStr::fn outsider(str : str_lit);
+global_strct:struct
+{
+  i : u32
+}
+
+globals : global_strct
+
 main::fn x64()!u32
 {
-  PrintStr("hello world\n")
+  globals.i = 6
+  PrintStr(cast(str_lit)globals.i)
   return 6
 }

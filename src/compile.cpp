@@ -1,4 +1,5 @@
 #include "include/simplex/SimplexNoise.h"
+#include "machine_rel.h"
 #include <locale>
 #include <pthread.h>
 typedef unsigned long long u64;
@@ -456,6 +457,7 @@ struct lang_state
 	gen_enum gen_type;
 	
 	bool is_x64_bc_backend;
+	bool is_machine_x64_backend;
 
 
 	int regs_pushed;
@@ -5594,6 +5596,8 @@ struct dbg_file_seriealize
 	int files_sect;
 	int x64_rels_sect;
 	int x64_rels_sect_size;
+	int x64_syms_sect;
+	int x64_syms_sect_size;
 
 	int bc2_sect;
 	int bc2_sect_size;
@@ -6759,6 +6763,7 @@ struct serialize_state
 	own_std::vector<unsigned char> data_sect;
 	own_std::vector<unsigned char> x64_code;
 	own_std::vector<unsigned char> x64_rels;
+	own_std::vector<unsigned char> x64_syms;
 
 	own_std::vector<func_decl*> serialized_funcs;
 
@@ -7279,6 +7284,12 @@ void WasmSerializePushString(serialize_state* ser_state, own_std::string* name, 
 	ser_state->string_sect.insert(ser_state->string_sect.end(), (unsigned char *)name->data(), (unsigned char *)(name->data() + name->size()));
 }
 
+struct dbg_sym
+{
+  machine_sym_type type;
+  str_dbg name;
+  int offset;
+};
 struct dbg_rel
 {
   machine_rel_type type;
@@ -7291,6 +7302,19 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	final_buffer.reserve(1024 * 8);
 	serialize_state ser_state;
 
+  FOR_VEC(s, mcode->symbols)
+  {
+    own_std::string aux=s->name;
+
+    int offset = ser_state.x64_syms.size();
+
+    ser_state.x64_syms.make_count(ser_state.x64_syms.size() + sizeof(dbg_sym));
+    dbg_sym *out = (dbg_sym *)(ser_state.x64_syms.begin() + offset);
+		WasmSerializePushString(&ser_state, &aux, &out->name);
+
+    out->type = s->type;
+    out->offset = s->idx;
+  }
   FOR_VEC(r, mcode->rels)
   {
     own_std::string aux=r->name;
@@ -7425,6 +7449,11 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	file.x64_rels_sect_size = ser_state.x64_rels.size();
 
 	INSERT_VEC(final_buffer, ser_state.x64_rels);
+
+	file.x64_syms_sect = final_buffer.size();
+	file.x64_syms_sect_size = ser_state.x64_syms.size();
+
+	INSERT_VEC(final_buffer, ser_state.x64_syms);
 
 	file.data_sect = final_buffer.size();
 
@@ -13646,10 +13675,20 @@ void GenX64DeclGlobal(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir
 		aux->reg = AllocReg(lang_stat);
 	}
 	aux->voffset = 0;
-	bc.type = MOV_I;
-	bc.bin.lhs.reg = aux->reg;
-	bc.bin.lhs.reg_sz = 4;
-	bc.bin.rhs.i = GLOBALS_OFFSET + offset;
+  if(lang_stat->is_machine_x64_backend)
+  {
+    bc.type = RELOC;
+    bc.rel.type = REL_DATA;
+    bc.rel.reg_dst = aux->reg;
+    bc.rel.offset = offset;
+  }
+  else
+  {
+    bc.type = MOV_I;
+    bc.bin.lhs.reg = aux->reg;
+    bc.bin.lhs.reg_sz = 4;
+    bc.bin.rhs.i = GLOBALS_OFFSET + offset;
+  }
 	ret.emplace_back(bc);
 }
 void GenX64ToIrValDecl2(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *aux, ir_val *ir, bool address, bool if_its_packed_reg_mov_extended, short reg_dst = -1)

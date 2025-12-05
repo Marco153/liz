@@ -1,5 +1,6 @@
 // #define USE_TEXT_EDITOR
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
+#include "machine_rel.h"
 #include <assimp/material.h>
 #include <cstring>
 #include <time.h>
@@ -9778,6 +9779,7 @@ _pid ChildProcess()
     char *jmp_table = (char *)(file_ptr_exec + read);
     int added_funcs;
     char *cur_jmp_tbl = jmp_table;
+    char *globals_start = (data + file->globals_sect);
 
     std::unordered_map<const char *, u64 *> map_funcs;
 
@@ -9821,18 +9823,42 @@ _pid ChildProcess()
     }
 
 
+    int total_syms = file->x64_syms_sect_size/ sizeof(dbg_sym);
+    
+    HERE()
     for (int i = 0; i < total_rels; i++)
     {
       auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
       printf("rel to name: %.*s\n", r->name.name_len, str_sect+r->name.name_on_string_sect);
-      if(cmp_str_dbg(str_sect, &r->name, "PrintStr"))
+      if(r->type == machine_rel_type::DATA)
       {
-        auto jmp_addr = (char *)map_funcs["PrintStr"];
+        char *at_globals = nullptr;
+        for (int s = 0; s < total_syms; s++)
+        {
+          auto cur_s = (dbg_sym*)(data + file->x64_syms_sect + s * sizeof(dbg_sym));
+          if(cmp_str_dbg(str_sect, &r->name, &cur_s->name))
+          {
+            at_globals = globals_start + cur_s->offset;
+            break;
+          }
+        }
+        ASSERT(at_globals != nullptr);
+
         auto call_offset = (char*)(code + r->code_offset);
-        *call_offset = (int)((long long)(jmp_addr - (call_offset + 4)));
+        *call_offset = (int)((long long)(at_globals - (call_offset + 4)));
 
-        auto a = 0;
+      }
+      else
+      {
+        if(cmp_str_dbg(str_sect, &r->name, "PrintStr"))
+        {
+          auto jmp_addr = (char *)map_funcs["PrintStr"];
+          auto call_offset = (char*)(code + r->code_offset);
+          *call_offset = (int)((long long)(jmp_addr - (call_offset + 4)));
 
+          auto a = 0;
+
+        }
       }
 
       /*
@@ -9975,6 +10001,7 @@ int main(int argc, char *argv[]) {
   auto wasm_dir = std_str_to_heap2(&opts.wasm_dir);
   auto folder_name = std_str_to_heap2(&opts.folder_name);
 
+  lang_stat.is_machine_x64_backend = true;
   Compile(&lang_stat, &opts);
   _pid child_p = ChildProcess();
   printf("Parent: sending SIGCONT (wake)\n");

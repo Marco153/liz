@@ -1,5 +1,5 @@
 PrintStr::fn outsider(str : str_lit);
-main::fn()!u32
+main::fn x64()!u32
 {
   PrintStr("hello world\n")
   return 6

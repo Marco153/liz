@@ -986,6 +986,8 @@ char* CompleteMachineCode(lang_state* lang_stat, machine_code& code)
 
 	//int& offset = lang_stat->already_inserted_of_type_sect_in_code_sect;
 	int offset = 0;
+  char *aux =  (char *)lang_stat->code_sect.begin();
+
 
 	lang_stat->code_sect.insert(lang_stat->code_sect.begin(), (unsigned char*)lang_stat->type_sect.begin() + offset, (unsigned char*)lang_stat->type_sect.end());
 
@@ -7289,8 +7291,6 @@ void WasmSerialize(web_assembly_state* wasm_state, own_std::vector<unsigned char
 	final_buffer.reserve(1024 * 8);
 	serialize_state ser_state;
 
-  
-  HERE()
   FOR_VEC(r, mcode->rels)
   {
     own_std::string aux=r->name;
@@ -17381,7 +17381,7 @@ void GenWasm(web_assembly_state* wasm_state)
 	{
 		func_decl* func = *f;
 		own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & func->ir;
-		if (IS_FLAG_ON(func->flags, FUNC_DECL_X64) && func->references > 0)
+		if (IS_FLAG_ON(func->flags, FUNC_DECL_X64)) //&& func->references > 0)
 		{
 			//func->code = (machine_code *)AllocMiscData(wasm_state->lang_stat, sizeof(machine_code));
 

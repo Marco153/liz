@@ -920,8 +920,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 					if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_IS_OUTSIDER))
 					{
 
-						MovImmToReg(ret, 0, 4, fdecl->func_idx);
-						ret.code.emplace_back(0xcc);
+						//MovImmToReg(ret, 0, 4, fdecl->func_idx);
+						//ret.code.emplace_back(0xcc);
 					}
 					else if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_LABEL))
 					{

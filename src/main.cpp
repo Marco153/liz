@@ -1,6 +1,7 @@
 // #define USE_TEXT_EDITOR
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
 #include <assimp/material.h>
+#include <cstring>
 #include <time.h>
 #include <thread>
 #define RAD_TO_DEG 57.29577
@@ -9722,6 +9723,19 @@ AudioClip *CreateNewAudioClip(open_gl_state *gl_state, char *name) {
   */
   return ret;
 }
+void _PrintStr(const char *str)
+{
+  printf("%s", str);
+}
+bool cmp_str_dbg(char *str_sect, str_dbg *s1, const char *str)
+{
+  int ln = strlen(str);
+  if (s1->name_len != ln) return false;
+
+  if(memcmp(str_sect + s1->name_on_string_sect, str, ln) !=0)return false;
+
+  return true;
+}
 bool cmp_str_dbg(char *str_sect, str_dbg *s1, str_dbg *s2)
 {
   if (s1->name_len != s2->name_len) return false;
@@ -9748,14 +9762,28 @@ _pid ChildProcess()
     u32 read;
     auto file_ptr = (unsigned char *)ReadEntireFileMalloc("tests.dbg", &read);
     auto file = (dbg_file_seriealize*)(file_ptr);
+    auto file_ptr_exec = PlatformGetMem(read + file->total_funcs * 16, 0);
+    file = (dbg_file_seriealize*)(file_ptr_exec);
+
+    memcpy(file_ptr_exec, file_ptr, read);
+    
     char buffer[1024];
     GetCurrentDirectory(buffer, 1024);
 
     std::vector<func_dbg *>fdecls;
     int total_rels = file->x64_rels_sect_size / sizeof(dbg_rel);
     char *data = (char *)(file + 1);
-    char *code = (char *)(data + file->x64_code_sect + file->serialized_types_sect);
+    char *code = (char *)(data + file->x64_code_sect + file->x64_code_type_sect_size);
     char *str_sect = (char *)(data + file->string_sect);
+    char *jmp_table = (char *)(file_ptr_exec + read);
+    int added_funcs;
+    char *cur_jmp_tbl = jmp_table;
+
+    std::unordered_map<const char *, u64 *> map_funcs;
+
+    int main_start = 0;
+
+
     for (int f = 0; f < file->total_funcs; f++)
     {
       auto fdbg = (func_dbg*)(data + file->func_sect + f * sizeof(func_dbg));
@@ -9764,25 +9792,61 @@ _pid ChildProcess()
 
       printf("func name: %.*s\n", fdbg->name.name_len,str_sect+fdbg->name.name_on_string_sect);
       fdecls.emplace_back(fdbg);
+
+      if(IS_FLAG_ON(fdbg->flags, FUNC_DECL_IS_OUTSIDER))
+      {
+        if(cmp_str_dbg(str_sect, &fdbg->name, "PrintStr"))
+        {
+          map_funcs["PrintStr"] = (u64 *)cur_jmp_tbl;
+
+          cur_jmp_tbl[0] = 0xff;
+          cur_jmp_tbl[1] = 0x25;
+          memset(&cur_jmp_tbl[2], 0, 4);
+
+          *(u64*)&cur_jmp_tbl[6]= (u64)_PrintStr;
+          cur_jmp_tbl += 16;
+        }
+        else
+        {
+          ASSERT(false)
+        }
+      }
+      else
+      {
+        if(cmp_str_dbg(str_sect, &fdbg->name, "main"))
+        {
+          main_start = fdbg->x64_code_start;
+        }
+      }
     }
-    HERE()
+
 
     for (int i = 0; i < total_rels; i++)
     {
       auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
       printf("rel to name: %.*s\n", r->name.name_len, str_sect+r->name.name_on_string_sect);
+      if(cmp_str_dbg(str_sect, &r->name, "PrintStr"))
+      {
+        auto jmp_addr = (char *)map_funcs["PrintStr"];
+        auto call_offset = (char*)(code + r->code_offset);
+        *call_offset = (int)((long long)(jmp_addr - (call_offset + 4)));
+
+        auto a = 0;
+
+      }
+
+      /*
       for(int f = 0; f < file->total_funcs; f++)
       {
         auto fdbg = fdecls[f];
         char *fdbg_start = code + fdbg->x64_code_start;
-        if(cmp_str_dbg(str_sect, &r->name, &fdbg->name))
-        {
-          int *call_offset = (int*)(code + r->code_offset);
-          *call_offset = (int)((long long)(fdbg_start - fdbg->x64_code_start));
-          auto a = 0;
-        }
       }
+      */
     }
+    HERE()
+    auto call = (void(*)())(code + main_start);
+    call();
+
     exit(0);
   }
   else {

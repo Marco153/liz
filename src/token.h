@@ -394,6 +394,7 @@ struct func_decl
 	int references;
 
 	int code_start_idx;
+	int code_end_idx;
 	int for_interpreter_code_start_idx;
 	int code_size;
 

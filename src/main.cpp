@@ -1,7 +1,7 @@
 // #define USE_TEXT_EDITOR
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
-#include "machine_rel.h"
 #include <assimp/material.h>
+#include <csignal>
 #include <cstring>
 #include <time.h>
 #include <thread>
@@ -10,10 +10,13 @@
 #define LINUX
 //#define RENDERER_VULKAN
 
-#ifdef LINUX
 #include <assimp/cimport.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#ifdef LINUX
+#include <sys/prctl.h>
+#include <signal.h>
+#include <sys/ptrace.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h> //For PATH_MAX
@@ -27,6 +30,7 @@
 #include <vulkan/vulkan.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/user.h>
 namespace Simplex
 {
 #include "include/simplex/SimplexNoise.h"
@@ -4044,6 +4048,8 @@ void MouseCallback(GLFWwindow *window, int button, int action, int mods) {
 void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
                  int mods) {
   auto gl_state = (open_gl_state *)glfwGetWindowUserPointer(window);
+  printf("somthing was pressed\n");
+  //ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
   if (action == GLFW_PRESS) {
     gl_state->buttons[key] |= KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN;
     float t = glfwGetTime();
@@ -9724,6 +9730,10 @@ AudioClip *CreateNewAudioClip(open_gl_state *gl_state, char *name) {
   */
   return ret;
 }
+void *_GetMem(int size)
+{
+  return malloc(size);
+}
 void _PrintStr(const char *str)
 {
   printf("%s", str);
@@ -9748,28 +9758,131 @@ bool cmp_str_dbg(char *str_sect, str_dbg *s1, str_dbg *s2)
 
 #ifdef LINUX
 typedef pid_t _pid;
+int write_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t size) {
+    size_t offset = 0;
+
+    while (offset < size) {
+        errno = 0;
+
+        long data = ptrace(PTRACE_POKEDATA, pid, addr + offset, NULL);
+
+        if (errno != 0) {
+            perror("ptrace PEEKDATA");
+            return -1;
+        }
+
+        // copy the 8 bytes we got
+        *(long *)(buffer + offset) = data;
+        offset += sizeof(long);
+    }
+
+    return 0;
+}
+int read_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t size) {
+    size_t offset = 0;
+
+    while (offset < size) {
+        errno = 0;
+
+        long data = ptrace(PTRACE_PEEKDATA, pid, addr + offset, NULL);
+
+        if (errno != 0) {
+            perror("ptrace PEEKDATA");
+            return -1;
+        }
+
+        // copy the 8 bytes we got
+        *(long *)(buffer + offset) = data;
+        offset += sizeof(long);
+    }
+
+    return 0;
+}
+void MakeInstAddrToBeBreakpoint2(int child_p, own_std::vector<breakpoint> *bps, u64 address, bool one_time = true)
+{
+  //HERE()
+  printf("adding bp\n");
+	breakpoint bp;
+  u64 prev_i;
+  read_bytes_from_child(child_p, address, (u8*)&prev_i, 1);
+
+	bp.prev_i = (char)prev_i;
+	bp.inst = address;
+	bp.one_time_bp = one_time;
+  u8 inst = 0xcc;
+  write_bytes_from_child(child_p, address, &inst, 1);
+
+	bps->emplace_back(bp);
+}
 #endif
-_pid ChildProcess()
+
+bool CmpStrDbgAddFunc(char *str_sect, str_dbg *s, const char *name, std::unordered_map<const char *, u64*> *map, u64 func_addr, char **cur_jmp_tbl)
+{
+  if(cmp_str_dbg(str_sect, s, name))
+  {
+    (*map)["PrintStr"] = (u64 *)*cur_jmp_tbl;
+
+    (*cur_jmp_tbl)[0] = 0xff;
+    (*cur_jmp_tbl)[1] = 0x25;
+    memset(&(*cur_jmp_tbl)[2], 0, 4);
+
+    *(u64*)&(*cur_jmp_tbl)[6]= (u64)func_addr;
+    (*cur_jmp_tbl) += 16;
+    return true;
+  }
+  return false;
+}
+bool CmpStrDbgGetJmpAddr(char *str_sect, str_dbg *s, const char *name, char **jmp, std::unordered_map<const char *, u64*> *map)
+{
+  if(cmp_str_dbg(str_sect, s, name))
+  {
+    *jmp = (char *)(*map)[name];
+    return true;
+  }
+  return false;
+}
+
+_pid ChildProcess(int pipes[2])
 {
 #ifdef LINUX
-  //_pid pid = fork();
-  _pid pid = 1;
-  if (pid != 0) {
+  if(pipe(pipes) == -1)
+  {
+    ASSERT(false)
+  }
+  _pid pid = fork();
+  //_pid pid = 1;
+  if (pid == 0) {
+    ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+
+    if (prctl(PR_SET_PDEATHSIG, SIGTERM) == -1) perror("prctl");
+    if (getppid() == 1) {
+        // parent already gone
+        exit(1);
+    }
+    if (close(pipes[0]) == -1)  /* Close unused write end */
+    {
+      printf("error on close write end child\n");
+      ASSERT(false)
+    }
+
     //HERE();
-    printf("Child: sending SIGSTOP (sleep)\n");
-    //raise(SIGSTOP);  // puts itself to sleep
-    printf("Child: resumed!\n");
+    char buffer[1024];
+    GetCurrentDirectory(buffer, 1024);
 
     u32 read;
-    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("tests.dbg", &read);
+    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
     auto file = (dbg_file_seriealize*)(file_ptr);
     auto file_ptr_exec = PlatformGetMem(read + file->total_funcs * 16, 0);
     file = (dbg_file_seriealize*)(file_ptr_exec);
 
+    if (write(pipes[1], &file_ptr_exec, 8) == -1)
+    {
+      printf("error on close writing on child\n");
+      ASSERT(false)
+    }
+
     memcpy(file_ptr_exec, file_ptr, read);
     
-    char buffer[1024];
-    GetCurrentDirectory(buffer, 1024);
 
     std::vector<func_dbg *>fdecls;
     int total_rels = file->x64_rels_sect_size / sizeof(dbg_rel);
@@ -9785,6 +9898,9 @@ _pid ChildProcess()
 
     int main_start = 0;
 
+    printf("Child: sending SIGSTOP (sleep)\n");
+    raise(SIGSTOP);  // puts itself to sleep
+    printf("Child: resumed!\n");
 
     for (int f = 0; f < file->total_funcs; f++)
     {
@@ -9797,19 +9913,17 @@ _pid ChildProcess()
 
       if(IS_FLAG_ON(fdbg->flags, FUNC_DECL_IS_OUTSIDER))
       {
-        if(cmp_str_dbg(str_sect, &fdbg->name, "PrintStr"))
+        if(CmpStrDbgAddFunc(str_sect, &fdbg->name, "PrintStr", &map_funcs, (u64)_PrintStr, &cur_jmp_tbl))
         {
-          map_funcs["PrintStr"] = (u64 *)cur_jmp_tbl;
 
-          cur_jmp_tbl[0] = 0xff;
-          cur_jmp_tbl[1] = 0x25;
-          memset(&cur_jmp_tbl[2], 0, 4);
+        }
+        else if(CmpStrDbgAddFunc(str_sect, &fdbg->name, "GetMem", &map_funcs, (u64)_GetMem, &cur_jmp_tbl))
+        {
 
-          *(u64*)&cur_jmp_tbl[6]= (u64)_PrintStr;
-          cur_jmp_tbl += 16;
         }
         else
         {
+          char *name = str_sect + fdbg->name.name_on_string_sect;
           ASSERT(false)
         }
       }
@@ -9825,7 +9939,6 @@ _pid ChildProcess()
 
     int total_syms = file->x64_syms_sect_size/ sizeof(dbg_sym);
     
-    HERE()
     for (int i = 0; i < total_rels; i++)
     {
       auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
@@ -9850,9 +9963,9 @@ _pid ChildProcess()
       }
       else
       {
-        if(cmp_str_dbg(str_sect, &r->name, "PrintStr"))
+        char *jmp_addr=0;
+        if(CmpStrDbgGetJmpAddr(str_sect, &r->name, "PrintStr", &jmp_addr, &map_funcs))
         {
-          auto jmp_addr = (char *)map_funcs["PrintStr"];
           auto call_offset = (char*)(code + r->code_offset);
           *call_offset = (int)((long long)(jmp_addr - (call_offset + 4)));
 
@@ -9876,14 +9989,295 @@ _pid ChildProcess()
     exit(0);
   }
   else {
+    if (close(pipes[1]) == -1)  /* Close unused write end */
+    {
+      ASSERT(false)
+    }
   }
   return pid;
 #endif
 }
 
+enum class child_process_state
+{
+  RUNNING,
+  SEG_FAULT,
+  INT3,
+};
+
+func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *offset) {
+  FOR_VEC(it, lang_stat->winterp->funcs) {
+    auto f = *it;
+
+    char *f_start = code_start + f->code_start_idx;
+    char *f_end = code_start + f->code_end_idx;
+    if(offset >= f_start && offset <= f_end) return f;
+  }
+  return nullptr;
+}
+void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
+{
+  GLFWwindow *window;
+
+  /* Initialize the library */
+  if (!glfwInit())
+    return;
+
+  int wnd_width = 1000;
+  int wnd_height = 1000;
+  /* Create a windowed mode window and its OpenGL context */
+  const char *glsl_version = "#version 430";
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+  //glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // 3.2+ only
+  //glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required
+  //*/
+  //on Mac
+
+  // glfwWindowHint(GLFW_REFRESH_RATE, 60);
+
+  window = glfwCreateWindow(wnd_width, wnd_height, "Hello World",
+                            NULL, NULL);
+  //InitVulkan(dbg, window);
+  //HERE()
+
+  if (!window) {
+    ASSERT(0);
+    glfwTerminate();
+    return;
+  }
+  if (glfwRawMouseMotionSupported()) {
+    glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+  }
+  auto dbg = lang_stat->winterp->dbg;
+  auto gl_state = (open_gl_state *)lang_stat->winterp->dbg->data;
+  glfwSetWindowUserPointer(window, (void *)gl_state);
+  glfwSetKeyCallback(window, KeyCallback);
+  glfwSetScrollCallback(window, scroll_callback);
+  glfwSetWindowCloseCallback(window, window_close_callback);
+  glfwSetMouseButtonCallback(window, MouseCallback);
+  glfwSetCursorPosCallback(window, cursor_position_callback);
+  /* Make the window's context current */
+  glfwMakeContextCurrent(window);
+
+
+
+  // Setup Dear ImGui context
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  (void)io;
+
+  io.ConfigNavEscapeClearFocusItem = false;
+  io.ConfigFlags |=
+      ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
+  io.ConfigFlags |=
+      ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
+  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+  io.ConfigWindowsMoveFromTitleBarOnly = true;
+
+  // Setup Dear ImGui style
+  ImGui::StyleColorsDark();
+  // ImGui::StyleColorsLight();
+
+  // Setup Platform/Renderer backends
+  ImGui_ImplGlfw_InitForOpenGL(window, true);
+  ImGui_ImplOpenGL3_Init(glsl_version);
+
+  // Single initialization call
+  GLenum err = glewInit();
+  if (err != GLEW_OK) {
+    // Handle error
+  }
+  // int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+  enableGLDebugging();
+
+  void *file_addr;
+
+  //HERE()
+  read(pipes[0], &file_addr, 8);
+  char buffer[1024];
+  read_bytes_from_child(child_p, (u64)file_addr, (u8 *)buffer, sizeof(dbg_file_seriealize));
+
+
+  auto file = (dbg_file_seriealize *)buffer;
+
+  auto child_after_hdr = (char *)file_addr + sizeof(dbg_file_seriealize);
+  char *code_start = (char *)child_after_hdr + file->x64_code_sect + file->x64_code_type_sect_size;
+  char *code_end = (char *)child_after_hdr + file->x64_code_sect + file->code_sect;
+  
+  waitpid(child_p, NULL, 0);
+  bool main_widow_open = true;
+  int status;
+  child_process_state ch_state;
+  struct user_regs_struct regs;
+  scope *cur_scp=nullptr;
+  stmnt_dbg *cur_st=nullptr;
+  func_decl *cur_f=nullptr;
+  breakpoint *cur_bp=nullptr;
+  int cur_bp_idx;
+
+  own_std::vector<breakpoint> breakpoints;
+
+  while(true)
+  {
+    pid_t r = waitpid(child_p, &status, WNOHANG | WUNTRACED | WCONTINUED);
+    if (r == 0) {
+      //ch_state = child_process_state::RUNNING;
+      printf("Child: running (no state change)\n");
+    }
+    else if (WIFSTOPPED(status)) {
+      if(WSTOPSIG(status) == 11)
+      {
+        ch_state = child_process_state::SEG_FAULT;
+      }
+      else if(WSTOPSIG(status) == SIGTRAP)
+      {
+        ch_state = child_process_state::INT3;
+      }
+    }
+    else if (WIFCONTINUED(status)) {
+        printf("Child: continued\n");
+    }
+    else if (WIFEXITED(status)) {
+        printf("Child: exited normally (%d)\n", WEXITSTATUS(status));
+    }
+    else if (WIFSIGNALED(status)) {
+        printf("Child: killed by signal %d\n", WTERMSIG(status));
+    }
+    ClearKeys(dbg->data);
+
+    glfwPollEvents();
+
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    glClearColor(0, 0, 0, 1.0f); // Set the new color
+    glClearDepth(1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    // Step 2: Enable scissor testing
+    glEnable(GL_SCISSOR_TEST);
+    //ImGui::ShowDemoWindow();
+    //
+
+    ImGuiWindowFlags flags =
+      ImGuiWindowFlags_NoTitleBar
+    | ImGuiWindowFlags_NoResize
+    | ImGuiWindowFlags_NoMove
+    | ImGuiWindowFlags_NoScrollbar
+    | ImGuiWindowFlags_NoCollapse
+    | ImGuiWindowFlags_NoBringToFrontOnFocus
+    | ImGuiWindowFlags_NoNavFocus;
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::Begin("main window", &main_widow_open, flags);
+    if(ImGui::Button("Continue"))
+    {
+      printf("Parent: sending SIGCONT (wake)\n");
+      ptrace(PTRACE_CONT, child_p, 0, 0);
+    }
+    ImGui::SameLine();
+    bool f10_pressed = false;
+    if(ImGui::Button("F10"))
+    {
+      f10_pressed = true;
+    }
+    switch(ch_state)
+    {
+    case child_process_state::INT3:
+    {
+      ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+      ImGui::Text("INT3: %p", regs.rip);
+
+      if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
+      {
+        if(!cur_f)
+        {
+          cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
+        }
+        ImGui::Text("in range");
+        if(cur_f)
+        {
+          int offset = (u64)((char *)regs.rip - code_start);
+          cur_st = GetStmntBasedOnOffset(&cur_f->wasm_stmnts, offset);
+          ImGui::Text("in func %s", cur_f->name.c_str());
+          if(cur_st)
+          {
+            ImGui::Text("st line %d", cur_st->line);
+          }
+        }
+        if(!cur_bp)
+        {
+          int i= 0;
+          FOR_VEC(b, breakpoints)
+          {
+            if((u64)b->inst == regs.rip)
+            {
+              cur_bp = b;
+              cur_bp_idx = i;
+              break;
+            }
+            i++;
+          }
+        }
+        if (f10_pressed)
+        //if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F10))
+        {
+          HERE()
+          if(cur_bp)
+          {
+            write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 1);
+            regs.rip--;
+            ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
+            breakpoints.remove(cur_bp_idx);
+
+          }
+          if((cur_st + 1) < cur_f->wasm_stmnts.end())
+          {
+            stmnt_dbg *next_st = cur_st + 1;
+            u64 next_addr = (u64)(code_start + next_st->start);
+            MakeInstAddrToBeBreakpoint2(child_p, &breakpoints, next_addr, true);
+          }
+
+          ptrace(PTRACE_CONT, child_p, 0, 0);
+        }
+      }
+
+    }break;
+    case child_process_state::SEG_FAULT:
+    {
+      ImGui::Text("SIGSEGV");
+      ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+      ImGui::Text("%p", regs.rip);
+    }break;
+    }
+    ImGui::End();
+
+
+    ImGui::Render();
+    // int display_w, display_h;
+    // glfwGetFramebufferSize(window, &display_w, &display_h);
+    // glViewport(0, 0, display_w, display_h);
+    // glClearColor(clear_color.x * clear_color.w, clear_color.y *
+    // clear_color.w, clear_color.z * clear_color.w, clear_color.w);
+    // glClear(GL_COLOR_BUFFER_BIT);
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    glViewport(0, 0, wnd_width, wnd_height);
+    glfwSwapBuffers(window);
+  }
+
+}
 int main(int argc, char *argv[]) {
 
-  //_pid child_p = ChildProcess();
+  int pipes[2];
+  _pid child_p = ChildProcess(pipes);
   auto ttt = 0;
   mem_alloc alloc;
   alloc.main_buffer = nullptr;
@@ -10003,15 +10397,8 @@ int main(int argc, char *argv[]) {
 
   lang_stat.is_machine_x64_backend = true;
   Compile(&lang_stat, &opts);
-  _pid child_p = ChildProcess();
-  printf("Parent: sending SIGCONT (wake)\n");
-  kill(child_p, SIGCONT);
+  //_pid child_p = ChildProcess();
 
-  waitpid(child_p, NULL, 0);
-  while(true)
-  {
-
-  }
 
   memset(&lang_stat, 0, sizeof(lang_stat));
   InitMemAlloc(&alloc);
@@ -10019,306 +10406,6 @@ int main(int argc, char *argv[]) {
            &alloc);
   // AssertFuncByteCode(&lang_stat);
 
-  AssignOutsiderFunc(&lang_stat, "GetMem", (OutsiderFuncType)GetMem);
-  AssignOutsiderFunc(&lang_stat, "SetMem", (OutsiderFuncType)SetMem);
-  AssignOutsiderFunc(&lang_stat, "SubMem", (OutsiderFuncType)SubMem);
-  AssignOutsiderFunc(&lang_stat, "Print", (OutsiderFuncType)Print);
-  AssignOutsiderFunc(&lang_stat, "OpenWindow", (OutsiderFuncType)OpenWindow);
-  AssignOutsiderFunc(&lang_stat, "ShouldClose", (OutsiderFuncType)ShouldClose);
-  AssignOutsiderFunc(&lang_stat, "ClearBackground",
-                     (OutsiderFuncType)ClearBackground);
-  AssignOutsiderFunc(&lang_stat, "Draw", (OutsiderFuncType)Draw);
-  AssignOutsiderFunc(&lang_stat, "Draw3D", (OutsiderFuncType)Draw3D);
-  AssignOutsiderFunc(&lang_stat, "Draw3DTransparency",
-                     (OutsiderFuncType)Draw3DTransparency);
-  AssignOutsiderFunc(&lang_stat, "GetTime", (OutsiderFuncType)GetTime);
-
-  AssignOutsiderFunc(&lang_stat, "CreateThread",
-                     (OutsiderFuncType)_CreateThread);
-  AssignOutsiderFunc(&lang_stat, "JoinThread", (OutsiderFuncType)_JoinThread);
-  AssignOutsiderFunc(&lang_stat, "SuspendThread",
-                     (OutsiderFuncType)_SuspendThread);
-  AssignOutsiderFunc(&lang_stat, "ResumeThread",
-                     (OutsiderFuncType)_ResumeThread);
-  AssignOutsiderFunc(&lang_stat, "WaitThread", (OutsiderFuncType)_WaitThread);
-
-  AssignOutsiderFunc(&lang_stat, "IsKeyHeld", (OutsiderFuncType)IsKeyHeld);
-  AssignOutsiderFunc(&lang_stat, "IsKeyDown", (OutsiderFuncType)IsKeyDown);
-  AssignOutsiderFunc(&lang_stat, "IsKeyUp", (OutsiderFuncType)IsKeyUp);
-
-  AssignOutsiderFunc(&lang_stat, "LoadClip", (OutsiderFuncType)LoadClip);
-  AssignOutsiderFunc(&lang_stat, "Perlin2D", (OutsiderFuncType)Perlin2D);
-  AssignOutsiderFunc(&lang_stat, "LoadTex", (OutsiderFuncType)LoadTex);
-  AssignOutsiderFunc(&lang_stat, "LoadSceneFolder",
-                     (OutsiderFuncType)LoadSceneFolder);
-  // AssignOutsiderFunc(&lang_stat, "GetDeltaTime",
-  // (OutsiderFuncType)GetDeltaTime);
-  AssignOutsiderFunc(&lang_stat, "EndFrame", (OutsiderFuncType)EndFrame);
-  AssignOutsiderFunc(&lang_stat, "GetTimeSinceStart",
-                     (OutsiderFuncType)GetTimeSinceStart);
-  AssignOutsiderFunc(&lang_stat, "sqrt", (OutsiderFuncType)Sqrt);
-  AssignOutsiderFunc(&lang_stat, "AssignCtxAddr", (OutsiderFuncType)Stub);
-  AssignOutsiderFunc(&lang_stat, "WasmDbg", (OutsiderFuncType)Stub);
-
-  AssignOutsiderFunc(&lang_stat, "PrintV3", (OutsiderFuncType)PrintV3);
-  AssignOutsiderFunc(&lang_stat, "PrintV3Int", (OutsiderFuncType)PrintV3Int);
-  AssignOutsiderFunc(&lang_stat, "PrintStr", (OutsiderFuncType)PrintStr);
-
-  AssignOutsiderFunc(&lang_stat, "OpenFile", (OutsiderFuncType)OpenFile);
-  AssignOutsiderFunc(&lang_stat, "SetFilePtr", (OutsiderFuncType)SetFilePtr);
-  AssignOutsiderFunc(&lang_stat, "WriteToFile", (OutsiderFuncType)WriteToFile);
-  AssignOutsiderFunc(&lang_stat, "CloseFile", (OutsiderFuncType)CloseFile);
-
-  AssignOutsiderFunc(&lang_stat, "HandleForGettingFilesInDir",
-                     (OutsiderFuncType)HandleForGettingFilesInDir);
-  AssignOutsiderFunc(&lang_stat, "FileChangeTime",
-                     (OutsiderFuncType)FileChangeTime);
-
-  AssignOutsiderFunc(&lang_stat, "HandleDirFilenameAt",
-                     (OutsiderFuncType)HandleDirFilenameAt);
-
-  AssignOutsiderFunc(&lang_stat, "HandleDirTotalFiles",
-                     (OutsiderFuncType)HandleDirTotalFiles);
-  AssignOutsiderFunc(&lang_stat, "FreeHandle", (OutsiderFuncType)FreeHandle);
-
-  AssignOutsiderFunc(&lang_stat, "AssignTexFolder",
-                     (OutsiderFuncType)AssignTexFolder);
-  AssignOutsiderFunc(&lang_stat, "AssignModelFolder",
-                     (OutsiderFuncType)AssignModelFolder);
-
-  AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosX",
-                     (OutsiderFuncType)GetMouseNormalizedPosX);
-  AssignOutsiderFunc(&lang_stat, "GetMouseNormalizedPosY",
-                     (OutsiderFuncType)GetMouseNormalizedPosY);
-  AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosX",
-                     (OutsiderFuncType)GetMouseScreenPosX);
-  AssignOutsiderFunc(&lang_stat, "GetMouseScreenPosY",
-                     (OutsiderFuncType)GetMouseScreenPosY);
-  AssignOutsiderFunc(&lang_stat, "GetMouseVelX",
-                     (OutsiderFuncType)GetMouseVelX);
-  AssignOutsiderFunc(&lang_stat, "GetMouseVelY",
-                     (OutsiderFuncType)GetMouseVelY);
-
-  AssignOutsiderFunc(&lang_stat, "FreeTexture", (OutsiderFuncType)FreeTexture);
-
-  AssignOutsiderFunc(&lang_stat, "IsMouseHeld", (OutsiderFuncType)IsMouseHeld);
-  AssignOutsiderFunc(&lang_stat, "IsMouseUp", (OutsiderFuncType)IsMouseUp);
-  AssignOutsiderFunc(&lang_stat, "IsMouseDown", (OutsiderFuncType)IsMouseDown);
-  AssignOutsiderFunc(&lang_stat, "IsMouseDoubleClick",
-                     (OutsiderFuncType)IsMouseDoubleClick);
-
-  AssignOutsiderFunc(&lang_stat, "AssignSoundFolder",
-                     (OutsiderFuncType)AssignSoundFolder);
-  AssignOutsiderFunc(&lang_stat, "PlayAudio",
-                     (OutsiderFuncType)FromGamePlayAudio);
-  AssignOutsiderFunc(&lang_stat, "GetAudioHandle",
-                     (OutsiderFuncType)GetAudioHandle);
-  AssignOutsiderFunc(&lang_stat, "PlayAudioByHandle",
-                     (OutsiderFuncType)PlayAudioByHandle);
-
-  AssignOutsiderFunc(&lang_stat, "ScreenRatio", (OutsiderFuncType)ScreenRatio);
-  // AssignOutsiderFunc(&lang_stat, "DebuggerCommand",
-  // (OutsiderFuncType)DebuggerCommand);
-  AssignOutsiderFunc(&lang_stat, "ScreenMouseToWorld",
-                     (OutsiderFuncType)ScreenMouseToWorld);
-  AssignOutsiderFunc(&lang_stat, "sin", (OutsiderFuncType)Sin);
-  AssignOutsiderFunc(&lang_stat, "tanf", (OutsiderFuncType)Tan);
-  AssignOutsiderFunc(&lang_stat, "cos", (OutsiderFuncType)Cos);
-  AssignOutsiderFunc(&lang_stat, "acos", (OutsiderFuncType)Acos);
-  AssignOutsiderFunc(&lang_stat, "atan2", (OutsiderFuncType)Atan2);
-  AssignOutsiderFunc(&lang_stat, "asin", (OutsiderFuncType)Asin);
-  AssignOutsiderFunc(&lang_stat, "dot_v3", (OutsiderFuncType)DotV3);
-  AssignOutsiderFunc(&lang_stat, "memcpy", (OutsiderFuncType)MemCpy);
-  AssignOutsiderFunc(&lang_stat, "memset", (OutsiderFuncType)MemSet);
-  AssignOutsiderFunc(&lang_stat, "PointLineDistance",
-                     (OutsiderFuncType)PointLineDistance);
-  AssignOutsiderFunc(&lang_stat, "OpenLocalsWindow",
-                     (OutsiderFuncType)OpenLocalsWindow);
-  AssignOutsiderFunc(&lang_stat, "Rand01", (OutsiderFuncType)Rand01);
-
-  AssignOutsiderFunc(&lang_stat, "ImGuiBegin", (OutsiderFuncType)ImGuiBegin);
-  AssignOutsiderFunc(&lang_stat, "ImGuiEnd", (OutsiderFuncType)ImGuiEnd);
-  AssignOutsiderFunc(&lang_stat, "ImGuiBeginChild",
-                     (OutsiderFuncType)ImGuiBeginChild);
-  AssignOutsiderFunc(&lang_stat, "ImGuiEndChild",
-                     (OutsiderFuncType)ImGuiEndChild);
-  AssignOutsiderFunc(&lang_stat, "ImGuiText", (OutsiderFuncType)ImGuiText);
-  AssignOutsiderFunc(&lang_stat, "ImGuiImage", (OutsiderFuncType)ImGuiImage);
-  AssignOutsiderFunc(&lang_stat, "ImGuiSelectable",
-                     (OutsiderFuncType)ImGuiSelectable);
-  AssignOutsiderFunc(&lang_stat, "ImGuiButton", (OutsiderFuncType)ImGuiButton);
-  AssignOutsiderFunc(&lang_stat, "ImGuiSameLine",
-                     (OutsiderFuncType)ImGuiSameLine);
-  AssignOutsiderFunc(&lang_stat, "ImGuiPushItemWidth",
-                     (OutsiderFuncType)ImGuiPushItemWidth);
-  AssignOutsiderFunc(&lang_stat, "ImGuiPopItemWidth",
-                     (OutsiderFuncType)ImGuiPopItemWidth);
-  AssignOutsiderFunc(&lang_stat, "ImGuiSetNextItemAllowOverlap",
-                     (OutsiderFuncType)ImGuiSetNextItemAllowOverlap);
-  AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorPosX",
-                     (OutsiderFuncType)ImGuiGetCursorPosX);
-  AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorPosY",
-                     (OutsiderFuncType)ImGuiGetCursorPosY);
-  AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosX",
-                     (OutsiderFuncType)ImGuiGetCursorScreenPosX);
-  AssignOutsiderFunc(&lang_stat, "ImGuiGetCursorScreenPosY",
-                     (OutsiderFuncType)ImGuiGetCursorScreenPosY);
-  AssignOutsiderFunc(&lang_stat, "ImGuiSetCursorPos",
-                     (OutsiderFuncType)ImGuiSetCursorPos);
-  AssignOutsiderFunc(&lang_stat, "ImGuiAddRect",
-                     (OutsiderFuncType)ImGuiAddRect);
-  AssignOutsiderFunc(&lang_stat, "ImGuiHasFocus",
-                     (OutsiderFuncType)ImGuiHasFocus);
-  AssignOutsiderFunc(&lang_stat, "ImGuiTreeNodeEx",
-                     (OutsiderFuncType)ImGuiTreeNodeEx);
-  AssignOutsiderFunc(&lang_stat, "ImGuiTreePop",
-                     (OutsiderFuncType)ImGuiTreePop);
-  AssignOutsiderFunc(&lang_stat, "ImGuiEnumCombo",
-                     (OutsiderFuncType)ImGuiEnumCombo);
-  // AssignOutsiderFunc(&lang_stat, "ImGuiInitTextEditor",
-  // (OutsiderFuncType)ImGuiInitTextEditor);
-  AssignOutsiderFunc(&lang_stat, "ImGuiInputText",
-                     (OutsiderFuncType)ImGuiInputText);
-  AssignOutsiderFunc(&lang_stat, "ImGuiInputInt",
-                     (OutsiderFuncType)ImGuiInputInt);
-  AssignOutsiderFunc(&lang_stat, "ImGuiInputF32",
-                     (OutsiderFuncType)ImGuiInputF32);
-  AssignOutsiderFunc(&lang_stat, "ImGuiDragInt",
-                     (OutsiderFuncType)ImGuiDragInt);
-  AssignOutsiderFunc(&lang_stat, "ImGuiSeparator",
-                     (OutsiderFuncType)ImGuiSeparator);
-  AssignOutsiderFunc(&lang_stat, "ImGuiDragF32",
-                     (OutsiderFuncType)ImGuiDragF32);
-  // AssignOutsiderFunc(&lang_stat, "ImGuiRenderTextEditor",
-  // (OutsiderFuncType)ImGuiRenderTextEditor);
-  AssignOutsiderFunc(&lang_stat, "ImGuiSetWindowFontScale",
-                     (OutsiderFuncType)ImGuiSetWindowFontScale);
-  AssignOutsiderFunc(&lang_stat, "ImGuiCheckbox",
-                     (OutsiderFuncType)ImGuiCheckbox);
-
-  AssignOutsiderFunc(&lang_stat, "CopyTextureToBuffer",
-                     (OutsiderFuncType)CopyTextureToBuffer);
-
-  AssignOutsiderFunc(&lang_stat, "LoadSheetFromLayer",
-                     (OutsiderFuncType)LoadSheetFromLayer);
-
-  AssignOutsiderFunc(&lang_stat, "WriteFile",
-                     (OutsiderFuncType)WriteFileInterpreter);
-  AssignOutsiderFunc(&lang_stat, "ReadFile", (OutsiderFuncType)ReadFileInterp);
-  AssignOutsiderFunc(&lang_stat, "GetFileSize", (OutsiderFuncType)GetFileSize);
-
-  AssignOutsiderFunc(&lang_stat, "LoadTexFolder",
-                     (OutsiderFuncType)LoadTexFolder);
-  AssignOutsiderFunc(&lang_stat, "LoadModel", (OutsiderFuncType)LoadModel);
-  AssignOutsiderFunc(&lang_stat, "ReloadModel", (OutsiderFuncType)ReloadModel);
-  AssignOutsiderFunc(&lang_stat, "FreeModel", (OutsiderFuncType)FreeModel);
-  AssignOutsiderFunc(&lang_stat, "ModelFarthestPoint",
-                     (OutsiderFuncType)ModelFarthestPoint);
-  AssignOutsiderFunc(&lang_stat, "UpdateModel", (OutsiderFuncType)UpdateModel);
-  AssignOutsiderFunc(&lang_stat, "CreateMesh", (OutsiderFuncType)CreateMesh);
-  AssignOutsiderFunc(&lang_stat, "GenRawTexture",
-                     (OutsiderFuncType)GenRawTexture);
-  AssignOutsiderFunc(&lang_stat, "UpdateTexture",
-                     (OutsiderFuncType)UpdateTexture);
-  AssignOutsiderFunc(&lang_stat, "GetMouseScroll",
-                     (OutsiderFuncType)GetMouseScroll);
-  AssignOutsiderFunc(&lang_stat, "SetIsEngine", (OutsiderFuncType)SetIsEngine);
-  AssignOutsiderFunc(&lang_stat, "ImGuiPushID", (OutsiderFuncType)ImGuiPushID);
-  AssignOutsiderFunc(&lang_stat, "ImGuiPopID", (OutsiderFuncType)ImGuiPopID);
-  AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
-  AssignOutsiderFunc(&lang_stat, "ImGuiShowV2", (OutsiderFuncType)ImGuiShowV2);
-  AssignOutsiderFunc(&lang_stat, "ImGuiShowV3", (OutsiderFuncType)ImGuiShowV3);
-  AssignOutsiderFunc(&lang_stat, "ImGuiShowV4", (OutsiderFuncType)ImGuiShowV4);
-  AssignOutsiderFunc(&lang_stat, "ImGuiSetKeyboardFocusHere",
-                     (OutsiderFuncType)ImGuiSetKeyboardFocusHere);
-  AssignOutsiderFunc(&lang_stat, "IsMouseOnGameWindow",
-                     (OutsiderFuncType)IsMouseOnGameWindow);
-  AssignOutsiderFunc(&lang_stat, "GetTopStackPtr",
-                     (OutsiderFuncType)GetTopStackPtr);
-  AssignOutsiderFunc(&lang_stat, "GetInstRealAddr",
-                     (OutsiderFuncType)GetInstRealAddr);
-  AssignOutsiderFunc(&lang_stat, "HideCursor", (OutsiderFuncType)HideCursor);
-
-  AssignOutsiderFunc(&lang_stat, "CompileShader",
-                     (OutsiderFuncType)CompileShader2);
-  AssignOutsiderFunc(&lang_stat, "GetUniformLocation",
-                     (OutsiderFuncType)_GetUniformLocation);
-  AssignOutsiderFunc(&lang_stat, "ValidateTextureSlot",
-                     (OutsiderFuncType)ValidateTextureSlot);
-  AssignOutsiderFunc(&lang_stat, "SetUniform4f",
-                     (OutsiderFuncType)SetUniform4f);
-  AssignOutsiderFunc(&lang_stat, "SetUniform3f",
-                     (OutsiderFuncType)SetUniform3f);
-  AssignOutsiderFunc(&lang_stat, "SetUniform2f",
-                     (OutsiderFuncType)SetUniform2f);
-  AssignOutsiderFunc(&lang_stat, "SetUniform1f",
-                     (OutsiderFuncType)SetUniform1f);
-  AssignOutsiderFunc(&lang_stat, "SetUniformMatrices4x4",
-                     (OutsiderFuncType)SetUniformMatrices4x4);
-  AssignOutsiderFunc(&lang_stat, "SetSampler2D",
-                     (OutsiderFuncType)SetSampler2D);
-  AssignOutsiderFunc(&lang_stat, "SetShader", (OutsiderFuncType)SetShader);
-
-  AssignOutsiderFunc(&lang_stat, "GetBoneChildrenData",
-                     (OutsiderFuncType)GetBoneChildrenData);
-  AssignOutsiderFunc(&lang_stat, "GetBoneChildrenLen",
-                     (OutsiderFuncType)GetBoneChildrenLen);
-  AssignOutsiderFunc(&lang_stat, "GetBoneKeyframesLen",
-                     (OutsiderFuncType)GetBoneKeyframesLen);
-  AssignOutsiderFunc(&lang_stat, "GetBoneKeyframesData",
-                     (OutsiderFuncType)GetBoneKeyframesData);
-  AssignOutsiderFunc(&lang_stat, "GetModelBonesLen",
-                     (OutsiderFuncType)GetModelBonesLen);
-  AssignOutsiderFunc(&lang_stat, "GetModelBonesRootsLen",
-                     (OutsiderFuncType)GetModelBonesRootsLen);
-  AssignOutsiderFunc(&lang_stat, "GetModelBonesRootsData",
-                     (OutsiderFuncType)GetModelBonesRootsData);
-  AssignOutsiderFunc(&lang_stat, "GetBoneMatrices",
-                     (OutsiderFuncType)GetBoneMatrices);
-  AssignOutsiderFunc(&lang_stat, "GetBoneName", (OutsiderFuncType)GetBoneName);
-  AssignOutsiderFunc(&lang_stat, "ModelHasAnim",
-                     (OutsiderFuncType)ModelHasAnim);
-
-  AssignOutsiderFunc(&lang_stat, "CopyDataFromModel",
-                     (OutsiderFuncType)CopyDataFromModel);
-  AssignOutsiderFunc(&lang_stat, "GetInfoFromModel",
-                     (OutsiderFuncType)GetInfoFromModel);
-  AssignOutsiderFunc(&lang_stat, "InvertMatrix",
-                     (OutsiderFuncType)InvertMatrix);
-
-  AssignOutsiderFunc(&lang_stat, "SetCulling", (OutsiderFuncType)SetCulling);
-
-  AssignOutsiderFunc(&lang_stat, "euler_to_quaternion2",
-                     (OutsiderFuncType)euler_to_quaternion2);
-  AssignOutsiderFunc(&lang_stat, "quat_mul2", (OutsiderFuncType)quat_mul2);
-  AssignOutsiderFunc(&lang_stat, "AddMemoryWatch",
-                     (OutsiderFuncType)AddMemoryWatch);
-  AssignOutsiderFunc(&lang_stat, "PrintCallStack",
-                     (OutsiderFuncType)PrintCallStack);
-
-  AssignOutsiderFunc(&lang_stat, "Draw3D2",
-                     (OutsiderFuncType)Draw3D2);
-  AssignOutsiderFunc(&lang_stat, "CreateStorageBuffer",
-                     (OutsiderFuncType)CreateStorageBuffer);
-  AssignOutsiderFunc(&lang_stat, "UpdateStorageBuffer",
-                     (OutsiderFuncType)UpdateStorageBuffer);
-
-  AssignOutsiderFunc(&lang_stat, "CreateMutex",
-                     (OutsiderFuncType)CreateMutex);
-  AssignOutsiderFunc(&lang_stat, "SignalMutex",
-                     (OutsiderFuncType)SignalMutex);
-  AssignOutsiderFunc(&lang_stat, "WaitMutex",
-                     (OutsiderFuncType)WaitMutex);
-  AssignOutsiderFunc(&lang_stat, "TryLockMutex",
-                     (OutsiderFuncType)TryLockMutex);
-  AssignOutsiderFunc(&lang_stat, "LockMutex",
-                     (OutsiderFuncType)LockMutex);
-  AssignOutsiderFunc(&lang_stat, "UnlockMutex",
-                     (OutsiderFuncType)UnlockMutex);
-  AssignOutsiderFunc(&lang_stat, "Rdtsc",
-                     (OutsiderFuncType)RDTSC);
-  AssignOutsiderFunc(&lang_stat, "Simplex3D",
-                     (OutsiderFuncType)Simplex3d);
   lang_stat.cur_decl = 0;
 
   opts.wasm_dir = wasm_dir;
@@ -10339,6 +10426,7 @@ int main(int argc, char *argv[]) {
                   (opts.wasm_dir + opts.folder_name + ".dbg").c_str());
     // AssignDbgFile(&lang_stat, opts);
     lang_stat.winterp->dbg->data = (void *)&gl_state;
+    RunDebugger(&lang_stat, child_p, pipes);
     RunDbgFunc(&lang_stat, "tests", args, 1);
     RunDbgFunc(&lang_stat, "main", args, 1);
 

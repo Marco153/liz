@@ -2952,8 +2952,16 @@ struct command_info
 struct breakpoint
 {
 	int line;
-	byte_code_enum prev_inst;
-	byte_code2* bc;
+  union
+  {
+    byte_code_enum prev_inst;
+    char prev_i;
+  };
+  union
+  {
+    byte_code2* bc;
+    u64 inst;
+  };
 	bool one_time_bp;
 };
 struct call_stack_info
@@ -3896,7 +3904,7 @@ stmnt_dbg* GetStmntBasedOnOffset(own_std::vector<stmnt_dbg>* ar, int offset)
 	stmnt_dbg* end = ar->end();
 	while(st < end)
 	{
-		if (offset >= st->start && offset < st->end)
+		if (offset >= st->start && offset <= st->end)
 			return st;
 		st++;
 	}
@@ -6740,6 +6748,7 @@ struct func_dbg
 	int to_spill_offset;
 	int for_interpreter_x64_code_start;
 	int x64_code_start;
+	int x64_end_start;
 
 	int bcs2_start;
 	int bcs2_end;
@@ -6972,6 +6981,7 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 	fdbg->for_interpreter_x64_code_start = f->for_interpreter_code_start_idx;
 	fdbg->stack_size = f->stack_size;
 	fdbg->x64_code_start = f->code_start_idx;
+	fdbg->x64_end_start = f->code_end_idx;
 	fdbg->bcs2_start = f->bcs2_start;
 	fdbg->bcs2_end = f->bcs2_end;
 	fdbg->ret_type = f->ret_type.type;
@@ -7520,6 +7530,7 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 		return fdbg->decl;
 	auto fdecl = (func_decl* )AllocMiscData(lang_stat, sizeof(func_decl));
 	fdecl->code_start_idx = fdbg->code_start;
+	fdecl->code_end_idx = fdbg->code_start;
 	fdecl->flags = fdbg->flags;
 	fdecl->line = fdbg->line;
 
@@ -7567,7 +7578,8 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	fdecl->ir_stack_begin_idx = fdbg->ir_begin_stack_idx;
 	fdecl->stack_size = fdbg->stack_size;
 	if(IS_FLAG_ON(fdbg->flags, FUNC_DECL_X64))
-		fdecl->code_start_idx = fdbg->x64_code_start;
+  fdecl->code_start_idx = fdbg->x64_code_start;
+  fdecl->code_end_idx = fdbg->x64_end_start;
 	fdecl->for_interpreter_code_start_idx = fdbg->for_interpreter_x64_code_start;
 	fdecl->bcs2_start = fdbg->bcs2_start;
 	fdecl->bcs2_end = fdbg->bcs2_end;
@@ -12150,6 +12162,7 @@ void WasmInterpPatchIr(own_std::vector<ir_rep>* ir_ar, wasm_interp* winterp, dbg
 		}break;
 		case IR_CALL:
 		{
+      continue;
 			auto fdbg = (func_dbg*)(start_f + ir->call.i);
 			ASSERT(fdbg->created);
 			func_decl* fdecl = fdbg->decl->type.fdecl;
@@ -15688,6 +15701,12 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			FreeAllRegs(lang_stat);
 			FreeAllFloatRegs(lang_stat);
 			cur_line = ir->block.stmnt.line;
+			if(lang_stat->is_machine_x64_backend)
+      {
+        bc.type = BEGIN_STMNT;
+        bc.st = cur_st;
+        ret.emplace_back(bc);
+      }
 #ifndef WASM_DBG
 			if(lang_stat->is_x64_bc_backend)
 				cur_st->start = ret.size();
@@ -15698,6 +15717,12 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		{
 			FreeAllRegs(lang_stat);
 			FreeAllFloatRegs(lang_stat);
+			if(lang_stat->is_machine_x64_backend)
+      {
+        bc.type = END_STMNT;
+        bc.st = cur_st;
+        ret.emplace_back(bc);
+      }
 #ifndef WASM_DBG
 			if(lang_stat->is_x64_bc_backend)
 				cur_st->end = ret.size();
@@ -16637,6 +16662,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		cur_ir->end = ret.size();
 		int aux_bc = 0;
 	}
+	ret.emplace_back(byte_code(byte_code_enum::END_FUNC, gen_state->cur_func));
 	/*
 	idx = 0;
 	FOR_VEC(bcc, ret)
@@ -16802,6 +16828,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
       }
 		}break;
 		case BEGIN_FUNC:
+		case END_FUNC:
 		case RET:
 		case BEGIN_FUNC_FOR_INTERPRETER:
 		case PUSH_STACK_SIZE:
@@ -16999,6 +17026,11 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			bc.regs |= GetSizeMin(from_bc->bin.lhs.reg_sz)<<REG_SZ_BIT;
 			bc.i = from_bc->bin.rhs.i;
 		}break;
+		case END_STMNT:
+		case BEGIN_STMNT:
+    {
+
+    }break;
 		case POP_R:
 		case PUSH_R:
 		{
@@ -17601,7 +17633,7 @@ struct compile_options
 	bool run;
 };
 
-void AssignDbgFile(lang_state* lang_stat, own_std::string file_name)
+u8 *AssignDbgFile(lang_state* lang_stat, own_std::string file_name)
 {
 	u32 read;
 	web_assembly_state *wasm_state = lang_stat->wasm_state;
@@ -17623,6 +17655,7 @@ void AssignDbgFile(lang_state* lang_stat, own_std::string file_name)
 #ifndef LANG_NO_ENGINE
 	WasmInterpInit(&winterp, file, read, lang_stat);
 #endif
+  return file;
 
 }
 void AssignOutsiderFunc(lang_state* lang_stat, own_std::string name, OutsiderFuncType func)

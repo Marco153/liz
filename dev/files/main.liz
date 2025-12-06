@@ -738,9 +738,21 @@ frame_info:struct
 	}
 }
 
-Rand01::fn outsider() ! f32;
-ScreenRatio::fn outsider() ! f32;
-GetTimeSinceStart::fn outsider() !f32;
+Rand01::fn() ! f32
+{
+  t := cast(*u32)&globals.time_since_start
+  aux := (*t << 13) ^ *t
+  f := cast(f32)(aux % 10000) / 10000.0
+  return f
+}
+ScreenRatio::fn() !f32
+{
+  return 0.66;
+}
+GetTimeSinceStart::fn() ! f32
+{
+  return globals.time_since_start;
+}
 GetDeltaTime::fn outsider() !f32;
 GetTime::fn outsider() !f32;
 

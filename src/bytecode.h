@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include "machine_rel.h"
+#include "token.h"
 struct decl2;
 struct scope;
 
@@ -307,6 +308,9 @@ enum byte_code_enum : unsigned char
 	ASSIGN_FUNC_SIZE,
 
 	COMMENT,
+
+  BEGIN_STMNT,
+  END_STMNT
 };
 enum rel_type : short
 {
@@ -411,6 +415,7 @@ struct byte_code
 	unsigned int _line;
 	union
 	{
+    stmnt_dbg *st;
 		struct
 		{
 			operand lhs;

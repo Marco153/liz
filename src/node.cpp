@@ -5063,6 +5063,7 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
     return false;
   }
 
+  /*
   if (lang_stat->cur_func &&
       IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_X64) && lhs &&
       lhs->type.type == TYPE_FUNC &&
@@ -5075,6 +5076,7 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
             lang_stat->cur_func->name.c_str(), lhs->type.fdecl->name.c_str()))
     ExitProcess(1);
   }
+  */
 
   // if (IS_FLAG_ON(scp->flags, SCOPE_INSIDE_FUNCTION))
   //		int last_ar_lit_sz = scp->fdecl->array_literal_sz;

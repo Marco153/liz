@@ -770,6 +770,21 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case NOP:
 		{
 		}break;
+		case END_STMNT:
+    {
+      bc->st->end = ret.code.size();
+    }break;
+		case BEGIN_STMNT:
+    {
+      bc->st->start = ret.code.size();
+    }break;
+		case END_FUNC:
+		{
+      
+			func_decl* fdecl = bc->fdecl;
+			fdecl->code_end_idx = ret.code.size();
+			cur_func = fdecl;
+		}break;
 		case BEGIN_FUNC:
 		{
 			func_decl* fdecl = bc->fdecl;

@@ -8,7 +8,10 @@ globals : global_strct
 
 main::fn x64()!u32
 {
+  i := 32
   globals.i = 6
+  __dbg_break
+
   PrintStr(cast(str_lit)globals.i)
   return 6
 }

@@ -3,6 +3,7 @@
 #include "machine_rel.h"
 #include <assimp/material.h>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <time.h>
 #include <thread>
@@ -9738,6 +9739,7 @@ void *_GetMem(int size)
 }
 void _PrintStr(const char *str)
 {
+  printf("***we're here, %p\n", str);
   printf("%s", str);
 }
 bool cmp_str_dbg(char *str_sect, str_dbg *s1, const char *str)
@@ -9825,7 +9827,7 @@ bool CmpStrDbgAddFunc(char *str_sect, str_dbg *s, const char *name, std::unorder
 {
   if(cmp_str_dbg(str_sect, s, name))
   {
-    (*map)["PrintStr"] = (u64 *)*cur_jmp_tbl;
+    (*map)[name] = (u64 *)*cur_jmp_tbl;
 
     (*cur_jmp_tbl)[0] = 0xff;
     (*cur_jmp_tbl)[1] = 0x25;
@@ -9854,11 +9856,6 @@ _pid ChildProcess(int pipes[2])
   {
     ASSERT(false)
   }
-  u32 read;
-  auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
-  auto file = (dbg_file_seriealize*)(file_ptr);
-  auto file_ptr_exec = PlatformGetMem(read + file->total_funcs * 16, 0);
-  file = (dbg_file_seriealize*)(file_ptr_exec);
   _pid pid = fork();
   //_pid pid = 1;
   if (pid == 0) {
@@ -9875,6 +9872,17 @@ _pid ChildProcess(int pipes[2])
       printf("error on close write end child\n");
       ASSERT(false)
     }
+    printf("CHILD: will stop\n");
+    raise(SIGSTOP);  // puts itself to sleep
+    printf("CHILD: resumed\n");
+    u32 read;
+    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
+    auto file = (dbg_file_seriealize*)(file_ptr);
+
+    printf("CHILD: total funcs %d\n", file->total_funcs);
+
+    auto file_ptr_exec = PlatformGetMem(read + file->total_funcs * 16, 0);
+    file = (dbg_file_seriealize*)(file_ptr_exec);
 
     //HERE();
     char buffer[1024];
@@ -9906,9 +9914,6 @@ _pid ChildProcess(int pipes[2])
 
     int main_start = 0;
 
-    printf("Child: sending SIGSTOP (sleep)\n");
-    raise(SIGSTOP);  // puts itself to sleep
-    printf("Child: resumed!\n");
 
     for (int f = 0; f < file->total_funcs; f++)
     {
@@ -9945,16 +9950,19 @@ _pid ChildProcess(int pipes[2])
     }
 
     int total_syms = file->x64_syms_sect_size/ sizeof(dbg_sym);
+    /*
     for (int s = 0; s < total_syms; s++)
     {
       auto cur_s = (dbg_sym*)(data + file->x64_syms_sect + s * sizeof(dbg_sym));
       printf("CHILD: sym name: %.*s, type %d\n", cur_s->name.name_len, str_sect+cur_s->name.name_on_string_sect, cur_s->type);
     }
+    */
     
+    printf("CHILD: str tbl %p\n", str_sect);
     for (int i = 0; i < total_rels; i++)
     {
       auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
-      printf("CHILD: rel to name: %.*s\n", r->name.name_len, str_sect+r->name.name_on_string_sect);
+      printf("CHILD: rel to name: %.*s, offset %d\n", r->name.name_len, str_sect+r->name.name_on_string_sect, r->name.name_on_string_sect);
       if(r->type == machine_rel_type::DATA)
       {
         char *at_address = nullptr;
@@ -9975,14 +9983,14 @@ _pid ChildProcess(int pipes[2])
             }break;
             default: ASSERT(0)
             }
-            printf("CHILD: sym %d addr %p\n", s, at_address);
+            //printf("CHILD: sym %d addr %p\n", s, at_address);
             break;
           }
         }
         ASSERT(at_address != nullptr);
 
         auto call_offset = (char*)(code + r->code_offset);
-        *call_offset = (int)((long long)(at_address - (call_offset + 4)));
+        *(int *)call_offset = (int)((long long)(at_address - (call_offset + 4)));
 
       }
       else
@@ -9991,10 +9999,16 @@ _pid ChildProcess(int pipes[2])
         if(CmpStrDbgGetJmpAddr(str_sect, &r->name, "PrintStr", &jmp_addr, &map_funcs))
         {
           auto call_offset = (char*)(code + r->code_offset);
-          *call_offset = (int)((long long)(jmp_addr - (call_offset + 4)));
+          int offset = ((long long)(jmp_addr - (call_offset + 4)));
+          *(int *)call_offset = offset;
+          printf("CHILD: PrintStr jmp %llx, addr %p, call_offset %p, offset %d\n", *(u64 *)jmp_addr, jmp_addr, call_offset, offset);
 
           auto a = 0;
 
+        }
+        else
+        {
+          printf("CHILD: func '%.*s' not found, str_tbl %p, offset %d\n", r->name.name_len, str_sect + r->name.name_on_string_sect, str_sect, r->name.name_on_string_sect);
         }
       }
 
@@ -10041,6 +10055,7 @@ func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *of
 }
 void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs)
 {
+  ImGui::BeginChild("regs", ImVec2(150, 400));
   ImGui::Text("RAX: %p", regs->rax);
   ImGui::Text("RCX: %p", regs->rcx);
   ImGui::Text("RBX: %p", regs->rbx);
@@ -10048,28 +10063,30 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs)
   ImGui::Text("RBP: %p", regs->rbp);
   ImGui::Text("RSP: %p", regs->rsp);
   ImGui::Text("RDI: %p", regs->rdi);
-  ImGui::Text("RSI: %p", regs->rdi);
+  ImGui::Text("RSI: %p", regs->rsi);
   ImGui::Text("R8: %p", regs->r8);
   ImGui::Text("R9: %p", regs->r9);
   ImGui::Text("R10: %p", regs->r10);
   ImGui::Text("R11: %p", regs->r11);
+  ImGui::EndChild();
 }
 void PrintInsts(int child_p, dbg_state *dbg, u64 rip)
 {
-  char buffer[1024];
+  char buffer[2024];
   u64 cur_addr = rip - 16;
-  read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, 1024);
+  read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, 2024);
 
   ZyanUSize offset = 0;
   ZydisDisassembledInstruction instruction;
   int total = 0;
   char buffer2[512];
   float h = 500.0;
+
   while (ZYAN_SUCCESS(ZydisDisassembleIntel(
       /* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
       /* runtime_address: */ cur_addr,
       /* buffer:          */ buffer + offset,
-      /* length:          */ 1024,
+      /* length:          */ 2024,
       /* instruction:     */ &instruction
   ))) {
     int len = instruction.info.length;
@@ -10106,7 +10123,7 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip)
 
     offset += instruction.info.length;
     cur_addr += instruction.info.length;
-    if(total >= 16) break;
+    if(total >= 64) break;
     total++;
   }
 
@@ -10218,9 +10235,13 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
   own_std::vector<breakpoint> breakpoints;
 
+  auto dfile = lang_stat->dbg_ser_file;
+  char *str_tbl = (char *)(dfile + 1) + dfile->string_sect;
+  int str_len = 0;
+
   while(true)
   {
-    pid_t r = waitpid(child_p, &status, WNOHANG | WUNTRACED | WCONTINUED);
+    pid_t r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
     if (r == 0) {
       //ch_state = child_process_state::RUNNING;
       //printf("Child: running (no state change)\n");
@@ -10284,6 +10305,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     if(ImGui::Button("Continue"))
     {
       printf("Parent: sending SIGCONT (wake)\n");
+      ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
+      waitpid(child_p, NULL, 0);
       ptrace(PTRACE_CONT, child_p, 0, 0);
     }
     ImGui::SameLine();
@@ -10298,17 +10321,26 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ptrace(PTRACE_SINGLESTEP, child_p, NULL, 0);
       waitpid(child_p, NULL, 0);
     }
+    ImGui::SameLine();
+    if(ImGui::InputInt("##int", &str_len))
+    {
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("print"))
+    {
+      printf("str tbl: %.*s\n", str_len, str_tbl);
+    }
     switch(ch_state)
     {
     case child_process_state::INT3:
     {
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       ImGui::Text("INT3: %p", regs.rip);
+      PrintInsts(child_p, dbg, regs.rip);
+      PrintRegs(child_p, dbg, &regs);
 
       if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
       {
-        PrintInsts(child_p, dbg, regs.rip);
-        PrintRegs(child_p, dbg, &regs);
         if(!cur_f)
         {
           cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
@@ -10529,6 +10561,9 @@ int main(int argc, char *argv[]) {
   Compile(&lang_stat, &opts);
   //_pid child_p = ChildProcess();
 
+
+  waitpid(child_p, 0, 0);
+  ptrace(PTRACE_CONT, child_p, 0, 0);
 
   memset(&lang_stat, 0, sizeof(lang_stat));
   InitMemAlloc(&alloc);

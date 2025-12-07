@@ -962,7 +962,9 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 					ret.call_rels.emplace_back(call_rel(ret.code.size() + offset_addr, bc->rel.call_func));
 				}
 				else
-					ret.rels.emplace_back(machine_reloc(INSIDE_FUNC, ret.code.size() + offset_addr, bc->rel.name));
+        {
+					ret.rels.emplace_back(machine_reloc(INSIDE_FUNC, ret.code.size() + offset_addr, std_str_to_heap(lang_stat, &bc->rel.call_func->name)));
+        }
 
 				if(is_rel_func)
 				{

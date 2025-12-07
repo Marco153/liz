@@ -6,12 +6,80 @@ global_strct:struct
 
 globals : global_strct
 
+ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
+{
+	(cast(*type)(cast(s64)ptr + cast(s64)offset * sizeof(type)))
+}
+
+num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
+{
+	i :u64= 0;
+	written :u64= 0;
+	aux_buffer : [64]u8;
+
+  __dbg_break
+	out_buffer :*char= cast(*char)in_buf;
+
+	buffer := cast(*char)aux_buffer;
+
+	if num == 0
+	{
+		*ptr_offset(out_buffer, 0, u8) = '0;
+		return 1;
+	}
+	negative: = false;
+	if num < 0
+	{
+		negative = true;
+		num = num * -1;
+	}
+
+
+	while num != 0
+	{
+		mod := num % 10;
+		*ptr_offset(buffer, written, char) = cast(char)(cast(u8)'0 + cast(u8)mod);
+		num = num / 10;
+		written += 1;
+	}
+
+	aux_written_rev := cast(s64)written - 1;
+	aux_written :u64= 0;
+	if negative
+	{
+		*ptr_offset(out_buffer, aux_written, char) = '-;
+		aux_written++;
+		written++;
+	}
+	while  aux_written_rev >= 0
+	{
+
+		dst :=ptr_offset(out_buffer, aux_written, char)
+		*dst = *ptr_offset(buffer, cast(u64)aux_written_rev, char);
+		aux_written_rev--;
+		aux_written++;
+	}
+  *ptr_offset(in_buf, written, u8) = 0
+	return written;
+}
 main::fn x64()!u32
 {
+  PrintStr("begin\n")
   i := 32
-  globals.i = 6
+  globals.i = 32
+
+  buffer :[32]u8
+  PrintStr("before call\n")
+  num_2_str(cast(s64)globals.i, buffer[0], 32)
+  PrintStr("after call\n")
+
+  if *ptr_offset(buffer[0], 0, u8) != 0x36
+    __dbg_break
+  if *ptr_offset(buffer[0], 1, u8) != 0
+    __dbg_break
+  PrintStr(cast(str_lit)buffer[0])
+  PrintStr("after checks\n")
   __dbg_break
 
-  PrintStr("**********hello world\n")
   return 6
 }

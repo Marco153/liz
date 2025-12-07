@@ -414,6 +414,7 @@ struct get_func_bc_info
 	};
 };
 
+struct dbg_file_seriealize;
 struct lang_state
 {
 	int cur_idx;
@@ -427,6 +428,8 @@ struct lang_state
 	bool track_alloc_regs;
   bool check_nil_ptr;
 	own_std::vector<int> tracked_regs;
+
+  dbg_file_seriealize *dbg_ser_file;
 
 	node *zero_float;
 
@@ -7292,6 +7295,7 @@ void WasmSerializePushString(serialize_state* ser_state, own_std::string* name, 
 	out->name_len = name->size();
 	ASSERT(out->name_len <= 128 && out->name_on_string_sect >= 0);
 	ser_state->string_sect.insert(ser_state->string_sect.end(), (unsigned char *)name->data(), (unsigned char *)(name->data() + name->size()));
+  auto a = 0;
 }
 
 struct dbg_sym
@@ -17649,6 +17653,7 @@ u8 *AssignDbgFile(lang_state* lang_stat, own_std::string file_name)
 	
 
 	auto dfile = (dbg_file_seriealize*)(file);
+  lang_stat->dbg_ser_file = dfile;
 	wasm_interp &winterp = *lang_stat->winterp;
 	lang_stat->bcs2_start = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect);
 	lang_stat->bcs2_end = (byte_code2 *)(((char*)(dfile + 1)) + dfile->bc2_sect) + dfile->bc2_sect_size;

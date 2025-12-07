@@ -9738,7 +9738,6 @@ void *_GetMem(int size)
 }
 void _PrintStr(const char *str)
 {
-  printf("****we got called, str addr %p\n", str);
   printf("%s", str);
 }
 bool cmp_str_dbg(char *str_sect, str_dbg *s1, const char *str)
@@ -9917,7 +9916,7 @@ _pid ChildProcess(int pipes[2])
       if (IS_FLAG_ON(fdbg->flags, FUNC_DECL_MACRO))
         continue;
 
-      printf("func name: %.*s\n", fdbg->name.name_len,str_sect+fdbg->name.name_on_string_sect);
+      printf("CHILD: func name: %.*s\n", fdbg->name.name_len,str_sect+fdbg->name.name_on_string_sect);
       fdecls.emplace_back(fdbg);
 
       if(IS_FLAG_ON(fdbg->flags, FUNC_DECL_IS_OUTSIDER))
@@ -9945,13 +9944,17 @@ _pid ChildProcess(int pipes[2])
       }
     }
 
-
     int total_syms = file->x64_syms_sect_size/ sizeof(dbg_sym);
+    for (int s = 0; s < total_syms; s++)
+    {
+      auto cur_s = (dbg_sym*)(data + file->x64_syms_sect + s * sizeof(dbg_sym));
+      printf("CHILD: sym name: %.*s, type %d\n", cur_s->name.name_len, str_sect+cur_s->name.name_on_string_sect, cur_s->type);
+    }
     
     for (int i = 0; i < total_rels; i++)
     {
       auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
-      printf("rel to name: %.*s\n", r->name.name_len, str_sect+r->name.name_on_string_sect);
+      printf("CHILD: rel to name: %.*s\n", r->name.name_len, str_sect+r->name.name_on_string_sect);
       if(r->type == machine_rel_type::DATA)
       {
         char *at_address = nullptr;
@@ -9972,7 +9975,6 @@ _pid ChildProcess(int pipes[2])
             }break;
             default: ASSERT(0)
             }
-            at_address = globals_start + cur_s->offset;
             printf("CHILD: sym %d addr %p\n", s, at_address);
             break;
           }

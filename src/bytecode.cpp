@@ -1,4 +1,5 @@
 #include "bytecode.h"
+#include "machine_rel.h"
 #include "node.h"
 
 
@@ -993,12 +994,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				*/
 
 			}
-			else if (bc->rel.type == rel_type::REL_DATA)
+			else if (bc->rel.type == rel_type::REL_DATA || bc->rel.type == rel_type::REL_DATA_GLOBALS)
 			{
 				char* data_sym_name = (char*)AllocMiscData(lang_stat, 16);
 				snprintf(data_sym_name, 16, "$%d", ret.generated_data_symbols++);
 				
-				ret.symbols.emplace_back(machine_sym(lang_stat, machine_sym_type::SYM_DATA, bc->rel.offset, data_sym_name));
+        machine_sym_type tp = bc->rel.type == rel_type::REL_DATA ? machine_sym_type::SYM_DATA : machine_sym_type::SYM_DATA_GLOBALS;
+        
+				ret.symbols.emplace_back(machine_sym(lang_stat, tp, bc->rel.offset, data_sym_name));
 				// float 
 				if(IS_FLAG_ON(bc->rel.reg_dst, 0x40))
 				{

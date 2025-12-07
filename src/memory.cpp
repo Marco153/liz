@@ -338,7 +338,7 @@ unsigned char *PlatformGetMem(u64 sz, int flags) {
   printf("size is %d\n", sz);
 #ifdef LINUX
   return (unsigned char *)mmap(0, sz, PROT_READ | PROT_EXEC | PROT_WRITE,
-                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                               MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 #else
   return (unsigned char *)VirtualAlloc(0, sz, MEM_COMMIT, PAGE_READWRITE);
 

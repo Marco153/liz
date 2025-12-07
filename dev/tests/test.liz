@@ -12,6 +12,6 @@ main::fn x64()!u32
   globals.i = 6
   __dbg_break
 
-  PrintStr(cast(str_lit)globals.i)
+  PrintStr("**********hello world\n")
   return 6
 }

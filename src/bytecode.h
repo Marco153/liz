@@ -317,6 +317,7 @@ enum rel_type : short
 	REL_FUNC,
 	REL_GET_FUNC_ADDR,
 	REL_DATA,
+	REL_DATA_GLOBALS,
 	REL_TYPE,
 };
 struct byte_code2

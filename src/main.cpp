@@ -1,5 +1,6 @@
 // #define USE_TEXT_EDITOR
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
+#include "machine_rel.h"
 #include <assimp/material.h>
 #include <csignal>
 #include <cstring>
@@ -13,6 +14,7 @@
 #include <assimp/cimport.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <Zydis/Zydis.h>
 #ifdef LINUX
 #include <sys/prctl.h>
 #include <signal.h>
@@ -9736,6 +9738,7 @@ void *_GetMem(int size)
 }
 void _PrintStr(const char *str)
 {
+  printf("****we got called, str addr %p\n", str);
   printf("%s", str);
 }
 bool cmp_str_dbg(char *str_sect, str_dbg *s1, const char *str)
@@ -9764,16 +9767,14 @@ int write_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t
     while (offset < size) {
         errno = 0;
 
-        long data = ptrace(PTRACE_POKEDATA, pid, addr + offset, NULL);
+        ptrace(PTRACE_POKEDATA, pid, addr + offset, *(u64*)(buffer + offset));
 
         if (errno != 0) {
-            perror("ptrace PEEKDATA");
+            perror("ptrace POKEDATA");
+            //ASSERT(0)
             return -1;
         }
-
-        // copy the 8 bytes we got
-        *(long *)(buffer + offset) = data;
-        offset += sizeof(long);
+        offset += sizeof(long long);
     }
 
     return 0;
@@ -9784,16 +9785,18 @@ int read_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t 
     while (offset < size) {
         errno = 0;
 
-        long data = ptrace(PTRACE_PEEKDATA, pid, addr + offset, NULL);
+        long long data = ptrace(PTRACE_PEEKDATA, pid, addr + offset, NULL);
 
         if (errno != 0) {
+            printf("error childp: %d\n", pid);
             perror("ptrace PEEKDATA");
             return -1;
+            ASSERT(0)
         }
 
         // copy the 8 bytes we got
-        *(long *)(buffer + offset) = data;
-        offset += sizeof(long);
+        *(long long*)(buffer + offset) = data;
+        offset += sizeof(long long);
     }
 
     return 0;
@@ -9801,16 +9804,19 @@ int read_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t 
 void MakeInstAddrToBeBreakpoint2(int child_p, own_std::vector<breakpoint> *bps, u64 address, bool one_time = true)
 {
   //HERE()
-  printf("adding bp\n");
 	breakpoint bp;
   u64 prev_i;
-  read_bytes_from_child(child_p, address, (u8*)&prev_i, 1);
+  read_bytes_from_child(child_p, address, (u8*)&prev_i, 8);
+  printf("adding bp, addr %p, prev_i 0x%llx\n", address, prev_i);
 
-	bp.prev_i = (char)prev_i;
+	bp.prev_i = prev_i;
+
+  prev_i = (prev_i & ~(u64)0xff) | 0xcc;
+  printf("after prev_i 0x%llx\n", prev_i);
+
 	bp.inst = address;
 	bp.one_time_bp = one_time;
-  u8 inst = 0xcc;
-  write_bytes_from_child(child_p, address, &inst, 1);
+  write_bytes_from_child(child_p, address, (u8*)&prev_i, 8);
 
 	bps->emplace_back(bp);
 }
@@ -9849,6 +9855,11 @@ _pid ChildProcess(int pipes[2])
   {
     ASSERT(false)
   }
+  u32 read;
+  auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
+  auto file = (dbg_file_seriealize*)(file_ptr);
+  auto file_ptr_exec = PlatformGetMem(read + file->total_funcs * 16, 0);
+  file = (dbg_file_seriealize*)(file_ptr_exec);
   _pid pid = fork();
   //_pid pid = 1;
   if (pid == 0) {
@@ -9857,6 +9868,7 @@ _pid ChildProcess(int pipes[2])
     if (prctl(PR_SET_PDEATHSIG, SIGTERM) == -1) perror("prctl");
     if (getppid() == 1) {
         // parent already gone
+        ASSERT(false)
         exit(1);
     }
     if (close(pipes[0]) == -1)  /* Close unused write end */
@@ -9869,11 +9881,6 @@ _pid ChildProcess(int pipes[2])
     char buffer[1024];
     GetCurrentDirectory(buffer, 1024);
 
-    u32 read;
-    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
-    auto file = (dbg_file_seriealize*)(file_ptr);
-    auto file_ptr_exec = PlatformGetMem(read + file->total_funcs * 16, 0);
-    file = (dbg_file_seriealize*)(file_ptr_exec);
 
     if (write(pipes[1], &file_ptr_exec, 8) == -1)
     {
@@ -9888,11 +9895,13 @@ _pid ChildProcess(int pipes[2])
     int total_rels = file->x64_rels_sect_size / sizeof(dbg_rel);
     char *data = (char *)(file + 1);
     char *code = (char *)(data + file->x64_code_sect + file->x64_code_type_sect_size);
+    char *code_end = (char *)(data + file->x64_code_sect + file->x64_code_sect_size);
     char *str_sect = (char *)(data + file->string_sect);
     char *jmp_table = (char *)(file_ptr_exec + read);
     int added_funcs;
     char *cur_jmp_tbl = jmp_table;
     char *globals_start = (data + file->globals_sect);
+    char *data_start = (data + file->data_sect);
 
     std::unordered_map<const char *, u64 *> map_funcs;
 
@@ -9945,20 +9954,33 @@ _pid ChildProcess(int pipes[2])
       printf("rel to name: %.*s\n", r->name.name_len, str_sect+r->name.name_on_string_sect);
       if(r->type == machine_rel_type::DATA)
       {
-        char *at_globals = nullptr;
+        char *at_address = nullptr;
         for (int s = 0; s < total_syms; s++)
         {
           auto cur_s = (dbg_sym*)(data + file->x64_syms_sect + s * sizeof(dbg_sym));
           if(cmp_str_dbg(str_sect, &r->name, &cur_s->name))
           {
-            at_globals = globals_start + cur_s->offset;
+            switch(cur_s->type)
+            {
+            case SYM_DATA_GLOBALS:
+            {
+              at_address = globals_start + cur_s->offset;
+            }break;
+            case SYM_DATA:
+            {
+              at_address = data_start + cur_s->offset;
+            }break;
+            default: ASSERT(0)
+            }
+            at_address = globals_start + cur_s->offset;
+            printf("CHILD: sym %d addr %p\n", s, at_address);
             break;
           }
         }
-        ASSERT(at_globals != nullptr);
+        ASSERT(at_address != nullptr);
 
         auto call_offset = (char*)(code + r->code_offset);
-        *call_offset = (int)((long long)(at_globals - (call_offset + 4)));
+        *call_offset = (int)((long long)(at_address - (call_offset + 4)));
 
       }
       else
@@ -9982,7 +10004,7 @@ _pid ChildProcess(int pipes[2])
       }
       */
     }
-    HERE()
+    printf("code start %p, end %p\n", code, code_end);
     auto call = (void(*)())(code + main_start);
     call();
 
@@ -10014,6 +10036,78 @@ func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *of
     if(offset >= f_start && offset <= f_end) return f;
   }
   return nullptr;
+}
+void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs)
+{
+  ImGui::Text("RAX: %p", regs->rax);
+  ImGui::Text("RCX: %p", regs->rcx);
+  ImGui::Text("RBX: %p", regs->rbx);
+  ImGui::Text("RDX: %p", regs->rdx);
+  ImGui::Text("RBP: %p", regs->rbp);
+  ImGui::Text("RSP: %p", regs->rsp);
+  ImGui::Text("RDI: %p", regs->rdi);
+  ImGui::Text("RSI: %p", regs->rdi);
+  ImGui::Text("R8: %p", regs->r8);
+  ImGui::Text("R9: %p", regs->r9);
+  ImGui::Text("R10: %p", regs->r10);
+  ImGui::Text("R11: %p", regs->r11);
+}
+void PrintInsts(int child_p, dbg_state *dbg, u64 rip)
+{
+  char buffer[1024];
+  u64 cur_addr = rip - 16;
+  read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, 1024);
+
+  ZyanUSize offset = 0;
+  ZydisDisassembledInstruction instruction;
+  int total = 0;
+  char buffer2[512];
+  float h = 500.0;
+  while (ZYAN_SUCCESS(ZydisDisassembleIntel(
+      /* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
+      /* runtime_address: */ cur_addr,
+      /* buffer:          */ buffer + offset,
+      /* length:          */ 1024,
+      /* instruction:     */ &instruction
+  ))) {
+    int len = instruction.info.length;
+    int cur_i = 0;
+    for(int i = 0; i < len; i++)
+    {
+      u32 ch = (u32)buffer[offset + i]&0xff;
+      cur_i += sprintf(&buffer2[cur_i], "%02x ", ch);
+    }
+    buffer2[len * 2] = 0;
+    ImGui::BeginChild("bytes", ImVec2(150, h));
+    if(rip == cur_addr)
+    {
+      ImGui::TextColored(ImVec4(ImColor(255, 0, 0)), "%s", buffer2);
+    }
+    else
+    {
+      ImGui::Text("%s", buffer2);
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("inst", ImVec2(300, h));
+    if(rip == cur_addr)
+    {
+      ImGui::TextColored(ImVec4(ImColor(255, 0, 0)), "%p: %s\n", cur_addr, instruction.text);
+    }
+    else
+    {
+      ImGui::Text("%p: %s\n", cur_addr, instruction.text);
+    }
+    ImGui::EndChild();
+
+    offset += instruction.info.length;
+    cur_addr += instruction.info.length;
+    if(total >= 16) break;
+    total++;
+  }
+
 }
 void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 {
@@ -10108,6 +10202,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   char *code_start = (char *)child_after_hdr + file->x64_code_sect + file->x64_code_type_sect_size;
   char *code_end = (char *)child_after_hdr + file->x64_code_sect + file->code_sect;
   
+  ptrace(PTRACE_ATTACH, child_p, NULL, NULL);
   waitpid(child_p, NULL, 0);
   bool main_widow_open = true;
   int status;
@@ -10126,7 +10221,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     pid_t r = waitpid(child_p, &status, WNOHANG | WUNTRACED | WCONTINUED);
     if (r == 0) {
       //ch_state = child_process_state::RUNNING;
-      printf("Child: running (no state change)\n");
+      //printf("Child: running (no state change)\n");
     }
     else if (WIFSTOPPED(status)) {
       if(WSTOPSIG(status) == 11)
@@ -10135,14 +10230,21 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       }
       else if(WSTOPSIG(status) == SIGTRAP)
       {
+        char maps_file[64];
+        //sprintf(maps_file, "/proc/%d/maps", child_p);
+        //system((std::string("cat ") + maps_file).c_str());
+        ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
         ch_state = child_process_state::INT3;
+        regs.rip--;
+        ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
       }
     }
     else if (WIFCONTINUED(status)) {
+        ch_state = child_process_state::RUNNING;
         printf("Child: continued\n");
     }
     else if (WIFEXITED(status)) {
-        printf("Child: exited normally (%d)\n", WEXITSTATUS(status));
+        //printf("Child: exited normally (%d)\n", WEXITSTATUS(status));
     }
     else if (WIFSIGNALED(status)) {
         printf("Child: killed by signal %d\n", WTERMSIG(status));
@@ -10188,6 +10290,12 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     {
       f10_pressed = true;
     }
+    ImGui::SameLine();
+    if(ImGui::Button("stepi"))
+    {
+      ptrace(PTRACE_SINGLESTEP, child_p, NULL, 0);
+      waitpid(child_p, NULL, 0);
+    }
     switch(ch_state)
     {
     case child_process_state::INT3:
@@ -10197,6 +10305,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
       if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
       {
+        PrintInsts(child_p, dbg, regs.rip);
+        PrintRegs(child_p, dbg, &regs);
         if(!cur_f)
         {
           cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
@@ -10226,23 +10336,38 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
             i++;
           }
         }
+        if(cur_bp)
+        {
+          //HERE()
+          write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
+        }
         if (f10_pressed)
         //if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F10))
         {
-          HERE()
-          if(cur_bp)
-          {
-            write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 1);
-            regs.rip--;
-            ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
-            breakpoints.remove(cur_bp_idx);
-
-          }
           if((cur_st + 1) < cur_f->wasm_stmnts.end())
           {
             stmnt_dbg *next_st = cur_st + 1;
             u64 next_addr = (u64)(code_start + next_st->start);
             MakeInstAddrToBeBreakpoint2(child_p, &breakpoints, next_addr, true);
+          }
+          if(cur_bp)
+          {
+            //write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
+            breakpoints.remove(cur_bp_idx);
+            //regs.rip--;
+            //ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
+
+            //ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
+
+          }
+          else
+          {
+            printf("rip bef %p\n", regs.rip);
+            ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
+            waitpid(child_p, NULL, 0);
+
+            ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+            printf("rip after %p\n", regs.rip);
           }
 
           ptrace(PTRACE_CONT, child_p, 0, 0);
@@ -10255,6 +10380,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ImGui::Text("SIGSEGV");
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       ImGui::Text("%p", regs.rip);
+      PrintInsts(child_p, dbg, regs.rip);
+      PrintRegs(child_p, dbg, &regs);
     }break;
     }
     ImGui::End();
@@ -10278,6 +10405,7 @@ int main(int argc, char *argv[]) {
 
   int pipes[2];
   _pid child_p = ChildProcess(pipes);
+  printf("childp is %d\n", child_p);
   auto ttt = 0;
   mem_alloc alloc;
   alloc.main_buffer = nullptr;

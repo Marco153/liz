@@ -2955,7 +2955,7 @@ struct breakpoint
   union
   {
     byte_code_enum prev_inst;
-    char prev_i;
+    u64 prev_i;
   };
   union
   {
@@ -3904,7 +3904,7 @@ stmnt_dbg* GetStmntBasedOnOffset(own_std::vector<stmnt_dbg>* ar, int offset)
 	stmnt_dbg* end = ar->end();
 	while(st < end)
 	{
-		if (offset >= st->start && offset <= st->end)
+		if (offset >= st->start && offset < st->end)
 			return st;
 		st++;
 	}
@@ -13691,7 +13691,7 @@ void GenX64DeclGlobal(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir
   if(lang_stat->is_machine_x64_backend)
   {
     bc.type = RELOC;
-    bc.rel.type = REL_DATA;
+    bc.rel.type = REL_DATA_GLOBALS;
     bc.rel.reg_dst = aux->reg;
     bc.rel.offset = offset;
   }
@@ -16753,6 +16753,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			bc.rel_type = from_bc->rel.type;
 			switch (bc.rel_type)
 			{
+			case REL_DATA_GLOBALS:
 			case REL_DATA:
 			{
 				bc.regs = from_bc->rel.reg_dst;

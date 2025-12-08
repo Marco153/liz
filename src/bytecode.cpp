@@ -165,6 +165,8 @@ void CreateImmToReg(char r0_byte_imm_byte, char r0_imm, char inst_reg, byte_code
 	}
 	else
 	{
+    char is_rex = IS_FLAG_ON(bc->bin.lhs.reg, 0x80);
+    *(char *)&is_rex *= 2;
 		char inst = (3 << 6) | (inst_reg << 3) | bc->bin.lhs.reg;
 
 		if(bc->bin.rhs.u64 >= 0x80)
@@ -172,21 +174,19 @@ void CreateImmToReg(char r0_byte_imm_byte, char r0_imm, char inst_reg, byte_code
 			// mov (rax eax ..), imm16/32
 			if(bc->bin.lhs.reg == 0)
 			{
-				AddPreMemInsts(bc->bin.lhs.reg_sz, r0_byte_imm_byte, r0_imm, false, ret.code, bc->bin.lhs.reg == 4);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, r0_byte_imm_byte, r0_imm, is_rex, ret.code, bc->bin.lhs.reg == 4);
 				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
 
 			}
 			else
 			{
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x81, false, ret.code, bc->bin.lhs.reg == 4);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x81, is_rex, ret.code, bc->bin.lhs.reg == 4);
 				ret.code.emplace_back(inst);
 				AddImm(bc->bin.rhs.u64, bc->bin.lhs.reg_sz, ret);
 			}
 		}
 		else
 		{
-			char is_rex = IS_FLAG_ON(bc->bin.lhs.reg, 0x80);
-			*(char *)&is_rex *= 2;
 			AddPreMemInsts(bc->bin.lhs.reg_sz, 0x80, 0x83, is_rex, ret.code, bc->bin.lhs.reg == 4);
 			ret.code.emplace_back(inst);
 			ret.code.emplace_back(bc->bin.rhs.u8);
@@ -273,6 +273,8 @@ char FromBCRegToAsmReg(char bc_reg)
 char MakeModRM(bool has_disp, int disp, char rm, char reg)
 {
 	char ret;
+  reg = reg&0xf;
+  rm = rm&0xf;
 	if(has_disp)
 	{
 		if(disp == 0)
@@ -381,15 +383,14 @@ void CreateMemToReg(byte_code *bc, char byte, char greater_byte, char is_rex_par
 		reg = FromBCRegToAsmReg(reg);
 
 	}
-	char is_rex = IS_FLAG_ON(reg, 0x80);
+	char is_rex_lhs = IS_FLAG_ON(reg, 0x80);
+	char is_rex_rhs = IS_FLAG_ON(base_reg, 0x80);
+  char is_rex = is_rex_rhs | (is_rex_lhs << 1);
 
 	bc->bin.rhs.reg = base_reg;
 	bc->bin.lhs.reg = reg;
 
-	// even though if it's rex on the lhs, when we're dealing with rm, the rex will
-	// as if it we at the rhs, that's why we're not shifting it one bit to the right (is_rex << 1)
 	AddPreMemInsts(bc->bin.lhs.reg_sz, byte, greater_byte, ((char)is_rex), ret.code);
-	//ret.code.emplace_back(byte);
 
 	AddModRM(true, bc->bin.rhs.voffset, base_reg, reg, ret);
 	if(bc->bin.rhs.voffset > 0)
@@ -700,8 +701,9 @@ char *distribute_regs_from_interpreter_bytes= "\x48\x89\xC8"
 void MovImmToReg(machine_code &m, short reg, char reg_sz, long long imm)
 {
 	char base_reg = FromBCRegToAsmReg(reg);
-	bool reg_is_rex = IS_FLAG_ON(base_reg, 0x800);
-	AddPreMemInsts(reg_sz, 0xc6, 0xc7, reg_is_rex, m.code);
+  char is_rex = IS_FLAG_ON(base_reg, 0x80);
+  *(char *)&is_rex *= 2;
+	AddPreMemInsts(reg_sz, 0xc6, 0xc7, is_rex, m.code);
 	m.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
 	AddImm(imm, reg_sz, m);
 
@@ -753,6 +755,8 @@ int GetArgRegIdx(int reg)
 	return final_reg;
 
 }
+void SetIrStart(ir_rep *ir, int new_start);
+void SetIrEnd(ir_rep *ir, int new_end);
 void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_code& ret)
 {
 #define CHANGE_JMP_DST_BC ret.jmp_rels.back().dst_bc = &bcodes[i + bc->val + 1];
@@ -771,6 +775,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case NOP:
 		{
 		}break;
+		case IR_REP_END:
+    {
+      SetIrStart(bc->ir, ret.code.size());
+    }break;
+		case IR_REP_BEGIN:
+    {
+      SetIrEnd(bc->ir, ret.code.size());
+    }break;
 		case END_STMNT:
     {
       bc->st->end = ret.code.size();
@@ -821,6 +833,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 
 			bc->bin.rhs.reg_sz = prev_size;
 
+		}break;
+		case CVTSD_SS_2_REG:
+		{
+			char mod = MakeModRM(false, 0, bc->bin.rhs.reg, bc->bin.lhs.reg);
+			ret.code.emplace_back(0xf3);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x2c);
+			ret.code.emplace_back(mod);
 		}break;
 		case CVTSD_REG_2_SS:
 		{
@@ -1007,6 +1027,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				// float 
 				if(IS_FLAG_ON(bc->rel.reg_dst, 0x40))
 				{
+          //HERE()
 					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 4, data_sym_name));
 
 					// movssinstruction here
@@ -1094,8 +1115,15 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			else
 				CreateSSERegToMem(&*bc, 0x11, &ret);
 		}break;
-		case MOV_R_2_SSE:
 		case MOV_SSE_2_R:
+		{
+      //HERE()
+			ret.code.emplace_back(0x66);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x7e);
+			ret.code.emplace_back(0xc0 | (bc->bin.rhs.reg << 3) | bc->bin.lhs.reg);
+		}break;
+		case MOV_R_2_SSE:
 		{
 			CreateSSERegToSSEReg(&*bc, 0x2c, &ret);
 		}break;
@@ -1707,14 +1735,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case MUL_I_2_R:
 		{
 			char base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
+      char is_rex = IS_FLAG_ON(base_reg, 0x80);
+      is_rex = is_rex | (is_rex << 1);
 
 			base_reg &= 0xf;
 			bool less_than_byte = bc->bin.rhs.u32 < 0x80;
 
 			if(less_than_byte)
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x6b, 0x6b, false, ret.code);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x6b, 0x6b, is_rex, ret.code);
 			else
-				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x69, 0x69, false, ret.code);
+				AddPreMemInsts(bc->bin.lhs.reg_sz, 0x69, 0x69, is_rex, ret.code);
 
 			char r = (3 << 6) | (base_reg << 3) | base_reg;
 
@@ -1845,6 +1875,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			CreateMemToReg(&*bc, 0x2, 0x3, false, ret);
 			break;
 		case ADD_R_2_R:
+      BREAK(ret.code.size() == 1594)
 			CreateRegToReg(&*bc, 0x0, 0x1, &ret);
 			break;
 		case ADD_I_2_RM:
@@ -2938,7 +2969,7 @@ void MovFloatToSSEReg2(lang_state *lang_stat, char reg, float f, own_std::vector
 		byte_code* last = &ret->back();
 		last->rel.is_float = true;
 		last->rel.f = f;
-		last->rel.reg_dst = reg;
+		last->rel.reg_dst = xmm_r;
 		last->rel.is_packed_float = is_packed;
 	}
 	InsertIntoDataSect(lang_stat, (void *)&f, sizeof(float));

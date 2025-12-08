@@ -1,9 +1,258 @@
 PrintStr::fn outsider(str : str_lit);
+GetMem::fn outsider(size : u64) ! *void;
+enum_test : etruct
+{
+	VAL1(
+		num : u32,
+		#serializable(num)
+	),
+	VAL2(
+		ch : char,
+		#serializable(ch)
+	)
+}
+rel_array: struct(T)
+{
+	data : *T,
+	count : u64,
+	#make_ptr_len(data, count)
+}
+operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
+{
+	if(idx >= dyn.count)
+  {
+    PrintCallStack()
+    __dbg_break
+  }
+	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
+	return cast(*T)ptr_offset(addr, idx, T);
+}
+v3 : struct
+{
+	x : f32,
+	y : f32,
+	z : f32,
+}
+operator * x64(self : *v3, f : f32) !v3
+{
+	ret:v3;
+	ret.x = self.x * f;
+	ret.y = self.y * f;
+	ret.z = self.z * f;
+	return ret;
+}
+operator - x64(self : *v3, rhs : *v3) !v3
+{
+	ret:v3;
+	ret.x = self.x - rhs.x;
+	ret.y = self.y - rhs.y;
+	ret.z = self.z - rhs.z;
+	return ret;
+}
+operator + x64(self : *v3, rhs : *v3) !v3
+{
+	ret:v3;
+	ret.x = self.x + rhs.x;
+	ret.y = self.y + rhs.y;
+	ret.z = self.z + rhs.z;
+	return ret;
+}
+memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
+{
+	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
+	i:u64 = 0;
+	if (sz % 16) == 0
+	{
+		total := sz / 16
+
+		while i < total
+		{
+			*ptr_offset(dst, i, _vec) = *ptr_offset(src, i, _vec);
+			i++
+		}
+	}
+	else if (sz % 8) == 0
+	{
+		total := sz / 8
+
+		while i < total
+		{
+			*ptr_offset(dst, i, u64) = *ptr_offset(src, i, u64);
+			i++
+		}
+
+	}
+	else
+	{
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
+			i++;
+		}
+	}
+}
+
 global_strct:struct
 {
   i : u32
 }
+CHUNK_FREE : const s32 = 1;
+CHUNK_ALLOCATED : const s32= 4;
 
+heap_hash : struct
+{
+	inner :struct
+	{
+		key : *void,
+		value : *u8,
+	} 
+	data : *inner,
+}
+
+mem_chunk : struct
+{
+    next : *mem_chunk,
+    prev : *mem_chunk,
+    size : u32,
+    flags: u32,
+    addr : *u8,
+}
+mem_alloc : struct
+{
+  name : str_lit
+    buffer : *u8,
+    head_free : *mem_chunk,
+    in_use : heap_hash,
+	id : u32,
+    all : *mem_chunk,
+    probable_unallocated : **mem_chunk,
+	chunks_cap :u32,
+	hash_table_size : u32,
+  mutex : u32
+}
+
+BYTES_PER_CHUNK : const s32= 8;
+UNALLOCATED_BUFFER_ITEMS : const s32=  8;
+dyn_array: struct(T)
+{
+	data : *T,
+	count : u64,
+	cap : u64,
+	alloc : *mem_alloc,
+
+	#make_ptr_len(data, count)
+}
+operator []{ T }(dyn : *dyn_array(T), idx : u64) !*T
+{
+	if(idx >= dyn.count)
+  {
+    __dbg_break
+  }
+	return ptr_offset(dyn.data, idx, T);
+}
+it_start::fn x64{ T }(dyn : *dyn_array(T)) !*T
+{
+	if dyn.count == 0
+		return dyn.data;
+	return (*dyn)[0];
+}
+it_end::fn{ T }(dyn : *dyn_array(T)) !*T
+{
+	if dyn.count == 0
+		return dyn.data;
+	return ptr_offset(dyn.data, dyn.count, T);
+}
+
+HHashStore :: fn (alloc: *mem_alloc, key : *u8, value : *u8)
+{
+	using alloc.in_use;
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == nil
+	{
+		cur.key = key;
+		cur.value = value;
+		return;
+	}
+	put:bool = false;
+	i:u64=0;
+	while i < alloc.hash_table_size
+	{
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
+		cur= ptr_offset(data, mod, inner);
+
+		if cur.key == nil
+		{
+			cur.key = key;
+			cur.value = value;
+			put = true;
+			break;
+		}
+		i++;
+	}
+}
+HHashClear :: fn(alloc : *mem_alloc) ! void
+{
+	using alloc.in_use;
+	memset(cast(*u8)data, 0, sizeof(inner) * alloc.hash_table_size);
+}
+HHashGet :: fn (alloc: *mem_alloc, key : *void) ! *u8 
+{
+	//using self;
+
+	using alloc.in_use
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == key
+	{
+		return cur.value;
+	}
+
+	put:bool = false;
+	i:u64=0;
+	while i < alloc.hash_table_size
+	{
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
+		cur= ptr_offset(data, mod, inner);
+
+		if cur.key == key
+			return cur.value;
+		i++;
+	}
+	ASSERT(0 == 1);
+	return nil;
+}
+HHashRemove :: fn (alloc: *mem_alloc, key : *void)
+{
+	using alloc.in_use;
+	idx : u64  = (cast(u64)key) % alloc.hash_table_size;
+	cur:= ptr_offset(data, idx, inner);
+
+	if cur.key == key
+	{
+		cur.key = nil;
+		cur.value = nil;
+		return;
+	}
+	removed:bool = false;
+	i:u64=0;
+	while i < alloc.hash_table_size
+	{
+		mod:u64 = (i + idx + 1) % alloc.hash_table_size;
+		cur= ptr_offset(data, mod, inner);
+
+		if (cur.key == key)
+		{
+			cur.key = nil;
+			removed = true;
+			break;
+		}
+		i++;
+	}
+	ASSERT(removed);
+}
 globals : global_strct
 
 ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
@@ -62,24 +311,1318 @@ num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
   *ptr_offset(in_buf, written, u8) = 0
 	return written;
 }
-main::fn x64()!u32
+ASSERT::fn macro(exp : _expr)
 {
-  PrintStr("begin\n")
+	if !(exp)
+  {
+		__dbg_break;
+  }
+}
+is_flag_off::fn macro(val : _expr, flag : _expr)
+{
+	((val & (flag)) == 0)
+}
+is_flag_on::fn macro(val : _expr, flag : _expr)
+{
+	((val & (flag)) != 0)
+}
+debug_break::fn macro()
+{
+	#if RELEASE == 1
+	{
+		*ret = __LINE__;
+		return;
+	}
+	else
+		__dbg_break;
+}
+
+minf::fn x64(a :f32, b :f32)!f32
+{
+	if a > b return b;
+    return a;
+}
+_own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
+{
+	ASSERT(cast(u64)dst > 128);
+	i:u64 = 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u8) = val;
+		i++;
+	}
+}
+test_ref::fn(alloc : *mem_alloc)
+{
+	*ptr_offset(alloc.buffer, 2, u8) = 2;
+}
+test_init ::fn(alloc : *mem_alloc)
+{
+	alloc.buffer = cast(*u8)GetMem(8);
+}
+memset::fn(dst : *void, val : u8, sz : u64) !void
+{
+  i:u64 = 0;
+  while i < sz
+  {
+    *ptr_offset(dst, i, u8) = val;
+    i++;
+  }
+
+}
+test_change_heap_hash::fn(h : *heap_hash)
+{
+	h.data = cast(*heap_hash.inner)100;
+}
+
+
+test_ptr::fn(alloc : *mem_alloc)
+{
+	test_change_heap_hash(&alloc.in_use);
+	if (cast(u64)alloc.in_use.data) != 100
+		debug_break();
+
+	alloc.chunks_cap = 9000;
+	alloc.hash_table_size = 9000;
+	in_use_hash_sz:u64 = alloc.hash_table_size * sizeof(heap_hash.inner);
+	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
+	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
+
+
+	if alloc.in_use.data == nil
+		debug_break();
+
+
+
+	chunk1:mem_chunk;
+
+	base_addr: = cast(**mem_chunk)GetMem(8 * 8);
+	alloc.probable_unallocated = base_addr;
+	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = nil;
+
+	if* ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) != nil
+		debug_break();
+
+
+	alloc.probable_unallocated = base_addr;
+	if alloc.probable_unallocated != base_addr
+		debug_break();
+
+	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = &chunk1;
+
+
+	if alloc.probable_unallocated != base_addr
+		debug_break();
+
+
+	if alloc.probable_unallocated == cast(**mem_chunk) &chunk1
+		debug_break();
+
+	if *ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) == nil
+		debug_break();
+
+	ptr_offset(alloc.probable_unallocated, 0, *mem_chunk).size = 2;
+
+	if chunk1.size != 2
+		debug_break();
+
+	cur: = ptr_offset(alloc.probable_unallocated, 0, *mem_chunk);
+
+	if *cur == nil
+		debug_break();
+
+	if cur.size != 2
+		debug_break();
+
+
+	cur.size = 4;
+	target:u32 = 24;
+	if (cur.size * 8) < target
+		debug_break();
+
+	*cur = nil;
+
+	if *cur
+		debug_break();
+
+
+	HHashStore(alloc, cast(*u8)1, cast(*u8)5);
+	HHashStore(alloc, cast(*u8)513, cast(*u8)6);
+
+    val := cast(u64)HHashGet(alloc, cast(*u8)1);
+    val2 := cast(u64)HHashGet(alloc, cast(*u8)513);
+	if val != 5 || val2 != 6
+		debug_break();
+
+
+	ptr1:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
+	ptr2:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
+
+	ptr1.addr = cast(*u8)10;
+	ptr2.addr = cast(*u8)20;
+
+	if ptr1.addr > ptr2.addr
+		debug_break();
+
+
+	ptr1.size = 5;
+	ptr2.size = 5;
+
+	ptr1.size += ptr2.size;
+
+	if ptr1.size  != 10
+		debug_break();
+
+	contiguous_with_ptr2 := (cast(u64)ptr1.addr + 10) == cast(u64)ptr2.addr;
+
+	if contiguous_with_ptr2 != cast(bool)1
+		debug_break();
+
+	
+	contiguous_with_ptr2 = false;
+
+
+	ptr1.size = 5;
+	contiguous_with_ptr2 = (cast(u64)ptr1.addr + ptr1.size * 2) == cast(u64)ptr2.addr;
+	if contiguous_with_ptr2 != cast(bool)1
+		debug_break();
+
+	
+	*cur = &chunk1;
+	cur.flags = CHUNK_ALLOCATED;
+
+	if is_flag_off(cur.flags, CHUNK_ALLOCATED)
+		debug_break();
+
+
+}
+simple_strct_f32: struct
+{
+	a: f32,
+	b: f32,
+	c: f32,
+}
+simple_strct: struct
+{
+	a : u32,
+	b: u32,
+}
+func_ptr_test::fn() !u8
+{
+	return 2;
+}
+str_ln::fn(str :str_lit) !u64
+{
+	s: = cast(*u8)str;
+	
+	i:u64 = 0;
+	while *ptr_offset(s, i, u8) != 0
+	{
+		i++;
+	}
+	return i;
+}
+test_bool_ret::fn(b : bool) !bool
+{
+	return b;
+}
+nil_ptr_ret::fn() !*void
+{
+	return nil;
+}
+test_sum_float::fn(f1 : f32, f2 : f32) !f32
+{
+	return f1 + f2;
+}
+ret_f32_summed_with_one::fn(a : f32)!f32
+{
+	return a + 1.0;
+}
+modify_f32::fn(a : *f32)
+{
+	*a = 1.0;
+}
+modify_f32_as_s32::fn(a : *f32)
+{
+	*cast(*s32)a = 0x40400000;
+}
+ret_sum_one_with_f32_ptr::fn(a : *f32) !f32
+{
+	return *a + 1.0;
+}
+modify_ar_strct::fn(strct : *simple_strct_f32)
+{
+	val:simple_strct_f32;
+	val.a = 3.5;
+	*ptr_offset(strct, 0, simple_strct_f32) = val;
+}
+modify_static_ar_through_void_ptr::fn(ar : *void)
+{
+	*ptr_offset(ar, 0, f32) = 1.5;
+}
+ret_v3::fn() !v3
+{
+	ret:v3;
+	ret.x = 1.0;
+	ret.y = 2.0;
+	return ret;
+}
+mul_v3::fn(a : *v3, b : *v3) !v3
+{
+	aux:v3;
+	aux.x = a.x * b.x;
+	aux.y = a.y * b.y;
+	aux.z = a.z * b.z;
+
+	return aux;
+}
+sign_v3::fn(a : *v3) !v3
+{
+	aux: = *a;
+	aux.x = if a.x > 0.0 1.0 else - 1.0;
+	aux.y = if a.y > 0.0 1.0 else - 1.0;
+	aux.z = if a.z > 0.0 1.0 else - 1.0;
+
+	return aux;
+}
+dot_v3::fn x64(a : *v3, b : *v3) !f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z;
+	return ret;
+}
+normalize_v3::fn(a : *v3) !v3
+{
+	dot: = dot_v3(a, a);
+	len: = sqrt(dot);
+	ret:v3;
+	ret.x = a.x / len;
+	ret.y = a.y / len;
+	ret.z = a.z / len;
+	return ret;
+}
+__sqrt::fn intrinsic(a : f32) !f32;
+sqrt::fn x64(a : f32) !f32
+{
+	return __sqrt(a);
+}
+tuple_arg_fn::fn(arg : (s32, s32)) !s32
+{
+	return arg.0;
+}
+overload_func::fn(a : s32, b : s32) !s32
+{
+	return a + b;
+}
+overload_func::fn(a : s32) !s32
+{
+	return a;
+}
+func_with_global::fn() !s32
+{
+	val: global s32;
+
+	#do
+	{
+		val = 1;
+	}
+	val++;
+	return val;
+}
+dot_vec::fn x64(a : *_vec, b : *_vec) !f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	return ret;
+}
+ret_vec::fn(val : f32) ! _vec
+{
+	a:= 0
+	
+	return _vec{0.0, val + 0.5, 2.0, 3.0}
+}
+modify_vec::fn(v : *_vec) ! u32 
+{
+	vec_sts :struct
+	{
+		a : _vec 
+	}
+	vec_st : vec_sts
+	
+	vec_st.a = *v 
+	if vec_st.a.z <= 1.9 || vec_st.a.z >= 2.1
+		return 0;
+	return 1;
+}
+test_fptr:struct
+{
+	ptr : *f32
+}
+
+ret_fptr::fn(f : *f32) ! *f32
+{
+	return f
+}
+rel_string : struct
+{
+	offset : u32,
+	count : u32,
+}
+string : struct
+{
+	data : dyn_array(char)
+}
+operator ==(self: *string, str : *rel_string) !bool
+{
+	ln: = cast(u64)str.count
+	if ln != self.data.count
+		return false
+	
+	str_offset := ptr_offset(str, str.offset, u8)
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(self.data.data, i, u8);
+		rhs := ptr_offset(str_offset, i, u8);
+		if *lhs != *rhs
+			return false
+	}
+
+	return true
+	
+}
+operator ==(self: *string, str : *string) !bool
+{
+	ln: = str.data.count
+	if ln != self.data.count
+		return false
+	
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(self.data.data, i, u8);
+		rhs := ptr_offset(str.data.data, i, u8);
+		if *lhs != *rhs
+			return false
+	}
+
+	return true
+	
+}
+operator ==(self : *string, str : str_lit) ! bool
+{
+	ln := str_ln(str)
+	if ln != self.data.count
+		return false
+	
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(self.data.data, i, u8);
+		rhs := ptr_offset(str, i, u8);
+		if *lhs != *rhs
+			return false
+	}
+
+	return true
+	
+}
+
+main::fn()!u32
+{
   i := 32
-  globals.i = 32
+  globals.i = 6
 
   buffer :[32]u8
-  PrintStr("before call\n")
   num_2_str(cast(s64)globals.i, buffer[0], 32)
-  PrintStr("after call\n")
 
   if *ptr_offset(buffer[0], 0, u8) != 0x36
     __dbg_break
   if *ptr_offset(buffer[0], 1, u8) != 0
     __dbg_break
   PrintStr(cast(str_lit)buffer[0])
-  PrintStr("after checks\n")
-  __dbg_break
+
+	m := minf(-6.0, 1333.0)
+
+	if m >= -5.9 || m <= -6.1
+		debug_break();
+	i= 7;
+	if i != 7
+		debug_break();
+
+	i = -2;
+	if i < -3
+	{
+		debug_break();
+	}
+
+	u_val : u32 = 0x80000000;
+	if u_val > 0x80010000
+	{
+		debug_break();
+	}
+
+	i = 4;
+	i--;
+	if i != 3
+		debug_break();
+
+	while i < 5
+	{
+		i++;
+	}
+
+	if i != 5
+		debug_break();
+
+	while true
+	{
+		if i > 10
+			break;
+		i++;
+	}
+	if i != 11
+		debug_break();
+
+		//debug_break();
+
+	alloc :mem_alloc;
+	alloc.buffer = nil;
+
+	if alloc.buffer 
+		debug_break();
+
+	alloc.buffer = cast(*u8)GetMem(8);
+
+	*ptr_offset(alloc.buffer, 1, u8) = 1;
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 1
+		debug_break();
+
+	test_ref(&alloc);
+
+	if *ptr_offset(alloc.buffer, 2, u8) != 2
+		debug_break();
+
+	alloc.buffer = nil;
+
+	if alloc.buffer != nil
+		debug_break();
+
+
+	test_init(&alloc);
+
+	if alloc.buffer == nil
+		debug_break();
+
+	*ptr_offset(alloc.buffer, 1, u8) = 7;
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 7
+		debug_break();
+
+	memset(alloc.buffer, 0, 8);
+
+	if *ptr_offset(alloc.buffer, 1, u8) != 0
+		debug_break();
+
+
+  PrintStr("will test ptr\n")
+	test_ptr(&alloc);
+
+
+
+	flags :u64= 0;
+	flags = flags | 1;
+
+	if flags != 1
+		debug_break();
+
+	flags = flags & ~1;
+	
+	if flags != 0
+		debug_break();
+
+	flags = 2;
+	flags = flags | 1;
+
+	if flags != 3
+		debug_break();
+
+	flags = flags & ~2;
+	if flags != 1
+		debug_break();
+	i = 6;
+	i = i % 7;
+
+	if i != 6
+		debug_break();
+
+	if (i + 1 % 7) != 0
+		debug_break();
+
+	bool_v: = false;
+
+	if bool_v
+		debug_break();
+
+
+	i = 5;
+	bool_v = i == 5;
+
+
+	if !bool_v
+		debug_break();
+
+
+	i = 4;
+	i2 := 5;
+	i3 := 5;
+	i += i2 + i3;
+
+	if i != 14
+		debug_break();
+
+	i = 4;
+	i += i2 + i3;
+
+	if i != 14
+		debug_break();
+
+	ptr: *mem_chunk = nil;
+
+	if ptr
+		debug_break();
+
+	ptr = cast(*mem_chunk)GetMem(32);
+
+	if ptr == nil
+		debug_break();
+
+	ptr = cast(*mem_chunk)nil_ptr_ret();
+
+	if ptr != nil
+		debug_break();
+
+	if sizeof(simple_strct) != 8
+		debug_break();
+
+	if cast(u64)ptr_offset(0, 0, simple_strct) != 0
+		debug_break();
+	if cast(u64)ptr_offset(0, 1, simple_strct) != 8
+		debug_break();
+	if cast(u64)ptr_offset(0, 2, simple_strct) != 16
+		debug_break();
+
+
+	main_type: fn() !u8;
+	main_type = fn() !u8{ return 1; };
+
+	if main_type() != 1
+		debug_break();
+
+	main_type = func_ptr_test;
+	if main_type() != 2
+		debug_break();
+
+	f := 1.0;
+
+	if f > 2.0
+		debug_break();
+
+	vec1:v3=?;
+	vec2:v3=?;
+	vec2.x = 1.0;
+	memcpy(&vec1, &vec2, sizeof(v3));
+
+	if vec1.x > 1.1 || vec1.x < 0.9
+		debug_break();
+
+
+	greater_than_0 : = f > 0.0;
+	less_than_3 : = f < 3.0;
+	greater_than_2 : = f > 2.0;
+
+	val:bool = false;
+	if greater_than_0 && !greater_than_2
+		val = true;
+
+	if val == false
+		debug_break();
+
+	val = false;
+
+	if !greater_than_0 || !greater_than_2
+		val = true;
+
+	if val == false
+		debug_break();
+
+
+	val = false;
+
+	if greater_than_0 && !greater_than_2 && less_than_3
+		val = true;
+
+	if val == false
+		debug_break();
+
+	val = false;
+	if greater_than_0 == false || greater_than_2 || less_than_3
+		val = true;
+
+	if val == false
+		debug_break();
+
+	val = false;
+
+	if !(greater_than_2 && less_than_3)
+		val = true;
+
+	if val == false
+		debug_break();
+	
+	fsum: = test_sum_float(1.0, 2.0);
+	if fsum < 2.0  || fsum > 4.0
+		debug_break();
+
+
+	fsum = 1.0;
+	testt: = [3]f32{ ret_f32_summed_with_one(fsum), ret_f32_summed_with_one(fsum), 3.0 };
+	fsum = *testt[0] + *testt[1] + *testt[2];
+	
+	if fsum < 6.9 || fsum > 7.1
+		debug_break();
+
+	modify_f32(&fsum);
+
+	if fsum < 0.9 || fsum > 1.1
+		debug_break();
+
+	*cast(*s32)&fsum = 0x40000000;
+
+	if fsum < 1.9 || fsum > 2.1
+		debug_break();
+	
+	modify_f32_as_s32(&fsum);
+	if fsum < 2.9 || fsum > 3.1
+		debug_break();
+
+
+	// struct construction
+	fsum = 3.0;
+	fsum = ret_sum_one_with_f32_ptr(&fsum);
+	if fsum < 3.9 || fsum > 4.1
+		debug_break();
+
+	chunk: = mem_chunk{ next= nil, prev = cast(*mem_chunk)7 };
+	if cast(u64)chunk.prev != 7
+		debug_break();
+
+
+	// static array stuff
+	ar_strct:[4]simple_strct_f32;
+	modify_ar_strct(ar_strct);
+	if ar_strct[0].a < 3.4 || ar_strct[0].a > 3.6
+		debug_break();
+
+	modify_static_ar_through_void_ptr(cast(*void)ar_strct);
+	if ar_strct[0].a < 1.4 || ar_strct[0].a > 1.6
+		debug_break();
+
+
+	ar_strct_ar::struct
+	{
+		ar: [4] f32;
+	}
+	modify_static_ar_through_void_ptr(cast(*void)ar_strct_ar.ar);
+	if *ar_strct_ar.ar[0] < 1.4 || *ar_strct_ar.ar[0] > 1.6
+		debug_break();
+
+	i = 5;
+
+	a: = if i == 5 69 else 420;
+
+	if a != 69
+		debug_break();
+
+	static_ar: [4] f32;
+	*static_ar[0] = 0.5;
+
+	if* static_ar[0] < 0.4 || *static_ar[0] > 0.6
+		debug_break();
+
+	test_strct : struct
+	{
+		ar : [4]f32
+	}
+
+	color:test_strct;
+	*color.ar[1] = 0.5;
+	if* color.ar[1] < 0.4 || *color.ar[1] > 0.6
+		debug_break();
+
+
+
+	bool_rt: = test_bool_ret(true);
+
+	if bool_rt != true
+		debug_break();
+
+	if test_bool_ret(false)
+		debug_break();
+
+
+	slen: = str_ln("ab");
+	if slen != 2
+		debug_break();
+
+	fval: = cast(f32)2;
+
+	if fval > 2.1 || fval < 1.9
+		debug_break();
+
+	i = 3;
+	fval = cast(f32)i;
+
+	if fval > 3.1 || fval < 2.9
+		debug_break();
+
+
+	f1: = 1.0;
+	f2: = 0.5;
+	i = 5;
+
+	i = cast(s32)((cast(f32)i * f2) / f1);
+	
+	if i != 2
+		debug_break();
+
+	i = 5;
+	f2 = 0.7;
+
+  ttt := cast(s32)f2
+	i = cast(s32)((cast(f32)i * f2) / f1);
+	if i != 3
+		debug_break();
+
+	v1:v3;
+	v1= ret_v3();
+	if v1.y > 2.1 || v1.y < 1.9
+		debug_break();
+
+	v2:v3;
+
+	v1.x = 1.0;
+	v2.x = 3.0;
+	v1.y = 1.0;
+	v2.y = -1.0;
+	v: = v1 + v2;
+
+	if v.x > 4.1 || v.x < 3.9
+		debug_break();
+
+	v1.x = 1.0;
+	v = v1 * 2.0;
+
+	if v.x > 2.1 || v.x < 1.9
+		debug_break();
+
+	v1.x = 1.0;
+	v2.x = 1.0;
+	v = v1 - v2;
+	if v.x > 0.1 || v.x < -0.1
+		debug_break();
+
+	v1.x = 5.0;
+	v1.y = -6.0;
+
+	v1 = sign_v3(&v1);
+
+	if v1.x > 1.1 || v1.x < 0.9 || v1.y < -1.0 || v1.y > -0.9
+		debug_break();
+
+	v2.x = 2.0;
+	v1.x = 1.0;
+
+	v1.x = (v1 - v2).x;
+	if v1.x > -0.9 || v1.x < -1.1
+		debug_break();
+
+	v2.x = 2.0;
+	v1.x = 1.0;
+	v1 = v1 + v2 * 2.0;
+
+	if v1.x > 5.1 || v1.x < 4.9
+		debug_break();
+
+	ar_test := []f32{ 1.0, 2.0, 3.0, 4.0 };
+
+	if *ar_test[0] > 1.1 || *ar_test[0] < 0.9
+		debug_break();
+
+	i = 2;
+	v2.x = cast(f32)-i;
+
+
+	if v2.x > -1.9 || v2.x < -2.1
+		debug_break();
+
+	//__dbg_break
+	fval = sqrt(4.0);
+	if fval > 2.1 || fval < 1.9
+		debug_break();
+	//WasmDbg(nil);
+	norm: = normalize_v3(&v2);
+	fval = dot_v3(&norm, &norm);
+
+	if fval > 1.1 || fval < 0.9
+		debug_break();
+
+
+	ar: dyn_array(u32);
+
+	ar.count = 4;
+	//__dbg_break;
+	if ar[0] != cast(*u32)0
+		debug_break();
+
+	if ar[1] != cast(*u32)4
+		debug_break();
+
+	st_tuple : (u32, u32);
+	st_tuple.0 = 4;
+
+	if st_tuple.0 != 4
+		debug_break();
+
+
+	test_u32 := tuple_arg_fn((4, 0));
+
+	if test_u32 != 4
+		debug_break();
+	
+
+	val_test := 0;
+	for idx in 0..5
+	{
+		val_test++;
+	}
+
+	if val_test != 5
+		debug_break();
+
+
+	val_test = 0;
+	limit := 10;
+	for idx in 0..limit
+	{
+		val_test++;
+	}
+
+	if val_test != limit
+		debug_break();
+
+	limit = 0;
+	val_test = 5;
+	for rev val_test1 in 5..limit
+	{
+		val_test--;
+	}
+	if val_test != limit
+		debug_break();
+
+
+	s32_ar := []s32{0, 1, 2, 3, 4};
+
+	val_test = 0;
+	for cur in s32_ar
+	{
+		val_test += *cur;
+	}
+	if val_test != 10
+		debug_break();
+
+	val_test = 0;
+	for cur in s32_ar
+	{
+		for cur2 in s32_ar
+		{
+			if* cur2 == 2
+				break;
+			val_test += *cur2;
+		}
+	}
+	if val_test != 5
+		debug_break();
+
+	val_test = 0;
+	for cur in s32_ar
+	{
+		if* cur == 4
+			continue;
+		val_test += *cur;
+	}
+	if val_test != 6
+		debug_break();
+
+	dyn_test :dyn_array(s32);
+	dyn_test.data = s32_ar[0];
+	dyn_test.cap = 5;
+	dyn_test.count = 5;
+
+	if *dyn_test[1] != 1
+		debug_break();
+
+	val_test = 0;
+	for cur in dyn_test
+	{
+		aux := *cur;
+		val_test += *cur;
+	}
+	if val_test != 10
+		debug_break();
+
+	i = overload_func(1, 2);
+
+	if i != 3
+		debug_break();
+
+
+	i = overload_func(2);
+
+	if i != 2
+		debug_break();
+
+	val = false;
+
+	i = 90;
+	if i == 89 || val == true
+		i = 9;
+
+	if i != 90
+		debug_break();
+
+	bool_strct::struct
+	{
+		a_in:bool,
+	}
+
+	bool_strct.a_in = true;
+	if i == 89 || !bool_strct.a_in
+		i = 9;
+
+	if i != 90
+		debug_break();
+	
+	bool_strct.a_in = false;
+	if i == 89 || !bool_strct.a_in
+		i = 9;
+
+	if i != 9
+		debug_break();
+
+	test_enum :enum
+	{
+		VAL0,
+		VAL1,
+	}
+	
+	enum_strct :: struct
+	{
+		tt : test_enum,
+	}
+
+	val = false;
+	if enum_strct.tt == test_enum.VAL0 || enum_strct.tt == test_enum.VAL1
+	{
+		val = true;
+	}
+	if !val
+		debug_break();
+
+	e_ptr := &enum_strct;
+	val = false;
+	e_ptr.tt = test_enum.VAL1;
+	if e_ptr.tt == test_enum.VAL0
+	{
+		val = true;
+	}
+	else if  e_ptr.tt == test_enum.VAL0 || e_ptr.tt == test_enum.VAL1
+		val = true;
+	else if  e_ptr.tt == test_enum.VAL0 || e_ptr.tt == test_enum.VAL1
+		val = true;
+	if !val
+		debug_break();
+
+	vec_test: = _vec{ 1.0, 1.0, 1.0, 1.0 };
+	vec_test2: = _vec{ 1.0, 1.0, 1.0, 1.0 };
+	vec_test = vec_test + vec_test2
+
+	if vec_test.x < 1.9 || vec_test.x > 2.1
+		debug_break();
+
+
+	vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 };
+	vec_test = vec_test * 2.0;
+
+	if vec_test.x < 1.9 || vec_test.x > 2.1
+		debug_break();
+	
+	fsum = 2.0;
+	vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 };
+	vec_test = vec_test * fsum;
+	if vec_test.x < 1.9 || vec_test.x > 2.1
+		debug_break();
+
+	vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 } + _vec{ 1.0, 1.0, 1.0, 1.0 };
+	if vec_test.x < 1.9 || vec_test.x > 2.1
+		debug_break();
+
+	vec_test = _vec{ 2.0, 2.0, 2.0, 0.0 };
+
+	fsum = dot_vec(&vec_test, &vec_test);
+	if fsum < 11.9 || fsum > 12.1
+		debug_break();
+
+	vec_test = ret_vec(1.0)
+
+	if vec_test.y < 1.4 || vec_test.y > 1.6
+		debug_break();
+
+	vec_test.x = 1.0
+	vec_test += _vec{1.0, 0.0, 0.0, 0.0};
+
+	if vec_test.x < 1.9 || vec_test.y > 2.1
+		debug_break();
+
+	vec_test = ret_vec(3.0) - ret_vec(1.0)
+
+	if vec_test.y < 1.9 || vec_test.y > 2.1
+		debug_break();
+
+	vec_ptr := &vec_test
+	vec_ptr.y = 3.0
+	vec_ptr.y += 0.1
+	if vec_ptr.y < 3.0 || vec_test.y > 3.2
+		debug_break();
+	fsum = 0.1
+	vec_ptr.y += fsum
+	if vec_ptr.y < 3.1 || vec_test.y > 3.3
+		debug_break();
+
+	vec_test.z = 2.0
+	if modify_vec(&vec_test) != 1
+		debug_break();
+
+	fsum = 1.0
+	memset(&fsum, 0, 4)
+	if fsum != 0.0
+		debug_break();
+
+	fptr := &fsum
+	fsum = 1.0
+	memset(fptr, 0, 4)
+	if fsum != 0.0
+		debug_break();
+
+	fsum = 1.0
+	fptr_st : test_fptr
+	fptr_st.ptr = &fsum
+	memset(fptr_st.ptr, 0, 4)
+	if fsum != 0.0
+		debug_break();
+
+	fsum = 1.0
+	ptr_aux := cast(*u32)fptr_st.ptr
+	*ptr_aux = 0
+	if fsum != 0.0
+		debug_break();
+	
+	rel_st1 : rel_array(u32)
+	ref_i :u32= 5
+	*cast(*u32)&rel_st1.data = 16
+	
+	dst_addr := cast(u64)&rel_st1.data + *cast(*u32)rel_st1.data
+	aux_val := *cast(*u32)dst_addr
+	if aux_val != 5
+		debug_break();
+
+	fsum = 1.0
+	fptr = ret_fptr(&fsum)
+	*fptr = 0.0
+	
+	if fsum != 0.0
+		debug_break();
+
+	vec_2 : _vec
+
+	etest: enum_test
+	if etest == enum_test.VAL1
+	{
+		etest.VAL1.num = cast(u32)'b
+	}
+	if etest.VAL1.num != cast(u32)'b
+		debug_break();
+
+	etest = enum_test.VAL2;
+
+	if etest == enum_test.VAL2
+	{
+		if etest.VAL2.ch != 'b
+			debug_break();
+		etest.VAL2.ch = 'a
+	}
+	if etest.VAL2.ch != 'a
+		debug_break();
+
+
+	i = 0
+
+	etest = enum_test.VAL1
+
+	on etest
+	{
+	VAL1
+	{
+		i = 1
+	}
+	}
+
+	if i != 1
+		debug_break();
+
+	etest = enum_test.VAL2
+	on etest
+	{
+	VAL2
+	{
+		i = 2
+	}
+	}
+	if i != 2
+		debug_break();
+	//__dbg_break
+
+	//buffer: dyn_array(char);
+	//Serialize(&buffer, GetTypeData(enum_test), &etest)
+
+	str1 :string
+	str1.data.data = cast(*char)"joe"
+	str1.data.count = 3
+
+	str2 :string
+	str2.data.data = cast(*char)"jo2"
+	str2.data.count = 3
+
+	if str1 == str2
+		debug_break();
+
+	test_tp: = GetTypeData(test_strct_ser);
+
+
+	i = (cast(fn() !s32)test_tp.ser_func)();
+
+	if i != 5
+		debug_break();
+  PrintStr("we passed\n")
+
+  /*
+
+
+	i = 1;
+	i = i << 2
+	if i != 0x4
+		debug_break();
+
+	i = i >> 2
+	if i != 1
+		debug_break();
+
+	first_cond := false
+	sec_cond := false
+	third_cond := false
+	
+	i = 0
+
+	while i < 3
+	{
+		on i
+		{
+			0 first_cond = true
+			1 sec_cond = true
+			2 third_cond = true
+		}
+		i++
+	}
+	if !first_cond || !sec_cond || !third_cond
+	{
+		debug_break();
+	}
+
+	first_cond = false
+	sec_cond = false
+	third_cond = false
+	i = 0
+	on i
+	{
+		4 first_cond = true
+		5 sec_cond = true
+		4 third_cond = true
+		default 
+		{
+			first_cond = true
+			sec_cond = true
+			third_cond = true
+		}
+	}
+	if !first_cond || !sec_cond || !third_cond
+	{
+		debug_break();
+	}
+
+	//ray_triangle_intersect_x64_test :: fn x64(rinfo : *raycast_info) ! u8
+	t_out : f32
+	u_out : f32
+	v_out : f32
+	rinfo : raycast_info=?
+	rinfo.ray_origin = _vec{0.0, 1.0, 0.0, 0.0}
+	rinfo.ray_dir = _vec{0.0, -1.0, 0.0, 0.0}
+	rinfo.v0 = _vec{-0.5, 0.0, 0.5, 0.0}
+	rinfo.v1 = _vec{0.5, 0.0, 0.5, 0.0}
+	rinfo.v2 = _vec{0.5, 0.0, -0.5, 0.0}
+	//rinfo.t_out = &t_out
+	//rinfo.u_out = &u_out
+	//rinfo.v_out = &v_out
+	
+	if ray_triangle_intersect(&rinfo) == false
+		debug_break();
+	
+	ret_val := ray_triangle_intersect_x64_test(&rinfo)
+	if ret_val != 12
+		debug_break();
+	i = 0
+	
+	i = cast(s32)default_args_test(0)
+	if i != 7
+		debug_break();
+
+	i = cast(s32)default_args_test(1, c = 1)
+
+	if i != 5
+		debug_break();
+
+  xor := 2
+  xor = xor ^ 3
+  if xor != 1
+  {
+		debug_break();
+  }
+
+  test_s8 :s8= -1
+  if test_s8 != -1
+		debug_break();
+
+  //double :f64
+  */
+
 
   return 6
 }

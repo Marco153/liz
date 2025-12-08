@@ -208,6 +208,7 @@ enum byte_code_enum : unsigned char
 	CVTSD_MEM_2_SS,
 	CVTSS_REG_2_SD,
 	CVTSD_REG_2_SS,
+	CVTSD_SS_2_REG,
 
 	PUSH_REG_PARAM,
 	POP_REG_PARAM,
@@ -310,7 +311,10 @@ enum byte_code_enum : unsigned char
 	COMMENT,
 
   BEGIN_STMNT,
-  END_STMNT
+  END_STMNT,
+
+  IR_REP_BEGIN,
+  IR_REP_END,
 };
 enum rel_type : short
 {
@@ -472,7 +476,7 @@ struct byte_code
 				
 					bool is_float;
 					bool is_packed_float;
-					char reg_dst;
+					short reg_dst;
 					union
 					{
 						func_decl* call_func;

@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <sys/uio.h>
 #include <time.h>
 #include <thread>
 #define RAD_TO_DEG 57.29577
@@ -17,6 +18,7 @@
 #include <assimp/scene.h>
 #include <Zydis/Zydis.h>
 #ifdef LINUX
+#include <linux/elf.h>
 #include <sys/prctl.h>
 #include <signal.h>
 #include <sys/ptrace.h>
@@ -9740,7 +9742,7 @@ void *_GetMem(int size)
 void _PrintStr(const char *str)
 {
   printf("***we're here, %p\n", str);
-  printf("%s", str);
+  printf("value:%s, %x\n", str, *(int *)str);
 }
 bool cmp_str_dbg(char *str_sect, str_dbg *s1, const char *str)
 {
@@ -9808,12 +9810,12 @@ void MakeInstAddrToBeBreakpoint2(int child_p, own_std::vector<breakpoint> *bps, 
 	breakpoint bp;
   u64 prev_i;
   read_bytes_from_child(child_p, address, (u8*)&prev_i, 8);
-  printf("adding bp, addr %p, prev_i 0x%llx\n", address, prev_i);
+  //printf("adding bp, addr %p, prev_i 0x%llx\n", address, prev_i);
 
 	bp.prev_i = prev_i;
 
   prev_i = (prev_i & ~(u64)0xff) | 0xcc;
-  printf("after prev_i 0x%llx\n", prev_i);
+  //printf("after prev_i 0x%llx\n", prev_i);
 
 	bp.inst = address;
 	bp.one_time_bp = one_time;
@@ -9937,6 +9939,8 @@ _pid ChildProcess(int pipes[2])
         else
         {
           char *name = str_sect + fdbg->name.name_on_string_sect;
+          printf("ERROR CHILD: outsider func '%.*s' not found\n", fdbg->name.name_len, str_sect+fdbg->name.name_on_string_sect);
+          return;
           ASSERT(false)
         }
       }
@@ -9996,19 +10000,20 @@ _pid ChildProcess(int pipes[2])
       else
       {
         char *jmp_addr=0;
-        if(CmpStrDbgGetJmpAddr(str_sect, &r->name, "PrintStr", &jmp_addr, &map_funcs))
+        if(CmpStrDbgGetJmpAddr(str_sect, &r->name, "PrintStr", &jmp_addr, &map_funcs) || CmpStrDbgGetJmpAddr(str_sect, &r->name, "GetMem", &jmp_addr, &map_funcs))
         {
           auto call_offset = (char*)(code + r->code_offset);
           int offset = ((long long)(jmp_addr - (call_offset + 4)));
           *(int *)call_offset = offset;
-          printf("CHILD: PrintStr jmp %llx, addr %p, call_offset %p, offset %d\n", *(u64 *)jmp_addr, jmp_addr, call_offset, offset);
+          printf("CHILD: '%.*s' jmp %llx, addr %p, call_offset %p, offset %d\n", r->name.name_len, str_sect + r->name.name_on_string_sect, *(u64 *)jmp_addr, jmp_addr, call_offset, offset);
 
           auto a = 0;
 
         }
         else
         {
-          printf("CHILD: func '%.*s' not found, str_tbl %p, offset %d\n", r->name.name_len, str_sect + r->name.name_on_string_sect, str_sect, r->name.name_on_string_sect);
+          printf("ERROR CHILD: func '%.*s' not found, str_tbl %p, offset %d\n", r->name.name_len, str_sect + r->name.name_on_string_sect, str_sect, r->name.name_on_string_sect);
+          return;
         }
       }
 
@@ -10053,7 +10058,7 @@ func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *of
   }
   return nullptr;
 }
-void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs)
+void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs)
 {
   ImGui::BeginChild("regs", ImVec2(150, 400));
   ImGui::Text("RAX: %p", regs->rax);
@@ -10068,9 +10073,19 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs)
   ImGui::Text("R9: %p", regs->r9);
   ImGui::Text("R10: %p", regs->r10);
   ImGui::Text("R11: %p", regs->r11);
+  ImGui::Text("xmm0: %.4f", fregs[0]);
+  ImGui::Text("xmm1: %.4f", fregs[4]);
+  ImGui::Text("xmm2: %.4f", fregs[8]);
+  ImGui::Text("xmm3: %.4f", fregs[12]);
+  ImGui::Text("xmm4: %.4f", fregs[16]);
+  //ImGui::Text("xmm3: %.4f", fregs->xmm_space[3]);
+  //ImGui::Text("xmm4: %.4f", fregs->xmm_space[4]);
+  //ImGui::Text("xmm5: %.4f", fregs->xmm_space[5]);
+  //ImGui::Text("xmm6: %.4f", fregs->xmm_space[6]);
+  //ImGui::Text("xmm7: %.4f", fregs->xmm_space[7]);
   ImGui::EndChild();
 }
-void PrintInsts(int child_p, dbg_state *dbg, u64 rip)
+void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl *fdecl, stmnt_dbg *cur_st)
 {
   char buffer[2024];
   u64 cur_addr = rip - 16;
@@ -10081,6 +10096,17 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip)
   int total = 0;
   char buffer2[512];
   float h = 500.0;
+
+
+  ir_rep* start_ir = nullptr;
+  ir_rep* cur_ir = nullptr;
+  if(cur_st && fdecl)
+  {
+    ir_rep* start_ir = ((own_std::vector<ir_rep > *) &fdecl->ir)->begin();
+    cur_ir = start_ir + cur_st->start_ir;
+  }
+	static own_std::string aux_string;
+  //HERE()
 
   while (ZYAN_SUCCESS(ZydisDisassembleIntel(
       /* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
@@ -10096,29 +10122,47 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip)
       u32 ch = (u32)buffer[offset + i]&0xff;
       cur_i += sprintf(&buffer2[cur_i], "%02x ", ch);
     }
+    int offset_m = cur_addr - code_start ;
     buffer2[len * 2] = 0;
-    ImGui::BeginChild("bytes", ImVec2(150, h));
+
+    auto text_color = ImVec4(ImColor(255, 255, 255));
+
     if(rip == cur_addr)
+      text_color = ImVec4(ImColor(255, 0, 0));
+
+    ImGui::BeginChild("bytes", ImVec2(150, h));
+    auto prev_ir = cur_ir;
+    if(cur_st)
     {
-      ImGui::TextColored(ImVec4(ImColor(255, 0, 0)), "%s", buffer2);
+      if(dbg->show_ir)
+      {
+        while (cur_ir && cur_ir->start == offset_m)
+        {
+          ImGui::NewLine();
+          cur_ir++;
+        }
+      }
     }
-    else
-    {
-      ImGui::Text("%s", buffer2);
-    }
+    ImGui::TextColored(text_color, "%s", buffer2);
     ImGui::EndChild();
 
+    cur_ir = prev_ir;
     ImGui::SameLine();
 
     ImGui::BeginChild("inst", ImVec2(300, h));
-    if(rip == cur_addr)
+    if(cur_st)
     {
-      ImGui::TextColored(ImVec4(ImColor(255, 0, 0)), "%p: %s\n", cur_addr, instruction.text);
+      if(dbg->show_ir)
+      {
+        while (cur_ir && cur_ir->start == offset_m)
+        {
+          WasmIrToString(0, dbg, cur_ir, aux_string);
+          ImGui::TextColored(ImVec4(0.6, 0.4, 0.6, 1.0), "%d|%s", cur_ir->idx, aux_string.c_str());
+          cur_ir++;
+        }
+      }
     }
-    else
-    {
-      ImGui::Text("%p: %s\n", cur_addr, instruction.text);
-    }
+    ImGui::TextColored(text_color, "%d: %s\n", cur_addr - code_start, instruction.text);
     ImGui::EndChild();
 
     offset += instruction.info.length;
@@ -10227,6 +10271,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   int status;
   child_process_state ch_state;
   struct user_regs_struct regs;
+  struct user_fpregs_struct fregs;
   scope *cur_scp=nullptr;
   stmnt_dbg *cur_st=nullptr;
   func_decl *cur_f=nullptr;
@@ -10238,6 +10283,12 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   auto dfile = lang_stat->dbg_ser_file;
   char *str_tbl = (char *)(dfile + 1) + dfile->string_sect;
   int str_len = 0;
+
+  uint8_t xstate[4096];  // big enough for all XSTATE features
+
+  struct iovec iov;
+  iov.iov_base = xstate;
+  iov.iov_len = sizeof(xstate);
 
   while(true)
   {
@@ -10271,6 +10322,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     }
     else if (WIFSIGNALED(status)) {
         printf("Child: killed by signal %d\n", WTERMSIG(status));
+        return;
     }
     ClearKeys(dbg->data);
 
@@ -10321,7 +10373,9 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ptrace(PTRACE_SINGLESTEP, child_p, NULL, 0);
       waitpid(child_p, NULL, 0);
     }
+
     ImGui::SameLine();
+    /*
     if(ImGui::InputInt("##int", &str_len))
     {
     }
@@ -10330,14 +10384,25 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     {
       printf("str tbl: %.*s\n", str_len, str_tbl);
     }
+    */
+
+    if(ImGui::Button("show ir"))
+    {
+      dbg->show_ir = !dbg->show_ir;
+    }
     switch(ch_state)
     {
     case child_process_state::INT3:
     {
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+      ptrace(PTRACE_GETREGSET, child_p, (void*)NT_X86_XSTATE, &iov);
+      //printf("iov_len returned = %zu\n", iov.iov_len);
+      int64_t xstate_bv = *(uint64_t*)(xstate + 512);  // xstate_bv
+      uint64_t xcomp_bv  = *(uint64_t*)(xstate + 520); 
+
+
+      //memcpy(&fregs.xmm_space, (xstate + 272), 16 * 16);
       ImGui::Text("INT3: %p", regs.rip);
-      PrintInsts(child_p, dbg, regs.rip);
-      PrintRegs(child_p, dbg, &regs);
 
       if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
       {
@@ -10348,6 +10413,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         ImGui::Text("in range");
         if(cur_f)
         {
+          printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());
           int offset = (u64)((char *)regs.rip - code_start);
           cur_st = GetStmntBasedOnOffset(&cur_f->wasm_stmnts, offset);
           ImGui::Text("in func %s", cur_f->name.c_str());
@@ -10396,17 +10462,19 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           }
           else
           {
-            printf("rip bef %p\n", regs.rip);
+            //printf("rip bef %p\n", regs.rip);
             ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
             waitpid(child_p, NULL, 0);
 
             ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
-            printf("rip after %p\n", regs.rip);
+            //printf("rip after %p\n", regs.rip);
           }
 
           ptrace(PTRACE_CONT, child_p, 0, 0);
         }
       }
+      PrintInsts(child_p, dbg, regs.rip, (u64)code_start, cur_f, cur_st);
+      PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
 
     }break;
     case child_process_state::SEG_FAULT:
@@ -10414,8 +10482,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ImGui::Text("SIGSEGV");
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       ImGui::Text("%p", regs.rip);
-      PrintInsts(child_p, dbg, regs.rip);
-      PrintRegs(child_p, dbg, &regs);
+      PrintInsts(child_p, dbg, regs.rip, (u64)code_start, nullptr, nullptr);
+      PrintRegs(child_p, dbg, &regs, (float *)(xstate + 272));
     }break;
     }
     ImGui::End();
@@ -10572,6 +10640,7 @@ int main(int argc, char *argv[]) {
   // AssertFuncByteCode(&lang_stat);
 
   lang_stat.cur_decl = 0;
+  lang_stat.is_machine_x64_backend = true;
 
   opts.wasm_dir = wasm_dir;
   opts.folder_name = folder_name;

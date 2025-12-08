@@ -1154,8 +1154,8 @@ void AllocSpecificFloatReg(lang_state *lang_stat, char idx) {
   // ASSERT(IS_FLAG_OFF(lang_stat->float_regs[idx], REG_FREE_FLAG));
   lang_stat->float_regs[idx] |= REG_USED_FLAG;
 }
-char AllocFloatReg(lang_state *lang_stat) {
-  for (int i = 0; i < 9; i++) {
+char AllocFloatReg(lang_state *lang_stat, int start = 0) {
+  for (int i = start; i < 9; i++) {
     if (IS_FLAG_OFF(lang_stat->float_regs[i], REG_USED_FLAG)) {
       lang_stat->float_regs[i] |= REG_USED_FLAG;
       return i;
@@ -2079,12 +2079,12 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
   own_std::vector<ir_val> stack;
   stack.reserve(4);
   ir_rep ir;
+  bool found_call = false;
   for (int j = 0; j < exps.size(); j++) {
     ast_rep *e = exps[j];
     bool is_end_arg = IsEndArg(e);
     if (is_end_arg) {
       int cur_line = (((long long)e) >> 16) & 0xffff;
-      bool found_call = false;
       int calls_found = 0;
 
       // searching for more than call
@@ -2248,14 +2248,15 @@ if(e->line_number == 1467)
 }
       */
 
+      //BREAK(e->line_number == 1296)
       bool there_is_exps_in_stack = (j + 1) < exps.size();
       // if is not last, we will move to some reg
-      if (there_is_exps_in_stack) {
+      if (there_is_exps_in_stack || found_call) {
         ir = {};
         ir.type = IR_ASSIGNMENT;
         ir.assign.to_assign.type = IR_TYPE_REG;
         if (e->call.fdecl->ret_type.IsFloat())
-          ir.assign.to_assign.reg = AllocFloatReg(lang_stat);
+          ir.assign.to_assign.reg = AllocFloatReg(lang_stat, 1);
         else
           ir.assign.to_assign.reg = AllocReg(lang_stat);
         ir.assign.to_assign.reg_sz = 8;
@@ -2408,6 +2409,7 @@ if(e->line_number == 1467)
       }
 
       stack.emplace_back(val);
+      found_call = false;
       ;
     } break;
     case AST_ADDRESS_OF: {
@@ -4433,4 +4435,12 @@ ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat) {
   bin->e_holder.expr.emplace_back(lhs);
   bin->e_holder.expr.emplace_back(rhs);
   return bin;
+}
+void SetIrStart(ir_rep *ir, int new_start)
+{
+  ir->start = new_start;
+}
+void SetIrEnd(ir_rep *ir, int new_end)
+{
+  ir->end = new_end;
 }

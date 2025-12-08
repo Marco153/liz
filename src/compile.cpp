@@ -3086,6 +3086,9 @@ struct dbg_state
 	bool frame_is_from_dbg;
 	bool aux_break;
 	bool aux_break2;
+
+	bool show_ir;
+  
 	func_decl* prev_func;
 
   own_mutex *dbg_mutex;
@@ -3532,7 +3535,7 @@ own_std::string WasmIrValToString(int thread_id, dbg_state* dbg, ir_val* val)
 	}break;
 	case IR_TYPE_ON_STACK:
 	{
-		int base_ptr = WasmGetRegVal(dbg, BASE_STACK_PTR_REG);
+		int base_ptr = 0;
 		own_std::string stack_type_name = "";
 		switch (val->on_stack_type)
 		{
@@ -3555,7 +3558,7 @@ own_std::string WasmIrValToString(int thread_id, dbg_state* dbg, ir_val* val)
 		case ON_STACK_SPILL:
 		{
 			stack_type_name = "spill";
-			base_ptr = base_ptr - (cur_func->to_spill_offset - val->i);
+			//base_ptr = base_ptr - (cur_func->to_spill_offset - val->i);
 		}break;
 		default:
 			ASSERT(0);
@@ -6971,6 +6974,7 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 
 		own_std::vector<ir_rep>* ir_ar = (own_std::vector<ir_rep> *) &f->ir;
 	}
+  //BREAK(f->name == "v3*")
 
 	fdbg->scope = f->scp->serialized_offset;
 	fdbg->code_start = f->wasm_code_sect_idx;
@@ -7590,6 +7594,13 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 
 	fdecl->ret_type.type = fdbg->ret_type;
 	fdecl->ret_type.ptr = fdbg->ret_ptr_type;
+
+  if(lang_stat->is_machine_x64_backend)
+  {
+    fdecl->code_start_idx = fdbg->x64_code_start;
+    fdecl->code_end_idx = fdbg->x64_end_start;
+
+  }
 
 	fdecl->flags = fdbg->flags;
 
@@ -12211,6 +12222,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	data = (unsigned char*)(file + 1);
 
 	unsigned char* code = data + file->code_sect;
+  winterp->funcs.clear();
 
 	//int point_idx = file_name.find_last_of('.');
 	//own_std::string data_file_name = file_name.substr(0, point_idx)+"_data.dbg";
@@ -12386,6 +12398,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 
 	//dbg.wasm_state = wasm_state;
+  return;
 
 	own_std::vector<wasm_bc>& bcs = dbg.bcs;
 	while (i < winterp->funcs.size())
@@ -12411,7 +12424,6 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 		int fi = ptr;
 
-		cur_f->code_start_idx = bcs.size();
 
 		stmnt_dbg* cur_st = &cur_f->wasm_stmnts[0];
 
@@ -14309,11 +14321,8 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			}break;
 			case IR_TYPE_F32:
 			{
-				
-
-				short sse_reg = 4;
+				short sse_reg = 3;
 				GenX64ToIrValFloatRaw(lang_stat, ret, &rhs, &assign.lhs, assign.to_assign.is_packed_float, sse_reg);
-
 				
 				assign.to_assign.deref--;
 				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.to_assign, true, false);
@@ -14853,8 +14862,6 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			// R R I
 			else if (assign.lhs.type == IR_TYPE_REG && assign.rhs.type == IR_TYPE_INT)
 			{
-
-				
 				GenX64ToIrValReg2(lang_stat, ret, &lhs, &assign.lhs, false, false);
 				AllocSpecificReg(lang_stat, lhs.reg);
 
@@ -15651,6 +15658,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		ir_rep* cur_ir = ir;
 		cur_ir->start = ret.size();
 		byte_code bc;
+
+    bc.type = IR_REP_BEGIN;
+    bc.ir = cur_ir;
+    ret.emplace_back(bc);
+    //BREAK(cur_line == 888)
 		//BREAK(ir->idx == 58)
 		/*
 		if (cur_line == 293 && IsExecutableIr(ir))
@@ -16280,11 +16292,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					bc.rel.reg_dst = str_on_reg;
 					bc.rel.offset = ir->bin.rhs.on_data_sect_offset;
 					ret.emplace_back(bc);
-					bc.type = inst;
+					bc.type = MOV_R;
 					bc.bin.lhs.reg = ir->bin.lhs.reg;
 					bc.bin.lhs.reg_sz = 8;
 					bc.bin.rhs.reg = str_on_reg;
-					bc.bin.rhs.reg_sz = 4;
+					bc.bin.rhs.reg_sz = 8;
 					ret.emplace_back(bc);
 				}break;
 				case IR_TYPE_DECL:
@@ -16485,7 +16497,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				GenX64ToIrValReg2(lang_stat, ret, &rhs, &ir->bin.rhs, false, false);
 
 
-				bc.type = MOV_SSE_2_R;
+				bc.type = CVTSD_SS_2_REG;
 				FromIrValToBytecodeReg(&ir->bin.lhs, &bc.bin.lhs);
 				bc.bin.lhs.reg_sz = 4;
 				bc.bin.rhs.reg = rhs.reg;
@@ -16499,7 +16511,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				GenX64ToIrValDecl2(lang_stat, ret, &rhs, &ir->bin.rhs, false, false);
 
 
-				bc.type = MOV_SSE_2_R;
+				bc.type = CVTSD_SS_2_REG;
 				FromIrValToBytecodeReg(&ir->bin.lhs, &bc.bin.lhs);
 				bc.bin.lhs.reg_sz = 4;
 				bc.bin.rhs.reg = rhs.reg;
@@ -16664,6 +16676,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		}
 		idx++;
 		cur_ir->end = ret.size();
+
+    bc.type = IR_REP_END;
+    bc.ir = cur_ir;
+    ret.emplace_back(bc);
+
 		int aux_bc = 0;
 	}
 	ret.emplace_back(byte_code(byte_code_enum::END_FUNC, gen_state->cur_func));
@@ -16742,6 +16759,8 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		}break;
 		case NOP:
 		case INT3:
+		case IR_REP_BEGIN:
+		case IR_REP_END:
 		{
 		}break;
 		case INST_LEA:
@@ -17033,6 +17052,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 		}break;
 		case END_STMNT:
 		case BEGIN_STMNT:
+		case CVTSD_SS_2_REG:
     {
 
     }break;

@@ -4199,6 +4199,7 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node *fnode,
       fdecl->flags |= FUNC_DECL_VAR_ARGS;
       // getting where the var_args start
       // we're subtracting one because the var counts as an argument
+      // idk its the same as args.size() * 8, but whatever
       fdecl->var_args_start_offset = (args.size() - 1) * 8 + 8;
       is_var_args = true;
       type2 aux_type;
@@ -5482,14 +5483,13 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
         }
 
         // checking for constructors sinces types don't match
-        if (!comp_val && f_arg->type.type == enum_type2::TYPE_STRUCT &&
-            f_arg->type.ptr == 0) {
+        if (!comp_val && f_arg->type.type == enum_type2::TYPE_STRUCT && f_arg->type.ptr == 0) 
+        {
           own_std::vector<type2> tp_ar;
           tp_ar.emplace_back(t->decl.type);
 
           if (f_arg->type.strct->constructors.size() == 0) {
-            if (IS_FLAG_OFF(lang_stat->flags,
-                            PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+            if (IS_FLAG_OFF(lang_stat->flags,PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
               return false;
             else {
               REPORT_ERROR(

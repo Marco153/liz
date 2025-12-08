@@ -2069,6 +2069,10 @@ void WasmPushIRVal(wasm_gen_state *gen_state, ir_val *val, own_std::vector<unsig
 		WasmPushConst(WASM_LOAD_FLOAT, 0, *(int *) & val->f32, &code_sect);
 		//code_sect.emplace_back(0x6a);
 	}break;
+	case IR_TYPE_TYPE_DATA:
+  {
+		//val->str = val->i;
+  }break;
 	case IR_TYPE_INT:
 	{
 		WasmPushConst(WASM_LOAD_INT, 0, val->i, &code_sect);
@@ -14000,6 +14004,25 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			//FreeSpecificFloatReg(lang_stat, assign.to_assign.reg);
 			switch (assign.lhs.type)
 			{
+			case IR_TYPE_TYPE_DATA:
+			{
+				char tp_on_reg = AllocReg(lang_stat);
+				bc.type = RELOC;
+				bc.rel.type = REL_TYPE;
+				bc.rel.reg_dst = tp_on_reg;
+				bc.rel.decl = assign.lhs.decl;
+				ret.emplace_back(bc);
+				bc.type = MOV_R_2_REG_PARAM;
+				bc.ir = ir;
+				bc.bin.lhs.reg = assign.to_assign.reg;
+				bc.bin.lhs.reg_sz = assign.to_assign.reg_sz;
+				bc.bin.rhs.reg = tp_on_reg;
+				bc.bin.rhs.reg_sz = 8;
+				ret.emplace_back(bc);
+				FreeSpecificReg(lang_stat, tp_on_reg);
+
+				//TODO
+			}break;
 			case IR_TYPE_STR_LIT:
 			{
 				char str_on_reg = AllocReg(lang_stat);
@@ -14255,6 +14278,23 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 				bc.bin.rhs.reg_sz = 8;
 
 				ret.emplace_back(bc);
+			}break;
+			case IR_TYPE_TYPE_DATA:
+			{
+				char tp_on_reg = AllocReg(lang_stat);
+				bc.type = RELOC;
+				bc.rel.type = REL_TYPE;
+				bc.rel.reg_dst = tp_on_reg;
+				bc.rel.decl = assign.lhs.decl;
+				ret.emplace_back(bc);
+				bc.type = STORE_R_2_M;
+				bc.bin.lhs.reg = reg;
+				bc.bin.lhs.reg_sz = 8;
+				bc.bin.lhs.voffset = voffset;
+				bc.bin.rhs.reg = tp_on_reg;
+				bc.bin.rhs.reg_sz = 8;
+				ret.emplace_back(bc);
+				FreeSpecificReg(lang_stat, tp_on_reg);
 			}break;
 			case IR_TYPE_STR_LIT:
 			{
@@ -16777,6 +16817,7 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			switch (bc.rel_type)
 			{
 			case REL_DATA_GLOBALS:
+			case REL_TYPE:
 			case REL_DATA:
 			{
 				bc.regs = from_bc->rel.reg_dst;

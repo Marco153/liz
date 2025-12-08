@@ -456,7 +456,7 @@ void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, short base_reg 
 {
 	base_reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 
-	char one_byte_imm = bc->bin.rhs.u64 < 0x80 ? 1 : 4;
+	char one_byte_imm = bc->bin.rhs.s32 > -128 & bc->bin.rhs.s32 < 128 ? 1 : 4;
 	char is_rex = IS_FLAG_ON(base_reg, 0x80);
 	*(char *)&is_rex *= 2;
 	if (one_byte_imm == 1)
@@ -482,7 +482,7 @@ void CreateImmToMem(byte_code *bc, char byte, machine_code &ret, short base_reg 
 void AddJump(byte_code *bc, char jmp, machine_code& ret)
 {
 	unsigned int offset = bc->val * 8;
-	if (offset <= 0x80)
+	if (offset < 0x80)
 	{
 		ret.jmp_rels.emplace_back(jmp_rel(1, ret.code.size() + 1, bc));
 
@@ -997,7 +997,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			else if (bc->rel.type == rel_type::REL_TYPE)
 			{
-				own_std::string name = own_std::string("$$") + bc->rel.name;
+        HERE()
+				own_std::string name = own_std::string("$$") + bc->rel.decl->name.c_str();
 
 				// puttinf the name into the heap
 				char *new_str = std_str_to_heap(lang_stat, &name);
@@ -1423,14 +1424,18 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			char reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 			char is_rex = IS_FLAG_ON(reg, 0x80);
 			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc0, 0xc1, is_rex, ret.code);
-			//char op = 0xe8 | bc->bin.lhs.r;
+			char op = 0xe8 | bc->bin.lhs.reg;
+      ret.code.emplace_back(op);
+      ret.code.emplace_back(bc->bin.rhs.i);
 		}break;
 		case SHIFTL_I_2_R:
 		{
 			char reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 			char is_rex = IS_FLAG_ON(reg, 0x80);
 			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xc0, 0xc1, is_rex, ret.code);
-			//char op = 0xe0 | bc->bin.lhs.r;
+			char op = 0xe0 | bc->bin.lhs.reg;
+      ret.code.emplace_back(op);
+      ret.code.emplace_back(bc->bin.rhs.i);
 		}break;
 
 		case CMP_I_2_R:
@@ -1875,7 +1880,6 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			CreateMemToReg(&*bc, 0x2, 0x3, false, ret);
 			break;
 		case ADD_R_2_R:
-      BREAK(ret.code.size() == 1594)
 			CreateRegToReg(&*bc, 0x0, 0x1, &ret);
 			break;
 		case ADD_I_2_RM:

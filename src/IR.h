@@ -10,6 +10,7 @@ enum ast_type
     AST_CONTINUE,
     AST_FUNC,
     AST_INT,
+    AST_TYPE_DATA,
     AST_GET_FUNC_BC,
     AST_CHAR,
     AST_IDENT,
@@ -156,77 +157,77 @@ struct on_cond_ast
 };
 struct ast_rep
 {
-    ast_type type;
-    tkn_type2 op;
-	bool stmnt_without_semicolon : 1;
-	bool dont_make_dbg_stmnt : 1;
-	bool goes_onto_stack : 1;
+  ast_type type;
+  tkn_type2 op;
+  bool stmnt_without_semicolon : 1;
+  bool dont_make_dbg_stmnt : 1;
+  bool goes_onto_stack : 1;
 
-	int line_number;
+  int line_number;
 
-    int line_offset_start;
-    union
+  int line_offset_start;
+  union
+  {
+    int line_offset_end;
+    int at_stack_offset;
+  };
+  type2 lhs_tp;
+
+  union
+  {
+    float f32;
+    long long num;
+    ast_rep *ast;
+    decl2 *decl;
+    own_std::string str;
+    struct
     {
-        int line_offset_end;
-        int at_stack_offset;
+      own_std::vector<ast_rep*> stats;
+      bool zero_initialized;
     };
-	type2 lhs_tp;
-
-    union
+    struct
     {
-        float f32;
-        long long num;
-        ast_rep *ast;
-        decl2 *decl;
-        own_std::string str;
-		struct
-		{
-			own_std::vector<ast_rep*> stats;
-			bool zero_initialized;
-		};
-		struct
-		{
-			own_std::vector<ast_rep*> expr;
-		}e_holder;
-        struct
-        {
-            ast_rep *main;
-            ast_rep *def;
-            own_std::vector<on_cond_ast> exprs;
-        }on;
-		
-		struct
-		{
-			own_std::vector<ast_point> points;
-			bool point_get_last_val;
-		};
-		struct
-		{
-			ast_rep* ast;
-			type2 tp;
-		}unop_assign;
-		struct
-		{
-			ast_rep* ast;
-			type2 tp;
-		}ret;
-        ast_if cond;
-        ast_func func;
-        ast_loop loop;
-        ast_call call;
-        ast_cast cast;
-        ast_for for_info;
-		ast_opposite opposite;
-        ast_deref deref;
-        ast_struct_construct strct_constr;
-        ast_array_construct ar_constr;
-        type2 tp;
-		ast_index index;
+      own_std::vector<ast_rep*> expr;
+    }e_holder;
+    struct
+    {
+      ast_rep *main;
+      ast_rep *def;
+      own_std::vector<on_cond_ast> exprs;
+    }on;
 
+    struct
+    {
+      own_std::vector<ast_point> points;
+      bool point_get_last_val;
     };
-    ~ast_rep()
+    struct
     {
-    }
+      ast_rep* ast;
+      type2 tp;
+    }unop_assign;
+    struct
+    {
+      ast_rep* ast;
+      type2 tp;
+    }ret;
+    ast_if cond;
+    ast_func func;
+    ast_loop loop;
+    ast_call call;
+    ast_cast cast;
+    ast_for for_info;
+    ast_opposite opposite;
+    ast_deref deref;
+    ast_struct_construct strct_constr;
+    ast_array_construct ar_constr;
+    type2 tp;
+    ast_index index;
+
+  };
+  ~ast_rep()
+  {
+  }
 };
 
 enum ir_type
@@ -321,7 +322,7 @@ enum ir_val_type
     IR_TYPE_DECL,
     IR_TYPE_GET_FUNC_BC,
     IR_TYPE_ON_STACK,
-    IR_TYPE_TYPE,
+    IR_TYPE_TYPE_DATA,
 };
 enum on_stack_type
 {
@@ -331,48 +332,48 @@ enum on_stack_type
 };
 struct ir_val
 {
-    ir_val_type type;
-    union
+  ir_val_type type;
+  union
+  {
+    decl2* decl;
+    func_decl* fdecl;
+  };
+  union
+  {
+    int decl_offset;
+    struct
     {
-        decl2* decl;
-        func_decl* fdecl;
+      on_stack_type on_stack_type;
+      int i;
     };
-    union
+    float f32;
+    char* str;
+    struct
     {
-        int decl_offset;
-		struct
-		{
-			on_stack_type on_stack_type;
-			int i;
-		};
-        float f32;
-		char* str;
-        struct
-        {
-			union
-			{
-				char reg;
-			};
-        };
+      union
+      {
+        char reg;
+      };
     };
-	short reg_ex;
-	int on_data_sect_offset;
-    bool is_unsigned : 1;
-	bool is_float:1;
-	bool is_packed_float:1;
-    char ptr;
-	char deref;
-    char reg_sz;
+  };
+  short reg_ex;
+  int on_data_sect_offset;
+  bool is_unsigned : 1;
+  bool is_float:1;
+  bool is_packed_float:1;
+  char ptr;
+  char deref;
+  char reg_sz;
 };
 
 struct assign_info
 {
-	ir_val lhs;
-	ir_val rhs;
-	bool only_lhs;
+  ir_val lhs;
+  ir_val rhs;
+  bool only_lhs;
 
-	ir_val to_assign;
-	tkn_type2 op;
+  ir_val to_assign;
+  tkn_type2 op;
 };
 struct ir_rep
 {
@@ -398,6 +399,7 @@ struct ir_rep
     };
     union
     {
+      type_struct2 *strct;
         struct
         {
             ir_val dst;

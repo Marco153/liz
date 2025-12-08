@@ -1,5 +1,124 @@
 PrintStr::fn outsider(str : str_lit);
 GetMem::fn outsider(size : u64) ! *void;
+GetTypeData::fn internal(void *) !*type_data;
+test_strct_ser:struct
+{
+	a : u32,
+}
+test_strct_ser_func::fn() !u32
+{
+	return 5;
+}
+
+//#assign_ser_func(test_strct_ser, test_strct_ser_func)
+type_enum : enum
+{
+	TYPE_AUTO,
+	TYPE_ARRAY_TYPE,
+	TYPE_STATIC_ARRAY,
+	TYPE_ARRAY,
+	TYPE_ARRAY_DYN,
+
+	TYPE_ENUM_IDX_32,
+
+	TYPE_OVERLOADED_FUNCS,
+
+	TYPE_TYPEDEF,
+
+	TYPE_WASM_MEMORY,
+
+	TYPE_VOID,
+	TYPE_VOID_TYPE,
+
+	TYPE_RANGE,
+
+	//
+	TYPE_STRUCT_TYPE,
+	TYPE_CHAR_TYPE,
+	TYPE_STR_LIT,
+	TYPE_STATIC_ARRAY_TYPE,
+
+	TYPE_U8_TYPE,
+	TYPE_S8_TYPE,
+	TYPE_U16_TYPE,
+	TYPE_S16_TYPE,
+	TYPE_U32_TYPE,
+	TYPE_S32_TYPE,
+	TYPE_U64_TYPE,
+	TYPE_S64_TYPE,
+
+	TYPE_BOOL_TYPE,
+	TYPE_UNION_TYPE,
+	TYPE_FUNC_TYPE,
+	TYPE_ENUM_TYPE,
+	TYPE_F32_TYPE,
+	TYPE_F64_TYPE,
+	//
+
+	TYPE_INT,
+
+	TYPE_IMPORT,
+
+	TYPE_REL_TYPE,
+	TYPE_REL,
+
+	TYPE_U8,
+	TYPE_S8,
+	TYPE_U16,
+	TYPE_S16,
+	TYPE_U32,
+	TYPE_S32,
+	TYPE_U64,
+	TYPE_S64,
+
+	TYPE_F32,
+	TYPE_CHAR,
+	TYPE_F64,
+	TYPE_BOOL,
+	TYPE_F32_RAW,
+	TYPE_F64_RAW,
+
+	TYPE_UNION_DECL,
+	TYPE_UNION,
+
+	TYPE_ENUM_DECL,
+	TYPE_ENUM,
+
+	TYPE_MACRO_EXPR,
+
+	TYPE_STRUCT_DECL,
+	TYPE_STRUCT,
+	TYPE_STRUCT_ANON,
+	TYPE_BUILT_IN_MACRO,
+	TYPE_FUNC_DECL,
+	TYPE_FUNC_PTR,
+	TYPE_FUNC_DEF,
+	TYPE_FUNC_EXTERN,
+	TYPE_FUNC,
+	TYPE_COMMA,
+	TYPE_TEMPLATE,
+	TYPE_VECTOR_TYPE,
+	TYPE_VECTOR,
+	TYPE_MAX,
+}
+type_data:struct
+{
+	using u::union
+	{
+		// entries is how many members a strct has
+		entries : u32,
+		strct : *type_data,
+	},
+	strct_sz : u64,
+	offset : u64,
+	ptr : u8,
+	ser_func : *void,
+	tp : type_enum,
+	flags : u32,
+	name : rel_string,
+	decl_offset_for_ptr_len : u32
+}
+
 enum_test : etruct
 {
 	VAL1(
@@ -726,6 +845,229 @@ operator ==(self : *string, str : str_lit) ! bool
 	
 }
 
+cross_vec::fn x64(a : *_vec, b : *_vec) !_vec
+{
+
+	ret :_vec= ?
+	ret.x = a.y * b.z - a.z * b.y
+	ret.y = a.z * b.x - a.x * b.z
+	ret.z = a.x * b.y - a.y * b.x
+	ret.w = 0.0
+	/*
+	printf("\ton cross\n\t")
+	print_vec(a)
+	printf("\t")
+	print_vec(b)
+	print_vec(&ret)
+	printf("\ton cross\n")
+	*/
+	return ret;
+}
+raycast_info :struct
+{
+	ray_origin : _vec,
+    ray_dir : _vec,
+    v0 : _vec,
+    v1 : _vec,
+    v2 : _vec,
+    t_out : f32,
+    u_out : f32,
+    v_out : f32
+}
+ray_triangle_intersect :: fn x64(rinfo : *raycast_info) ! bool
+{
+	ray_origin := rinfo.ray_origin
+    ray_dir := rinfo.ray_dir
+    v0 := rinfo.v0
+    v1 := rinfo.v1
+    v2 := rinfo.v2
+
+    epsilon : f32 = 0.000001;
+    
+    edge1 := v1 - v0
+    edge1.w = 0.0;
+
+    edge2 := v2 - v0
+    edge2.w = 0.0;
+    h : _vec = ?;
+    s : _vec = ?;
+    q : _vec = ?;
+
+    
+    // Calculate triangle edges
+    
+
+    // Cross product: h = ray_dir × edge2
+    h = cross_vec(&ray_dir, &edge2);
+    
+    // Determinant: a = edge1 • h
+    a : f32 = dot_vec(&edge1, &h);
+    
+    // Check if ray is parallel to triangle
+    if (a > -epsilon && a < epsilon) {
+        return false;
+    }
+    
+	//__dbg_break
+    f : f32 = 1.0 / a;
+    s = ray_origin - v0;
+    s.w = 0.0;
+    
+    // Barycentric u coordinate
+    u : f32 = f * dot_vec(&s, &h);
+    if (u < 0.0 || u > 1.0) {
+        return false;
+    }
+	//__dbg_break
+    
+    // Cross product: q = s × edge1
+    q = cross_vec(&s, &edge1);
+    
+    // Barycentric v coordinate
+    v : f32 = f * dot_vec(&ray_dir, &q);
+    if (v < 0.0 || u + v > 1.0) {
+        return false;
+    }
+    
+    // Calculate t parameter (distance along ray)
+    t : f32 = f * dot_vec(&edge2, &q);
+    
+    // Only accept intersections in front of ray
+    if (t > epsilon) {
+        rinfo.t_out = t;
+        rinfo.u_out = u;
+        rinfo.v_out = v;
+        return true;
+    }
+    
+    return false;
+}
+f32_approximate ::fn macro(f : _expr, val : _expr)
+{
+	(f >= (val - 0.1) && f <= (val + 0.1))
+}
+ray_triangle_intersect_x64_test :: fn x64(rinfo : *raycast_info) ! u8
+{
+	ray_origin := rinfo.ray_origin
+    ray_dir := rinfo.ray_dir
+    v0 := rinfo.v0
+    v1 := rinfo.v1
+    v2 := rinfo.v2
+    t_out := rinfo.t_out
+    u_out := rinfo.u_out
+    v_out := rinfo.v_out
+
+    epsilon : f32 = 0.000001;
+    
+    edge1 := v1 - v0
+    edge1.w = 0.0;
+
+    edge2 := v2 - v0
+    edge2.w = 0.0;
+	if f32_approximate(edge1.x, 1.0) == false || 
+		f32_approximate(edge2.x, 1.0) == false || 
+		f32_approximate(edge2.z, -1.0) == false
+
+	{
+		return 0
+	}
+
+    h : _vec = ?;
+    s : _vec = ?;
+    q : _vec = ?;
+
+    
+    // Calculate triangle edges
+    
+
+    // Cross product: h = ray_dir × edge2
+    h = cross_vec(&ray_dir, &edge2);
+	if f32_approximate(h.x, 1.0) == false || 
+		f32_approximate(h.z, 1.0) == false
+
+	{
+		return 1
+	}
+    
+    // Determinant: a = edge1 • h
+    a : f32 = dot_vec(&edge1, &h);
+	if f32_approximate(a, 1.0) == false
+	{
+		return 2
+	}
+    
+    // Check if ray is parallel to triangle
+    if (a > -epsilon && a < epsilon) {
+        return 3;
+    }
+    
+	//__dbg_break
+    f : f32 = 1.0 / a;
+    s = ray_origin - v0;
+    s.w = 0.0;
+    
+	if f32_approximate(f, 1.0) == false
+	{
+		return 4
+	}
+	if f32_approximate(s.x, 0.5) == false || 
+		f32_approximate(s.y, 1.0) == false || 
+		f32_approximate(s.z, -0.5) == false
+	{
+		return 5
+	}
+    
+    // Barycentric u coordinate
+    u : f32 = f * dot_vec(&s, &h);
+	if f32_approximate(u, 0.0) == false
+	{
+		return 6
+	}
+    if (u < 0.0 || u > 1.0) {
+        return 7;
+    }
+	//__dbg_break
+    
+    // Cross product: q = s × edge1
+    q = cross_vec(&s, &edge1);
+	if f32_approximate(q.x, 0.0) == false || 
+		f32_approximate(q.y, -0.5) == false || 
+		f32_approximate(q.z, -1.0) == false
+	{
+		return 8
+	}
+    
+    // Barycentric v coordinate
+    v : f32 = f * dot_vec(&ray_dir, &q);
+	if f32_approximate(v, 0.5) == false
+	{
+		return 9
+	}
+    if (v < 0.0 || u + v > 1.0) {
+        return 10;
+    }
+    
+    // Calculate t parameter (distance along ray)
+    t : f32 = f * dot_vec(&edge2, &q);
+    
+	if f32_approximate(t, 1.0) == false
+	{
+		return 11
+	}
+    // Only accept intersections in front of ray
+    if (t > epsilon) {
+        //if (t_out != nil) { *t_out = t; }
+        //if (u_out != nil) { *u_out = u; }
+        //if (v_out != nil) { *v_out = v; }
+        return 12;
+    }
+    
+    return 13;
+}
+default_args_test::fn(a : u32, b : u32 = 3, c :u32= 4) ! u32
+{
+	return a + b + c
+}
 main::fn()!u32
 {
   i := 32
@@ -1502,7 +1844,8 @@ main::fn()!u32
 	//__dbg_break
 
 	//buffer: dyn_array(char);
-	//Serialize(&buffer, GetTypeData(enum_test), &etest)
+  __dbg_break
+
 
 	str1 :string
 	str1.data.data = cast(*char)"joe"
@@ -1515,16 +1858,6 @@ main::fn()!u32
 	if str1 == str2
 		debug_break();
 
-	test_tp: = GetTypeData(test_strct_ser);
-
-
-	i = (cast(fn() !s32)test_tp.ser_func)();
-
-	if i != 5
-		debug_break();
-  PrintStr("we passed\n")
-
-  /*
 
 
 	i = 1;
@@ -1539,6 +1872,7 @@ main::fn()!u32
 	first_cond := false
 	sec_cond := false
 	third_cond := false
+
 	
 	i = 0
 
@@ -1598,6 +1932,7 @@ main::fn()!u32
 	ret_val := ray_triangle_intersect_x64_test(&rinfo)
 	if ret_val != 12
 		debug_break();
+
 	i = 0
 	
 	i = cast(s32)default_args_test(0)
@@ -1620,6 +1955,9 @@ main::fn()!u32
   if test_s8 != -1
 		debug_break();
 
+  PrintStr("we passed\n")
+
+  /*
   //double :f64
   */
 

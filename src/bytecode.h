@@ -473,6 +473,7 @@ struct byte_code
 				struct
 				{
 					char *name;
+          decl2 *decl;
 				
 					bool is_float;
 					bool is_packed_float;

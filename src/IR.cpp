@@ -676,14 +676,14 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
       } else if (f->name == "GetTypeData") {
         // BREAK(n->t->line == 3360)
         dummy_type = DescendNode(lang_stat, n->r, scp);
-        ret->type = AST_INT;
+        ret->type = AST_TYPE_DATA;
         if (dummy_type.type == TYPE_STRUCT_TYPE ||
             dummy_type.type == TYPE_STRUCT) {
-          ret->num = dummy_type.strct->type_sect_offset + MEM_PTR_START_ADDR;
+          ret->decl = dummy_type.strct->this_decl;
         } else if (dummy_type.type == TYPE_ENUM_TYPE ||
                    dummy_type.type == TYPE_ENUM) {
-          ret->num =
-              dummy_type.e_decl->serialized_type_idx + MEM_PTR_START_ADDR;
+          ret->decl =
+              dummy_type.e_decl;
         } else {
           ASSERT(0)
         }
@@ -757,9 +757,8 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
         //***** type_info : *type_data
         if (cur_arg->lhs_tp.type == TYPE_STRUCT) {
           type_int = NewAst();
-          type_int->type = AST_INT;
-          type_int->num =
-              MEM_PTR_START_ADDR + cur_arg->lhs_tp.strct->type_sect_offset;
+          type_int->type = AST_TYPE_DATA;
+          type_int->decl = cur_arg->lhs_tp.strct->this_decl;
           var_arg_info.emplace_back(type_int);
         } else
           var_arg_info.emplace_back(zero);
@@ -1049,6 +1048,13 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->is_unsigned = false;
     val->is_float = true;
   } break;
+  case AST_TYPE_DATA:
+  {
+    val->type = IR_TYPE_TYPE_DATA;
+    val->decl = ast->decl;
+    val->is_unsigned = ast->num < 0 ? false : true;
+    val->reg_sz = 8;
+  }break;
   case AST_CHAR:
   case AST_INT: {
     val->type = IR_TYPE_INT;
@@ -1554,6 +1560,7 @@ void PushAstsInOrder(lang_state *lang_stat, ast_rep *ast,
     */
   } break;
   case AST_INT:
+  case AST_TYPE_DATA:
   case AST_FLOAT:
   case AST_STR_LIT:
   case AST_CHAR:
@@ -2888,6 +2895,7 @@ if(e->line_number == 1467)
     case AST_CHAR:
     case AST_STR_LIT:
     case AST_FLOAT:
+    case AST_TYPE_DATA:
     case AST_IDENT: {
       GetIRVal(lang_stat, e, &val);
       // val.ptr = 0;
@@ -3986,6 +3994,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
 
       } break;
       case AST_INT:
+      case AST_TYPE_DATA:
       case AST_FLOAT:
       case AST_STR_LIT:
       case AST_CHAR: {

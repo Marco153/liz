@@ -9853,15 +9853,23 @@ bool CmpStrDbgGetJmpAddr(char *str_sect, str_dbg *s, const char *name, char **jm
 
 _pid ChildProcess(int pipes[2])
 {
+//#define ON_PARENT
 #ifdef LINUX
   if(pipe(pipes) == -1)
   {
     ASSERT(false)
   }
+#ifdef ON_PARENT
+  _pid pid = 1;
+  if (pid == 1) {
+#else
   _pid pid = fork();
-  //_pid pid = 1;
   if (pid == 0) {
     ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+    printf("CHILD: will stop\n");
+    raise(SIGSTOP);  // puts itself to sleep
+    printf("CHILD: resumed\n");
+#endif
 
     if (prctl(PR_SET_PDEATHSIG, SIGTERM) == -1) perror("prctl");
     if (getppid() == 1) {
@@ -9874,9 +9882,6 @@ _pid ChildProcess(int pipes[2])
       printf("error on close write end child\n");
       ASSERT(false)
     }
-    printf("CHILD: will stop\n");
-    raise(SIGSTOP);  // puts itself to sleep
-    printf("CHILD: resumed\n");
     u32 read;
     auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
     auto file = (dbg_file_seriealize*)(file_ptr);
@@ -9890,14 +9895,17 @@ _pid ChildProcess(int pipes[2])
     char buffer[1024];
     GetCurrentDirectory(buffer, 1024);
 
+#ifndef ON_PARENT
 
     if (write(pipes[1], &file_ptr_exec, 8) == -1)
     {
       printf("error on close writing on child\n");
       ASSERT(false)
     }
+#endif
 
     memcpy(file_ptr_exec, file_ptr, read);
+
     
 
     std::vector<func_dbg *>fdecls;
@@ -9967,7 +9975,7 @@ _pid ChildProcess(int pipes[2])
     {
       auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
       printf("CHILD: rel to name: %.*s, offset %d\n", r->name.name_len, str_sect+r->name.name_on_string_sect, r->name.name_on_string_sect);
-      if(r->type == machine_rel_type::DATA)
+      if(r->type == machine_rel_type::DATA || r->type == machine_rel_type::TYPE_DATA)
       {
         char *at_address = nullptr;
         for (int s = 0; s < total_syms; s++)
@@ -9980,6 +9988,10 @@ _pid ChildProcess(int pipes[2])
             case SYM_DATA_GLOBALS:
             {
               at_address = globals_start + cur_s->offset;
+            }break;
+            case SYM_DATA_TYPE:
+            {
+              at_address = (data + file->x64_code_sect) + cur_s->offset;
             }break;
             case SYM_DATA:
             {

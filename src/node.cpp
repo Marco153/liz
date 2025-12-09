@@ -3,6 +3,7 @@
 #include "error_report.h"
 #include "machine_rel.h"
 #include "token.h"
+#include "token_common.h"
 #include <algorithm>
 #include <cstdio>
 #include <time.h>
@@ -881,6 +882,13 @@ node *node_iter::parse_func_like() {
   if (IsTknWordStr(peek_tkn(), "align_stack_when_call")) {
     get_tkn();
     n->flags |= NODE_FLAGS_ALIGN_STACK_WHEN_CALL;
+  }
+  if (IsTknWordStr(peek_tkn(), "syscall")) {
+    get_tkn();
+
+    n->syscall = get_tkn();
+
+    n->flags |= NODE_FLAGS_FUNC_SYSCALL;
   }
   if (IsTknWordStr(peek_tkn(), "x64")) {
     get_tkn();
@@ -5855,6 +5863,34 @@ bool FunctionIsDone(lang_state *lang_stat, node *n, scope *scp, type2 *ret_type,
   fdecl->flags |=
       IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_X64) ? FUNC_DECL_X64 : 0;
 
+  fdecl->flags |=
+      IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_SYSCALL) ? FUNC_DECL_SYSCALL : 0;
+
+  if(IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_SYSCALL))
+  {
+    int val = 0;
+    if(fnode->syscall->type == T_WORD)
+    {
+      type2 dummy_type;
+      decl2 *d = FindIdentifier(fnode->syscall->str, scp, &dummy_type);
+      if(!d) return false;
+      ASSERT(d->type.is_const)
+
+      val = d->type.i;
+    }
+    else if(fnode->syscall->type == T_INT)
+    {
+      val = fnode->syscall->i;
+    }
+    else
+    {
+      ASSERT(false)
+    }
+    fnode->flags &= ~NODE_FLAGS_FUNC_SYSCALL;
+    fdecl->syscall = val;
+  }
+
+
   fdecl->from_file = lang_stat->cur_file;
 
   bool is_link_name = IS_FLAG_ON(fnode->flags, NODE_FLAGS_FUNC_LINK_NAME);
@@ -5862,6 +5898,7 @@ bool FunctionIsDone(lang_state *lang_stat, node *n, scope *scp, type2 *ret_type,
     fdecl->flags |= FUNC_DECL_LINK_NAME;
     fdecl->link_name = fnode->str->substr();
   }
+
 
   // args
   if (IS_FLAG_OFF(flags, DONT_DESCEND_ARGS) && fnode->l->l->r != nullptr &&
@@ -6498,6 +6535,8 @@ bool TransformSingleFuncToOvrlStrct(lang_state *lang_stat, decl2 *decl_exist) {
     auto op_str = OvrldOpToStr(f->op_overload);
     auto op_str_len = op_str.size();
 
+    ASSERT(f->args.size() > 0)
+
     f->name = MangleFuncNameWithArgs(lang_stat, f, f->name, 0);
   } else {
 
@@ -7104,6 +7143,7 @@ case node_type::N_SCOPE:
   } break;
   case node_type::N_HASHTAG: {
 
+    BREAK(n->t->line == 5)
     switch (n->r->type) {
     case node_type::N_IF: {
       node *cur = n->r;
@@ -8301,7 +8341,9 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
 
       // another func with the same name found
       if (decl_exist && decl_exist->type.type == enum_type2::TYPE_FUNC &&
-          decl_exist->decl_nd != n) {
+          decl_exist->decl_nd != n)
+      {
+         if(IS_FLAG_ON(decl_exist->flags, DECL_NOT_DONE)) return nullptr;
         // raise(SIGTRAP);
         ASSERT(decl_exist->decl_nd);
         if (decl_exist->decl_nd->type == N_OP_OVERLOAD) {

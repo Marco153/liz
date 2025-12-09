@@ -332,6 +332,7 @@ struct template_to_be_assigned
 #define FUNC_DECL_INSTANTIATED 0x1000000
 #define FUNC_DECL_CAST 0x2000000
 #define FUNC_DECL_HAS_DEFAULT_ARGUMENTS 0x4000000
+#define FUNC_DECL_SYSCALL 0x8000000
 
 struct stmnt_dbg
 {
@@ -398,8 +399,10 @@ struct func_decl
 	int for_interpreter_code_start_idx;
 	int code_size;
 
-    int wasm_func_sect_idx;
-    int wasm_code_sect_idx;
+  int syscall;
+
+  int wasm_func_sect_idx;
+  int wasm_code_sect_idx;
 	int stack_size;
 
 	int func_dbg_idx;

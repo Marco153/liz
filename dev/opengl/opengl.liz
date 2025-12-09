@@ -20,3 +20,95 @@ glGenBuffers::fn outsider(n: s32, buffers: *u32) ! void;
 glBindBuffer::fn outsider(target: u32, buffer: u32) ! void;
 glBufferData::fn outsider(target: u32, size: u32, data: *void, usage: u32) ! void;
 glBufferSubData::fn outsider(target: u32, offset: u32, size: u32, data: *void) ! void;
+
+glGenVertexArrays::fn outsider(n: s32, arrays: *u32) ! void;
+glBindVertexArray::fn outsider(array: u32) ! void;
+glEnableVertexAttribArray::fn outsider(index: u32) ! void;
+
+glVertexAttribPointer::fn outsider(index: u32, size: s32, type: u32, normalized: u8, stride: u32, pointer: *void) ! void;
+
+
+glGenTextures::fn outsider(n: s32, textures: *u32) ! void;
+glBindTexture::fn outsider(target: u32, texture: u32) ! void;
+
+glTexParameteri::fn outsider(target: u32, pname: u32, param: s32) ! void;
+glTexImage2D::fn outsider( target: u32, level: s32, internalFormat: s32, width: s32, height: s32, border: s32, format: u32, type: u32, pixels: *void) ! void;
+
+glDrawArrays::fn outsider(mode: u32, first: s32, count: s32) ! void;
+
+glDrawElements::fn outsider(    mode: u32,    count: s32,    type: u32,    indices: *void) ! void;
+
+glGetUniformLocation::fn outsider(program: u32, name: *u8) ! s32;
+
+glUniform1i::fn outsider(loc: s32, v0: s32) ! void;
+glUniform1f::fn outsider(loc: s32, v0: f32) ! void;
+
+glUniform3f::fn outsider(loc: s32, x: f32, y: f32, z: f32) ! void;
+
+glUniformMatrix4fv::fn outsider(    loc: s32,    count: s32,    transpose: u8,    value: *f32) ! void;
+
+glewInit::fn outsider()!u32;
+
+
+GL_FALSE:                     const s32 = 0;
+GL_TRUE:                      const s32 = 1;
+
+GL_COLOR_BUFFER_BIT:          const s32 = 0x4000;
+GL_DEPTH_BUFFER_BIT:          const s32 = 0x0100;
+GL_STENCIL_BUFFER_BIT:        const s32 = 0x0400;
+
+GL_POINTS:                    const s32 = 0x0000;
+GL_LINES:                     const s32 = 0x0001;
+GL_LINE_LOOP:                 const s32 = 0x0002;
+GL_LINE_STRIP:                const s32 = 0x0003;
+GL_TRIANGLES:                 const s32 = 0x0004;
+GL_TRIANGLE_STRIP:            const s32 = 0x0005;
+GL_TRIANGLE_FAN:              const s32 = 0x0006;
+
+GL_BYTE:                      const s32 = 0x1400;
+GL_UNSIGNED_BYTE:             const s32 = 0x1401;
+GL_SHORT:                     const s32 = 0x1402;
+GL_UNSIGNED_SHORT:            const s32 = 0x1403;
+GL_INT:                       const s32 = 0x1404;
+GL_UNSIGNED_INT:              const s32 = 0x1405;
+GL_FLOAT:                     const s32 = 0x1406;
+
+GL_STATIC_DRAW:               const s32 = 0x88E4;
+GL_DYNAMIC_DRAW:              const s32 = 0x88E8;
+GL_STREAM_DRAW:               const s32 = 0x88E0;
+
+GL_ARRAY_BUFFER:              const s32 = 0x8892;
+GL_ELEMENT_ARRAY_BUFFER:      const s32 = 0x8893;
+GL_UNIFORM_BUFFER:            const s32 = 0x8A11;
+GL_SHADER_STORAGE_BUFFER:     const s32 = 0x90D2;
+
+GL_VERTEX_SHADER:             const s32 = 0x8B31;
+GL_FRAGMENT_SHADER:           const s32 = 0x8B30;
+GL_GEOMETRY_SHADER:           const s32 = 0x8DD9;
+GL_COMPUTE_SHADER:            const s32 = 0x91B9;
+
+GL_COMPILE_STATUS:            const s32 = 0x8B81;
+GL_LINK_STATUS:               const s32 = 0x8B82;
+GL_INFO_LOG_LENGTH:           const s32 = 0x8B84;
+
+GL_TEXTURE_2D:                const s32 = 0x0DE1;
+GL_TEXTURE_3D:                const s32 = 0x806F;
+GL_TEXTURE_CUBE_MAP:          const s32 = 0x8513;
+
+GL_RGBA:                      const s32 = 0x1908;
+GL_RGB:                       const s32 = 0x1907;
+GL_DEPTH_COMPONENT:           const s32 = 0x1902;
+GL_DEPTH_STENCIL:             const s32 = 0x84F9;
+
+GL_TEXTURE_MIN_FILTER:        const s32 = 0x2801;
+GL_TEXTURE_MAG_FILTER:        const s32 = 0x2800;
+
+GL_NEAREST:                   const s32 = 0x2600;
+GL_LINEAR:                    const s32 = 0x2601;
+GL_LINEAR_MIPMAP_LINEAR:      const s32 = 0x2703;
+
+GL_FRAMEBUFFER:               const s32 = 0x8D40;
+GL_COLOR_ATTACHMENT0:         const s32 = 0x8CE0;
+GL_DEPTH_ATTACHMENT:          const s32 = 0x8D00;
+GL_STENCIL_ATTACHMENT:        const s32 = 0x8D20;
+GL_DEPTH_STENCIL_ATTACHMENT:  const s32 = 0x821A;

@@ -997,7 +997,6 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			else if (bc->rel.type == rel_type::REL_TYPE)
 			{
-        HERE()
 				own_std::string name = own_std::string("$$") + bc->rel.decl->name.c_str();
 
 				// puttinf the name into the heap
@@ -1053,10 +1052,27 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				}
 			}
 		}break;
+		case LOCK_XCHG_M_R:
+    {
+      ASSERT(bc->bin.lhs.reg_sz == 8)
+			short dst = GetArgRegIdx(bc->bin.lhs.reg) & 0xf;
+			short src = GetArgRegIdx(bc->bin.rhs.reg) & 0xf;
+
+			ret.code.emplace_back(0xf0);
+      AddPreMemInsts(bc->bin.lhs.reg_sz, 0x87, 0x87, false, ret.code);
+			AddModRM(true, bc->bin.lhs.voffset, dst, src & 0xf, ret);
+			if (bc->bin.lhs.voffset != 0)
+				AddImm(0, 1, ret);
+
+    }break;
+		case SYSCALL:
+    {
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x05);
+
+    }break;
 		case INST_CALL_OUTSIDER:
 		{
-      HERE()
-			
 			machine_rel_type r_type = bc->out_func.is_link_name ? DLL_FUNC :DLL_FUNC_NO_IMP_ADDING; 
 
 			ret.rels.emplace_back(machine_reloc(DLL_FUNC, ret.code.size() + 2, bc->name));

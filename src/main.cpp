@@ -9883,7 +9883,7 @@ _pid ChildProcess(int pipes[2])
       ASSERT(false)
     }
     u32 read;
-    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
+    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/minecraft.dbg", &read);
     auto file = (dbg_file_seriealize*)(file_ptr);
 
     printf("CHILD: total funcs %d\n", file->total_funcs);
@@ -9932,7 +9932,94 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwCreateWindow"] = (u64)glfwCreateWindow;
     outsiders["glfwMakeContextCurrent"] = (u64)glfwMakeContextCurrent;
     outsiders["glfwSwapBuffers"] = (u64)glfwSwapBuffers;
-    
+    outsiders["glewInit"] = (u64)glewInit;
+
+
+
+    outsiders["glClearColor"]             = (u64)glClearColor;
+    outsiders["glClear"]                  = (u64)glClear;
+
+    outsiders["glViewport"]               = (u64)glViewport;
+    outsiders["glScissor"]                = (u64)glScissor;
+
+    outsiders["glEnable"]                 = (u64)glEnable;
+    outsiders["glDisable"]                = (u64)glDisable;
+    outsiders["glBlendFunc"]              = (u64)glBlendFunc;
+    outsiders["glBlendFuncSeparate"]      = (u64)glBlendFuncSeparate;
+    outsiders["glDepthFunc"]              = (u64)glDepthFunc;
+    outsiders["glDepthMask"]              = (u64)glDepthMask;
+
+    outsiders["glGenBuffers"]             = (u64)glGenBuffers;
+    outsiders["glBindBuffer"]             = (u64)glBindBuffer;
+    outsiders["glBufferData"]             = (u64)glBufferData;
+    outsiders["glBufferSubData"]          = (u64)glBufferSubData;
+    outsiders["glMapBuffer"]              = (u64)glMapBuffer;
+    outsiders["glMapBufferRange"]         = (u64)glMapBufferRange;
+    outsiders["glUnmapBuffer"]            = (u64)glUnmapBuffer;
+    outsiders["glInvalidateBufferData"]   = (u64)glInvalidateBufferData;
+    outsiders["glInvalidateBufferSubData"]= (u64)glInvalidateBufferSubData;
+
+    outsiders["glBindBufferBase"]         = (u64)glBindBufferBase;
+    outsiders["glBindBufferRange"]        = (u64)glBindBufferRange;
+
+    outsiders["glGenVertexArrays"]        = (u64)glGenVertexArrays;
+    outsiders["glBindVertexArray"]        = (u64)glBindVertexArray;
+    outsiders["glEnableVertexAttribArray"]= (u64)glEnableVertexAttribArray;
+    outsiders["glVertexAttribPointer"]    = (u64)glVertexAttribPointer;
+    outsiders["glVertexAttribIPointer"]   = (u64)glVertexAttribIPointer;
+    outsiders["glVertexAttribDivisor"]    = (u64)glVertexAttribDivisor;
+
+    outsiders["glDrawArrays"]             = (u64)glDrawArrays;
+    outsiders["glDrawElements"]           = (u64)glDrawElements;
+    outsiders["glDrawArraysInstanced"]    = (u64)glDrawArraysInstanced;
+    outsiders["glDrawElementsInstanced"]  = (u64)glDrawElementsInstanced;
+
+    outsiders["glCreateShader"]           = (u64)glCreateShader;
+    outsiders["glShaderSource"]           = (u64)glShaderSource;
+    outsiders["glCompileShader"]          = (u64)glCompileShader;
+    outsiders["glGetShaderiv"]            = (u64)glGetShaderiv;
+    outsiders["glGetShaderInfoLog"]       = (u64)glGetShaderInfoLog;
+    outsiders["glDeleteShader"]           = (u64)glDeleteShader;
+
+    outsiders["glCreateProgram"]          = (u64)glCreateProgram;
+    outsiders["glAttachShader"]           = (u64)glAttachShader;
+    outsiders["glLinkProgram"]            = (u64)glLinkProgram;
+    outsiders["glGetProgramiv"]           = (u64)glGetProgramiv;
+    outsiders["glGetProgramInfoLog"]      = (u64)glGetProgramInfoLog;
+    outsiders["glUseProgram"]             = (u64)glUseProgram;
+    outsiders["glDeleteProgram"]          = (u64)glDeleteProgram;
+
+    outsiders["glGetUniformLocation"]     = (u64)glGetUniformLocation;
+    outsiders["glUniform1i"]              = (u64)glUniform1i;
+    outsiders["glUniform1f"]              = (u64)glUniform1f;
+    outsiders["glUniform2f"]              = (u64)glUniform2f;
+    outsiders["glUniform3f"]              = (u64)glUniform3f;
+    outsiders["glUniform4f"]              = (u64)glUniform4f;
+    outsiders["glUniformMatrix4fv"]       = (u64)glUniformMatrix4fv;
+
+    outsiders["glGenTextures"]            = (u64)glGenTextures;
+    outsiders["glBindTexture"]            = (u64)glBindTexture;
+    outsiders["glTexImage2D"]             = (u64)glTexImage2D;
+    outsiders["glTexSubImage2D"]          = (u64)glTexSubImage2D;
+    outsiders["glTexParameteri"]          = (u64)glTexParameteri;
+    outsiders["glGenerateMipmap"]         = (u64)glGenerateMipmap;
+
+    outsiders["glGenFramebuffers"]        = (u64)glGenFramebuffers;
+    outsiders["glBindFramebuffer"]        = (u64)glBindFramebuffer;
+    outsiders["glFramebufferTexture2D"]   = (u64)glFramebufferTexture2D;
+    outsiders["glCheckFramebufferStatus"] = (u64)glCheckFramebufferStatus;
+    outsiders["glDeleteFramebuffers"]     = (u64)glDeleteFramebuffers;
+
+    outsiders["glFenceSync"]              = (u64)glFenceSync;
+    outsiders["glClientWaitSync"]         = (u64)glClientWaitSync;
+    outsiders["glWaitSync"]               = (u64)glWaitSync;
+    outsiders["glDeleteSync"]             = (u64)glDeleteSync;
+
+    outsiders["glDispatchCompute"]        = (u64)glDispatchCompute;
+    outsiders["glMemoryBarrier"]          = (u64)glMemoryBarrier;
+
+    outsiders["glGetError"]               = (u64)glGetError;
+        
 
     //HERE()
     for (int f = 0; f < file->total_funcs; f++)
@@ -9989,6 +10076,7 @@ _pid ChildProcess(int pipes[2])
     }
     */
     
+    bool func_not_found = false;
     printf("CHILD: str tbl %p\n", str_sect);
     for (int i = 0; i < total_rels; i++)
     {
@@ -10050,7 +10138,7 @@ _pid ChildProcess(int pipes[2])
         else
         {
           printf("ERROR CHILD: func '%.*s' not found, str_tbl %p, offset %d\n", r->name.name_len, str_sect + r->name.name_on_string_sect, str_sect, r->name.name_on_string_sect);
-          return;
+          func_not_found = true;
         }
       }
 
@@ -10061,6 +10149,10 @@ _pid ChildProcess(int pipes[2])
         char *fdbg_start = code + fdbg->x64_code_start;
       }
       */
+    }
+    if(func_not_found)
+    {
+      return;
     }
     printf("code start %p, end %p\n", code, code_end);
     auto call = (void(*)())(code + main_start);

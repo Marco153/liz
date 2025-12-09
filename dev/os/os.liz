@@ -1,0 +1,12 @@
+LINUX:const s32=0
+
+OS:const s32=LINUX
+
+#if OS == LINUX
+{
+  import "../linux"
+  create_thread::fn()
+  {
+    flags := CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD;
+  }
+}

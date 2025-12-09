@@ -1,10 +1,15 @@
 import "../glfw";
+import "../opengl";
+import "../os";
 
 PrintStr::fn outsider(str_lit);
+
 main::fn()
 {
+  PrintStr("mincraft start\n")
   res := glfwInit()
   if res == 0 __dbg_break
+
 
   glfwWindowHint(CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(CONTEXT_VERSION_MINOR, 3);
@@ -15,6 +20,12 @@ main::fn()
   if wnd == nil __dbg_break
 
   glfwMakeContextCurrent(wnd)
+
+  ret := glewInit()
+
+  if ret != 0 __dbg_break
+
+  th := create_thread()
 
   while true
   {

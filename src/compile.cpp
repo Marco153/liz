@@ -2571,7 +2571,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	case IR_CALL:
 	{
 		int idx = 0;
-		if (IS_FLAG_OFF(cur_ir->call.fdecl->flags, FUNC_DECL_INTRINSIC))
+		if (IS_FLAG_OFF(cur_ir->call.fdecl->flags, FUNC_DECL_INTRINSIC | FUNC_DECL_SYSCALL))
 		{
 			ASSERT(FuncAddedWasm(gen_state->wasm_state, cur_ir->call.fdecl->name, &idx));
 			WasmPushRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
@@ -15723,6 +15723,12 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		case IR_PROLOGUE_END:
 		{
       stack_size += MAX_CALL_REGS * 8;
+      int mod = stack_size % 16;
+      if(mod != 0)
+        stack_size += 16 - mod;
+      // we're aligning the stack in 8 bytes because after the call inst 8 bytes of the ret address is pushed make the stack 16 bytes unaligned
+      stack_size += 8;
+
 			GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
 
       int start = stack_size - MAX_CALL_REGS * 8;
@@ -15747,12 +15753,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			//gen_state->strcts_ret_stack_offset = stack_size;
 			cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;
 			stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
-      int mod = stack_size % 16;
-      if(mod != 0)
-        stack_size += 16 - mod;
-      // we're aligning the stack in 8 bytes because after the call inst 8 bytes of the ret address is pushed make the stack 16 bytes unaligned
-      stack_size += 8;
-      printf("stacksize %d\n", stack_size);
+      //printf("stacksize %d\n", stack_size);
 			//cur_ir->fdecl->stack_size = stack_size;
 			cur_ir->fdecl->stack_size = stack_size;
 
@@ -16530,6 +16531,16 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 					bc.bin.rhs.reg = 0;
 					ret.emplace_back(bc);
 				}
+				else if (ir->call.fdecl->name == "lock_xchg")
+				{
+					bc.type = LOCK_XCHG_M_R;
+					bc.bin.lhs.reg = 0;
+					bc.bin.lhs.voffset = 0;
+					bc.bin.lhs.reg_sz = 8;
+					bc.bin.rhs.reg = 1;
+					bc.bin.rhs.reg_sz = 8;
+					ret.emplace_back(bc);
+				}
 				else if (ir->call.fdecl->name == "GetFuncStackSize")
 				{
 					bc.type = MOV_I;
@@ -16541,6 +16552,17 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				else
 					ASSERT(false)
 			}
+      else if (IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_SYSCALL))
+      {
+					bc.type = MOV_I;
+					bc.bin.lhs.reg = 0;
+					bc.bin.lhs.reg_sz = 8;
+					bc.bin.rhs.i = ir->call.fdecl->syscall;
+					ret.emplace_back(bc);
+
+					bc.type = SYSCALL;
+					ret.emplace_back(bc);
+      }
 			else
 			{
 				ret.emplace_back(byte_code(rel_type::REL_FUNC, (char*)ir->call.fdecl->name.c_str(), (int)0, (char)0, ir->call.fdecl));
@@ -17131,6 +17153,11 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			bc.regs |= GetSizeMin(8)<<REG_SZ_BIT;
 			bc.i = from_bc->bin.rhs.i;
 		}break;
+		case SYSCALL:
+		case LOCK_XCHG_M_R:
+    {
+
+    }break;
 		case SHUFFLE_128_PS:
 		{
 			bc.shuffle.mask = from_bc->shuffle.mask;

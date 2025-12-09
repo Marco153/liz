@@ -34,7 +34,7 @@ v.reg = 5;
 // for example, if we're summing a register and register, the base inst will be  ADD_M_2_M
 // and, to get to ADD_R_2_R we are summing a number  to the base inst to get there
 
-enum byte_code_enum : unsigned char
+enum byte_code_enum : unsigned short
 {
 	NOP, 
 
@@ -277,6 +277,10 @@ enum byte_code_enum : unsigned char
 	INST_CALL_REG,
 	INST_RET,
 	INST_LEA,
+
+	LOCK_XCHG_M_R,
+
+	SYSCALL,
 
 	MOVSX_R,
 	MOVSX_M,

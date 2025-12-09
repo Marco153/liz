@@ -1,5 +1,12 @@
 import "../../core";
 import "../lang";
+
+LINUX:const s32=0
+OS:const s32=LINUX
+
+RENDERER_OPENGL:const s32= 0
+RENDERER:const s32= RENDERER_OPENGL
+
 DRAW_INFO_HAS_TEXTURE:const s32 = 1;
 DRAW_INFO_NO_SCREEN_RATIO:const s32 = 2;
 DRAW_INFO_WIREFRAME:const s32 = 4;
@@ -994,9 +1001,7 @@ GetShaderUniform::fn(m : *material_info, name : str_lit) ! u64
 }
 
 
-euler_to_quaternion2::fn outsider(x : f32, y : f32, z : f32, out : *_vec);
-quat_mul2::fn outsider(a : *_vec, b : *_vec, out : *_vec);
-AddMemoryWatch::fn outsider(a : *void);
+//AddMemoryWatch::fn outsider(a : *void);
 
 type_layout:enum
 {
@@ -1019,10 +1024,28 @@ shader_create_info:struct
   verts_layout:dyn_array(type_layout_info)
   uniforms_layout:dyn_array(type_layout_info)
 }
-CreateStorageBuffer::fn outsider(size : u32)!u32;
-UpdateStorageBuffer::fn outsider(ubo : u32, data : *void, data_size:u32);
 
-WaitMutex::fn outsider(id : u32);
+lock_xchg::fn intrinsic(ptr : *u64, val : u64) ! u64;
+
+CreateStorageBuffer::fn(size : u32)!u32
+{
+#if RENDERER == RENDERER_OPENGL
+{
+
+}
+}
+UpdateStorageBuffer::fn(ubo : u32, data : *void, data_size:u32);
+{
+#if RENDERER == RENDERER_OPENGL
+{
+
+}
+}
+
+WaitMutex::fn(id : u32)
+{
+
+}
 SignalMutex::fn outsider(id:u32);
 LockMutex::fn outsider(id : u32);
 TryLockMutex::fn outsider(id : u32);
@@ -1496,30 +1519,6 @@ type_data:struct
 
 }
 
-#assign_ser_func(dyn_array(cell), serialize_ar_cell)
-
-serialize_ar_cell::fn(buffer : *dyn_array(char), data : *void, tab : u8)
-{
-	len: = *ptr_offset(data, 1, u64)
-	ptr : = *ptr_offset(data, 0, u64)
-
-	if len <= 0
-	{
-		return
-	}
-
-
-	cell_tp := GetTypeData(cell)
-	for i in 0..len
-	{
-		ptr_cell := ptr_offset(ptr, i, cell)
-
-		if !ptr_cell.used
-			continue
-
-		Serialize(buffer, cell_tp, ptr_cell, tab, nil)
-	}
-}
 
 
 IsTkn::fn(tkns : *dyn_array(token), cur_tkn : u64, expected : u32) ! bool
@@ -2976,11 +2975,11 @@ FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : 
           score += 0.5;
 
           // Calculate neighboring indices with clamping
-          prev_idx_src := clamp_u64(j - 1, 0, src_size - 1);
-          next_idx_src := clamp_u64(j + 1, 0, src_size - 1);
+          prev_idx_src := clamp(j - 1, 0, src_size - 1);
+          next_idx_src := clamp(j + 1, 0, src_size - 1);
 
-          prev_idx_match := clamp_u64(i - 1, 0, to_match_size - 1);
-          next_idx_match := clamp_u64(i + 1, 0, to_match_size - 1);
+          prev_idx_match := clamp(i - 1, 0, to_match_size - 1);
+          next_idx_match := clamp(i + 1, 0, to_match_size - 1);
 
           add := 0.0;
 

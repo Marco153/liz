@@ -3697,6 +3697,13 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
   case AST_FUNC: {
     func_decl *last_func = lang_stat->cur_func;
     lang_stat->cur_func = ast->func.fdecl;
+
+    ir.type = IR_STACK_BEGIN;
+    ir.fdecl = ast->func.fdecl;
+    // ir.num  = ast->func.fdecl->stack_size;
+    ir.fdecl->biggest_call_args = 0;
+    out->emplace_back(ir);
+
     FOR_VEC(arg, ast->func.fdecl->vars) {
       decl2 *a = *arg;
       if (a->type.type == TYPE_TEMPLATE)
@@ -3708,7 +3715,7 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
         out->emplace_back(ir);
       }
     }
-    ir.type = IR_STACK_BEGIN;
+    ir.type = IR_PROLOGUE_END;
     ir.fdecl = ast->func.fdecl;
     // ir.num  = ast->func.fdecl->stack_size;
     ir.fdecl->biggest_call_args = 0;

@@ -2834,6 +2834,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 		gen_state->advance_ptr++;
 
 	}break;
+	case IR_PROLOGUE_END:
 	case IR_LABEL:
 	{
 	}break;
@@ -13432,6 +13433,7 @@ void GenX64RetGroup(lang_state *lang_stat, int stack_size, own_std::vector<byte_
 	GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, ADD_I_2_R);
 
 	byte_code bc;
+  /*
 	bc.type = MOV_M;
 	bc.bin.lhs.reg = 3;
 	bc.bin.lhs.reg_sz = 8;
@@ -13442,16 +13444,17 @@ void GenX64RetGroup(lang_state *lang_stat, int stack_size, own_std::vector<byte_
 	bc.bin.lhs.reg = 6;
 	bc.bin.rhs.voffset = (MAX_CALL_REGS * 8) + 16;
 	ret.emplace_back(bc);
+  */
 
 	bc = {};
 	bc.type = POP_R;
 	bc.val = 6;
-	//ret.emplace_back(bc);
+	ret.emplace_back(bc);
 
 	bc = {};
 	bc.type = POP_R;
 	bc.val = 3;
-	//ret.emplace_back(bc);
+	ret.emplace_back(bc);
 
 
 	bc.type = RET;
@@ -15590,7 +15593,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	auto cur = (block_linked*)malloc(sizeof(block_linked));
 	cur->parent = nullptr;
 	memset(cur, 0, sizeof(block_linked));
-	int args = gen_state->cur_func->biggest_call_args - 4;
+	int args = gen_state->cur_func->biggest_call_args - MAX_CALL_REGS;
 	int on_stack_args = max(args, 0);
 
 	bool print_ir = false;
@@ -15606,20 +15609,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	func_decl* fdecl = lang_stat->cur_func;
 	
 	
-	byte_code bc = {};
-	bc.type = STORE_R_2_M;
-	bc.bin.lhs.reg = PRE_X64_RSP_REG;
-	bc.bin.lhs.voffset = (MAX_CALL_REGS * 8) + 8;
-	bc.bin.lhs.reg_sz = 8;
-	bc.bin.rhs.reg = 3;
-
-	ret.emplace_back(bc);
-	
-	bc.bin.rhs.reg = 6;
-	bc.bin.lhs.voffset = (MAX_CALL_REGS * 8) + 16;
-
-	ret.emplace_back(bc);
-
 	// moving dbg_start to rax
 	GenX64RegToReg(lang_stat, ret, 0, 8, 0, MOV_REG_PARAM_2_REG);
 	char rbx_reg = 3;
@@ -15630,7 +15619,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	//GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, 8, SUB_I_2_R);
 	for (int a = 0; a < fdecl->args.size(); a++)
 	{
-		bc = {};
+		byte_code bc = {};
 		int i = a;
 		decl2* d = fdecl->args[i];
 		if (i >= MAX_CALL_REGS)
@@ -15680,6 +15669,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 	//GenX64ImmToReg( ret, PRE_X64_RSP_REG, 8, 8, ADD_I_2_R);
 	ret.emplace_back(byte_code(byte_code_enum::BEGIN_FUNC, gen_state->cur_func));
 	gen_state->cur_func->bcs2_start += ret.size() - start;
+
+	byte_code bc = {};
+	bc.type = PUSH_R;
+	bc.val = 3;
+	ret.emplace_back(bc);
+	
+	bc.val = 6;
+	ret.emplace_back(bc);
+
 	/*
 	if (gen_state->cur_func->name == "dyn_array_f32[]")
 	{
@@ -15722,10 +15720,23 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		{
 			GenX64RetGroup(lang_stat, stack_size, ret);
 		}break;
+		case IR_PROLOGUE_END:
+		{
+      stack_size += MAX_CALL_REGS * 8;
+			GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
+
+      int start = stack_size - MAX_CALL_REGS * 8;
+			cur_ir->fdecl->stack_size = stack_size;
+			ParametersToStack(cur_ir->fdecl, &ret, start);
+
+    }break;
 		case IR_STACK_BEGIN:
 		{
 			//stack_size += 32 + on_stack_args * 8;
 			//gen_state->strcts_construct_stack_offset = stack_size;
+
+			stack_size += cur_ir->fdecl->biggest_call_args * 8;
+
 			cur_ir->fdecl->strct_constrct_at_offset = stack_size;
 			stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
 
@@ -15736,9 +15747,6 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			//gen_state->strcts_ret_stack_offset = stack_size;
 			cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;
 			stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
-
-
-			stack_size += cur_ir->fdecl->biggest_call_args * 8;
       int mod = stack_size % 16;
       if(mod != 0)
         stack_size += 16 - mod;
@@ -15746,12 +15754,8 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
       stack_size += 8;
       printf("stacksize %d\n", stack_size);
 			//cur_ir->fdecl->stack_size = stack_size;
-			ParametersToStack(cur_ir->fdecl, &ret);
-
-
-			GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
-
 			cur_ir->fdecl->stack_size = stack_size;
+
 
 
 			if (IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_COROUTINE))
@@ -15800,11 +15804,26 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			int to_sum = GetTypeSize(&cur_ir->decl->type);
 			cur_ir->decl->offset = stack_size;
 			stack_size += to_sum <= 4 ? 4 : to_sum;
+			//cur_ir->fdecl->stack_size = stack_size;
 		}break;
 		case IR_DECLARE_ARG:
 		{
-			cur_ir->decl->offset = stack_size + total_args * 8 + 8;
-			total_args++;
+#ifdef LINUX
+
+      cur_ir->decl->offset = (gen_state->cur_func->stack_size - MAX_CALL_REGS * 8) + total_args * 8;
+      if(total_args == MAX_CALL_REGS)
+      {
+        // 3 because, accounting for the ret address
+        // for the push rbx
+        // and for the push rbp
+        total_args += 3;
+        cur_ir->decl->offset = (gen_state->cur_func->stack_size - MAX_CALL_REGS * 8) + total_args * 8;
+      }
+      total_args++;
+#else
+        cur_ir->decl->offset = stack_size + total_args * 8 + 8;
+        total_args++;
+#endif
 		}break;
 		case IR_RET:
 		{

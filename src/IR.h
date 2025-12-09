@@ -261,6 +261,7 @@ enum ir_type
 
     IR_STACK_BEGIN,
     IR_STACK_END,
+    IR_PROLOGUE_END,
     IR_DECLARE_LOCAL,
     IR_DECLARE_ARG,
 

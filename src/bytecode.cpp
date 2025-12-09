@@ -1201,7 +1201,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			else
 			{
-				char stack_reg = (final_reg - 4) * 8 + 32;
+        // 2 * 8
+				int stack_reg = (final_reg - MAX_CALL_REGS) * 8;
 				auto bin = bc->bin;
 				bc->bin.lhs.reg = 5;
 				bc->bin.lhs.voffset  = stack_reg;
@@ -1248,8 +1249,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			else
 			{
-				char stack_reg = final_reg - 4;
-				bc->bin.lhs.voffset = stack_reg * 8 + 32;
+				int stack_reg = (final_reg - MAX_CALL_REGS) * 8;
+				bc->bin.lhs.voffset = stack_reg;
 				bc->bin.lhs.var_size = bc->bin.lhs.reg_sz;
 				bc->bin.lhs.reg = 5;
 				CreateStoreImmToMem(&*bc, ret);
@@ -3664,7 +3665,7 @@ own_std::vector<decl2 *> GetScopeDecls(scope *scp)
 	own_std::vector<decl2 *> ret;
 	return ret;
 }
-void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
+void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int start)
 {
 	int cur_arg = 6;
 	//descend_func_ret sp;
@@ -3697,14 +3698,14 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 	// win32 stack
 	else
 	{
-		int offset = MAX_CALL_REGS * 8;
+		int offset = 0;
 
 		
 		//if(final_func->fdecl->name == "entry")
 			//offset -= 8;
 		int float_reg = 0;
 			
-		for(int i = (MAX_CALL_REGS - 1); i >= 0; i--)
+		for(int i = 0; i < MAX_CALL_REGS; i++)
 		{
 			
 			decl2* a = nullptr;
@@ -3714,7 +3715,7 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 			byte_code bc;
 			bc.type = byte_code_enum::STORE_REG_PARAM;
 			bc.bin.lhs.reg = 5;
-			bc.bin.lhs.voffset = offset;
+			bc.bin.lhs.voffset = offset + start;
 			bc.bin.lhs.reg_sz = 8;
 			bc.bin.lhs.var_size= 8;
 			bc.bin.rhs.reg = i;
@@ -3732,7 +3733,7 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out)
 
 			// bool param is if the reg is lhs or not
 			//out->bcodes.emplace_back(byte_code(STORE_REG_PARAM, false, (char) 6 + i, (char)8, (int)offset, (int)8));
-			offset -= 8;
+			offset += 8;
 		}
 	}
 }

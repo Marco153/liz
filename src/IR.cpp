@@ -1,4 +1,5 @@
 #include "IR.h"
+#include "token.h"
 #include "token_common.h"
 
 bool IsAstSimple(lang_state *lang_stat, ast_rep *ast);
@@ -301,46 +302,70 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
         ret->num = d->type.e_idx;
         ;
       } else {
+        if(dummy_type.type == TYPE_IMPORT)
+        {
+          ASSERT(first_node->r->t->str.size() != 0)
+          decl2 *d = dummy_type.imp->FindDecl(first_node->r->t->str);
+          ret->is_import = true;
 
-        auto new_ar = (own_std::vector<ast_point> *)AllocMiscData(
-            lang_stat, sizeof(own_std::vector<ast_point>));
-        memset(new_ar, 0, sizeof(*new_ar));
-
-        ast_point aux;
-        aux.decl_strct = dummy_type.strct->this_decl;
-        aux.exp = ret->e_holder.expr[0];
-        new_ar->emplace_back(aux);
-
-        decl2 *strct = aux.decl_strct;
-        for (int i = node_stack.size() - 1; i >= 0; i--) {
-          first_node = *(node_stack.begin() + i);
-
-          decl2 *is_struct = nullptr;
-          bool is_tuple = IS_FLAG_ON(strct->type.strct->flags, TP_STRCT_TUPLE);
-          if (is_tuple) {
-            is_struct = strct->type.strct->scp->vars[first_node->t->i];
-          } else
-            is_struct = FindIdentifier(first_node->r->t->str,
-                                       strct->type.strct->scp, &dummy_type);
-          ASSERT(is_struct);
-          if (is_struct) {
-            aux.decl_strct = is_struct;
-            aux.exp =
-                AstFromNode(lang_stat, first_node->r, strct->type.strct->scp);
-            // aux.
-            if (is_tuple) {
-              aux.exp->type = AST_IDENT;
-              aux.exp->decl = is_struct;
-            }
-
-            strct = aux.decl_strct;
-            rhs->decl = is_struct;
-            ret->lhs_tp = is_struct->type;
+          switch(d->type.type)
+          {
+          case TYPE_INT:
+          {
+            ret->type = AST_INT;
+            ret->num = d->type.i;
+          }break;
+          case TYPE_FUNC_EXTERN:
+          {
+            ret->type = AST_IDENT;
+            ret->decl = d;
+          }break;
+          default: ASSERT(false)
           }
-          new_ar->emplace_back(aux);
+
         }
-        // THIS CAUSES A LEAK
-        memcpy(&ret->points, new_ar, sizeof(*new_ar));
+        else
+        {
+          auto new_ar = (own_std::vector<ast_point> *)AllocMiscData(
+              lang_stat, sizeof(own_std::vector<ast_point>));
+          memset(new_ar, 0, sizeof(*new_ar));
+
+          ast_point aux;
+          aux.decl_strct = dummy_type.strct->this_decl;
+          aux.exp = ret->e_holder.expr[0];
+          new_ar->emplace_back(aux);
+
+          decl2 *strct = aux.decl_strct;
+          for (int i = node_stack.size() - 1; i >= 0; i--) {
+            first_node = *(node_stack.begin() + i);
+
+            decl2 *is_struct = nullptr;
+            bool is_tuple = IS_FLAG_ON(strct->type.strct->flags, TP_STRCT_TUPLE);
+            if (is_tuple) {
+              is_struct = strct->type.strct->scp->vars[first_node->t->i];
+            } else
+              is_struct = FindIdentifier(first_node->r->t->str,
+                                        strct->type.strct->scp, &dummy_type);
+            ASSERT(is_struct);
+            if (is_struct) {
+              aux.decl_strct = is_struct;
+              aux.exp =
+                  AstFromNode(lang_stat, first_node->r, strct->type.strct->scp);
+              // aux.
+              if (is_tuple) {
+                aux.exp->type = AST_IDENT;
+                aux.exp->decl = is_struct;
+              }
+
+              strct = aux.decl_strct;
+              rhs->decl = is_struct;
+              ret->lhs_tp = is_struct->type;
+            }
+            new_ar->emplace_back(aux);
+          }
+          // THIS CAUSES A LEAK
+          memcpy(&ret->points, new_ar, sizeof(*new_ar));
+        }
       }
       // ret->points = *new_ar;
 
@@ -649,7 +674,10 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
 
     if (n->l->type != N_IDENTIFIER) {
       ret->call.lhs = AstFromNode(lang_stat, n->l, scp);
-      ret->call.indirect = true;
+      if(ret->call.lhs->is_import)
+        ret->call.indirect = false;
+      else
+        ret->call.indirect = true;
       ret->call.fdecl = DescendNode(lang_stat, n->l, scp).fdecl;
     } else {
       decl2 *decl = FindIdentifier(n->l->t->str, scp, &dummy_type);

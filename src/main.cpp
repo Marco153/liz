@@ -8,6 +8,7 @@
 #include <sys/uio.h>
 #include <time.h>
 #include <thread>
+#include <unordered_map>
 #define RAD_TO_DEG 57.29577
 #define DEG_TO_RAD (3.14159265f / 180.0f)
 #define LINUX
@@ -9741,8 +9742,7 @@ void *_GetMem(int size)
 }
 void _PrintStr(const char *str)
 {
-  printf("***we're here, %p\n", str);
-  printf("value:%s, %x\n", str, *(int *)str);
+  printf("%s", str);
 }
 bool cmp_str_dbg(char *str_sect, str_dbg *s1, const char *str)
 {
@@ -9920,11 +9920,21 @@ _pid ChildProcess(int pipes[2])
     char *globals_start = (data + file->globals_sect);
     char *data_start = (data + file->data_sect);
 
-    std::unordered_map<const char *, u64 *> map_funcs;
+    std::unordered_map<std::string, u64 *> map_funcs;
 
     int main_start = 0;
 
+    std::unordered_map<std::string, u64> outsiders;
+    outsiders["PrintStr"] = (u64)_PrintStr;
+    outsiders["GetMem"] = (u64)_GetMem;
+    outsiders["glfwWindowHint"] = (u64)glfwWindowHint;
+    outsiders["glfwInit"] = (u64)glfwInit;
+    outsiders["glfwCreateWindow"] = (u64)glfwCreateWindow;
+    outsiders["glfwMakeContextCurrent"] = (u64)glfwMakeContextCurrent;
+    outsiders["glfwSwapBuffers"] = (u64)glfwSwapBuffers;
+    
 
+    //HERE()
     for (int f = 0; f < file->total_funcs; f++)
     {
       auto fdbg = (func_dbg*)(data + file->func_sect + f * sizeof(func_dbg));
@@ -9936,20 +9946,29 @@ _pid ChildProcess(int pipes[2])
 
       if(IS_FLAG_ON(fdbg->flags, FUNC_DECL_IS_OUTSIDER))
       {
-        if(CmpStrDbgAddFunc(str_sect, &fdbg->name, "PrintStr", &map_funcs, (u64)_PrintStr, &cur_jmp_tbl))
-        {
+        int l = fdbg->name.name_len;
+        std::string key(
+            str_sect + fdbg->name.name_on_string_sect,
+            fdbg->name.name_len
+        );
 
-        }
-        else if(CmpStrDbgAddFunc(str_sect, &fdbg->name, "GetMem", &map_funcs, (u64)_GetMem, &cur_jmp_tbl))
-        {
+        auto it = outsiders.find(key);
+        if (it != outsiders.end()) {
+          u64 func_addr = it->second;
+          map_funcs[key] = (u64 *)cur_jmp_tbl;
 
+          (cur_jmp_tbl)[0] = 0xff;
+          (cur_jmp_tbl)[1] = 0x25;
+          memset(&(cur_jmp_tbl)[2], 0, 4);
+
+          *(u64*)&(cur_jmp_tbl)[6]= (u64)func_addr;
+          (cur_jmp_tbl) += 16;
         }
         else
         {
-          char *name = str_sect + fdbg->name.name_on_string_sect;
-          printf("ERROR CHILD: outsider func '%.*s' not found\n", fdbg->name.name_len, str_sect+fdbg->name.name_on_string_sect);
-          return;
+          printf("ERROR CHILD: outsider func '%s' not found\n", key.c_str());
           ASSERT(false)
+          return;
         }
       }
       else
@@ -9975,6 +9994,10 @@ _pid ChildProcess(int pipes[2])
     {
       auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
       printf("CHILD: rel to name: %.*s, offset %d\n", r->name.name_len, str_sect+r->name.name_on_string_sect, r->name.name_on_string_sect);
+      std::string key(
+          str_sect + r->name.name_on_string_sect,
+          r->name.name_len
+      );
       if(r->type == machine_rel_type::DATA || r->type == machine_rel_type::TYPE_DATA)
       {
         char *at_address = nullptr;
@@ -10011,9 +10034,11 @@ _pid ChildProcess(int pipes[2])
       }
       else
       {
-        char *jmp_addr=0;
-        if(CmpStrDbgGetJmpAddr(str_sect, &r->name, "PrintStr", &jmp_addr, &map_funcs) || CmpStrDbgGetJmpAddr(str_sect, &r->name, "GetMem", &jmp_addr, &map_funcs))
+        auto it = map_funcs.find(key);
+        if (it != map_funcs.end())
+        //if(CmpStrDbgGetJmpAddr(str_sect, &r->name, "PrintStr", &jmp_addr, &map_funcs) || CmpStrDbgGetJmpAddr(str_sect, &r->name, "GetMem", &jmp_addr, &map_funcs))
         {
+          char *jmp_addr= (char *)map_funcs[key];
           auto call_offset = (char*)(code + r->code_offset);
           int offset = ((long long)(jmp_addr - (call_offset + 4)));
           *(int *)call_offset = offset;

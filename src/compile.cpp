@@ -2626,6 +2626,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 
 		*stack_size += cur_ir->fdecl->biggest_call_args * 8;
 
+
 		WasmBeginStack(lang_stat, code_sect, *stack_size);
 	}break;
 	case IR_DECLARE_LOCAL:
@@ -15736,7 +15737,14 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;
 			stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
 
+
 			stack_size += cur_ir->fdecl->biggest_call_args * 8;
+      int mod = stack_size % 16;
+      if(mod != 0)
+        stack_size += 16 - mod;
+      // we're aligning the stack in 8 bytes because after the call inst 8 bytes of the ret address is pushed make the stack 16 bytes unaligned
+      stack_size += 8;
+      printf("stacksize %d\n", stack_size);
 			//cur_ir->fdecl->stack_size = stack_size;
 			ParametersToStack(cur_ir->fdecl, &ret);
 

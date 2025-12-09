@@ -162,6 +162,7 @@ struct ast_rep
   bool stmnt_without_semicolon : 1;
   bool dont_make_dbg_stmnt : 1;
   bool goes_onto_stack : 1;
+  bool is_import : 1;
 
   int line_number;
 

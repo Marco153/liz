@@ -6949,7 +6949,8 @@ void GetLongFileName(own_std::string *f) {
 #endif
 }
 void AddFolderToScope(lang_state *lang_stat, scope *scp, own_std::string folder,
-                      import_type imp_type, own_std::string imp_name) {
+                      import_type imp_type, own_std::string imp_name, node *n) {
+  char msg_hdr[256];
   own_std::vector<own_std::string> file_contents;
   own_std::vector<char *> file_names;
 
@@ -6965,6 +6966,14 @@ void AddFolderToScope(lang_state *lang_stat, scope *scp, own_std::string folder,
   }
   lang_stat->work_dir = prev_work_dir;
 
+  if(files_added.size() == 0)
+  {
+    REPORT_ERROR(n->t->line, n->t->line,
+      VAR_ARGS("there is no file in dir '%s'", (lang_stat->work_dir + "/" + folder).c_str())
+    );
+    ASSERT(0)
+  }
+
   FOR_VEC(f, files_added) {
     type2 tp;
     tp.type = enum_type2::TYPE_IMPORT;
@@ -6977,7 +6986,7 @@ void AddFolderToScope(lang_state *lang_stat, scope *scp, own_std::string folder,
   FOR_VEC(f1, files_added) {
     type2 tp;
     tp.type = enum_type2::TYPE_IMPORT;
-    tp.imp = NewImport(lang_stat, import_type::IMP_IMPLICIT_NAME, "", *f1);
+    tp.imp = NewImport(lang_stat, imp_type, "", *f1);
     FOR_VEC(f2, files_added) {
       if (*f1 == *f2)
         continue;
@@ -7567,6 +7576,8 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
                                        scp, n);
     }
   } break;
+  case node_type::N_EMPTY: {
+  }break;
   case node_type::N_IMPORT: {
     if (n->r->type == node_type::N_BINOP && n->r->t->str == "as") {
       bool was_added = false;
@@ -7578,7 +7589,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
       }
       if (was_added == false) {
         AddFolderToScope(lang_stat, scp, imp_name, import_type::IMP_BY_ALIAS,
-                         alias);
+                         alias, n);
         /*
         auto ret_fl = AddNewFile(lang_stat, imp_name);
         type2 tp;
@@ -7600,7 +7611,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
       }
       if (was_added == false) {
         AddFolderToScope(lang_stat, scp, n->r->t->str,
-                         import_type::IMP_IMPLICIT_NAME, "");
+                         import_type::IMP_IMPLICIT_NAME, "", n);
       }
     }
     n->type = N_EMPTY;

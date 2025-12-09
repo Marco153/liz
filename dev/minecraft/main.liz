@@ -1,0 +1,24 @@
+import "../glfw";
+
+PrintStr::fn outsider(str_lit);
+main::fn()
+{
+  res := glfwInit()
+  if res == 0 __dbg_break
+
+  glfwWindowHint(CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(OPENGL_PROFILE, OPENGL_CORE_PROFILE);
+  glfwWindowHint(OPENGL_DEBUG_CONTEXT, 1);
+
+  wnd := glfwCreateWindow(1000, 1000, "Hello World", nil, nil);
+  if wnd == nil __dbg_break
+
+  glfwMakeContextCurrent(wnd)
+
+  while true
+  {
+    glfwSwapBuffers(wnd)
+    PrintStr("on loop\n")
+  }
+}

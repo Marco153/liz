@@ -722,10 +722,10 @@ int GetArgRegIdx(int reg)
 		final_reg = 6;
 		break;
 	case 2:
-		final_reg = 1;
+		final_reg = 2;
 		break;
 	case 3:
-		final_reg = 2;
+		final_reg = 1;
 		break;
 	case 4:
 		final_reg = 0 | (1 << 7);

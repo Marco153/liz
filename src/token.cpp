@@ -40,6 +40,7 @@ bool IsUnsigned(enum_type2 tp)
 		case enum_type2::TYPE_S16:
 		case enum_type2::TYPE_S32:
 		case enum_type2::TYPE_FUNC_PTR:
+		case enum_type2::TYPE_FUNC_EXTERN:
 		case enum_type2::TYPE_FUNC:
 		case enum_type2::TYPE_S64:
 
@@ -163,6 +164,7 @@ int GetTypeSize(type2 *tp)
 		case enum_type2::TYPE_F64:
 		case enum_type2::TYPE_FUNC:
 		case enum_type2::TYPE_FUNC_PTR:
+		case enum_type2::TYPE_FUNC_EXTERN:
 			return 8;
 		case enum_type2::TYPE_VOID:
 			return 0;

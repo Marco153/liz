@@ -1,0 +1,22 @@
+glClearColor::fn outsider(r: f32, g: f32, b: f32, a: f32) ! void;
+glClear::fn outsider(mask: u32) ! void;
+glViewport::fn outsider(x: s32, y: s32, w: s32, h: s32) ! void;
+
+
+glCreateShader::fn outsider(type: u32) ! u32;
+glShaderSource::fn outsider(shader: u32, count: s32, strings: *(*u8), lengths: *s32) ! void;
+glCompileShader::fn outsider(shader: u32) ! void;
+
+glCreateProgram::fn outsider() ! u32;
+glAttachShader::fn outsider(program: u32, shader: u32) ! void;
+glLinkProgram::fn outsider(program: u32) ! void;
+
+glUseProgram::fn outsider(program: u32) ! void;
+glDeleteShader::fn outsider(shader: u32) ! void;
+
+
+
+glGenBuffers::fn outsider(n: s32, buffers: *u32) ! void;
+glBindBuffer::fn outsider(target: u32, buffer: u32) ! void;
+glBufferData::fn outsider(target: u32, size: u32, data: *void, usage: u32) ! void;
+glBufferSubData::fn outsider(target: u32, offset: u32, size: u32, data: *void) ! void;

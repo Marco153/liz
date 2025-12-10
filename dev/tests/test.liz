@@ -179,6 +179,7 @@ operator + x64(self : *v3, rhs : *v3) !v3
 memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 {
 	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
+  __dbg_break
 	i:u64 = 0;
 	if (sz % 16) == 0
 	{
@@ -1069,6 +1070,15 @@ default_args_test::fn(a : u32, b : u32 = 3, c :u32= 4) ! u32
 }
 params_on_stack_test::fn(a : u32, b : u32, c : u32, d : u32, e :u32, f : u32, g : u32, h :u32) !u32
 {
+  v1 :v3
+  v2 :v3
+	v2.x = 2.0;
+	v1.x = 1.0;
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  __dbg_break
+	v1 = v1 + v2 * 2.0;
   return a +  h
 
 }
@@ -1285,6 +1295,7 @@ main::fn()!u32
 		debug_break();
 
 
+
 	greater_than_0 : = f > 0.0;
 	less_than_3 : = f < 3.0;
 	greater_than_2 : = f > 2.0;
@@ -1360,6 +1371,7 @@ main::fn()!u32
 	fsum = ret_sum_one_with_f32_ptr(&fsum);
 	if fsum < 3.9 || fsum > 4.1
 		debug_break();
+
 
 	chunk: = mem_chunk{ next= nil, prev = cast(*mem_chunk)7 };
 	if cast(u64)chunk.prev != 7
@@ -1497,6 +1509,10 @@ main::fn()!u32
 
 	v2.x = 2.0;
 	v1.x = 1.0;
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  __dbg_break
 	v1 = v1 + v2 * 2.0;
 
 	if v1.x > 5.1 || v1.x < 4.9

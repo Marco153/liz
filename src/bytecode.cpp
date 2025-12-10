@@ -1092,7 +1092,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 3, data_sym_name));
 
 					// emplacing a lea instruction here
-					AddLeaInst(ret, bc->rel.reg_dst);
+					AddLeaInst(ret, FromBCRegToAsmReg(bc->rel.reg_dst));
 					/*
 					ret.code.emplace_back(0x48);
 					ret.code.emplace_back(0x8d);

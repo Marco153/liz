@@ -340,9 +340,17 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 
 	while format_idx < format_ln
 	{
+    PrintStr("here\n")
 
 		if* ptr_offset(format, format_idx, char) == '%
 		{
+      __dbg_break
+      __dbg_break
+      __dbg_break
+      __dbg_break
+      __dbg_break
+      __dbg_break
+
 			cur_arg: = (*__var_args)[arg_idx];
 			if* ptr_offset(format, format_idx + 1, char) == '*
 			{
@@ -522,7 +530,9 @@ sprintf_temp::fn(format : str_lit, ...) !str_lit
 	ret: = get_linear_ptr(cast(u32)sz)
   
 
+  PrintStr("will call memcpy\n")
 	memcpy(ret, buffer, cast(u32)sz + 1);
+  PrintStr("called memcpy\n")
 	return cast(str_lit)ret;
 }
 printf::fn(format : str_lit, ...)

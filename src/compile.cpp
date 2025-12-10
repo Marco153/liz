@@ -14008,6 +14008,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 		case IR_TYPE_ARG_REG:
 		{
 			//FreeSpecificFloatReg(lang_stat, assign.to_assign.reg);
+      BREAK(ir->idx == 44)
 			switch (assign.lhs.type)
 			{
 			case IR_TYPE_TYPE_DATA:
@@ -14139,6 +14140,21 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			default:
 				ASSERT(false)
 			}
+      char reg_to_alloc = 0;
+#ifdef LINUX
+      switch(ir->assign.to_assign.reg)
+      {
+      case 0: reg_to_alloc = 33;break;
+      case 1: reg_to_alloc = 32;break;
+      case 2: reg_to_alloc = 2;break;
+      case 4: reg_to_alloc = 1;break;
+      }
+#else
+#endif
+      if(lang_stat->is_machine_x64_backend)
+      {
+        AllocSpecificReg(lang_stat, reg_to_alloc);
+      }
 			//if()
 		}break;
 		case IR_TYPE_ON_STACK:

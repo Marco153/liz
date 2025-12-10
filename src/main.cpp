@@ -9794,9 +9794,9 @@ int read_bytes_from_child(_pid pid, unsigned long long addr, uint8_t *buffer, si
         if (errno != 0) {
             printf("error childp: %d\n", pid);
             perror("ptrace PEEKDATA");
-            ASSERT(false)
+            //ASSERT(false)
             return -1;
-            ASSERT(0)
+            //ASSERT(0)
         }
 
         // copy the 8 bytes we got
@@ -9885,7 +9885,7 @@ _pid ChildProcess(int pipes[2])
       ASSERT(false)
     }
     u32 read;
-    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/minecraft.dbg", &read);
+    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
     auto file = (dbg_file_seriealize*)(file_ptr);
 
     printf("CHILD: total funcs %d\n", file->total_funcs);
@@ -10303,6 +10303,7 @@ void PrintScope(int child_p, dbg_state *dbg, u8 *main_func_stack_buffer, u8 *rsp
 
 void PrintLocals(int child_p, dbg_state *dbg, u64 rsp, scope *scp)
 {
+  return;
   char buffer[2024];
 
   if(!scp) return;
@@ -10624,6 +10625,79 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     {
       dbg->show_ir = !dbg->show_ir;
     }
+    if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
+    {
+      if(!cur_f)
+      {
+        cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
+      }
+      ImGui::Text("in range");
+      if(cur_f)
+      {
+        printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());
+        int offset = (u64)((char *)regs.rip - code_start);
+        cur_st = GetStmntBasedOnOffset(&cur_f->wasm_stmnts, offset);
+        ImGui::Text("in func %s", cur_f->name.c_str());
+        if(cur_st)
+        {
+          ImGui::Text("st line %d", cur_st->line);
+        }
+      }
+      if(!cur_scp && cur_f && cur_st)
+      {
+        cur_scp = FindScpWithLine(cur_f, cur_st->line);
+      }
+      if(!cur_bp)
+      {
+        int i= 0;
+        FOR_VEC(b, breakpoints)
+        {
+          if((u64)b->inst == regs.rip)
+          {
+            cur_bp = b;
+            cur_bp_idx = i;
+            break;
+          }
+          i++;
+        }
+      }
+      if(cur_bp)
+      {
+        //HERE()
+        write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
+      }
+      if (f10_pressed)
+      //if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F10))
+      {
+        if((cur_st + 1) < cur_f->wasm_stmnts.end())
+        {
+          stmnt_dbg *next_st = cur_st + 1;
+          u64 next_addr = (u64)(code_start + next_st->start);
+          MakeInstAddrToBeBreakpoint2(child_p, &breakpoints, next_addr, true);
+        }
+        if(cur_bp)
+        {
+          //write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
+          breakpoints.remove(cur_bp_idx);
+          //regs.rip--;
+          //ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
+
+          //ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
+
+        }
+        else
+        {
+          //printf("rip bef %p\n", regs.rip);
+          ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
+          waitpid(child_p, NULL, 0);
+
+          ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+          //printf("rip after %p\n", regs.rip);
+        }
+
+        ptrace(PTRACE_CONT, child_p, 0, 0);
+      }
+    }
     switch(ch_state)
     {
     case child_process_state::INT3:
@@ -10642,79 +10716,6 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       //memcpy(&fregs.xmm_space, (xstate + 272), 16 * 16);
       ImGui::InputScalar("INT3: ", ImGuiDataType_U64, &assembly_addr, nullptr, nullptr, "%016llX");
 
-      if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
-      {
-        if(!cur_f)
-        {
-          cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
-        }
-        ImGui::Text("in range");
-        if(cur_f)
-        {
-          printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());
-          int offset = (u64)((char *)regs.rip - code_start);
-          cur_st = GetStmntBasedOnOffset(&cur_f->wasm_stmnts, offset);
-          ImGui::Text("in func %s", cur_f->name.c_str());
-          if(cur_st)
-          {
-            ImGui::Text("st line %d", cur_st->line);
-          }
-        }
-        if(!cur_scp && cur_f && cur_st)
-        {
-          cur_scp = FindScpWithLine(cur_f, cur_st->line);
-        }
-        if(!cur_bp)
-        {
-          int i= 0;
-          FOR_VEC(b, breakpoints)
-          {
-            if((u64)b->inst == regs.rip)
-            {
-              cur_bp = b;
-              cur_bp_idx = i;
-              break;
-            }
-            i++;
-          }
-        }
-        if(cur_bp)
-        {
-          //HERE()
-          write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
-        }
-        if (f10_pressed)
-        //if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F10))
-        {
-          if((cur_st + 1) < cur_f->wasm_stmnts.end())
-          {
-            stmnt_dbg *next_st = cur_st + 1;
-            u64 next_addr = (u64)(code_start + next_st->start);
-            MakeInstAddrToBeBreakpoint2(child_p, &breakpoints, next_addr, true);
-          }
-          if(cur_bp)
-          {
-            //write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
-            breakpoints.remove(cur_bp_idx);
-            //regs.rip--;
-            //ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
-
-            //ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
-
-          }
-          else
-          {
-            //printf("rip bef %p\n", regs.rip);
-            ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
-            waitpid(child_p, NULL, 0);
-
-            ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
-            //printf("rip after %p\n", regs.rip);
-          }
-
-          ptrace(PTRACE_CONT, child_p, 0, 0);
-        }
-      }
       PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);
@@ -10727,6 +10728,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ImGui::Text("%p", regs.rip);
       PrintInsts(child_p, dbg, regs.rip, (u64)code_start, nullptr, nullptr);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 272));
+      PrintLocals(child_p, dbg, regs.rsp, cur_scp);
     }break;
     }
     ImGui::End();

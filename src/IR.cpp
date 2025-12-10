@@ -2143,7 +2143,7 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
       // moving to the reg param
       for (int h = j + 1; h < exps.size(); h++) {
         ast_rep *aux = exps[h];
-        if (!IsEndFuncCall(aux) && !IsEndArg(aux) && aux->type == AST_CALL) {
+        if (!IsBeginFuncCall(aux) && !IsEndFuncCall(aux) && !IsEndArg(aux) && aux->type == AST_CALL) {
           if (calls_found == 1) {
             found_call = true;
             break;

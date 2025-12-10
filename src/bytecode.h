@@ -217,6 +217,9 @@ enum byte_code_enum : unsigned short
 	MOV_F_2_REG_PARAM,
 	MOV_SSE_2_REG_PARAM,
 
+	SET_SYSCALL,
+	UNSET_SYSCALL,
+
 	MOV_I_2_REG_PARAM,
 	MOV_M_2_REG_PARAM,
 	MOV_R_2_REG_PARAM,

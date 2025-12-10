@@ -1,12 +1,537 @@
-LINUX:const s32=0
+LINUX:const s32=0;
 
-OS:const s32=LINUX
+OS:const s32=LINUX;
+
+PrintStr::fn outsider(str_lit);
+GetMem::fn outsider(size : u32)! *void;
+ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
+{
+	(cast(*type)(cast(s64)ptr + cast(s64)offset * sizeof(type)))
+}
+ASSERT::fn macro(exp : _expr)
+{
+	if !(exp)
+  {
+		__dbg_break;
+  }
+}
 
 #if OS == LINUX
 {
   import "../linux"
-  create_thread::fn()
+  create_thread::fn(f : fn(*void), arg : *void)!s32
   {
-    flags := CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD;
+    size :u32= 1024 * 4
+    stack := ptr_offset(GetMem(size), size - 8, u8)
+    flags :u32= CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM;
+    PrintStr("will create thread\n")
+    __dbg_break
+    __dbg_break
+    __dbg_break
+    id := clone(flags, stack, nil, nil, 0);
+    if id == 0
+    {
+      PrintStr("child will execute\n")
+      f(arg)
+      PrintStr("child executed\n")
+    }
+    PrintStr("parent will continue\n")
+
+    return 1
   }
+}
+io_globals_struct:struct
+{
+  linear_data : *u8
+  linear_cur : u32
+  linear_max : u32
+}
+
+io_globals:io_globals_struct
+
+type_enum : enum
+{
+	TYPE_AUTO,
+	TYPE_ARRAY_TYPE,
+	TYPE_STATIC_ARRAY,
+	TYPE_ARRAY,
+	TYPE_ARRAY_DYN,
+
+	TYPE_ENUM_IDX_32,
+
+	TYPE_OVERLOADED_FUNCS,
+
+	TYPE_TYPEDEF,
+
+	TYPE_WASM_MEMORY,
+
+	TYPE_VOID,
+	TYPE_VOID_TYPE,
+
+	TYPE_RANGE,
+
+	//
+	TYPE_STRUCT_TYPE,
+	TYPE_CHAR_TYPE,
+	TYPE_STR_LIT,
+	TYPE_STATIC_ARRAY_TYPE,
+
+	TYPE_U8_TYPE,
+	TYPE_S8_TYPE,
+	TYPE_U16_TYPE,
+	TYPE_S16_TYPE,
+	TYPE_U32_TYPE,
+	TYPE_S32_TYPE,
+	TYPE_U64_TYPE,
+	TYPE_S64_TYPE,
+
+	TYPE_BOOL_TYPE,
+	TYPE_UNION_TYPE,
+	TYPE_FUNC_TYPE,
+	TYPE_ENUM_TYPE,
+	TYPE_F32_TYPE,
+	TYPE_F64_TYPE,
+	//
+
+	TYPE_INT,
+
+	TYPE_IMPORT,
+
+	TYPE_REL_TYPE,
+	TYPE_REL,
+
+	TYPE_U8,
+	TYPE_S8,
+	TYPE_U16,
+	TYPE_S16,
+	TYPE_U32,
+	TYPE_S32,
+	TYPE_U64,
+	TYPE_S64,
+
+	TYPE_F32,
+	TYPE_CHAR,
+	TYPE_F64,
+	TYPE_BOOL,
+	TYPE_F32_RAW,
+	TYPE_F64_RAW,
+
+	TYPE_UNION_DECL,
+	TYPE_UNION,
+
+	TYPE_ENUM_DECL,
+	TYPE_ENUM,
+
+	TYPE_MACRO_EXPR,
+
+	TYPE_STRUCT_DECL,
+	TYPE_STRUCT,
+	TYPE_STRUCT_ANON,
+	TYPE_BUILT_IN_MACRO,
+	TYPE_FUNC_DECL,
+	TYPE_FUNC_PTR,
+	TYPE_FUNC_DEF,
+	TYPE_FUNC_EXTERN,
+	TYPE_FUNC,
+	TYPE_COMMA,
+	TYPE_TEMPLATE,
+	TYPE_VECTOR_TYPE,
+	TYPE_VECTOR,
+	TYPE_MAX,
+}
+str_ln::fn(str :str_lit) !u64
+{
+	s: = cast(*u8)str;
+	
+	i:u64 = 0;
+	while *ptr_offset(s, i, u8) != 0
+	{
+		i++;
+	}
+	return i;
+}
+rel_string : struct
+{
+	offset : u32,
+	count : u32,
+}
+operator ==(self: *rel_string, str : *rel_string) !bool
+{
+	ln := str.count
+	if ln != self.count
+		return false
+
+	start := cast(*u8)(cast(u64)self + self.offset)
+	start2 := cast(*u8)(cast(u64)str + str.offset)
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(start, i, u8);
+		rhs := ptr_offset(start2, i, u8);
+		if *lhs != *rhs
+			return false
+	}
+
+	return true
+}
+operator ==(self: *rel_string, str : str_lit) !bool
+{
+	ln := str_ln(str)
+	if ln != self.count
+		return false
+
+	start := cast(*u8)(cast(u64)self + self.offset)
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(start, i, u8);
+		rhs := ptr_offset(str, i, u8);
+		if *lhs != *rhs
+		{
+			return false
+		}
+	}
+
+	return true
+}
+type_data:struct
+{
+	using u::union
+	{
+		// entries is how many members a strct has
+		entries : u32,
+		strct : *type_data,
+	},
+	strct_sz : u64,
+	offset : u64,
+	ptr : u8,
+	ser_func : *void,
+	tp : type_enum,
+	flags : u32,
+	name : rel_string,
+	decl_offset_for_ptr_len : u32,
+
+}
+var_arg:struct
+{
+	type : type_enum,
+	type_info : *type_data,
+	ptr : u8,
+	val : *void,
+}
+rel_array: struct(T)
+{
+	data : *T,
+	count : u64,
+	#make_ptr_len(data, count)
+}
+operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
+{
+	if(idx >= dyn.count)
+  {
+    //PrintCallStack()
+    __dbg_break
+  }
+	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
+	return cast(*T)ptr_offset(addr, idx, T);
+}
+operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
+{
+	if(idx >= dyn.count)
+  {
+    //PrintCallStack()
+    __dbg_break
+  }
+	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
+	return cast(*T)ptr_offset(addr, idx, T);
+}
+memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
+{
+	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
+	i:u64 = 0;
+	if (sz % 16) == 0
+	{
+		total := sz / 16
+
+		while i < total
+		{
+			*ptr_offset(dst, i, _vec) = *ptr_offset(src, i, _vec);
+			i++
+		}
+	}
+	else if (sz % 8) == 0
+	{
+		total := sz / 8
+
+		while i < total
+		{
+			*ptr_offset(dst, i, u64) = *ptr_offset(src, i, u64);
+			i++
+		}
+
+	}
+	else
+	{
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
+			i++;
+		}
+	}
+}
+
+num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
+{
+	i :u64= 0;
+	written :u64= 0;
+	aux_buffer : [64]u8;
+
+	out_buffer :*char= cast(*char)in_buf;
+
+	buffer := cast(*char)aux_buffer;
+
+	if num == 0
+	{
+		*ptr_offset(out_buffer, 0, u8) = '0;
+		return 1;
+	}
+	negative: = false;
+	if num < 0
+	{
+		negative = true;
+		num = num * -1;
+	}
+
+
+	while num != 0
+	{
+		mod := num % 10;
+		*ptr_offset(buffer, written, char) = cast(char)(cast(u8)'0 + cast(u8)mod);
+		num = num / 10;
+		written += 1;
+	}
+
+	aux_written_rev := cast(s64)written - 1;
+	aux_written :u64= 0;
+	if negative
+	{
+		*ptr_offset(out_buffer, aux_written, char) = '-;
+		aux_written++;
+		written++;
+	}
+	while  aux_written_rev >= 0
+	{
+
+		dst :=ptr_offset(out_buffer, aux_written, char)
+		*dst = *ptr_offset(buffer, cast(u64)aux_written_rev, char);
+		aux_written_rev--;
+		aux_written++;
+	}
+	return written;
+}
+sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_array(var_arg)) !u64
+{
+
+	format_ln: = str_ln(format);
+	format_idx:u64 = 0;
+	buffer_idx:u64 = 0;
+	arg_idx:u64 = 0;
+	aux_num_buffer: [64] u8;
+
+	while format_idx < format_ln
+	{
+
+		if* ptr_offset(format, format_idx, char) == '%
+		{
+			cur_arg: = (*__var_args)[arg_idx];
+			if* ptr_offset(format, format_idx + 1, char) == '*
+			{
+				if* ptr_offset(format, format_idx + 2, char) == 's
+				{
+					len: = cast(u32)cast(u64)cur_arg.val;
+
+					arg_idx++;
+
+					cur_arg = (*__var_args)[arg_idx];
+
+					str_ptr: = cast(*u8)cur_arg.val
+
+					dst : = ptr_offset(buffer, buffer_idx, u8);
+					memcpy(dst, cast(*u8)str_ptr, len);
+					buffer_idx += len
+					//format_idx++;
+					format_idx += 2;
+
+				}
+				else
+					__dbg_break;
+			}
+			else if cur_arg.type == type_enum.TYPE_STRUCT
+			{
+				if cur_arg.type_info.name == "rel_string"
+				{
+					addr := cast(*u8)cur_arg.val
+
+					offset := *cast(*u32)addr
+					len := *cast(*u32)ptr_offset(addr, 1, u32)
+					
+					actual_str := ptr_offset(addr, offset, u8)
+
+					dst : = ptr_offset(buffer, buffer_idx, u8);
+					memcpy(dst, cast(*u8)actual_str, len);
+					buffer_idx += len
+				}
+        /*
+				else if cur_arg.type_info.name == "string"
+				{
+					addr := cast(*u8)cur_arg.val
+
+					str := cast(*string)addr;
+
+					len := str.data.count
+					
+					actual_str := str.data.data
+
+					dst : = ptr_offset(buffer, buffer_idx, u8);
+					memcpy(dst, cast(*u8)actual_str, len);
+					buffer_idx += len
+				}
+        */
+			}
+			else if cur_arg.type == type_enum.TYPE_STR_LIT
+			{
+				arg_str_ln: = str_ln(cast(str_lit)cur_arg.val);
+				dst: = ptr_offset(buffer, buffer_idx, u8);
+				ASSERT((buffer_idx + arg_str_ln) < bsz);
+				memcpy(dst, cast(*u8)cur_arg.val, arg_str_ln);
+				buffer_idx += arg_str_ln;
+			}
+			else if cur_arg.type == type_enum.TYPE_BOOL
+
+			{
+				true_str := "true"
+				false_str := "false"
+				ln :u64=0
+				correct_str :str_lit
+				
+				val :=cast(u8)cast(u64)cur_arg.val
+				if val == 0
+				{
+					correct_str = false_str
+				}
+				else if val == 1
+				{
+					correct_str = true_str
+				}
+				else
+				{
+					__dbg_break
+				}
+				ln = str_ln(correct_str)
+
+				memcpy(ptr_offset(buffer, buffer_idx, u8), correct_str, ln);
+				buffer_idx += ln;
+
+
+			}
+			else if cur_arg.type == type_enum.TYPE_F32
+
+			{
+				f := *cast(*f32)&cur_arg.val
+				lhs := cast(s32)f
+				rhs := cast(s32)((f - cast(f32)lhs)* 100.0)
+
+				negative := false
+				if rhs < 0 && lhs == 0
+				{
+					negative = true
+				}
+				if rhs < 0
+				{
+					rhs = rhs * -1
+				}
+
+				
+
+				//if cast(s64)cur_arg.val == 32
+					//__dbg_break
+				num_ln: = num_2_str(cast(s64)lhs, aux_num_buffer[0], 16);
+				if negative
+				{
+					*ptr_offset(buffer, buffer_idx, u8) = '-
+					buffer_idx++
+				}
+				*ptr_offset(aux_num_buffer[0], num_ln, u8) = '.
+				num_ln2: = num_2_str(cast(s64)rhs, aux_num_buffer[num_ln + 1], 16);
+
+				memcpy(ptr_offset(buffer, buffer_idx, u8), aux_num_buffer[0], num_ln + num_ln2 + 1);
+				buffer_idx += num_ln + num_ln2 + 1;
+
+
+			}
+			else if cur_arg.type == type_enum.TYPE_U32 || cur_arg.type == type_enum.TYPE_S32 ||
+					cur_arg.type == type_enum.TYPE_U8 || cur_arg.type == type_enum.TYPE_S8 ||
+					cur_arg.type == type_enum.TYPE_U16 || cur_arg.type == type_enum.TYPE_S16 ||
+					cur_arg.type == type_enum.TYPE_U64 || cur_arg.type == type_enum.TYPE_S64 ||
+					cur_arg.type == type_enum.TYPE_INT
+
+			{
+
+				//if cast(s64)cur_arg.val == 32
+					//__dbg_break
+				num_ln: = num_2_str(cast(s64)cur_arg.val, aux_num_buffer, 32);
+
+				memcpy(ptr_offset(buffer, buffer_idx, u8), aux_num_buffer, num_ln);
+				buffer_idx += num_ln;
+
+
+			}
+			else
+			{
+				// type not handled
+				__dbg_break;
+			}
+			arg_idx++;
+		}
+		else
+		{
+			ASSERT((buffer_idx + 1) < bsz);
+			*ptr_offset(buffer, buffer_idx, u8) = *ptr_offset(format, format_idx, u8);
+			buffer_idx++;
+		}
+		format_idx++;
+	}
+	ASSERT(buffer_idx < bsz);
+	*ptr_offset(buffer, buffer_idx, u8) = 0;
+	tast: = 0;
+	return buffer_idx;
+}
+get_linear_ptr::fn(sz : u32) ! *u8
+{
+	ret: = ptr_offset(io_globals.linear_data, io_globals.linear_cur, u8)
+  
+  io_globals.linear_cur += sz
+  ASSERT(io_globals.linear_cur < io_globals.linear_max)
+  return ret
+}
+sprintf_temp::fn(format : str_lit, ...) !str_lit
+{
+	buffer: [512] char;
+
+	sz: = sprintf_base(buffer, 512, format, &__var_args);
+	ret: = get_linear_ptr(cast(u32)sz)
+  
+
+	memcpy(ret, buffer, cast(u32)sz + 1);
+	return cast(str_lit)ret;
+}
+printf::fn(format : str_lit, ...)
+{
+	prev_sz := io_globals.linear_cur
+
+	buffer : [128]u8;
+	sprintf_base(buffer, 128, format, &__var_args);
+	PrintStr(cast(str_lit)buffer);
+
+	io_globals.linear_cur = prev_sz 
 }

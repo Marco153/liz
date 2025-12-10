@@ -28,7 +28,6 @@ void ReportError(lang_state *lang_stat, int line, int line_offset, char *str, in
 	own_std::vector<char *> *lines = &lang_stat->cur_file->lines;
 	char* cur_line = (*lines)[line - 1];
 
-	
 	printf(ANSI_RESET "%s\n", str);
 	
 	printf("\x1b[31m");

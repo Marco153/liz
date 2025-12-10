@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <sched.h>
 #include <sys/uio.h>
 #include <time.h>
 #include <thread>
@@ -9782,7 +9783,7 @@ int write_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t
 
     return 0;
 }
-int read_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t size) {
+int read_bytes_from_child(_pid pid, unsigned long long addr, uint8_t *buffer, size_t size) {
     size_t offset = 0;
 
     while (offset < size) {
@@ -9793,6 +9794,7 @@ int read_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t 
         if (errno != 0) {
             printf("error childp: %d\n", pid);
             perror("ptrace PEEKDATA");
+            ASSERT(false)
             return -1;
             ASSERT(0)
         }
@@ -10187,21 +10189,35 @@ func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *of
   }
   return nullptr;
 }
+void PrintReg(char *name, u64 addr)
+{
+  char buffer[64];
+  ImGui::Text("%s: %p", name, addr);
+  ImGui::SameLine();
+  ImGui::SetCursorPosX(170);
+  sprintf(buffer, "Copy##%p", name);
+  if(ImGui::Button(buffer))
+  {
+    sprintf(buffer, "%llx", addr);
+    ImGui::SetClipboardText(buffer);
+  }
+
+}
 void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs)
 {
-  ImGui::BeginChild("regs", ImVec2(150, 400));
-  ImGui::Text("RAX: %p", regs->rax);
-  ImGui::Text("RCX: %p", regs->rcx);
-  ImGui::Text("RBX: %p", regs->rbx);
-  ImGui::Text("RDX: %p", regs->rdx);
-  ImGui::Text("RBP: %p", regs->rbp);
-  ImGui::Text("RSP: %p", regs->rsp);
-  ImGui::Text("RDI: %p", regs->rdi);
-  ImGui::Text("RSI: %p", regs->rsi);
-  ImGui::Text("R8: %p", regs->r8);
-  ImGui::Text("R9: %p", regs->r9);
-  ImGui::Text("R10: %p", regs->r10);
-  ImGui::Text("R11: %p", regs->r11);
+  ImGui::BeginChild("regs", ImVec2(250, 400));
+  PrintReg("RAX", regs->rax);
+  PrintReg("RCX", regs->rcx);
+  PrintReg("RBX", regs->rbx);
+  PrintReg("RDX", regs->rdx);
+  PrintReg("RBP", regs->rbp);
+  PrintReg("RSP", regs->rsp);
+  PrintReg("RDI", regs->rdi);
+  PrintReg("RSI", regs->rsi);
+  PrintReg("R8",  regs->r8);
+  PrintReg("R9",  regs->r9);
+  PrintReg("R10", regs->r10);
+  PrintReg("R11", regs->r11);
   ImGui::Text("xmm0: %.4f", fregs[0]);
   ImGui::Text("xmm1: %.4f", fregs[4]);
   ImGui::Text("xmm2: %.4f", fregs[8]);
@@ -10213,6 +10229,87 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs
   //ImGui::Text("xmm6: %.4f", fregs->xmm_space[6]);
   //ImGui::Text("xmm7: %.4f", fregs->xmm_space[7]);
   ImGui::EndChild();
+}
+void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
+{
+  char buffer[2024];
+  char orig_ptr = v->type.ptr;
+  char ptr = v->type.ptr;
+  u8 *cur_addr = addr;
+  while(ptr > 0)
+  {
+    read_bytes_from_child(child_p, *(u64*)cur_addr, (u8 *)buffer, 8);
+    cur_addr = *(u8 **)&buffer;
+    ptr--;
+  }
+
+  ImGui::Text("name %.*s: ", v->name.size(), v->name.data());
+
+  switch(v->type.type)
+  {
+  case TYPE_U8:
+  {
+    if(orig_ptr > 0)
+    {
+      ImGui::Text("%p", (u8 *)cur_addr);
+    }
+    else
+    {
+      ImGui::Text("%hhu", *(u8 *)cur_addr);
+    }
+
+  }break;
+  case TYPE_S64:
+  {
+    ImGui::SameLine();
+    ImGui::Text("%ll", *(u32 *)cur_addr);
+  }break;
+  case TYPE_U64:
+  {
+    ImGui::SameLine();
+    ImGui::Text("%llu", *(u32 *)cur_addr);
+
+  }break;
+  case TYPE_S32:
+  {
+    ImGui::SameLine();
+    ImGui::Text("%u", *(u32 *)cur_addr);
+  }break;
+  case TYPE_U32:
+  {
+    ImGui::SameLine();
+    ImGui::Text("%u", *(u32 *)cur_addr);
+
+  }break;
+  }
+}
+void PrintScope(int child_p, dbg_state *dbg, u8 *main_func_stack_buffer, u8 *rsp, scope *scp)
+{
+  scope *cur_scp = scp;
+  ImGui::BeginChild("scopevars", ImVec2(200, 1000));
+
+  while(cur_scp)
+  {
+    FOR_VEC(var, cur_scp->vars)
+    {
+      decl2 *v = *var;
+      //HERE()
+      PrintVar(child_p, dbg, v, main_func_stack_buffer + v->offset, rsp);
+    }
+    cur_scp = cur_scp->parent;
+  }
+  ImGui::EndChild();
+}
+
+void PrintLocals(int child_p, dbg_state *dbg, u64 rsp, scope *scp)
+{
+  char buffer[2024];
+
+  if(!scp) return;
+
+  read_bytes_from_child(child_p, (u64)rsp, (u8 *)buffer, 2024);
+
+  PrintScope(child_p, dbg, (u8 *)buffer, (u8 *)rsp, scp);
 }
 void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl *fdecl, stmnt_dbg *cur_st)
 {
@@ -10419,6 +10516,9 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   iov.iov_base = xstate;
   iov.iov_len = sizeof(xstate);
 
+
+  u64 assembly_addr;
+
   while(true)
   {
     pid_t r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
@@ -10440,6 +10540,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         ch_state = child_process_state::INT3;
         regs.rip--;
         ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
+        assembly_addr = regs.rip;
       }
     }
     else if (WIFCONTINUED(status)) {
@@ -10451,6 +10552,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     }
     else if (WIFSIGNALED(status)) {
         printf("Child: killed by signal %d\n", WTERMSIG(status));
+        ASSERT(false)
         return;
     }
     ClearKeys(dbg->data);
@@ -10497,10 +10599,13 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       f10_pressed = true;
     }
     ImGui::SameLine();
+    bool stepped = false;
     if(ImGui::Button("stepi"))
     {
       ptrace(PTRACE_SINGLESTEP, child_p, NULL, 0);
       waitpid(child_p, NULL, 0);
+      stepped = true;
+
     }
 
     ImGui::SameLine();
@@ -10529,9 +10634,13 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       int64_t xstate_bv = *(uint64_t*)(xstate + 512);  // xstate_bv
       uint64_t xcomp_bv  = *(uint64_t*)(xstate + 520); 
 
+      if(stepped)
+      {
+        assembly_addr = regs.rip;
+      }
 
       //memcpy(&fregs.xmm_space, (xstate + 272), 16 * 16);
-      ImGui::Text("INT3: %p", regs.rip);
+      ImGui::InputScalar("INT3: ", ImGuiDataType_U64, &assembly_addr, nullptr, nullptr, "%016llX");
 
       if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
       {
@@ -10550,6 +10659,10 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           {
             ImGui::Text("st line %d", cur_st->line);
           }
+        }
+        if(!cur_scp && cur_f && cur_st)
+        {
+          cur_scp = FindScpWithLine(cur_f, cur_st->line);
         }
         if(!cur_bp)
         {
@@ -10602,8 +10715,9 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           ptrace(PTRACE_CONT, child_p, 0, 0);
         }
       }
-      PrintInsts(child_p, dbg, regs.rip, (u64)code_start, cur_f, cur_st);
+      PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
+      PrintLocals(child_p, dbg, regs.rsp, cur_scp);
 
     }break;
     case child_process_state::SEG_FAULT:
@@ -10630,7 +10744,10 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     glViewport(0, 0, wnd_width, wnd_height);
     glfwSwapBuffers(window);
   }
-
+}
+int thread_test(void *arg)
+{
+  printf("thread\n");
 }
 int main(int argc, char *argv[]) {
 
@@ -10642,6 +10759,16 @@ int main(int argc, char *argv[]) {
   alloc.main_buffer = nullptr;
   InitMemAlloc(&alloc);
 
+
+  /*
+  HERE()
+  {
+    int size = 1024 * 4;
+    char *stack = (char *)malloc(size) + size;
+    int flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM;
+    int id = clone(thread_test, stack, flags, nullptr);
+  }
+  */
   auto stat = (lang_state *)malloc(sizeof(lang_state));
   lang_state &lang_stat = *stat;
 
@@ -10796,5 +10923,6 @@ int main(int argc, char *argv[]) {
     int ret_val = *(int *)&lang_stat.winterp->dbg->mem_buffer[RET_1_REG * 8];
   }
   ExitProcess(1);
+  //CLONE_VM
   int a = 0;
 }

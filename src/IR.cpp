@@ -34,6 +34,8 @@ int clamp(int, int, int);
 #define IR_END_OR 23
 #define IR_BEGIN_INSIDE_IF 24
 #define IR_END_INSIDE_IF 25
+#define IR_BEGIN_FUNC_CALL 26
+#define IR_END_FUNC_CALL 27
 
 bool CheckIrValIsPointIncDeref(ir_val *val) {
   if (IS_FLAG_ON(val->reg_ex, IR_VAL_FROM_POINT) && val->type != IR_TYPE_DECL &&
@@ -1558,6 +1560,8 @@ void PushArrayOfAsts(lang_state *lang_stat, own_std::vector<ast_rep *> *ar,
 void PushFuncAsts(lang_state *lang_stat, ast_rep *ast,
                   own_std::vector<ast_rep *> *out) {
   int arg_idx = 0;
+  out->emplace_back((ast_rep *)(long long)(IR_BEGIN_FUNC_CALL));
+  out->emplace_back(ast);
   FOR_VEC(arg, ast->call.args) {
     ast_rep *a = *arg;
     PushAstsInOrder(lang_stat, a, out);
@@ -1568,6 +1572,9 @@ void PushFuncAsts(lang_state *lang_stat, ast_rep *ast,
   }
   if (ast->call.lhs)
     PushAstsInOrder(lang_stat, ast->call.lhs, out);
+  out->emplace_back(ast);
+
+  out->emplace_back((ast_rep *)(long long)(IR_END_FUNC_CALL));
   out->emplace_back(ast);
 }
 void PushAstsInOrder(lang_state *lang_stat, ast_rep *ast,
@@ -1989,6 +1996,12 @@ bool IsEndAnd(ast_rep *e) {
   is_end_arg = is_end_arg && ((((long long)e) >> 32) & 0xffff) == 0xbeba;
   return is_end_arg;
 }
+bool IsEndFuncCall(ast_rep *e) {
+  return ((long long)e & 0xff) == IR_END_FUNC_CALL;
+}
+bool IsBeginFuncCall(ast_rep *e) {
+  return ((long long)e & 0xff) == IR_BEGIN_FUNC_CALL;
+}
 bool IsEndArg(ast_rep *e) {
   bool is_end_arg = ((long long)e & 0xff) == IR_END_ARG;
   is_end_arg = is_end_arg && ((((long long)e) >> 32) & 0xffff) == 0xbeba;
@@ -2130,7 +2143,7 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
       // moving to the reg param
       for (int h = j + 1; h < exps.size(); h++) {
         ast_rep *aux = exps[h];
-        if (!IsEndArg(aux) && aux->type == AST_CALL) {
+        if (!IsEndFuncCall(aux) && !IsEndArg(aux) && aux->type == AST_CALL) {
           if (calls_found == 1) {
             found_call = true;
             break;
@@ -2147,6 +2160,21 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
     } else if (IsBeginAnd(e)) {
       ir.type = IR_BEGIN_AND_BLOCK;
       out->emplace_back(ir);
+      continue;
+    } else if (IsBeginFuncCall(e)) {
+      //HERE()
+      ir.type = IR_BEGIN_CALL;
+      ast_rep *next = exps[j + 1];
+      ir.call.fdecl = next->call.fdecl;
+      out->emplace_back(ir);
+      j++;
+      continue;
+    } else if (IsEndFuncCall(e)) {
+      ast_rep *next = exps[j + 1];
+      ir.call.fdecl = next->call.fdecl;
+      ir.type = IR_END_CALL;;
+      out->emplace_back(ir);
+      j++;
       continue;
     } else if (IsEndAnd(e)) {
       ir.type = IR_END_AND_BLOCK;

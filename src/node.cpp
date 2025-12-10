@@ -7142,8 +7142,6 @@ case node_type::N_SCOPE:
     return 0;
   } break;
   case node_type::N_HASHTAG: {
-
-    BREAK(n->t->line == 5)
     switch (n->r->type) {
     case node_type::N_IF: {
       node *cur = n->r;
@@ -7404,7 +7402,6 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
     n->flags |= NODE_FLAGS_IS_PROCESSED2;
   } break;
   case node_type::N_HASHTAG: {
-
     switch (n->r->type) {
     case node_type::N_IF: {
       node *cur = n->r;
@@ -7429,7 +7426,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
           node *from = cur->l->r;
           if (from->type == N_SCOPE)
             from = from->r;
-          if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
+          if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD && from->r->type != N_BINOP)
             from = from->l;
           memcpy(n, from, sizeof(node));
           break;

@@ -538,7 +538,7 @@ struct import_strct
 	unit_file *fl;
 	decl2 *FindDecl(const own_std::string &name)
 	{
-
+    //if(*(own_std::string*)&name == "create_thread") HERE()
 		ASSERT(fl->global);
 		scope* imp_scp = fl->global;
 		// searching import scopes vars

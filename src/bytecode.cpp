@@ -709,49 +709,95 @@ void MovImmToReg(machine_code &m, short reg, char reg_sz, long long imm)
 
 }
 
-int GetArgRegIdx(int reg)
+int GetArgRegIdx(int reg, bool is_syscall)
 {
 	short final_reg = 0;
-	switch (reg)
-	{
+  if(is_syscall)
+  {
+    switch (reg)
+    {
 #ifdef LINUX
-	case 0:
-		final_reg = 7;
-		break;
-	case 1:
-		final_reg = 6;
-		break;
-	case 2:
-		final_reg = 2;
-		break;
-	case 3:
-		final_reg = 1;
-		break;
-	case 4:
-		final_reg = 0 | (1 << 7);
-		break;
-	case 5:
-		final_reg = 1 | (1 << 7);
-		break;
-	default:
-		final_reg = reg;
+    case 0:
+      final_reg = 7;
+      break;
+    case 1:
+      final_reg = 6;
+      break;
+    case 2:
+      final_reg = 2;
+      break;
+    case 3:
+      final_reg = 2 | (1 << 7);
+      break;
+    case 4:
+      final_reg = 0 | (1 << 7);
+      break;
+    case 5:
+      final_reg = 1 | (1 << 7);
+      break;
+    default:
+      final_reg = reg;
 #else
-	case 0:
-		final_reg = 1;
-		break;
-	case 1:
-		final_reg = 2;
-		break;
-	case 2:
-		final_reg = 0 | (1 << 7);
-		break;
-	case 3:
-		final_reg = 1 | (1 << 7);
-		break;
-	default:
-		final_reg = reg;
+    case 0:
+      final_reg = 1;
+      break;
+    case 1:
+      final_reg = 2;
+      break;
+    case 2:
+      final_reg = 0 | (1 << 7);
+      break;
+    case 3:
+      final_reg = 1 | (1 << 7);
+      break;
+    default:
+      final_reg = reg;
 #endif
-	}
+    }
+  }
+  else
+  {
+    switch (reg)
+    {
+#ifdef LINUX
+    case 0:
+      final_reg = 7;
+      break;
+    case 1:
+      final_reg = 6;
+      break;
+    case 2:
+      final_reg = 2;
+      break;
+    case 3:
+      final_reg = 1;
+      break;
+    case 4:
+      final_reg = 0 | (1 << 7);
+      break;
+    case 5:
+      final_reg = 1 | (1 << 7);
+      break;
+    default:
+      final_reg = reg;
+#else
+    case 0:
+      final_reg = 1;
+      break;
+    case 1:
+      final_reg = 2;
+      break;
+    case 2:
+      final_reg = 0 | (1 << 7);
+      break;
+    case 3:
+      final_reg = 1 | (1 << 7);
+      break;
+    default:
+      final_reg = reg;
+#endif
+    }
+  }
 	return final_reg;
 
 }
@@ -765,6 +811,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 	func_decl* cur_func = nullptr;
 
 	int cur_func_start = 0;
+  int cur_line;
+  bool is_syscall = false;
 	FOR_VEC(bc, bcodes)
 	{
 
@@ -790,6 +838,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case BEGIN_STMNT:
     {
       bc->st->start = ret.code.size();
+      cur_line = bc->st->line;
     }break;
 		case END_FUNC:
 		{
@@ -933,6 +982,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case MOVZX_M:
 		{
+      BREAK(ret.code.size() == 4737)
 			Create0FMemToReg(&*bc, 0xb6, &ret);
 		}break;
 		case RELOC:
@@ -1055,8 +1105,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case LOCK_XCHG_M_R:
     {
       ASSERT(bc->bin.lhs.reg_sz == 8)
-			short dst = GetArgRegIdx(bc->bin.lhs.reg) & 0xf;
-			short src = GetArgRegIdx(bc->bin.rhs.reg) & 0xf;
+			short dst = GetArgRegIdx(bc->bin.lhs.reg, is_syscall) & 0xf;
+			short src = GetArgRegIdx(bc->bin.rhs.reg, is_syscall) & 0xf;
 
 			ret.code.emplace_back(0xf0);
       AddPreMemInsts(bc->bin.lhs.reg_sz, 0x87, 0x87, false, ret.code);
@@ -1198,7 +1248,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case MOV_R_2_REG_PARAM:
 		{
-			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg, is_syscall);
 			if (bc->bin.lhs.reg < MAX_CALL_REGS)
 			{
 				short base_reg = final_reg;
@@ -1230,7 +1280,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case MOV_M_2_REG_PARAM:
 		{
 
-			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg, is_syscall);
 			if (bc->bin.lhs.reg < MAX_CALL_REGS)
 			{
 				auto saved_reg = bc->bin.lhs.reg;
@@ -1252,9 +1302,17 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				StoreMemToMem(&*bc, stack_reg, ret);
 			}
 		}break;
+		case UNSET_SYSCALL:
+    {
+      is_syscall = false;
+    }break;
+		case SET_SYSCALL:
+    {
+      is_syscall = true;
+    }break;
 		case MOV_I_2_REG_PARAM:
 		{
-			short final_reg = GetArgRegIdx(bc->bin.lhs.reg);
+			short final_reg = GetArgRegIdx(bc->bin.lhs.reg, is_syscall);
 			if (bc->bin.lhs.reg < MAX_CALL_REGS)
 			{
 				char dst_reg = final_reg;
@@ -1276,7 +1334,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			if ((bc->bin.rhs.reg & 0xf) < MAX_CALL_REGS)
 			{
-				short final_reg = GetArgRegIdx(bc->bin.rhs.reg);
+				short final_reg = GetArgRegIdx(bc->bin.rhs.reg, is_syscall);
 				auto prev_reg = bc->bin.rhs.reg;
 				bc->bin.rhs.reg = final_reg;
 				bool is_sse = IS_FLAG_ON(bc->bin.rhs.reg, 0x10);
@@ -1304,7 +1362,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			if ((bc->bin.rhs.reg & 0xf) < MAX_CALL_REGS)
 			{
-				short final_reg = GetArgRegIdx(bc->bin.rhs.reg);
+				short final_reg = GetArgRegIdx(bc->bin.rhs.reg, is_syscall);
 				auto prev_reg = bc->bin.rhs.reg;
 				bc->bin.rhs.reg = final_reg;
 				bool is_sse = IS_FLAG_ON(bc->bin.rhs.reg, 0x10);

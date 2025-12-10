@@ -2,10 +2,21 @@ import "../glfw";
 import "../opengl";
 import "../os";
 
-PrintStr::fn outsider(str_lit);
+thread :: fn(arg : *void)
+{
+  while true
+  {
+    PrintStr("on thread \n")
+  }
+}
 
 main::fn()
 {
+  io_globals.linear_max = 1024
+  io_globals.linear_cur = 0
+  io_globals.linear_data = cast(*u8)GetMem(io_globals.linear_max)
+  
+  printf("on main: {io_globals.linear_max}\n")
   PrintStr("mincraft start\n")
   res := glfwInit()
   if res == 0 __dbg_break
@@ -25,7 +36,7 @@ main::fn()
 
   if ret != 0 __dbg_break
 
-  th := create_thread()
+  th := create_thread(thread, nil)
 
   while true
   {

@@ -1,0 +1,3006 @@
+import "../../core";
+import "../lang";
+
+LINUX:const s32=0
+OS:const s32=LINUX
+
+RENDERER_OPENGL:const s32= 0
+RENDERER:const s32= RENDERER_OPENGL
+
+DRAW_INFO_HAS_TEXTURE:const s32 = 1;
+DRAW_INFO_NO_SCREEN_RATIO:const s32 = 2;
+DRAW_INFO_WIREFRAME:const s32 = 4;
+DRAW_INFO_STENCIL_WRITE:const s32 = 8;
+DRAW_INFO_STENCIL_TEST:const s32 = 16;
+DRAW_INFO_DISABLE_WRITING_TO_COLOR_BUFFER:const s32 = 32;
+DRAW_INFO_LINE:const s32 = 64;
+DRAW_INFO_TRANSPARENT:const s32 = 128;
+DRAW_INFO_TRANSPARENT2:const s32 = 256;
+DRAW_INFO_TRIANGLE:const s32 = 512;
+DRAW_INFO_NO_PROJ:const s32 = 1024;
+DRAW_INFO_DBG_BREAK:const s32 = 0x800
+DRAW_INFO_TERRAIN:const s32 = 0x1000
+DRAW_INFO_ALWAYS_ON_FRONT:const s32 = 0x2000
+DRAW_INFO_NO_DEPTH_TEST:const s32 = 0x4000
+DRAW_INFO_NO_LIGHT:const s32 = 0x8000
+DRAW_INFO_CUSTOM_SHADER:const s32 = 0x10000
+
+END_OF_LAYERS :const s32= 0xbebad0;
+SCENE_NAME_NAME_MAX : const s32= 32;
+
+MASKING_DIAMETER :const f32=7.0;
+
+CULLING_BACK:const s32= 0x1
+CULLING_FRONT:const s32= 0x2
+CULLING_FRONT_BACK:const s32= 0x4
+
+
+linear_alloc :struct(T)
+{
+	start : *T,
+	cur : u32,
+	max : u32,
+	#make_ptr_len(start, cur)
+}
+toggle_flag::fn(out : *u32, flag : u32)
+{
+	val_aux := *out & flag
+	*out = *out & ~flag
+
+	val_aux = (~val_aux) & flag
+
+	*out = *out | val_aux
+}
+LinearInitRawMem::fn{T}(linear_al : *linear_alloc(T), max : u32)
+{
+	linear_al.start = cast(*T)GetMem(max * sizeof(T))
+	linear_al.max = max
+}
+LinearInit::fn{T}(linear_al : *linear_alloc(T), alloc : *mem_alloc, max : u32)
+{
+	linear_al.start = cast(*T)heap_alloc(alloc, max * sizeof(T))
+	//printf("init addr %\n", cast(u32)cast(u64)linear_al.start)
+	linear_al.max = max
+}
+LinearSub::fn{T}(alloc : *linear_alloc(T), count : u32)
+{
+	ASSERT(((cast(s32)alloc.cur) - cast(s32)count) >= 0)
+	alloc.cur -= count;
+}
+LinearGet::fn{T}(alloc : *linear_alloc(T), count : u32) ! *T
+{
+	ASSERT(cast(s32)alloc.cur >= 0)
+	ASSERT((alloc.cur + 1) < alloc.max)
+	ret := ptr_offset(alloc.start, alloc.cur, T)
+	alloc.cur += count;
+	return ret
+}
+loading_stage:enum
+{
+  NONE,
+  UNLOADING_ASSETS,
+  DELETING_ENTS,
+  NOT_DONE_BUT_CAN_CHANGE_SCENES,
+  DONE,
+
+  CLEAR_COROUTINE
+}
+particle_emmitter_base :struct
+{
+	gravity : _vec
+	normal : _vec
+	cross : _vec
+	flags : u32
+	min_sz : _vec
+	max_sz : _vec
+	particle_lifetime : f32
+	speed : f32
+	random_start_timer : f32
+}
+
+window_event:enum
+{
+  OPEN,
+  UPDATE,
+  CLOSE,
+}
+create_event_etruct:etruct
+{
+	BRIDGE_ROTATE(
+		ent_id : u32
+		rotation_cur : f32
+	),
+	CREATE_EMMITTER(
+		pos : _vec
+		timer_deactivate : f32
+
+		using p : particle_emmitter_base
+	)
+}
+create_event_info:struct
+{
+	using type : create_event_etruct
+}
+terrain_chunk_draw_info:struct
+{
+  total_faces:u32
+  ubo:u32;
+}
+linked_chunk : struct
+{
+  in_use : bool
+  idx : u32
+  ptr : *void
+  next : *linked_chunk
+  prev : *linked_chunk
+}
+linked_list_mutex:struct(T)
+{
+  buffer_data : *T
+  start : *linked_chunk
+  buffer_chunks : *linked_chunk
+  total_chunks : u32
+  used_chunks : u32
+  mutex : u32
+}
+init_linked_list_mutex::fn{T}(l : *linked_list_mutex(T), total : u32, alloc : *mem_alloc)
+{
+  chunks_size := sizeof(linked_chunk) * total
+
+  l.buffer_chunks = cast(*linked_chunk)heap_alloc(alloc, chunks_size)
+  l.buffer_data   = cast(*T)heap_alloc(alloc, sizeof(T) * total)
+
+  memset(l.buffer_chunks, 0, chunks_size)
+  l.total_chunks = total
+
+  l.mutex = CreateMutex()
+
+}
+linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_chunk
+{
+  LockMutex(l.mutex)
+  aux := ptr
+  end := cast(u64)ptr_offset(l.buffer_chunks, l.total_chunks, linked_chunk)
+  if cast(u64)aux < cast(u64)l.buffer_chunks || cast(u64)aux > end
+  {
+    __dbg_break
+  }
+  prev := aux.prev
+  next := aux.next 
+  if prev != nil && next == nil
+  {
+    prev.next = nil
+  }
+  else if prev != nil && next != nil
+  {
+    prev.next = aux.next
+    next.prev = aux.prev
+  }
+  else if prev == nil && next != nil
+  {
+    next.prev = nil
+  }
+  if aux == l.start
+  {
+    ASSERT(aux.prev == nil)
+    if next != nil
+    {
+      l.start = next
+    }
+    else
+    {
+      l.start = nil
+    }
+  }
+  aux.in_use = false
+  l.used_chunks--
+
+  UnlockMutex(l.mutex)
+  return aux.next
+}
+linked_acquire_first::fn{T}(l : *linked_list_mutex(T), thread_id : u32) ! *linked_chunk
+{
+}
+linked_add_base::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  aux :*linked_chunk
+  for i in 0..l.total_chunks
+  {
+    cur := ptr_offset(l.buffer_chunks, i, linked_chunk)
+    if !cur.in_use
+    {
+      cur.next = nil
+      cur.prev = nil
+      cur.idx = cast(u32)i
+      cur.ptr = ptr_offset(l.buffer_data, i, T)
+      cur.in_use = true
+      aux = cur
+      break
+    }
+  }
+  if(aux == nil)
+  {
+      __dbg_break
+    }
+
+  if data != nil
+  {
+    memcpy(aux.ptr, data, sizeof(T));
+  }
+  
+  start := l.start
+  if start == nil
+  {
+    l.start = aux
+    start = aux
+  }
+  else
+  {
+    i:u32= 0
+    while start.next != nil
+    {
+      ASSERT(start.next != start)
+      start = start.next
+      i++
+      if i >= l.total_chunks{
+        __dbg_break;
+        return aux;
+      }
+    }
+    start.next = aux
+    aux.prev = start
+  }
+  l.used_chunks++
+
+  SignalMutex(l.mutex)
+
+  return aux
+}
+linked_add_no_lock::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  if (l.used_chunks + 1) > l.total_chunks __dbg_break
+  return linked_add_base(l, data, line)
+
+}
+linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  LockMutex(l.mutex)
+  defer UnlockMutex(l.mutex)
+  return linked_add_base(l, data, line)
+}
+OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK:const s32= 1
+OBJ_DRAW_FLAGS_IS_CUBE_EDGES:const s32= 2
+object_draw_info:struct
+{
+  pos : _vec
+  rot : _vec
+  size : _vec
+
+  shader_id : u32
+  model_id : u32
+  model_uniform_size : u32
+  textures_count : u32
+  flags:u32
+}
+scene_draw_info:struct
+{
+  cam_pos : _vec
+  cam_rot : _vec
+  cam_fw : _vec
+  sun_dir : _vec
+  sun_color : _vec
+  cam_size : f32
+
+  count_opaques : u32
+  count_transparents : u32
+  opaques_cur_size:u32;
+  transparents_cur_size:u32;
+
+  opaques_ptr : *void
+  transparents_ptr : *void
+
+  buffer : *void
+}
+global_struct : struct
+{
+	entities : linear_alloc(entity),
+	str_alloc : linear_alloc(u8),
+	temp_alloc : linear_alloc(u8),
+	sprintf_alloc : linear_alloc(u8),
+	allocs_occured : linear_alloc(*u8),
+	nodes_alloc : linear_alloc(node),
+	ast_alloc : linear_alloc(ast_rep),
+	scope_alloc : linear_alloc(scope),
+	terrain_alloc : linear_alloc(u8),
+
+	after_init : bool,
+
+	timer : f32,
+	alloc : *mem_alloc,
+	ent_name_string_alloc : *mem_alloc,
+	perm_alloc : *mem_alloc,
+	args : rel_array(var_arg)
+
+	cube_verts : [8]_vec
+	cube_tris : [36]s32
+	gjk : *void
+	ctx : *void
+
+	mx : f32
+	my : f32
+	tog : bool
+
+	tri_v1 : _vec
+	tri_v2 : _vec
+	tri_v3 : _vec
+	ray_origin : _vec
+	ray_end : _vec
+	up : _vec
+	forward : _vec
+
+	aabb1_min : _vec
+	aabb1_max : _vec
+	aabb2_min : _vec
+	aabb2_max : _vec
+
+	trn : *entity
+
+	all_axis_ent : *entity
+	all_axis_col : *collider
+
+	chunk : *chunk_col_info
+	chunks_ar : *dyn_array(*chunk_col_info)
+	create_events : dyn_array(create_event_info)
+	//models : dyn_array(model_info),
+	h : u32
+	w : u32
+
+	test_i : u32
+	add_new_line_new_stmnt_ast_to_string : bool
+
+	item_pick_sound_handle : u32
+	magic_hit_sound_handle : u32
+
+	cam_pos : *_vec
+	assets : dyn_array(asset_info)
+
+	textures : dyn_array(texture_info),
+
+  assert_buffer : [256]u8
+  assert_i : u32
+
+  time_since_start : f32
+
+	grass_tex : asset_index
+	aim_tex : asset_index
+	white_tex : asset_index
+	circle_tex : asset_index
+	ball_tex : asset_index
+	water_tex : asset_index
+	grid_tex : asset_index
+	grid_transparent_tex : asset_index
+
+	preview_ent : *entity
+	player : *entity,
+
+	line_shader : asset_index
+
+	cur_preview_idx : u8
+	aux_col_ent : *entity
+
+	aux_vertices : *_vec
+	aux_vertices_sz : u32
+	aux_indices : *u32
+	aux_indices_sz : u32
+
+  tris_checked :u32
+
+  selected_ent : *entity
+
+  fill_bones_called : u32
+  frames_total : u64
+
+  scene_draw : scene_draw_info
+
+  test_dyn_init2_called_count :u32
+  first : bool
+  worker_mutex:u32
+  modifying_work_to_do_mutex:u32
+  modifying_work_done_mutex:u32
+  modifying_face_flags_mutex:u32
+  terrain_tex : asset_index
+
+  chunks_added : bool
+}
+globals : global global_struct
+
+scene_file:struct
+{
+	session_id : u32,
+	area_col_pos : _vec,
+	area_col_size : _vec,
+	chunk_width : f32
+}
+
+rel_string : struct
+{
+	offset : u32,
+	count : u32,
+}
+new_str_lit::fn(alloc : *linear_alloc(u8), str: str_lit) ! str_lit
+{
+	ln := str_ln(str)
+	ret := cast(*u8)LinearGet(alloc, cast(u32)ln + 1)
+	memcpy(ret, str, ln)
+	*ptr_offset(ret, ln, u8) = 0
+	return cast(str_lit)ret
+}
+new_str_lit::fn(alloc : *mem_alloc, str: str_lit) ! str_lit
+{
+	ln := str_ln(str)
+	ret := cast(*u8)heap_alloc(alloc, cast(u32)ln + 1)
+	memcpy(ret, str, ln)
+	*ptr_offset(ret, ln, u8) = 0
+	return cast(str_lit)ret
+}
+string_to_str_lit::fn(alloc : *mem_alloc, str: *string) ! str_lit
+{
+	ln := str.data.count
+	ret := cast(*u8)heap_alloc(alloc, cast(u32)ln + 1)
+	memcpy(ret, str.data.data, ln)
+	*ptr_offset(ret, ln, u8) = 0
+	return cast(str_lit)ret
+}
+AppendStr::fn(self: *string, ch : char)
+{
+	dyn_add_data(&self.data, &ch, 1)
+}
+operator ==(self: *rel_string, str : *rel_string) !bool
+{
+	ln := str.count
+	if ln != self.count
+		return false
+
+	start := cast(*u8)(cast(u64)self + self.offset)
+	start2 := cast(*u8)(cast(u64)str + str.offset)
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(start, i, u8);
+		rhs := ptr_offset(start2, i, u8);
+		if *lhs != *rhs
+			return false
+	}
+
+	return true
+}
+operator ==(self: *rel_string, str : str_lit) !bool
+{
+	ln := str_ln(str)
+	if ln != self.count
+		return false
+
+	start := cast(*u8)(cast(u64)self + self.offset)
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(start, i, u8);
+		rhs := ptr_offset(str, i, u8);
+		if *lhs != *rhs
+		{
+			return false
+		}
+	}
+
+	return true
+}
+string : struct
+{
+	data : dyn_array(char)
+}
+operator ==(self: *string, str : *rel_string) !bool
+{
+	ln: = cast(u64)str.count
+	if ln != self.data.count
+		return false
+	
+	str_offset := ptr_offset(str, str.offset, u8)
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(self.data.data, i, u8);
+		rhs := ptr_offset(str_offset, i, u8);
+		if *lhs != *rhs
+			return false
+	}
+
+	return true
+	
+}
+operator ==(self: *string, str : *string) !bool
+{
+	ln: = str.data.count
+	if ln != self.data.count
+		return false
+	
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(self.data.data, i, u8);
+		rhs := ptr_offset(str.data.data, i, u8);
+		if *lhs != *rhs
+			return false
+	}
+
+	return true
+	
+}
+operator ==(self : *string, str : str_lit) ! bool
+{
+	ln := str_ln(str)
+	if ln != self.data.count
+		return false
+	
+
+	for i in 0..ln
+	{
+		lhs := ptr_offset(self.data.data, i, u8);
+		rhs := ptr_offset(str, i, u8);
+		if *lhs != *rhs
+			return false
+	}
+
+	return true
+	
+}
+
+AssignStr::fn(str : *string, strl : str_lit)
+{
+	str.data.count = 0
+	dyn_add_data(&str.data, strl, cast(u32)str_ln(strl));
+}
+AssignStr::fn(str : *string, buffer : *u8, bsz : u32)
+{
+	str.data.count = 0
+	dyn_add_data(&str.data, buffer, bsz);
+}
+AssignStr::fn(str : *string, rhs : *rel_string)
+{
+	str.data.count = 0
+	start := cast(*u8)(cast(u64)rhs + rhs.offset)
+	dyn_add_data(&str.data, start, cast(u32)rhs.count);
+}
+AssignStr::fn(str : *string, rhs : *string)
+{
+	str.data.count = 0
+	dyn_add_data(&str.data, rhs.data.data, cast(u32)rhs.data.count);
+}
+
+saved_regs : struct
+{
+	//regs : [34]u64,
+	rip : u64,
+
+};
+
+coroutine_func_saved:struct
+{
+	name : str_lit,
+	from_func_ret_addr : u64,
+
+	regs : saved_regs,
+	stack : dyn_array(u8),
+	cur_time_wait : f32,
+	time_to_wait : f32
+
+};
+coroutine_ctx:struct
+{
+	funcs: dyn_array(coroutine_func_saved),
+	alloc : *mem_alloc,
+}
+
+CorMoveVecTo::fn macro(vec : _expr, dst_x : _expr, dst_y : _expr, dst_z : _expr, speed : _expr, extra_break_cond : _expr)
+{
+	while true
+	{
+		dir_x := dst_x - vec.x;
+		dir_y := dst_y - vec.y;
+		vec.x += *dt * sign(dir_x) * speed;
+		vec.y += *dt * sign(dir_y) * speed;
+		
+		//OpenLocalsWindow(1205);
+		if absf(dst_x - vec.x) < 0.1 && absf(dst_y - vec.y) < 0.1 || (extra_break_cond)
+		{
+			break;
+		}
+		return;
+	}
+
+}
+CorWait::fn macro(time : _expr)
+{
+	
+	_found.time_to_wait = time;
+	_found.cur_time_wait = 0.0;
+	while true
+	{
+		_found.cur_time_wait += *dt;
+		if _found.cur_time_wait >= _found.time_to_wait
+			break;
+		return;
+	}
+}
+
+CoroutineEnding::fn macro(label_name : _expr)
+{
+	_lab_addr = cast(u64)label_name;
+	_found.regs.rip = GetInstRealAddr(_lab_addr - 1);
+	memcpy(_found.stack.data, cast(*void)_top_stack, _fsz);
+	return;
+	$label_name;
+}
+ResetCoroutine::fn macro()
+{
+	_found.regs.rip = 0;
+}
+CoroutinePrologue::fn macro()
+{
+
+	_test := cor_ctx;
+	_fsz: = GetFuncStackSize();
+	_fname := __FUNC_NAME__;
+	_lab_addr:u64;
+	_top_stack: = cast(u64)GetTopStackPtr();
+	_ret_addr: = *cast(*u64)ptr_offset(_top_stack, _fsz, u8);
+	_found :*coroutine_func_saved= GetSavedCoroutine(cor_ctx, _fname, _ret_addr, cast(u32)_fsz);
+
+
+	_rip := cast(*u64)(34 * 8);
+	if (_found.regs.rip != 0)
+	{
+		memcpy(cast(*void)_top_stack, _found.stack.data, _fsz);
+		*_rip = _found.regs.rip;
+	}
+	else
+	{
+		//_lab_addr = cast(u64)label1;
+		//_found.regs.rip = GetInstRealAddr(_lab_addr - 1);
+		//memcpy(_found.stack.data, cast(*void)_top_stack, _fsz);
+	}
+}
+
+GetSavedCoroutine::fn(ctx : *coroutine_ctx, name : str_lit, ret_addr : u64, stack_sz : u32) !*coroutine_func_saved
+{
+	for f in ctx.funcs
+	{
+		if str_cmp(name, f.name) && ret_addr == f.from_func_ret_addr
+			return f;
+	}
+	new_f:coroutine_func_saved;
+	new_f.name = name;
+	new_f.regs.rip = 0;
+	new_f.from_func_ret_addr = ret_addr;
+	dyn_init2(&new_f.stack, stack_sz, ctx.alloc);
+	dyn_add(&ctx.funcs, &new_f);
+	return ctx.funcs[ctx.funcs.count - 1];
+}
+
+stencil_func_enum : enum
+{
+	EQUAL,
+	NEQUAL,
+}
+IsTerminalCharater::fn(c : char) ! bool
+{
+	return c == ' || c == '$ || c == '@ || c == '* || c == '- || c == '/ || c == '. || c == ', || c == '+ || c == '? || c == '! || c == '= || c == ': || c == '[ || c == '] || c == '( || c == ')  || c == '} || c == '{ || c == '* || c == '\n || c == cast(char)0xd;
+}
+draw_info3d2: struct
+{
+  cam_pos : v4
+  cam_rot : v4
+  cam_fw : v4
+  cam_size : f32
+  data : *void
+  total_opaques : u32
+  total_transparents : u32
+}
+
+draw_info3d: struct
+{
+	model : u32
+	pos :_vec,
+	pivot :_vec,
+	ent_size :_vec,
+	color: [4]f32,
+	rot :_vec,
+	texture_id : u32,
+	cam_size : f32,
+	cam_pos : *_vec,
+	cam_rot : *_vec,
+	cam_forward : *_vec,
+	flags:u32,
+	stencil_func : stencil_func_enum,
+	stencil_val : u32,
+
+	tex_size_x:f32,
+	tex_size_y:f32,
+
+	tex_offset_x:f32,
+	tex_offset_y:f32,
+
+	color_lerp : f32
+	sec_color : _vec
+
+	sun_dir : _vec
+	sun_color : _vec
+	
+
+	shader_id : u32
+	name  : str_lit
+}
+draw_info: struct
+{
+	pos :_vec,
+	pivot :_vec,
+	ent_size :_vec,
+	color: [4]f32,
+	rot :_vec,
+	texture_id : u32,
+	cam_size : f32,
+	cam_pos : *_vec,
+	cam_rot : *_vec,
+	flags:u32,
+	stencil_func : stencil_func_enum,
+	stencil_val : u32,
+
+	tex_size_x:f32,
+	tex_size_y:f32,
+
+	tex_offset_x:f32,
+	tex_offset_y:f32,
+
+}
+clip: struct
+{
+	tex_idxs: *u32,
+	total_texs: u32,
+	id:u32,
+	len : f32,
+	cur_time :f32,
+	loop :bool,
+}
+layer_enum:enum
+{
+	SPRITE,
+	COL,
+	OBJ,
+}
+layer_obj_enum:enum
+{
+	PLAYER,
+	ENEMY,
+	CAM_RESTRAINT,
+	CHANGE_SCENE_TRIG,
+	CHARACTER_START_POS,
+	RESET_LEVEL,
+	FLOATY_PLATFORM,
+	INTERACT,
+}
+layer_obj_enum2: etruct
+{
+	PLAYER(
+	),
+	ENEMY(
+		enemy_type : enemy_enum,
+		#serializable(enemy_type)
+	),
+	CAM_RESTRAINT(
+	),
+	CHANGE_SCENE_TRIG(
+		scene_character_start_idx : u32,
+		add_info : str_lit,
+		#serializable(scene_character_start_idx, add_info)
+	),
+	CHARACTER_START_POS(
+		scene_character_start_idx : u32,
+		#serializable(scene_character_start_idx)
+	),
+	RESET_LEVEL(
+	),
+	FLOATY_PLATFORM(
+	),
+	INTERACT(
+		interact_idx : u32,
+		#serializable(interact_idx)
+	),
+}
+aux_layer_info_struct:struct
+{
+	version : u64,
+	type : layer_enum,
+	
+	pixels_per_width : u8,
+	obj_type : u8,
+
+	pos : _vec,
+	sz : _vec,
+	grid_x : u32,
+	grid_y : u32,
+	total_of_used_cells:u32,
+	cell_sz : u32,
+	masked : masked_info,
+};
+
+mouse_enum : enum
+{
+	LEFT,
+	RIGHT
+}
+key_enum : enum
+{
+	KEY_LEFT,
+	KEY_RIGHT,
+	KEY_DOWN,
+	KEY_UP,
+	KEY_ACT0,
+	KEY_ACT1,
+	KEY_ACT2,
+	KEY_ACT3,
+	KEY_JMP,
+	KEY_DEL,
+	KEY_SHIFT,
+	KEY_TAB,
+	KEY_ALT,
+	KEY_LCTRL,
+	KEY_A,
+	KEY_S,
+	KEY_D,
+	KEY_F,
+	KEY_Q,
+	KEY_E,
+	KEY_W,
+	KEY_I,
+	KEY_P,
+	KEY_Z,
+	KEY_X,
+	KEY_C,
+	KEY_V,
+	KEY_B,
+	KEY_N,
+	KEY_M,
+	KEY_ESCAPE,
+	KEY_SPACE,
+	KEY_F1,
+	KEY_F2,
+	KEY_F3,
+	KEY_F4,
+	KEY_F5,
+	KEY_F6,
+	KEY_F7,
+	KEY_F8,
+	KEY_F9,
+	KEY_F10,
+	KEY_F11,
+	KEY_F12,
+	KEY_ENTER,
+	KEY_K,
+	KEY_0,
+	KEY_1,
+	KEY_2,
+	KEY_3,
+	KEY_4,
+	KEY_5,
+	KEY_6,
+	KEY_7,
+	KEY_8,
+	KEY_9,
+}
+mesh_info:struct
+{
+	pos : _vec
+	verts : dyn_array(f32)
+	chunks : dyn_array(chunk_col_info)
+	model : u32
+}
+chunk_col_info :struct
+{
+	tris : dyn_array(u32)
+	verts_mesh_idx : u32
+	pos_x : f32
+	pos_y : f32
+
+	using uup :: union
+	{
+		up_neighbor : s32
+		st ::struct
+		{
+			mx : u8
+			my : u8
+			cx : u8
+			cy : u8
+		}
+	}
+	down_neighbor: s32
+	using uleft :: union
+	{
+		left_neighbor : s32
+		st_2 ::struct
+		{
+			mx : u8
+			my : u8
+			cx : u8
+			cy : u8
+		}
+	}
+	using uright :: union
+	{
+		right_neighbor : s32
+		st_3 ::struct
+		{
+			mx : u8
+			my : u8
+			cx : u8
+			cy : u8
+		}
+	}
+
+}
+terrain_info : struct
+{
+	meshes : dyn_array(mesh_info)
+	tris : dyn_array(u32)
+	vertices_per_row : u32
+	width:u32
+	height:u32
+	chunks_col_per_row:u32
+	chunks_col_window_size:u32
+	tris_per_unit:f32
+	size : u32
+	tex: *texture_info
+
+	amplitude : f32
+}
+create_mesh_info:struct
+{
+	verts : *f32
+	total_verts : u32
+
+	tris : *u32
+	total_tris : u32
+
+	attribs : *u32
+	total_attribs : u32
+}
+vertex_terrrain_modify:struct
+{
+	vidx : u64
+	x : u32
+	y : u32
+	dir : f32
+	duplicated: bool
+	mesh : *mesh_info
+}
+
+GetShaderUniform::fn(m : *material_info, name : str_lit) ! u64
+{
+	idx:u64
+	found := false
+	for u in m.uniforms
+	{
+		if u.name == name
+		{
+			found =true
+			break;
+		}
+		idx++
+	}
+	ASSERT(found)
+	return idx
+
+}
+
+
+//AddMemoryWatch::fn outsider(a : *void);
+
+type_layout:enum
+{
+  FLOAT_R32G32B32A32,
+  FLOAT_R32G32B32,
+  FLOAT_R32G32,
+  FLOAT_R32,
+  INT_R32G32B32A32,
+  MAT4,
+  TEX2D,
+}
+type_layout_info:struct
+{
+  tp : type_layout
+  count : u32
+  flags:u32
+}
+shader_create_info:struct
+{
+  verts_layout:dyn_array(type_layout_info)
+  uniforms_layout:dyn_array(type_layout_info)
+}
+
+lock_xchg::fn intrinsic(ptr : *u64, val : u64) ! u64;
+
+CreateStorageBuffer::fn(size : u32)!u32
+{
+#if RENDERER == RENDERER_OPENGL
+{
+
+}
+}
+UpdateStorageBuffer::fn(ubo : u32, data : *void, data_size:u32);
+{
+#if RENDERER == RENDERER_OPENGL
+{
+
+}
+}
+
+WaitMutex::fn(id : u32)
+{
+
+}
+SignalMutex::fn outsider(id:u32);
+LockMutex::fn outsider(id : u32);
+TryLockMutex::fn outsider(id : u32);
+UnlockMutex::fn outsider(id:u32);
+CreateMutex::fn outsider()!u32;
+CompileShader::fn outsider(name : *char, name_len : u64, vertex_shader : *char, vs_len : u64, fragment_shader : *char, fs_len : u64, vertex_input : *type_layout_info, vertex_input_count : u32, uniforms : *type_layout_info, uniforms_count :u32) ! u32;
+GetUniformLocation::fn outsider(shader_id : u32, name_str : *char, name_len : u32) ! u32;
+SetShader::fn outsider(shader_id : u32);
+SetShaderUniform::fn outsider(uniform_id: u32, data : *void, size : u32, type : u32);
+
+InvertMatrix::fn outsider(src : *f32, dst : *f32);
+
+SetUniformMatrices4x4::fn outsider(uid : u32, count : u32, data : *void);
+SetUniform4f::fn outsider(uid : u32, x : f32, y : f32, z : f32, w : f32);
+SetUniform3f::fn outsider(uid : u32, x : f32, y : f32, z : f32);
+SetUniform2f::fn outsider(uid : u32, x : f32, y : f32);
+SetUniform1f::fn outsider(uid : u32, x : f32);
+
+SetSampler2D::fn outsider(uid : u32, tex_id : u32);
+ValidateTextureSlot::fn outsider(shader_id : u32, name_str : *char, name_len : u32, slot : u32) ! u32;
+CopyDataFromModel::fn outsider(model : u32, verts_ptr : *_vec, verts_count : u32, indices_ptr : *u32, indices_count: u32, out_verts_count : *u32, out_indices_count : *u32);
+GetInfoFromModel::fn outsider(model : u32, out_verts_count : *u32, out_indices_count : *u32);
+
+SetCulling::fn outsider(flags :u32);
+
+CreateThread::fn outsider(fn(thread_id:u32, *void), *void)!u32;
+JoinThread::fn outsider(u32)!u32;
+WaitThread::fn outsider(u32)!u32;
+ResumeThread::fn outsider(u32)!u32;
+SuspendThread::fn outsider(u32)!u32;
+
+UpdateModel::fn outsider(model : u32, verts : *f32, ) ! _vec;
+ScreenMouseToWorld::fn outsider(mx : f32, my : f32) ! _vec;
+Perlin2D::fn outsider(x:f32, y:f32, freq:f32, depth : u32) ! f32;
+Simplex3D::fn outsider(x:f32, y:f32, z:f32)!f32;
+CreateMesh::fn outsider(*create_mesh_info) ! u32;
+LoadModel::fn outsider(name : str_lit) ! u32;
+ReloadModel::fn outsider(idx:u32);
+FreeModel::fn outsider(idx: u32);
+ModelFarthestPoint::fn outsider(idx : u32, axis : *_vec) ! _vec;
+
+PrintV3::fn outsider(f32, f32, f32);
+PrintV3Int::fn outsider(s32, s32, s32);
+PrintStr::fn outsider(str_lit);
+OpenWindow::fn outsider(width : u32, height : u32) ! *u8;
+ClearBackground::fn outsider(f32, f32, f32);
+ShouldClose::fn outsider(*u8) ! bool;
+Draw::fn outsider(*u8, *draw_info);
+Draw3D::fn outsider(*u8, *draw_info3d);
+Draw3D2::fn outsider(*u8, *scene_draw_info);
+Draw3DTransparency::fn outsider(*u8);
+EndFrame::fn outsider(wnd : *u8);
+
+
+type_enum : enum
+{
+	TYPE_AUTO,
+	TYPE_ARRAY_TYPE,
+	TYPE_STATIC_ARRAY,
+	TYPE_ARRAY,
+	TYPE_ARRAY_DYN,
+
+	TYPE_ENUM_IDX_32,
+
+	TYPE_OVERLOADED_FUNCS,
+
+	TYPE_TYPEDEF,
+
+	TYPE_WASM_MEMORY,
+
+	TYPE_VOID,
+	TYPE_VOID_TYPE,
+
+	TYPE_RANGE,
+
+	//
+	TYPE_STRUCT_TYPE,
+	TYPE_CHAR_TYPE,
+	TYPE_STR_LIT,
+	TYPE_STATIC_ARRAY_TYPE,
+
+	TYPE_U8_TYPE,
+	TYPE_S8_TYPE,
+	TYPE_U16_TYPE,
+	TYPE_S16_TYPE,
+	TYPE_U32_TYPE,
+	TYPE_S32_TYPE,
+	TYPE_U64_TYPE,
+	TYPE_S64_TYPE,
+
+	TYPE_BOOL_TYPE,
+	TYPE_UNION_TYPE,
+	TYPE_FUNC_TYPE,
+	TYPE_ENUM_TYPE,
+	TYPE_F32_TYPE,
+	TYPE_F64_TYPE,
+	//
+
+	TYPE_INT,
+
+	TYPE_IMPORT,
+
+	TYPE_REL_TYPE,
+	TYPE_REL,
+
+	TYPE_U8,
+	TYPE_S8,
+	TYPE_U16,
+	TYPE_S16,
+	TYPE_U32,
+	TYPE_S32,
+	TYPE_U64,
+	TYPE_S64,
+
+	TYPE_F32,
+	TYPE_CHAR,
+	TYPE_F64,
+	TYPE_BOOL,
+	TYPE_F32_RAW,
+	TYPE_F64_RAW,
+
+	TYPE_UNION_DECL,
+	TYPE_UNION,
+
+	TYPE_ENUM_DECL,
+	TYPE_ENUM,
+
+	TYPE_MACRO_EXPR,
+
+	TYPE_STRUCT_DECL,
+	TYPE_STRUCT,
+	TYPE_STRUCT_ANON,
+	TYPE_BUILT_IN_MACRO,
+	TYPE_FUNC_DECL,
+	TYPE_FUNC_PTR,
+	TYPE_FUNC_DEF,
+	TYPE_FUNC_EXTERN,
+	TYPE_FUNC,
+	TYPE_COMMA,
+	TYPE_TEMPLATE,
+	TYPE_VECTOR_TYPE,
+	TYPE_VECTOR,
+	TYPE_MAX,
+}
+
+var_arg:struct
+{
+	type : type_enum,
+	type_info : *type_data,
+	ptr : u8,
+	val : *void,
+}
+str_2_num::fn(buf : str_lit, buffer_sz : u32) ! s64
+{
+
+	aux_buffer : [64]u8;
+
+	out_buffer : dyn_array(char);
+	out_buffer.data = cast(*char)aux_buffer;
+	out_buffer.count = 64;
+
+	buffer : dyn_array(char);
+	buffer.data = cast(*char)buf;
+	buffer.count = buffer_sz;
+
+	negative : bool
+	if *buffer[0] == '-
+	{
+		negative = true;
+		buffer.data = ptr_offset(buffer.data, 1 , char)
+		buffer_sz--;
+	}
+	aux :u32= 1
+	mul :s64= 1
+
+	while aux < buffer_sz
+	{
+		mul = mul * 10
+		aux++
+	}
+
+	num :s64= 0
+	aux = 0
+		
+	
+	while aux < buffer_sz
+	{
+		ch := *buffer[cast(u64)aux] - '0
+		num = num + (cast(s64)ch * mul)
+		mul = mul / 10
+		aux++;
+	}
+	
+	if negative
+		num = num * -1
+		
+	return num
+}
+num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
+{
+	i :u64= 0;
+	written :u64= 0;
+	aux_buffer : [64]u8;
+
+	out_buffer :*char= cast(*char)in_buf;
+
+	buffer := cast(*char)aux_buffer;
+
+	if num == 0
+	{
+		*ptr_offset(out_buffer, 0, u8) = '0;
+		return 1;
+	}
+	negative: = false;
+	if num < 0
+	{
+		negative = true;
+		num = num * -1;
+	}
+
+
+	while num != 0
+	{
+		mod := num % 10;
+		*ptr_offset(buffer, written, char) = cast(char)(cast(u8)'0 + cast(u8)mod);
+		num = num / 10;
+		written += 1;
+	}
+
+	aux_written_rev := cast(s64)written - 1;
+	aux_written :u64= 0;
+	if negative
+	{
+		*ptr_offset(out_buffer, aux_written, char) = '-;
+		aux_written++;
+		written++;
+	}
+	while  aux_written_rev >= 0
+	{
+
+		dst :=ptr_offset(out_buffer, aux_written, char)
+		*dst = *ptr_offset(buffer, cast(u64)aux_written_rev, char);
+		aux_written_rev--;
+		aux_written++;
+	}
+	return written;
+}
+sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_array(var_arg)) !u64
+{
+
+	format_ln: = str_ln(format);
+	format_idx:u64 = 0;
+	buffer_idx:u64 = 0;
+	arg_idx:u64 = 0;
+	aux_num_buffer: [64] u8;
+
+	while format_idx < format_ln
+	{
+
+		if* ptr_offset(format, format_idx, char) == '%
+		{
+			cur_arg: = (*__var_args)[arg_idx];
+			if* ptr_offset(format, format_idx + 1, char) == '*
+			{
+				if* ptr_offset(format, format_idx + 2, char) == 's
+				{
+					len: = cast(u32)cast(u64)cur_arg.val;
+
+					arg_idx++;
+
+					cur_arg = (*__var_args)[arg_idx];
+
+					str_ptr: = cast(*u8)cur_arg.val
+
+					dst : = ptr_offset(buffer, buffer_idx, u8);
+					memcpy(dst, cast(*u8)str_ptr, len);
+					buffer_idx += len
+					//format_idx++;
+					format_idx += 2;
+
+				}
+				else
+					__dbg_break;
+			}
+			else if cur_arg.type == type_enum.TYPE_STRUCT
+			{
+				if cur_arg.type_info.name == "rel_string"
+				{
+					addr := cast(*u8)cur_arg.val
+
+					offset := *cast(*u32)addr
+					len := *cast(*u32)ptr_offset(addr, 1, u32)
+					
+					actual_str := ptr_offset(addr, offset, u8)
+
+					dst : = ptr_offset(buffer, buffer_idx, u8);
+					memcpy(dst, cast(*u8)actual_str, len);
+					buffer_idx += len
+				}
+				else if cur_arg.type_info.name == "string"
+				{
+					addr := cast(*u8)cur_arg.val
+
+					str := cast(*string)addr;
+
+					len := str.data.count
+					
+					actual_str := str.data.data
+
+					dst : = ptr_offset(buffer, buffer_idx, u8);
+					memcpy(dst, cast(*u8)actual_str, len);
+					buffer_idx += len
+				}
+			}
+			else if cur_arg.type == type_enum.TYPE_STR_LIT
+			{
+				arg_str_ln: = str_ln(cast(str_lit)cur_arg.val);
+				dst: = ptr_offset(buffer, buffer_idx, u8);
+				ASSERT((buffer_idx + arg_str_ln) < bsz);
+				memcpy(dst, cast(*u8)cur_arg.val, arg_str_ln);
+				buffer_idx += arg_str_ln;
+			}
+			else if cur_arg.type == type_enum.TYPE_BOOL
+
+			{
+				true_str := "true"
+				false_str := "false"
+				ln :u64=0
+				correct_str :str_lit
+				
+				val :=cast(u8)cast(u64)cur_arg.val
+				if val == 0
+				{
+					correct_str = false_str
+				}
+				else if val == 1
+				{
+					correct_str = true_str
+				}
+				else
+				{
+					__dbg_break
+				}
+				ln = str_ln(correct_str)
+
+				memcpy(ptr_offset(buffer, buffer_idx, u8), correct_str, ln);
+				buffer_idx += ln;
+
+
+			}
+			else if cur_arg.type == type_enum.TYPE_F32
+
+			{
+				f := *cast(*f32)&cur_arg.val
+				lhs := cast(s32)f
+				rhs := cast(s32)((f - cast(f32)lhs)* 100.0)
+
+				negative := false
+				if rhs < 0 && lhs == 0
+				{
+					negative = true
+				}
+				if rhs < 0
+				{
+					rhs = rhs * -1
+				}
+
+				
+
+				//if cast(s64)cur_arg.val == 32
+					//__dbg_break
+				num_ln: = num_2_str(cast(s64)lhs, aux_num_buffer[0], 16);
+				if negative
+				{
+					*ptr_offset(buffer, buffer_idx, u8) = '-
+					buffer_idx++
+				}
+				*ptr_offset(aux_num_buffer[0], num_ln, u8) = '.
+				num_ln2: = num_2_str(cast(s64)rhs, aux_num_buffer[num_ln + 1], 16);
+
+				memcpy(ptr_offset(buffer, buffer_idx, u8), aux_num_buffer[0], num_ln + num_ln2 + 1);
+				buffer_idx += num_ln + num_ln2 + 1;
+
+
+			}
+			else if cur_arg.type == type_enum.TYPE_U32 || cur_arg.type == type_enum.TYPE_S32 ||
+					cur_arg.type == type_enum.TYPE_U8 || cur_arg.type == type_enum.TYPE_S8 ||
+					cur_arg.type == type_enum.TYPE_U16 || cur_arg.type == type_enum.TYPE_S16 ||
+					cur_arg.type == type_enum.TYPE_U64 || cur_arg.type == type_enum.TYPE_S64 ||
+					cur_arg.type == type_enum.TYPE_INT
+
+			{
+
+				//if cast(s64)cur_arg.val == 32
+					//__dbg_break
+				num_ln: = num_2_str(cast(s64)cur_arg.val, aux_num_buffer, 32);
+
+				memcpy(ptr_offset(buffer, buffer_idx, u8), aux_num_buffer, num_ln);
+				buffer_idx += num_ln;
+
+
+			}
+			else
+			{
+				// type not handled
+				__dbg_break;
+			}
+			arg_idx++;
+		}
+		else
+		{
+			ASSERT((buffer_idx + 1) < bsz);
+			*ptr_offset(buffer, buffer_idx, u8) = *ptr_offset(format, format_idx, u8);
+			buffer_idx++;
+		}
+		format_idx++;
+	}
+	ASSERT(buffer_idx < bsz);
+	*ptr_offset(buffer, buffer_idx, u8) = 0;
+	tast: = 0;
+	return buffer_idx;
+}
+sprintf_temp::fn(format : str_lit, ...) !str_lit
+{
+	buffer: [512] char;
+
+	sz: = sprintf_base(buffer, 512, format, &__var_args);
+	ret: = LinearGet(&globals.temp_alloc, cast(u32)sz + 1)
+	memcpy(ret, buffer, cast(u32)sz + 1);
+	return cast(str_lit)ret;
+}
+sprintf::fn(buffer : *u8, bsz : u32, format : str_lit, ...) !u64
+{
+	tp: = GetTypeData(entity)
+	return sprintf_base(buffer, bsz, format, &__var_args);
+}
+printf::fn(format : str_lit, ...)
+{
+	prev_sz := globals.temp_alloc.cur
+	buffer : [128]u8;
+	sprintf_base(buffer, 128, format, &__var_args);
+	PrintStr(cast(str_lit)buffer);
+	globals.temp_alloc.cur = prev_sz 
+}
+
+DECL_FROM_USING :const s32= 0x2
+DECL_PTR_HAS_LEN :const s32= 0x80
+DECL_SERIALIZABLE:const s32= 0x200
+DECL_IS_USING:const s32= 0x400
+
+TP_STRCT_ETRUCT:const s32= 0x10
+TP_STRCT_IS_DYN_ARRAY :const s32= 0x20
+TP_STRCT_HAS_SERIALIZABLE_FUNC :const s32= 0x40
+
+type_data:struct
+{
+	using u::union
+	{
+		// entries is how many members a strct has
+		entries : u32,
+		strct : *type_data,
+	},
+	strct_sz : u64,
+	offset : u64,
+	ptr : u8,
+	ser_func : *void,
+	tp : type_enum,
+	flags : u32,
+	name : rel_string,
+	decl_offset_for_ptr_len : u32,
+
+}
+
+
+
+IsTkn::fn(tkns : *dyn_array(token), cur_tkn : u64, expected : u32) ! bool
+{
+	if (*tkns)[cur_tkn].type == cast(token_type)expected
+		return true;
+	return false
+}
+ExpectTkn::fn(tkns : *dyn_array(token), cur_tkn : *u64, expected : u32) ! *token 
+{
+	ASSERT((*tkns)[*cur_tkn].type == cast(token_type)expected)
+	ret := tkns[*cur_tkn]
+	(*cur_tkn)++;
+	return ret
+}
+DeserializeStruct::fn(tkns : *dyn_array(token), cur_tkn : *u64, type : *type_data, data : *void)
+{
+	ExpectTkn(tkns, cur_tkn, cast(u32)token_type.OPEN_CURLY)
+
+	if type.tp == type_enum.TYPE_STRUCT
+		type = type.strct
+	
+	while true && *cur_tkn < tkns.count
+	{
+		type_found : *type_data
+		word := ExpectTkn(tkns, cur_tkn, cast(u32)token_type.WORD)
+
+		name : *string= &word.type.WORD.str
+
+		for i in 0..type.entries
+		{
+			cur_tp := ptr_offset(type, 1 + i, type_data)
+			if *name == cur_tp.name
+			{
+				type_found = cur_tp
+				break;
+			}
+		}
+		ASSERT(type_found != nil)
+			
+		ExpectTkn(tkns, cur_tkn, cast(u32)token_type.EQUAL)
+
+		DeserializeVar(tkns, cur_tkn, type_found, ptr_offset(data, type_found.offset, u8), name)
+
+		if IsTkn(tkns, *cur_tkn, cast(u32)token_type.CLOSE_CURLY)
+			break;
+	}
+	ExpectTkn(tkns, cur_tkn, cast(u32)token_type.CLOSE_CURLY)
+}
+
+DeserializeVar::fn(tkns : *dyn_array(token), cur_tkn : *u64, type : *type_data, data : *void, var_name : *string)
+{
+	if is_flag_on(type.flags, DECL_PTR_HAS_LEN)
+	{
+
+		len := *cast(*u32)ptr_offset(data, type.decl_offset_for_ptr_len, u8)
+
+
+		ExpectTkn(tkns, cur_tkn, cast(u32)token_type.OPEN_BRACKETS)
+
+		aux_tp := *type;
+		aux_tp.ptr--;
+
+		//ptr_type_data := type;
+		if type.tp == type_enum.TYPE_STRUCT
+			aux_tp = *aux_tp.strct;
+		for i in 0..len
+		{
+			addr := cast(u64)ptr_offset(data, cast(u64)i * type.strct_sz, u8);
+			
+			DeserializeVar(tkns, cur_tkn, &aux_tp, addr, var_name)
+		}
+
+		ExpectTkn(tkns, cur_tkn, cast(u32)token_type.CLOSE_BRACKETS)
+	}
+	else
+	{
+		if type.tp == type_enum.TYPE_STRUCT && is_flag_on(type.flags, TP_STRCT_ETRUCT)
+		{
+			type_name := ExpectTkn(tkns, cur_tkn, cast(u32)token_type.WORD)
+			type_found : *type_data
+			for i in 0..type.strct.entries
+			{
+				cur_tp := ptr_offset(type.strct, 1 + i, type_data)
+				if type_name.type.WORD.str == cur_tp.name
+				{
+					type_found = cur_tp
+					break;
+				}
+			}
+			ASSERT(type_found != nil)
+			
+			DeserializeStruct(tkns, cur_tkn, type_found, ptr_offset(data, 4, u8))
+
+		}
+		else if type.tp == type_enum.TYPE_STRUCT 
+		{
+			DeserializeStruct(tkns, cur_tkn, type.strct, data)
+		}
+		else
+		{
+			int := ExpectTkn(tkns, cur_tkn, cast(u32)token_type.INT)
+			if type.tp == type_enum.TYPE_U32
+			{
+				*cast(*u32)data  = cast(u32)int.type.INT.num
+			}
+			else if type.tp == type_enum.TYPE_S32
+			{
+				*cast(*s32)data  = cast(s32)int.type.INT.num
+			}
+			else
+				__dbg_break;
+		}
+	}
+}
+
+DynArToStrLit::fn(ar : *dyn_array(char)) ! str_lit
+{
+	ret := heap_alloc(globals.alloc, cast(u32)ar.count + 1)
+	memcpy(ret, ar.data, ar.count)
+	*ptr_offset(ret, ar.count, u8) = 0
+	return cast(str_lit)ret
+}
+
+Deserialize::fn(str : str_lit, type : *type_data, data : *void)
+{
+	__dbg_break
+	
+	globals.nodes_alloc.cur = 0
+	globals.ast_alloc.cur = 0
+
+	ln := str_ln(str)
+
+	scp := new_scope(nil)
+
+	lang_stat : lang_state
+	tkns : dyn_array(token)
+	Tokenize(&tkns, str)
+	pinfo : parse_info
+	pinfo.tkns = &tkns
+	n := parse(&pinfo, 999, parser_op.GREATER_EQ)
+	ast := parse_node_to_ast(&lang_stat, n, scp)
+
+	ASSERT(ast.type == ast_type.SCOPE)
+
+
+	cur_tkn : u64
+	DeserializeStruct(&tkns, &cur_tkn, type, data);
+	a := 0
+}
+InsertTab::fn(buffer : *dyn_array(char), tab : u8)
+{
+	for i in 0..tab
+	{
+		dyn_add(buffer, '\t)
+	}
+}
+PushStr::fn(self : *string, str : *string)
+{
+	dyn_add_data(cast(*dyn_array(char))&self.data, str.data.data, cast(u32)str.data.count)
+}
+PushStrLit::fn(self : *string, str : str_lit)
+{
+	ln := str_ln(str)
+
+	dyn_add_data(cast(*dyn_array(char))&self.data, str, cast(u32)ln)
+}
+PushStrLit::fn(buffer : *dyn_array(char), str : str_lit)
+{
+	ln := str_ln(str)
+
+	dyn_add_data(buffer, str, cast(u32)ln)
+}
+SerializeStruct::fn(buffer : *dyn_array(char), type : *type_data, data : *void, tab : u8)
+{
+	buffer_aux: [128] char;
+
+	if type.ser_func
+	{
+		func : = cast(fn(*dyn_array(char), *void, u8))type.ser_func
+		func(buffer, data, tab)
+		return;
+	}
+	//InsertTab(buffer, tab)
+	PushStrLit(buffer, "\{")
+
+	serialized_var := false
+	for i in 0..type.entries
+	{
+		cur_var: = ptr_offset(type, 1 + i, type_data);
+		if is_flag_on(cur_var.flags, DECL_SERIALIZABLE)
+		{
+			final_ptr: = cast(u64)data + cur_var.offset
+			if cur_var.ptr > 0
+			{
+				//__dbg_break
+				ptr := cur_var.ptr
+				while ptr > 0
+				{
+					final_ptr = *cast(*u64)final_ptr
+					ptr--
+				}
+			}
+			//InsertTab(buffer, tab + 1)
+			Serialize(buffer, cur_var, final_ptr, tab + 1, &cur_var.name);
+			dyn_add(buffer, ',)
+			//dyn_add(buffer, '\n)
+			serialized_var = true
+		}
+	}
+	if serialized_var
+	{
+		buffer.count = buffer.count - 1
+	}
+
+	//dyn_add(buffer, '\n)
+	//InsertTab(buffer, tab)
+	PushStrLit(buffer, "\}")
+	a:=0
+}
+SpreadRelString::fn macro(str : _expr)
+{
+	cast(str_lit)(cast(u64)&str + str.offset)
+}
+GetTypeSize::fn(tp : *type_data) !u64
+{
+	if tp.ptr > 0
+		return 8;
+	if tp.tp == type_enum.TYPE_U8 || tp.tp == type_enum.TYPE_S8
+	{
+		return 1;
+	}
+	else if tp.tp == type_enum.TYPE_U16 || tp.tp == type_enum.TYPE_S16
+	{
+		return 2;
+	}
+	else if tp.tp == type_enum.TYPE_U32 || tp.tp == type_enum.TYPE_S32 || tp.tp == type_enum.TYPE_ENUM
+	{
+		return 4;
+	}
+	else if tp.tp == type_enum.TYPE_U64 || tp.tp == type_enum.TYPE_S64
+	{
+		return 8;
+	}
+	else if tp.tp == type_enum.TYPE_VECTOR
+	{
+		return 16;
+	}
+	else if tp.tp == type_enum.TYPE_STRUCT
+	{
+		return tp.strct_sz;
+	}
+	// type not handled
+	__dbg_break
+	return 0
+}
+/*
+SerializeStructAst::fn(type : *type_data, data : *void) ! *ast_rep
+{
+	ret := new_ast2()
+	ret.type = ast_rep.SCOPE
+
+	for i in 0..type.entries
+	{
+		cur_var: = ptr_offset(type, 1 + i, type_data);
+		if is_flag_on(cur_var.flags, DECL_SERIALIZABLE)
+		{
+			final_ptr: = cast(u64)data + cur_var.offset
+			if cur_var.ptr > 0
+			{
+				//__dbg_break
+				ptr := cur_var.ptr
+				while ptr > 0
+				{
+					final_ptr = *cast(*u64)final_ptr
+					ptr--
+				}
+			}
+			//InsertTab(buffer, tab + 1)
+			aux := SerializeAst(cur_var, final_ptr);
+			dyn_add(&ret.SCOPE.stmnts, aux)
+		}
+	}
+	return ret
+
+}
+*/
+IntToAst::fn(i : s32)!*ast_rep
+{
+	num := new_ast2()
+	num.type = ast_type.INT
+	num.INT.num = i
+	return num
+}
+AssignmentToAst::fn(name : str_lit, rhs : *ast_rep)!*ast_rep
+{
+	ret := new_ast2()
+	ret.type = ast_type.BIN
+
+	name_ast := new_ast2()
+	name_ast.type = ast_type.WORD
+	AssignStr(&name_ast.WORD.str, name)
+
+	ret.BIN.op = cast(u32)token_type.EQUAL
+	dyn_add(&ret.BIN.expr, name_ast)
+	dyn_add(&ret.BIN.expr, rhs)
+
+	return ret
+}
+VecToAst::fn(v : *_vec)!*ast_rep
+{
+	ret := new_ast2()
+
+	ret.type = ast_type.SCOPE
+
+	op := new_ast2()
+	op.type = ast_type.BIN
+	op.BIN.op = cast(u32)token_type.COMMA
+
+	dyn_add(&op.BIN.expr, IntToAst(*cast(*s32)&v.x))
+	dyn_add(&op.BIN.expr, IntToAst(*cast(*s32)&v.y))
+	dyn_add(&op.BIN.expr, IntToAst(*cast(*s32)&v.z))
+	dyn_add(&op.BIN.expr, IntToAst(*cast(*s32)&v.w))
+
+	dyn_add(&ret.SCOPE.stmnts, op)
+
+	return ret
+}
+AssetIndexAssignmentToAst::fn(name : str_lit, idx : *asset_index)!*ast_rep
+{
+	scp := new_ast2()
+
+	scp.type = ast_type.SCOPE
+
+	cid := &globals.assets[cast(u64)idx.asset_idx].cid
+
+	buffer:[13]char
+	memcpy(buffer[0], &cid.name, 12)
+	*buffer[13] = cast(char)0
+
+	dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("name", cast(str_lit)buffer[0]))
+	dyn_add(&scp.SCOPE.stmnts, S32AssignmentToAst("a_type", cast(s32)cid.id.a_type))
+
+	return AssignmentToAst(name, scp)
+}
+S32AssignmentToAst::fn(name : str_lit, rhs : s32)!*ast_rep
+{
+	num := new_ast2()
+	num.type = ast_type.INT
+	num.INT.num = rhs
+	return AssignmentToAst(name, num)
+}
+StrLitAssignmentToAst::fn(name : str_lit, rhs : str_lit)!*ast_rep
+{
+	str_ast := new_ast2()
+	str_ast.type = ast_type.STR_LIT
+	AssignStr(&str_ast.STR_LIT.str, rhs)
+	return AssignmentToAst(name, str_ast)
+}
+ArrayU32AssignmentToAst::fn(name : str_lit, rhs : *dyn_array(u32))!*ast_rep
+{
+	idx := new_ast2()
+	idx.type = ast_type.INDEX
+
+	if rhs.count > 0
+	{
+		bin := new_ast2()
+		bin.type = ast_type.BIN
+		bin.BIN.op = cast(u32)token_type.COMMA
+
+		idx.INDEX.rhs = bin
+		for v in *rhs
+		{
+			n := new_ast2()
+			n.type = ast_type.INT
+			n.INT.num = cast(s64)*v
+			dyn_add(&bin.BIN.expr, n)
+		}
+	}
+	return AssignmentToAst(name, idx)
+}
+VecAssignmentToAst::fn(name : str_lit, rhs : *_vec)!*ast_rep
+{
+	v := VecToAst(rhs)
+	return AssignmentToAst(name, v)
+}
+SerializeEnt::fn(ent : *entity, idx : u64) ! *ast_rep
+{
+	al := globals.alloc
+	ret := new_ast2()
+
+	ret.type = ast_type.SCOPE
+	
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("flags", cast(s32)ent.flags))
+	if(is_flag_on(ent.flags, ENTITY_DONT_FREE))
+	{
+		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("idx", cast(s32)idx))
+	}
+	dyn_add(&ret.SCOPE.stmnts, StrLitAssignmentToAst("name", ent.name))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("pos", &ent.pos))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("size", &ent.size))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("pivot", &ent.pivot))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("col_size", &ent.col_size))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("col_offset", &ent.col_offset))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("rot", &ent.rot))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("color", &ent.color))
+	dyn_add(&ret.SCOPE.stmnts, VecAssignmentToAst("sec_color", &ent.sec_color))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)ent.type))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("hp", *cast(*s32)&ent.hp))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("layer", cast(s32)ent.layer))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_active", cast(s32)ent.is_active))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("c_type", cast(s32)ent.c_type))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_trigger", cast(s32)ent.is_trigger))
+	//dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("material_idx", cast(s32)ent.material_idx))
+	dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("is_static", cast(s32)ent.is_static))
+	dyn_add(&ret.SCOPE.stmnts, ArrayU32AssignmentToAst("remove_from", cast(*dyn_array(u32))&ent.remove_from))
+
+  if ent.type == ent_type.LOADING_AREA
+  {
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+
+    l_area := ent.l_area
+
+    aux_str:= ""
+    if *ptr_offset(l_area.in_front_scene_name, 0, u8) != 0
+    {
+      aux_str = l_area.in_front_scene_name
+    }
+    dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("in_front_scene_name", aux_str))
+
+    aux_str = ""
+    if *ptr_offset(l_area.in_back_scene_name, 0, u8) != 0
+    {
+      aux_str = l_area.in_back_scene_name
+    }
+    dyn_add(&scp.SCOPE.stmnts, StrLitAssignmentToAst("in_back_scene_name", aux_str))
+
+    dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("l_area", scp))
+  }
+	
+	aux_ast :*ast_rep
+	aux_ast = AssetIndexAssignmentToAst("model", &ent.model)
+	dyn_add(&ret.SCOPE.stmnts, aux_ast)
+
+	aux_ast = AssetIndexAssignmentToAst("cl3d", &ent.cl3d)
+	dyn_add(&ret.SCOPE.stmnts, aux_ast)
+	if is_flag_on(ent.flags, ENTITY_HAS_TEXTURE)
+	{
+		aux_ast = AssetIndexAssignmentToAst("tex_id", &ent.tex_id)
+		dyn_add(&ret.SCOPE.stmnts, aux_ast)
+	}
+	if(is_flag_on(ent.flags, ENTITY_CUSTOM_SHADER))
+	{
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+		aux_ast = AssetIndexAssignmentToAst("idx", &ent.material_idx)
+		dyn_add(&scp.SCOPE.stmnts, aux_ast)
+
+		m := get_material_ptr(&ent.material_idx)
+		inst := m.instances[cast(u64)ent.in_material_instance]
+		prev_sz := globals.temp_alloc.cur
+		for i in 0..m.uniforms.count
+		{
+			globals.temp_alloc.cur = prev_sz 
+
+			u_with_name := m.uniforms[cast(u64)i]
+			u_with_val := inst.uniforms[cast(u64)i]
+			/*
+			if u_with_name.name == "sky_color"
+			{
+				__dbg_break
+			}
+			*/
+			on u_with_name.tp.type
+			{
+			lang_type_type.STATIC_ARRAY
+			{
+
+			}
+			lang_type_type.MAT4
+			{
+
+			}
+			lang_type_type.SAMPLER2D
+			{
+				dyn_add(&scp.SCOPE.stmnts, AssetIndexAssignmentToAst("{u_with_name.name}", &u_with_val.tex))
+			}
+			lang_type_type.V4, lang_type_type.V3, lang_type_type.V2
+			{
+				dyn_add(&scp.SCOPE.stmnts, VecAssignmentToAst("{u_with_name.name}", &u_with_val.v))
+			}
+			default
+			{
+				__dbg_break
+			}
+			}
+		}
+
+		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("material_idx", scp))
+	}
+	on ent.type
+	{
+	ent_type.ITEM
+	{
+		dyn_add(&ret.SCOPE.stmnts, S32AssignmentToAst("item_type", cast(s32)ent.item_type))
+
+	}
+	ent_type.EVENT
+	{
+		ev := &ent.event
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+
+		type_call := new_ast2()
+		type_call.type = ast_type.CALL
+
+		name_type := new_ast2()
+		name_type.type = ast_type.WORD
+
+		on ev.type
+		{
+		entity_event_type.BRIDGE_ROTATE
+		{
+			AssignStr(&name_type.WORD.str, "BRIDGE_ROTATE")
+			dyn_add(&type_call.CALL.args, S32AssignmentToAst("ent_id", cast(s32)ev.BRIDGE_ROTATE.ent_id))
+		}
+		default
+		{
+			__dbg_break
+		}
+		}
+		type_call.CALL.name = name_type
+
+		dyn_add(&scp.SCOPE.stmnts, AssignmentToAst("type", type_call))
+		dyn_add(&scp.SCOPE.stmnts, S32AssignmentToAst("one_time", cast(s32)ev.one_time))
+
+		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("event", scp))
+	}
+	ent_type.ENEMY
+	{
+		mov := ent.en_info
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+		dyn_add(&scp.SCOPE.stmnts, VecAssignmentToAst("origin_pos", &mov.origin_pos))
+
+		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("en_info", scp))
+	}
+	}
+	if ent.cols.count > 0
+	{
+		scp := new_ast2()
+		scp.type = ast_type.SCOPE
+		for c in ent.cols
+		{
+			cur_scp := new_ast2()
+			cur_scp.type = ast_type.SCOPE
+			dyn_add(&cur_scp.SCOPE.stmnts, S32AssignmentToAst("type", cast(s32)c.type))
+			if c.type == col_type.MESH
+			{
+				a_idx :asset_index
+				a_idx.asset_idx = cast(u32)c.MESH.info.model_idx
+				aux_ast = AssetIndexAssignmentToAst("model", &a_idx)
+				dyn_add(&cur_scp.SCOPE.stmnts, aux_ast)
+
+			}
+			dyn_add(&cur_scp.SCOPE.stmnts, VecAssignmentToAst("pos", &c.pos))
+			dyn_add(&cur_scp.SCOPE.stmnts, VecAssignmentToAst("size", &c.size))
+
+			dyn_add(&scp.SCOPE.stmnts, cur_scp)
+		}
+		dyn_add(&ret.SCOPE.stmnts, AssignmentToAst("cols", scp))
+	}
+
+
+
+	return ret
+}
+Serialize::fn(buffer : *dyn_array(char), type : *type_data, data : *void, tab : u8, name : *rel_string)
+{
+	buffer_aux: [128] char;
+	if type.ser_func
+	{
+		__dbg_break
+		func := cast(fn(*dyn_array(char), *void, u8))type.ser_func
+		func(buffer, data, tab)
+	}
+	else if is_flag_on(type.flags, TP_STRCT_IS_DYN_ARRAY)
+	{
+		cur_tp_ptr: = ptr_offset(type, 1, type_data)
+
+		len: = *ptr_offset(data, 1, u64)
+
+		if len <= 0
+		{
+			return
+		}
+		data_ptr : = *ptr_offset(data, 0, u64)
+
+		if name
+			PushStrLit(buffer, "{*name} = ")
+
+		cur_tp_ptr.ptr--
+		tp_sz := GetTypeSize(cur_tp_ptr)
+		cur_tp_ptr.ptr++
+
+		//__dbg_break
+
+		//InsertTab(buffer, tab)
+		PushStrLit(buffer, "[")
+
+		for i in 0..len
+		{
+			ptr := cur_tp_ptr.ptr
+			serialize_ptr := cast(u64)ptr_offset(data_ptr, cast(u64)i * tp_sz, u8)
+			while ptr > 1
+			{
+				serialize_ptr  = *cast(*u64)serialize_ptr
+				ptr--
+			}
+			Serialize(buffer, cur_tp_ptr, serialize_ptr, tab + 1, nil)
+			PushStrLit(buffer, ", ")
+		}
+		buffer.count -= 2
+
+		//InsertTab(buffer, tab)
+		PushStrLit(buffer, "]")
+	}
+	else
+	{
+		if type.tp == type_enum.TYPE_VECTOR
+		{
+			v := cast(*_vec)data
+			sz := sprintf(buffer_aux, 128, "% = [%, %, %, %]", type.name, *cast(*u32)&v.x, 
+						*cast(*u32)&v.y,
+						*cast(*u32)&v.z,
+						*cast(*u32)&v.w)
+
+			dyn_add_data(buffer, buffer_aux, cast(u32)sz)
+
+		}
+		else if type.tp == type_enum.TYPE_STRUCT && is_flag_on(type.flags, TP_STRCT_ETRUCT)
+		{
+			idx: = *cast(*u32)data;
+
+			st: = ptr_offset(type.strct, 2 + idx, type_data);
+			//printf("{type.name}")
+			sz:=sprintf(buffer_aux, 128,"% = %", type.name, st.name)
+			dyn_add_data(buffer, buffer_aux, cast(u32)sz)
+					
+			SerializeStruct(buffer, st.strct, cast(u64)data + 4, tab);
+
+
+			a: = 0;
+		}
+		else if type.tp == type_enum.TYPE_STRUCT_DECL && is_flag_on(type.flags, TP_STRCT_ETRUCT)
+		{
+			idx: = *cast(*u32)data;
+			st: = ptr_offset(type, 2 + idx, type_data);
+			//printf("{type.name}")
+			sz:=sprintf(buffer_aux, 128,"%", type.name)
+			dyn_add_data(buffer, buffer_aux, cast(u32)sz)
+					
+			SerializeStruct(buffer, st, cast(u64)data + 4, tab);
+
+
+			a: = 0;
+		}
+		else if type.tp == type_enum.TYPE_STRUCT_DECL
+		{
+			SerializeStruct(buffer, type, cast(u64)data, tab);
+		}
+		else if type.tp == type_enum.TYPE_STRUCT
+		{
+			SerializeStruct(buffer, type.strct, cast(u64)data, tab);
+		}
+		else
+		{
+			///SerializeVar(buffer, type, cast(u64)data + type.offset);
+			tp_sz := GetTypeSize(type)
+
+			val :s64
+			if tp_sz == 1
+			{
+				*cast(*u8)&val = *cast(*u8)data;
+			}
+			else if tp_sz == 2
+			{
+				*cast(*u16)&val = *cast(*u16)data;
+			}
+			else if tp_sz == 4
+			{
+				*cast(*u32)&val = *cast(*u32)data;
+			}
+			else if tp_sz == 8
+			{
+				*cast(*u64)&val = *cast(*u64)data;
+			}
+
+			sz : u64
+			if name
+				sz = sprintf(buffer_aux, 128, "% = %", *name,  val);
+			else 
+				sz = sprintf(buffer_aux, 128, "%",  val);
+			dyn_add_data(buffer, buffer_aux, cast(u32)sz)
+		}
+	}
+	a := 0
+}
+uniform_val:struct
+{
+	uniform_id : u32
+	type : u32
+
+	is_array : bool
+	array_sz : u32
+	using u :: union
+	{
+		v : _vec
+		tex : asset_index
+		data : *void
+	}
+}
+material_instance:struct
+{
+	uniforms : dyn_array(uniform_val)
+  data : *void
+	ent : *entity
+
+}
+material_info :struct
+{
+	name : str_lit
+	shader_id : u32
+	uniforms : dyn_array(decl)
+	cull_type : u8
+  data_size : u32
+  textures_count : u32
+	instances : dyn_array(material_instance)
+	
+}
+set_uniform_v4::fn(mat: *material_info, ent : *entity, u_name : str_lit, v : *_vec)
+{
+	inst :*material_instance= mat.instances[cast(u64)ent.in_material_instance]
+	idx :u64
+	for u in mat.uniforms
+	{
+		if u.name == u_name
+		{
+			break;
+		}
+		idx++
+	}
+
+	u_target := inst.uniforms[idx]
+	u_target.v = *v
+}
+terrain_vert_info:struct
+{
+	pos : v3
+	normal : v3
+	col : _vec
+	texs: f32
+}
+TERRAIN_VERTEX_SIZE:const s32= sizeof(terrain_vert_info) / 4
+TERRAIN_WIDTH:const s32= 8
+
+sin::fn outsider(f32) !f32;
+cos::fn outsider(f32) !f32;
+tanf::fn outsider(f32) !f32;
+asin::fn outsider(f32) !f32;
+acos::fn outsider(f32) !f32;
+atan2::fn outsider(f32, f32) !f32;
+
+GetModelBonesLen::fn outsider(model : u32)!u32;
+
+GetModelBonesRootsLen::fn outsider(model : u32)!u32;
+GetModelBonesRootsData::fn outsider(model : u32, out : *u32);
+
+GetBoneName::fn outsider(model : u32, bone_id : u32, buffer : *u8, buffer_sz : u32);
+GetBoneChildrenLen::fn outsider(model : u32, bone_id : u32)!u32;
+GetBoneChildrenData::fn outsider(model : u32, bone_id : u32, out : *u32);
+GetBoneKeyframesLen::fn outsider(model : u32, bone_id : u32, positions : *u32, scales : *u32, rotations : *u32);
+GetBoneKeyframesData::fn outsider(model : u32, bone_id : u32, positions : *keyframe_psr, scales : *keyframe_psr, rotations : *keyframe_psr);
+GetBoneMatrices::fn outsider(model : u32, bone_id : u32, local_mat : *f32, inv_local_mat  : *f32);
+ModelHasAnim::fn outsider(model : u32) ! bool;
+
+ImGuiPushID::fn outsider(id:u32);
+ImGuiPopID::fn outsider();
+ImGuiBegin::fn outsider(str_lit, open : *bool, flags : u32);
+ImGuiEnd::fn outsider();
+ImGuiBeginChild::fn outsider(str_lit, f32, f32);
+ImGuiEndChild::fn outsider();
+ImGuiText::fn outsider(str_lit);
+ImGuiButton::fn outsider(str_lit) ! bool;
+ImGuiImage::fn outsider(u64, f32, f32);
+ImGuiSelectable::fn outsider(str_lit, selected : bool, w :f32, h : f32) !bool;
+ImGuiSameLine::fn outsider();
+ImGuiPushItemWidth::fn outsider(f32);
+ImGuiPopItemWidth::fn outsider();
+ImGuiSetCursorPos::fn outsider(f32, f32);
+ImGuiGetCursorPosX::fn outsider()! f32;
+ImGuiGetCursorPosY::fn outsider()! f32;
+ImGuiGetCursorScreenPosX::fn outsider()! f32;
+ImGuiGetCursorScreenPosY::fn outsider()! f32;
+ImGuiSetNextItemAllowOverlap::fn outsider();
+ImGuiHasFocus::fn outsider() ! bool;
+ImGuiTreeNodeEx::fn outsider(name : str_lit) !bool;
+ImGuiTreePop::fn outsider();
+ImGuiAddRect::fn outsider(this : *u8, min_x : f32, min_y : f32, max_x : f32, max_y : f32, color : u32);
+ImGuiEnumCombo::fn outsider(enum_name : str_lit, line : u32, enum_var_addr : *u32) !bool;
+ImGuiInitTextEditor::fn outsider(name : str_lit);
+ImGuiRenderTextEditor::fn outsider();
+ImGuiShowV2::fn outsider(*_vec);
+ImGuiShowV3::fn outsider(*_vec);
+ImGuiShowV4::fn outsider(*_vec);
+ImGuiSetWindowFontScale::fn outsider(size : f32);
+ImGuiInputText::fn outsider(label : str_lit, buf : str_lit, buf_sz : u32) !bool;
+ImGuiInputInt::fn outsider(label : str_lit, int : *s32);
+ImGuiInputF32::fn outsider(label : str_lit, f : *f32);
+ImGuiDragInt::fn outsider(label : str_lit, int : *s32);
+ImGuiDragF32::fn outsider(label : str_lit, f : *f32);
+ImGuiCheckbox::fn outsider(label : str_lit, b : *bool) ! bool;
+ImGuiSeparator::fn outsider();
+ImGuiSetKeyboardFocusHere::fn outsider(u32);
+
+HideCursor::fn outsider(bool);
+IsMouseOnGameWindow::fn outsider()!bool;
+
+Rdtsc::fn outsider()!u64;
+
+GetMouseVelX::fn outsider() ! f32;
+GetMouseVelY::fn outsider() ! f32;
+GetMouseScreenPosX::fn outsider() ! f32;
+GetMouseScreenPosY::fn outsider() ! f32;
+GetMouseNormalizedPosX::fn outsider() ! f32;
+GetMouseNormalizedPosY::fn outsider() ! f32;
+OpenLocalsWindow::fn outsider(u32);
+LoadClip::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, total_sps :u32, len :f32, out_clip : *clip);
+SetIsEngine::fn outsider(bool);
+LoadSheetFromLayer::fn outsider(layer : *aux_layer_info_struct, str_tbl : *u8) !u64;
+
+GetFileSize::fn outsider(name : str_lit) ! s64;
+ReadFile::fn outsider(name : str_lit, buffer : *u8);
+WriteFile::fn outsider(name : str_lit, buffer : *u8, sz : u64);
+CopyTextureToBuffer::fn outsider(tex_id : u64, buffer : *u8, buffer_size : u64);
+
+OpenFile::fn outsider(name : str_lit) ! u32;
+SetFilePtr::fn outsider(handle : u32, offset : u64);
+WriteToFile::fn outsider(handle : u32, data : *void, offset : u64);
+CloseFile::fn outsider(handle : u32);
+
+IsKeyDown::fn outsider(key_enum) !bool;
+IsKeyHeld::fn outsider(key_enum) !bool;
+IsKeyUp::fn outsider(key_enum) !bool;
+
+IsMouseDoubleClick::fn outsider(mouse_enum) !bool;
+IsMouseHeld::fn outsider(mouse_enum) !bool;
+IsMouseUp::fn outsider(mouse_enum) !bool;
+IsMouseDown::fn outsider(mouse_enum) !bool;
+
+GetMouseScroll::fn outsider() !s8;
+
+
+gen_texture_filter:enum
+{
+	NEAREST,
+	LINEAR,
+}
+gen_texture_size:enum
+{
+	BYTE,
+	WORD,
+	DWORD,
+	QWORD,
+}
+gen_texture_type:enum
+{
+	R,
+	RG,
+	RGB,
+	RGBA,
+}
+
+LoadTexFolder::fn outsider(str_lit, *dyn_array(texture_info));
+LoadSceneFolder::fn outsider(str_lit, *dyn_array(*u8));
+GenRawTexture::fn outsider(w:u32, h:u32, type:gen_texture_type, filter:gen_texture_filter, size:gen_texture_size) !u32;
+FreeTexture::fn outsider(u64);
+UpdateTexture::fn outsider(tex_id : u64, x_offset : u32, y_offset : u32, width : u32, height : u32, data : *u8, format : u8, size : gen_texture_size);
+LoadTex::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32) ! u32;
+LoadTexEx::fn outsider(name:str_lit, x_offset : u32, y_offset:u32, sp_width:u32, sp_height:u32, u_type : u32, v_type : u32) ! u32;
+
+HandleForGettingFilesInDir::fn outsider(str_lit) ! u32;
+HandleDirTotalFiles::fn outsider(u32) ! u32;
+HandleDirFilenameAt::fn outsider(u32, idx : u32, buffer:*u8, sz:u32);
+FileChangeTime::fn outsider(name:str_lit)!u32;
+FreeHandle::fn outsider(u32);
+
+GetFuncStackSize::fn intrinsic() !u64;
+GetTopStackPtr::fn outsider() !*u64;
+GetInstRealAddr::fn outsider(u64) !u64;
+GetTypeData::fn internal(void *) !*type_data;
+
+rotate_quaternion_axis_angle::fn(q_out : *_vec, xa : f32, ya : f32, za : f32, rad : f32)
+{
+
+}
+
+FreeSheet::fn(alloc : *mem_alloc,l : *layer_sprites)
+{
+	heap_free(l.cells.alloc, l.cells.data);
+	heap_free(l.cells.alloc, l);
+	FreeTexture(l.tex_id);
+}
+keyframe_psr:struct
+{
+	time : f32
+	val : _vec
+}
+bone_animation:struct
+{
+	name : str_lit
+	id : u64
+	pos : dyn_array(keyframe_psr)
+	scales : dyn_array(keyframe_psr)
+	rot : dyn_array(keyframe_psr)
+
+	children : dyn_array(*bone_animation)
+
+	local_matrix : mat4x4
+
+  lock_pos : bool
+
+	target_world_pos : _vec
+	target_rot : _vec
+	target_rot_weight : f32
+	anim_func : fn(*entity, b : *bone_animation, parent:*mat4x4);
+
+	has_sec_clip : bool
+
+	final_pos : _vec
+	final_rot : _vec
+	vel : _vec
+
+}
+model_info: struct
+{
+	name : str_lit,
+	model : u32
+
+	bones_anim : dyn_array(bone_animation)
+	roots : dyn_array(*bone_animation)
+}
+texture_info: struct
+{
+	name : str_lit,
+	data : *u8,
+	x_offset : u32
+	y_offset : u32
+	width : u32,
+	height : u32,
+	channels : u8,
+	id : u64,
+
+	idx_on_array: u32
+	channel_size : gen_texture_size
+}
+masked_info : struct
+{
+	is_masked : bool,
+	using u :: union
+	{
+		stencil_val : u8,
+		max_size : u64,
+	}
+}
+layer_sprites:struct
+{
+	VERSION:const s32=0,
+	version : u64,
+	type: layer_enum,
+	pixels_per_width : u8,
+	obj_type : u8,
+	
+	pos : _vec,
+	sz : _vec,
+	grid_x : u32,
+	grid_y : u32,
+	tex_id : u64,
+	cur_preview_x : u32,
+	cur_preview_y : u32,
+	cells: dyn_array(cell),
+
+	preview_cells : dyn_array(cell),
+	preview_grid_x : u32,
+	preview_grid_y : u32,
+	masked : masked_info,
+
+	#serializable(type, pixels_per_width, pos, sz, grid_x, grid_y, cells)
+}
+
+col_cell:struct
+{
+	VERSION:const s32=0,
+	version : u64,
+	pos : _vec,
+	sz : _vec,
+	masked : masked_info,
+}
+sp_cell:struct
+{
+	VERSION:const s32=0;
+	version : u64,
+	tex_name: u64,
+	grid_x : u32,
+	grid_y : u32,
+
+	src_tex_offset_x : u32,
+	src_tex_offset_y : u32,
+	masked : masked_info,
+	#serializable(grid_x, grid_y, src_tex_offset_x, src_tex_offset_y)
+}
+obj_cell:struct
+{
+	VERSION:const s32=0,
+	version : u64,
+	type : layer_obj_enum,
+	using u::union
+	{
+		enemy_type : enemy_enum,
+		interact_idx : u32,
+		scene_character_start_idx : u32,
+	};
+	add_info : str_lit,
+		
+	using u2:: union
+	{
+		using st::struct
+		{
+			pos : _vec,
+			sz : _vec,
+		};
+	}
+	masked : masked_info,
+}
+
+layer_enum_cell:etruct
+{
+	SPRITE(
+		x_offset : u32,
+		y_offset : u32,
+		sheet : *layer_sprites,
+		tex: *texture_info,
+		#serializable(x_offset, y_offset, sheet)
+	),
+	TEST(
+		val : u32
+		#serializable(val)
+	),
+	COL(
+		pos : _vec,
+		sz : _vec,
+		#serializable(pos, sz)
+	),
+	OBJ(
+
+		pos : _vec,
+		sz : _vec,
+		using type : layer_obj_enum2,
+		#serializable(pos, sz, type)
+	),
+}
+cell: struct
+{
+	sheet_idx: u32,
+	used : bool,
+	tp : layer_enum_cell,
+	using tp,
+	/*
+	using u ::union
+	{
+		tex: *texture_info,
+		col : col_cell,
+		obj:obj_cell,
+		sheet : *layer_sprites,
+	};
+	using u2::union
+	{
+		max_sz : u64,
+		using pos_::struct
+		{
+			x_offset : u32,
+			y_offset : u32,
+		}
+	}
+	*/
+	masked : masked_info,
+	#serializable(tp, masked)
+}
+sheet_file_header:struct
+{
+	total_layers : u32,
+	str_tbl_offset : u32,
+	str_tbl_sz : u32,
+	cell_sz : u32,
+
+};
+aux_cell_info:struct
+{
+	version : u64,
+	using u :: union
+	{
+		col:col_cell,
+		obj: obj_cell,
+		sp:sp_cell;
+	};
+	masked : masked_info,
+};
+
+
+get_tex_pixel_stride::fn(tex : *texture_info)!u32
+{
+	return cast(u32)tex.channels * (cast(u32)1 <<(cast(u32)tex.channel_size))
+}
+NewEntSpriteSheet::fn(alloc: *mem_alloc, grid_x : u32, grid_y : u32, pixels_per_width : u32, out : *layer_sprites) 
+{
+	ASSERT(out)
+	out.grid_x = grid_x;
+	out.grid_y = grid_y;
+	out.pixels_per_width = cast(u8)pixels_per_width;
+	out.tex_id = GenRawTexture(grid_x * pixels_per_width, grid_y * pixels_per_width, gen_texture_type.RGBA, gen_texture_filter.NEAREST, gen_texture_size.BYTE);
+	sz: = grid_x * grid_y;
+	dyn_init2(&out.cells, sz, alloc);
+	out.cells.count = sz;
+}
+
+CreateSpriteSheetFromLayer::fn(alloc : *mem_alloc, cur_layer : *aux_layer_info_struct, str_tbl : *u8, textures : *dyn_array(texture_info)) ! *layer_sprites
+{
+	cur_ptr := cast(*u8)ptr_offset(cur_layer, 1, aux_layer_info_struct);
+
+	ar_layer := cast(*layer_sprites)heap_alloc(alloc, sizeof(layer_sprites));
+	ar_layer.type = cur_layer.type;
+	ar_layer.obj_type = cur_layer.obj_type;
+	ar_layer.pixels_per_width = cur_layer.pixels_per_width;
+	//NewEntSpriteSheet(alloc, 8, 8, cur_layer.pixels_per_width, ar_layer);
+	sz: = cur_layer.grid_x * cur_layer.grid_y;
+	dyn_init2(&ar_layer.cells, sz, alloc);
+
+	regrow(&ar_layer.cells, cur_layer.grid_x * cur_layer.grid_y);
+	
+	ar_layer.tex_id = LoadSheetFromLayer(cur_layer, str_tbl);
+
+	if cur_layer.cell_sz != sizeof(sp_cell)
+		__dbg_break;
+
+	ar_layer.pos = cur_layer.pos;
+	ar_layer.sz = cur_layer.sz;
+	ar_layer.grid_x = cur_layer.grid_x;
+	ar_layer.grid_y = cur_layer.grid_y;
+
+	for c in 0..cur_layer.total_of_used_cells
+	{
+		cur_cell: = ptr_offset(cur_ptr, cast(u64)c, sp_cell);
+		x_grid: = cur_cell.grid_x;
+		y_grid: = cur_cell.grid_y;
+
+		cell_tex_name: = cast(str_lit)ptr_offset(str_tbl, cur_cell.tex_name, u8);
+
+		tex_found:*texture_info = nil;
+		for t in* textures
+		{
+			if str_cmp(t.name, cell_tex_name)
+			{
+				tex_found = t;
+				break;
+			}
+		}
+		ASSERT(tex_found != nil);
+
+		cur_dst_cell: = ptr_offset(ar_layer.cells.data, x_grid + y_grid * cur_layer.grid_x, cell);
+
+
+		cur_dst_cell.tp.SPRITE.x_offset = cur_cell.src_tex_offset_x;
+		cur_dst_cell.tp.SPRITE.y_offset = cur_cell.src_tex_offset_y;
+		cur_dst_cell.tp.SPRITE.tex = tex_found;
+		cur_dst_cell.used = true;
+
+		//cur_ptr = cast(*u8)ptr_offset(cur_ptr, 1, sp_cell);
+	}
+	return ar_layer;
+}
+
+is_ast_word::fn(n : *ast_rep, str : str_lit) ! bool
+{
+	return n.type == ast_type.WORD && n.WORD.str == str
+}
+is_ast_num::fn(n : *ast_rep, num : s32) ! bool
+{
+	return n.type == ast_type.INT && n.INT.num == num
+}
+WrapCoord::fn(coord:s32, size:s32)!s32
+{
+	aux := ((coord % size) + size)
+	return  aux % size;
+}
+
+get_pixel_idx::fn(thispx:s32, thispy:s32, thistex : *texture_info)! u32
+{
+	channels_size:=cast(s32)get_tex_pixel_stride(thistex)
+	return cast(u32)((thispy * cast(s32)thistex.width + thispx) * channels_size)
+}
+GetPixel::fn(thispx:s32, thispy:s32, thistex : *texture_info)! _vec
+{
+	ret:_vec=?
+	idx:= get_pixel_idx(thispx, thispy, thistex)
+
+	on thistex.channels
+	{
+	1
+	{
+		on thistex.channel_size
+		{
+		gen_texture_size.BYTE
+		{
+			ptr := cast(u32)*ptr_offset(thistex.data, idx, u8)
+			ret.x = cast(f32)ptr / 255.0
+		}
+		gen_texture_size.WORD
+		{
+			ptr := cast(u32)*cast(*u16)ptr_offset(thistex.data, idx, u8)
+			ret.x = cast(f32)ptr / 65000.0
+		}
+		default
+		{
+			__dbg_break
+		}
+		}
+	}
+	default
+	{
+		__dbg_break
+	}
+	}
+	return ret
+}
+sample_texture_bilinear::fn(tex : *texture_info, u : f32, v : f32) ! _vec
+{
+	width:=cast(f32)tex.width
+	height:=cast(f32)tex.height
+	 // Normalize UV (wrap repeat)
+    u = u - floor(u);
+    v = v - floor(v);
+
+    // Scale to texture space
+    x := u * (width  - 1.0);
+    y := v * (height - 1.0);
+
+    x0 := cast(s32)floor(x);
+    y0 := cast(s32)floor(y);
+    x1 := x0 + 1;
+    y1 := y0 + 1;
+
+    // Wrap or clamp coordinates
+    x0 = WrapCoord(x0, cast(s32)width)
+    x1 = WrapCoord(x1, cast(s32)width)
+    y0 = WrapCoord(y0, cast(s32)height)
+    y1 = WrapCoord(y1, cast(s32)height)
+
+    tx := cast(f32)(x - floor(x))
+    ty := cast(f32)(y - floor(y))
+
+
+    c00 := GetPixel(x0, y0, tex);
+    c10 := GetPixel(x1, y0, tex);
+    c01 := GetPixel(x0, y1, tex);
+    c11 := GetPixel(x1, y1, tex);
+
+    // Bilinear interpolation
+    c0:= mix(&c00, &c10, tx);
+    c1:= mix(&c01, &c11, tx);
+    return mix(&c0, &c1, ty);
+
+}
+
+
+
+
+GetCharTextureIdx::fn(ch : char ) ! u32
+{
+	ch_idx := cast(u8)ch - 'a;
+	if (cast(char)ch) == ',
+		ch_idx = 26;
+	else if (cast(char)ch) == '.
+		ch_idx = 27;
+	else if (cast(char)ch) == '?
+		ch_idx = 28;
+	else if (cast(char)ch) == '!
+		ch_idx = 29;
+	else if ch >= '0 && ch <= '9
+	{
+		ch_idx = 30 + cast(u8)ch - '0;
+	}
+
+	return ch_idx;
+}
+min3::fn(a :f32, b :f32, c : f32)!f32
+{
+	ret :=a
+	if ret > b
+		ret = b;
+	if ret > c
+		ret = c;
+    return ret;
+}
+max3::fn(a :f32, b :f32, c : f32)!f32
+{
+	ret :=a
+	if ret < b
+		ret = b;
+	if ret < c
+		ret = c;
+    return ret;
+}
+maxf::fn x64(a :f32, b :f32)!f32
+{
+	if a > b return a;
+    return b;
+
+}
+absf::fn x64(a :f32) !f32
+{
+	if a < 0.0 return -a;
+    return a;
+
+}
+abss32::fn(a :s32)!s32
+{
+	if a < 0 return -a;
+    return a;
+
+}
+minf::fn x64(a :f32, b :f32)!f32
+{
+	if a > b return b;
+    return a;
+}
+
+cmpf::fn macro(a : _expr, b : _expr)
+{
+	absf(a - b) < 0.0001
+}
+equal_vec::fn(a : *_vec, b : *_vec) ! bool
+{
+	return cmpf(a.x, b.x) && cmpf(a.y, b.y) && cmpf(a.z, b.z) && cmpf(a.w, b.w)
+}
+builtin_type_to_string::fn(tp : *lang_type)!str_lit
+{
+	on tp.type
+	{
+	lang_type_type.SAMPLER2D
+	{
+		return "sampler2D"
+	}
+	lang_type_type.V2
+	{
+		return "vec2"
+	}
+	lang_type_type.S32
+	{
+		return "int"
+	}
+	lang_type_type.U32
+	{
+		return "uint"
+	}
+	lang_type_type.V3
+	{
+		return "vec3"
+	}
+	lang_type_type.IV4
+	{
+		return "ivec4"
+	}
+	lang_type_type.V4
+	{
+		return "vec4"
+	}
+	lang_type_type.F32
+	{
+		return "float"
+	}
+	lang_type_type.MAT4
+	{
+		return "mat4"
+	}
+	default
+	{
+		__dbg_break
+	}
+	}
+}
+assert::fn(val : bool, str : str_lit="", line :str_lit= __SRC_LINE__)
+{
+  if !val
+  {
+    printf("\nassertion failed: {line}\n{str}\n")
+    PrintCallStack()
+    __dbg_break
+  }
+}
+read_entire_file::fn(file_name : str_lit, fl_sz_out : *s64)!*u8
+{
+  file_data : str_lit=?
+
+  fl_sz := GetFileSize(file_name);
+  if fl_sz == -1
+      __dbg_break
+  file_data = cast(str_lit)heap_alloc(globals.alloc, cast(u32)fl_sz + 1);
+
+  ReadFile(file_name, file_data);
+  if fl_sz_out != nil
+  {
+    *fl_sz_out = fl_sz
+  }
+  return file_data
+}
+
+FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : u64)!f32
+{
+    score := 0.0;
+    if src_size == to_match_size
+    {
+      score += 1.0
+    }
+
+    // Match exact characters at the same positions
+    i : u64
+    while i < to_match_size && i < src_size
+    {
+        if *ptr_offset(to_match, i, u8) == *ptr_offset(src, i, u8)
+            score += 2.0;
+        i++
+    }
+    i=0
+
+    // Match characters at any position
+    while i < to_match_size
+    {
+      j:u64
+      while j < src_size
+      {
+        if (to_match[i] == src[j])
+        {
+          score += 0.5;
+
+          // Calculate neighboring indices with clamping
+          prev_idx_src := clamp(j - 1, 0, src_size - 1);
+          next_idx_src := clamp(j + 1, 0, src_size - 1);
+
+          prev_idx_match := clamp(i - 1, 0, to_match_size - 1);
+          next_idx_match := clamp(i + 1, 0, to_match_size - 1);
+
+          add := 0.0;
+
+          if i != prev_idx_match && *ptr_offset(to_match, prev_idx_match, u8) == *ptr_offset(src, prev_idx_src, u8)
+              add += 1.0;
+
+          if i != next_idx_match && *ptr_offset(to_match, next_idx_match, u8) == *ptr_offset(src, next_idx_src, u8)
+              add += 1.0;
+
+          score += add;
+        }
+        j++
+      }
+      i++
+    }
+
+    return score;
+}
+clamp ::fn{T}(v : T, _min :T, _max : T) ! T
+{
+	if v <= _min return _min;
+	if v >= _max return _max;
+	return v;
+}

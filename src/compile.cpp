@@ -2586,6 +2586,7 @@ void WasmFromSingleIR(std::unordered_map<decl2*, int> &decl_to_local_idx,
 	}break;
 	case IR_BEGIN_CALL:
 	{
+    break;
 		ASSERT(FuncAddedWasm(gen_state->wasm_state, cur_ir->call.fdecl->name));
 		// sub inst
 		WasmPushRegister(gen_state, BASE_STACK_PTR_REG, code_sect);
@@ -13977,6 +13978,7 @@ void GenX64PointLhs(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_v
 
 void GenX64AddGetFuncAddrReloc(lang_state* lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *lhs, func_decl *fdecl)
 {
+  if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_SYSCALL)) return;
 	byte_code bc;
 	bc.type = RELOC;
 	bc.rel.type = REL_GET_FUNC_ADDR;
@@ -14050,7 +14052,7 @@ void GenX64BytecodeFromAssignIR(lang_state* lang_stat,
 			case IR_TYPE_DECL:
 			{
 				
-				if (assign.lhs.type == IR_TYPE_DECL && (assign.lhs.decl->type.type == TYPE_FUNC || assign.lhs.decl->type.type == TYPE_FUNC_PTR))
+				if (assign.lhs.type == IR_TYPE_DECL && (assign.lhs.decl->type.type == TYPE_FUNC || assign.lhs.decl->type.type == TYPE_FUNC_PTR) && IS_FLAG_OFF(assign.lhs.decl->flags, DECL_IS_ARG))
 				{
 					GenX64AddGetFuncAddrReloc(lang_stat, ret, &lhs, assign.lhs.decl->type.fdecl);
 				}
@@ -15716,6 +15718,22 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 		ir_val_aux dst = {};
 		switch (ir->type)
 		{
+		case IR_END_CALL:
+    {
+      if(IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_SYSCALL))
+      {
+        bc.type = UNSET_SYSCALL;
+        ret.emplace_back(bc);
+      }
+    }break;
+		case IR_BEGIN_CALL:
+    {
+      if(IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_SYSCALL))
+      {
+        bc.type = SET_SYSCALL;
+        ret.emplace_back(bc);
+      }
+    }break;
 		case IR_STACK_END:
 		{
 			GenX64RetGroup(lang_stat, stack_size, ret);
@@ -16371,6 +16389,11 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				{
 					GenX64ToIrValDecl2(lang_stat, ret, &src, &ir->bin.rhs, true, false);
 					bc.type = (byte_code_enum)((u32)(inst + 1));
+          if(ir->bin.rhs.reg_sz == 4 && ir->bin.lhs.reg_sz == 8)
+          {
+            bc.type = MOV_M;
+            bc.bin.lhs.reg_sz = ir->bin.rhs.reg_sz;
+          }
 					bc.bin.lhs.reg = ir->bin.lhs.reg;
 					bc.bin.rhs.reg = src.reg;
 					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
@@ -16554,14 +16577,14 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			}
       else if (IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_SYSCALL))
       {
-					bc.type = MOV_I;
-					bc.bin.lhs.reg = 0;
-					bc.bin.lhs.reg_sz = 8;
-					bc.bin.rhs.i = ir->call.fdecl->syscall;
-					ret.emplace_back(bc);
+        bc.type = MOV_I;
+        bc.bin.lhs.reg = 0;
+        bc.bin.lhs.reg_sz = 8;
+        bc.bin.rhs.i = ir->call.fdecl->syscall;
+        ret.emplace_back(bc);
 
-					bc.type = SYSCALL;
-					ret.emplace_back(bc);
+        bc.type = SYSCALL;
+        ret.emplace_back(bc);
       }
 			else
 			{
@@ -17154,6 +17177,8 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 			bc.i = from_bc->bin.rhs.i;
 		}break;
 		case SYSCALL:
+		case SET_SYSCALL:
+		case UNSET_SYSCALL:
 		case LOCK_XCHG_M_R:
     {
 

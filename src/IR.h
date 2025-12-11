@@ -37,6 +37,7 @@ enum ast_type
     AST_LABEL,
 
     AST_FLOAT,
+    AST_F64,
 
     AST_TYPE,
     AST_NEGATIVE,
@@ -176,6 +177,7 @@ struct ast_rep
 
   union
   {
+    float f64;
     float f32;
     long long num;
     ast_rep *ast;
@@ -243,6 +245,7 @@ enum ir_type
     IR_ASSIGNMENT,
     IR_RET,
     IR_LABEL,
+    IR_BIN,
     IR_CMP_EQ,
     IR_CMP_NE,
     IR_CMP_LT,
@@ -319,8 +322,10 @@ enum ir_val_type
 {
     IR_TYPE_NONE,
     IR_TYPE_REG,
+    IR_TYPE_REG_MEM,
     IR_TYPE_INT,
     IR_TYPE_F32,
+    IR_TYPE_F64,
     IR_TYPE_STR_LIT,
     IR_TYPE_PARAM_REG,
     IR_TYPE_ARG_REG,
@@ -356,7 +361,9 @@ struct ir_val
       int i;
     };
     float f32;
+    double f64;
     char* str;
+    u64* val;
     struct
     {
       union

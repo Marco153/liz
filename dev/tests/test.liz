@@ -1999,9 +1999,8 @@ main::fn()
   x :u32= 2;
   y :u64= cast(u64)x;
   ptr := &y;
-  z := cast(*u8)ptr
-  x = *cast(*u32)ptr
-  w := cast(*u8)&ptr
+  x = *cast(*u32)ptr + 4
+  x = *cast(*u32)ptr + x
   
 
 }

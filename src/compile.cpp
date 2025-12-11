@@ -13575,6 +13575,7 @@ struct ir_val_aux
 	bool is_unsigned;
 	union
 	{
+    void *ptr;
 		float f;
 		int i;
 	};
@@ -13806,6 +13807,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 			bc.bin.rhs.reg = rhs->reg;
 			bc.bin.rhs.reg_sz = lhs->reg_sz;
 		}break;
+		case IR_TYPE_REG_MEM:
 		case IR_TYPE_DECL:
 		{
 			bc.bin.rhs.reg = rhs->reg;
@@ -13839,6 +13841,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 			bc.bin.rhs.reg = rhs->reg;
 			bc.bin.rhs.reg_sz = lhs->reg_sz;
 		}break;
+		case IR_TYPE_REG_MEM:
 		case IR_TYPE_DECL:
 		{
 			bc.bin.lhs.reg = lhs->reg;
@@ -13851,6 +13854,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 			ASSERT(false)
 		}
 	}break;
+  case IR_TYPE_REG_MEM:
 	case IR_TYPE_DECL:
 	{
 		switch (rhs->type)
@@ -13862,6 +13866,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 			bc.bin.lhs.voffset = lhs->voffset;
 			bc.bin.rhs.i = rhs->i;
 		}break;
+		case IR_TYPE_REG_MEM:
 		case IR_TYPE_DECL:
 		{
 			bc.bin.lhs.reg = lhs->reg;
@@ -13909,7 +13914,7 @@ byte_code_enum GenX64GetCorrectBinInst(ir_val_aux* lhs, ir_val_aux* rhs, byte_co
 	}
 	else
 	{
-		if (rhs->reg == PRE_X64_RSP_REG)
+		if (rhs->reg == PRE_X64_RSP_REG || rhs->type == IR_TYPE_REG_MEM)
 			correct_inst = (byte_code_enum)(correct_inst + 2);
 		// by default, base_inst_sse is already SSE_2_SSE
 		else
@@ -17240,6 +17245,14 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 }
 //#pragma optimize("", on)
 
+void InsertBc(own_std::vector<byte_code> &ret, byte_code &bc)
+{
+  if(bc.type == ADD_SSE_2_MEM)
+  {
+    HERE()
+  }
+  ret.emplace_back(bc);
+}
 void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_code& mach, func_decl *cur_func)
 {
 	auto cur = (block_linked*)malloc(sizeof(block_linked));
@@ -17258,9 +17271,17 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
 
   byte_code bc;
 	stmnt_dbg* cur_st = cur_func->wasm_stmnts.begin();
+  ir_val_aux lhs_aux;
+  ir_val_aux rhs_aux;
   FOR_VEC(cur_ir, *irs)
   {
     auto ir = cur_ir;
+    /*
+    if(ret.size() >= 32)
+    {
+      HERE()
+    }
+    */
     switch(cur_ir->type)
     {
 		case IR_STACK_END:
@@ -17321,7 +17342,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
       {
         bc.type = BEGIN_STMNT;
         bc.st = cur_st;
-        ret.emplace_back(bc);
+        InsertBc(ret, bc);
       }
 #ifndef WASM_DBG
 			if(lang_stat->is_x64_bc_backend)
@@ -17337,7 +17358,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
       {
         bc.type = END_STMNT;
         bc.st = cur_st;
-        ret.emplace_back(bc);
+        InsertBc(ret, bc);
       }
 #ifndef WASM_DBG
 			if(lang_stat->is_x64_bc_backend)
@@ -17376,7 +17397,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
     case IR_DBG_BREAK:
     {
       bc.type = INT3;
-      ret.emplace_back(bc);
+      InsertBc(ret, bc);
     }break;
     case IR_ADDRESS_OF:
     {
@@ -17387,13 +17408,114 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
         bc.bin.rhs.lea.offset = ir->bin.rhs.decl->offset;
         bc.bin.rhs.lea.reg_dst = ir->bin.lhs.reg;
         bc.bin.rhs.lea.size = ir->bin.lhs.reg_sz;
-        ret.emplace_back(bc);
+        InsertBc(ret, bc);
 
       }
       else
       {
         ASSERT(false)
       }
+    }break;
+    case IR_BIN:
+    {
+      byte_code_enum base_inst = MOV_I;
+      byte_code_enum base_inst_sse = MOV_I;
+
+      switch (ir->bin.op)
+      {
+      case T_DIV:
+        base_inst = DIV_M_2_M;
+        base_inst_sse = DIV_SSE_2_SSE;
+        break;
+      case T_MUL:
+        base_inst = MUL_M_2_M;
+        base_inst_sse = MUL_SSE_2_SSE;
+      break;
+      case T_PERCENT:
+        base_inst = MOD_M_2_M;
+      break;
+      case T_POINT:
+      {
+      }break;
+      case T_PIPE:
+        base_inst = OR_M_2_M;
+      break;
+      case T_AMPERSAND:
+        base_inst = AND_M_2_M;
+
+      break;
+      case T_PLUS:
+        base_inst = ADD_M_2_M;
+        base_inst_sse = ADD_SSE_2_SSE;
+
+      break;
+      case T_SHIFT_RIGHT:
+        base_inst = SHIFTR_M_2_M;
+        break;
+      case T_SHIFT_LEFT:
+        base_inst = SHIFTL_M_2_M;
+        break;
+      case T_HAT:
+        base_inst = XOR_M_2_M;
+        base_inst_sse = XOR_SSE_2_SSE;
+        break;
+      case T_MINUS:
+        base_inst = SUB_M_2_M;
+        base_inst_sse = SUB_SSE_2_SSE;
+        break;
+      default:
+        ASSERT(false);
+      }
+      byte_code_enum correct_inst = base_inst;
+      if (ir->bin.lhs.is_float)
+        correct_inst = base_inst_sse;
+
+
+      lhs_aux.type = ir->bin.lhs.type;
+      lhs_aux.is_float = ir->bin.lhs.is_float;
+      lhs_aux.is_unsigned = ir->bin.lhs.is_unsigned;
+      lhs_aux.is_packed_float = ir->bin.lhs.is_packed_float;
+      lhs_aux.ptr = ir->bin.lhs.val;
+
+      rhs_aux.type = ir->bin.rhs.type;
+      rhs_aux.is_float = ir->bin.rhs.is_float;
+      rhs_aux.is_unsigned = ir->bin.rhs.is_unsigned;
+      rhs_aux.is_packed_float = ir->bin.rhs.is_packed_float;
+      rhs_aux.ptr = ir->bin.rhs.val;
+
+      correct_inst = GenX64GetCorrectBinInst(&lhs_aux, &rhs_aux, correct_inst, base_inst_sse);
+
+      GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst));
+      bc.type = correct_inst;
+      if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
+      {
+        bc.bin.rhs.voffset = ir->bin.rhs.decl->offset;
+        bc.bin.rhs.reg = (char)regs_enum::RSP;
+        bc.bin.rhs.reg_sz = 8;
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        InsertBc(ret, bc);
+
+      }
+      else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_INT)
+      {
+        bc.bin.rhs.i = ir->bin.rhs.i;
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        InsertBc(ret, bc);
+
+      }
+      else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG_MEM)
+      {
+        bc.bin.rhs.voffset = ir->bin.rhs.voffset;
+        bc.bin.rhs.reg = ir->bin.rhs.reg;
+        bc.bin.rhs.reg_sz = 8;
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        InsertBc(ret, bc);
+      }
+      else
+        ASSERT(false)
     }break;
     case IR_LOAD:
     {
@@ -17405,7 +17527,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
         bc.bin.rhs.reg_sz = 8;
         bc.bin.lhs.reg = ir->bin.lhs.reg;
         bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
-        ret.emplace_back(bc);
+        InsertBc(ret, bc);
       }
       else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
       {
@@ -17417,7 +17539,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
         bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
         bc.bin.rhs.voffset = ir->bin.rhs.voffset;
 
-        ret.emplace_back(bc);
+        InsertBc(ret, bc);
       }
       else
       {
@@ -17434,7 +17556,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
         bc.bin.lhs.reg = (char)regs_enum::RSP;
         bc.bin.lhs.reg_sz = 8;
         bc.bin.rhs.i = ir->bin.rhs.i;
-        ret.emplace_back(bc);
+        InsertBc(ret, bc);
       }
       else if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_REG)
       {
@@ -17444,7 +17566,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
         bc.bin.lhs.reg_sz = 8;
         bc.bin.rhs.reg = ir->bin.rhs.reg;
         bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
-        ret.emplace_back(bc);
+        InsertBc(ret, bc);
       }
       else
       {

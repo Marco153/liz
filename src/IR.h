@@ -236,6 +236,10 @@ enum ir_type
     IR_NONE,
     IR_NOP,
 
+    IR_LOAD,
+    IR_STORE,
+    IR_ADDRESS_OF,
+
     IR_ASSIGNMENT,
     IR_RET,
     IR_LABEL,
@@ -332,9 +336,12 @@ enum on_stack_type
 	ON_STACK_STRUCT_RET,	
 	ON_STACK_SPILL,	
 };
+#define IR_VAL_ADDR 0 
+#define IR_VAL_VALUE 1
 struct ir_val
 {
   ir_val_type type;
+  int kind;
   union
   {
     decl2* decl;
@@ -358,6 +365,7 @@ struct ir_val
       };
     };
   };
+  int voffset;
   short reg_ex;
   int on_data_sect_offset;
   bool is_unsigned : 1;

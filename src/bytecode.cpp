@@ -232,38 +232,31 @@ char FromAsmRegToWasmReg(unsigned char bc_reg)
 	}
 	return -1;
 }
+
 #define PRE_X64_RSP_REG 5
 #define BC2_RSP_REG 11
 char FromBCRegToAsmReg(char bc_reg)
 {
 	switch(bc_reg)
 	{
-	case 0:
-		return 0;
-	case 1:
-		return 1;
-	case 2:
-		return 2;
-	case 3:
-		return 3;
-	case 4:
-		return 6;
-	case 5:
-		return 4;
-	case 6:
-		return 2 | (1 << 7);
 	case 7:
-		return 3 | (1 << 7);
-	case 8:
-		return 0 | (1 << 7);
-	case 9:
-		return 1 | (1 << 7);
-	case 32:
-		return 6;
-	case 33:
-		return 7;
-	case 34:
-		return 5;
+	case 6:
+	case 5:
+	case 4:
+	case 3:
+	case 2:
+	case 1:
+	case 0:
+		return bc_reg;
+  case 15:
+  case 14:
+  case 13:
+  case 12:
+  case 11:
+  case 10:
+  case 9:
+  case 8:
+		return bc_reg | (1 << 7);
 	default:
 
 		ASSERT(false)

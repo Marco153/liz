@@ -12353,7 +12353,10 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 			i++;
 		}
 	}
+	winterp->dbg = (dbg_state*)AllocMiscData(lang_stat, sizeof(dbg_state));
+  return;
 
+	dbg_state& dbg = *winterp->dbg;
 
 	int ptr = 0;
 	int sect_code = code[ptr];
@@ -12368,8 +12371,6 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 
 	int i = 0;
 
-	winterp->dbg = (dbg_state*)AllocMiscData(lang_stat, sizeof(dbg_state));
-	dbg_state& dbg = *winterp->dbg;
 	//dbg.mem_size = size;
 	dbg.lang_stat = lang_stat;
 
@@ -13427,39 +13428,6 @@ int GenX64DeclAndIntOperation(lang_state *lang_stat, own_std::vector<byte_code>&
 	}
 
 	return reg;
-}
-void GenX64RetGroup(lang_state *lang_stat, int stack_size, own_std::vector<byte_code>& ret)
-{
-
-	GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, ADD_I_2_R);
-
-	byte_code bc;
-  /*
-	bc.type = MOV_M;
-	bc.bin.lhs.reg = 3;
-	bc.bin.lhs.reg_sz = 8;
-	bc.bin.rhs.reg = PRE_X64_RSP_REG;
-	bc.bin.rhs.voffset = (MAX_CALL_REGS  * 8) + 8;
-	ret.emplace_back(bc);
-
-	bc.bin.lhs.reg = 6;
-	bc.bin.rhs.voffset = (MAX_CALL_REGS * 8) + 16;
-	ret.emplace_back(bc);
-  */
-
-	bc = {};
-	bc.type = POP_R;
-	bc.val = 6;
-	ret.emplace_back(bc);
-
-	bc = {};
-	bc.type = POP_R;
-	bc.val = 3;
-	ret.emplace_back(bc);
-
-
-	bc.type = RET;
-	ret.emplace_back(bc);
 }
 
 void GenX64AutomaticAddress(lang_state* lang_stat, own_std::vector<byte_code>& ret, char deref, short* reg, int* voffset, char reg_sz, bool is_float, bool address, bool is_packed_float, bool decl_is_vector, short reg_dst = -1)
@@ -15602,6 +15570,39 @@ bool FloatIsMovSomething2Reg(byte_code *bc)
 	}
 	return false;
 }
+void GenX64RetGroup(lang_state *lang_stat, int stack_size, own_std::vector<byte_code>& ret)
+{
+
+	GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, ADD_I_2_R);
+
+	byte_code bc;
+  /*
+	bc.type = MOV_M;
+	bc.bin.lhs.reg = 3;
+	bc.bin.lhs.reg_sz = 8;
+	bc.bin.rhs.reg = PRE_X64_RSP_REG;
+	bc.bin.rhs.voffset = (MAX_CALL_REGS  * 8) + 8;
+	ret.emplace_back(bc);
+
+	bc.bin.lhs.reg = 6;
+	bc.bin.rhs.voffset = (MAX_CALL_REGS * 8) + 16;
+	ret.emplace_back(bc);
+  */
+
+	bc = {};
+	bc.type = POP_R;
+	bc.val = 6;
+	ret.emplace_back(bc);
+
+	bc = {};
+	bc.type = POP_R;
+	bc.val = 3;
+	ret.emplace_back(bc);
+
+
+	bc.type = RET;
+	ret.emplace_back(bc);
+}
 // $IrX64
 void GenX64BytecodeFromIR(lang_state *lang_stat, 
 						  own_std::vector<byte_code>& ret,
@@ -17239,6 +17240,222 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 }
 //#pragma optimize("", on)
 
+void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_code& mach, func_decl *cur_func)
+{
+	auto cur = (block_linked*)malloc(sizeof(block_linked));
+	cur->parent = nullptr;
+	memset(cur, 0, sizeof(block_linked));
+	int args = cur_func->biggest_call_args - MAX_CALL_REGS;
+	int on_stack_args = max(args, 0);
+  auto &ret = mach.bcs;
+
+	bool print_ir = false;
+
+	unsigned int stack_size = (MAX_CALL_REGS + REGS_PUSHED) * 8 + on_stack_args * 8;
+	int total_args = 0;
+	int cur_line = 0;
+	int start = ret.size();
+
+  byte_code bc;
+	stmnt_dbg* cur_st = cur_func->wasm_stmnts.begin();
+  FOR_VEC(cur_ir, *irs)
+  {
+    auto ir = cur_ir;
+    switch(cur_ir->type)
+    {
+		case IR_STACK_END:
+		{
+			GenX64RetGroup(lang_stat, stack_size, ret);
+		}break;
+		case IR_PROLOGUE_END:
+		{
+      stack_size += MAX_CALL_REGS * 8;
+      int mod = stack_size % 16;
+      if(mod != 0)
+        stack_size += 16 - mod;
+      // we're aligning the stack in 8 bytes because after the call inst 8 bytes of the ret address is pushed make the stack 16 bytes unaligned
+      stack_size += 8;
+
+			GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
+
+      int start = stack_size - MAX_CALL_REGS * 8;
+			cur_ir->fdecl->stack_size = stack_size;
+			ParametersToStack(cur_ir->fdecl, &ret, start);
+
+    }break;
+		case IR_STACK_BEGIN:
+		{
+			//stack_size += 32 + on_stack_args * 8;
+			//gen_state->strcts_construct_stack_offset = stack_size;
+
+			stack_size += cur_ir->fdecl->biggest_call_args * 8;
+
+			cur_ir->fdecl->strct_constrct_at_offset = stack_size;
+			stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
+
+			//gen_state->to_spill_offset = stack_size;
+			cur_ir->fdecl->to_spill_offset = stack_size;
+			stack_size += cur_ir->fdecl->to_spill_size * 16;
+
+			//gen_state->strcts_ret_stack_offset = stack_size;
+			cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;
+			stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
+      //printf("stacksize %d\n", stack_size);
+			//cur_ir->fdecl->stack_size = stack_size;
+			cur_ir->fdecl->stack_size = stack_size;
+
+
+
+			if (IS_FLAG_ON(lang_stat->cur_func->flags, FUNC_DECL_COROUTINE))
+			{
+			}
+
+
+		}break;
+		case IR_BEGIN_STMNT:
+		{
+			FreeAllRegs(lang_stat);
+			FreeAllFloatRegs(lang_stat);
+			cur_line = ir->block.stmnt.line;
+			if(lang_stat->is_machine_x64_backend)
+      {
+        bc.type = BEGIN_STMNT;
+        bc.st = cur_st;
+        ret.emplace_back(bc);
+      }
+#ifndef WASM_DBG
+			if(lang_stat->is_x64_bc_backend)
+				cur_st->start = ret.size();
+#endif
+
+		}break;
+		case IR_END_STMNT:
+		{
+			FreeAllRegs(lang_stat);
+			FreeAllFloatRegs(lang_stat);
+			if(lang_stat->is_machine_x64_backend)
+      {
+        bc.type = END_STMNT;
+        bc.st = cur_st;
+        ret.emplace_back(bc);
+      }
+#ifndef WASM_DBG
+			if(lang_stat->is_x64_bc_backend)
+				cur_st->end = ret.size();
+			cur_st++;
+#endif
+		}break;
+		case IR_DECLARE_LOCAL:
+		{
+			if (IS_FLAG_ON(cur_ir->decl->flags, DECL_IS_GLOBAL))
+				break;
+			int to_sum = GetTypeSize(&cur_ir->decl->type);
+			cur_ir->decl->offset = stack_size;
+			stack_size += to_sum <= 4 ? 4 : to_sum;
+			//cur_ir->fdecl->stack_size = stack_size;
+		}break;
+		case IR_DECLARE_ARG:
+		{
+#ifdef LINUX
+
+      cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + total_args * 8;
+      if(total_args == MAX_CALL_REGS)
+      {
+        // 3 because, accounting for the ret address
+        // for the push rbx
+        // and for the push rbp
+        total_args += 3;
+        cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + total_args * 8;
+      }
+      total_args++;
+#else
+        cur_ir->decl->offset = stack_size + total_args * 8 + 8;
+        total_args++;
+#endif
+		}break;
+    case IR_DBG_BREAK:
+    {
+      bc.type = INT3;
+      ret.emplace_back(bc);
+    }break;
+    case IR_ADDRESS_OF:
+    {
+      if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
+      {
+        bc.type = INST_LEA;
+        bc.bin.rhs.lea.reg_base = (char)regs_enum::RSP;
+        bc.bin.rhs.lea.offset = ir->bin.rhs.decl->offset;
+        bc.bin.rhs.lea.reg_dst = ir->bin.lhs.reg;
+        bc.bin.rhs.lea.size = ir->bin.lhs.reg_sz;
+        ret.emplace_back(bc);
+
+      }
+      else
+      {
+        ASSERT(false)
+      }
+    }break;
+    case IR_LOAD:
+    {
+      if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
+      {
+        bc.type = MOV_M;
+        bc.bin.rhs.voffset = ir->bin.rhs.decl->offset;
+        bc.bin.rhs.reg = (char)regs_enum::RSP;
+        bc.bin.rhs.reg_sz = 8;
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        ret.emplace_back(bc);
+      }
+      else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
+      {
+        bc.type = MOV_M;
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+
+        bc.bin.rhs.reg = ir->bin.rhs.reg;
+        bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+        bc.bin.rhs.voffset = ir->bin.rhs.voffset;
+
+        ret.emplace_back(bc);
+      }
+      else
+      {
+        ASSERT(false)
+      }
+
+    }break;
+    case IR_STORE:
+    {
+      if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
+      {
+        bc.type = STORE_I_2_M;
+        bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
+        bc.bin.lhs.reg = (char)regs_enum::RSP;
+        bc.bin.lhs.reg_sz = 8;
+        bc.bin.rhs.i = ir->bin.rhs.i;
+        ret.emplace_back(bc);
+      }
+      else if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_REG)
+      {
+        bc.type = STORE_R_2_M;
+        bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
+        bc.bin.lhs.reg = (char)regs_enum::RSP;
+        bc.bin.lhs.reg_sz = 8;
+        bc.bin.rhs.reg = ir->bin.rhs.reg;
+        bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+        ret.emplace_back(bc);
+      }
+      else
+      {
+        ASSERT(false)
+      }
+    }break;
+    default: ASSERT(false)
+    }
+
+  }
+}
 #pragma optimize("", off)
 void GenWasm(web_assembly_state* wasm_state)
 {	
@@ -17253,6 +17470,7 @@ void GenWasm(web_assembly_state* wasm_state)
 	own_std::vector<unsigned char> exports_sect;
 	own_std::vector<unsigned char> memory_sect;
 
+  /*
 	// magic number
 	ret->emplace_back(0);
 	ret->emplace_back(0x61);
@@ -17418,15 +17636,6 @@ void GenWasm(web_assembly_state* wasm_state)
 		decl2* ex = *exp;
 
 		WasmPushNameIntoArray(&exports_sect, ex->name);
-		/*
-		int name_len = ex->name.size();
-		uleb.clear();
-		encodeSLEB128(&uleb, name_len);
-		exports_sect.insert(exports_sect.end(), uleb.begin(), uleb.end());
-		unsigned char* name_ptr = (unsigned char*)ex->name.data();
-		exports_sect.insert(exports_sect.end(), name_ptr, name_ptr + name_len);
-		*/
-
 		switch (ex->type.type)
 		{
 		case TYPE_OVERLOADED_FUNCS:
@@ -17466,16 +17675,6 @@ void GenWasm(web_assembly_state* wasm_state)
 	table_sect.emplace_back(1);
 	table_sect.emplace_back(0x70);
 	table_sect.emplace_back(0x1);
-	/*
-	uleb.clear();
-	//encodeSLEB128(&uleb, out->size());
-	GenUleb128(&uleb, 0x90);
-	INSERT_VEC(table_sect, uleb);
-	uleb.clear();
-	//encodeSLEB128(&uleb, out->size());
-	GenUleb128(&uleb, 0x90);
-	INSERT_VEC(table_sect, uleb);
-	*/
 	table_sect.emplace_back(0x70);
 	table_sect.emplace_back(0x70);
 
@@ -17497,7 +17696,6 @@ void GenWasm(web_assembly_state* wasm_state)
 	own_std::vector<unsigned char> final_code_sect;
 	ASSERT(wasm_state->funcs.size() > 0);
 	
-	own_std::vector<func_decl*> x64_funcs;
 
 	machine_code mcode;
 	mcode.bcs.reserve(1024);
@@ -17593,19 +17791,6 @@ void GenWasm(web_assembly_state* wasm_state)
 		func->flags |= FUNC_DECL_CODE_WAS_GENERATED;
 
 	}
-	/*
-	for (int j = 0; j < mcode.bcs.size(); j++)
-	{
-		byte_code* cur_bc = &mcode.bcs[j];
-		if (cur_bc->type == MOVZX_R)
-		{
-			if (cur_bc->bin.rhs.reg == 0x80)
-			{
-				ASSERT(0);
-			}
-		}
-	}
-	*/
 	timer tmr;
 	InitTimer(&tmr);
 	StartTimer(&tmr);
@@ -17631,6 +17816,38 @@ void GenWasm(web_assembly_state* wasm_state)
 		}
 	}
 	FromBcToBc2(wasm_state,	&mcode.bcs, &bcs2);
+  */
+	timer tmr;
+	InitTimer(&tmr);
+	StartTimer(&tmr);
+
+	own_std::vector<func_decl*> x64_funcs;
+	machine_code mcode;
+	mcode.bcs.reserve(1024);
+	mcode.code.reserve(10000);
+	mcode.call_rels.reserve(128);
+	mcode.jmp_rels.reserve(128);
+	mcode.symbols.reserve(128);
+	mcode.rels.reserve(128);
+	FOR_VEC(f, wasm_state->funcs)
+	{
+		func_decl* func = *f;
+		own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & func->ir;
+			//func->code = (machine_code *)AllocMiscData(wasm_state->lang_stat, sizeof(machine_code));
+
+    wasm_gen_state state = {};
+    state.cur_func = func;
+    wasm_state->lang_stat->is_x64_bc_backend = false;
+    ///GenX64BytecodeFromIR(wasm_state->lang_stat, mcode.bcs, *ir, &state);
+    FromIRToBc(lang_stat, ir, mcode, func);
+    x64_funcs.emplace_back(func);
+    wasm_state->lang_stat->global_funcs.emplace_back(func);
+
+    func->flags |= FUNC_DECL_CODE_WAS_GENERATED;
+
+    //if (func->name == "SimpleAsm")
+      //asm_test = func;
+	}
 	GenX64(wasm_state->lang_stat, mcode.bcs, mcode);
 	CompleteMachineCode(wasm_state->lang_stat, mcode);
 	EndTimer(&tmr);
@@ -17661,22 +17878,18 @@ void GenWasm(web_assembly_state* wasm_state)
 
 
 	}
-	*/
 	if (asm_test)
 	{
 		int reached = 0;
 		int func_addr_int = asm_test->code_start_idx;
 		char* func_addr = (char*)(wasm_state->lang_stat->code_sect.data() + wasm_state->lang_stat->type_sect.size() + func_addr_int);
 		uleb.clear();
-		/*
 		int a = ((int(__cdecl*)(int*))func_addr)(&reached);
 		uleb.clear();
 		if (a == -1)
 		{
 			ASSERT(false)
 		}
-		*/
-	}
 	uleb.clear();
 	// total funcs size
 	encodeSLEB128(&uleb, wasm_state->funcs.size());
@@ -17689,14 +17902,7 @@ void GenWasm(web_assembly_state* wasm_state)
 
 	sect_type = 10;
 	final_code_sect.insert(0, sect_type);
-
-	/*
-	own_std::vector<unsigned char> type_sect;
-	own_std::vector<unsigned char> code_sect;
-	own_std::vector<unsigned char> func_sect;
-	own_std::vector<unsigned char> exports_sect;
-	own_std::vector<unsigned char> memory_sect;
-	*/
+  */
 
 	INSERT_VEC((*ret), type_sect);
 	INSERT_VEC((*ret), import_sect);
@@ -17705,7 +17911,7 @@ void GenWasm(web_assembly_state* wasm_state)
 	INSERT_VEC((*ret), memory_sect);
 	INSERT_VEC((*ret), exports_sect);
 	INSERT_VEC((*ret), element_sect);
-	INSERT_VEC((*ret), final_code_sect);
+	//INSERT_VEC((*ret), final_code_sect);
 
 	WriteFileLang((char*)(wasm_state->wasm_dir + wasm_state->folder_name + ".wasm").c_str(), ret->begin(), ret->size());
 	WriteFileLang((char*)(wasm_state->wasm_dir + wasm_state->folder_name + "_data_sect").c_str(), lang_stat->data_sect.begin(), lang_stat->data_sect.size());
@@ -17761,6 +17967,8 @@ Your browser does not support the audio element.\
 	}
 
 
+  own_std::vector<unsigned char> final_code_sect;
+  own_std::vector<byte_code2> bcs2;
 #ifndef LANG_NO_ENGINE
 	if(!wasm_state->lang_stat->release)
 		WasmSerialize(wasm_state, final_code_sect, bcs2, &mcode);
@@ -17782,7 +17990,7 @@ void CreateAstFromFunc(lang_state* lang_stat, func_decl* f)
 	ASSERT(ast->type == AST_FUNC);
 	own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & f->ir;
 	ir->reserve(128);
-	GetIRFromAst(lang_stat, ast, ir);
+	GetIRFromAst2(lang_stat, ast, ir, false);
 }
 
 struct compile_options

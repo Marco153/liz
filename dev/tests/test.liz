@@ -1,6 +1,7 @@
 PrintStr::fn outsider(str : str_lit);
 GetMem::fn outsider(size : u64) ! *void;
-GetTypeData::fn internal(void *) !*type_data;
+//GetTypeData::fn internal(void *) !*type_data;
+/*
 test_strct_ser:struct
 {
 	a : u32,
@@ -1986,4 +1987,21 @@ main::fn()!u32
 
 
   return 6
+}
+*/
+
+main::fn()
+{
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  x :u32= 2;
+  y :u64= cast(u64)x;
+  ptr := &y;
+  z := cast(*u8)ptr
+  x = *cast(*u32)ptr
+  w := cast(*u8)&ptr
+  
+
 }

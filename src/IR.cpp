@@ -1030,6 +1030,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
 }
 
 void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
+  val->kind = IR_VAL_VALUE;
   switch (ast->type) {
   case AST_STRUCT_COSTRUCTION: {
     val->type = IR_TYPE_ON_STACK;
@@ -1070,6 +1071,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->is_float = val->is_float || val->is_packed_float;
     val->ptr = ast->decl->type.ptr;
     val->deref = 0;
+    val->kind = IR_VAL_ADDR;
   } break;
   case AST_FLOAT: {
     val->type = IR_TYPE_F32;
@@ -1215,6 +1217,29 @@ void AllocSpecificReg(lang_state *lang_stat, char idx) {
   if (lang_stat->track_alloc_regs) {
     lang_stat->tracked_regs.emplace_back(idx);
   }
+}
+char AllocReg2(lang_state *lang_stat, bool on_func_call, int start = 0) {
+  if(on_func_call)
+  {
+    if (IS_FLAG_OFF(lang_stat->regs[0], REG_USED_FLAG)) {
+      // lang_stat->regs[i] |= REG_FREE_FLAG;
+      AllocSpecificReg(lang_stat, 0);
+      return 0;
+    }
+  }
+  else
+  {
+    for (int i = start; i < 9; i++) {
+      if (i == PRE_X64_RSP_REG || i == AUX_DECL_REG)
+        continue;
+      if (IS_FLAG_OFF(lang_stat->regs[i], REG_USED_FLAG)) {
+        // lang_stat->regs[i] |= REG_FREE_FLAG;
+        AllocSpecificReg(lang_stat, i);
+        return i;
+      }
+    }
+  }
+  ASSERT(0);
 }
 char AllocReg(lang_state *lang_stat, int start = 0) {
   for (int i = start; i < 9; i++) {
@@ -4508,6 +4533,278 @@ ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat) {
   bin->e_holder.expr.emplace_back(rhs);
   return bin;
 }
+void MakeIrStore(lang_state *lang_stat, ir_val *lhs, ir_val *rhs, ir_rep *out)
+{
+  out->type = IR_STORE;
+  out->bin.lhs = *lhs;
+  out->bin.rhs = *rhs;
+}
+void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *lhs, ir_rep *out)
+{
+  out->type = IR_LOAD;
+  out->bin.lhs.type = IR_TYPE_REG;
+  out->bin.lhs.reg = reg_dst;
+  out->bin.lhs.reg_sz = reg_sz;
+  out->bin.rhs = *lhs;
+  out->bin.rhs.voffset = 0;
+}
+void MakeIrAssignment(lang_state *lang_stat, ir_val *to_assign, ir_val *lhs, ir_rep *out)
+{
+  out->type = IR_ASSIGNMENT;
+  out->assign.only_lhs = true;
+  out->assign.lhs = *lhs;
+}
+void MakeIrAssignment(lang_state *lang_stat, tkn_type2 bin, ir_val *to_assign, ir_val *lhs, ir_val *rhs, ir_rep *out)
+{
+  out->type = IR_ASSIGNMENT;
+  out->assign.only_lhs = false;
+  if(!rhs)
+  {
+    out->assign.only_lhs = true;
+  }
+  out->assign.op = bin;
+  out->assign.lhs = *lhs;
+  out->assign.rhs = *rhs;
+}
+void FreeRegs2(lang_state *lang_stat)
+{
+  lang_stat->regs[0] = 0;
+  lang_stat->regs[3] = 0;
+  lang_stat->regs[15] = 0;
+}
+char GetAvailableReg(lang_state *lang_stat)
+{
+  if (IS_FLAG_OFF(lang_stat->regs[0], REG_USED_FLAG)) 
+  {
+    return 0;
+  }
+  else if (IS_FLAG_OFF(lang_stat->regs[3], REG_USED_FLAG)) 
+  {
+    return 3;
+  }
+  else if (IS_FLAG_OFF(lang_stat->regs[15], REG_USED_FLAG)) 
+  {
+    return 15;
+  }
+}
+char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs, char derefs)
+{
+  ir_rep ir;
+  char reg = GetAvailableReg(lang_stat);
+
+  char ptr = derefs;
+  while(ptr > 0)
+  {
+    char sz = 8;
+    if(ptr == 1)
+    {
+      sz = rhs->reg_sz;
+    }
+    MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir);
+    out->emplace_back(ir);
+    ptr--;
+  }
+
+  rhs->type = IR_TYPE_REG;
+  rhs->kind = IR_VAL_VALUE;
+  rhs->deref = 0;
+  return reg;
+
+}
+ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *out, bool is_lhs)
+{
+  ir_val ret;
+  ir_rep ir;
+  ir_val lhs;
+  ir_val rhs;
+  switch(ast->type)
+  {
+  case AST_FUNC:
+  {
+    //HERE()
+    func_decl *last_func = lang_stat->cur_func;
+    lang_stat->cur_func = ast->func.fdecl;
+
+    ir.type = IR_STACK_BEGIN;
+    ir.fdecl = ast->func.fdecl;
+    // ir.num  = ast->func.fdecl->stack_size;
+    ir.fdecl->biggest_call_args = 0;
+    out->emplace_back(ir);
+
+    FOR_VEC(arg, ast->func.fdecl->vars) {
+      decl2 *a = *arg;
+      if (a->type.type == TYPE_TEMPLATE)
+        continue;
+      ir.fdecl = ast->func.fdecl;
+      if (IS_FLAG_OFF(a->flags, DECL_IS_ARG)) {
+        ir.type = IR_DECLARE_LOCAL;
+        ir.decl = a;
+        out->emplace_back(ir);
+      }
+    }
+    ir.type = IR_PROLOGUE_END;
+    ir.fdecl = ast->func.fdecl;
+    // ir.num  = ast->func.fdecl->stack_size;
+    ir.fdecl->biggest_call_args = 0;
+    out->emplace_back(ir);
+
+    FOR_VEC(arg, ast->func.fdecl->vars) {
+      decl2 *a = *arg;
+      if (a->type.type == TYPE_TEMPLATE)
+        continue;
+      ir.fdecl = ast->func.fdecl;
+      if (IS_FLAG_ON(a->flags, DECL_IS_ARG)) {
+        ir.type = IR_DECLARE_ARG;
+
+        ir.decl = a;
+        out->emplace_back(ir);
+      }
+    }
+
+    GetIRFromAst2(lang_stat, ast->func.stats, out, false);
+
+    ir.type = IR_STACK_END;
+    // ir.num  = ast->func.fdecl->stack_size;
+    out->emplace_back(ir);
+    lang_stat->cur_func = last_func;
+  }break;
+  case AST_FLOAT:
+  case AST_INT:
+  case AST_IDENT:
+  {
+    GetIRVal(lang_stat, ast, &ret);
+  }break;
+  case AST_DEREF:
+  {
+    ast_rep *df = ast->deref.exp;
+    rhs = GetIRFromAst2(lang_stat, df, out, is_lhs);
+
+    rhs.deref = ast->deref.times;
+    if(!is_lhs)
+    {
+      HERE()
+      rhs.reg = LoadDerefs(lang_stat, out, &rhs, rhs.deref);
+    }
+    else
+    {
+      rhs.kind = IR_VAL_ADDR;
+    }
+    ret = rhs;
+  }break;
+  case AST_ADDRESS_OF:
+  {
+    ast_rep *addr = ast->ast;
+    ret = GetIRFromAst2(lang_stat, addr, out, true);
+    if(ret.kind == IR_VAL_ADDR)
+    {
+      ir.type = IR_ADDRESS_OF;
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+      ir.bin.lhs.reg_sz = 8;
+      ir.bin.rhs = ret;
+      out->emplace_back(ir);
+
+      ret = ir.bin.lhs;
+    }
+    ret.kind = IR_VAL_VALUE;
+
+  }break;
+  case AST_CAST:
+  {
+    ast_rep *casted_ast = ast->cast.casted;
+    ret = GetIRFromAst2(lang_stat, casted_ast, out, false);
+    int cast_sz = GetTypeSize(&ast->cast.type);
+    //ret.reg_sz = cast_sz;
+    ret.ptr = ast->cast.type.ptr;
+
+    if(ast->cast.type.ptr > 0 && !is_lhs && ret.kind == IR_VAL_ADDR)
+    {
+        ret.reg = LoadDerefs(lang_stat, out, &ret, 1);
+    }
+    else
+    {
+      if(cast_sz != ret.reg_sz)
+      {
+        ret.reg = LoadDerefs(lang_stat, out, &ret, 1);
+      }
+    }
+
+  }break;
+  case AST_STATS:
+  {
+    FOR_VEC(st, ast->stats) {
+      FreeRegs2(lang_stat);
+      ast_rep *s = *st;
+      if (s->type == AST_EMPTY)
+        continue;
+
+      if (s->type == AST_WHILE || s->type == AST_IF) {
+        GetIRFromAst2(lang_stat, s, out, false);
+      } else {
+        ASSERT(!lang_stat->ir_in_stmnt)
+        lang_stat->ir_in_stmnt = true;
+
+        bool can_emplace_stmnt = s->type != AST_IDENT && s->type != AST_FOR &&
+                                 !s->dont_make_dbg_stmnt;
+        int stmnt_idx = 0;
+        if (can_emplace_stmnt)
+          stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT,
+                                         (void *)(long long)s->line_number);
+
+        GetIRFromAst2(lang_stat, s, out, false);
+
+        if (can_emplace_stmnt)
+          IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+
+        lang_stat->ir_in_stmnt = false;
+      }
+
+      int cur_sz = lang_stat->cur_func->strct_ret_size_per_statement;
+      lang_stat->cur_func->strct_ret_size_per_statement =
+          max(cur_sz, lang_stat->cur_strct_ret_size_per_statement);
+      lang_stat->cur_strct_ret_size_per_statement = 0;
+
+      int i = 0;
+    }
+
+  }break;
+  case AST_DBG_BREAK: {
+    if (lang_stat->release)
+      ir.type = IR_NOP;
+    else {
+      // int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT,
+      // (void *)(long long)ast->line_number);
+      ir.type = IR_DBG_BREAK;
+      // IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+    }
+    out->emplace_back(ir);
+  } break;
+  case AST_BINOP:
+  {
+    switch(ast->op)
+    {
+    case T_EQUAL:
+    {
+      lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], out, true);
+      rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], out, false);
+
+      if(rhs.kind != IR_VAL_VALUE)
+      {
+        rhs.reg = LoadDerefs(lang_stat, out, &rhs, 1);
+      }
+
+      MakeIrStore(lang_stat, &lhs, &rhs, &ir);
+
+      out->emplace_back(ir);
+    }break;
+    default: ASSERT(false)
+    }
+  }break;
+  default: ASSERT(false)
+  }
+  return ret;
+
+}
 void SetIrStart(ir_rep *ir, int new_start)
 {
   ir->start = new_start;
@@ -4516,3 +4813,4 @@ void SetIrEnd(ir_rep *ir, int new_end)
 {
   ir->end = new_end;
 }
+

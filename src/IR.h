@@ -359,11 +359,13 @@ struct ir_val
     {
       on_stack_type on_stack_type;
       int i;
-    };
+    }stack;
     float f32;
     double f64;
     char* str;
-    u64* val;
+    u64 val;
+    int i;
+    u64* val_ptr;
     struct
     {
       union

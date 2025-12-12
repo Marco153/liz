@@ -2022,7 +2022,7 @@ bool AreIRValsEqual(ir_val* lhs, ir_val* rhs)
 int GetOnStackTypeOffset(func_decl* cur_func, ir_val* val)
 {
 	int base_offset = 0;
-	switch (val->on_stack_type)
+	switch (val->stack.on_stack_type)
 	{
 	case ON_STACK_STRUCT_RET:
 	{
@@ -3544,7 +3544,7 @@ own_std::string WasmIrValToString(int thread_id, dbg_state* dbg, ir_val* val)
 	{
 		int base_ptr = 0;
 		own_std::string stack_type_name = "";
-		switch (val->on_stack_type)
+		switch (val->stack.on_stack_type)
 		{
 		case ON_STACK_STRUCT_RET:
 		{
@@ -13576,6 +13576,7 @@ struct ir_val_aux
 	union
 	{
     void *ptr;
+    u64 val;
 		float f;
 		int i;
 	};
@@ -13649,7 +13650,7 @@ int GetOnStackOffsetWithIrVal(lang_state* lang_stat, ir_val* ir)
 	int ret = 0;
 	if (ir->type == IR_TYPE_ON_STACK)
 	{
-		switch (ir->on_stack_type)
+		switch (ir->stack.on_stack_type)
 		{
 		case ON_STACK_SPILL:
 			ret = ir->i + lang_stat->cur_func->to_spill_offset;
@@ -17416,6 +17417,63 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
         ASSERT(false)
       }
     }break;
+		case IR_CAST_INT_TO_INT:
+		{
+			byte_code_enum inst = MOVZX_R;
+			if (!ir->bin.lhs.is_unsigned)
+				inst = MOVSX_R;
+			switch (ir->bin.lhs.type)
+			{
+			case IR_TYPE_REG:
+			{
+				bc.bin.lhs.reg = ir->bin.lhs.reg;
+				bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        
+				switch (ir->bin.rhs.type)
+				{
+				case IR_TYPE_INT:
+				{
+					bc.type = MOV_I;
+					bc.ir = ir;
+					bc.bin.lhs.reg_sz = 4;
+					bc.bin.rhs.i = ir->bin.rhs.i;
+					//bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+					ret.emplace_back(bc);
+				}break;
+				case IR_TYPE_REG:
+				{
+					bc.type = inst;
+					bc.ir = ir;
+					bc.bin.rhs.reg = ir->bin.rhs.reg;
+					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+					ret.emplace_back(bc);
+				}break;
+				case IR_TYPE_STR_LIT:
+				{
+          ASSERT(false)
+				}break;
+				case IR_TYPE_DECL:
+				{
+					bc.type = (byte_code_enum)((u32)(inst + 1));
+          if(ir->bin.rhs.reg_sz == 4 && ir->bin.lhs.reg_sz == 8)
+          {
+            bc.type = MOV_M;
+            bc.bin.lhs.reg_sz = ir->bin.rhs.reg_sz;
+          }
+					bc.bin.lhs.reg = ir->bin.lhs.reg;
+					bc.bin.rhs.reg = (char)regs_enum::RSP;
+					bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+					bc.bin.rhs.voffset = ir->bin.rhs.decl->offset;
+					ret.emplace_back(bc);
+				}break;
+				default:
+					ASSERT(false);
+				}
+			}break;
+			default:
+				ASSERT(false);
+			}
+		}break;
     case IR_BIN:
     {
       byte_code_enum base_inst = MOV_I;
@@ -17475,44 +17533,47 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
       lhs_aux.is_float = ir->bin.lhs.is_float;
       lhs_aux.is_unsigned = ir->bin.lhs.is_unsigned;
       lhs_aux.is_packed_float = ir->bin.lhs.is_packed_float;
-      lhs_aux.ptr = ir->bin.lhs.val;
+      lhs_aux.reg = ir->bin.lhs.reg;
+      lhs_aux.voffset = ir->bin.lhs.voffset;
+      lhs_aux.reg_sz = ir->bin.lhs.reg_sz;
+      lhs_aux.val = ir->bin.lhs.val;
+
+      if(ir->bin.lhs.type == IR_TYPE_DECL)
+      {
+        lhs_aux.voffset = ir->bin.lhs.decl->offset;
+      }
+
+
 
       rhs_aux.type = ir->bin.rhs.type;
       rhs_aux.is_float = ir->bin.rhs.is_float;
       rhs_aux.is_unsigned = ir->bin.rhs.is_unsigned;
       rhs_aux.is_packed_float = ir->bin.rhs.is_packed_float;
-      rhs_aux.ptr = ir->bin.rhs.val;
+      rhs_aux.reg = ir->bin.rhs.reg;
+      rhs_aux.voffset = ir->bin.rhs.voffset;
+      rhs_aux.reg_sz = ir->bin.rhs.reg_sz;
+      rhs_aux.val = ir->bin.rhs.val;
+      if(ir->bin.rhs.type == IR_TYPE_DECL)
+      {
+        rhs_aux.voffset = ir->bin.rhs.decl->offset;
+      }
 
-      correct_inst = GenX64GetCorrectBinInst(&lhs_aux, &rhs_aux, correct_inst, base_inst_sse);
-
-      GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst));
       bc.type = correct_inst;
+
+      //HERE()
       if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
       {
-        bc.bin.rhs.voffset = ir->bin.rhs.decl->offset;
-        bc.bin.rhs.reg = (char)regs_enum::RSP;
-        bc.bin.rhs.reg_sz = 8;
-        bc.bin.lhs.reg = ir->bin.lhs.reg;
-        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
-        InsertBc(ret, bc);
+        GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 2));
 
       }
       else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_INT)
       {
-        bc.bin.rhs.i = ir->bin.rhs.i;
-        bc.bin.lhs.reg = ir->bin.lhs.reg;
-        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
-        InsertBc(ret, bc);
+        GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 3));
 
       }
       else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG_MEM)
       {
-        bc.bin.rhs.voffset = ir->bin.rhs.voffset;
-        bc.bin.rhs.reg = ir->bin.rhs.reg;
-        bc.bin.rhs.reg_sz = 8;
-        bc.bin.lhs.reg = ir->bin.lhs.reg;
-        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
-        InsertBc(ret, bc);
+        GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 2));
       }
       else
         ASSERT(false)
@@ -17527,6 +17588,16 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
         bc.bin.rhs.reg_sz = 8;
         bc.bin.lhs.reg = ir->bin.lhs.reg;
         bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        InsertBc(ret, bc);
+      }
+      else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG_MEM)
+      {
+        bc.type = MOV_M;
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        bc.bin.rhs.reg = ir->bin.rhs.reg;
+        bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+        bc.bin.rhs.voffset = ir->bin.rhs.voffset;
         InsertBc(ret, bc);
       }
       else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
@@ -17549,13 +17620,23 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
     }break;
     case IR_STORE:
     {
+      //HERE()
       if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
       {
         bc.type = STORE_I_2_M;
         bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
         bc.bin.lhs.reg = (char)regs_enum::RSP;
-        bc.bin.lhs.reg_sz = 8;
-        bc.bin.rhs.i = ir->bin.rhs.i;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        bc.bin.rhs.i = ir->bin.rhs.val;
+        InsertBc(ret, bc);
+      }
+      else if(ir->bin.lhs.type == IR_TYPE_REG_MEM && ir->bin.rhs.type == IR_TYPE_INT)
+      {
+        bc.type = STORE_I_2_M;
+        bc.bin.lhs.voffset = ir->bin.lhs.voffset;
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        bc.bin.rhs.i = ir->bin.rhs.val;
         InsertBc(ret, bc);
       }
       else if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_REG)
@@ -17563,7 +17644,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, machine_co
         bc.type = STORE_R_2_M;
         bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
         bc.bin.lhs.reg = (char)regs_enum::RSP;
-        bc.bin.lhs.reg_sz = 8;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
         bc.bin.rhs.reg = ir->bin.rhs.reg;
         bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
         InsertBc(ret, bc);

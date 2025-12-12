@@ -1,6 +1,7 @@
 #include "IR.h"
 #include "token.h"
 #include "token_common.h"
+#include <algorithm>
 
 bool IsAstSimple(lang_state *lang_stat, ast_rep *ast);
 decl2 *PointLogic(lang_state *lang_stat, node *n, scope *scp, type2 *ret_tp);
@@ -1034,7 +1035,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
   switch (ast->type) {
   case AST_STRUCT_COSTRUCTION: {
     val->type = IR_TYPE_ON_STACK;
-    val->i = ast->strct_constr.at_offset;
+    val->stack.i = ast->strct_constr.at_offset;
     // val->is_unsigned = IsUnsigned(ast->decl->type.type);
   } break;
   case AST_STR_LIT: {
@@ -1097,7 +1098,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
   case AST_CHAR:
   case AST_INT: {
     val->type = IR_TYPE_INT;
-    val->i = ast->num;
+    val->val = ast->num;
     val->is_unsigned = ast->num < 0 ? false : true;
     val->is_float = false;
     val->is_packed_float = false;
@@ -1328,7 +1329,7 @@ void MaybeUnspillRegisters(lang_state *lang_stat, int *had_spilled_reg,
     ir.assign.lhs.type = IR_TYPE_ON_STACK;
     ir.assign.lhs.deref = 0;
     ir.assign.lhs.reg_sz = 8;
-    ir.assign.lhs.on_stack_type = ON_STACK_SPILL;
+    ir.assign.lhs.stack.on_stack_type = ON_STACK_SPILL;
     out->emplace_back(ir);
   }
 }
@@ -1341,8 +1342,8 @@ int SpillRegisters(lang_state *lang_stat, int spilled_reg,
   ir.assign.to_assign.type = IR_TYPE_ON_STACK;
   ir.assign.to_assign.reg_sz = 8;
   ir.assign.to_assign.deref = -1;
-  ir.assign.to_assign.on_stack_type = ON_STACK_SPILL;
-  ir.assign.to_assign.i = spill_offset;
+  ir.assign.to_assign.stack.on_stack_type = ON_STACK_SPILL;
+  ir.assign.to_assign.stack.i = spill_offset;
   ir.assign.only_lhs = true;
   ir.assign.lhs.type = IR_TYPE_REG;
   ir.assign.lhs.reg_sz = 8;
@@ -2266,8 +2267,8 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
             ir.assign.to_assign.type = IR_TYPE_ON_STACK;
             ir.assign.to_assign.reg_sz = 8;
             ir.assign.to_assign.deref = -1;
-            ir.assign.to_assign.on_stack_type = ON_STACK_SPILL;
-            ir.assign.to_assign.i = cur_spill_offset;
+            ir.assign.to_assign.stack.on_stack_type = ON_STACK_SPILL;
+            ir.assign.to_assign.stack.i = cur_spill_offset;
             ir.assign.only_lhs = true;
             /*
             if(to_spill->ptr == -1)
@@ -2399,11 +2400,11 @@ if(e->line_number == 1467)
         ir.assign.only_lhs = true;
 
         ir.assign.lhs.type = IR_TYPE_ON_STACK;
-        ir.assign.lhs.on_stack_type = ON_STACK_STRUCT_RET;
+        ir.assign.lhs.stack.on_stack_type = ON_STACK_STRUCT_RET;
+        ir.assign.lhs.stack.i = cur_offset;
         ir.assign.lhs.deref = -1;
         ir.assign.lhs.ptr = -1;
         ir.assign.lhs.reg_sz = 8;
-        ir.assign.lhs.i = cur_offset;
         out->emplace_back(ir);
 
         // arg_reg1 = *ret_reg0
@@ -2448,9 +2449,9 @@ if(e->line_number == 1467)
         GinIRMemCpy(lang_stat, out);
 
         val.type = IR_TYPE_ON_STACK;
-        val.on_stack_type = ON_STACK_STRUCT_RET;
+        val.stack.on_stack_type = ON_STACK_STRUCT_RET;
+        val.stack.i = cur_offset;
         val.reg_sz = 8;
-        val.i = cur_offset;
 
       } else {
         val.reg_sz = GetTypeSize(&call->ret_type);
@@ -2478,9 +2479,9 @@ if(e->line_number == 1467)
             ir.assign.to_assign.reg_sz = 8;
             ir.assign.only_lhs = true;
             ir.assign.lhs.type = IR_TYPE_ON_STACK;
-            ir.assign.lhs.on_stack_type = ON_STACK_SPILL;
+            ir.assign.lhs.stack.on_stack_type = ON_STACK_SPILL;
             // ir.assign.lhs.deref = 1;
-            ir.assign.lhs.i = cur_spill_offset;
+            ir.assign.lhs.stack.i = cur_spill_offset;
             ir.assign.lhs.is_float = begin->is_float || begin->is_packed_float;
             ir.assign.lhs.is_packed_float = begin->is_packed_float;
             ir.assign.lhs.reg_sz = 8;
@@ -2541,10 +2542,10 @@ if(e->line_number == 1467)
       if (e->goes_onto_stack && top->is_packed_float) {
         ir.type = IR_ASSIGNMENT;
         ir.assign.to_assign.type = IR_TYPE_ON_STACK;
-        ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
+        ir.assign.to_assign.stack.on_stack_type = ON_STACK_STRUCT_CONSTR;
+        ir.assign.to_assign.stack.i = e->at_stack_offset;
         ir.assign.to_assign.reg_sz = 8;
         ir.assign.to_assign.deref = -1;
-        ir.assign.to_assign.i = e->at_stack_offset;
         ir.assign.only_lhs = true;
         ir.assign.lhs = *top;
 
@@ -2586,8 +2587,8 @@ if(e->line_number == 1467)
         ir.assign.only_lhs = true;
         ir.assign.to_assign.is_unsigned = top->is_unsigned;
         ir.assign.to_assign.type = IR_TYPE_ON_STACK;
-        ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
-        ir.assign.to_assign.i = offset + tp_sz * (len - (i + 1));
+        ir.assign.to_assign.stack.on_stack_type = ON_STACK_STRUCT_CONSTR;
+        ir.assign.to_assign.stack.i = offset + tp_sz * (len - (i + 1));
         ir.assign.to_assign.reg_sz = tp_sz;
         ir.assign.to_assign.deref = -1;
         ir.assign.to_assign.is_float = top->is_float;
@@ -2617,9 +2618,9 @@ if(e->line_number == 1467)
           ir.assign.only_lhs = true;
           ir.assign.to_assign.is_unsigned = top->is_unsigned;
           ir.assign.to_assign.type = IR_TYPE_ON_STACK;
-          ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
+          ir.assign.to_assign.stack.on_stack_type = ON_STACK_STRUCT_CONSTR;
+          ir.assign.to_assign.stack.i = cur_offset + cinfo->var->offset;
           ir.assign.to_assign.reg_sz = 8;
-          ir.assign.to_assign.i = cur_offset + cinfo->var->offset;
           ir.assign.to_assign.deref = -1;
           ir.assign.to_assign.reg_sz = GetTypeSize(&cinfo->var->type);
           ir.assign.lhs = *top;
@@ -2644,9 +2645,9 @@ if(e->line_number == 1467)
           ir.assign.only_lhs = true;
           ir.assign.to_assign.is_unsigned = top->is_unsigned;
           ir.assign.to_assign.type = IR_TYPE_ON_STACK;
-          ir.assign.to_assign.on_stack_type = ON_STACK_STRUCT_CONSTR;
+          ir.assign.to_assign.stack.on_stack_type = ON_STACK_STRUCT_CONSTR;
+          ir.assign.to_assign.stack.i = cur_offset + cinfo->var->offset;
           ir.assign.to_assign.reg_sz = 8;
-          ir.assign.to_assign.i = cur_offset + cinfo->var->offset;
           ir.assign.to_assign.deref = -1;
           ir.assign.to_assign.reg_sz = GetTypeSize(&cinfo->var->type);
           ir.assign.lhs = *top;
@@ -4585,18 +4586,21 @@ char GetAvailableReg(lang_state *lang_stat)
 {
   if (IS_FLAG_OFF(lang_stat->regs[0], REG_USED_FLAG)) 
   {
+    lang_stat->regs[0] |= REG_USED_FLAG;
     return 0;
   }
   else if (IS_FLAG_OFF(lang_stat->regs[3], REG_USED_FLAG)) 
   {
+    lang_stat->regs[3] |= REG_USED_FLAG;
     return 3;
   }
   else if (IS_FLAG_OFF(lang_stat->regs[15], REG_USED_FLAG)) 
   {
+    lang_stat->regs[15] |= REG_USED_FLAG;
     return 15;
   }
 }
-char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs, char derefs, char max_derefs)
+void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs, char derefs, char max_derefs)
 {
   ir_rep ir;
   char reg = GetAvailableReg(lang_stat);
@@ -4607,16 +4611,23 @@ char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     final_reg = (char)regs_enum::RSP;
   }
 
+  bool derefs_equal = derefs == max_derefs;
   char ptr = derefs;
 
   while(ptr > 0)
   {
     char sz = 8;
-    if(ptr == 1)
+    MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir);
+    if(ptr == 1 && derefs_equal)
     {
       sz = rhs->reg_sz;
+      rhs->type = IR_TYPE_REG;
     }
-    MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir);
+    else
+    {
+      rhs->type = IR_TYPE_REG_MEM;
+    }
+    rhs->reg = reg;
     out->emplace_back(ir);
 
     rhs->voffset = 0;
@@ -4628,16 +4639,19 @@ char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
 
   if(derefs != max_derefs)
   {
-    rhs->type = IR_TYPE_REG_MEM;
-    rhs->reg = final_reg;
+    if(rhs->type == IR_TYPE_DECL)
+    {
+      //rhs->voffset = rhs->decl->offset;
+      //rhs->type = IR_TYPE_REG_MEM;
+    }
   }
   else
   {
     rhs->type = IR_TYPE_REG;
+    rhs->reg = final_reg;
   }
   rhs->kind = IR_VAL_VALUE;
   rhs->deref = 0;
-  return reg;
 
 }
 ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *out, bool is_lhs)
@@ -4648,6 +4662,105 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
   ir_val rhs;
   switch(ast->type)
   {
+  case AST_IF: {
+    FreeRegs2(lang_stat);
+
+    bool is_stmnt_without_semicolon =
+        ast->cond.scope->stats.back()->stmnt_without_semicolon;
+    bool was_in_stmnt = lang_stat->ir_in_stmnt;
+    if (is_stmnt_without_semicolon)
+      lang_stat->ir_in_stmnt = false;
+    /*
+
+    int stmnt_without_semicolon_idx = 0;
+
+    if(is_stmnt_without_semicolon)
+            stmnt_without_semicolon_idx = IRCreateBeginBlock(lang_stat, out,
+    IR_BEGIN_IF_EXPR_BLOCK, (void *)(long long)ast->line_number);
+    */
+    int stmnt_idx = 0;
+    if (!lang_stat->ir_in_stmnt && !lang_stat->no_stmnt_of_conds)
+      stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT,
+                                     (void *)(long long)ast->line_number);
+    int on_idx = 0;
+    if(ast->cond.from_on_ast)
+    {
+      on_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_ON_BLOCK);
+    }
+    int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+
+    bool has_elses = ast->cond.elses.size();
+
+    int sub_if_idx = 0;
+    if (has_elses)
+      sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
+
+    int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
+    
+    GetIRCond(lang_stat, ast->cond.cond, out);
+
+    if (!lang_stat->ir_in_stmnt && !lang_stat->no_stmnt_of_conds)
+      IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+    // GetIRFromAst(lang_stat, ast->cond.cond, out);
+    IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_COND_BLOCK);
+
+    if (ast->cond.scope) {
+      auto prev = lang_stat->no_stmnt_of_conds;
+      lang_stat->no_stmnt_of_conds = false;
+      GetIRFromAst2(lang_stat, ast->cond.scope, out, false);
+      //if (is_stmnt_without_semicolon)
+        //GenIfExpr(lang_stat, ast->cond.scope->stats.back(), out, top);
+      if (has_elses) {
+        ir.type = IR_BREAK_OUT_IF_BLOCK;
+        out->emplace_back(ir);
+      }
+      lang_stat->no_stmnt_of_conds = prev;
+    }
+
+    if (has_elses)
+      IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
+
+    int i = 0;
+    FOR_VEC(el, ast->cond.elses) {
+      ast_rep *e = *el;
+
+      bool is_last = (i + 1) >= ast->cond.elses.size();
+
+      if (!is_last)
+        sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
+
+      if (e->type == AST_ELSE_IF) {
+        if (!lang_stat->no_stmnt_of_conds)
+          stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT,
+                                         (void *)(long long)e->line_number);
+        cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
+        GetIRCond(lang_stat, e->cond.cond, out);
+        IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_COND_BLOCK);
+        if (!lang_stat->no_stmnt_of_conds)
+          IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+      }
+
+      GetIRFromAst2(lang_stat, e->cond.scope, out, false);
+
+      //if (is_stmnt_without_semicolon)
+        //GenIfExpr(lang_stat, e->cond.scope->stats.back(), out);
+
+      if (!is_last) {
+        ir.type = IR_BREAK_OUT_IF_BLOCK;
+        out->emplace_back(ir);
+        IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
+      }
+    }
+
+    IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
+    if(ast->cond.from_on_ast)
+    {
+      IRCreateEndBlock(lang_stat, on_idx, out, IR_END_ON_BLOCK);
+    }
+    if (is_stmnt_without_semicolon)
+      lang_stat->ir_in_stmnt = was_in_stmnt;
+
+  } break;
   case AST_FUNC:
   {
     //HERE()
@@ -4708,10 +4821,13 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
     ast_rep *df = ast->deref.exp;
     rhs = GetIRFromAst2(lang_stat, df, out, is_lhs);
 
+    HERE()
     rhs.deref = ast->deref.times;
+    if(rhs.kind == IR_VAL_ADDR)
+      rhs.deref += 1;
     if(!is_lhs)
     {
-      rhs.reg = LoadDerefs(lang_stat, out, &rhs, rhs.deref, rhs.deref);
+      LoadDerefs(lang_stat, out, &rhs, rhs.deref, rhs.deref);
     }
     else
     {
@@ -4741,21 +4857,48 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
   {
     ast_rep *casted_ast = ast->cast.casted;
     ret = GetIRFromAst2(lang_stat, casted_ast, out, false);
+
+    char prev = ast->cast.type.ptr;
+    ast->cast.type.ptr = 0;
     int cast_sz = GetTypeSize(&ast->cast.type);
+    ast->cast.type.ptr = prev;
+
     //ret.reg_sz = cast_sz;
     ret.ptr = ast->cast.type.ptr;
 
-    if(ast->cast.type.ptr > 0 && !is_lhs && ret.kind == IR_VAL_ADDR)
+    if(ast->cast.type.ptr > 0)
     {
-        ret.reg = LoadDerefs(lang_stat, out, &ret, 1, 1);
     }
     else
     {
       if(cast_sz != ret.reg_sz)
       {
-        ret.reg = LoadDerefs(lang_stat, out, &ret, 1, 1);
+        if(ret.is_float && !ast->cast.type.IsFloat())
+        {
+          ASSERT(false)
+        }
+        else if(!ret.is_float && ast->cast.type.IsFloat())
+        {
+
+          ASSERT(false)
+        }
+        else
+        {
+          ir.type = IR_CAST_INT_TO_INT;
+          ir.bin.lhs.type = IR_TYPE_REG;
+          ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+          ir.bin.lhs.reg_sz = cast_sz;
+          ir.bin.rhs = ret;
+          out->emplace_back(ir);
+
+          ret = ir.bin.lhs;
+          ret.reg = ir.bin.lhs.reg;
+          ret.kind = IR_VAL_VALUE;
+          
+        }
       }
     }
+    ret.reg_sz = cast_sz;
 
   }break;
   case AST_STATS:
@@ -4814,18 +4957,21 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
     case T_PLUS:
     {
 
+      HERE()
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], out, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], out, false);
 
       if(lhs.kind != IR_VAL_VALUE)
       {
-        lhs.reg = LoadDerefs(lang_stat, out, &lhs, lhs.deref, lhs.deref);
+        LoadDerefs(lang_stat, out, &lhs, lhs.deref, lhs.deref);
       }
       if(rhs.kind != IR_VAL_VALUE)
       {
-        rhs.reg = LoadDerefs(lang_stat, out, &rhs, rhs.deref - 1, rhs.deref);
-        rhs.type = IR_TYPE_REG_MEM;
+        LoadDerefs(lang_stat, out, &rhs, rhs.deref - 1, rhs.deref);
+        //rhs.type = IR_TYPE_REG_MEM;
       }
+
+      ret = lhs;
 
       ir.type = IR_BIN;
       ir.bin.op = ast->op;
@@ -4838,10 +4984,15 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
     {
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], out, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], out, false);
+      //BREAK(ast->line_number == 2000)
 
+      if(lhs.deref > 1)
+      {
+        LoadDerefs(lang_stat, out, &lhs, lhs.deref - 1, lhs.deref);
+      }
       if(rhs.kind != IR_VAL_VALUE)
       {
-        rhs.reg = LoadDerefs(lang_stat, out, &rhs, 1, 1);
+        LoadDerefs(lang_stat, out, &rhs, 1, 1);
       }
 
       MakeIrStore(lang_stat, &lhs, &rhs, &ir);

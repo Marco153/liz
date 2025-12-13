@@ -10389,7 +10389,15 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
         }
       }
     }
-    ImGui::TextColored(text_color, "%d: %s\n", cur_addr - code_start, instruction.text);
+
+    if(dbg->inst_addr_print_type == 0)
+    {
+      ImGui::TextColored(text_color, "%d: %s\n", cur_addr - code_start, instruction.text);
+    }
+    else
+    {
+      ImGui::TextColored(text_color, "%p: %s\n", cur_addr, instruction.text);
+    }
     ImGui::EndChild();
 
     offset += instruction.info.length;
@@ -10624,6 +10632,11 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     if(ImGui::Button("show ir"))
     {
       dbg->show_ir = !dbg->show_ir;
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("inst print type"))
+    {
+      dbg->inst_addr_print_type = (dbg->inst_addr_print_type + 1) % 2;
     }
     if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
     {

@@ -1997,11 +1997,17 @@ main::fn()
   __dbg_break
   __dbg_break
   x :u32= 2;
-  y :u64= cast(u64)x;
-  ptr := &y;
-  *cast(*u32)ptr = 3
-  x = *cast(*u32)ptr + 4
-  x = *cast(*u32)ptr + x
+  y :u64= cast(u64)(x + 1);
+
+  if x != 2 && y > x || y == 3
+  {
+    x = 0
+    x = 2
+  }
+  else
+  {
+    x = 1
+  }
   
 
 }

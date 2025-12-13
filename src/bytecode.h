@@ -274,6 +274,22 @@ enum byte_code_enum : unsigned short
 	PUSH_R,
 	POP_R,
 
+
+	CMP_M_2_M,
+	CMP_R_2_M,
+	CMP_M_2_R,
+	CMP_I_2_R,
+	CMP_I_2_M,
+	CMP_I_2_RM,
+	CMP_R_2_RM,
+	CMP_R_2_R,
+	CMP_SSE_2_SSE,
+	CMP_MEM_2_SSE,
+	CMP_SSE_2_MEM,
+	CMP_PCKD_SSE_2_PCKD_SSE,
+
+
+  /*
 	CMP_I_2_I,
 	CMP_I_2_R,
 	CMP_R_2_R,
@@ -292,6 +308,7 @@ enum byte_code_enum : unsigned short
 	CMP_SSE_2_MEM,
 	//CMP_SSE_2_RMEM,
 	CMP_PCKD_SSE_2_PCKD_SSE,
+  */
 
 	RELOC,
 	INST_CALL,

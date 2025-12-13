@@ -481,10 +481,15 @@ struct ir_rep
 struct block2
 {
   u32 id;
-  u32 code_start;
-  u32 code_end;
+  int code_start;
+  int code_end;
+  bool generated;
+  bool emitted;
   own_std::vector<ir_rep> irs;
+  own_std::vector<u32> jmp_rels;
 };
+
+
 struct thread_ir_state
 {
   block2 *cur_block;

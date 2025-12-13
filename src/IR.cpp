@@ -1,4 +1,6 @@
 #include "IR.h"
+#include "bytecode.h"
+#include "node.h"
 #include "token.h"
 #include "token_common.h"
 #include <algorithm>
@@ -1072,8 +1074,9 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->is_packed_float = ast->decl->type.type == TYPE_VECTOR;
     val->is_float = val->is_float || val->is_packed_float;
     val->ptr = ast->decl->type.ptr;
-    val->deref = 0;
+    val->deref = 1;
     val->kind = IR_VAL_ADDR;
+    val->reg = (char)regs_enum::RSP;
   } break;
   case AST_F64: {
     val->type = IR_TYPE_F64;
@@ -1135,16 +1138,16 @@ void IRCreateEndBlock(lang_state *lang_stat, int begin_sub_if_idx,
   ir.block.other_idx = begin_sub_if_idx;
 
   out->emplace_back(ir);
-  ir_rep *begin = &(*out)[begin_sub_if_idx];
+  //ir_rep *begin = &(*out)[begin_sub_if_idx];
 
-  begin->block.other_idx = out->size();
+  //begin->block.other_idx = out->size();
   switch (type) {
   case IR_BEGIN_STMNT: {
     ASSERT(!lang_stat->in_ir_stmnt);
     lang_stat->in_ir_stmnt = true;
   } break;
   case IR_END_STMNT: {
-    ASSERT(begin->type == IR_BEGIN_STMNT);
+    //ASSERT(begin->type == IR_BEGIN_STMNT);
     lang_stat->in_ir_stmnt = false;
   } break;
   }
@@ -1500,12 +1503,26 @@ void EmitJmp(lang_state *lang_stat, thread_ir_state *state, block2 * block)
 void EmitBlock(lang_state *lang_stat, thread_ir_state *state, block2 * block)
 {
   state->cur_func->blocks.emplace_back(block);
+  block->emitted = true;
+}
+void EmitBlockMakeCurrent(lang_state *lang_stat, thread_ir_state *state, block2 * block)
+{
+  EmitBlock(lang_stat, state, block);
+  state->cur_block = block;
 }
 block2 *CreateBlock(lang_state *lang_stat, thread_ir_state *state)
 {
   block2 *ret = &((block2 *)state->blocks_ptr)[state->blocks_cur];
+
+  //if(state->blocks_cur == 3) HERE()
+  ret->id = state->blocks_cur;
+
   state->blocks_cur++;
   ASSERT(state->blocks_cur < state->blocks_max)
+  ret->irs.clear();
+  ret->jmp_rels.clear();
+  ret->generated = false;
+  ret->emitted = false;
   return ret;
 }
 void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, tkn_type2 op, block2 *dst) 
@@ -1520,15 +1537,23 @@ void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   state->cur_block->irs.emplace_back(ir);
 }
 
-void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, block2 *cond_true, block2 *cond_false) 
+void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, block2 *cond_true, block2 *cond_false, bool flip_comparison = true) 
 {
   ASSERT(cond_true && cond_false)
   if(ast->type == AST_BINOP)
   {
     if(IsComparisonOp(ast->op))
     {
-      tkn_type2 opposite = OppositeCondCmp(ast->op);
-      GetIRComparison(lang_stat, ast, state, opposite, cond_false);
+      tkn_type2 final_op = ast->op;
+      if(flip_comparison)
+      {
+        final_op = OppositeCondCmp(final_op);
+        GetIRComparison(lang_stat, ast, state, final_op, cond_false);
+      }
+      else
+      {
+        GetIRComparison(lang_stat, ast, state, final_op, cond_true);
+      }
     }
     else if(ast->op == T_COND_AND)
     {
@@ -1544,6 +1569,30 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
         {
           block2 *mid = CreateBlock(lang_stat, state);
           GetIRCond2(lang_stat, e, state, mid, cond_false);
+          EmitBlock(lang_stat, state, mid);
+
+          state->cur_block = mid;
+        }
+        i++;
+      }
+    }
+    else if(ast->op == T_COND_OR)
+    {
+      int i = 0;
+      FOR_VEC(expr, ast->e_holder.expr) 
+      {
+        ast_rep *e = *expr;
+        if((i + 1) == ast->e_holder.expr.size())
+        {
+          GetIRCond2(lang_stat, e, state, cond_true, cond_false);
+        }
+        else
+        {
+          bool aux_flip = true;
+          if(IsComparisonOp(e->op))
+            aux_flip = false;
+          block2 *mid = CreateBlock(lang_stat, state);
+          GetIRCond2(lang_stat, e, state, cond_true, mid, aux_flip);
           EmitBlock(lang_stat, state, mid);
 
           state->cur_block = mid;
@@ -4765,6 +4814,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
             stmnt_without_semicolon_idx = IRCreateBeginBlock(lang_stat, out,
     IR_BEGIN_IF_EXPR_BLOCK, (void *)(long long)ast->line_number);
     */
+    block2 *cond_true = CreateBlock(lang_stat, state);
+    block2 *cond_false = CreateBlock(lang_stat, state);
     block2 *merge = CreateBlock(lang_stat, state);
 
     int stmnt_idx = 0;
@@ -4772,26 +4823,20 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
                                      (void *)(long long)ast->line_number);
     int on_idx = 0;
-    if(ast->cond.from_on_ast)
-    {
-      on_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_ON_BLOCK);
-    }
-    int if_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_IF_BLOCK);
+    //int if_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_IF_BLOCK);
 
     bool has_elses = ast->cond.elses.size();
 
     int sub_if_idx = 0;
-    if (has_elses)
-      sub_if_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_SUB_IF_BLOCK);
 
-    int cond_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_COND_BLOCK);
     
-    GetIRCond2(lang_stat, ast->cond.cond, state, nullptr, nullptr);
+    GetIRCond2(lang_stat, ast->cond.cond, state, cond_true, cond_false);
 
     if (!lang_stat->ir_in_stmnt && !lang_stat->no_stmnt_of_conds)
       IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
     // GetIRFromAst(lang_stat, ast->cond.cond, out);
-    IRCreateEndBlock(lang_stat, cond_idx, &state->cur_block->irs, IR_END_COND_BLOCK);
+
+    EmitBlockMakeCurrent(lang_stat, state, cond_true);
 
     if (ast->cond.scope) {
       auto prev = lang_stat->no_stmnt_of_conds;
@@ -4799,63 +4844,69 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       GetIRFromAst2(lang_stat, ast->cond.scope, state, false);
       //if (is_stmnt_without_semicolon)
         //GenIfExpr(lang_stat, ast->cond.scope->stats.back(), out, top);
-      if (has_elses) {
-        ir.type = IR_BREAK_OUT_IF_BLOCK;
-        state->cur_block->irs.emplace_back(ir);
-      }
       EmitJmp(lang_stat, state, merge);
       lang_stat->no_stmnt_of_conds = prev;
     }
 
-    if (has_elses)
-      IRCreateEndBlock(lang_stat, sub_if_idx, &state->cur_block->irs, IR_END_SUB_IF_BLOCK);
+    EmitBlockMakeCurrent(lang_stat, state, cond_false);
+
+    if(ast->cond.elses.size() > 0)
+    {
+      cond_true = CreateBlock(lang_stat, state);
+      cond_false = CreateBlock(lang_stat, state);
+    }
 
     int i = 0;
+
     FOR_VEC(el, ast->cond.elses) {
       ast_rep *e = *el;
 
       bool is_last = (i + 1) >= ast->cond.elses.size();
 
       if (!is_last)
+      {
         //sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
+      }
 
       if (e->type == AST_ELSE_IF) {
         if (!lang_stat->no_stmnt_of_conds)
           stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
                                          (void *)(long long)e->line_number);
-        cond_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_COND_BLOCK);
 
-        GetIRCond2(lang_stat, e->cond.cond, state, nullptr, nullptr);
+        GetIRCond2(lang_stat, e->cond.cond, state, cond_true, cond_false);
 
-        IRCreateEndBlock(lang_stat, cond_idx, &state->cur_block->irs, IR_END_COND_BLOCK);
         if (!lang_stat->no_stmnt_of_conds)
           IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
+
+        EmitBlockMakeCurrent(lang_stat, state, cond_true);
       }
 
       GetIRFromAst2(lang_stat, e->cond.scope, state, false);
 
-      EmitJmp(lang_stat, state, merge);
 
       //if (is_stmnt_without_semicolon)
         //GenIfExpr(lang_stat, e->cond.scope->stats.back(), out);
 
+      EmitBlockMakeCurrent(lang_stat, state, cond_false);
+
       if (!is_last) {
         ir.type = IR_BREAK_OUT_IF_BLOCK;
         state->cur_block->irs.emplace_back(ir);
-        IRCreateEndBlock(lang_stat, sub_if_idx, &state->cur_block->irs, IR_END_SUB_IF_BLOCK);
+
+        EmitJmp(lang_stat, state, merge);
+
+        cond_true = CreateBlock(lang_stat, state);
+        cond_false = CreateBlock(lang_stat, state);
       }
+
+
+      i++;
     }
 
-    IRCreateEndBlock(lang_stat, if_idx, &state->cur_block->irs, IR_END_IF_BLOCK);
-    if(ast->cond.from_on_ast)
-    {
-      IRCreateEndBlock(lang_stat, on_idx, &state->cur_block->irs, IR_END_ON_BLOCK);
-    }
     if (is_stmnt_without_semicolon)
       lang_stat->ir_in_stmnt = was_in_stmnt;
 
-    state->cur_block = merge;
-
+    EmitBlockMakeCurrent(lang_stat, state, merge);
   } break;
   case AST_FUNC:
   {
@@ -4867,6 +4918,11 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ir.fdecl = ast->func.fdecl;
     // ir.num  = ast->func.fdecl->stack_size;
     ir.fdecl->biggest_call_args = 0;
+
+    block2 *startb = CreateBlock(lang_stat, state);
+    EmitBlock(lang_stat, state, startb);
+    state->cur_block = startb;
+
     state->cur_block->irs.emplace_back(ir);
 
     FOR_VEC(arg, ast->func.fdecl->vars) {
@@ -4958,6 +5014,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ast->cast.type.ptr = 0;
     int cast_sz = GetTypeSize(&ast->cast.type);
     ast->cast.type.ptr = prev;
+    ir.bin.lhs.is_unsigned = IsUnsigned(ast->cast.type.type);
+    ir.bin.lhs.is_float = ast->cast.type.IsFloat();
+    ir.bin.lhs.is_packed_float = ast->cast.type.type == TYPE_VECTOR;
 
     //ret.reg_sz = cast_sz;
     ret.ptr = ast->cast.type.ptr;
@@ -4982,7 +5041,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         {
           ir.type = IR_CAST_INT_TO_INT;
           ir.bin.lhs.type = IR_TYPE_REG;
-          ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+          if(ret.type == IR_TYPE_REG)
+            ir.bin.lhs.reg = ret.reg;
+          else
+            ir.bin.lhs.reg = GetAvailableReg(lang_stat);
           ir.bin.lhs.reg_sz = cast_sz;
           ir.bin.rhs = ret;
           state->cur_block->irs.emplace_back(ir);

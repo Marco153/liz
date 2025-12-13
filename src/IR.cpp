@@ -15,6 +15,7 @@ void CreateOppositeRegAssigmentAfterCondChecking(
     int if_idx, int reg, char true_cond_final_reg_val = 1,
     char false_cond_final_reg_val = 0);
 bool IsNodeOperator(node *nd, tkn_type2 tkn);
+ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *, bool is_lhs);
 
 int clamp(int, int, int);
 
@@ -1476,7 +1477,90 @@ void GetIRBin(lang_state *lang_stat, ast_rep *ast_bin,
     out->emplace_back(ir);
   }
 }
+bool IsComparisonOp(tkn_type2 op) {
+    switch (op) {
+        case T_COND_EQ:
+        case T_COND_NE:
+        case T_LESSER_THAN:
+        case T_LESSER_EQ:
+        case T_GREATER_THAN:
+        case T_GREATER_EQ:
+            return true;
+        default:
+            return false;
+    }
+}
+void EmitJmp(lang_state *lang_stat, thread_ir_state *state, block2 * block)
+{
+  ir_rep ir;
+  ir.type = IR_JMP;
+  ir.i = block->id;
+  state->cur_block->irs.emplace_back(ir);
+}
+void EmitBlock(lang_state *lang_stat, thread_ir_state *state, block2 * block)
+{
+  state->cur_func->blocks.emplace_back(block);
+}
+block2 *CreateBlock(lang_state *lang_stat, thread_ir_state *state)
+{
+  block2 *ret = &((block2 *)state->blocks_ptr)[state->blocks_cur];
+  state->blocks_cur++;
+  ASSERT(state->blocks_cur < state->blocks_max)
+  return ret;
+}
+void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, tkn_type2 op, block2 *dst) 
+{
+  ir_rep ir;
+  ir.type = IR_CMP;
+  ir.bin.op = op;
+  ir.bin.lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
+  ir.bin.rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
+  ir.bin.block_id = dst->id;
 
+  state->cur_block->irs.emplace_back(ir);
+}
+
+void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, block2 *cond_true, block2 *cond_false) 
+{
+  ASSERT(cond_true && cond_false)
+  if(ast->type == AST_BINOP)
+  {
+    if(IsComparisonOp(ast->op))
+    {
+      tkn_type2 opposite = OppositeCondCmp(ast->op);
+      GetIRComparison(lang_stat, ast, state, opposite, cond_false);
+    }
+    else if(ast->op == T_COND_AND)
+    {
+      int i = 0;
+      FOR_VEC(expr, ast->e_holder.expr) 
+      {
+        ast_rep *e = *expr;
+        if((i + 1) == ast->e_holder.expr.size())
+        {
+          GetIRCond2(lang_stat, e, state, cond_true, cond_false);
+        }
+        else
+        {
+          block2 *mid = CreateBlock(lang_stat, state);
+          GetIRCond2(lang_stat, e, state, mid, cond_false);
+          EmitBlock(lang_stat, state, mid);
+
+          state->cur_block = mid;
+        }
+        i++;
+      }
+    }
+    else
+    {
+      ASSERT(false)
+    }
+  }
+  else
+  {
+    ASSERT(false)
+  }
+}
 bool IsCondAndOr(tkn_type2 t) { return t == T_COND_AND || t == T_COND_OR; }
 void GetIRCond(lang_state *lang_stat, ast_rep *ast,
                own_std::vector<ir_rep> *out) {
@@ -4654,12 +4738,15 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
   rhs->deref = 0;
 
 }
-ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep> *out, bool is_lhs)
+ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
 {
   ir_val ret;
   ir_rep ir;
   ir_val lhs;
   ir_val rhs;
+
+  
+  
   switch(ast->type)
   {
   case AST_IF: {
@@ -4678,47 +4765,50 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
             stmnt_without_semicolon_idx = IRCreateBeginBlock(lang_stat, out,
     IR_BEGIN_IF_EXPR_BLOCK, (void *)(long long)ast->line_number);
     */
+    block2 *merge = CreateBlock(lang_stat, state);
+
     int stmnt_idx = 0;
     if (!lang_stat->ir_in_stmnt && !lang_stat->no_stmnt_of_conds)
-      stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT,
+      stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
                                      (void *)(long long)ast->line_number);
     int on_idx = 0;
     if(ast->cond.from_on_ast)
     {
-      on_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_ON_BLOCK);
+      on_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_ON_BLOCK);
     }
-    int if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+    int if_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_IF_BLOCK);
 
     bool has_elses = ast->cond.elses.size();
 
     int sub_if_idx = 0;
     if (has_elses)
-      sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
+      sub_if_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_SUB_IF_BLOCK);
 
-    int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
+    int cond_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_COND_BLOCK);
     
-    GetIRCond(lang_stat, ast->cond.cond, out);
+    GetIRCond2(lang_stat, ast->cond.cond, state, nullptr, nullptr);
 
     if (!lang_stat->ir_in_stmnt && !lang_stat->no_stmnt_of_conds)
-      IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+      IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
     // GetIRFromAst(lang_stat, ast->cond.cond, out);
-    IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_COND_BLOCK);
+    IRCreateEndBlock(lang_stat, cond_idx, &state->cur_block->irs, IR_END_COND_BLOCK);
 
     if (ast->cond.scope) {
       auto prev = lang_stat->no_stmnt_of_conds;
       lang_stat->no_stmnt_of_conds = false;
-      GetIRFromAst2(lang_stat, ast->cond.scope, out, false);
+      GetIRFromAst2(lang_stat, ast->cond.scope, state, false);
       //if (is_stmnt_without_semicolon)
         //GenIfExpr(lang_stat, ast->cond.scope->stats.back(), out, top);
       if (has_elses) {
         ir.type = IR_BREAK_OUT_IF_BLOCK;
-        out->emplace_back(ir);
+        state->cur_block->irs.emplace_back(ir);
       }
+      EmitJmp(lang_stat, state, merge);
       lang_stat->no_stmnt_of_conds = prev;
     }
 
     if (has_elses)
-      IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
+      IRCreateEndBlock(lang_stat, sub_if_idx, &state->cur_block->irs, IR_END_SUB_IF_BLOCK);
 
     int i = 0;
     FOR_VEC(el, ast->cond.elses) {
@@ -4727,38 +4817,44 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
       bool is_last = (i + 1) >= ast->cond.elses.size();
 
       if (!is_last)
-        sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
+        //sub_if_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_SUB_IF_BLOCK);
 
       if (e->type == AST_ELSE_IF) {
         if (!lang_stat->no_stmnt_of_conds)
-          stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT,
+          stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
                                          (void *)(long long)e->line_number);
-        cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_COND_BLOCK);
-        GetIRCond(lang_stat, e->cond.cond, out);
-        IRCreateEndBlock(lang_stat, cond_idx, out, IR_END_COND_BLOCK);
+        cond_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_COND_BLOCK);
+
+        GetIRCond2(lang_stat, e->cond.cond, state, nullptr, nullptr);
+
+        IRCreateEndBlock(lang_stat, cond_idx, &state->cur_block->irs, IR_END_COND_BLOCK);
         if (!lang_stat->no_stmnt_of_conds)
-          IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+          IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
       }
 
-      GetIRFromAst2(lang_stat, e->cond.scope, out, false);
+      GetIRFromAst2(lang_stat, e->cond.scope, state, false);
+
+      EmitJmp(lang_stat, state, merge);
 
       //if (is_stmnt_without_semicolon)
         //GenIfExpr(lang_stat, e->cond.scope->stats.back(), out);
 
       if (!is_last) {
         ir.type = IR_BREAK_OUT_IF_BLOCK;
-        out->emplace_back(ir);
-        IRCreateEndBlock(lang_stat, sub_if_idx, out, IR_END_SUB_IF_BLOCK);
+        state->cur_block->irs.emplace_back(ir);
+        IRCreateEndBlock(lang_stat, sub_if_idx, &state->cur_block->irs, IR_END_SUB_IF_BLOCK);
       }
     }
 
-    IRCreateEndBlock(lang_stat, if_idx, out, IR_END_IF_BLOCK);
+    IRCreateEndBlock(lang_stat, if_idx, &state->cur_block->irs, IR_END_IF_BLOCK);
     if(ast->cond.from_on_ast)
     {
-      IRCreateEndBlock(lang_stat, on_idx, out, IR_END_ON_BLOCK);
+      IRCreateEndBlock(lang_stat, on_idx, &state->cur_block->irs, IR_END_ON_BLOCK);
     }
     if (is_stmnt_without_semicolon)
       lang_stat->ir_in_stmnt = was_in_stmnt;
+
+    state->cur_block = merge;
 
   } break;
   case AST_FUNC:
@@ -4771,7 +4867,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
     ir.fdecl = ast->func.fdecl;
     // ir.num  = ast->func.fdecl->stack_size;
     ir.fdecl->biggest_call_args = 0;
-    out->emplace_back(ir);
+    state->cur_block->irs.emplace_back(ir);
 
     FOR_VEC(arg, ast->func.fdecl->vars) {
       decl2 *a = *arg;
@@ -4781,14 +4877,14 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
       if (IS_FLAG_OFF(a->flags, DECL_IS_ARG)) {
         ir.type = IR_DECLARE_LOCAL;
         ir.decl = a;
-        out->emplace_back(ir);
+        state->cur_block->irs.emplace_back(ir);
       }
     }
     ir.type = IR_PROLOGUE_END;
     ir.fdecl = ast->func.fdecl;
     // ir.num  = ast->func.fdecl->stack_size;
     ir.fdecl->biggest_call_args = 0;
-    out->emplace_back(ir);
+    state->cur_block->irs.emplace_back(ir);
 
     FOR_VEC(arg, ast->func.fdecl->vars) {
       decl2 *a = *arg;
@@ -4799,15 +4895,15 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
         ir.type = IR_DECLARE_ARG;
 
         ir.decl = a;
-        out->emplace_back(ir);
+        state->cur_block->irs.emplace_back(ir);
       }
     }
 
-    GetIRFromAst2(lang_stat, ast->func.stats, out, false);
+    GetIRFromAst2(lang_stat, ast->func.stats, state, false);
 
     ir.type = IR_STACK_END;
     // ir.num  = ast->func.fdecl->stack_size;
-    out->emplace_back(ir);
+    state->cur_block->irs.emplace_back(ir);
     lang_stat->cur_func = last_func;
   }break;
   case AST_FLOAT:
@@ -4819,7 +4915,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
   case AST_DEREF:
   {
     ast_rep *df = ast->deref.exp;
-    rhs = GetIRFromAst2(lang_stat, df, out, is_lhs);
+    rhs = GetIRFromAst2(lang_stat, df, state, is_lhs);
 
     HERE()
     rhs.deref = ast->deref.times;
@@ -4827,7 +4923,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
       rhs.deref += 1;
     if(!is_lhs)
     {
-      LoadDerefs(lang_stat, out, &rhs, rhs.deref, rhs.deref);
+      LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, rhs.deref, rhs.deref);
     }
     else
     {
@@ -4838,7 +4934,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
   case AST_ADDRESS_OF:
   {
     ast_rep *addr = ast->ast;
-    ret = GetIRFromAst2(lang_stat, addr, out, true);
+    ret = GetIRFromAst2(lang_stat, addr, state, true);
     if(ret.kind == IR_VAL_ADDR)
     {
       ir.type = IR_ADDRESS_OF;
@@ -4846,7 +4942,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
       ir.bin.lhs.reg = GetAvailableReg(lang_stat);
       ir.bin.lhs.reg_sz = 8;
       ir.bin.rhs = ret;
-      out->emplace_back(ir);
+      state->cur_block->irs.emplace_back(ir);
 
       ret = ir.bin.lhs;
     }
@@ -4856,7 +4952,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
   case AST_CAST:
   {
     ast_rep *casted_ast = ast->cast.casted;
-    ret = GetIRFromAst2(lang_stat, casted_ast, out, false);
+    ret = GetIRFromAst2(lang_stat, casted_ast, state, false);
 
     char prev = ast->cast.type.ptr;
     ast->cast.type.ptr = 0;
@@ -4889,7 +4985,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
           ir.bin.lhs.reg = GetAvailableReg(lang_stat);
           ir.bin.lhs.reg_sz = cast_sz;
           ir.bin.rhs = ret;
-          out->emplace_back(ir);
+          state->cur_block->irs.emplace_back(ir);
 
           ret = ir.bin.lhs;
           ret.reg = ir.bin.lhs.reg;
@@ -4910,7 +5006,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
         continue;
 
       if (s->type == AST_WHILE || s->type == AST_IF) {
-        GetIRFromAst2(lang_stat, s, out, false);
+        GetIRFromAst2(lang_stat, s, state, false);
       } else {
         ASSERT(!lang_stat->ir_in_stmnt)
         lang_stat->ir_in_stmnt = true;
@@ -4919,13 +5015,13 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
                                  !s->dont_make_dbg_stmnt;
         int stmnt_idx = 0;
         if (can_emplace_stmnt)
-          stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT,
+          stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
                                          (void *)(long long)s->line_number);
 
-        GetIRFromAst2(lang_stat, s, out, false);
+        GetIRFromAst2(lang_stat, s, state, false);
 
         if (can_emplace_stmnt)
-          IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
+          IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
 
         lang_stat->ir_in_stmnt = false;
       }
@@ -4948,7 +5044,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
       ir.type = IR_DBG_BREAK;
       // IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
     }
-    out->emplace_back(ir);
+    state->cur_block->irs.emplace_back(ir);
   } break;
   case AST_BINOP:
   {
@@ -4958,16 +5054,16 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
     {
 
       HERE()
-      lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], out, true);
-      rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], out, false);
+      lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
+      rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 
       if(lhs.kind != IR_VAL_VALUE)
       {
-        LoadDerefs(lang_stat, out, &lhs, lhs.deref, lhs.deref);
+        LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref, lhs.deref);
       }
       if(rhs.kind != IR_VAL_VALUE)
       {
-        LoadDerefs(lang_stat, out, &rhs, rhs.deref - 1, rhs.deref);
+        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, rhs.deref - 1, rhs.deref);
         //rhs.type = IR_TYPE_REG_MEM;
       }
 
@@ -4978,26 +5074,26 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, own_std::vector<ir_rep
       ir.bin.lhs = lhs;
       ir.bin.rhs = rhs;
 
-      out->emplace_back(ir);
+      state->cur_block->irs.emplace_back(ir);
     }break;
     case T_EQUAL:
     {
-      lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], out, true);
-      rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], out, false);
+      lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
+      rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
       //BREAK(ast->line_number == 2000)
 
       if(lhs.deref > 1)
       {
-        LoadDerefs(lang_stat, out, &lhs, lhs.deref - 1, lhs.deref);
+        LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref - 1, lhs.deref);
       }
       if(rhs.kind != IR_VAL_VALUE)
       {
-        LoadDerefs(lang_stat, out, &rhs, 1, 1);
+        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, 1, 1);
       }
 
       MakeIrStore(lang_stat, &lhs, &rhs, &ir);
 
-      out->emplace_back(ir);
+      state->cur_block->irs.emplace_back(ir);
     }break;
     default: ASSERT(false)
     }

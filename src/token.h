@@ -343,6 +343,7 @@ struct stmnt_dbg
 	int line;
 };
 struct ast_rep;
+struct block2;
 struct func_decl
 {
 	own_std::string name;
@@ -368,6 +369,8 @@ struct func_decl
 	overload_op op_overload;
 	type2 ret_type;
 	node *func_node;
+
+  own_std::vector<block2 *> blocks;
 
 	scope *scp;
 	scope *wasm_scp;

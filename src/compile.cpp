@@ -415,6 +415,7 @@ struct get_func_bc_info
 };
 
 struct dbg_file_seriealize;
+struct thread_ir_state;
 struct lang_state
 {
 	int cur_idx;
@@ -428,6 +429,8 @@ struct lang_state
 	bool track_alloc_regs;
   bool check_nil_ptr;
 	own_std::vector<int> tracked_regs;
+
+  thread_ir_state *ir_states;
 
   dbg_file_seriealize *dbg_ser_file;
 
@@ -444,6 +447,7 @@ struct lang_state
 
 	byte_code2* bcs2_start;
 	byte_code2* bcs2_end;
+
 
 	own_std::vector<own_std::vector<int>> inside_ifs;
 	own_std::vector<int> ser_funcs_type_data;
@@ -18193,7 +18197,9 @@ void CreateAstFromFunc(lang_state* lang_stat, func_decl* f)
 	ASSERT(ast->type == AST_FUNC);
 	own_std::vector<ir_rep>* ir = (own_std::vector<ir_rep> *) & f->ir;
 	ir->reserve(128);
-	GetIRFromAst2(lang_stat, ast, ir, false);
+
+  lang_stat->ir_states[0].cur_func = f;
+	GetIRFromAst2(lang_stat, ast, &lang_stat->ir_states[0], false);
 }
 
 struct compile_options
@@ -19593,6 +19599,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 
 	lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size + 16);
 
+  lang_stat->ir_states = (thread_ir_state *)AllocMiscData(lang_stat, sizeof(thread_ir_state) * 2);
 
 	//lang_stat->dstate->mem_buffer = AllocMiscData(lang_stat, lang_stat->dstate->mem_size);
 	int stack_offset = 10000;

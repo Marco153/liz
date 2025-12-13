@@ -246,12 +246,14 @@ enum ir_type
     IR_RET,
     IR_LABEL,
     IR_BIN,
+    IR_CMP,
     IR_CMP_EQ,
     IR_CMP_NE,
     IR_CMP_LT,
     IR_CMP_LE,
     IR_CMP_GE,
     IR_CMP_GT,
+    IR_JMP,
     IR_BREAK_OUT_IF_BLOCK,
 
     IR_CAST_INT_TO_F32,
@@ -396,81 +398,99 @@ struct assign_info
 };
 struct ir_rep
 {
-    ir_type type;
-    int idx;
-    union
+  ir_type type;
+  int idx;
+  union
+  {
+    int start;
+    int dst_ir_rel_idx;
+  };
+  union
+  {
+    int end;
+  };
+  union
+  {
+    int dbg_int;
+    struct
     {
-        int start;
-        int dst_ir_rel_idx;
+      bool dbg_break;
+      bool one_dbg_break;
     };
-    union
+  };
+  union
+  {
+    type_struct2 *strct;
+    struct
     {
-        int end;
+      ir_val dst;
+    }complx;
+    struct
+    {
+      union
+      {
+        func_decl* fdecl;
+        decl2 *func_ptr_var;
+        OutsiderFuncType outsider;
+      };
+      bool is_outsider;
+      int i;
+    }call;
+    int i;
+    struct
+    {
+      struct
+      {
+        int code_start;
+        int line;
+      }stmnt;
+      bool is_for_loop;
+      int other_idx;
+      int for_loop_end_stat;
+    }block;
+    struct
+    {
+      decl2 *decl;
+      func_decl *fdecl;
     };
-    union
+    int num;
+    struct
     {
-        int dbg_int;
-        struct
-        {
-            bool dbg_break;
-            bool one_dbg_break;
-        };
-    };
-    union
-    {
-      type_struct2 *strct;
-        struct
-        {
-            ir_val dst;
-        }complx;
-        struct
-        {
-			union
-			{
-				func_decl* fdecl;
-				decl2 *func_ptr_var;
-				OutsiderFuncType outsider;
-			};
-			bool is_outsider;
-			int i;
-        }call;
-        struct
-        {
-            struct
-            {
-                int code_start;
-                int line;
-            }stmnt;
-            bool is_for_loop;
-            int other_idx;
-            int for_loop_end_stat;
-        }block;
-        struct
-        {
-            decl2 *decl;
-            func_decl *fdecl;
-        };
-        int num;
-        struct
-        {
-            ir_val lhs;
-            ir_val rhs;
-            bool only_lhs;
+      ir_val lhs;
+      ir_val rhs;
+      bool only_lhs;
 
-            tkn_type2 op;
-            bool it_is_jmp_if_true;
-        }bin;
-		assign_info assign;
-        struct
-        {
-			ir_val spilled;
-			int offset;
-        }spill;
-        struct
-        {
-			assign_info assign;
-			bool no_ret_val;
-        }ret;
-    };
+      tkn_type2 op;
+      bool it_is_jmp_if_true;
+      u32 block_id;
+    }bin;
+    assign_info assign;
+    struct
+    {
+      ir_val spilled;
+      int offset;
+    }spill;
+    struct
+    {
+      assign_info assign;
+      bool no_ret_val;
+    }ret;
+  };
 
+};
+struct block2
+{
+  u32 id;
+  u32 code_start;
+  u32 code_end;
+  own_std::vector<ir_rep> irs;
+};
+struct thread_ir_state
+{
+  block2 *cur_block;
+  func_decl *cur_func;
+
+	void *blocks_ptr;
+	int blocks_cur;
+	int blocks_max;
 };

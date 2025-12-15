@@ -1565,7 +1565,11 @@ void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *l
 void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs, char derefs, char max_derefs)
 {
   ir_rep ir;
-  char reg = GetAvailableReg(lang_stat);
+  char reg = 0;
+  if(rhs->type == IR_TYPE_REG_MEM || rhs->type == IR_TYPE_REG)
+    reg = rhs->reg;
+  else
+    reg = GetAvailableReg(lang_stat);
 
   char final_reg = 0;
   if(rhs->type == IR_TYPE_DECL)
@@ -5116,9 +5120,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       EmitBlockMakeCurrent(lang_stat, state, cond_false);
 
       if (!is_last) {
-        ir.type = IR_BREAK_OUT_IF_BLOCK;
-        state->cur_block->irs.emplace_back(ir);
-
         EmitJmp(lang_stat, state, merge);
 
         cond_true = CreateBlock(lang_stat, state);
@@ -5220,7 +5221,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
     ast_rep *addr = ast->ast;
     ret = GetIRFromAst2(lang_stat, addr, state, true);
-    HERE()
     if(ret.kind == IR_VAL_ADDR)
     {
       ir.type = IR_ADDRESS_OF;
@@ -5358,8 +5358,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_POINT:
     {
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
-      HERE()
 
+      BREAK(ast->line_number == 173)
       int offset = 0;
       for(int i =1; i < ast->points.size();i++)
       {
@@ -5381,6 +5381,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         lhs.reg_sz = GetTypeSize(&d->type);
         lhs.voffset = offset;
       }
+      lhs.kind = IR_VAL_ADDR;
       ret = lhs;
     }break;
     case T_MUL:
@@ -5400,6 +5401,11 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       {
         LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, rhs.deref - 1, rhs.deref);
         //rhs.type = IR_TYPE_REG_MEM;
+      }
+
+      if(rhs.type == IR_TYPE_REG_MEM || rhs.type == IR_TYPE_REG)
+      {
+        FreeReg(lang_stat, rhs.reg);
       }
 
       ret = lhs;

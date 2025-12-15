@@ -7444,6 +7444,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
         }
         cur = cur->r;
       } while (cur->type == N_ELSE || cur->type == N_ELSE_IF);
+      //HERE()
       if (!DescendNameFinding(lang_stat, n, scp))
         return (decl2 *)0;
     } break;

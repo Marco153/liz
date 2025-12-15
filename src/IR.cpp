@@ -5249,6 +5249,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   }break;
   case AST_FLOAT:
   case AST_INT:
+  case AST_CHAR:
   case AST_IDENT:
   {
     GetIRVal(lang_stat, ast, &ret);
@@ -5385,12 +5386,20 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
 
   }break;
+  case AST_MINUS_MINUS:
   case AST_PLUS_PLUS:
   {
     lhs = GetIRFromAst2(lang_stat, ast->unop_assign.ast, state, true);
 
     ir.type = IR_BIN;
-    ir.bin.op = T_PLUS;
+    tkn_type2 tp;
+    switch(ast->type)
+    {
+    case AST_PLUS_PLUS: tp = T_PLUS; break;
+    case AST_MINUS_MINUS: tp = T_MINUS; break;
+    default:ASSERT(false)
+    }
+    ir.bin.op = tp;
     ir.bin.lhs = lhs;
     ir.bin.rhs.type = IR_TYPE_INT;
     ir.bin.rhs.i = 1;
@@ -5493,7 +5502,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         FreeReg(lang_stat, rhs.reg);
       }
 
-      if(lhs.type == IR_TYPE_INT)
+      if(lhs.type == IR_TYPE_INT && rhs.type != IR_TYPE_INT)
       {
         // swap rhs and lhs, rhs should be a value, so this should be safe, we wouldnt be modifying any memory
         if(ast->op == T_PLUS || ast->op == T_MUL)
@@ -5507,6 +5516,19 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         {
           ASSERT(false)
         }
+      }
+      else if(lhs.type == IR_TYPE_INT && rhs.type == IR_TYPE_INT)
+      {
+        ir.type = IR_BIN;
+        ir.bin.op = T_EQUAL;
+        ir.bin.lhs.type = IR_TYPE_REG;
+        ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+        ir.bin.lhs.reg_sz = 4;
+        ir.bin.rhs = lhs;
+
+        lhs = ir.bin.lhs;
+
+        state->cur_block->irs.emplace_back(ir);
       }
 
       ret = lhs;

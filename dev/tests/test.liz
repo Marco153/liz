@@ -2017,6 +2017,11 @@ main::fn()
   __dbg_break
 
   
+  if false
+  {
+    i := 9
+  }
+
   i := 8
   a := !(i == 8)
 

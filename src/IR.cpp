@@ -1643,6 +1643,17 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
     GetIRCond2(lang_stat, ast->ast, state, cond_false, cond_true);
 
   }
+  else if(ast->type == AST_INT)
+  {
+    if(ast->num == 0)
+    {
+      EmitJmp(lang_stat, state, cond_false);
+    }
+    else
+    {
+      ASSERT(false)
+    }
+  }
   else if(ast->type == AST_BINOP)
   {
     if(IsComparisonOp(ast->op))

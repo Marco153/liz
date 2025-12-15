@@ -5012,6 +5012,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   } break;
   case AST_RET: 
   {
+    if(!ast->ret.ast) break;
     ret = GetIRFromAst2(lang_stat, ast->ret.ast, state, false);
     ir.type = IR_BIN;
     ir.bin.op = T_EQUAL;
@@ -5359,7 +5360,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     {
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
 
-      BREAK(ast->line_number == 173)
       int offset = 0;
       for(int i =1; i < ast->points.size();i++)
       {
@@ -5382,6 +5382,11 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         lhs.voffset = offset;
       }
       lhs.kind = IR_VAL_ADDR;
+      if(!is_lhs)
+      {
+        LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref, lhs.deref);
+        lhs.kind = IR_VAL_VALUE;
+      }
       ret = lhs;
     }break;
     case T_MUL:

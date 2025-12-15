@@ -1077,6 +1077,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->deref = 1;
     val->kind = IR_VAL_ADDR;
     val->reg = (char)regs_enum::RSP;
+    val->voffset = 0;
   } break;
   case AST_F64: {
     val->type = IR_TYPE_F64;
@@ -1533,12 +1534,97 @@ block2 *CreateBlock(lang_state *lang_stat, thread_ir_state *state)
   ret->emitted = false;
   return ret;
 }
+char GetAvailableReg(lang_state *lang_stat)
+{
+  if (IS_FLAG_OFF(lang_stat->regs[0], REG_USED_FLAG)) 
+  {
+    lang_stat->regs[0] |= REG_USED_FLAG;
+    return 0;
+  }
+  else if (IS_FLAG_OFF(lang_stat->regs[3], REG_USED_FLAG)) 
+  {
+    lang_stat->regs[3] |= REG_USED_FLAG;
+    return 3;
+  }
+  else if (IS_FLAG_OFF(lang_stat->regs[15], REG_USED_FLAG)) 
+  {
+    lang_stat->regs[15] |= REG_USED_FLAG;
+    return 15;
+  }
+  ASSERT(false)
+}
+void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *lhs, ir_rep *out)
+{
+  out->type = IR_LOAD;
+  out->bin.lhs.type = IR_TYPE_REG;
+  out->bin.lhs.reg = reg_dst;
+  out->bin.lhs.reg_sz = reg_sz;
+  out->bin.rhs = *lhs;
+  out->bin.rhs.voffset = lhs->voffset;
+}
+void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs, char derefs, char max_derefs)
+{
+  ir_rep ir;
+  char reg = GetAvailableReg(lang_stat);
+
+  char final_reg = 0;
+  if(rhs->type == IR_TYPE_DECL)
+  {
+    final_reg = (char)regs_enum::RSP;
+  }
+
+  bool derefs_equal = derefs == max_derefs;
+  char ptr = derefs;
+
+  while(ptr > 0)
+  {
+    char sz = 8;
+    MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir);
+    if(ptr == 1 && derefs_equal)
+    {
+      sz = rhs->reg_sz;
+      rhs->type = IR_TYPE_REG;
+    }
+    else
+    {
+      rhs->type = IR_TYPE_REG_MEM;
+    }
+    rhs->reg = reg;
+    out->emplace_back(ir);
+
+    rhs->voffset = 0;
+
+    final_reg = reg;
+    ptr--;
+  }
+
+
+  if(derefs != max_derefs)
+  {
+    if(rhs->type == IR_TYPE_DECL)
+    {
+      //rhs->voffset = rhs->decl->offset;
+      //rhs->type = IR_TYPE_REG_MEM;
+    }
+  }
+  else
+  {
+    rhs->type = IR_TYPE_REG;
+    rhs->reg = final_reg;
+  }
+  rhs->kind = IR_VAL_VALUE;
+  rhs->deref = 0;
+
+}
+
 void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, tkn_type2 op, block2 *dst) 
 {
   ir_rep ir;
   ir.type = IR_CMP;
   ir.bin.op = op;
   ir.bin.lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
+  if(ir.bin.lhs.kind == IR_VAL_ADDR)
+    LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.lhs, ir.bin.lhs.deref, ir.bin.lhs.deref);
   ir.bin.rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
   ir.bin.block_id = dst->id;
 
@@ -4677,27 +4763,11 @@ ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat) {
   bin->e_holder.expr.emplace_back(rhs);
   return bin;
 }
-void MakeIrBin(lang_state *lang_stat, ir_val *lhs, ir_val *rhs, tkn_type2 op, ir_rep *out)
-{
-  out->type = IR_BIN;
-  out->bin.op = op;
-  out->bin.lhs = *lhs;
-  out->bin.rhs = *rhs;
-}
 void MakeIrStore(lang_state *lang_stat, ir_val *lhs, ir_val *rhs, ir_rep *out)
 {
   out->type = IR_STORE;
   out->bin.lhs = *lhs;
   out->bin.rhs = *rhs;
-}
-void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *lhs, ir_rep *out)
-{
-  out->type = IR_LOAD;
-  out->bin.lhs.type = IR_TYPE_REG;
-  out->bin.lhs.reg = reg_dst;
-  out->bin.lhs.reg_sz = reg_sz;
-  out->bin.rhs = *lhs;
-  out->bin.rhs.voffset = 0;
 }
 void MakeIrAssignment(lang_state *lang_stat, ir_val *to_assign, ir_val *lhs, ir_rep *out)
 {
@@ -4723,79 +4793,6 @@ void FreeRegs2(lang_state *lang_stat)
   lang_stat->regs[3] = 0;
   lang_stat->regs[15] = 0;
 }
-char GetAvailableReg(lang_state *lang_stat)
-{
-  if (IS_FLAG_OFF(lang_stat->regs[0], REG_USED_FLAG)) 
-  {
-    lang_stat->regs[0] |= REG_USED_FLAG;
-    return 0;
-  }
-  else if (IS_FLAG_OFF(lang_stat->regs[3], REG_USED_FLAG)) 
-  {
-    lang_stat->regs[3] |= REG_USED_FLAG;
-    return 3;
-  }
-  else if (IS_FLAG_OFF(lang_stat->regs[15], REG_USED_FLAG)) 
-  {
-    lang_stat->regs[15] |= REG_USED_FLAG;
-    return 15;
-  }
-}
-void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs, char derefs, char max_derefs)
-{
-  ir_rep ir;
-  char reg = GetAvailableReg(lang_stat);
-
-  char final_reg = 0;
-  if(rhs->type == IR_TYPE_DECL)
-  {
-    final_reg = (char)regs_enum::RSP;
-  }
-
-  bool derefs_equal = derefs == max_derefs;
-  char ptr = derefs;
-
-  while(ptr > 0)
-  {
-    char sz = 8;
-    MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir);
-    if(ptr == 1 && derefs_equal)
-    {
-      sz = rhs->reg_sz;
-      rhs->type = IR_TYPE_REG;
-    }
-    else
-    {
-      rhs->type = IR_TYPE_REG_MEM;
-    }
-    rhs->reg = reg;
-    out->emplace_back(ir);
-
-    rhs->voffset = 0;
-
-    final_reg = reg;
-    ptr--;
-  }
-
-
-  if(derefs != max_derefs)
-  {
-    if(rhs->type == IR_TYPE_DECL)
-    {
-      //rhs->voffset = rhs->decl->offset;
-      //rhs->type = IR_TYPE_REG_MEM;
-    }
-  }
-  else
-  {
-    rhs->type = IR_TYPE_REG;
-    rhs->reg = final_reg;
-  }
-  rhs->kind = IR_VAL_VALUE;
-  rhs->deref = 0;
-
-}
-
 void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i)
 {
   ir_rep ir={};
@@ -4930,8 +4927,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 {
   ir_val ret;
   ir_rep ir= {};
-  ir_val lhs;
-  ir_val rhs;
+  ir_val lhs = {};
+  ir_val rhs = {};
   
   switch(ast->type)
   {
@@ -4942,30 +4939,26 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     int stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
                                        (void *)(long long)ast->line_number);
 
-    GetIRFromAst2(lang_stat, ast->for_info.start_stat, state, false);
     // int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
     block2 *cond_true = CreateBlock(lang_stat, state);
     block2 *cond_start = CreateBlock(lang_stat, state);
-    block2 *for_end = CreateBlock(lang_stat, state);
     block2 *merge = CreateBlock(lang_stat, state);
 
     EmitBlockMakeCurrent(lang_stat, state, cond_start);
-    GetIRCond2(lang_stat, ast->for_info.cond_stat, state, cond_true, merge);
+    GetIRCond2(lang_stat, ast->loop.cond, state, cond_true, merge);
 
     IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
 
     EmitBlockMakeCurrent(lang_stat, state, cond_true);
 
-    push_tracker_stack(&state->continue_start_block, for_end);
+    push_tracker_stack(&state->continue_start_block, cond_true);
     push_tracker_stack(&state->break_end_block, merge);
 
-    if (ast->for_info.scope) {
-      GetIRFromAst2(lang_stat, ast->for_info.scope, state, false);
+    if (ast->loop.scope) {
+      GetIRFromAst2(lang_stat, ast->loop.scope, state, false);
     }
 
-    EmitBlockMakeCurrent(lang_stat, state, for_end);
 
-    GetIRFromAst2(lang_stat, ast->for_info.at_loop_end_stat, state, false);
     EmitJmp(lang_stat, state, cond_start);
 
 
@@ -5206,7 +5199,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ast_rep *df = ast->deref.exp;
     rhs = GetIRFromAst2(lang_stat, df, state, is_lhs);
 
-    HERE()
     rhs.deref = ast->deref.times;
     if(rhs.kind == IR_VAL_ADDR)
       rhs.deref += 1;
@@ -5217,6 +5209,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     else
     {
       rhs.kind = IR_VAL_ADDR;
+      if(rhs.type == IR_TYPE_REG)
+      {
+        rhs.type = IR_TYPE_REG_MEM;
+      }
     }
     ret = rhs;
   }break;
@@ -5224,6 +5220,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
     ast_rep *addr = ast->ast;
     ret = GetIRFromAst2(lang_stat, addr, state, true);
+    HERE()
     if(ret.kind == IR_VAL_ADDR)
     {
       ir.type = IR_ADDRESS_OF;
@@ -5330,6 +5327,19 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
 
   }break;
+  case AST_PLUS_PLUS:
+  {
+    lhs = GetIRFromAst2(lang_stat, ast->unop_assign.ast, state, true);
+
+    ir.type = IR_BIN;
+    ir.bin.op = T_PLUS;
+    ir.bin.lhs = lhs;
+    ir.bin.rhs.type = IR_TYPE_INT;
+    ir.bin.rhs.i = 1;
+
+    state->cur_block->irs.emplace_back(ir);
+    
+  }break;
   case AST_DBG_BREAK: {
     if (lang_stat->release)
       ir.type = IR_NOP;
@@ -5345,6 +5355,38 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
     switch(ast->op)
     {
+    case T_POINT:
+    {
+      lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
+      HERE()
+
+      int offset = 0;
+      for(int i =1; i < ast->points.size();i++)
+      {
+        decl2 *d = ast->points[i].decl_strct;
+
+        if(lhs.ptr > 0)
+        {
+          LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.ptr, lhs.ptr + 1);
+
+          offset = 0;
+          lhs.ptr = d->type.ptr;
+        }
+        else
+        {
+
+        }
+        offset += d->offset;
+
+        lhs.reg_sz = GetTypeSize(&d->type);
+        lhs.voffset = offset;
+      }
+      ret = lhs;
+    }break;
+    case T_MUL:
+    case T_DIV:
+    case T_PERCENT:
+    case T_MINUS:
     case T_PLUS:
     {
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
@@ -5385,36 +5427,12 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, 1, 1);
       }
 
-      switch(ast->op)
-      {
-      case T_EQUAL:
-      {
-        MakeIrStore(lang_stat, &lhs, &rhs, &ir);
-
-      }break;
-      case T_PLUS_EQUAL:
-      {
-        MakeIrBin(lang_stat, &lhs, &rhs, T_PLUS, &ir);
-      }break;
-      }
+      MakeIrStore(lang_stat, &lhs, &rhs, &ir);
 
       state->cur_block->irs.emplace_back(ir);
     }break;
     default: ASSERT(false)
     }
-  }break;
-  case AST_PLUS_PLUS:
-  {
-    lhs = GetIRFromAst2(lang_stat, ast->unop_assign.ast, state, true);
-    rhs.type = IR_TYPE_INT;
-    rhs.i = 1;
-    if(lhs.deref > 1)
-    {
-      LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref - 1, lhs.deref);
-    }
-    MakeIrBin(lang_stat, &lhs, &rhs, T_PLUS, &ir);
-    state->cur_block->irs.emplace_back(ir);
-
   }break;
   case AST_BREAK: 
   {

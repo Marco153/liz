@@ -14551,11 +14551,12 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
       }break;
       case IR_ADDRESS_OF:
       {
+        HERE()
         if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
         {
           bc.type = INST_LEA;
           bc.bin.rhs.lea.reg_base = (char)regs_enum::RSP;
-          bc.bin.rhs.lea.offset = ir->bin.rhs.decl->offset;
+          bc.bin.rhs.lea.offset = ir->bin.rhs.decl->offset + ir->bin.rhs.voffset;
           bc.bin.rhs.lea.reg_dst = ir->bin.lhs.reg;
           bc.bin.rhs.lea.size = ir->bin.lhs.reg_sz;
           InsertBc(ret, bc);
@@ -14807,7 +14808,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 
         if(ir->bin.lhs.type == IR_TYPE_DECL)
         {
-          lhs_aux.voffset = ir->bin.lhs.decl->offset;
+          lhs_aux.voffset += ir->bin.lhs.decl->offset;
         }
 
 
@@ -14822,7 +14823,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         rhs_aux.val = ir->bin.rhs.val;
         if(ir->bin.rhs.type == IR_TYPE_DECL)
         {
-          rhs_aux.voffset = ir->bin.rhs.decl->offset;
+          rhs_aux.voffset += ir->bin.rhs.decl->offset;
         }
 
         bc.type = correct_inst;
@@ -14831,6 +14832,11 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
         {
           GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 2));
+
+        }
+        else if(ir->bin.lhs.type == IR_TYPE_REG_MEM && ir->bin.rhs.type == IR_TYPE_INT)
+        {
+          GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 4));
 
         }
         else if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
@@ -14883,10 +14889,11 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
       }break;
       case IR_LOAD:
       {
+        //BREAK(cur_line == 2023)
         if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
         {
           bc.type = MOV_M;
-          bc.bin.rhs.voffset = ir->bin.rhs.decl->offset;
+          bc.bin.rhs.voffset = ir->bin.rhs.decl->offset + ir->bin.rhs.voffset;
           bc.bin.rhs.reg = (char)regs_enum::RSP;
           bc.bin.rhs.reg_sz = 8;
           bc.bin.lhs.reg = ir->bin.lhs.reg;
@@ -14927,10 +14934,20 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
         {
           bc.type = STORE_I_2_M;
-          bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
+          bc.bin.lhs.voffset = ir->bin.lhs.decl->offset + ir->bin.lhs.voffset;
           bc.bin.lhs.reg = (char)regs_enum::RSP;
           bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
           bc.bin.rhs.i = ir->bin.rhs.val;
+          InsertBc(ret, bc);
+        }
+        else if(ir->bin.lhs.type == IR_TYPE_REG_MEM && ir->bin.rhs.type == IR_TYPE_REG)
+        {
+          bc.type = STORE_R_2_M;
+          bc.bin.lhs.voffset = ir->bin.lhs.voffset;
+          bc.bin.lhs.reg = ir->bin.lhs.reg;
+          bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+          bc.bin.rhs.reg = ir->bin.rhs.reg;
+          bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
           InsertBc(ret, bc);
         }
         else if(ir->bin.lhs.type == IR_TYPE_REG_MEM && ir->bin.rhs.type == IR_TYPE_INT)
@@ -14945,7 +14962,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         else if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_REG)
         {
           bc.type = STORE_R_2_M;
-          bc.bin.lhs.voffset = ir->bin.lhs.decl->offset;
+          bc.bin.lhs.voffset = ir->bin.lhs.decl->offset + ir->bin.lhs.voffset;
           bc.bin.lhs.reg = (char)regs_enum::RSP;
           bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
           bc.bin.rhs.reg = ir->bin.rhs.reg;

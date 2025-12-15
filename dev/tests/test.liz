@@ -1,6 +1,21 @@
 PrintStr::fn outsider(str : str_lit);
 GetMem::fn outsider(size : u64) ! *void;
 //GetTypeData::fn internal(void *) !*type_data;
+ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
+{
+	(cast(*type)(cast(s64)ptr + cast(s64)offset * sizeof(type)))
+}
+_own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
+{
+	//ASSERT(cast(u64)dst > 128);
+	i:u64 = 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u8) = val;
+		i++;
+	}
+}
+
 /*
 test_strct_ser:struct
 {
@@ -342,7 +357,7 @@ HHashGet :: fn (alloc: *mem_alloc, key : *void) ! *u8
 			return cur.value;
 		i++;
 	}
-	ASSERT(0 == 1);
+	ASSERT(false);
 	return nil;
 }
 HHashRemove :: fn (alloc: *mem_alloc, key : *void)
@@ -376,10 +391,6 @@ HHashRemove :: fn (alloc: *mem_alloc, key : *void)
 }
 globals : global_strct
 
-ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
-{
-	(cast(*type)(cast(s64)ptr + cast(s64)offset * sizeof(type)))
-}
 
 num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
 {
@@ -461,16 +472,6 @@ minf::fn x64(a :f32, b :f32)!f32
 {
 	if a > b return b;
     return a;
-}
-_own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
-{
-	ASSERT(cast(u64)dst > 128);
-	i:u64 = 0;
-	while i < sz
-	{
-		*ptr_offset(dst, i, u8) = val;
-		i++;
-	}
 }
 test_ref::fn(alloc : *mem_alloc)
 {
@@ -1990,6 +1991,12 @@ main::fn()!u32
 }
 */
 
+test_st:struct
+{
+  b : u32,
+  a : u32,
+}
+
 call2::fn(a : s32, b : s32) ! s32
 {
   return a + b
@@ -2009,11 +2016,11 @@ main::fn()
   __dbg_break
   __dbg_break
 
-  i:s64
-  for i2 in 0..6
-  {
-    i+=i2
-  }
   
+  st1 : test_st=?
+  st2 := &st1
+
+  st2.a = 9
+  st1.a = st1.a + 1
 
 }

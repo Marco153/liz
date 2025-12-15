@@ -217,11 +217,11 @@ T GetTagVal(own_std::vector<tag_strct<T>> *ar, long long target_tag) {
 }
 
 char *GetFuncBasedOnAddr(unsigned long long offset);
-func_decl *IsThereAFunction(lang_state *lang_stat, char *name) {
+func_decl *IsThereAFunction(lang_state *lang_stat, own_std::string &name) {
 
   FOR_VEC(it, lang_stat->global_funcs) {
     auto f = *it;
-    if (f->name == own_std::string(name))
+    if (f->name == name)
       return f;
   }
   return nullptr;
@@ -6349,6 +6349,7 @@ decl2 *PointLogic(lang_state *lang_stat, node *n, scope *scp, type2 *ret_tp) {
 void ReportUndeclaredIdentifier(lang_state *lang_stat, token2 *t) {
   // own_std::string s = StringifyNode(lang_stat->cur_file->s);
   // printf("%s", s.c_str());
+  HERE()
   char msg_hdr[256];
   REPORT_ERROR(t->line, t->line_offset,
                VAR_ARGS("undeclared identifier: %s\n", t->str.c_str()));
@@ -6720,6 +6721,16 @@ void CheckDeclNodeAndMaybeAddEqualZero(lang_state *lang_stat, node *n,
           CreateNodeFromType(lang_stat, &lang_stat->void_decl->type, n->t);
       auto casted1 = NewTypeNode(lang_stat, void_nd, N_CAST, ref_nd, n->t);
       lang_stat->void_decl->type.ptr--;
+
+      own_std::string str("_own_memset");
+      decl2 *func = FindIdentifier(str, scp, &dummy_tp);
+      if (!func)
+      {
+        if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+          ReportMessage(lang_stat, n->t, "'_own_memset' not found");
+
+        return nullptr;
+      }
 
       final_nd = NewThreeArgNd(
           lang_stat, "_own_memset", casted1, NewIntNode(lang_stat, 0, n->t),
@@ -8269,7 +8280,12 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
             own_std::string str("memcpy");
             decl2 *memcpy_func = FindIdentifier(str, scp, &ret_type);
             if (!memcpy_func)
+            {
+              if(IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_REPORT_UNDECLARED_IDENTS))
+                ReportMessage(lang_stat, n->t, "'memcpy' not found");
+
               return nullptr;
+            }
             auto arg1 =
                 NewUnopNode(lang_stat, nullptr, T_AMPERSAND, equal_stmnt->l);
             auto arg2 =

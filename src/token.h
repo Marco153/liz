@@ -23,7 +23,6 @@ struct unit_file;
 
 void NewFuncToCompile(func_decl * fedcl);
 void NewDeclToCurFilseGlobalsScope(lang_state *, decl2 * decl);
-func_decl* IsThereAFunction(lang_state *, char* name);
 type_struct2 *SearchSerializedStruct(own_std::string name);
 void AddNewDeclToFileGlobalScope(lang_state *, decl2 * d);
 bool GetTypeFromTkns(token2 *tkns, type2 &tp);

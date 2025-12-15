@@ -995,7 +995,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				}
 				else
 				{
-					auto found_ptr_func = IsThereAFunction(lang_stat, (char *)bc->rel.call_func->name.c_str());
+					auto found_ptr_func = IsThereAFunction(lang_stat, bc->rel.call_func->name);
 
 					if(IS_FLAG_ON(fdecl->flags, FUNC_DECL_IS_OUTSIDER))
 					{

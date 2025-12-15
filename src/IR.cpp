@@ -4642,13 +4642,6 @@ void GetIRFromAst(lang_state *lang_stat, ast_rep *ast,
       lang_stat->ir_in_stmnt = was_in_stmnt;
 
   } break;
-  case AST_CONTINUE: {
-    // int stmnt_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_STMNT, (void
-    // *)(long long)ast->line_number);
-    ir.type = IR_CONTINUE;
-    out->emplace_back(ir);
-    // IRCreateEndBlock(lang_stat, stmnt_idx, out, IR_END_STMNT);
-  } break;
   default:
     ASSERT(0)
   }
@@ -4683,6 +4676,13 @@ ast_rep *CreateDbgEqualStmnt(lang_state *lang_stat) {
   bin->e_holder.expr.emplace_back(lhs);
   bin->e_holder.expr.emplace_back(rhs);
   return bin;
+}
+void MakeIrBin(lang_state *lang_stat, ir_val *lhs, ir_val *rhs, tkn_type2 op, ir_rep *out)
+{
+  out->type = IR_BIN;
+  out->bin.op = op;
+  out->bin.lhs = *lhs;
+  out->bin.rhs = *rhs;
 }
 void MakeIrStore(lang_state *lang_stat, ir_val *lhs, ir_val *rhs, ir_rep *out)
 {
@@ -4935,6 +4935,84 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   
   switch(ast->type)
   {
+  case AST_WHILE: 
+  {
+    bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
+    lang_stat->ir_in_stmnt = false;
+    int stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
+                                       (void *)(long long)ast->line_number);
+
+    GetIRFromAst2(lang_stat, ast->for_info.start_stat, state, false);
+    // int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+    block2 *cond_true = CreateBlock(lang_stat, state);
+    block2 *cond_start = CreateBlock(lang_stat, state);
+    block2 *for_end = CreateBlock(lang_stat, state);
+    block2 *merge = CreateBlock(lang_stat, state);
+
+    EmitBlockMakeCurrent(lang_stat, state, cond_start);
+    GetIRCond2(lang_stat, ast->for_info.cond_stat, state, cond_true, merge);
+
+    IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
+
+    EmitBlockMakeCurrent(lang_stat, state, cond_true);
+
+    push_tracker_stack(&state->continue_start_block, for_end);
+    push_tracker_stack(&state->break_end_block, merge);
+
+    if (ast->for_info.scope) {
+      GetIRFromAst2(lang_stat, ast->for_info.scope, state, false);
+    }
+
+    EmitBlockMakeCurrent(lang_stat, state, for_end);
+
+    GetIRFromAst2(lang_stat, ast->for_info.at_loop_end_stat, state, false);
+    EmitJmp(lang_stat, state, cond_start);
+
+
+    EmitBlockMakeCurrent(lang_stat, state, merge);
+
+    lang_stat->ir_in_stmnt = prev_is_in_stmnt;
+
+  } break;
+  case AST_FOR: 
+  {
+    bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
+    lang_stat->ir_in_stmnt = false;
+    int stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
+                                       (void *)(long long)ast->line_number);
+
+    GetIRFromAst2(lang_stat, ast->for_info.start_stat, state, false);
+    // int cond_idx = IRCreateBeginBlock(lang_stat, out, IR_BEGIN_IF_BLOCK);
+    block2 *cond_true = CreateBlock(lang_stat, state);
+    block2 *cond_start = CreateBlock(lang_stat, state);
+    block2 *for_end = CreateBlock(lang_stat, state);
+    block2 *merge = CreateBlock(lang_stat, state);
+
+    EmitBlockMakeCurrent(lang_stat, state, cond_start);
+    GetIRCond2(lang_stat, ast->for_info.cond_stat, state, cond_true, merge);
+
+    IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
+
+    EmitBlockMakeCurrent(lang_stat, state, cond_true);
+
+    push_tracker_stack(&state->continue_start_block, for_end);
+    push_tracker_stack(&state->break_end_block, merge);
+
+    if (ast->for_info.scope) {
+      GetIRFromAst2(lang_stat, ast->for_info.scope, state, false);
+    }
+
+    EmitBlockMakeCurrent(lang_stat, state, for_end);
+
+    GetIRFromAst2(lang_stat, ast->for_info.at_loop_end_stat, state, false);
+    EmitJmp(lang_stat, state, cond_start);
+
+
+    EmitBlockMakeCurrent(lang_stat, state, merge);
+
+    lang_stat->ir_in_stmnt = prev_is_in_stmnt;
+
+  } break;
   case AST_RET: 
   {
     ret = GetIRFromAst2(lang_stat, ast->ret.ast, state, false);
@@ -5291,6 +5369,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
       state->cur_block->irs.emplace_back(ir);
     }break;
+    case T_PLUS_EQUAL:
     case T_EQUAL:
     {
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
@@ -5306,13 +5385,50 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, 1, 1);
       }
 
-      MakeIrStore(lang_stat, &lhs, &rhs, &ir);
+      switch(ast->op)
+      {
+      case T_EQUAL:
+      {
+        MakeIrStore(lang_stat, &lhs, &rhs, &ir);
+
+      }break;
+      case T_PLUS_EQUAL:
+      {
+        MakeIrBin(lang_stat, &lhs, &rhs, T_PLUS, &ir);
+      }break;
+      }
 
       state->cur_block->irs.emplace_back(ir);
     }break;
     default: ASSERT(false)
     }
   }break;
+  case AST_PLUS_PLUS:
+  {
+    lhs = GetIRFromAst2(lang_stat, ast->unop_assign.ast, state, true);
+    rhs.type = IR_TYPE_INT;
+    rhs.i = 1;
+    if(lhs.deref > 1)
+    {
+      LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref - 1, lhs.deref);
+    }
+    MakeIrBin(lang_stat, &lhs, &rhs, T_PLUS, &ir);
+    state->cur_block->irs.emplace_back(ir);
+
+  }break;
+  case AST_BREAK: 
+  {
+    block2 *top = *top_tracker_stack(&state->break_end_block);
+    ASSERT(top)
+    EmitJmp(lang_stat, state, top);
+  }break;
+  case AST_CONTINUE: 
+  {
+    block2 *top = *top_tracker_stack(&state->continue_start_block);
+    ASSERT(top)
+
+    EmitJmp(lang_stat, state, top);
+  } break;
   default: ASSERT(false)
   }
   return ret;

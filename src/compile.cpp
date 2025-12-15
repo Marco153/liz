@@ -16889,6 +16889,8 @@ void InitIrState(lang_state *lang_stat, thread_ir_state *ir_st)
   ir_st->blocks_max = 512;
   ir_st->blocks_ptr = AllocMiscData(lang_stat, sizeof(block2) * ir_st->blocks_max);
   init_tracker_stack(&ir_st->spilled_regs, 16);
+  init_tracker_stack(&ir_st->break_end_block, 16);
+  init_tracker_stack(&ir_st->continue_start_block, 16);
 }
 int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_addr, void *data)
 {

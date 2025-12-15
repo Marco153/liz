@@ -505,7 +505,7 @@ struct tracker_stack
 template<class T>
 void init_tracker_stack(tracker_stack<T> *ar, u32 limit)
 {
-  ar->ptr = (char *)__lang_globals.alloc(__lang_globals.data, limit * sizeof(T));
+  ar->ptr = (T *)__lang_globals.alloc(__lang_globals.data, limit * sizeof(T));
   ar->limit = limit;
 }
 template<class T>
@@ -518,6 +518,12 @@ T *pop_tracker_stack(tracker_stack<T> *ar)
   return ret;
 }
 
+template<class T>
+T *top_tracker_stack(tracker_stack<T> *ar)
+{
+  if(ar->cur == 0 ) return nullptr;
+  return ar->ptr + (ar->cur - 1);
+}
 template<class T>
 void push_tracker_stack(tracker_stack<T> *ar, T val)
 {
@@ -540,4 +546,6 @@ struct thread_ir_state
 	int blocks_max;
 
   tracker_stack<char> spilled_regs;
+  tracker_stack<block2 *> continue_start_block;
+  tracker_stack<block2 *> break_end_block;
 };

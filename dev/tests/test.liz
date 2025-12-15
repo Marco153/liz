@@ -2009,7 +2009,11 @@ main::fn()
   __dbg_break
   __dbg_break
 
-  call(1, 2, 3, 4, 5, 6, call2(1, 2))
+  i:s64
+  for i2 in 0..6
+  {
+    i+=i2
+  }
   
 
 }

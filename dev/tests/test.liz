@@ -1990,24 +1990,26 @@ main::fn()!u32
 }
 */
 
+call2::fn(a : s32, b : s32) ! s32
+{
+  return a + b
+}
+call::fn(a : s32, b : s32, c : s32, d : s32, e : s32, f : s32, g: s32) ! s32
+{
+  return a + g
+
+}
+
 main::fn()
 {
   __dbg_break
   __dbg_break
   __dbg_break
   __dbg_break
-  x :u32= 2;
-  y :u64= cast(u64)(x + 1);
+  __dbg_break
+  __dbg_break
 
-  if x != 2 && y > x || y == 3
-  {
-    x = 0
-    x = 2
-  }
-  else
-  {
-    x = 1
-  }
+  call(1, 2, 3, 4, 5, 6, call2(1, 2))
   
 
 }

@@ -24,6 +24,21 @@ enum class regs_enum
   R14,
   R15,
 };
+char FromIdxToArgReg(char i)
+{
+  switch(i)
+  {
+#ifdef LINUX
+    case 0: return (char)regs_enum::RDI;
+    case 1: return (char)regs_enum::RSI;
+    case 2: return (char)regs_enum::RDX;
+    case 3: return (char)regs_enum::RCX;
+    case 4: return (char)regs_enum::R8;
+    case 5: return (char)regs_enum::R9;
+#else
+#endif
+  }
+}
 
 #define DISP_BYTE_MAX 0x80
 
@@ -165,6 +180,18 @@ enum byte_code_enum : unsigned short
 	AND_SSE_2_MEM,
 	AND_PCKD_SSE_2_PCKD_SSE,
 
+	MOV_M_2_M,
+	MOV_R_2_M,
+	MOV_M_2_R,
+	MOV_I_2_R,
+	MOV_I_2_M,
+	MOV_I_2_RM,
+	MOV_R_2_RM,
+	MOV_R_2_R,
+	MOV_SSE_2_SSE,
+	MOV_MEM_2_SSE,
+	MOV_SSE_2_MEM,
+
 	SUB_M_2_M,
 	SUB_R_2_M,
 	SUB_M_2_R,
@@ -244,9 +271,7 @@ enum byte_code_enum : unsigned short
 	MOV_R_2_REG_PARAM,
 	MOV_REG_PARAM_2_REG,
 
-	MOV_SSE_2_MEM,
 	MOV_SSE_2_RM,
-	MOV_SSE_2_SSE,
 	MOV_M_2_SSE,
 	MOV_R_2_SSE,
 	MOV_SSE_2_R,

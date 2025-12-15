@@ -256,7 +256,7 @@ char FromBCRegToAsmReg(char bc_reg)
   case 10:
   case 9:
   case 8:
-		return bc_reg | (1 << 7);
+		return (bc_reg - 8) | (1 << 7);
 	default:
 
 		ASSERT(false)
@@ -695,6 +695,7 @@ void MovImmToReg(machine_code &m, short reg, char reg_sz, long long imm)
 {
 	char base_reg = FromBCRegToAsmReg(reg);
   char is_rex = IS_FLAG_ON(base_reg, 0x80);
+  if(is_rex) HERE()
   *(char *)&is_rex *= 2;
 	AddPreMemInsts(reg_sz, 0xc6, 0xc7, is_rex, m.code);
 	m.code.emplace_back(0xc0 + (char)(base_reg & 0xf));
@@ -1535,6 +1536,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				*/
 		}
 			break;
+		case MOV_R_2_R:
 		case MOV_R:
 		{
 			if (bc->bin.lhs.reg == bc->bin.rhs.reg)
@@ -1545,6 +1547,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret, bc->bin.rhs.reg);
 		}break;
+		case MOV_M_2_R:
 		case MOV_M:
 		{
 			CreateMemToReg(&*bc, 0x8a, 0x8b, false, ret);
@@ -1555,11 +1558,13 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case STORE_RM_2_M:
 		case STORE_R_2_M:
+		case MOV_R_2_M:
 		{
 
 			CreateRegToMem(&*bc, 0x88, 0x89, ret);
 
 		}break;
+		case MOV_I_2_M:
 		case STORE_I_2_M:
 		{
 			CreateStoreImmToMem(&*bc, ret);
@@ -1841,6 +1846,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			break;
 
 
+		case MOV_I_2_R:
 		case MOV_I:
 		{
 				MovImmToReg(ret, bc->bin.lhs.reg, bc->bin.lhs.reg_sz, bc->bin.rhs.u64);
@@ -3276,12 +3282,12 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
 				a = fdecl->args[i];
 
 			byte_code bc;
-			bc.type = byte_code_enum::STORE_REG_PARAM;
-			bc.bin.lhs.reg = 5;
+			bc.type = byte_code_enum::MOV_R_2_M;
+			bc.bin.lhs.reg = (char)regs_enum::RSP;
 			bc.bin.lhs.voffset = offset + start;
 			bc.bin.lhs.reg_sz = 8;
 			bc.bin.lhs.var_size= 8;
-			bc.bin.rhs.reg = i;
+			bc.bin.rhs.reg = FromIdxToArgReg(i);
 
 			if(a && (a->type.IsFloat() && a->type.ptr == 0))
 			{

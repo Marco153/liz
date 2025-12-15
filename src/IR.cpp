@@ -1198,6 +1198,14 @@ void FreeAllFloatRegs(lang_state *lang_stat) {
   memset(lang_stat->float_regs, 0, sizeof(lang_stat->float_regs));
   // lang_stat->float_regs[reg_idx] &= ~REG_FREE_FLAG;
 }
+bool IsRegInUseFloat(lang_state *lang_stat, char idx) {
+  // ASSERT(IS_FLAG_ON(lang_stat->float_regs[idx], REG_FREE_FLAG));
+  return IS_FLAG_ON(lang_stat->float_regs[idx], REG_USED_FLAG);
+}
+bool IsRegInUse(lang_state *lang_stat, char idx) {
+  // ASSERT(IS_FLAG_ON(lang_stat->float_regs[idx], REG_FREE_FLAG));
+  return IS_FLAG_ON(lang_stat->regs[idx], REG_USED_FLAG);
+}
 void FreeSpecificFloatReg(lang_state *lang_stat, char idx) {
   // ASSERT(IS_FLAG_ON(lang_stat->float_regs[idx], REG_FREE_FLAG));
   lang_stat->float_regs[idx] &= ~REG_USED_FLAG;
@@ -4787,18 +4795,165 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
   rhs->deref = 0;
 
 }
+
+void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i)
+{
+  ir_rep ir={};
+  ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
+
+  char reg = -1;
+
+  if(ir.bin.rhs.type == IR_TYPE_REG) 
+  {
+    reg = ir.bin.rhs.reg;
+  }
+
+  ir.type = IR_BIN;
+  ir.bin.op = T_EQUAL;
+  if(i >= MAX_CALL_REGS)
+  {
+    if(ir.bin.rhs.kind == IR_VAL_ADDR)
+    {
+      char deref = ir.bin.rhs.deref;
+      LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs, deref, deref);
+    }
+    ir.bin.lhs.type = IR_TYPE_REG_MEM;
+    ir.bin.lhs.reg = (char)regs_enum::RSP;
+    ir.bin.lhs.reg_sz = 8;
+    ir.bin.lhs.voffset = (i - MAX_CALL_REGS) * 8;
+
+  }
+  else
+  {
+    char reg_arg = FromIdxToArgReg(i);
+    AllocSpecificReg(lang_stat, reg_arg);
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.reg = reg_arg;
+    ir.bin.lhs.reg_sz = 8;
+  }
+
+  if(reg != -1)
+    FreeReg(lang_stat, reg);
+
+  state->cur_block->irs.emplace_back(ir);
+
+}
+
+ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
+{
+  func_decl *callf = ast->call.fdecl;
+  ir_rep ir;
+  ir_val ret;
+  int i = 0;
+
+  int call_base = state->spilled_regs.cur;
+  //HERE()
+
+  for(i = 0; i < MAX_CALL_REGS; i++)
+  {
+    char reg_arg = FromIdxToArgReg(i);
+
+    ir.type = IR_SPILL;
+
+    if(IsRegInUse(lang_stat, reg_arg))
+    {
+      ir.bin.lhs.reg =  state->spilled_regs.cur;
+      ir.bin.rhs.type =  IR_TYPE_REG;
+      ir.bin.rhs.reg =  reg_arg;
+      ir.bin.rhs.reg_sz =  8;
+      state->cur_block->irs.emplace_back(ir);
+      push_tracker_stack(&state->spilled_regs, reg_arg);
+    }
+    if(i >= 6) break;
+  }
+  i = 0;
+  FOR_VEC(arg, ast->call.args)
+  {
+    if(HasCall(lang_stat, *arg))
+    {
+      GetIRCallArg(lang_stat, *arg, state, i);
+      (*arg)->ir_generated = true;
+    }
+
+    i++;
+  }
+
+
+  i=0;
+  FOR_VEC(arg, ast->call.args)
+  {
+
+    if(!(*arg)->ir_generated)
+    {
+      GetIRCallArg(lang_stat, *arg, state, i);
+    }
+
+    i++;
+  }
+  ir.type = IR_CALL;
+
+  ir.call.is_outsider = false;
+  if (IS_FLAG_ON(ast->call.fdecl->flags, FUNC_DECL_IS_OUTSIDER))
+    ir.call.is_outsider = true;
+
+  ir.call.fdecl = ast->call.fdecl;
+
+  state->cur_block->irs.emplace_back(ir);
+
+
+  while(state->spilled_regs.cur > call_base)
+  {
+    ir.type = IR_UNSPILL;
+    char unspill = *pop_tracker_stack(&state->spilled_regs);
+    ir.bin.lhs.type =  IR_TYPE_REG;
+    ir.bin.lhs.reg =  unspill;
+    ir.bin.lhs.reg_sz =  8;
+    ir.bin.rhs.reg =  state->spilled_regs.cur;
+
+    state->cur_block->irs.emplace_back(ir);
+  }
+
+  ret.type = IR_TYPE_REG;
+  ret.kind = IR_VAL_VALUE;
+  ret.reg_sz = GetTypeSize(&callf->ret_type);
+  ret.reg = 0;
+  //if(callf->ret_type.)
+
+  return ret;
+}
+void InsertIr(thread_ir_state *state, ir_rep *ir)
+{
+  state->cur_block->irs.emplace_back(*ir);
+}
+
 ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
 {
   ir_val ret;
-  ir_rep ir;
+  ir_rep ir= {};
   ir_val lhs;
   ir_val rhs;
-
-  
   
   switch(ast->type)
   {
-  case AST_IF: {
+  case AST_RET: 
+  {
+    ret = GetIRFromAst2(lang_stat, ast->ret.ast, state, false);
+    ir.type = IR_BIN;
+    ir.bin.op = T_EQUAL;
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.reg = (char)regs_enum::RAX;
+    ir.bin.lhs.reg_sz = ret.reg_sz;
+    ir.bin.rhs = ret;
+
+    InsertIr(state, &ir);
+
+  }break;
+  case AST_CALL: 
+  {
+    ret = GetIRCall(lang_stat, ast, state, false);
+  }break;
+  case AST_IF: 
+  {
     FreeRegs2(lang_stat);
 
     bool is_stmnt_without_semicolon =
@@ -5026,7 +5181,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
     else
     {
-      if(cast_sz != ret.reg_sz)
+      if(cast_sz != ret.reg_sz && ret.type != IR_TYPE_INT)
       {
         if(ret.is_float && !ast->cast.type.IsFloat())
         {
@@ -5114,8 +5269,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     {
     case T_PLUS:
     {
-
-      HERE()
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 

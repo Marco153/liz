@@ -164,6 +164,7 @@ struct ast_rep
   bool dont_make_dbg_stmnt : 1;
   bool goes_onto_stack : 1;
   bool is_import : 1;
+  bool ir_generated : 1;
 
   int line_number;
 
@@ -342,6 +343,7 @@ enum on_stack_type
 	ON_STACK_STRUCT_CONSTR,	
 	ON_STACK_STRUCT_RET,	
 	ON_STACK_SPILL,	
+	ON_STACK_SPILL_FLOAT,	
 };
 #define IR_VAL_ADDR 0 
 #define IR_VAL_VALUE 1
@@ -490,6 +492,44 @@ struct block2
 };
 
 
+template<class T>
+struct tracker_stack
+{
+  T *ptr;
+  u32 cur;
+  u32 max_cur_gotten;
+  u32 limit;
+};
+
+
+template<class T>
+void init_tracker_stack(tracker_stack<T> *ar, u32 limit)
+{
+  ar->ptr = (char *)__lang_globals.alloc(__lang_globals.data, limit * sizeof(T));
+  ar->limit = limit;
+}
+template<class T>
+T *pop_tracker_stack(tracker_stack<T> *ar)
+{
+  if(ar->cur == 0) return nullptr;
+  ar->cur--;
+  T *ret = (ar->ptr + ar->cur);
+
+  return ret;
+}
+
+template<class T>
+void push_tracker_stack(tracker_stack<T> *ar, T val)
+{
+  memcpy((ar->ptr + ar->cur), &val, sizeof(T));
+
+  ar->cur++;
+
+  ASSERT(ar->cur < ar->limit);
+
+  if(ar->max_cur_gotten < ar->cur)
+    ar->max_cur_gotten = ar->cur;
+}
 struct thread_ir_state
 {
   block2 *cur_block;
@@ -498,4 +538,6 @@ struct thread_ir_state
 	void *blocks_ptr;
 	int blocks_cur;
 	int blocks_max;
+
+  tracker_stack<char> spilled_regs;
 };

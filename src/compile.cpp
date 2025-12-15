@@ -12707,7 +12707,7 @@ bool FloatIsMovSomething2Reg(byte_code *bc)
 void GenX64RetGroup(lang_state *lang_stat, int stack_size, own_std::vector<byte_code>& ret)
 {
 
-	GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, ADD_I_2_R);
+	GenX64ImmToReg(ret, (short)regs_enum::RSP, 8, stack_size, ADD_I_2_R);
 
 	byte_code bc;
   /*
@@ -12825,10 +12825,10 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 
 	byte_code bc = {};
 	bc.type = PUSH_R;
-	bc.val = 3;
+	bc.val = (long long)regs_enum::RBX;
 	ret.emplace_back(bc);
 	
-	bc.val = 6;
+	bc.val = (long long)regs_enum::RDI;
 	ret.emplace_back(bc);
 
 	/*
@@ -12898,7 +12898,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
       // we're aligning the stack in 8 bytes because after the call inst 8 bytes of the ret address is pushed make the stack 16 bytes unaligned
       stack_size += 8;
 
-			GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
+			GenX64ImmToReg(ret, (short)regs_enum::RSP, 8, stack_size, SUB_I_2_R);
 
       int start = stack_size - MAX_CALL_REGS * 8;
 			cur_ir->fdecl->stack_size = stack_size;
@@ -14384,9 +14384,6 @@ void InsertBc(own_std::vector<byte_code> &ret, byte_code &bc)
 }
 void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_state *state, machine_code& mach, func_decl *cur_func)
 {
-	auto cur = (block_linked*)malloc(sizeof(block_linked));
-	cur->parent = nullptr;
-	memset(cur, 0, sizeof(block_linked));
 	int args = cur_func->biggest_call_args - MAX_CALL_REGS;
 	int on_stack_args = max(args, 0);
   auto &ret = mach.bcs;
@@ -14402,6 +14399,18 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 	stmnt_dbg* cur_st = cur_func->wasm_stmnts.begin();
   ir_val_aux lhs_aux;
   ir_val_aux rhs_aux;
+
+  bc.type = BEGIN_FUNC;
+  bc.fdecl = cur_func;
+  ret.emplace_back(bc);
+
+	bc.type = PUSH_R;
+	bc.val = (long long)regs_enum::RBX;
+	ret.emplace_back(bc);
+	
+	bc.val = (long long)regs_enum::RDI;
+	ret.emplace_back(bc);
+
   FOR_VEC(bl, cur_func->blocks)
   {
     block2 *cur_b = *bl;
@@ -14438,7 +14447,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         // we're aligning the stack in 8 bytes because after the call inst 8 bytes of the ret address is pushed make the stack 16 bytes unaligned
         stack_size += 8;
 
-        GenX64ImmToReg(ret, PRE_X64_RSP_REG, 8, stack_size, SUB_I_2_R);
+        GenX64ImmToReg(ret, (char)regs_enum::RSP, 8, stack_size, SUB_I_2_R);
 
         int start = stack_size - MAX_CALL_REGS * 8;
         cur_ir->fdecl->stack_size = stack_size;
@@ -14457,7 +14466,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 
         //gen_state->to_spill_offset = stack_size;
         cur_ir->fdecl->to_spill_offset = stack_size;
-        stack_size += cur_ir->fdecl->to_spill_size * 16;
+        stack_size += state->spilled_regs.max_cur_gotten * 16;
 
         //gen_state->strcts_ret_stack_offset = stack_size;
         cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;
@@ -14639,9 +14648,82 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         }
 
       }break;
+      case IR_CALL:
+      {
+        if (IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_INTRINSIC))
+        {
+          if (ir->call.fdecl->name == "__sqrt")
+          {
+            bc.type = SQRT_SSE;
+            bc.bin.lhs.reg = 0;
+            bc.bin.rhs.reg = 0;
+            ret.emplace_back(bc);
+          }
+          else if (ir->call.fdecl->name == "lock_xchg")
+          {
+            bc.type = LOCK_XCHG_M_R;
+            bc.bin.lhs.reg = 0;
+            bc.bin.lhs.voffset = 0;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.reg = 1;
+            bc.bin.rhs.reg_sz = 8;
+            ret.emplace_back(bc);
+          }
+          else if (ir->call.fdecl->name == "GetFuncStackSize")
+          {
+            bc.type = MOV_I;
+            bc.bin.lhs.reg = 0;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.i = cur_func->stack_size;
+            ret.emplace_back(bc);
+          }
+          else
+            ASSERT(false)
+        }
+        else if (IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_SYSCALL))
+        {
+          bc.type = MOV_I;
+          bc.bin.lhs.reg = 0;
+          bc.bin.lhs.reg_sz = 8;
+          bc.bin.rhs.i = ir->call.fdecl->syscall;
+          ret.emplace_back(bc);
+
+          bc.type = SYSCALL;
+          ret.emplace_back(bc);
+        }
+        else
+        {
+          ret.emplace_back(byte_code(rel_type::REL_FUNC, (char*)ir->call.fdecl->name.c_str(), (int)0, (char)0, ir->call.fdecl));
+          ret.back().ir = (ir_rep *)(long long)cur_line;
+          AllocSpecificReg(lang_stat, 0);
+        }
+
+      }break;
+      case IR_SPILL:
+      case IR_UNSPILL:
       case IR_CMP:
       case IR_BIN:
       {
+        if(cur_ir->type == IR_SPILL)
+        {
+          int offset = cur_ir->bin.lhs.reg;
+          cur_ir->bin.op = T_EQUAL;
+          cur_ir->bin.lhs.type = IR_TYPE_REG_MEM;
+          cur_ir->bin.lhs.reg = (char)regs_enum::RSP;
+          cur_ir->bin.lhs.reg_sz = 8;
+          cur_ir->bin.lhs.voffset = cur_func->to_spill_offset + offset * 8;
+          // rhs was already filled when the ir was generated
+        }
+        else if(cur_ir->type == IR_UNSPILL)
+        {
+          int offset = cur_ir->bin.rhs.reg;
+          cur_ir->bin.op = T_EQUAL;
+          cur_ir->bin.rhs.type = IR_TYPE_REG_MEM;
+          cur_ir->bin.rhs.reg = (char)regs_enum::RSP;
+          cur_ir->bin.rhs.reg_sz = 8;
+          cur_ir->bin.rhs.voffset = cur_func->to_spill_offset + offset * 8;
+          // lhs was already filled when the ir was generated
+        }
         byte_code_enum base_inst = MOV_I;
         byte_code_enum base_inst_sse = MOV_I;
 
@@ -14661,6 +14743,10 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
           base_inst = DIV_M_2_M;
           base_inst_sse = DIV_SSE_2_SSE;
           break;
+        case T_EQUAL:
+          base_inst = MOV_M_2_M;
+          base_inst_sse = MOV_SSE_2_SSE;
+        break;
         case T_MUL:
           base_inst = MUL_M_2_M;
           base_inst_sse = MUL_SSE_2_SSE;
@@ -14679,7 +14765,6 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 
         break;
         case T_PLUS:
-          HERE()
           base_inst = ADD_M_2_M;
           base_inst_sse = ADD_SSE_2_SSE;
 
@@ -14753,9 +14838,17 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
           GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 4));
 
         }
+        else if(ir->bin.lhs.type == IR_TYPE_REG_MEM && ir->bin.rhs.type == IR_TYPE_REG)
+        {
+          GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 1));
+        }
         else if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_REG)
         {
           GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 1));
+        }
+        else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
+        {
+          GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 7));
         }
         else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_INT)
         {
@@ -14868,6 +14961,11 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
       }
     }
   }
+  lang_stat->global_funcs.emplace_back(cur_func);
+  cur_func->flags |= FUNC_DECL_CODE_WAS_GENERATED;
+  bc.type = END_FUNC;
+  bc.fdecl = cur_func;
+  ret.emplace_back(bc);
 }
 #pragma optimize("", off)
 void GenWasm(web_assembly_state* wasm_state)
@@ -16790,6 +16888,7 @@ void InitIrState(lang_state *lang_stat, thread_ir_state *ir_st)
 {
   ir_st->blocks_max = 512;
   ir_st->blocks_ptr = AllocMiscData(lang_stat, sizeof(block2) * ir_st->blocks_max);
+  init_tracker_stack(&ir_st->spilled_regs, 16);
 }
 int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_addr, void *data)
 {

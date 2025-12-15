@@ -14551,7 +14551,6 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
       }break;
       case IR_ADDRESS_OF:
       {
-        HERE()
         if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
         {
           bc.type = INST_LEA;

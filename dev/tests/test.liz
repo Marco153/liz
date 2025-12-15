@@ -16,6 +16,7 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 	}
 }
 
+/*
 test_strct_ser:struct
 {
 	a : u32,
@@ -1988,8 +1989,8 @@ main::fn()!u32
 
   return 6
 }
+*/
 
-/*
 test_st:struct
 {
   b : u32,
@@ -2016,11 +2017,7 @@ main::fn()
   __dbg_break
 
   
-  st1 : test_st=?
-  st2 := &st1
-
-  st2.a = 9
-  st1.a = st1.a + 1
+  i := 8
+  a := !(i == 8)
 
 }
-*/

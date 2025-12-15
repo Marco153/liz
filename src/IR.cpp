@@ -1638,7 +1638,12 @@ void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, block2 *cond_true, block2 *cond_false, bool flip_comparison = true) 
 {
   ASSERT(cond_true && cond_false)
-  if(ast->type == AST_BINOP)
+  if(ast->type == AST_OPPOSITE)
+  {
+    GetIRCond2(lang_stat, ast->ast, state, cond_false, cond_true);
+
+  }
+  else if(ast->type == AST_BINOP)
   {
     if(IsComparisonOp(ast->op))
     {
@@ -5398,19 +5403,38 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 
+      char min_rhs_deref = rhs.deref - 1;
+      if(lhs.type == IR_TYPE_INT) min_rhs_deref++;
+
       if(lhs.kind != IR_VAL_VALUE)
       {
         LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref, lhs.deref);
       }
       if(rhs.kind != IR_VAL_VALUE)
       {
-        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, rhs.deref - 1, rhs.deref);
+        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, min_rhs_deref, rhs.deref);
         //rhs.type = IR_TYPE_REG_MEM;
       }
 
       if(rhs.type == IR_TYPE_REG_MEM || rhs.type == IR_TYPE_REG)
       {
         FreeReg(lang_stat, rhs.reg);
+      }
+
+      if(lhs.type == IR_TYPE_INT)
+      {
+        // swap rhs and lhs, rhs should be a value, so this should be safe, we wouldnt be modifying any memory
+        if(ast->op == T_PLUS || ast->op == T_MUL)
+        {
+          ASSERT(rhs.kind == IR_VAL_VALUE)
+          auto aux = lhs;
+          lhs = rhs;
+          rhs = aux;
+        }
+        else
+        {
+          ASSERT(false)
+        }
       }
 
       ret = lhs;

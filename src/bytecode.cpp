@@ -1,6 +1,7 @@
 #include "bytecode.h"
 #include "machine_rel.h"
 #include "node.h"
+#include "token.h"
 
 
 #define REGS_PUSHED 2
@@ -827,12 +828,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
     }break;
 		case END_STMNT:
     {
-      bc->st->end = ret.code.size();
+      stmnt_dbg *st = &cur_func->wasm_stmnts[bc->st_idx];
+      st->end = ret.code.size();
     }break;
 		case BEGIN_STMNT:
     {
-      bc->st->start = ret.code.size();
-      cur_line = bc->st->line;
+      stmnt_dbg *st = &cur_func->wasm_stmnts[bc->st_idx];
+      st->start = ret.code.size();
+      cur_line = st->line;
     }break;
 		case END_FUNC:
 		{

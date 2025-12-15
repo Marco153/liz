@@ -488,7 +488,7 @@ struct byte_code
 	unsigned int _line;
 	union
 	{
-    stmnt_dbg *st;
+    int st_idx;
 		struct
 		{
 			operand lhs;

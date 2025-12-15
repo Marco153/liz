@@ -5284,7 +5284,12 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     {
       ir.type = IR_ADDRESS_OF;
       ir.bin.lhs.type = IR_TYPE_REG;
-      ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+      if(ret.type == IR_TYPE_REG || ret.type == IR_TYPE_REG_MEM )
+      {
+        ir.bin.lhs.reg = ret.reg;
+      }
+      else
+        ir.bin.lhs.reg = GetAvailableReg(lang_stat);
       ir.bin.lhs.reg_sz = 8;
       ir.bin.rhs = ret;
       state->cur_block->irs.emplace_back(ir);

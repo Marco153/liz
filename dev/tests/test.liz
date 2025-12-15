@@ -2024,6 +2024,7 @@ else
     __dbg_break
 
     t : test_st
+    x := t.a
     tptr := &t
     callptr(&tptr.a)
     callptr(&tptr.b)

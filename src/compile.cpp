@@ -12942,7 +12942,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			if(lang_stat->is_machine_x64_backend)
       {
         bc.type = BEGIN_STMNT;
-        bc.st = cur_st;
+        //bc.st = cur_st;
         ret.emplace_back(bc);
       }
 #ifndef WASM_DBG
@@ -12958,7 +12958,7 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 			if(lang_stat->is_machine_x64_backend)
       {
         bc.type = END_STMNT;
-        bc.st = cur_st;
+        //bc.st = cur_st;
         ret.emplace_back(bc);
       }
 #ifndef WASM_DBG
@@ -14384,6 +14384,8 @@ void InsertBc(own_std::vector<byte_code> &ret, byte_code &bc)
 }
 void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_state *state, machine_code& mach, func_decl *cur_func)
 {
+  cur_func->wasm_stmnts.reserve(64);
+
 	int args = cur_func->biggest_call_args - MAX_CALL_REGS;
 	int on_stack_args = max(args, 0);
   auto &ret = mach.bcs;
@@ -14396,7 +14398,6 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 	int start = ret.size();
 
   byte_code bc;
-	stmnt_dbg* cur_st = cur_func->wasm_stmnts.begin();
   ir_val_aux lhs_aux;
   ir_val_aux rhs_aux;
 
@@ -14410,6 +14411,8 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 	
 	bc.val = (long long)regs_enum::RDI;
 	ret.emplace_back(bc);
+
+  int st_idx = 0;
 
   FOR_VEC(bl, cur_func->blocks)
   {
@@ -14488,15 +14491,17 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         FreeAllRegs(lang_stat);
         FreeAllFloatRegs(lang_stat);
         cur_line = ir->block.stmnt.line;
+        stmnt_dbg cur_st;
         if(lang_stat->is_machine_x64_backend)
         {
           bc.type = BEGIN_STMNT;
-          bc.st = cur_st;
+          bc.st_idx = st_idx;
           InsertBc(ret, bc);
         }
 #ifndef WASM_DBG
         if(lang_stat->is_x64_bc_backend)
-          cur_st->start = ret.size();
+          cur_st.start = ret.size();
+        cur_func->wasm_stmnts.emplace_back(cur_st);
 #endif
 
       }break;
@@ -14504,16 +14509,17 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
       {
         FreeAllRegs(lang_stat);
         FreeAllFloatRegs(lang_stat);
+        stmnt_dbg *cur_st = &cur_func->wasm_stmnts.back();
         if(lang_stat->is_machine_x64_backend)
         {
           bc.type = END_STMNT;
-          bc.st = cur_st;
+          bc.st_idx = st_idx;
           InsertBc(ret, bc);
         }
 #ifndef WASM_DBG
         if(lang_stat->is_x64_bc_backend)
           cur_st->end = ret.size();
-        cur_st++;
+        st_idx++;
 #endif
       }break;
       case IR_DECLARE_LOCAL:

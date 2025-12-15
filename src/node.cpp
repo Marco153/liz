@@ -8590,6 +8590,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
         case node_type::N_UNION_DECL:
         case node_type::N_ETRUCT_DECL:
         case node_type::N_STRUCT_DECL: {
+
           ret_type.type = enum_type2::TYPE_STRUCT_DECL;
           node *snode = n->r;
 
@@ -8626,6 +8627,8 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
           tstrct->scp = child_scp;
           ret_type.strct = tstrct;
 
+
+          if(IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2)) break;
 
           if (snode->l == nullptr) {
             if (n->r->type == N_ETRUCT_DECL &&
@@ -8879,6 +8882,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
           // decl_exist->flags &= ~DECL_NOT_DONE;
           // tstrct->flags |= TP_STRCT_STRUCT_NODE;
           can_declare = true;
+          n->flags |= NODE_FLAGS_IS_PROCESSED2;
 
         } break;
         case node_type::N_INDEX: {

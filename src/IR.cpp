@@ -1721,7 +1721,15 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
   }
   else
   {
-    ASSERT(false)
+
+    ir_rep ir;
+    ir.type = IR_CMP;
+    ir.bin.op = T_COND_NE;
+    ir.bin.lhs = GetIRFromAst2(lang_stat, ast, state, true);
+    ir.bin.rhs.type = IR_TYPE_INT;
+    ir.bin.rhs.i = 1;
+    ir.bin.block_id = cond_false->id;
+    state->cur_block->irs.emplace_back(ir);
   }
 }
 bool IsCondAndOr(tkn_type2 t) { return t == T_COND_AND || t == T_COND_OR; }

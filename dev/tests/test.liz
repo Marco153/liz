@@ -16,7 +16,7 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 	}
 }
 
-TESTS:const s32=0;
+TESTS:const s32=1;
 #if TESTS == 0
 {
 
@@ -2022,12 +2022,14 @@ else
     __dbg_break
 
     
-    if false
+    i := 0
+
+    if i
     {
-      i := 9
+      i = 9
     }
 
-    i := 8
+    i = 8
     a := !(i == 8)
 
   }

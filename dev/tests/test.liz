@@ -16,7 +16,7 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 	}
 }
 
-TESTS:const s32=0;
+TESTS:const s32=1;
 #if TESTS == 0
 {
 
@@ -2002,6 +2002,10 @@ else
     a : u32,
   }
 
+  callptr::fn(a : *u32) ! u32
+  {
+    return *a
+  }
   call2::fn(a : s32, b : s32) ! s32
   {
     return a + b
@@ -2018,9 +2022,11 @@ else
     __dbg_break
     __dbg_break
     __dbg_break
-    __dbg_break
-    __dbg_break
 
+    t : test_st
+    tptr := &t
+    callptr(&tptr.a)
+    callptr(&tptr.b)
     
     i := 0
 

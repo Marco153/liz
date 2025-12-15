@@ -14561,6 +14561,17 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
           InsertBc(ret, bc);
 
         }
+        else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG_MEM)
+        {
+          bc.type = INST_LEA;
+          bc.bin.rhs.lea.reg_base = ir->bin.rhs.reg;
+          bc.bin.rhs.lea.offset = ir->bin.rhs.voffset;
+          bc.bin.rhs.lea.reg_dst = ir->bin.lhs.reg;
+          bc.bin.rhs.lea.size = ir->bin.lhs.reg_sz;
+          InsertBc(ret, bc);
+
+
+        }
         else
         {
           ASSERT(false)

@@ -5478,6 +5478,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_MUL:
     case T_DIV:
     case T_PERCENT:
+    case T_AMPERSAND:
     case T_MINUS:
     case T_PLUS:
     {

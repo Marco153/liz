@@ -4943,6 +4943,39 @@ void InsertIr(thread_ir_state *state, ir_rep *ir)
   state->cur_block->irs.emplace_back(*ir);
 }
 
+void GetIRCondValue(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, char true_val, char false_val)
+{
+  ir_rep ir = {};
+  block2 *cond_true = CreateBlock(lang_stat, state);
+  block2 *cond_false = CreateBlock(lang_stat, state);
+
+
+  block2 *merge = CreateBlock(lang_stat, state);
+
+  GetIRCond2(lang_stat, ast, state, cond_true, cond_false);
+
+  EmitBlockMakeCurrent(lang_stat, state, cond_true);
+
+  ir.type = IR_BIN;
+  ir.bin.op = T_EQUAL;
+  ir.bin.lhs.type = IR_TYPE_REG;
+  ir.bin.lhs.reg_sz = 8;
+  ir.bin.lhs.reg = 0;
+  ir.bin.rhs.type = IR_TYPE_INT;
+  ir.bin.rhs.i = true_val;
+
+  state->cur_block->irs.emplace_back(ir);
+  EmitJmp(lang_stat, state, merge);
+
+  EmitBlockMakeCurrent(lang_stat, state, cond_false);
+
+  ir.bin.rhs.i = false_val;
+
+  state->cur_block->irs.emplace_back(ir);
+  EmitJmp(lang_stat, state, merge);
+  EmitBlockMakeCurrent(lang_stat, state, merge);
+
+}
 ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
 {
   ir_val ret;
@@ -5368,6 +5401,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
     state->cur_block->irs.emplace_back(ir);
   } break;
+  case AST_OPPOSITE:
+  {
+    GetIRCondValue(lang_stat, ast->ast, state, 0, 1);
+  }break;
   case AST_BINOP:
   {
     switch(ast->op)
@@ -5381,33 +5418,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_COND_AND:
     case T_COND_OR:
     {
-      block2 *cond_true = CreateBlock(lang_stat, state);
-      block2 *cond_false = CreateBlock(lang_stat, state);
-      block2 *merge = CreateBlock(lang_stat, state);
-
-      GetIRCond2(lang_stat, ast, state, cond_true, cond_false);
-
-      EmitBlockMakeCurrent(lang_stat, state, cond_true);
-
-      ir.type = IR_BIN;
-      ir.bin.op = T_EQUAL;
-      ir.bin.lhs.type = IR_TYPE_REG;
-      ir.bin.lhs.reg_sz = 8;
-      ir.bin.lhs.reg = 0;
-      ir.bin.rhs.type = IR_TYPE_INT;
-      ir.bin.rhs.i = 1;
-
-      state->cur_block->irs.emplace_back(ir);
-      EmitJmp(lang_stat, state, merge);
-
-      EmitBlockMakeCurrent(lang_stat, state, cond_false);
-
-      ir.bin.rhs.i = 0;
-
-      state->cur_block->irs.emplace_back(ir);
-      EmitJmp(lang_stat, state, merge);
-      EmitBlockMakeCurrent(lang_stat, state, merge);
-
+      GetIRCondValue(lang_stat, ast, state, 1, 0);
 
       ret.type = IR_TYPE_REG;
       ret.reg = 0;

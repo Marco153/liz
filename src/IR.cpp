@@ -5361,6 +5361,48 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
     switch(ast->op)
     {
+    case T_COND_EQ:
+    case T_COND_NE:
+    case T_LESSER_THAN:
+    case T_LESSER_EQ:
+    case T_GREATER_THAN:
+    case T_GREATER_EQ:
+    case T_COND_AND:
+    case T_COND_OR:
+    {
+      block2 *cond_true = CreateBlock(lang_stat, state);
+      block2 *cond_false = CreateBlock(lang_stat, state);
+      block2 *merge = CreateBlock(lang_stat, state);
+
+      GetIRCond2(lang_stat, ast, state, cond_true, cond_false);
+
+      EmitBlockMakeCurrent(lang_stat, state, cond_true);
+
+      ir.type = IR_BIN;
+      ir.bin.op = T_EQUAL;
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg_sz = 8;
+      ir.bin.lhs.reg = 0;
+      ir.bin.rhs.type = IR_TYPE_INT;
+      ir.bin.rhs.i = 1;
+
+      state->cur_block->irs.emplace_back(ir);
+      EmitJmp(lang_stat, state, merge);
+
+      EmitBlockMakeCurrent(lang_stat, state, cond_false);
+
+      ir.bin.rhs.i = 0;
+
+      state->cur_block->irs.emplace_back(ir);
+      EmitJmp(lang_stat, state, merge);
+      EmitBlockMakeCurrent(lang_stat, state, merge);
+
+
+      ret.type = IR_TYPE_REG;
+      ret.reg = 0;
+      ret.reg_sz = 8;
+
+    }break;
     case T_POINT:
     {
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);

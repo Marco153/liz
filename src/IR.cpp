@@ -1582,6 +1582,7 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
   bool derefs_equal = derefs == max_derefs;
   bool was_float = rhs->is_float;
   char float_reg;
+  bool reg_was_allocated = false;
   if(rhs->type == IR_TYPE_REG_MEM || rhs->type == IR_TYPE_REG)
     reg = rhs->reg;
   else
@@ -1590,12 +1591,13 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
       float_reg = AllocFloatReg(lang_stat);
     else
     {
+      reg_was_allocated = true;
       reg = GetAvailableReg(lang_stat);
       //rhs->is_float = false;
     }
   }
 
-  char final_reg = 0;
+  char final_reg = reg;
   if(rhs->type == IR_TYPE_DECL)
   {
     final_reg = (char)regs_enum::RSP;
@@ -1610,7 +1612,13 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     bool is_float = false;
     if(ptr == 1 && derefs_equal){
       is_float = was_float;
-      if(is_float) reg = float_reg;
+      if(is_float){
+        if(reg_was_allocated)
+        {
+          FreeReg(lang_stat, reg, false);
+        }
+        reg = float_reg;
+      } 
       sz = rhs->reg_sz;
     } 
 
@@ -5575,71 +5583,74 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_MINUS:
     case T_PLUS:
     {
+      BREAK(ast->line_number == 714)
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
-      rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
-
-      char min_rhs_deref = rhs.deref - 1;
-      if(IsIrValLiteral(lhs.type)) min_rhs_deref++;
-
-      if(lhs.kind != IR_VAL_VALUE)
+      for(int i= 1; i < ast->e_holder.expr.size(); i++)
       {
-        LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref, lhs.deref);
-      }
-      if(rhs.kind != IR_VAL_VALUE)
-      {
-        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, min_rhs_deref, rhs.deref);
-        //rhs.type = IR_TYPE_REG_MEM;
-      }
+        rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[i], state, false);
 
-      if(rhs.type == IR_TYPE_REG_MEM || rhs.type == IR_TYPE_REG)
-      {
-        FreeReg(lang_stat, rhs.reg, rhs.is_float);
-      }
+        char min_rhs_deref = rhs.deref - 1;
+        if(IsIrValLiteral(lhs.type)) min_rhs_deref++;
 
-      if(IsIrValLiteral(lhs.type) && !IsIrValLiteral(rhs.type))
-      {
-        // swap rhs and lhs, rhs should be a value, so this should be safe, we wouldnt be modifying any memory
-        if(ast->op == T_PLUS || ast->op == T_MUL)
+        if(lhs.kind != IR_VAL_VALUE)
         {
-          ASSERT(rhs.kind == IR_VAL_VALUE)
-          auto aux = lhs;
-          lhs = rhs;
-          rhs = aux;
+          LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref, lhs.deref);
         }
-        else
+        if(rhs.kind != IR_VAL_VALUE)
         {
-          ASSERT(false)
+          LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, min_rhs_deref, rhs.deref);
+          //rhs.type = IR_TYPE_REG_MEM;
         }
-      }
-      else if(IsIrValLiteral(lhs.type) && IsIrValLiteral(rhs.type))
-      {
+
+        if(rhs.type == IR_TYPE_REG_MEM || rhs.type == IR_TYPE_REG)
+        {
+          FreeReg(lang_stat, rhs.reg, rhs.is_float);
+        }
+
+        if(IsIrValLiteral(lhs.type) && !IsIrValLiteral(rhs.type))
+        {
+          // swap rhs and lhs, rhs should be a value, so this should be safe, we wouldnt be modifying any memory
+          if(ast->op == T_PLUS || ast->op == T_MUL)
+          {
+            ASSERT(rhs.kind == IR_VAL_VALUE)
+            auto aux = lhs;
+            lhs = rhs;
+            rhs = aux;
+          }
+          else
+          {
+            ASSERT(false)
+          }
+        }
+        else if(IsIrValLiteral(lhs.type) && IsIrValLiteral(rhs.type))
+        {
+          ir.type = IR_BIN;
+          ir.bin.op = T_EQUAL;
+          ir.bin.lhs.type = IR_TYPE_REG;
+          ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+          ir.bin.lhs.reg_sz = 4;
+          ir.bin.rhs = lhs;
+
+          lhs = ir.bin.lhs;
+
+          state->cur_block->irs.emplace_back(ir);
+        }
+
+        ret = lhs;
+
         ir.type = IR_BIN;
-        ir.bin.op = T_EQUAL;
-        ir.bin.lhs.type = IR_TYPE_REG;
-        ir.bin.lhs.reg = GetAvailableReg(lang_stat);
-        ir.bin.lhs.reg_sz = 4;
-        ir.bin.rhs = lhs;
-
-        lhs = ir.bin.lhs;
+        ir.bin.op = ast->op;
+        ir.bin.lhs = lhs;
+        ir.bin.rhs = rhs;
 
         state->cur_block->irs.emplace_back(ir);
       }
-
-      ret = lhs;
-
-      ir.type = IR_BIN;
-      ir.bin.op = ast->op;
-      ir.bin.lhs = lhs;
-      ir.bin.rhs = rhs;
-
-      state->cur_block->irs.emplace_back(ir);
       ret.kind = IR_VAL_VALUE;
     }break;
     case T_PLUS_EQUAL:
     case T_EQUAL:
     {
       //BREAK(ast->line_number == 14)
-      BREAK(ast->line_number == 2029)
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
       bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;

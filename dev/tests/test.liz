@@ -16,7 +16,7 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 	}
 }
 
-TESTS:const s32=0;
+TESTS:const s32=1;
 #if TESTS == 0
 {
 
@@ -2025,25 +2025,8 @@ else
 
     f := 1.0
 
-    f = f + 2.0
-
-    d := cast(f64)1.0
-
-    t : test_st
-    x := t.a
-    tptr := &t
-    callptr(&tptr.a)
-    callptr(&tptr.b)
-    
-    i := 0
-
-    if i
-    {
-      i = 9
-    }
-
-    i = 8
-    a := !(i == 8)
+    ptr := &f
+    *ptr = f + 5.0
 
   }
 }

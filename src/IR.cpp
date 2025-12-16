@@ -1050,10 +1050,21 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->type = IR_TYPE_DECL;
     val->decl = ast->decl;
     val->ptr = ast->decl->type.ptr;
-    val->reg_sz = GetTypeSize(&ast->decl->type);
+
+    type2 dummy;
+    memcpy(&dummy, &ast->decl->type, sizeof(type2));
+
+    dummy.ptr = 0;
+    val->reg_sz = GetTypeSize(&dummy);
+
     if (val->reg_sz < 0)
       val->reg_sz = 8;
+
     val->reg_sz = min(val->reg_sz, 8);
+
+    if(dummy.type == TYPE_VOID && ast->decl->type.ptr > 0)
+      val->reg_sz = 8;
+
     val->is_unsigned = false;
     if (ast->decl->type.type == TYPE_STATIC_ARRAY) {
       // val->is_unsigned = IsUnsigned(ast->decl->type.tp->type);
@@ -1078,6 +1089,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->kind = IR_VAL_ADDR;
     val->reg = (char)regs_enum::RSP;
     val->voffset = 0;
+
   } break;
   case AST_F64: {
     val->type = IR_TYPE_F64;
@@ -1556,13 +1568,14 @@ char GetAvailableReg(lang_state *lang_stat)
   }
   ASSERT(false)
 }
-void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *lhs, ir_rep *out)
+void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *lhs, ir_rep *out, bool is_float)
 {
   out->type = IR_BIN;
   out->bin.op = T_EQUAL;
   out->bin.lhs.type = IR_TYPE_REG;
   out->bin.lhs.reg = reg_dst;
   out->bin.lhs.reg_sz = reg_sz;
+  out->bin.lhs.is_float = is_float;
   out->bin.rhs = *lhs;
   out->bin.rhs.voffset = lhs->voffset;
 }
@@ -1570,16 +1583,19 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
 {
   ir_rep ir;
   char reg = 0;
+  bool derefs_equal = derefs == max_derefs;
+  bool is_float = rhs->is_float;
   if(rhs->type == IR_TYPE_REG_MEM || rhs->type == IR_TYPE_REG)
     reg = rhs->reg;
   else
   {
-    if(!rhs->is_float)
+    if(rhs->is_float && derefs_equal)
+      reg = AllocFloatReg(lang_stat);
+    else
     {
       reg = GetAvailableReg(lang_stat);
+      is_float = false;
     }
-    else
-      reg = AllocFloatReg(lang_stat);
   }
 
   char final_reg = 0;
@@ -1588,18 +1604,17 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     final_reg = (char)regs_enum::RSP;
   }
 
-  bool derefs_equal = derefs == max_derefs;
   char ptr = derefs;
 
   while(ptr > 0)
   {
     char sz = 8;
 
+    if(ptr == 1 && derefs_equal) sz = rhs->reg_sz;
+
+    MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir, is_float);
+
     bool cond = ptr == 1 && derefs_equal;
-    if(cond) sz = rhs->reg_sz;
-
-    MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir);
-
     if(cond)
     {
       sz = rhs->reg_sz;
@@ -5014,11 +5029,13 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   ir_rep ir= {};
   ir_val lhs = {};
   ir_val rhs = {};
+  ret.reg_sz = 1;
   
   switch(ast->type)
   {
   case AST_WHILE: 
   {
+    ret.reg_sz = 1;
     bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
     lang_stat->ir_in_stmnt = false;
     int stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
@@ -5054,6 +5071,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   } break;
   case AST_FOR: 
   {
+    ret.reg_sz = 1;
     bool prev_is_in_stmnt = lang_stat->ir_in_stmnt;
     lang_stat->ir_in_stmnt = false;
     int stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
@@ -5305,6 +5323,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_DEREF:
   {
     ast_rep *df = ast->deref.exp;
+    BREAK(ast->line_number == 667)
+
     rhs = GetIRFromAst2(lang_stat, df, state, is_lhs);
 
     rhs.deref = ast->deref.times;
@@ -5322,6 +5342,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         rhs.type = IR_TYPE_REG_MEM;
       }
     }
+    rhs.ptr--;
     ret = rhs;
   }break;
   case AST_ADDRESS_OF:
@@ -5344,6 +5365,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
       ret = ir.bin.lhs;
     }
+
     ret.kind = IR_VAL_VALUE;
 
   }break;
@@ -5449,6 +5471,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       int i = 0;
     }
 
+    ret.reg_sz = 1;
   }break;
   case AST_MINUS_MINUS:
   case AST_PLUS_PLUS:
@@ -5582,7 +5605,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           ASSERT(false)
         }
       }
-      else if(IsIrValLiteral(lhs.type) && !IsIrValLiteral(rhs.type))
+      else if(IsIrValLiteral(lhs.type) && IsIrValLiteral(rhs.type))
       {
         ir.type = IR_BIN;
         ir.bin.op = T_EQUAL;
@@ -5604,14 +5627,21 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       ir.bin.rhs = rhs;
 
       state->cur_block->irs.emplace_back(ir);
+      ret.kind = IR_VAL_VALUE;
     }break;
     case T_PLUS_EQUAL:
     case T_EQUAL:
     {
+      //BREAK(ast->line_number == 14)
+      BREAK(ast->line_number == 2029)
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
-      //BREAK(ast->line_number == 2000)
+      bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;
 
+      if(!rhs_wal_value)
+      {
+        lhs.is_float = false;
+      }
       if(lhs.deref > 1)
       {
         LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref - 1, lhs.deref);
@@ -5621,9 +5651,16 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, 1, 1);
       }
 
+      if(lhs.ptr > 0)
+      {
+        lhs.reg_sz = 8;
+        rhs.reg_sz = 8;
+        lhs.is_float = false;
+      }
       MakeIrStore(lang_stat, &lhs, &rhs, &ir);
 
       state->cur_block->irs.emplace_back(ir);
+      ret = lhs;
     }break;
     default: ASSERT(false)
     }
@@ -5643,6 +5680,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   } break;
   default: ASSERT(false)
   }
+  ASSERT(ret.reg_sz != 0)
   return ret;
 
 }

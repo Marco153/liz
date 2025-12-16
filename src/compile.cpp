@@ -14611,6 +14611,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
       }break;
       case IR_CAST_INT_TO_INT:
       {
+        HERE()
         byte_code_enum inst = MOVZX_R;
         if (!ir->bin.lhs.is_unsigned)
           inst = MOVSX_R;
@@ -14885,10 +14886,15 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         //HERE()
         if(ir->bin.lhs.is_float)
         {
+          rhs_aux.reg_sz = ir->bin.lhs.reg_sz;
           BREAK(ir->bin.lhs.reg_sz == 8)
           if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
           {
             GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(base_inst_sse));
+          }
+          else if(ir->bin.lhs.type == IR_TYPE_REG_MEM && ir->bin.rhs.type == IR_TYPE_REG)
+          {
+            GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(base_inst_sse + 2));
           }
           else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
           {

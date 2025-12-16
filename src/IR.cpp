@@ -4817,9 +4817,10 @@ void MakeIrAssignment(lang_state *lang_stat, tkn_type2 bin, ir_val *to_assign, i
 }
 void FreeRegs2(lang_state *lang_stat)
 {
-  lang_stat->regs[0] = 0;
-  lang_stat->regs[3] = 0;
-  lang_stat->regs[15] = 0;
+  for(int i = 0; i < 16; i++)
+  {
+    lang_stat->regs[i] = 0;
+  }
 }
 void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i)
 {

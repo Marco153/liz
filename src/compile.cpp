@@ -14583,6 +14583,32 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
           ASSERT(false)
         }
       }break;
+      case IR_CAST_FLOAT_TO_FLOAT:
+      {
+        if(ir->bin.lhs.is_packed_float)
+        {
+          ASSERT(false)
+        }
+        else
+        {
+          ASSERT(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
+
+          if(ir->bin.lhs.reg_sz == 4 && ir->bin.rhs.reg_sz == 8)
+          {
+            bc.type = CVTSD_2_SS;
+          }
+          else if(ir->bin.lhs.reg_sz == 8 && ir->bin.rhs.reg_sz == 4)
+          {
+            bc.type = CVTSS_2_SD;
+          }
+          else ASSERT(false)
+          
+          bc.bin.lhs.reg = ir->bin.lhs.reg;
+          bc.bin.rhs.reg = ir->bin.rhs.reg;
+          ret.emplace_back(bc);
+        }
+
+      }break;
       case IR_CAST_INT_TO_INT:
       {
         byte_code_enum inst = MOVZX_R;
@@ -14716,6 +14742,18 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         }
 
       }break;
+      case IR_GET_FLOAT:
+      {
+        if(ir->bin.lhs.reg_sz == 4)
+        {
+          MovFloatToSSEReg2(lang_stat, ir->bin.lhs.reg, ir->bin.rhs.f32, &ret, false);
+        }
+        else if(ir->bin.lhs.reg_sz == 8)
+        {
+          MovDoubleToSSEReg2(lang_stat, ir->bin.lhs.reg, ir->bin.rhs.f64, &ret, false);
+        }
+        else ASSERT(false)
+      }break;
       case IR_SPILL:
       case IR_UNSPILL:
       case IR_CMP:
@@ -14847,9 +14885,22 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         //HERE()
         if(ir->bin.lhs.is_float)
         {
+          BREAK(ir->bin.lhs.reg_sz == 8)
           if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
           {
-
+            GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(base_inst_sse));
+          }
+          else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
+          {
+            GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(base_inst_sse + 1));
+          }
+          else if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_REG)
+          {
+            GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(base_inst_sse + 2));
+          }
+          else
+          {
+            ASSERT(false)
           }
         }
         else

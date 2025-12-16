@@ -540,7 +540,7 @@ struct lang_state
 
 	decl2* func_ptr_decl;
 
-	decl2* _vec_strct;
+	decl2* _vec2_strct;
 
 
 	node* node_arena;
@@ -18382,6 +18382,13 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	tp.strct = decl_strct->type.strct;
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "_vec", tp));
 	lang_stat->_vec_strct = decl_strct;
+
+	tp.type = enum_type2::TYPE_VECTOR_TYPE;
+	n = ParseString(lang_stat, "__vec_struct2 : struct{x : f64, y : f64, z : f64, w : f64}");
+	decl_strct = DescendNameFinding(lang_stat, n, lang_stat->root);
+	tp.strct = decl_strct->type.strct;
+	lang_stat->root->vars.push_back(NewDecl(lang_stat, "_vec2", tp));
+	lang_stat->_vec2_strct = decl_strct;
 
 
 	tp.type = enum_type2::TYPE_VOID;

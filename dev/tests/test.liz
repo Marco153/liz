@@ -2025,6 +2025,10 @@ else
 
     f := 1.0
 
+    f = f + 2.0
+
+    d := cast(f64)1.0
+
     t : test_st
     x := t.a
     tptr := &t

@@ -250,6 +250,9 @@ enum byte_code_enum : unsigned short
 	STORE_R_2_M32,
 	STORE_R_2_M64,
 
+	CVTSS_2_SD,
+	CVTSD_2_SS,
+
 	CVTSS_MEM_2_SD,
 	CVTSD_MEM_2_SS,
 	CVTSS_REG_2_SD,
@@ -546,12 +549,14 @@ struct byte_code
 					bool is_float;
 					bool is_packed_float;
 					short reg_dst;
+          char reg_sz;
 					union
 					{
 						func_decl* call_func;
 						int offset;
 					};
 					float f;
+					double f64;
 				};
 			};
 

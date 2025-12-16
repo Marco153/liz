@@ -531,12 +531,30 @@ void ResolveJmpInsts(machine_code *ret)
 		}
 	}
 }
+void CreateSSEToSSEAVX(byte_code *bc, char op, machine_code *ret)
+{
+  ret->code.emplace_back(0xc5);
+  ret->code.emplace_back(0xf3 | (bc->bin.rhs.reg & 0xf) << 3);
+  ret->code.emplace_back(op);
+  ret->code.emplace_back(0xc0 | (bc->bin.lhs.reg << 3) | bc->bin.rhs.reg);
+
+}
 void CreateSSERegToSSEReg(byte_code *bc, char op, machine_code *ret)
 {
 	unsigned char src = bc->bin.lhs.reg;
 	unsigned char dst = bc->bin.rhs.reg;
-	ret->code.emplace_back(0x0f);
-	ret->code.emplace_back(op);
+  
+  if(bc->bin.lhs.reg_sz == 8)
+  {
+    CreateSSEToSSEAVX(bc, op, ret);
+  }
+  else if(bc->bin.lhs.reg_sz == 4)
+  {
+    ret->code.emplace_back(0x0f);
+    ret->code.emplace_back(op);
+  }
+  else ASSERT(false)
+
 	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
 	ret->code.emplace_back(modrm);
 }
@@ -554,8 +572,18 @@ void CreateMemToSSE(byte_code* bc, char op, machine_code* ret, char reg_base = 5
 	char dst = bc->bin.lhs.reg;
 	reg_base = FromBCRegToAsmReg(bc->bin.rhs.reg);
 
-	ret->code.emplace_back(0xf3);
-	ret->code.emplace_back(0x0f);
+  if(bc->bin.lhs.reg_sz == 4)
+  {
+    ret->code.emplace_back(0xf3);
+    ret->code.emplace_back(0x0f);
+  }
+  else if(bc->bin.lhs.reg_sz == 8)
+  {
+    ret->code.emplace_back(0xc5);
+    ret->code.emplace_back(0xfb);
+  }
+  else ASSERT(false)
+
 	ret->code.emplace_back(op);
 	AddModRM(true, bc->bin.rhs.voffset, reg_base, dst & 0xf, *ret);
 	if(bc->bin.rhs.voffset != 0)
@@ -1077,10 +1105,19 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
           //HERE()
 					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 4, data_sym_name));
 
+          if(bc->rel.reg_sz == 4)
+          {
+            ret.code.emplace_back(0xf3);
+            ret.code.emplace_back(0x0f);
+          }
+          else
+          {
+            ret.code.emplace_back(0xc5);
+            ret.code.emplace_back(0xfb);
+
+          }
+          ret.code.emplace_back(0x10);
 					// movssinstruction here
-					ret.code.emplace_back(0xf3);
-					ret.code.emplace_back(0x0f);
-					ret.code.emplace_back(0x10);
 					ret.code.emplace_back(0x5 | ((bc->rel.reg_dst &0xf) << 3));
 					AddImm(0, 4, ret);
 				}
@@ -1179,6 +1216,26 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			else
 				CreateSSERegToMem(&*bc, 0x11, &ret);
 		}break;
+		case CVTSD_2_SS:
+		{
+      CreateSSEToSSEAVX(bc, 0x5a, &ret);
+      /*
+      //HERE()
+			ret.code.emplace_back(0xc5);
+      ret.code.emplace_back(0xf3 | (bc->bin.rhs.reg & 0xf) << 3);
+			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(0xc0 | (bc->bin.lhs.reg << 3) | bc->bin.rhs.reg);
+      */
+		}break;
+		case CVTSS_2_SD:
+		{
+      //HERE()
+			ret.code.emplace_back(0xc5);
+      char b = 0xf2 | (~bc->bin.rhs.reg & 0xf) << 3;
+      ret.code.emplace_back(b);
+			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(0xc0 | (bc->bin.lhs.reg << 3) | bc->bin.rhs.reg);
+		}break;
 		case MOV_SSE_2_R:
 		{
       //HERE()
@@ -1196,6 +1253,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			CreateSSERegToSSEReg(&*bc, 0x10, &ret);
 			//CreateMemToSSE(&*bc, 0x10, &ret);
 		}break;
+		case MOV_MEM_2_SSE:
 		case MOV_M_2_SSE:
 		{
 			CreateMemToSSE(&*bc, 0x10, &ret);
@@ -3029,18 +3087,36 @@ void MovStrLitToReg(lang_state *lang_stat, char reg, own_std::string str, descen
 	//ret->bcodes.emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), (char)reg));
 	InsertIntoDataSect(lang_stat, (void *)str_data, str_sz + 1);
 }
+void MovDoubleToSSEReg2(lang_state *lang_stat, char reg, double d, own_std::vector<byte_code> *ret, bool is_packed)
+{
+	char xmm_r = reg | (1 << 6);
+
+	// this will insert a movss instruction to xmm0
+	ret->emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), xmm_r));
+	if (lang_stat->is_x64_bc_backend || lang_stat->is_machine_x64_backend)
+	{
+		byte_code* last = &ret->back();
+		last->rel.is_float = true;
+		last->rel.f64 = d;
+		last->rel.reg_dst = xmm_r;
+		last->rel.reg_sz = 8;
+		last->rel.is_packed_float = is_packed;
+	}
+	InsertIntoDataSect(lang_stat, (void *)&d, sizeof(double));
+}
 void MovFloatToSSEReg2(lang_state *lang_stat, char reg, float f, own_std::vector<byte_code> *ret, bool is_packed)
 {
 	char xmm_r = reg | (1 << 6);
 
 	// this will insert a movss instruction to xmm0
 	ret->emplace_back(byte_code(rel_type::REL_DATA, (char*)nullptr, (int)lang_stat->data_sect.size(), xmm_r));
-	if (lang_stat->is_x64_bc_backend)
+	if (lang_stat->is_x64_bc_backend || lang_stat->is_machine_x64_backend)
 	{
 		byte_code* last = &ret->back();
 		last->rel.is_float = true;
 		last->rel.f = f;
 		last->rel.reg_dst = xmm_r;
+		last->rel.reg_sz = 4;
 		last->rel.is_packed_float = is_packed;
 	}
 	InsertIntoDataSect(lang_stat, (void *)&f, sizeof(float));

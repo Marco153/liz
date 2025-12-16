@@ -1588,6 +1588,10 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     {
       sz = rhs->reg_sz;
       rhs->type = IR_TYPE_REG;
+      if(rhs->is_float)
+      {
+        reg = AllocFloatReg(lang_stat);
+      }
     }
     else
     {
@@ -4985,6 +4989,10 @@ void GetIRCondValue(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state,
   EmitBlockMakeCurrent(lang_stat, state, merge);
 
 }
+bool IsIrValLiteral(ir_val_type tp)
+{
+  return tp == IR_TYPE_INT64 || tp == IR_TYPE_INT || tp == IR_TYPE_F32 || tp == IR_TYPE_F64;
+}
 ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
 {
   ir_val ret;
@@ -5248,7 +5256,26 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     state->cur_block->irs.emplace_back(ir);
     lang_stat->cur_func = last_func;
   }break;
+  case AST_F64:
+  {
+    ASSERT(false)
+    ret.type = IR_TYPE_F64;
+    ret.f64 = ast->f64;
+    ret.reg_sz = 8;
+  }break;
   case AST_FLOAT:
+  {
+    ir.type = IR_GET_FLOAT;
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.is_float = true;
+    ir.bin.lhs.reg = AllocFloatReg(lang_stat);
+    ir.bin.lhs.reg_sz = 4;
+    ir.bin.rhs.f32 = ast->f32;
+    state->cur_block->irs.emplace_back(ir);
+
+
+    ret = ir.bin.lhs;
+  }break;
   case AST_INT:
   case AST_CHAR:
   case AST_IDENT:
@@ -5492,7 +5519,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 
       char min_rhs_deref = rhs.deref - 1;
-      if(lhs.type == IR_TYPE_INT) min_rhs_deref++;
+      if(IsIrValLiteral(lhs.type)) min_rhs_deref++;
 
       if(lhs.kind != IR_VAL_VALUE)
       {
@@ -5509,7 +5536,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         FreeReg(lang_stat, rhs.reg);
       }
 
-      if(lhs.type == IR_TYPE_INT && rhs.type != IR_TYPE_INT)
+      if(IsIrValLiteral(lhs.type) && !IsIrValLiteral(rhs.type))
       {
         // swap rhs and lhs, rhs should be a value, so this should be safe, we wouldnt be modifying any memory
         if(ast->op == T_PLUS || ast->op == T_MUL)
@@ -5524,7 +5551,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           ASSERT(false)
         }
       }
-      else if(lhs.type == IR_TYPE_INT && rhs.type == IR_TYPE_INT)
+      else if(IsIrValLiteral(lhs.type) && !IsIrValLiteral(rhs.type))
       {
         ir.type = IR_BIN;
         ir.bin.op = T_EQUAL;

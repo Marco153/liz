@@ -178,7 +178,7 @@ struct ast_rep
 
   union
   {
-    float f64;
+    double f64;
     float f32;
     long long num;
     ast_rep *ast;
@@ -320,6 +320,7 @@ enum ir_type
     IR_CALL,
     IR_INDIRECT_CALL,
 
+    IR_GET_FLOAT,
 };
 enum ir_val_type
 {
@@ -327,6 +328,7 @@ enum ir_val_type
     IR_TYPE_REG,
     IR_TYPE_REG_MEM,
     IR_TYPE_INT,
+    IR_TYPE_INT64,
     IR_TYPE_F32,
     IR_TYPE_F64,
     IR_TYPE_STR_LIT,

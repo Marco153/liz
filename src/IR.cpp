@@ -1051,18 +1051,14 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->decl = ast->decl;
     val->ptr = ast->decl->type.ptr;
 
-    type2 dummy;
-    memcpy(&dummy, &ast->decl->type, sizeof(type2));
-
-    dummy.ptr = 0;
-    val->reg_sz = GetTypeSize(&dummy);
+    val->reg_sz = GetTypeSize(&ast->decl->type, 0);
 
     if (val->reg_sz < 0)
       val->reg_sz = 8;
 
     val->reg_sz = min(val->reg_sz, 8);
 
-    if(dummy.type == TYPE_VOID && ast->decl->type.ptr > 0)
+    if(ast->decl->type.type == TYPE_VOID && ast->decl->type.ptr > 0)
       val->reg_sz = 8;
 
     val->is_unsigned = false;
@@ -1584,17 +1580,18 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
   ir_rep ir;
   char reg = 0;
   bool derefs_equal = derefs == max_derefs;
-  bool is_float = rhs->is_float;
+  bool was_float = rhs->is_float;
+  char float_reg;
   if(rhs->type == IR_TYPE_REG_MEM || rhs->type == IR_TYPE_REG)
     reg = rhs->reg;
   else
   {
     if(rhs->is_float && derefs_equal)
-      reg = AllocFloatReg(lang_stat);
+      float_reg = AllocFloatReg(lang_stat);
     else
     {
       reg = GetAvailableReg(lang_stat);
-      is_float = false;
+      //rhs->is_float = false;
     }
   }
 
@@ -1605,12 +1602,17 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
   }
 
   char ptr = derefs;
-
+  
   while(ptr > 0)
   {
     char sz = 8;
 
-    if(ptr == 1 && derefs_equal) sz = rhs->reg_sz;
+    bool is_float = false;
+    if(ptr == 1 && derefs_equal){
+      is_float = was_float;
+      if(is_float) reg = float_reg;
+      sz = rhs->reg_sz;
+    } 
 
     MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir, is_float);
 
@@ -4977,6 +4979,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   ret.kind = IR_VAL_VALUE;
   ret.reg_sz = GetTypeSize(&callf->ret_type);
   ret.reg = 0;
+  ret.reg_sz = max(1, ret.reg_sz);
   //if(callf->ret_type.)
 
   return ret;
@@ -5323,7 +5326,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_DEREF:
   {
     ast_rep *df = ast->deref.exp;
-    BREAK(ast->line_number == 667)
 
     rhs = GetIRFromAst2(lang_stat, df, state, is_lhs);
 
@@ -5375,15 +5377,19 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ret = GetIRFromAst2(lang_stat, casted_ast, state, false);
 
     char prev = ast->cast.type.ptr;
-    ast->cast.type.ptr = 0;
-    int cast_sz = GetTypeSize(&ast->cast.type);
-    ast->cast.type.ptr = prev;
+    int cast_sz = GetTypeSize(&ast->cast.type, 0);
+    if(ast->cast.type.type == TYPE_VOID && ast->cast.type.ptr > 0)
+      cast_sz = 8;
+
     ir.bin.lhs.is_unsigned = IsUnsigned(ast->cast.type.type);
     ir.bin.lhs.is_float = ast->cast.type.IsFloat();
     ir.bin.lhs.is_packed_float = ast->cast.type.type == TYPE_VECTOR;
 
+    ret.is_float = ir.bin.lhs.is_float;
+    ret.is_packed_float = ir.bin.lhs.is_packed_float;
+    ret.is_unsigned = ir.bin.lhs.is_unsigned;
+
     //ret.reg_sz = cast_sz;
-    ret.ptr = ast->cast.type.ptr;
 
     BREAK(ast->line_number == 2030)
     if(ast->cast.type.ptr > 0)

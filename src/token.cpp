@@ -112,9 +112,10 @@ int BuiltinTypeSize(enum_type2 tp)
 	ASSERT(false)
 	return -1;
 }
-int GetTypeSize(type2 *tp)
+int GetTypeSize(type2 *tp, char ptr)
 {
-	if (tp->ptr > 0)
+  if(ptr == -1) ptr = ptr = tp->ptr;
+	if (ptr > 0)
 		return 8;
 	
 	switch(tp->type)
@@ -180,7 +181,7 @@ int GetTypeSize(type2 *tp)
 		default:
 			ASSERT(false)
 	}
-	return false;
+	return 1;
 }
 #endif
 

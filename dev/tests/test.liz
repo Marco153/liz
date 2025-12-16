@@ -2026,7 +2026,7 @@ else
     f := 1.0
 
     ptr := &f
-    *ptr = f + 5.0
+    *ptr = *ptr + 5.0
 
   }
 }

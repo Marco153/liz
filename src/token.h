@@ -265,7 +265,11 @@ struct type2
 		};
 	};
 
-	decl2 *from_enum;
+  union
+  {
+    decl2 *from_enum;
+    char vec_type;
+  };
 	int e_idx;
 #endif
 	decl2 *GetEnumDecl(own_std::string name);

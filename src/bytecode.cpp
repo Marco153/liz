@@ -2073,7 +2073,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			CreateSSERegToSSEReg(&*bc, 0x58, &ret);
 		}break;
-		case MOV_M_2_PCKD_SSE:
+		case MOV_MEM_2_PCKD_SSE:
 		{
 			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
 			char dst = bc->bin.lhs.reg;
@@ -2158,7 +2158,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			*/
 			//TODO
 		}break;
-		case MOV_PCKD_SSE_2_M:
+		case MOV_PCKD_SSE_2_MEM:
 		{
 			char src =  bc->bin.rhs.reg;
 			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);

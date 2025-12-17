@@ -138,6 +138,8 @@ enum byte_code_enum : unsigned short
 	DIV_SSE_2_MEM,
 	//DIV_SSE_2_RMEM,
 	DIV_PCKD_SSE_2_PCKD_SSE,
+	DIV_MEM_2_PCKD_SSE,
+	DIV_PCKD_SSE_2_MEM,
 
 	OR_M_2_M,
 	OR_R_2_M,
@@ -166,6 +168,8 @@ enum byte_code_enum : unsigned short
 	MUL_SSE_2_MEM,
 	//MUL_SSE_2_REG,
 	MUL_PCKD_SSE_2_PCKD_SSE,
+	MUL_MEM_2_PCKD_SSE,
+	MUL_PCKD_SSE_2_MEM,
 
 	AND_M_2_M,
 	AND_R_2_M,
@@ -191,6 +195,9 @@ enum byte_code_enum : unsigned short
 	MOV_SSE_2_SSE,
 	MOV_MEM_2_SSE,
 	MOV_SSE_2_MEM,
+	MOV_PCKD_SSE_2_PCKD_SSE,
+	MOV_MEM_2_PCKD_SSE,
+	MOV_PCKD_SSE_2_MEM,
 
 	SUB_M_2_M,
 	SUB_R_2_M,
@@ -204,6 +211,8 @@ enum byte_code_enum : unsigned short
 	SUB_MEM_2_SSE,
 	SUB_SSE_2_MEM,
 	SUB_PCKD_SSE_2_PCKD_SSE,
+	SUB_MEM_2_PCKD_SSE,
+	SUB_PCKD_SSE_2_MEM,
 
 	MOD_M_2_M,
 	MOD_R_2_M,
@@ -226,6 +235,8 @@ enum byte_code_enum : unsigned short
 	ADD_MEM_2_SSE,
 	ADD_SSE_2_MEM,
 	ADD_PCKD_SSE_2_PCKD_SSE,
+	ADD_MEM_2_PCKD_SSE,
+	ADD_PCKD_SSE_2_MEM,
 
 	ADD_I_2_R_8_SIGNED,
 	ADD_I_2_R_16_SIGNED,
@@ -280,9 +291,6 @@ enum byte_code_enum : unsigned short
 	MOV_SSE_2_R,
 	MOV_F_2_SSE,
 	MOV_F_2_PCKED_SSE,
-	MOV_M_2_PCKD_SSE,
-	MOV_PCKD_SSE_2_M,
-	MOV_PCKD_SSE_2_PCKD_SSE,
 	FILL_M_2_PCKED_SSE,
 	FILL_SSE_2_PCKED_SSE,
 

@@ -567,22 +567,48 @@ void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
 	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
 	ret->code.emplace_back(modrm);
 }
+void AddSSEExtendedByte(char *lhs, char *rhs, machine_code* ret)
+{
+  if(*lhs > 7 && *rhs > 7)
+  {
+    *lhs &= 0x7;
+    *rhs &= 0x7;
+    ret->code.emplace_back(0x45);
+  }
+  else if(*lhs > 7 && *rhs <= 7)
+  {
+    *lhs &= 0x7;
+    ret->code.emplace_back(0x44);
+  }
+  else if(*lhs <= 7 && *rhs > 7)
+  {
+    *rhs &= 0x7;
+    ret->code.emplace_back(0x41);
+  }
+}
+void AddSSEBasedOnSize(machine_code* ret, char *lhs, char *rhs, char sz)
+{
+  if(sz == 4)
+  {
+    ret->code.emplace_back(0xf3);
+    AddSSEExtendedByte(lhs, rhs, ret);
+    ret->code.emplace_back(0x0f);
+  }
+  else if(sz == 8)
+  {
+    ret->code.emplace_back(0xc5);
+    AddSSEExtendedByte(lhs, rhs, ret);
+    ret->code.emplace_back(0xfb);
+  }
+
+}
 void CreateMemToSSE(byte_code* bc, char op, machine_code* ret, char reg_base = 5)
 {
 	char dst = bc->bin.lhs.reg;
+	char zero = 0;
 	reg_base = FromBCRegToAsmReg(bc->bin.rhs.reg);
 
-  if(bc->bin.lhs.reg_sz == 4)
-  {
-    ret->code.emplace_back(0xf3);
-    ret->code.emplace_back(0x0f);
-  }
-  else if(bc->bin.lhs.reg_sz == 8)
-  {
-    ret->code.emplace_back(0xc5);
-    ret->code.emplace_back(0xfb);
-  }
-  else ASSERT(false)
+  AddSSEBasedOnSize(ret, &dst, &zero, bc->bin.lhs.reg_sz);
 
 	ret->code.emplace_back(op);
 	AddModRM(true, bc->bin.rhs.voffset, reg_base, dst & 0xf, *ret);
@@ -594,6 +620,7 @@ void CreateSSERegToMem(byte_code *bc, char op, machine_code *ret, char reg_base 
 	// if the instruction isn't a mov to mem, we need to first transfer the mem to a reg, perform the op and then mov it to mem
 	if(op != 0x11)
 	{
+    ASSERT(false)
 		// mem
 		auto last_lhs = bc->bin.lhs;
 		// src_reg
@@ -624,10 +651,12 @@ void CreateSSERegToMem(byte_code *bc, char op, machine_code *ret, char reg_base 
 	}
 	else
 	{
+    //HERE()
 		char src =  bc->bin.rhs.reg;
 		char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-		ret->code.emplace_back(0xf3);
-		ret->code.emplace_back(0x0f);
+    char zero = 0;
+
+    AddSSEBasedOnSize(ret, &src, &zero, bc->bin.rhs.reg_sz);
 		ret->code.emplace_back(op);
 
 		AddModRM(true, bc->bin.lhs.voffset, dst, src & 0xf, *ret);
@@ -1093,6 +1122,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			}
 			else if (bc->rel.type == rel_type::REL_DATA || bc->rel.type == rel_type::REL_DATA_GLOBALS)
 			{
+        char zero=0;
+        char dst=bc->rel.reg_dst;
 				char* data_sym_name = (char*)AllocMiscData(lang_stat, 16);
 				snprintf(data_sym_name, 16, "$%d", ret.generated_data_symbols++);
 				
@@ -1103,22 +1134,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				if(IS_FLAG_ON(bc->rel.reg_dst, 0x40))
 				{
           //HERE()
-					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 4, data_sym_name));
+          char offset = 4;
+          if(dst > 7) offset = 5;
 
-          if(bc->rel.reg_sz == 4)
-          {
-            ret.code.emplace_back(0xf3);
-            ret.code.emplace_back(0x0f);
-          }
-          else
-          {
-            ret.code.emplace_back(0xc5);
-            ret.code.emplace_back(0xfb);
 
-          }
+					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + offset, data_sym_name));
+
+          AddSSEBasedOnSize(&ret, &dst, &zero, bc->rel.reg_sz);
           ret.code.emplace_back(0x10);
 					// movssinstruction here
-					ret.code.emplace_back(0x5 | ((bc->rel.reg_dst &0xf) << 3));
+					ret.code.emplace_back(0x5 | ((dst &0x7) << 3));
 					AddImm(0, 4, ret);
 				}
 				else

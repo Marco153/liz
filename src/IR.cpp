@@ -591,11 +591,11 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
       ast_struct_construct_info info;
       if (dummy_type.type == TYPE_VECTOR_TYPE) {
         type_struct2 *v;
-        if(dummy_type.vec_type == 1)
+        if(dummy_type.vec_type == 4)
         {
           v = lang_stat->_vec_strct->type.strct;
         }
-        else if(dummy_type.vec_type == 2) 
+        else if(dummy_type.vec_type == 8) 
         {
           v = lang_stat->_vec2_strct->type.strct;
         }
@@ -1243,8 +1243,8 @@ void AllocSpecificFloatReg(lang_state *lang_stat, char idx) {
   // ASSERT(IS_FLAG_OFF(lang_stat->float_regs[idx], REG_FREE_FLAG));
   lang_stat->float_regs[idx] |= REG_USED_FLAG;
 }
-char AllocFloatReg(lang_state *lang_stat, int start = 0) {
-  for (int i = start; i < 9; i++) {
+char AllocFloatReg(lang_state *lang_stat, int start = 8) {
+  for (int i = start; i < 16; i++) {
     if (IS_FLAG_OFF(lang_stat->float_regs[i], REG_USED_FLAG)) {
       lang_stat->float_regs[i] |= REG_USED_FLAG;
       return i;
@@ -1551,7 +1551,6 @@ block2 *CreateBlock(lang_state *lang_stat, thread_ir_state *state)
 {
   block2 *ret = &((block2 *)state->blocks_ptr)[state->blocks_cur];
 
-  //if(state->blocks_cur == 3) HERE()
   ret->id = state->blocks_cur;
 
   state->blocks_cur++;
@@ -2511,7 +2510,6 @@ void GinIRFromStack(lang_state *lang_stat, own_std::vector<ast_rep *> &exps,
       out->emplace_back(ir);
       continue;
     } else if (IsBeginFuncCall(e)) {
-      //HERE()
       ir.type = IR_BEGIN_CALL;
       ast_rep *next = exps[j + 1];
       ir.call.fdecl = next->call.fdecl;
@@ -3103,7 +3101,6 @@ if(e->line_number == 1467)
           e->cast.type.type == TYPE_U32 || e->cast.type.type == TYPE_S32 ||
           e->cast.type.type == TYPE_S64 || e->cast.type.type == TYPE_U64;
 
-      // HERE();
       //BREAK(e->line_number == 9004 && e->cast.type.type == TYPE_U8)
 
       if (is_int && top->is_float == true && top->ptr == 0) {
@@ -4935,7 +4932,6 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   int i = 0;
 
   int call_base = state->spilled_regs.cur;
-  //HERE()
 
   for(i = 0; i < MAX_CALL_REGS; i++)
   {
@@ -5266,7 +5262,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   } break;
   case AST_FUNC:
   {
-    //HERE()
     func_decl *last_func = lang_stat->cur_func;
     lang_stat->cur_func = ast->func.fdecl;
 
@@ -5450,7 +5445,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         }
         else if(ret.is_float && ast->cast.type.IsFloat())
         {
-          HERE()
           ir.type = IR_CAST_FLOAT_TO_FLOAT;
           ir.bin.lhs = ret;
           ir.bin.rhs = ret;
@@ -5564,10 +5558,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     int cur_offset = offset;
     // ir.assign.to_assign.i = offset;
       // for (int i = 0; i < e->strct_constr.commas.size(); i++)
-    HERE()
     for (int i = ast->strct_constr.commas.size() - 1; i >= 0; i--) 
     {
       ast_struct_construct_info *cinfo = &ast->strct_constr.commas[i];
+      //HERE()
       lhs = GetIRFromAst2(lang_stat, cinfo->exp, state, false);
       ir.type = IR_BIN;
       ir.bin.op = T_EQUAL;

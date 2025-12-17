@@ -14904,7 +14904,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         {
           rhs_aux.reg_sz = ir->bin.lhs.reg_sz;
           BREAK(ir->bin.lhs.reg_sz == 8)
-          if(ir->bin.lhs.is_packed_float ) HERE()
+          //if(ir->bin.lhs.is_packed_float ) HERE()
 
           if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
           {
@@ -17123,7 +17123,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	node *n = ParseString(lang_stat, "__vec_struct : struct{x : f32, y : f32, z : f32, w : f32}");
 	decl2 *decl_strct = DescendNameFinding(lang_stat, n, lang_stat->root);
 	tp.strct = decl_strct->type.strct;
-  tp.vec_type = 1;
+  tp.vec_type = 4;
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "_vec", tp));
 	lang_stat->_vec_strct = decl_strct;
 
@@ -17131,7 +17131,7 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	n = ParseString(lang_stat, "__vec_struct2 : struct{x : f64, y : f64, z : f64, w : f64}");
 	decl_strct = DescendNameFinding(lang_stat, n, lang_stat->root);
 	tp.strct = decl_strct->type.strct;
-  tp.vec_type = 2;
+  tp.vec_type = 8;
 	lang_stat->root->vars.push_back(NewDecl(lang_stat, "_vec2", tp));
 	lang_stat->_vec2_strct = decl_strct;
 

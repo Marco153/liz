@@ -539,34 +539,6 @@ void CreateSSEToSSEAVX(byte_code *bc, char op, machine_code *ret)
   ret->code.emplace_back(0xc0 | (bc->bin.lhs.reg << 3) | bc->bin.rhs.reg);
 
 }
-void CreateSSERegToSSEReg(byte_code *bc, char op, machine_code *ret)
-{
-	unsigned char src = bc->bin.lhs.reg;
-	unsigned char dst = bc->bin.rhs.reg;
-  
-  if(bc->bin.lhs.reg_sz == 8)
-  {
-    CreateSSEToSSEAVX(bc, op, ret);
-  }
-  else if(bc->bin.lhs.reg_sz == 4)
-  {
-    ret->code.emplace_back(0x0f);
-    ret->code.emplace_back(op);
-  }
-  else ASSERT(false)
-
-	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
-	ret->code.emplace_back(modrm);
-}
-void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
-{
-	unsigned char src = bc->bin.lhs.reg;
-	unsigned char dst = bc->bin.rhs.reg;
-	ret->code.emplace_back(0x0f);
-	ret->code.emplace_back(op);
-	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
-	ret->code.emplace_back(modrm);
-}
 void AddSSEExtendedByte(char *lhs, char *rhs, machine_code* ret)
 {
   if(*lhs > 7 && *rhs > 7)
@@ -586,6 +558,40 @@ void AddSSEExtendedByte(char *lhs, char *rhs, machine_code* ret)
     ret->code.emplace_back(0x41);
   }
 }
+void CreateSSERegToSSEReg(byte_code *bc, char op, machine_code *ret)
+{
+	char src = bc->bin.lhs.reg;
+	char dst = bc->bin.rhs.reg;
+  
+  if(bc->bin.lhs.reg_sz == 8)
+  {
+    ret->code.emplace_back(0xf2);
+    AddSSEExtendedByte(&src, &dst, ret);
+    ret->code.emplace_back(0x0f);
+    ret->code.emplace_back(op);
+    //CreateSSEToSSEAVX(bc, op, ret);
+  }
+  else if(bc->bin.lhs.reg_sz == 4)
+  {
+    ret->code.emplace_back(0xf3);
+    AddSSEExtendedByte(&src, &dst, ret);
+    ret->code.emplace_back(0x0f);
+    ret->code.emplace_back(op);
+  }
+  else ASSERT(false)
+
+	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
+	ret->code.emplace_back(modrm);
+}
+void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
+{
+	unsigned char src = bc->bin.lhs.reg;
+	unsigned char dst = bc->bin.rhs.reg;
+	ret->code.emplace_back(0x0f);
+	ret->code.emplace_back(op);
+	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
+	ret->code.emplace_back(modrm);
+}
 void AddSSEBasedOnSize(machine_code* ret, char *lhs, char *rhs, char sz)
 {
   if(sz == 4)
@@ -596,9 +602,9 @@ void AddSSEBasedOnSize(machine_code* ret, char *lhs, char *rhs, char sz)
   }
   else if(sz == 8)
   {
-    ret->code.emplace_back(0xc5);
+    ret->code.emplace_back(0xf2);
     AddSSEExtendedByte(lhs, rhs, ret);
-    ret->code.emplace_back(0xfb);
+    ret->code.emplace_back(0x0f);
   }
 
 }

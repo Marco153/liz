@@ -14904,6 +14904,8 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         {
           rhs_aux.reg_sz = ir->bin.lhs.reg_sz;
           BREAK(ir->bin.lhs.reg_sz == 8)
+          if(ir->bin.lhs.is_packed_float ) HERE()
+
           if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
           {
             GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(base_inst_sse));

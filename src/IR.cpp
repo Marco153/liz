@@ -5576,6 +5576,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       ir.bin.lhs.stack.on_stack_type = ON_STACK_STRUCT_CONSTR;
       ir.bin.lhs.stack.i = cur_offset + cinfo->var->offset;
       ir.bin.lhs.reg_sz = GetTypeSize(&cinfo->var->type);
+      ir.bin.lhs.is_float = lhs.is_float;
       ir.bin.rhs = lhs;
 
       state->cur_block->irs.emplace_back(ir);
@@ -5589,6 +5590,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ret.is_float = ast->strct_constr.is_vector;
     ret.i = offset;
     ret.reg_sz = ir.bin.lhs.reg_sz;
+    ret.voffset = 0;
     ret.is_packed_float = ast->strct_constr.is_vector;
     if(ret.is_packed_float)
     {
@@ -5739,7 +5741,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
       bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;
 
-      if(!rhs_wal_value)
+      if(!rhs_wal_value && !lhs.is_packed_float)
       {
         lhs.is_float = false;
       }

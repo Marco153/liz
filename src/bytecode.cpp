@@ -585,9 +585,18 @@ void CreateSSERegToSSEReg(byte_code *bc, char op, machine_code *ret)
 }
 void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
 {
-	unsigned char src = bc->bin.lhs.reg;
-	unsigned char dst = bc->bin.rhs.reg;
-	ret->code.emplace_back(0x0f);
+	char src = bc->bin.lhs.reg;
+	char dst = bc->bin.rhs.reg;
+  if(bc->bin.lhs.reg_sz == 8)
+  {
+    ret->code.emplace_back(0xc5);
+    ret->code.emplace_back(0xfc);
+  }
+  else
+  {
+    AddSSEExtendedByte(&src, &dst, ret);
+    ret->code.emplace_back(0x0f);
+  }
 	ret->code.emplace_back(op);
 	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
 	ret->code.emplace_back(modrm);
@@ -2180,7 +2189,41 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case MOV_PCKD_SSE_2_PCKD_SSE:
 		{
 			//CreateSSERegToSSEReg(&*bc, 0x11, &ret);
-			CreatePckdSSERegToPckdSSEReg(&*bc, 0x10, &ret);
+      if(bc->bin.lhs.reg_sz == 4)
+      {
+        CreatePckdSSERegToPckdSSEReg(&*bc, 0x10, &ret);
+      }
+      else
+      {
+        if(bc->bin.lhs.reg > 7 && bc->bin.rhs.reg > 7)
+        {
+          ret.code.emplace_back(0xc4);
+          ret.code.emplace_back(0x41);
+          ret.code.emplace_back(0x7c);
+        }
+        else if(bc->bin.lhs.reg > 7 && bc->bin.rhs.reg <= 7)
+        {
+          ret.code.emplace_back(0xc5);
+          ret.code.emplace_back(0x7c);
+          ret.code.emplace_back(0x10);
+        }
+        else if(bc->bin.lhs.reg <= 7 && bc->bin.rhs.reg > 7)
+        {
+          ret.code.emplace_back(0xc5);
+          ret.code.emplace_back(0x7c);
+          ret.code.emplace_back(0x11);
+        }
+        else
+        {
+          ret.code.emplace_back(0xc5);
+          ret.code.emplace_back(0xfc);
+          ret.code.emplace_back(0x11);
+
+        }
+        char modrm = (3 << 6) | (bc->bin.lhs.reg & 0x7) | ((bc->bin.rhs.reg &0x7) << 3);
+        ret.code.emplace_back(modrm);
+
+      }
 			/*
 			ret.code.emplace_back(0x0f);
 			ret.code.emplace_back(0x10);

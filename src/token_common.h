@@ -29,6 +29,7 @@ enum tkn_type2 : unsigned char
 	T_INT,
 	T_HASHTAG,
 	T_FLOAT,
+	T_FLOAT64,
 	T_DOLLAR,
 	T_OPEN_CURLY,
 	T_COLON,
@@ -80,6 +81,7 @@ struct token2
 			unsigned long long u64;
 		};
 		float f;
+		double f64;
 	};
 	int flags;
 

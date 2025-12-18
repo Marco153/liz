@@ -645,6 +645,12 @@ bool CompareTypes(type2 *lhs, type2 *rhs, bool assert = false) {
   case enum_type2::TYPE_CHAR: {
     cond = (rhs->type == enum_type2::TYPE_CHAR);
   } break;
+  case enum_type2::TYPE_F64: {
+    cond = rhs->type == enum_type2::TYPE_F64 ||
+           rhs->type == enum_type2::TYPE_F64_RAW;
+    if (assert && !cond)
+      ASSERT(false)
+  } break;
   case enum_type2::TYPE_F32: {
     cond = rhs->type == enum_type2::TYPE_F32 ||
            rhs->type == enum_type2::TYPE_F32_RAW;
@@ -1190,6 +1196,9 @@ node *node_iter::parse_expr() {
 
       n->t = t;
     }
+  } break;
+  case tkn_type2::T_FLOAT64: {
+    n->type = node_type::N_FLOAT64;
   } break;
   case tkn_type2::T_FLOAT: {
     n->type = node_type::N_FLOAT;
@@ -3277,6 +3286,35 @@ template <typename T> T GetExpressionValT(tkn_type2 tp, T a, T b) {
   }
   return 0;
 }
+template <> double GetExpressionValT<double>(tkn_type2 tp, double a, double b) {
+  switch (tp) {
+  case tkn_type2::T_EQUAL:
+    return b;
+  case tkn_type2::T_LESSER_THAN:
+    return a < b;
+  case tkn_type2::T_LESSER_EQ:
+    return a <= b;
+  case tkn_type2::T_GREATER_EQ:
+    return a >= b;
+  case tkn_type2::T_GREATER_THAN:
+    return a > b;
+  case tkn_type2::T_COND_EQ:
+    return a == b;
+  case tkn_type2::T_COND_NE:
+    return a != b;
+  case tkn_type2::T_MINUS:
+    return a - b;
+  case tkn_type2::T_PLUS:
+    return a + b;
+  case tkn_type2::T_MUL:
+    return a * b;
+  case tkn_type2::T_DIV:
+    return a / b;
+  default:
+    ASSERT(false)
+  }
+  return 0;
+}
 template <> float GetExpressionValT(tkn_type2 tp, float a, float b) {
   switch (tp) {
   case tkn_type2::T_LESSER_EQ:
@@ -3621,6 +3659,9 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
   case node_type::N_WHILE: {
     ret_type.type = TYPE_VOID;
   } break;
+  case node_type::N_FLOAT64: {
+    ret_type.type = TYPE_F64_RAW;
+  } break;
   case node_type::N_FLOAT: {
     ret_type.type = TYPE_F32_RAW;
   } break;
@@ -3811,6 +3852,9 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
     switch (ret_type.type) {
     case TYPE_STR_LIT: {
       ret_type.type = TYPE_STR_LIT;
+    } break;
+    case TYPE_F64_TYPE: {
+      ret_type.type = TYPE_F64_RAW;
     } break;
     case TYPE_F32_TYPE: {
       ret_type.type = TYPE_F32_RAW;
@@ -4165,6 +4209,8 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node *fnode,
           t->decl.type.type = TYPE_S32_TYPE;
         } else if (t->decl.type.type == TYPE_F32_RAW) {
           t->decl.type.type = TYPE_F32_TYPE;
+        } else if (t->decl.type.type == TYPE_F64_RAW) {
+          t->decl.type.type = TYPE_F64_TYPE;
         }
       }
     }
@@ -8194,6 +8240,8 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
                 lhs->type.type = enum_type2::TYPE_VECTOR;
               else if (lhs->type.type == enum_type2::TYPE_ENUM_IDX_32)
                 lhs->type.type = enum_type2::TYPE_ENUM;
+              else if (lhs->type.type == enum_type2::TYPE_F64_RAW)
+                lhs->type.type = enum_type2::TYPE_F64;
               else if (lhs->type.type == enum_type2::TYPE_F32_RAW)
                 lhs->type.type = enum_type2::TYPE_F32;
               else if (lhs->type.type == enum_type2::TYPE_INT)
@@ -9476,7 +9524,7 @@ void MaybeCreateCast(lang_state *lang_stat, node *ln, node *rn, type2 *lp,
   if (!lp->IsStrct(nullptr) && !rp->IsStrct(nullptr) &&
       lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM &&
       rp->type != TYPE_STR_LIT && lp->type != rp->type &&
-      rp->type != TYPE_INT && rp->type != TYPE_F32_RAW && !static_ar) {
+      rp->type != TYPE_INT && rp->type != TYPE_F64_RAW && rp->type != TYPE_F32_RAW && !static_ar) {
     auto t_nd = CreateNodeFromType(lang_stat, lp, ln->t);
     auto new_nd =
         NewTypeNode(lang_stat, t_nd, N_CAST, new_node(lang_stat, rn), ln->t);
@@ -9523,6 +9571,10 @@ void ModifyNodeIntOrFloat(type2 &ret_type, node *n) {
     n->type = N_FLOAT;
     // ret_type.f = -1;
     n->t->f = ret_type.f;
+  } else if (ret_type.type == enum_type2::TYPE_F64_RAW) {
+    n->type = N_FLOAT;
+    // ret_type.f = -1;
+    n->t->f64 = ret_type.f64;
   }
 }
 void ModifyNodeAndDoOperationsIfItsOnlyIntOrFloats(node *n, type2 &ltp,
@@ -9544,6 +9596,12 @@ void ModifyNodeAndDoOperationsIfItsOnlyIntOrFloats(node *n, type2 &ltp,
     n->type = N_FLOAT;
     n->t->f = GetExpressionValT<float>(n->t->type, ltp.f, rtp.f);
     ret_type.f = n->t->f;
+    // GetExpressionVal(n);
+  }
+  if (ltp.type == TYPE_F64_RAW && rtp.type == TYPE_F64_RAW) {
+    n->type = N_FLOAT64;
+    n->t->f64 = GetExpressionValT<double>(n->t->type, ltp.f64, rtp.f64);
+    ret_type.f64 = n->t->f64;
     // GetExpressionVal(n);
   }
 }
@@ -10288,6 +10346,10 @@ if (!is_correct_ovrld)
 
     // DescendStmntMode(n, scp, DMODE_DNODE, nullptr);
     DescendStmnt(lang_stat, n, scp);
+  } break;
+  case node_type::N_FLOAT64: {
+    ret_type.type = enum_type2::TYPE_F64_RAW;
+    ret_type.f64 = n->t->f64;
   } break;
   case node_type::N_FLOAT: {
     ret_type.type = enum_type2::TYPE_F32_RAW;

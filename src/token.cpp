@@ -562,8 +562,8 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
 
 			if (found_point)
 			{
-				out.type = tkn_type2::T_FLOAT;
-				out.f = own_std::stof(str);
+				out.type = tkn_type2::T_FLOAT64;
+				out.f64 = own_std::stof(str);
 				return i;
 			}
 			else

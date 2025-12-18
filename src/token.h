@@ -210,6 +210,7 @@ struct type2
 	{
 		long long i;
 		float f;
+		double f64;
 
 		unsigned char u8;
 		unsigned short u16;

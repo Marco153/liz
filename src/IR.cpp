@@ -860,6 +860,11 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
       // ret->call.args.erase()
     }
   } break;
+  case node_type::N_FLOAT64: {
+    ret->type = AST_F64;
+    ret->f64 = n->t->f64;
+
+  } break;
   case node_type::N_FLOAT: {
     ret->type = AST_FLOAT;
     ret->f32 = n->t->f;
@@ -5322,6 +5327,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ir.bin.lhs.reg_sz = 8 ;
     ir.bin.rhs.f64 = ast->f64;
     state->cur_block->irs.emplace_back(ir);
+    ret = ir.bin.lhs;
+    ret.kind = IR_VAL_VALUE;
   }break;
   case AST_FLOAT:
   {
@@ -5637,6 +5644,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
         lhs.reg_sz = GetTypeSize(&d->type);
         lhs.voffset = offset;
+        lhs.is_float = d->type.IsFloat();
+        lhs.is_packed_float = d->type.type == TYPE_VECTOR;
       }
       lhs.kind = IR_VAL_ADDR;
       if(!is_lhs)

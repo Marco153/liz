@@ -148,6 +148,7 @@ enum node_type
 	N_CAST,
 	N_INT,
 	N_FLOAT,
+	N_FLOAT64,
 	N_CONST,
 	N_KEYWORD,
 	N_INDEX,

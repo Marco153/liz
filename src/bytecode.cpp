@@ -589,14 +589,46 @@ void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
 	char dst = bc->bin.rhs.reg;
   if(bc->bin.lhs.reg_sz == 8)
   {
-    ret->code.emplace_back(0xc5);
-    ret->code.emplace_back(0xfc);
+    // here we have "inst dst, src1, src2" model
+    if((src > 7 && dst > 7) || (src > 7 && dst <= 7))
+    {
+      ret->code.emplace_back(0xc4);
+      // 0x41 = 0b100001,
+      // seventh bit if the dst reg is extended ymm8-15, inverted, 1 is we're not using it
+      // sixth bit if we're using extended general purpose registers for memory addressing, inverted
+      // fifth bit if src2 reg is extended, inverted
+      // zeroth bit tells it is a 0x0f inst
+
+      ret->code.emplace_back(0x41 | (dst > 7)<<7);
+
+      // EXPLANATION VEX
+      // 0x5 = 0b101,
+      // seveth tells whether dst is extended, inverted
+      // sixth to third bit tells wich reg src1 is, inverted
+      // second bit tells its ymm, not inverted
+      // first-zeroth tells it i packed doubles, packed float, single double, single float
+      ret->code.emplace_back(0x5 | (~src)<<3);
+
+
+    }
+    else if((src <= 7 && dst > 7) ||(src <= 7 && dst > 7))
+    {
+      ret->code.emplace_back(0xc5);
+      // see EXPLANATION above
+      ret->code.emplace_back(0x5 | (~src)<<3 | (dst > 7)<<7) ;
+    }
+    else ASSERT(false)
+
   }
   else
   {
     AddSSEExtendedByte(&src, &dst, ret);
     ret->code.emplace_back(0x0f);
   }
+
+  src &= 0x7;
+  dst &= 0x7;
+
 	ret->code.emplace_back(op);
 	char modrm = (3 << 6) | (dst & 0xf) | (src << 3);
 	ret->code.emplace_back(modrm);
@@ -2113,18 +2145,6 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			CreateSSERegToSSEReg(&*bc, 0x58, &ret);
 		}break;
-		case MOV_MEM_2_PCKD_SSE:
-		{
-			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
-			char dst = bc->bin.lhs.reg;
-			//CreateMemToSSE(&*bc, 0x10, &ret);
-			ret.code.emplace_back(0x0f);
-			ret.code.emplace_back(0x10);
-			AddModRM(true, bc->bin.rhs.voffset, src, dst & 0xf, ret);
-			if(bc->bin.rhs.voffset != 0)
-				AddImm(bc->bin.rhs.voffset, (unsigned int) bc->bin.rhs.voffset < DISP_BYTE_MAX ? 1 : 4, ret);
-			//TODO
-		}break;
 		case DIV_R_2_R:
 		{
 			//TODO
@@ -2200,6 +2220,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
           ret.code.emplace_back(0xc4);
           ret.code.emplace_back(0x41);
           ret.code.emplace_back(0x7c);
+          ret.code.emplace_back(0x10);
         }
         else if(bc->bin.lhs.reg > 7 && bc->bin.rhs.reg <= 7)
         {
@@ -2232,16 +2253,133 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			*/
 			//TODO
 		}break;
+		case ADD_MEM_2_PCKD_SSE:
+    {
+      char src = bc->bin.rhs.reg;
+      char dst = bc->bin.lhs.reg;
+      char rm = 0;
+      char reg = 0;
+      bool is_rex = IS_FLAG_ON(bc->bin.rhs.reg, 0x80);
+      char op = 0x58;
+      int offset = bc->bin.rhs.voffset;
+      if(bc->bin.lhs.reg_sz == 8)
+      {
+        HERE()
+        // here we have "inst dst, src1, src2" model
+        // search in this file for EXPLANATION VEX for more info
+        if((src > 7 && dst > 7) || (src > 7 && dst <= 7))
+        {
+          ret.code.emplace_back(0xc4);
+          // 0x41 = 0b100001,
+          // seventh bit if the dst reg is extended ymm8-15, inverted, 1 is we're not using it
+          // sixth bit if we're using extended general purpose registers for memory addressing, inverted
+          // fifth bit if src2 reg is extended, inverted
+          // zeroth bit tells it is a 0x0f inst
+
+          ret.code.emplace_back(0x41 | (dst > 7)<<7 | (char)is_rex << 6);
+
+          // EXPLANATION VEX
+          // 0x5 = 0b101,
+          // seveth tells whether dst is extended, inverted
+          // sixth to third bit tells wich reg src1 is, inverted
+          // second bit tells its ymm, not inverted
+          // first-zeroth tells it i packed doubles, packed float, single double, single float
+          ret.code.emplace_back(0x5 | (~src)<<3);
+
+
+        }
+        else if(src <= 7)
+        {
+          ret.code.emplace_back(0xc5);
+          // see EXPLANATION VEX above
+
+          char aux =  0x5 | ((~dst&0xf)<<3) | (!(dst > 7))<<7;
+          ret.code.emplace_back(aux) ;
+        }
+        else ASSERT(false)
+
+      }
+      else
+      {
+        AddSSEExtendedByte(&src, &dst, &ret);
+        ret.code.emplace_back(0x0f);
+      }
+      dst &= 0x7;
+      src &= 0x7;
+      rm = src;
+      reg = dst;
+      ret.code.emplace_back(op);
+      AddModRM(true, offset, rm, reg, ret);
+			if(offset != 0)
+				AddImm(offset, ((unsigned int)offset) < DISP_BYTE_MAX ? 1 : 4, ret);
+
+    }break;
+		case MOV_MEM_2_PCKD_SSE:
 		case MOV_PCKD_SSE_2_MEM:
 		{
 			char src =  bc->bin.rhs.reg;
 			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-			ret.code.emplace_back(0x0f);
-			ret.code.emplace_back(0x11);
+      char rm =0;
+      int offset = 0;
+      char reg =0;
+      bool is_rex = IS_FLAG_ON(bc->bin.lhs.reg, 0x80);
+      char op;
+      switch(bc->type)
+      {
+      case MOV_MEM_2_PCKD_SSE:
+      {
+        HERE()
+        src =  FromBCRegToAsmReg(bc->bin.rhs.reg);
+        offset = bc->bin.rhs.voffset;
+        dst = bc->bin.lhs.reg;
+        rm = src;
+        reg = dst & 0x7;
+        op = 0x10;
+      }break;
+      case MOV_PCKD_SSE_2_MEM:{
+        src =  bc->bin.rhs.reg;
+        dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+        offset = bc->bin.lhs.voffset;
+        rm = dst;
+        reg = src & 0x7;
+        op = 0x11;
+      }break;
+      }
+      if(bc->bin.lhs.reg_sz == 4)
+      {
+        if(bc->bin.lhs.reg > 7 && !is_rex)
+          ret.code.emplace_back(0x44);
+        else if(bc->bin.lhs.reg > 7 && is_rex)
+          ret.code.emplace_back(0x45);
+        else if(bc->bin.lhs.reg <= 7 && is_rex)
+          ret.code.emplace_back(0x41);
+        ret.code.emplace_back(0x0f);
+      }
+      else
+      {
+        if(is_rex)
+        {
+          ret.code.emplace_back(0xc4);
+          if(bc->bin.lhs.reg > 7)
+            ret.code.emplace_back(0x41);
+          else
+            ret.code.emplace_back(0xc1);
+          ret.code.emplace_back(0x7d);
+        }
+        else
+        {
+          ret.code.emplace_back(0xc5);
+          if(bc->bin.lhs.reg > 7)
+            ret.code.emplace_back(0x7d);
+          else
+            ret.code.emplace_back(0xfd);
+        }
+      }
+      ret.code.emplace_back(op);
 
-			AddModRM(true, bc->bin.lhs.voffset, dst, src & 0xf, ret);
-			if(bc->bin.lhs.voffset != 0)
-				AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
+			AddModRM(true, offset, rm & 0xf, reg & 0xf, ret);
+			if(offset != 0)
+				AddImm(offset, ((unsigned int)offset) < DISP_BYTE_MAX ? 1 : 4, ret);
 
 			/*
 			ret.code.emplace_back(0x0f);

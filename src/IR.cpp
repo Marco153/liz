@@ -5010,6 +5010,47 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
   state->cur_block->irs.emplace_back(ir);
 
+  if(callf->ret_type.type == TYPE_STRUCT && callf->ret_type.ptr == 0)
+  {
+    int st_size = GetTypeSize(&callf->ret_type);
+    int offset = get_strct_ret(state);
+    add_strct_ret(state, st_size);
+    ir = {};
+    ir.type = IR_ADDRESS_OF;
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.reg = (char)regs_enum::RDI;
+    ir.bin.lhs.reg_sz = 8;
+    ir.bin.rhs.type = IR_TYPE_ON_STACK;
+    ir.bin.rhs.stack.on_stack_type = ON_STACK_STRUCT_RET;
+    ir.bin.rhs.stack.i = offset;
+
+    state->cur_block->irs.emplace_back(ir);
+
+    ir = {};
+    ir.type = IR_BIN;
+    ir.bin.op = T_EQUAL;
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.reg = (char)regs_enum::RSI;
+    ir.bin.lhs.reg_sz = 8;
+    ir.bin.rhs.type = IR_TYPE_REG;
+    ir.bin.rhs.reg = 0;
+    ir.bin.rhs.reg_sz = 0;
+
+    state->cur_block->irs.emplace_back(ir);
+
+    ir.type = IR_BIN;
+    ir.bin.lhs.reg = (char)regs_enum::RCX;
+    ir.bin.rhs.type = IR_TYPE_INT;
+    ir.bin.rhs.i = st_size;
+
+    state->cur_block->irs.emplace_back(ir);
+
+    ir.type = IR_REPMOVSB;
+    state->cur_block->irs.emplace_back(ir);
+
+
+  }
+
 
   while(state->spilled_regs.cur > call_base)
   {
@@ -5163,9 +5204,27 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_RET: 
   {
     if(!ast->ret.ast) break;
-    ret = GetIRFromAst2(lang_stat, ast->ret.ast, state, false);
-    ir.type = IR_BIN;
-    ir.bin.op = T_EQUAL;
+
+    bool is_lhs = false;
+    //BREAK(ast->line_number == 2045)
+
+    if(lang_stat->cur_func->ret_type.type == TYPE_STRUCT && lang_stat->cur_func->ret_type.ptr == 0)
+    {
+      is_lhs = true;
+    }
+
+    ret = GetIRFromAst2(lang_stat, ast->ret.ast, state, is_lhs);
+
+
+    if(is_lhs)
+    {
+      ir.type = IR_ADDRESS_OF;
+    }
+    else
+    {
+      ir.type = IR_BIN;
+      ir.bin.op = T_EQUAL;
+    }
     ir.bin.lhs.type = IR_TYPE_REG;
     ir.bin.lhs.reg = (char)regs_enum::RAX;
     ir.bin.lhs.reg_sz = ret.reg_sz;
@@ -5338,6 +5397,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     // ir.num  = ast->func.fdecl->stack_size;
     state->cur_block->irs.emplace_back(ir);
     lang_stat->cur_func = last_func;
+
+    ast->func.fdecl->strct_constrct_size_per_statement = state->strct_ret_size_per_statement_max_gotten;
   }break;
   case AST_F64:
   {
@@ -5509,6 +5570,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     FOR_VEC(st, ast->stats) {
       FreeRegs2(lang_stat);
       ast_rep *s = *st;
+      clear_strct_ret(state);
       if (s->type == AST_EMPTY)
         continue;
 

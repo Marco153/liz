@@ -245,6 +245,7 @@ enum ir_type
 
     IR_ASSIGNMENT,
     IR_RET,
+    IR_REPMOVSB,
     IR_LABEL,
     IR_BIN,
     IR_CMP,
@@ -540,6 +541,7 @@ void push_tracker_stack(tracker_stack<T> *ar, T val)
   if(ar->max_cur_gotten < ar->cur)
     ar->max_cur_gotten = ar->cur;
 }
+
 struct thread_ir_state
 {
   block2 *cur_block;
@@ -550,6 +552,24 @@ struct thread_ir_state
 	int blocks_max;
 
   tracker_stack<char> spilled_regs;
+  int strct_ret_size_per_statement_cur;
+  int strct_ret_size_per_statement_max_gotten;
   tracker_stack<block2 *> continue_start_block;
   tracker_stack<block2 *> break_end_block;
 };
+int get_strct_ret(thread_ir_state *state)
+{
+  return state->strct_ret_size_per_statement_cur;
+}
+void clear_strct_ret(thread_ir_state *state)
+{
+  state->strct_ret_size_per_statement_cur = 0;
+}
+void add_strct_ret(thread_ir_state *state, int sz)
+{
+  state->strct_ret_size_per_statement_cur += sz;
+  if(state->strct_ret_size_per_statement_cur > state->strct_ret_size_per_statement_max_gotten)
+  {
+    state->strct_ret_size_per_statement_max_gotten = state->strct_ret_size_per_statement_cur;
+  }
+}

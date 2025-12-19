@@ -14384,6 +14384,30 @@ void InsertBc(own_std::vector<byte_code> &ret, byte_code &bc)
   }
   ret.emplace_back(bc);
 }
+void FromIRIrValToIrValAux(lang_state *lang_stat, ir_val *val, ir_val_aux *aux)
+{
+  aux->type = val->type;
+  aux->is_float = val->is_float;
+  aux->is_unsigned = val->is_unsigned;
+  aux->is_packed_float = val->is_packed_float;
+  aux->reg = val->reg;
+  aux->voffset = val->voffset;
+  aux->reg_sz = val->reg_sz;
+  aux->val = val->val;
+
+  if(val->type == IR_TYPE_DECL)
+  {
+    aux->voffset += val->decl->offset;
+  }
+  if(val->type == IR_TYPE_ON_STACK)
+  {
+    //HERE()
+    aux->type = IR_TYPE_REG_MEM;
+    aux->reg = (char)regs_enum::RSP;
+    aux->reg_sz = 8;
+    aux->voffset += GetOnStackOffsetWithIrVal(lang_stat, val);
+  }
+}
 void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_state *state, machine_code& mach, func_decl *cur_func)
 {
   cur_func->wasm_stmnts.reserve(64);
@@ -14490,6 +14514,11 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 
 
       }break;
+      case IR_REPMOVSB:
+      {
+        bc.type = REP_MOVSB;
+        InsertBc(ret, bc);
+      }break;
       case IR_BEGIN_STMNT:
       {
         FreeAllRegs(lang_stat);
@@ -14562,6 +14591,8 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
       }break;
       case IR_ADDRESS_OF:
       {
+        FromIRIrValToIrValAux(lang_stat, &ir->bin.rhs, &rhs_aux);
+
         if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
         {
           bc.type = INST_LEA;
@@ -14572,11 +14603,11 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
           InsertBc(ret, bc);
 
         }
-        else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG_MEM)
+        else if(ir->bin.lhs.type == IR_TYPE_REG && (ir->bin.rhs.type == IR_TYPE_REG_MEM || ir->bin.rhs.type == IR_TYPE_ON_STACK))
         {
           bc.type = INST_LEA;
-          bc.bin.rhs.lea.reg_base = ir->bin.rhs.reg;
-          bc.bin.rhs.lea.offset = ir->bin.rhs.voffset;
+          bc.bin.rhs.lea.reg_base = rhs_aux.reg;
+          bc.bin.rhs.lea.offset = rhs_aux.voffset;
           bc.bin.rhs.lea.reg_dst = ir->bin.lhs.reg;
           bc.bin.rhs.lea.size = ir->bin.lhs.reg_sz;
           InsertBc(ret, bc);

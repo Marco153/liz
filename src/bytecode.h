@@ -367,6 +367,7 @@ enum byte_code_enum : unsigned short
 	SQRT_SSE,
 
 	REP_B,
+	REP_MOVSB,
 
 	JMP,
 	JMP_E,

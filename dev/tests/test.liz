@@ -15,8 +15,42 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 		i++;
 	}
 }
+memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
+{
+	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
+	i:u64 = 0;
+	if (sz % 16) == 0
+	{
+		total := sz / 16
 
-TESTS:const s32=0;
+		while i < total
+		{
+			*ptr_offset(dst, i, _vec) = *ptr_offset(src, i, _vec);
+			i++
+		}
+	}
+	else if (sz % 8) == 0
+	{
+		total := sz / 8
+
+		while i < total
+		{
+			*ptr_offset(dst, i, u64) = *ptr_offset(src, i, u64);
+			i++
+		}
+
+	}
+	else
+	{
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
+			i++;
+		}
+	}
+}
+
+TESTS:const s32=1;
 #if TESTS == 0
 {
 
@@ -2001,6 +2035,15 @@ else
     b : u32,
     a : u32,
   }
+  ret_st::fn()!test_st
+  {
+    ret :test_st
+    ret.a = 5;
+    __dbg_break
+    __dbg_break
+    __dbg_break
+    return ret
+  }
 
   callptr::fn(a : *u32) ! u32
   {
@@ -2021,22 +2064,18 @@ else
   }
   main::fn()
   {
-    __dbg_break
-    __dbg_break
-    __dbg_break
     /*
     v2 :_vec2
     v2.x = 1.0
     v2 = v2 * v2 + v2
     */
+    st := ret_st()
 
-    v :_vec2
-    callf(1, 2, v)
+    __dbg_break
+    __dbg_break
+    __dbg_break
+    st.a = st.a +1
 
-    f := cast(f32)1.0
-
-    ptr := &f
-    *ptr = *ptr + 5.0f
 
   }
 }

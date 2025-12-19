@@ -1728,6 +1728,13 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			ASSERT(false)
 		}break;
+		case REP_MOVSB:
+    {
+			ret.code.emplace_back(0xfc);
+
+			ret.code.emplace_back(0xf3);
+			ret.code.emplace_back(0xa4);
+    }break;
 		case NEG_R:
 		{
 			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);

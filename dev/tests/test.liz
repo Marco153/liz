@@ -2015,7 +2015,7 @@ else
     return a + g
 
   }
-  callf::fn(a : s32, b : s32, c : f32) ! s32
+  callf::fn(a : s32, b : s32, c : _vec) ! s32
   {
     return a + b
   }
@@ -2030,7 +2030,8 @@ else
     v2 = v2 * v2 + v2
     */
 
-    callf(1, 2, 3.0f)
+    v :_vec
+    callf(1, 2, v)
 
     f := cast(f32)1.0
 

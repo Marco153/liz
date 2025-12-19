@@ -3657,7 +3657,7 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
       {
         bc.type = MOV_PCKD_SSE_2_MEM;
         offset += GetTypeSize(&a->type);
-        bc.bin.lhs.reg_sz = a->type.vec_type;
+        bc.bin.rhs.reg_sz = a->type.vec_type;
       }
       else
         offset += 8;

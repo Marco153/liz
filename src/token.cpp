@@ -556,19 +556,32 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
 				i++;
 				c = data[start + i];
 				c2 = data[start + i + 1];
-
-
 			}
+
 			if (!ret)
 			{
 				return 0;
 			}
 			str = own_std::string(&data[start], i);
+      bool is_f32 = false;
+      if(data[start + i] == 'f')
+      {
+        is_f32 = true;;
+        i++;
+      }
 
 			if (found_point)
 			{
-				out.type = tkn_type2::T_FLOAT64;
-				out.f64 = own_std::stof(str);
+        if(is_f32)
+        {
+          out.type = tkn_type2::T_FLOAT;
+          out.f = own_std::stof(str);
+        }
+        else
+        {
+          out.type = tkn_type2::T_FLOAT64;
+          out.f64 = own_std::stof(str);
+        }
 				return i;
 			}
 			else

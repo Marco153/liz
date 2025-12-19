@@ -2317,7 +2317,6 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       }
       else
       {
-        HERE()
         AddSSEExtendedByte(&dst, &src, &ret);
         ret.code.emplace_back(0x0f);
       }

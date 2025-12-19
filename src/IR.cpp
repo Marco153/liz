@@ -1095,7 +1095,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     }
     // if (ast->decl->type.ptr > 0)
     // val->is_unsigned = true;
-    val->is_float = ast->decl->type.type == TYPE_F32;
+    val->is_float = ast->decl->type.IsFloat();
     val->is_packed_float = ast->decl->type.type == TYPE_VECTOR;
     if(val->is_packed_float)
     {
@@ -5743,6 +5743,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
       bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;
+      //BREAK(ast->line_number == 2029)
 
       if(!rhs_wal_value && !lhs.is_packed_float)
       {

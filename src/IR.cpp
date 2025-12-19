@@ -5763,6 +5763,24 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         rhs.reg_sz = 8;
         lhs.is_float = false;
       }
+      if(lhs.is_packed_float && rhs.type == IR_TYPE_INT)
+      {
+        if(rhs.i == 0)
+        {
+          ir.type = IR_CLEAR_SSE;
+          ir.i = AllocFloatReg(lang_stat);
+          ir.i |= lhs.reg_sz << 8;
+          rhs.type = IR_TYPE_REG;
+          rhs.reg = ir.i;
+          rhs.reg_sz = lhs.reg_sz;
+          rhs.is_float = true;
+          rhs.is_packed_float = true;
+
+          state->cur_block->irs.emplace_back(ir);
+        }
+        else
+          ASSERT(false)
+      }
       MakeIrStore(lang_stat, &lhs, &rhs, &ir);
 
       state->cur_block->irs.emplace_back(ir);

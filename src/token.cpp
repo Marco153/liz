@@ -163,6 +163,7 @@ int GetTypeSize(type2 *tp, char ptr)
 		case enum_type2::TYPE_U64:
 		case enum_type2::TYPE_S64:
 		case enum_type2::TYPE_F64:
+		case enum_type2::TYPE_F64_RAW:
 		case enum_type2::TYPE_FUNC:
 		case enum_type2::TYPE_FUNC_PTR:
 		case enum_type2::TYPE_FUNC_EXTERN:
@@ -310,6 +311,10 @@ own_std::string TypeToString(type2 &tp)
 	case enum_type2::TYPE_VECTOR_TYPE:
 	{
 		ret += "_vec";
+	}break;
+	case enum_type2::TYPE_F64_RAW:
+	{
+		ret += "f64_raw";
 	}break;
 	case enum_type2::TYPE_F32_RAW:
 	{

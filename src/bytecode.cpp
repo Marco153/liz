@@ -1290,7 +1290,13 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case CVTSD_2_SS:
 		{
-      CreateSSEToSSEAVX(bc, 0x5a, &ret);
+      char dst = bc->bin.lhs.reg;
+      char src = bc->bin.rhs.reg;
+			ret.code.emplace_back(0xf2);
+      AddSSEExtendedByte(&dst, &src, &ret);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(0xc0 | (dst << 3) | src);
       /*
       //HERE()
 			ret.code.emplace_back(0xc5);
@@ -2322,36 +2328,40 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       char rm =0;
       int offset = 0;
       char reg =0;
+      char reg_sz =0;
       bool is_rex = IS_FLAG_ON(bc->bin.lhs.reg, 0x80);
       char op;
       switch(bc->type)
       {
       case MOV_MEM_2_PCKD_SSE:
       {
-        HERE()
         src =  FromBCRegToAsmReg(bc->bin.rhs.reg);
+        reg_sz = bc->bin.lhs.reg_sz;
         offset = bc->bin.rhs.voffset;
         dst = bc->bin.lhs.reg;
         rm = src;
-        reg = dst & 0x7;
+        reg = dst;
         op = 0x10;
       }break;
       case MOV_PCKD_SSE_2_MEM:{
         src =  bc->bin.rhs.reg;
+        reg_sz = bc->bin.rhs.reg_sz;
         dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
         offset = bc->bin.lhs.voffset;
         rm = dst;
-        reg = src & 0x7;
+        reg = src;
         op = 0x11;
+        HERE()
       }break;
       }
-      if(bc->bin.lhs.reg_sz == 4)
+      is_rex = IS_FLAG_ON(reg, 0x80);
+      if(reg_sz == 4)
       {
-        if(bc->bin.lhs.reg > 7 && !is_rex)
+        if(reg > 7 && !is_rex)
           ret.code.emplace_back(0x44);
-        else if(bc->bin.lhs.reg > 7 && is_rex)
+        else if(reg > 7 && is_rex)
           ret.code.emplace_back(0x45);
-        else if(bc->bin.lhs.reg <= 7 && is_rex)
+        else if(reg <= 7 && is_rex)
           ret.code.emplace_back(0x41);
         ret.code.emplace_back(0x0f);
       }
@@ -2360,7 +2370,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         if(is_rex)
         {
           ret.code.emplace_back(0xc4);
-          if(bc->bin.lhs.reg > 7)
+          if(reg > 7)
             ret.code.emplace_back(0x41);
           else
             ret.code.emplace_back(0xc1);
@@ -2369,12 +2379,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         else
         {
           ret.code.emplace_back(0xc5);
-          if(bc->bin.lhs.reg > 7)
+          if(reg > 7)
             ret.code.emplace_back(0x7d);
           else
             ret.code.emplace_back(0xfd);
         }
       }
+      reg &= 0x7;
+      rm &= 0x7;
       ret.code.emplace_back(op);
 
 			AddModRM(true, offset, rm & 0xf, reg & 0xf, ret);
@@ -2390,6 +2402,36 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			//TODO
 			*/
 		}break;
+		case ZERO_PCKD_SSE:
+    {
+			char reg =  bc->un.val.reg;
+			char sz =  bc->un.val.reg_sz;
+
+      if(sz == 4)
+      {
+        if(reg > 7)
+          ret.code.emplace_back(0x45);
+        ret.code.emplace_back(0x0f);
+      }
+      if(sz == 8)
+      {
+        if(reg > 7)
+        {
+          ret.code.emplace_back(0xc4);
+          ret.code.emplace_back(0x41);
+          ret.code.emplace_back(0x5 | (~reg)<<3);
+        }
+        else
+        {
+          ret.code.emplace_back(0xc5);
+          ret.code.emplace_back(0xfd);
+        }
+      }
+      reg &= 7;
+      ret.code.emplace_back(0x57);
+      ret.code.emplace_back(3<<6 | reg | reg << 3);
+
+    }break;
 		case SHIFTR_R_2_R:
 		case SHIFTL_R_2_R:
 		{

@@ -10222,13 +10222,13 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs
   PrintReg("R9",  regs->r9);
   PrintReg("R10", regs->r10);
   PrintReg("R11", regs->r11);
-  for(int i = 0; i < 5; i ++)
+  for(int i = 0; i < 10; i ++)
   {
     float *cur = fregs + i * 4;
     ImGui::Text("xmm%d: {%.4f, %.4f, %.4f, %.4f}", i, cur[0], cur[1], cur[2], cur[3]);
   }
   double *d = (double *)fregs;
-  for(int i = 0; i < 5; i ++)
+  for(int i = 0; i < 10; i ++)
   {
     double *cur = d + i * 4;
     ImGui::Text("ymm%d: {%.4lf, %.4lf, %.4lf, %.4lf}", i, cur[0], cur[1], cur[2], cur[3]);

@@ -322,6 +322,7 @@ enum ir_type
     IR_INDIRECT_CALL,
 
     IR_GET_FLOAT,
+    IR_CLEAR_SSE,
 };
 enum ir_val_type
 {

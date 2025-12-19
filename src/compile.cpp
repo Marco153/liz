@@ -14756,6 +14756,14 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         }
         else ASSERT(false)
       }break;
+      case IR_CLEAR_SSE:
+      {
+        bc.type = ZERO_PCKD_SSE;
+        bc.un.val.reg = ir->i;
+        bc.un.val.reg_sz = ir->i >> 8;
+        InsertBc(ret, bc);
+
+      }break;
       case IR_SPILL:
       case IR_UNSPILL:
       case IR_CMP:
@@ -16834,7 +16842,8 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 	{
 		auto f = lang_stat->files[cur_f];
 		lang_stat->cur_file = f;
-		DescendNameFinding(lang_stat, f->s, f->global);
+    //HERE()
+		DescendNode(lang_stat, f->s, f->global);
 	}
 	//DescendIndefinedIdents(s, &global);
 	

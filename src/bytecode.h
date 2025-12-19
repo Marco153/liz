@@ -238,6 +238,8 @@ enum byte_code_enum : unsigned short
 	ADD_MEM_2_PCKD_SSE,
 	ADD_PCKD_SSE_2_MEM,
 
+	ZERO_PCKD_SSE,
+
 	ADD_I_2_R_8_SIGNED,
 	ADD_I_2_R_16_SIGNED,
 	ADD_I_2_R_32_SIGNED,

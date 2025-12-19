@@ -6000,7 +6000,7 @@ bool FunctionIsDone(lang_state *lang_stat, node *n, scope *scp, type2 *ret_type,
   if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_IS_OUTSIDER)) {
     lang_stat->outsider_funcs.emplace_back(fdecl);
   }
-  // BREAK(fnode->t->line == 5114)
+   //BREAK(fnode->t->line == 2018)
 
   if (IS_FLAG_OFF(flags, DONT_DESCEND_SCOPE) &&
       IS_FLAG_OFF(fdecl->flags, FUNC_DECL_MACRO)) {
@@ -7476,8 +7476,8 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
           node *from = cur->r;
           if (from->type == N_SCOPE)
             from = from->r;
-          if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
-            from = from->l;
+          //if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
+            //from = from->l;
           memcpy(n, from, sizeof(node));
         } else if (GetExpressionVal(cur->l->l, scp) == 1) {
           node *from = cur->l->r;
@@ -8211,6 +8211,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
       if (n->l != nullptr && !lhs)
         return nullptr;
 
+
       if (n->r != nullptr && !rhs)
         return nullptr;
 
@@ -8638,7 +8639,6 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
         case node_type::N_UNION_DECL:
         case node_type::N_ETRUCT_DECL:
         case node_type::N_STRUCT_DECL: {
-
           ret_type.type = enum_type2::TYPE_STRUCT_DECL;
           node *snode = n->r;
 
@@ -9572,7 +9572,7 @@ void ModifyNodeIntOrFloat(type2 &ret_type, node *n) {
     // ret_type.f = -1;
     n->t->f = ret_type.f;
   } else if (ret_type.type == enum_type2::TYPE_F64_RAW) {
-    n->type = N_FLOAT;
+    n->type = N_FLOAT64;
     // ret_type.f = -1;
     n->t->f64 = ret_type.f64;
   }
@@ -10808,6 +10808,7 @@ if(!decl)
     // if (n->l->r)
     //	DescendNode(n->l->r, scp);
 
+    BREAK(n->t->line >= 2019)
     if (n->r) {
       auto before_flags = lang_stat->flags;
       auto before_plugin = lang_stat->plugins_for_func;
@@ -11150,6 +11151,7 @@ if (!is_correct_ovrld)
       if (IS_PRS_FLAG_ON(PSR_FLAGS_ON_ENUM_DECL))
         break;
       // return ret_type;
+      //BREAK(n->t->line >= 2022)
 
       type2 ltp;
       if (n->l != nullptr)

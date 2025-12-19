@@ -5473,6 +5473,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         }
         else if(ret.is_float && ast->cast.type.IsFloat())
         {
+          BREAK(ast->line_number == 764)
           ir.type = IR_CAST_FLOAT_TO_FLOAT;
           ir.bin.lhs = ret;
           ir.bin.rhs = ret;

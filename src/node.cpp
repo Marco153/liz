@@ -9518,13 +9518,16 @@ void MakeRelPtrDerefFuncCall(lang_state *lang_stat, func_decl *op_func,
 
 void MaybeCreateCast(lang_state *lang_stat, node *ln, node *rn, type2 *lp,
                      type2 *rp) {
+  //BREAK(ln->t->line == 764)
   bool static_ar =
       lp->type == TYPE_STATIC_ARRAY && rp->type == TYPE_STATIC_ARRAY_TYPE;
+  bool vector =
+      lp->type == TYPE_VECTOR && rp->type == TYPE_VECTOR_TYPE;
   // creating a cast for types that are different
   if (!lp->IsStrct(nullptr) && !rp->IsStrct(nullptr) &&
       lp->type != TYPE_FUNC_PTR && lp->type != TYPE_ENUM &&
       rp->type != TYPE_STR_LIT && lp->type != rp->type &&
-      rp->type != TYPE_INT && rp->type != TYPE_F64_RAW && rp->type != TYPE_F32_RAW && !static_ar) {
+      rp->type != TYPE_INT && rp->type != TYPE_F64_RAW && rp->type != TYPE_F32_RAW && !static_ar && !vector) {
     auto t_nd = CreateNodeFromType(lang_stat, lp, ln->t);
     auto new_nd =
         NewTypeNode(lang_stat, t_nd, N_CAST, new_node(lang_stat, rn), ln->t);

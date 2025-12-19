@@ -16,7 +16,7 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 	}
 }
 
-TESTS:const s32=1;
+TESTS:const s32=0;
 #if TESTS == 0
 {
 
@@ -660,11 +660,11 @@ TESTS:const s32=1;
   }
   ret_f32_summed_with_one::fn(a : f32)!f32
   {
-    return a + 1.0;
+    return a + 1.0f;
   }
   modify_f32::fn(a : *f32)
   {
-    *a = 1.0;
+    *a = 1.0f;
   }
   modify_f32_as_s32::fn(a : *f32)
   {
@@ -672,23 +672,23 @@ TESTS:const s32=1;
   }
   ret_sum_one_with_f32_ptr::fn(a : *f32) !f32
   {
-    return *a + 1.0;
+    return *a + 1.0f;
   }
   modify_ar_strct::fn(strct : *simple_strct_f32)
   {
     val:simple_strct_f32;
-    val.a = 3.5;
+    val.a = 3.5f;
     *ptr_offset(strct, 0, simple_strct_f32) = val;
   }
   modify_static_ar_through_void_ptr::fn(ar : *void)
   {
-    *ptr_offset(ar, 0, f32) = 1.5;
+    *ptr_offset(ar, 0, f32) = 1.5f;
   }
   ret_v3::fn() !v3
   {
     ret:v3;
-    ret.x = 1.0;
-    ret.y = 2.0;
+    ret.x = 1.0f;
+    ret.y = 2.0f;
     return ret;
   }
   mul_v3::fn(a : *v3, b : *v3) !v3
@@ -703,9 +703,9 @@ TESTS:const s32=1;
   sign_v3::fn(a : *v3) !v3
   {
     aux: = *a;
-    aux.x = if a.x > 0.0 1.0 else - 1.0;
-    aux.y = if a.y > 0.0 1.0 else - 1.0;
-    aux.z = if a.z > 0.0 1.0 else - 1.0;
+    aux.x = if a.x > 0.0f 1.0f else - 1.0f;
+    aux.y = if a.y > 0.0f 1.0f else - 1.0f;
+    aux.z = if a.z > 0.0f 1.0f else - 1.0f;
 
     return aux;
   }
@@ -761,7 +761,7 @@ TESTS:const s32=1;
   {
     a:= 0
     
-    return _vec{0.0, val + 0.5, 2.0, 3.0}
+    return _vec{0.0f, val + 0.5f, 2.0f, 3.0f}
   }
   modify_vec::fn(v : *_vec) ! u32 
   {
@@ -772,7 +772,7 @@ TESTS:const s32=1;
     vec_st : vec_sts
     
     vec_st.a = *v 
-    if vec_st.a.z <= 1.9 || vec_st.a.z >= 2.1
+    if vec_st.a.z <= 1.9f || vec_st.a.z >= 2.1f
       return 0;
     return 1;
   }
@@ -857,7 +857,7 @@ TESTS:const s32=1;
     ret.x = a.y * b.z - a.z * b.y
     ret.y = a.z * b.x - a.x * b.z
     ret.z = a.x * b.y - a.y * b.x
-    ret.w = 0.0
+    ret.w = 0.0f
     /*
     printf("\ton cross\n\t")
     print_vec(a)
@@ -887,13 +887,13 @@ TESTS:const s32=1;
       v1 := rinfo.v1
       v2 := rinfo.v2
 
-      epsilon : f32 = 0.000001;
+      epsilon : f32 = 0.000001f;
       
       edge1 := v1 - v0
-      edge1.w = 0.0;
+      edge1.w = 0.0f;
 
       edge2 := v2 - v0
-      edge2.w = 0.0;
+      edge2.w = 0.0f;
       h : _vec = ?;
       s : _vec = ?;
       q : _vec = ?;
@@ -914,13 +914,13 @@ TESTS:const s32=1;
       }
       
     //__dbg_break
-      f : f32 = 1.0 / a;
+      f : f32 = 1.0f / a;
       s = ray_origin - v0;
-      s.w = 0.0;
+      s.w = 0.0f;
       
       // Barycentric u coordinate
       u : f32 = f * dot_vec(&s, &h);
-      if (u < 0.0 || u > 1.0) {
+      if (u < 0.0f || u > 1.0f) {
           return false;
       }
     //__dbg_break
@@ -930,7 +930,7 @@ TESTS:const s32=1;
       
       // Barycentric v coordinate
       v : f32 = f * dot_vec(&ray_dir, &q);
-      if (v < 0.0 || u + v > 1.0) {
+      if (v < 0.0f || u + v > 1.0f) {
           return false;
       }
       
@@ -949,7 +949,7 @@ TESTS:const s32=1;
   }
   f32_approximate ::fn macro(f : _expr, val : _expr)
   {
-    (f >= (val - 0.1) && f <= (val + 0.1))
+    (f >= (val - 0.1f) && f <= (val + 0.1f))
   }
   ray_triangle_intersect_x64_test :: fn x64(rinfo : *raycast_info) ! u8
   {
@@ -962,16 +962,16 @@ TESTS:const s32=1;
       u_out := rinfo.u_out
       v_out := rinfo.v_out
 
-      epsilon : f32 = 0.000001;
+      epsilon : f32 = 0.000001f;
       
       edge1 := v1 - v0
-      edge1.w = 0.0;
+      edge1.w = 0.0f;
 
       edge2 := v2 - v0
-      edge2.w = 0.0;
-    if f32_approximate(edge1.x, 1.0) == false || 
-      f32_approximate(edge2.x, 1.0) == false || 
-      f32_approximate(edge2.z, -1.0) == false
+      edge2.w = 0.0f;
+    if f32_approximate(edge1.x, 1.0f) == false || 
+      f32_approximate(edge2.x, 1.0f) == false || 
+      f32_approximate(edge2.z, -1.0f) == false
 
     {
       return 0
@@ -987,8 +987,8 @@ TESTS:const s32=1;
 
       // Cross product: h = ray_dir × edge2
       h = cross_vec(&ray_dir, &edge2);
-    if f32_approximate(h.x, 1.0) == false || 
-      f32_approximate(h.z, 1.0) == false
+    if f32_approximate(h.x, 1.0f) == false || 
+      f32_approximate(h.z, 1.0f) == false
 
     {
       return 1
@@ -996,7 +996,7 @@ TESTS:const s32=1;
       
       // Determinant: a = edge1 • h
       a : f32 = dot_vec(&edge1, &h);
-    if f32_approximate(a, 1.0) == false
+    if f32_approximate(a, 1.0f) == false
     {
       return 2
     }
@@ -1007,55 +1007,55 @@ TESTS:const s32=1;
       }
       
     //__dbg_break
-      f : f32 = 1.0 / a;
+      f : f32 = 1.0f / a;
       s = ray_origin - v0;
-      s.w = 0.0;
+      s.w = 0.0f;
       
-    if f32_approximate(f, 1.0) == false
+    if f32_approximate(f, 1.0f) == false
     {
       return 4
     }
-    if f32_approximate(s.x, 0.5) == false || 
-      f32_approximate(s.y, 1.0) == false || 
-      f32_approximate(s.z, -0.5) == false
+    if f32_approximate(s.x, 0.5f) == false || 
+      f32_approximate(s.y, 1.0f) == false || 
+      f32_approximate(s.z, -0.5f) == false
     {
       return 5
     }
       
       // Barycentric u coordinate
       u : f32 = f * dot_vec(&s, &h);
-    if f32_approximate(u, 0.0) == false
+    if f32_approximate(u, 0.0f) == false
     {
       return 6
     }
-      if (u < 0.0 || u > 1.0) {
+      if (u < 0.0f || u > 1.0f) {
           return 7;
       }
     //__dbg_break
       
       // Cross product: q = s × edge1
       q = cross_vec(&s, &edge1);
-    if f32_approximate(q.x, 0.0) == false || 
-      f32_approximate(q.y, -0.5) == false || 
-      f32_approximate(q.z, -1.0) == false
+    if f32_approximate(q.x, 0.0f) == false || 
+      f32_approximate(q.y, -0.5f) == false || 
+      f32_approximate(q.z, -1.0f) == false
     {
       return 8
     }
       
       // Barycentric v coordinate
       v : f32 = f * dot_vec(&ray_dir, &q);
-    if f32_approximate(v, 0.5) == false
+    if f32_approximate(v, 0.5f) == false
     {
       return 9
     }
-      if (v < 0.0 || u + v > 1.0) {
+      if (v < 0.0f || u + v > 1.0f) {
           return 10;
       }
       
       // Calculate t parameter (distance along ray)
       t : f32 = f * dot_vec(&edge2, &q);
       
-    if f32_approximate(t, 1.0) == false
+    if f32_approximate(t, 1.0f) == false
     {
       return 11
     }
@@ -1077,13 +1077,13 @@ TESTS:const s32=1;
   {
     v1 :v3
     v2 :v3
-    v2.x = 2.0;
-    v1.x = 1.0;
+    v2.x = 2.0f;
+    v1.x = 1.0f;
     __dbg_break
     __dbg_break
     __dbg_break
     __dbg_break
-    v1 = v1 + v2 * 2.0;
+    v1 = v1 + v2 * 2.0f;
     return a +  h
 
   }
@@ -1104,9 +1104,9 @@ TESTS:const s32=1;
       __dbg_break
     PrintStr(cast(str_lit)buffer[0])
 
-    m := minf(-6.0, 1333.0)
+    m := minf(-6.0f, 1333.0f)
 
-    if m >= -5.9 || m <= -6.1
+    if m >= -5.9f || m <= -6.1f
       debug_break();
     i= 7;
     if i != 7
@@ -1286,24 +1286,24 @@ TESTS:const s32=1;
     if main_type() != 2
       debug_break();
 
-    f := 1.0;
+    f := 1.0f;
 
-    if f > 2.0
+    if f > 2.0f
       debug_break();
 
     vec1:v3=?;
     vec2:v3=?;
-    vec2.x = 1.0;
+    vec2.x = 1.0f;
     memcpy(&vec1, &vec2, sizeof(v3));
 
-    if vec1.x > 1.1 || vec1.x < 0.9
+    if vec1.x > 1.1f || vec1.x < 0.9f
       debug_break();
 
 
 
-    greater_than_0 : = f > 0.0;
-    less_than_3 : = f < 3.0;
-    greater_than_2 : = f > 2.0;
+    greater_than_0 : = f > 0.0f;
+    less_than_3 : = f < 3.0f;
+    greater_than_2 : = f > 2.0f;
 
     val:bool = false;
     if greater_than_0 && !greater_than_2
@@ -1344,37 +1344,37 @@ TESTS:const s32=1;
     if val == false
       debug_break();
     
-    fsum: = test_sum_float(1.0, 2.0);
-    if fsum < 2.0  || fsum > 4.0
+    fsum: = test_sum_float(1.0f, 2.0f);
+    if fsum < 2.0f  || fsum > 4.0f
       debug_break();
 
 
-    fsum = 1.0;
-    testt: = [3]f32{ ret_f32_summed_with_one(fsum), ret_f32_summed_with_one(fsum), 3.0 };
+    fsum = 1.0f;
+    testt: = [3]f32{ ret_f32_summed_with_one(fsum), ret_f32_summed_with_one(fsum), 3.0f };
     fsum = *testt[0] + *testt[1] + *testt[2];
     
-    if fsum < 6.9 || fsum > 7.1
+    if fsum < 6.9f || fsum > 7.1f
       debug_break();
 
     modify_f32(&fsum);
 
-    if fsum < 0.9 || fsum > 1.1
+    if fsum < 0.9f || fsum > 1.1f
       debug_break();
 
     *cast(*s32)&fsum = 0x40000000;
 
-    if fsum < 1.9 || fsum > 2.1
+    if fsum < 1.9f || fsum > 2.1f
       debug_break();
     
     modify_f32_as_s32(&fsum);
-    if fsum < 2.9 || fsum > 3.1
+    if fsum < 2.9f || fsum > 3.1f
       debug_break();
 
 
     // struct construction
-    fsum = 3.0;
+    fsum = 3.0f;
     fsum = ret_sum_one_with_f32_ptr(&fsum);
-    if fsum < 3.9 || fsum > 4.1
+    if fsum < 3.9f || fsum > 4.1f
       debug_break();
 
 
@@ -1386,11 +1386,11 @@ TESTS:const s32=1;
     // static array stuff
     ar_strct:[4]simple_strct_f32;
     modify_ar_strct(ar_strct);
-    if ar_strct[0].a < 3.4 || ar_strct[0].a > 3.6
+    if ar_strct[0].a < 3.4f || ar_strct[0].a > 3.6f
       debug_break();
 
     modify_static_ar_through_void_ptr(cast(*void)ar_strct);
-    if ar_strct[0].a < 1.4 || ar_strct[0].a > 1.6
+    if ar_strct[0].a < 1.4f || ar_strct[0].a > 1.6f
       debug_break();
 
 
@@ -1399,7 +1399,7 @@ TESTS:const s32=1;
       ar: [4] f32;
     }
     modify_static_ar_through_void_ptr(cast(*void)ar_strct_ar.ar);
-    if *ar_strct_ar.ar[0] < 1.4 || *ar_strct_ar.ar[0] > 1.6
+    if *ar_strct_ar.ar[0] < 1.4f || *ar_strct_ar.ar[0] > 1.6f
       debug_break();
 
     i = 5;
@@ -1410,9 +1410,9 @@ TESTS:const s32=1;
       debug_break();
 
     static_ar: [4] f32;
-    *static_ar[0] = 0.5;
+    *static_ar[0] = 0.5f;
 
-    if* static_ar[0] < 0.4 || *static_ar[0] > 0.6
+    if* static_ar[0] < 0.4f || *static_ar[0] > 0.6f
       debug_break();
 
     test_strct : struct
@@ -1421,8 +1421,8 @@ TESTS:const s32=1;
     }
 
     color:test_strct;
-    *color.ar[1] = 0.5;
-    if* color.ar[1] < 0.4 || *color.ar[1] > 0.6
+    *color.ar[1] = 0.5f;
+    if* color.ar[1] < 0.4f || *color.ar[1] > 0.6f
       debug_break();
 
 
@@ -1442,18 +1442,18 @@ TESTS:const s32=1;
 
     fval: = cast(f32)2;
 
-    if fval > 2.1 || fval < 1.9
+    if fval > 2.1f || fval < 1.9f
       debug_break();
 
     i = 3;
     fval = cast(f32)i;
 
-    if fval > 3.1 || fval < 2.9
+    if fval > 3.1f || fval < 2.9f
       debug_break();
 
 
-    f1: = 1.0;
-    f2: = 0.5;
+    f1: = 1.0f;
+    f2: = 0.5f;
     i = 5;
 
     i = cast(s32)((cast(f32)i * f2) / f1);
@@ -1462,7 +1462,7 @@ TESTS:const s32=1;
       debug_break();
 
     i = 5;
-    f2 = 0.7;
+    f2 = 0.7f;
 
     ttt := cast(s32)f2
     i = cast(s32)((cast(f32)i * f2) / f1);
@@ -1471,79 +1471,79 @@ TESTS:const s32=1;
 
     v1:v3;
     v1= ret_v3();
-    if v1.y > 2.1 || v1.y < 1.9
+    if v1.y > 2.1f || v1.y < 1.9f
       debug_break();
 
     v2:v3;
 
-    v1.x = 1.0;
-    v2.x = 3.0;
-    v1.y = 1.0;
-    v2.y = -1.0;
+    v1.x = 1.0f;
+    v2.x = 3.0f;
+    v1.y = 1.0f;
+    v2.y = -1.0f;
     v: = v1 + v2;
 
-    if v.x > 4.1 || v.x < 3.9
+    if v.x > 4.1f || v.x < 3.9f
       debug_break();
 
-    v1.x = 1.0;
-    v = v1 * 2.0;
+    v1.x = 1.0f;
+    v = v1 * 2.0f;
 
-    if v.x > 2.1 || v.x < 1.9
+    if v.x > 2.1f || v.x < 1.9f
       debug_break();
 
-    v1.x = 1.0;
-    v2.x = 1.0;
+    v1.x = 1.0f;
+    v2.x = 1.0f;
     v = v1 - v2;
-    if v.x > 0.1 || v.x < -0.1
+    if v.x > 0.1f || v.x < -0.1f
       debug_break();
 
-    v1.x = 5.0;
-    v1.y = -6.0;
+    v1.x = 5.0f;
+    v1.y = -6.0f;
 
     v1 = sign_v3(&v1);
 
-    if v1.x > 1.1 || v1.x < 0.9 || v1.y < -1.0 || v1.y > -0.9
+    if v1.x > 1.1f || v1.x < 0.9f || v1.y < -1.0f || v1.y > -0.9f
       debug_break();
 
-    v2.x = 2.0;
-    v1.x = 1.0;
+    v2.x = 2.0f;
+    v1.x = 1.0f;
 
     v1.x = (v1 - v2).x;
-    if v1.x > -0.9 || v1.x < -1.1
+    if v1.x > -0.9f || v1.x < -1.1f
       debug_break();
 
-    v2.x = 2.0;
-    v1.x = 1.0;
+    v2.x = 2.0f;
+    v1.x = 1.0f;
     __dbg_break
     __dbg_break
     __dbg_break
     __dbg_break
-    v1 = v1 + v2 * 2.0;
+    v1 = v1 + v2 * 2.0f;
 
-    if v1.x > 5.1 || v1.x < 4.9
+    if v1.x > 5.1f || v1.x < 4.9f
       debug_break();
 
-    ar_test := []f32{ 1.0, 2.0, 3.0, 4.0 };
+    ar_test := []f32{ 1.0f, 2.0f, 3.0f, 4.0f };
 
-    if *ar_test[0] > 1.1 || *ar_test[0] < 0.9
+    if *ar_test[0] > 1.1f || *ar_test[0] < 0.9f
       debug_break();
 
     i = 2;
     v2.x = cast(f32)-i;
 
 
-    if v2.x > -1.9 || v2.x < -2.1
+    if v2.x > -1.9f || v2.x < -2.1f
       debug_break();
 
     //__dbg_break
-    fval = sqrt(4.0);
-    if fval > 2.1 || fval < 1.9
+    fval = sqrt(4.0f);
+    if fval > 2.1f || fval < 1.9f
       debug_break();
     //WasmDbg(nil);
     norm: = normalize_v3(&v2);
     fval = dot_v3(&norm, &norm);
 
-    if fval > 1.1 || fval < 0.9
+    if fval > 1.1f || fval < 0.9f
       debug_break();
 
 
@@ -1722,89 +1722,89 @@ TESTS:const s32=1;
     if !val
       debug_break();
 
-    vec_test: = _vec{ 1.0, 1.0, 1.0, 1.0 };
-    vec_test2: = _vec{ 1.0, 1.0, 1.0, 1.0 };
+    vec_test: = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
+    vec_test2: = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
     vec_test = vec_test + vec_test2
 
-    if vec_test.x < 1.9 || vec_test.x > 2.1
+    if vec_test.x < 1.9f || vec_test.x > 2.1f
       debug_break();
 
 
-    vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 };
-    vec_test = vec_test * 2.0;
+    vec_test = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
+    vec_test = vec_test * 2.0f;
 
-    if vec_test.x < 1.9 || vec_test.x > 2.1
+    if vec_test.x < 1.9f || vec_test.x > 2.1f
       debug_break();
     
-    fsum = 2.0;
-    vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 };
+    fsum = 2.0f;
+    vec_test = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
     vec_test = vec_test * fsum;
-    if vec_test.x < 1.9 || vec_test.x > 2.1
+    if vec_test.x < 1.9f || vec_test.x > 2.1f
       debug_break();
 
-    vec_test = _vec{ 1.0, 1.0, 1.0, 1.0 } + _vec{ 1.0, 1.0, 1.0, 1.0 };
-    if vec_test.x < 1.9 || vec_test.x > 2.1
+    vec_test = _vec{ 1.0f, 1.0f, 1.0f, 1.0f } + _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
+    if vec_test.x < 1.9f || vec_test.x > 2.1f
       debug_break();
 
-    vec_test = _vec{ 2.0, 2.0, 2.0, 0.0 };
+    vec_test = _vec{ 2.0f, 2.0f, 2.0f, 0.0f };
 
     fsum = dot_vec(&vec_test, &vec_test);
-    if fsum < 11.9 || fsum > 12.1
+    if fsum < 11.9f || fsum > 12.1f
       debug_break();
 
-    vec_test = ret_vec(1.0)
+    vec_test = ret_vec(1.0f)
 
-    if vec_test.y < 1.4 || vec_test.y > 1.6
+    if vec_test.y < 1.4f || vec_test.y > 1.6f
       debug_break();
 
-    vec_test.x = 1.0
-    vec_test += _vec{1.0, 0.0, 0.0, 0.0};
+    vec_test.x = 1.0f
+    vec_test += _vec{1.0f, 0.0f, 0.0f, 0.0f};
 
-    if vec_test.x < 1.9 || vec_test.y > 2.1
+    if vec_test.x < 1.9f || vec_test.y > 2.1f
       debug_break();
 
-    vec_test = ret_vec(3.0) - ret_vec(1.0)
+    vec_test = ret_vec(3.0f) - ret_vec(1.0f)
 
-    if vec_test.y < 1.9 || vec_test.y > 2.1
+    if vec_test.y < 1.9f || vec_test.y > 2.1f
       debug_break();
 
     vec_ptr := &vec_test
-    vec_ptr.y = 3.0
-    vec_ptr.y += 0.1
-    if vec_ptr.y < 3.0 || vec_test.y > 3.2
+    vec_ptr.y = 3.0f
+    vec_ptr.y += 0.1f
+    if vec_ptr.y < 3.0f || vec_test.y > 3.2f
       debug_break();
-    fsum = 0.1
+    fsum = 0.1f
     vec_ptr.y += fsum
-    if vec_ptr.y < 3.1 || vec_test.y > 3.3
+    if vec_ptr.y < 3.1f || vec_test.y > 3.3f
       debug_break();
 
-    vec_test.z = 2.0
+    vec_test.z = 2.0f
     if modify_vec(&vec_test) != 1
       debug_break();
 
-    fsum = 1.0
+    fsum = 1.0f
     memset(&fsum, 0, 4)
-    if fsum != 0.0
+    if fsum != 0.0f
       debug_break();
 
     fptr := &fsum
-    fsum = 1.0
+    fsum = 1.0f
     memset(fptr, 0, 4)
-    if fsum != 0.0
+    if fsum != 0.0f
       debug_break();
 
-    fsum = 1.0
+    fsum = 1.0f
     fptr_st : test_fptr
     fptr_st.ptr = &fsum
     memset(fptr_st.ptr, 0, 4)
-    if fsum != 0.0
+    if fsum != 0.0f
       debug_break();
 
-    fsum = 1.0
+    fsum = 1.0f
     ptr_aux := cast(*u32)fptr_st.ptr
     *ptr_aux = 0
-    if fsum != 0.0
-      debug_break();
+    if fsum != 0.0f
+      debug_break();f
     
     rel_st1 : rel_array(u32)
     ref_i :u32= 5
@@ -1815,11 +1815,11 @@ TESTS:const s32=1;
     if aux_val != 5
       debug_break();
 
-    fsum = 1.0
+    fsum = 1.0f
     fptr = ret_fptr(&fsum)
-    *fptr = 0.0
+    *fptr = 0.0f
     
-    if fsum != 0.0
+    if fsum != 0.0f
       debug_break();
 
     vec_2 : _vec
@@ -2015,7 +2015,7 @@ else
     return a + g
 
   }
-  callf::fn(a : s32, b : s32, c : _vec) ! s32
+  callf::fn(a : s32, b : s32, c : _vec2) ! s32
   {
     return a + b
   }
@@ -2030,7 +2030,7 @@ else
     v2 = v2 * v2 + v2
     */
 
-    v :_vec
+    v :_vec2
     callf(1, 2, v)
 
     f := cast(f32)1.0

@@ -369,6 +369,9 @@ enum byte_code_enum : unsigned short
 	REP_B,
 	REP_MOVSB,
 
+	BROADCAST_SS,
+	BROADCAST_SD,
+
 	JMP,
 	JMP_E,
 	JMP_NE,

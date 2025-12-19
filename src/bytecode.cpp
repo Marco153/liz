@@ -1326,6 +1326,33 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			CreateSSERegToSSEReg(&*bc, 0x2c, &ret);
 		}break;
+		case BROADCAST_SS:
+		case BROADCAST_SD:
+    {
+      char dst = bc->bin.lhs.reg;
+      char src = bc->bin.rhs.reg;
+
+      char op = 0;
+			ret.code.emplace_back(0xc4);
+			ret.code.emplace_back(0x42 | !(dst > 7)<<7 | !(src > 7)<<5);
+      switch(bc->type)
+      {
+      case BROADCAST_SD:
+      {
+        op = 0x19;
+        ret.code.emplace_back(0x7d);
+      }break;
+      case BROADCAST_SS: 
+      {
+        op = 0x18;
+        ret.code.emplace_back(0x79);
+      }break;
+      }
+      ret.code.emplace_back(op);
+
+      ret.code.emplace_back(3 << 6 | (src&0x7) | (dst&0x7)<<3);
+
+    }break;
 		case MOV_SSE_2_SSE:
 		{
 			CreateSSERegToSSEReg(&*bc, 0x10, &ret);

@@ -1,5 +1,6 @@
 #include "IR.h"
 #include "bytecode.h"
+#include "error_report.h"
 #include "node.h"
 #include "token.h"
 #include "token_common.h"
@@ -5067,6 +5068,14 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   ret.type = IR_TYPE_REG;
   ret.kind = IR_VAL_VALUE;
   ret.reg_sz = GetTypeSize(&callf->ret_type);
+  ret.is_float = callf->ret_type.IsFloat();
+  ret.is_unsigned = IsUnsigned(callf->ret_type.type);
+  ret.is_packed_float = callf->ret_type.type == TYPE_VECTOR;
+  if(ret.is_packed_float)
+  {
+    ret.reg_sz = callf->ret_type.vec_type;
+
+  }
   ret.reg = 0;
   ret.reg_sz = max(1, ret.reg_sz);
   //if(callf->ret_type.)
@@ -5114,6 +5123,41 @@ void GetIRCondValue(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state,
 bool IsIrValLiteral(ir_val_type tp)
 {
   return tp == IR_TYPE_INT64 || tp == IR_TYPE_INT || tp == IR_TYPE_F32 || tp == IR_TYPE_F64;
+}
+ir_val GetDoubleIr(lang_state *lang_stat, thread_ir_state *state, double f)
+{
+  ir_val ret;
+  ir_rep ir={};
+
+  ir.type = IR_GET_FLOAT;
+  ir.bin.lhs.type = IR_TYPE_REG;
+  ir.bin.lhs.is_float = true;
+  ir.bin.lhs.reg = AllocFloatReg(lang_stat);
+  ir.bin.lhs.reg_sz = 8 ;
+  ir.bin.rhs.f64 = f;
+  state->cur_block->irs.emplace_back(ir);
+  ret = ir.bin.lhs;
+  ret.kind = IR_VAL_VALUE;
+
+  return ret;
+}
+ir_val GetFloatIr(lang_state *lang_stat, thread_ir_state *state, float f)
+{
+  ir_val ret;
+  ir_rep ir={};
+
+  ir.type = IR_GET_FLOAT;
+  ir.bin.lhs.type = IR_TYPE_REG;
+  ir.bin.lhs.is_float = true;
+  ir.bin.lhs.kind = IR_VAL_VALUE;
+  ir.bin.lhs.reg = AllocFloatReg(lang_stat);
+  ir.bin.lhs.reg_sz = 4;
+  ir.bin.rhs.f32 = f;
+
+  state->cur_block->irs.emplace_back(ir);
+
+  ret = ir.bin.lhs;
+  return ret;
 }
 ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
 {
@@ -5228,6 +5272,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ir.bin.lhs.type = IR_TYPE_REG;
     ir.bin.lhs.reg = (char)regs_enum::RAX;
     ir.bin.lhs.reg_sz = ret.reg_sz;
+    ir.bin.lhs.is_unsigned = ret.is_unsigned;
+    ir.bin.lhs.is_float = ret.is_float;
+    ir.bin.lhs.is_packed_float = ret.is_packed_float;
     ir.bin.rhs = ret;
 
     InsertIr(state, &ir);
@@ -5425,6 +5472,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     state->cur_block->irs.emplace_back(ir);
 
 
+    ret.kind = IR_VAL_VALUE;
     ret = ir.bin.lhs;
   }break;
   case AST_INT:
@@ -5604,6 +5652,71 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
 
     ret.reg_sz = 1;
+  }break;
+  case AST_NEGATIVE:
+  {
+    lhs = GetIRFromAst2(lang_stat, ast->ast, state, false);
+    if(lhs.kind != IR_VAL_VALUE)
+    {
+      LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref, lhs.deref);
+    }
+
+    if(lhs.is_float)
+    {
+      //HERE()
+      if(lhs.reg_sz == 4)
+      {
+        rhs = GetFloatIr(lang_stat, state, -1.0);
+      }
+      else
+      {
+        rhs = GetDoubleIr(lang_stat, state, -1.0);
+      }
+      char rhs_reg = rhs.reg;
+
+      if(lhs.is_packed_float)
+      {
+        ir.type = IR_FILL;
+        ir.bin.lhs.type = IR_TYPE_REG;
+        ir.bin.lhs.reg = rhs_reg;
+        ir.bin.lhs.is_float = true;
+        ir.bin.lhs.is_packed_float = true;
+        ir.bin.lhs.reg_sz = lhs.reg_sz;
+        ir.bin.rhs = rhs;
+
+
+        state->cur_block->irs.emplace_back(ir);
+        rhs = ir.bin.lhs;
+
+        ir.type = IR_BIN;
+        ir.bin.op = T_MUL;
+        ir.bin.lhs = lhs;
+        ir.bin.rhs = rhs;
+        state->cur_block->irs.emplace_back(ir);
+
+        //lhs = rhs;
+        //FreeSpecificFloatReg(lang_stat, reg);
+      }
+      else
+      {
+        ir.type = IR_BIN;
+        ir.bin.op = T_MUL;
+        ir.bin.lhs = lhs;
+        ir.bin.rhs = rhs;
+        state->cur_block->irs.emplace_back(ir);
+      }
+      FreeSpecificFloatReg(lang_stat, rhs_reg);
+    }
+    else
+    {
+      ir.type = IR_BIN;
+      ir.bin.op = T_MUL;
+      ir.bin.lhs = lhs;
+      ir.bin.rhs.type = IR_TYPE_INT;
+      ir.bin.rhs.i = -1;
+    }
+    ret = lhs;
+    
   }break;
   case AST_MINUS_MINUS:
   case AST_PLUS_PLUS:

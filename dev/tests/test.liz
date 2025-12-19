@@ -229,41 +229,6 @@ TESTS:const s32=1;
     ret.z = self.z + rhs.z;
     return ret;
   }
-  memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
-  {
-    //ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
-    __dbg_break
-    i:u64 = 0;
-    if (sz % 16) == 0
-    {
-      total := sz / 16
-
-      while i < total
-      {
-        *ptr_offset(dst, i, _vec) = *ptr_offset(src, i, _vec);
-        i++
-      }
-    }
-    else if (sz % 8) == 0
-    {
-      total := sz / 8
-
-      while i < total
-      {
-        *ptr_offset(dst, i, u64) = *ptr_offset(src, i, u64);
-        i++
-      }
-
-    }
-    else
-    {
-      while i < sz
-      {
-        *ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
-        i++;
-      }
-    }
-  }
 
   global_strct:struct
   {
@@ -2039,9 +2004,12 @@ else
   {
     ret :test_st
     ret.a = 5;
-    __dbg_break
-    __dbg_break
-    __dbg_break
+    return ret
+  }
+  ret_vec1::fn()!_vec2
+  {
+    ret:_vec2
+    ret.x = 0.1
     return ret
   }
 
@@ -2069,12 +2037,15 @@ else
     v2.x = 1.0
     v2 = v2 * v2 + v2
     */
-    st := ret_st()
 
     __dbg_break
     __dbg_break
     __dbg_break
-    st.a = st.a +1
+    f :_vec2
+    f.x = 1.5
+    f = -f
+
+    v := ret_vec1()
 
 
   }

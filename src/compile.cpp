@@ -14465,6 +14465,22 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
       //BREAK(ret.size() >= 90)
       switch(cur_ir->type)
       {
+      case IR_FILL:
+      {
+        if(ir->bin.lhs.reg_sz == 4)
+        {
+          bc.type = BROADCAST_SS;
+
+        }
+        else
+        {
+          bc.type = BROADCAST_SD;
+
+        }
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.rhs.reg = ir->bin.rhs.reg;
+        InsertBc(ret, bc);
+      }break;
       case IR_STACK_END:
       {
         GenX64RetGroup(lang_stat, stack_size, ret);

@@ -246,6 +246,7 @@ enum ir_type
     IR_ASSIGNMENT,
     IR_RET,
     IR_REPMOVSB,
+    IR_FILL,
     IR_LABEL,
     IR_BIN,
     IR_CMP,

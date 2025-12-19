@@ -10231,7 +10231,7 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs
   for(int i = 0; i < 10; i ++)
   {
     double *cur = d + i * 4;
-    ImGui::Text("ymm%d: {%.4lf, %.4lf, %.4lf, %.4lf}", i, cur[0], cur[1], cur[2], cur[3]);
+    ImGui::Text("ymm%d: {%.4lf(0x%llx), %.4lf, %.4lf, %.4lf}", i, cur[0], *(u64 *)&cur[0], cur[1], cur[2], cur[3]);
   }
   //ImGui::Text("xmm3: %.4f", fregs->xmm_space[3]);
   //ImGui::Text("xmm4: %.4f", fregs->xmm_space[4]);

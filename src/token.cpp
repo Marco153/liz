@@ -178,7 +178,9 @@ int GetTypeSize(type2 *tp, char ptr)
 		}
 		case enum_type2::TYPE_VECTOR_TYPE:
 		case enum_type2::TYPE_VECTOR:
-			return 16;
+    if(tp->vec_type == 4) return 16;
+    else if(tp->vec_type == 8) return 32;
+    else ASSERT(false)
 		default:
 			ASSERT(false)
 	}

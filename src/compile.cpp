@@ -11022,6 +11022,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 	default:
 		ASSERT(false)
 	}
+  //BREAK(bc.bin.rhs.reg == 16)
 	ret.emplace_back(bc);
 }
 #pragma optimize("", on)
@@ -14437,6 +14438,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         HERE()
       }
       */
+      //BREAK(ret.size() >= 90)
       switch(cur_ir->type)
       {
       case IR_STACK_END:
@@ -14494,6 +14496,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         FreeAllFloatRegs(lang_stat);
         cur_line = ir->block.stmnt.line;
         stmnt_dbg cur_st;
+        cur_st.line = cur_line;
         if(lang_stat->is_machine_x64_backend)
         {
           bc.type = BEGIN_STMNT;

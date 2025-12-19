@@ -10808,7 +10808,6 @@ if(!decl)
     // if (n->l->r)
     //	DescendNode(n->l->r, scp);
 
-    BREAK(n->t->line >= 2019)
     if (n->r) {
       auto before_flags = lang_stat->flags;
       auto before_plugin = lang_stat->plugins_for_func;

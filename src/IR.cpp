@@ -4885,7 +4885,7 @@ void FreeRegs2(lang_state *lang_stat)
     lang_stat->float_regs[i] = 0;
   }
 }
-void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i)
+void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args)
 {
   ir_rep ir={};
   ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
@@ -4900,26 +4900,45 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
 
   ir.type = IR_BIN;
   ir.bin.op = T_EQUAL;
-  if(i >= MAX_CALL_REGS)
+  if(ir.bin.rhs.is_float)
   {
     if(ir.bin.rhs.kind == IR_VAL_ADDR)
     {
       char deref = ir.bin.rhs.deref;
       LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs, deref, deref);
     }
-    ir.bin.lhs.type = IR_TYPE_REG_MEM;
-    ir.bin.lhs.reg = (char)regs_enum::RSP;
-    ir.bin.lhs.reg_sz = 8;
-    ir.bin.lhs.voffset = (i - MAX_CALL_REGS) * 8;
+    ASSERT(*float_args < 7)
 
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.is_float = true;
+    ir.bin.lhs.reg_sz = ir.bin.rhs.reg_sz;
+    ir.bin.lhs.is_packed_float = ir.bin.rhs.is_packed_float;
+    ir.bin.lhs.reg = *float_args;
+    *float_args++;
   }
   else
   {
-    char reg_arg = FromIdxToArgReg(i);
-    AllocSpecificReg(lang_stat, reg_arg);
-    ir.bin.lhs.type = IR_TYPE_REG;
-    ir.bin.lhs.reg = reg_arg;
-    ir.bin.lhs.reg_sz = 8;
+    if(i >= MAX_CALL_REGS)
+    {
+      if(ir.bin.rhs.kind == IR_VAL_ADDR)
+      {
+        char deref = ir.bin.rhs.deref;
+        LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs, deref, deref);
+      }
+      ir.bin.lhs.type = IR_TYPE_REG_MEM;
+      ir.bin.lhs.reg = (char)regs_enum::RSP;
+      ir.bin.lhs.reg_sz = 8;
+      ir.bin.lhs.voffset = (i - MAX_CALL_REGS) * 8;
+
+    }
+    else
+    {
+      char reg_arg = FromIdxToArgReg(i);
+      AllocSpecificReg(lang_stat, reg_arg);
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg = reg_arg;
+      ir.bin.lhs.reg_sz = 8;
+    }
   }
 
   if(reg != -1)
@@ -4956,11 +4975,12 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     if(i >= 6) break;
   }
   i = 0;
+  int f_args = 0;
   FOR_VEC(arg, ast->call.args)
   {
     if(HasCall(lang_stat, *arg))
     {
-      GetIRCallArg(lang_stat, *arg, state, i);
+      GetIRCallArg(lang_stat, *arg, state, i, &f_args);
       (*arg)->ir_generated = true;
     }
 
@@ -4969,12 +4989,13 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
 
   i=0;
+  f_args = 0;
   FOR_VEC(arg, ast->call.args)
   {
 
     if(!(*arg)->ir_generated)
     {
-      GetIRCallArg(lang_stat, *arg, state, i);
+      GetIRCallArg(lang_stat, *arg, state, i, &f_args);
     }
 
     i++;

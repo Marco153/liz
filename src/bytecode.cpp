@@ -3617,7 +3617,9 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
 			//offset -= 8;
 		int float_reg = 0;
 			
-		for(int i = 0; i < MAX_CALL_REGS; i++)
+    int normal_reg = 0;
+    int i = 0;
+		for(int normal_reg = 0; normal_reg < MAX_CALL_REGS; normal_reg++)
 		{
 			
 			decl2* a = nullptr;
@@ -3630,22 +3632,38 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
 			bc.bin.lhs.voffset = offset + start;
 			bc.bin.lhs.reg_sz = 8;
 			bc.bin.lhs.var_size= 8;
-			bc.bin.rhs.reg = FromIdxToArgReg(i);
+			bc.bin.rhs.reg = FromIdxToArgReg(normal_reg);
+
+			bc.bin.rhs.reg_sz = 8;
 
 			if(a && (a->type.IsFloat() && a->type.ptr == 0))
 			{
+        //HERE()
+        bc.type = MOV_SSE_2_MEM;
 				bc.bin.rhs.reg = float_reg;
-				bc.bin.rhs.reg |= 1 << 4;
+        bc.bin.lhs.reg_sz = GetTypeSize(&a->type);
+        bc.bin.rhs.reg_sz = bc.bin.lhs.reg_sz;
+
 				float_reg++;
 			}
+      else
+        normal_reg++;
 
-			bc.bin.rhs.reg_sz = 8;
 			// bool param is if the reg is lhs or not
-			out->emplace_back(bc);
 
 			// bool param is if the reg is lhs or not
 			//out->bcodes.emplace_back(byte_code(STORE_REG_PARAM, false, (char) 6 + i, (char)8, (int)offset, (int)8));
-			offset += 8;
+      if(a && a->type.type == TYPE_VECTOR)
+      {
+        bc.type = MOV_PCKD_SSE_2_MEM;
+        offset += GetTypeSize(&a->type);
+        bc.bin.lhs.reg_sz = a->type.vec_type;
+      }
+      else
+        offset += 8;
+
+			out->emplace_back(bc);
+      i++;
 		}
 	}
 }

@@ -2260,6 +2260,9 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			//TODO
 		}break;
 		case ADD_MEM_2_PCKD_SSE:
+		case SUB_MEM_2_PCKD_SSE:
+		case MUL_MEM_2_PCKD_SSE:
+		case DIV_MEM_2_PCKD_SSE:
     {
       char src = bc->bin.rhs.reg;
       char dst = bc->bin.lhs.reg;
@@ -2268,9 +2271,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       bool is_rex = IS_FLAG_ON(bc->bin.rhs.reg, 0x80);
       char op = 0x58;
       int offset = bc->bin.rhs.voffset;
+      switch(bc->type)
+      {
+      case ADD_MEM_2_PCKD_SSE: op = 0x58;break;
+      case SUB_MEM_2_PCKD_SSE: op = 0x5c;break;
+      case MUL_MEM_2_PCKD_SSE: op = 0x59;break;
+      case DIV_MEM_2_PCKD_SSE: op = 0x5e;break;
+      default: ASSERT(false)
+      }
       if(bc->bin.lhs.reg_sz == 8)
       {
-        HERE()
         // here we have "inst dst, src1, src2" model
         // search in this file for EXPLANATION VEX for more info
         if((src > 7 && dst > 7) || (src > 7 && dst <= 7))
@@ -2307,7 +2317,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       }
       else
       {
-        AddSSEExtendedByte(&src, &dst, &ret);
+        HERE()
+        AddSSEExtendedByte(&dst, &src, &ret);
         ret.code.emplace_back(0x0f);
       }
       dst &= 0x7;
@@ -2351,7 +2362,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         rm = dst;
         reg = src;
         op = 0x11;
-        HERE()
+        //HERE()
       }break;
       }
       is_rex = IS_FLAG_ON(reg, 0x80);

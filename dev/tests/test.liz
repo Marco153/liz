@@ -2042,24 +2042,11 @@ else
     __dbg_break
     __dbg_break
     __dbg_break
-    d := 1
-    di := cast(f32)d
-    a : _vec2=?
-    a.x = 1.0
-    a.y = 2.5
-    a.z = 3.5
-    b : _vec2=?
-    b.x = 1.0
-    b.y = 2.0
-    b.z = 3.0
-
-    c := _dot(a, b)
-
-    f :_vec2
-    f.x = 1.5
-    f = -f
-
-    v := ret_vec1()
+    a :u64= 2
+    b := cast(*u32)&a
+    *b = *b + 3
+    ar : [4]u32
+    *ar[2] = 0
 
 
   }

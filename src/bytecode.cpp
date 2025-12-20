@@ -989,7 +989,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case CVT_SS_2_SI:
 		case CVT_SD_2_SI:
     {
-      HERE()
+      //HERE()
       char ireg = bc->bin.lhs.reg;
       char freg = bc->bin.rhs.reg;
       char lhs = bc->bin.lhs.reg & 7;
@@ -1027,11 +1027,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       }
       else if(!is_rex && freg > 7)
       {
-        val = 0x49;
+        val = 0x4c;
       }
       else if(is_rex && freg <= 7)
       {
-        val = 0x4c;
+        val = 0x49;
       }
 
       if(sz == 4)

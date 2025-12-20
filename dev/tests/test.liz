@@ -2042,6 +2042,8 @@ else
     __dbg_break
     __dbg_break
     __dbg_break
+    d := 1
+    di := cast(f32)d
     a : _vec2=?
     a.x = 1.0
     a.y = 2.5

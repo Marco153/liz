@@ -5562,17 +5562,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     if(ast->cast.type.type == TYPE_VOID && ast->cast.type.ptr > 0)
       cast_sz = 8;
 
-    ir.bin.lhs.is_unsigned = IsUnsigned(ast->cast.type.type);
-    ir.bin.lhs.is_float = ast->cast.type.IsFloat();
-    ir.bin.lhs.is_packed_float = ast->cast.type.type == TYPE_VECTOR;
-
-    ret.is_float = ir.bin.lhs.is_float;
-    ret.is_packed_float = ir.bin.lhs.is_packed_float;
-    ret.is_unsigned = ir.bin.lhs.is_unsigned;
 
     //ret.reg_sz = cast_sz;
 
-    BREAK(ast->line_number == 2030)
+    //BREAK(ast->line_number == 2046)
     if(ast->cast.type.ptr > 0)
     {
     }
@@ -5592,6 +5585,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         else if(ret.is_float && ast->cast.type.IsFloat())
         {
           BREAK(ast->line_number == 764)
+          if(ret.kind == IR_VAL_ADDR)
+          {
+            LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
+          }
           ir.type = IR_CAST_FLOAT_TO_FLOAT;
           ir.bin.lhs = ret;
           ir.bin.rhs = ret;
@@ -5618,7 +5615,56 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           
         }
       }
+      else if(cast_sz != ret.reg_sz)
+      {
+      }
+      bool can_add = false;
+      if(!ast->cast.type.IsFloat() && ret.is_float)
+      {
+        if(ret.kind == IR_VAL_ADDR)
+        {
+          LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
+        }
+        ir.type = IR_CAST_FLOAT_TO_INT;
+        ir.bin.lhs.type = IR_TYPE_REG;
+        ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+        ir.bin.lhs.reg_sz = cast_sz;
+        ir.bin.rhs = ret;
+
+        ret = ir.bin.lhs;
+        can_add = true;
+      }
+      else if(ast->cast.type.IsFloat() && !ret.is_float)
+      {
+        if(ret.kind == IR_VAL_ADDR)
+        {
+          LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
+        }
+        HERE()
+        ir.type = IR_CAST_INT_TO_FLOAT;
+        ir.bin.lhs.type = IR_TYPE_REG;
+        ir.bin.lhs.reg = AllocFloatReg(lang_stat);
+        ir.bin.lhs.reg_sz = cast_sz;
+        ir.bin.rhs = ret;
+
+        ret = ir.bin.lhs;
+        can_add = true;
+      }
+
+      if(can_add)
+        state->cur_block->irs.emplace_back(ir);
+
     }
+
+    ir.bin.lhs.is_unsigned = IsUnsigned(ast->cast.type.type);
+    ir.bin.lhs.is_float = ast->cast.type.IsFloat();
+    ir.bin.lhs.is_packed_float = ast->cast.type.type == TYPE_VECTOR;
+
+    bool was_float = ret.is_float;
+
+    ret.is_float = ir.bin.lhs.is_float;
+    ret.is_packed_float = ir.bin.lhs.is_packed_float;
+    ret.is_unsigned = ir.bin.lhs.is_unsigned;
     ret.reg_sz = cast_sz;
 
   }break;

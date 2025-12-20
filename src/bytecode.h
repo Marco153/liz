@@ -274,6 +274,11 @@ enum byte_code_enum : unsigned short
 	CVTSS_REG_2_SD,
 	CVTSD_REG_2_SS,
 	CVTSD_SS_2_REG,
+	CVT_SD_2_REG,
+	CVT_SS_2_SI,
+	CVT_SD_2_SI,
+	CVT_SI_2_SS,
+	CVT_SI_2_SD,
 
 	PUSH_REG_PARAM,
 	POP_REG_PARAM,

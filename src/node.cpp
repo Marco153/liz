@@ -9950,8 +9950,8 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
              rhs_type.type == TYPE_F32 || rhs_type.type == TYPE_F64);
     }
     if (rhs_type.IsFloat() && rhs_type.ptr == 0) {
-      ASSERT(lhs_type.type == TYPE_F32_TYPE || lhs_type.type == TYPE_F32_TYPE ||
-             lhs_type.type == TYPE_S32_TYPE || lhs_type.type == TYPE_S32_TYPE ||
+      ASSERT(lhs_type.type == TYPE_F64_TYPE || lhs_type.type == TYPE_F32_TYPE ||
+             lhs_type.type == TYPE_U64_TYPE || lhs_type.type == TYPE_S64_TYPE || lhs_type.type == TYPE_S32_TYPE || lhs_type.type == TYPE_S32_TYPE ||
              lhs_type.type == TYPE_U32_TYPE);
     }
 

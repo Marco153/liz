@@ -984,6 +984,78 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			bc->bin.rhs.reg_sz = prev_size;
 
 		}break;
+		case CVT_SI_2_SS:
+		case CVT_SI_2_SD:
+		case CVT_SS_2_SI:
+		case CVT_SD_2_SI:
+    {
+      HERE()
+      char ireg = bc->bin.lhs.reg;
+      char freg = bc->bin.rhs.reg;
+      char lhs = bc->bin.lhs.reg & 7;
+      char rhs = bc->bin.rhs.reg & 7;
+
+      bool is_rex = IS_FLAG_ON(ireg, 0x80);
+      char sz = bc->bin.lhs.reg_sz;
+      char val = -1;
+      char op = 0x2d;
+
+
+      switch(bc->type)
+      {
+      case CVT_SI_2_SS:
+      case CVT_SI_2_SD:
+      {
+        ireg = bc->bin.rhs.reg;
+        freg = bc->bin.lhs.reg;
+        lhs = freg;
+        rhs = ireg;
+        op = 0x2a;
+      }break;
+      case CVT_SS_2_SI:
+      case CVT_SD_2_SI:
+      }
+      is_rex = IS_FLAG_ON(ireg, 0x80);
+
+      if(!is_rex && freg <= 7)
+      {
+        val = 0x48;
+      }
+      else if(is_rex && freg > 7)
+      {
+        val = 0x4d;
+      }
+      else if(!is_rex && freg > 7)
+      {
+        val = 0x49;
+      }
+      else if(is_rex && freg <= 7)
+      {
+        val = 0x4c;
+      }
+
+      if(sz == 4)
+      {
+        ret.code.emplace_back(0xf3);
+        if(val != 0x48)
+        {
+          val = val & ~(1<<3);
+          ret.code.emplace_back(val);
+        }
+      }
+      else
+      {
+        ret.code.emplace_back(0xf2);
+        ret.code.emplace_back(val);
+      }
+      lhs &= 7;
+      rhs &= 7;
+			char mod = MakeModRM(false, 0, lhs, rhs);
+      ret.code.emplace_back(0x0f);
+      ret.code.emplace_back(op);
+      ret.code.emplace_back(mod);
+
+    }break;
 		case CVTSD_SS_2_REG:
 		{
 			char mod = MakeModRM(false, 0, bc->bin.rhs.reg, bc->bin.lhs.reg);
@@ -1075,7 +1147,12 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			// movssinstruction here
 			char mod = 0xc0 | ((bc->bin.lhs.reg & 0xf) << 3) | ((bc->bin.rhs.reg & 0xf));
-			ret.code.emplace_back(0xf3);
+      if(bc->bin.lhs.reg_sz == 8)
+      {
+        ret.code.emplace_back(0xf2);
+      }
+      else
+        ret.code.emplace_back(0xf3);
 			ret.code.emplace_back(0x0f);
 			ret.code.emplace_back(0x51);
 			ret.code.emplace_back(mod);
@@ -1307,12 +1384,13 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case CVTSS_2_SD:
 		{
-      //HERE()
-			ret.code.emplace_back(0xc5);
-      char b = 0xf2 | (~bc->bin.rhs.reg & 0xf) << 3;
-      ret.code.emplace_back(b);
+      char dst = bc->bin.lhs.reg;
+      char src = bc->bin.rhs.reg;
+			ret.code.emplace_back(0xf3);
+      AddSSEExtendedByte(&dst, &src, &ret);
+			ret.code.emplace_back(0x0f);
 			ret.code.emplace_back(0x5a);
-			ret.code.emplace_back(0xc0 | (bc->bin.lhs.reg << 3) | bc->bin.rhs.reg);
+			ret.code.emplace_back(0xc0 | (dst << 3) | src);
 		}break;
 		case MOV_SSE_2_R:
 		{

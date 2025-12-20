@@ -13704,6 +13704,15 @@ void GenX64BytecodeFromIR(lang_state *lang_stat,
 				{
 					bc.type = SQRT_SSE;
 					bc.bin.lhs.reg = 0;
+					bc.bin.rhs.reg_sz = 4;
+					bc.bin.rhs.reg = 0;
+					ret.emplace_back(bc);
+				}
+        else if (ir->call.fdecl->name == "__sqrt2")
+				{
+					bc.type = SQRT_SSE;
+					bc.bin.lhs.reg = 0;
+					bc.bin.rhs.reg_sz = 8;
 					bc.bin.rhs.reg = 0;
 					ret.emplace_back(bc);
 				}
@@ -14844,6 +14853,38 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         bc.type = ZERO_PCKD_SSE;
         bc.un.val.reg = ir->i;
         bc.un.val.reg_sz = ir->i >> 8;
+        InsertBc(ret, bc);
+
+      }break;
+      case IR_CAST_INT_TO_FLOAT:
+      {
+        if(ir->bin.lhs.reg_sz == 4)
+        {
+          bc.type = CVT_SI_2_SS;
+        }
+        else
+        {
+          bc.type = CVT_SI_2_SD;
+        }
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        bc.bin.rhs.reg = ir->bin.rhs.reg;
+        InsertBc(ret, bc);
+
+      }break;
+      case IR_CAST_FLOAT_TO_INT:
+      {
+        if(ir->bin.lhs.reg_sz == 4)
+        {
+          bc.type = CVT_SS_2_SI;
+        }
+        else
+        {
+          bc.type = CVT_SD_2_SI;
+        }
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
+        bc.bin.rhs.reg = ir->bin.rhs.reg;
         InsertBc(ret, bc);
 
       }break;

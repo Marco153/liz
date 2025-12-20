@@ -248,6 +248,8 @@ enum ir_type
     IR_REPMOVSB,
     IR_FILL,
     IR_DOT,
+    IR_CAST_FLOAT_TO_INT,
+    IR_CAST_INT_TO_FLOAT,
     IR_LABEL,
     IR_BIN,
     IR_CMP,

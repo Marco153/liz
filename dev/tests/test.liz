@@ -1,5 +1,6 @@
 PrintStr::fn outsider(str : str_lit);
 GetMem::fn outsider(size : u64) ! *void;
+_dot::fn intrinsic(lhs : _vec2, rhs : _vec2) ! f64;
 //GetTypeData::fn internal(void *) !*type_data;
 ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 {
@@ -2041,6 +2042,15 @@ else
     __dbg_break
     __dbg_break
     __dbg_break
+    a : _vec2=?
+    a.x = 1.0
+    a.y = 1.0
+    b : _vec2=?
+    b.x = 2.0
+    b.y = 2.0
+
+    c := _dot(a, b)
+
     f :_vec2
     f.x = 1.5
     f = -f

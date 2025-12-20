@@ -611,7 +611,7 @@ void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
 
 
     }
-    else if((src <= 7 && dst > 7) ||(src <= 7 && dst > 7))
+    else if((src <= 7 && dst > 7) ||(src <= 7 && dst <= 7))
     {
       ret->code.emplace_back(0xc5);
       // see EXPLANATION above
@@ -2189,6 +2189,34 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		{
 			//TODO
 		}break;
+		case SHUFFLE_PCKED_SSE:
+    {
+      char dst =  bc->shuf.dst;
+      char src1 = bc->shuf.src1;
+      char src2 = bc->shuf.src2;
+
+      ASSERT(bc->shuf.dst < 7)
+      ASSERT(bc->shuf.src1 < 7)
+      ASSERT(bc->shuf.src2 < 7)
+
+      ret.code.emplace_back(0xc5);
+      ret.code.emplace_back(0x81 | (src1 << 3));
+      ret.code.emplace_back(0xc6);
+      ret.code.emplace_back(3<<6 | dst << 6 | src2);
+      ret.code.emplace_back(bc->shuf.i);
+    }break;
+		case EXTRACT_SSE:
+		{
+      char dst = bc->bin.lhs.reg;
+      char src = bc->bin.rhs.reg;
+      char sz = bc->bin.lhs.reg_sz;
+      ASSERT(sz == 8)
+      ret.code.emplace_back(0xc4);
+      ret.code.emplace_back(0x43 | !(dst > 7) << 7 | (src > 7) << 5);
+      ret.code.emplace_back(0x7d);
+      ret.code.emplace_back(3 << 6 | (dst &7) | (src&7)<< 3);
+			//CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
+		}break;
 		case DIV_PCKD_SSE_2_PCKD_SSE:
 		{
 			CreatePckdSSERegToPckdSSEReg(&*bc, 0x5e, &ret);
@@ -2478,10 +2506,6 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
     }break;
 		case SHIFTR_R_2_R:
 		case SHIFTL_R_2_R:
-		{
-			//TODO
-		}break;
-		case SHUFFLE_128_PS:
 		{
 			//TODO
 		}break;

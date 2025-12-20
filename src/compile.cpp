@@ -14754,6 +14754,39 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
             bc.bin.rhs.reg = 0;
             ret.emplace_back(bc);
           }
+          else if (ir->call.fdecl->name == "_dot")
+          {
+            bc.type = MUL_PCKD_SSE_2_PCKD_SSE;
+            bc.bin.lhs.reg = 0;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.reg = 1;
+            ret.emplace_back(bc);
+
+            bc.type = EXTRACT_SSE;
+            bc.bin.lhs.reg = 1;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.reg = 0;
+            ret.emplace_back(bc);
+
+            bc.type = ADD_PCKD_SSE_2_PCKD_SSE;
+            bc.bin.lhs.reg = 0;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.reg = 1;
+            ret.emplace_back(bc);
+
+            bc.type = SHUFFLE_PCKED_SSE;
+            bc.shuf.dst = 1;
+            bc.shuf.src1 = 0;
+            bc.shuf.src2 = 0;
+            bc.shuf.i = 1;
+            ret.emplace_back(bc);
+
+            bc.type = ADD_PCKD_SSE_2_PCKD_SSE;
+            bc.bin.lhs.reg = 0;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.reg = 1;
+            ret.emplace_back(bc);
+          }
           else if (ir->call.fdecl->name == "lock_xchg")
           {
             bc.type = LOCK_XCHG_M_R;

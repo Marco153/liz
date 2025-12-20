@@ -82,6 +82,7 @@ enum byte_code_enum : unsigned short
 	NOT_M,
 
 	SHUFFLE_128_PS,
+	SHUFFLE_PCKED_SSE,
 
 	NEG_R,
 	NEG_M,
@@ -170,6 +171,8 @@ enum byte_code_enum : unsigned short
 	MUL_PCKD_SSE_2_PCKD_SSE,
 	MUL_MEM_2_PCKD_SSE,
 	MUL_PCKD_SSE_2_MEM,
+
+	EXTRACT_SSE,
 
 	AND_M_2_M,
 	AND_R_2_M,
@@ -371,6 +374,7 @@ enum byte_code_enum : unsigned short
 
 	BROADCAST_SS,
 	BROADCAST_SD,
+	INST_DOT,
 
 	JMP,
 	JMP_E,
@@ -506,6 +510,14 @@ struct byte_code
 	union
 	{
     int st_idx;
+		struct
+		{
+      char dst;
+      char src1;
+      char src2;
+      char i;
+      char reg_sz;
+		}shuf;
 		struct
 		{
 			operand lhs;

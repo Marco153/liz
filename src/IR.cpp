@@ -4903,10 +4903,15 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
   ir.bin.op = T_EQUAL;
   if(ir.bin.rhs.is_float)
   {
+    char free_reg = -1;
     if(ir.bin.rhs.kind == IR_VAL_ADDR)
     {
-      char deref = ir.bin.rhs.deref;
-      LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs, deref, deref);
+        char deref = ir.bin.rhs.deref;
+        if(deref > 1)
+        {
+          LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs, deref, deref);
+          free_reg = ir.bin.rhs.reg;
+        }
     }
     ASSERT(*float_args < 7)
 
@@ -4915,7 +4920,11 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
     ir.bin.lhs.reg_sz = ir.bin.rhs.reg_sz;
     ir.bin.lhs.is_packed_float = ir.bin.rhs.is_packed_float;
     ir.bin.lhs.reg = *float_args;
-    *float_args++;
+    (*float_args)++;
+
+    if(free_reg != -1)
+      FreeReg(lang_stat, free_reg, true);
+
   }
   else
   {
@@ -5282,6 +5291,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   }break;
   case AST_CALL: 
   {
+    BREAK(ast->line_number == 2052)
     ret = GetIRCall(lang_stat, ast, state, false);
   }break;
   case AST_IF: 

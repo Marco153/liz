@@ -5291,7 +5291,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   }break;
   case AST_CALL: 
   {
-    BREAK(ast->line_number == 2052)
     ret = GetIRCall(lang_stat, ast, state, false);
   }break;
   case AST_IF: 

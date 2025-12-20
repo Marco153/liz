@@ -2199,22 +2199,30 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       ASSERT(bc->shuf.src1 < 7)
       ASSERT(bc->shuf.src2 < 7)
 
+
       ret.code.emplace_back(0xc5);
-      ret.code.emplace_back(0x81 | (src1 << 3));
+      ret.code.emplace_back(0x81 | ((~src1) << 3));
       ret.code.emplace_back(0xc6);
-      ret.code.emplace_back(3<<6 | dst << 6 | src2);
+      ret.code.emplace_back(3<<6 | dst << 3 | src2);
       ret.code.emplace_back(bc->shuf.i);
     }break;
 		case EXTRACT_SSE:
 		{
+
       char dst = bc->bin.lhs.reg;
       char src = bc->bin.rhs.reg;
       char sz = bc->bin.lhs.reg_sz;
       ASSERT(sz == 8)
+      //HERE()
+      char aux;
       ret.code.emplace_back(0xc4);
-      ret.code.emplace_back(0x43 | !(dst > 7) << 7 | (src > 7) << 5);
+      aux = 0x43 | !(dst > 7) << 7 | !(src > 7) << 5;
+      ret.code.emplace_back(aux);
       ret.code.emplace_back(0x7d);
-      ret.code.emplace_back(3 << 6 | (dst &7) | (src&7)<< 3);
+      ret.code.emplace_back(0x19);
+      aux = 3 << 6 | (dst &7) | (src&7)<< 3;
+      ret.code.emplace_back(aux);
+      ret.code.emplace_back(1);
 			//CreateSSERegToSSEReg(&*bc, 0x5e, &ret);
 		}break;
 		case DIV_PCKD_SSE_2_PCKD_SSE:

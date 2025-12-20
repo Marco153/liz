@@ -599,7 +599,7 @@ void CreatePckdSSERegToPckdSSEReg(byte_code *bc, char op, machine_code *ret)
       // fifth bit if src2 reg is extended, inverted
       // zeroth bit tells it is a 0x0f inst
 
-      ret->code.emplace_back(0x41 | (dst > 7)<<7);
+      ret->code.emplace_back(0x41 | !(dst > 7)<<7);
 
       // EXPLANATION VEX
       // 0x5 = 0b101,

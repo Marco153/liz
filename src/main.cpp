@@ -10222,16 +10222,16 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs
   PrintReg("R9",  regs->r9);
   PrintReg("R10", regs->r10);
   PrintReg("R11", regs->r11);
-  for(int i = 0; i < 10; i ++)
+  for(int i = 0; i < 16; i ++)
   {
     float *cur = fregs + i * 4;
     ImGui::Text("xmm%d: {%.4f, %.4f, %.4f, %.4f}", i, cur[0], cur[1], cur[2], cur[3]);
   }
   double *d = (double *)fregs;
-  for(int i = 0; i < 10; i ++)
+  for(int i = 0; i < 16; i ++)
   {
-    double *cur = d + i * 4;
-    ImGui::Text("ymm%d: {%.4lf(0x%llx), %.4lf, %.4lf, %.4lf}", i, cur[0], *(u64 *)&cur[0], cur[1], cur[2], cur[3]);
+    double *cur = (double *)((float *)d + i * 4);
+    ImGui::Text("ymm%d: {%.4lf, %.4lf, %.4lf, %.4lf}", i, cur[0], cur[1], cur[2], cur[3]);
   }
   //ImGui::Text("xmm3: %.4f", fregs->xmm_space[3]);
   //ImGui::Text("xmm4: %.4f", fregs->xmm_space[4]);
@@ -10529,11 +10529,11 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   char *str_tbl = (char *)(dfile + 1) + dfile->string_sect;
   int str_len = 0;
 
-  uint8_t xstate[4096];  // big enough for all XSTATE features
+  uint8_t *xstate = (uint8_t *)aligned_alloc(64, 1024 * 4);
 
   struct iovec iov;
   iov.iov_base = xstate;
-  iov.iov_len = sizeof(xstate);
+  iov.iov_len = 1024 * 4;
 
 
   u64 assembly_addr;

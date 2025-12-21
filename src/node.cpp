@@ -3625,12 +3625,18 @@ node *GetLastStmntType(lang_state *lang_stat, node *n, scope *scp,
 }
 void GetIfExprType(lang_state *lang_stat, node *n, scope *scp, type2 &ret_type,
                    int only_type) {
+  if(only_type || IS_FLAG_ON(n->flags, NODE_FLAGS_IS_PROCESSED2))
+  {
+    ret_type = n->decl_type;
+    return;
+  }
   scp = n->l->r->scp;
+  n->flags |= NODE_FLAGS_IF_EXPR;
+  HERE()
   auto last_st = GetLastStmntType(lang_stat, n->l->r->r, scp, ret_type);
   node *cur = n->r;
   type2 aux_type;
-  if (only_type || !cur ||
-      IS_FLAG_OFF(last_st->flags, NODE_FLAGS_STMNT_WITHOUT_SEMICOLON))
+  if (only_type || !cur)
     return;
 
   while (cur->type == N_ELSE || cur->type == N_ELSE_IF) {
@@ -3644,6 +3650,8 @@ void GetIfExprType(lang_state *lang_stat, node *n, scope *scp, type2 &ret_type,
       ASSERT(0);
     cur = cur->r;
   }
+  n->flags |= NODE_FLAGS_IS_PROCESSED2;
+  n->decl_type = aux_type;
 }
 
 // $NameFindingGetType $NameType
@@ -8206,6 +8214,11 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
       } else {
         lhs = DescendNameFinding(lang_stat, n->l, scp);
       }
+      //BREAK(n->t->line == 706)
+      if(n->r->type == N_IF)
+      {
+        n->r->flags |= NODE_FLAGS_IF_EXPR;
+      }
 
       decl2 *rhs = DescendNameFinding(lang_stat, n->r, scp);
       if (n->l != nullptr && !lhs)
@@ -9284,6 +9297,10 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
     }
     */
     // scp = GetScopeFromParent(n, given_scp);
+    if(IS_FLAG_ON(n->flags, NODE_FLAGS_IF_EXPR))
+    {
+      HERE()
+    }
     if (n->l->l != nullptr && !DescendNameFinding(lang_stat, n->l->l, scp) &&
         scp->parent != nullptr)
       return nullptr;
@@ -9294,6 +9311,11 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
     if (n->r != nullptr && !DescendNameFinding(lang_stat, n->r, scp) &&
         scp->parent != nullptr)
       return nullptr;
+    if(IS_FLAG_ON(n->flags, NODE_FLAGS_IF_EXPR))
+    {
+      GetIfExprType(lang_stat, n, scp, ret_type, false);
+      ret_type = n->decl_type;
+    }
   } break;
   case node_type::N_STMNT: {
 
@@ -9882,7 +9904,11 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
     if (n->l->r && n->l->r->r) {
       DescendNode(lang_stat, n->l->r, scp);
     }
-    GetIfExprType(lang_stat, n, scp, ret_type, true);
+    if(IS_FLAG_ON(n->flags, NODE_FLAGS_IF_EXPR))
+    {
+      GetIfExprType(lang_stat, n, scp, ret_type, true);
+      ret_type = n->decl_type;
+    }
 
     // node *cur:
 
@@ -9890,7 +9916,6 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
     if (n->r != nullptr) {
       DescendNode(lang_stat, n->r, scp);
     }
-
   } break;
   case node_type::N_TYPE: {
     ret_type = n->decl_type;
@@ -11155,7 +11180,6 @@ if (!is_correct_ovrld)
       if (IS_PRS_FLAG_ON(PSR_FLAGS_ON_ENUM_DECL))
         break;
       // return ret_type;
-      //BREAK(n->t->line >= 2022)
 
       type2 ltp;
       if (n->l != nullptr)

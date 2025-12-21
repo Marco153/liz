@@ -33,6 +33,7 @@
 #define NODE_FLAGS_RETURN_IDENT_EVEN_NOT_DONE 0x10000000
 #define NODE_FLAGS_BREAK 0x20000000
 #define NODE_FLAGS_FUNC_SYSCALL 0x40000000
+#define NODE_FLAGS_IF_EXPR 0x80000000
 
 #define ASSIGN_VEC(v1, v2) v1.assign(v2.begin(), v2. end())
 #define INSERT_VEC(v1, v2) v1.insert(v1.end(), v2.begin(), v2.end())

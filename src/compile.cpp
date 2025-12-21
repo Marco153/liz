@@ -14752,6 +14752,13 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         }
 
       }break;
+      case IR_INDIRECT_CALL:
+      {
+        bc.type = INST_CALL_REG;
+        bc.bin.lhs.reg = ir->bin.lhs.reg;
+        bc.bin.lhs.reg_sz = 8;
+        ret.emplace_back(bc);
+      }break;
       case IR_CALL:
       {
         if (IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_INTRINSIC))

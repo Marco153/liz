@@ -1079,10 +1079,6 @@ TESTS:const s32=0;
     v2 :v3
     v2.x = 2.0f;
     v1.x = 1.0f;
-    __dbg_break
-    __dbg_break
-    __dbg_break
-    __dbg_break
     v1 = v1 + v2 * 2.0f;
     return a +  h
 

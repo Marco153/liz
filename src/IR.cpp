@@ -1730,7 +1730,6 @@ void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   ir.bin.rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
   ir.bin.block_id = dst->id;
 
-  BREAK(ast->line_number == 527)
   ir.bin.lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
   if(ir.bin.lhs.kind == IR_VAL_ADDR)
   {
@@ -5076,6 +5075,27 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
   ir.call.fdecl = ast->call.fdecl;
 
+  if (ast->call.indirect) {
+    if (ast->call.lhs) {
+      ir_val aux = GetIRFromAst2(lang_stat, ast->call.lhs, state, true);
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs = aux;
+      ir.bin.lhs.decl = ast->call.fdecl->this_decl;
+    } else {
+      ir.type = IR_BIN;
+      ir.bin.op = T_EQUAL;
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+      ir.bin.lhs.reg_sz = 8;
+      ir.bin.rhs.type = IR_TYPE_DECL;
+      ir.bin.rhs.decl = ast->call.func_ptr_var;
+      ir.bin.rhs.reg = (char)regs_enum::RSP;
+      ir.bin.rhs.voffset = 0;
+      InsertIr(state, ir);
+    }
+    ir.type = IR_INDIRECT_CALL;
+    ir.bin.lhs.is_float = false;
+  }
   InsertIr(state, ir);
 
   if(callf->ret_type.type == TYPE_STRUCT && callf->ret_type.ptr == 0)

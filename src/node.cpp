@@ -1374,6 +1374,7 @@ node *node_iter::parse_expr() {
       cur_node->l = new_node(lang_stat, cur_tkn);
       cur_node->t = cur_tkn;
 
+      //BREAK(cur_tkn->line == 2047)
       CreateCondAndScope(&cur_node->l);
 
       cur_node->flags = cur_node->l->flags;
@@ -1855,6 +1856,7 @@ node *node_iter::parse_(int prec, parser_cond pcond) {
         IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_SCOPE_WHITHOUT_CURLY);
     cur_is_ident_or_int = peek_tkn()->type == tkn_type2::T_WORD ||
                           peek_tkn()->type == tkn_type2::T_INT ||
+                          peek_tkn()->type == tkn_type2::T_FLOAT64 ||
                           peek_tkn()->type == tkn_type2::T_FLOAT;
     return_without_semicolon_on_scope_end = false;
 
@@ -3632,7 +3634,7 @@ void GetIfExprType(lang_state *lang_stat, node *n, scope *scp, type2 &ret_type,
   }
   scp = n->l->r->scp;
   n->flags |= NODE_FLAGS_IF_EXPR;
-  HERE()
+  //HERE()
   auto last_st = GetLastStmntType(lang_stat, n->l->r->r, scp, ret_type);
   node *cur = n->r;
   type2 aux_type;
@@ -9297,10 +9299,6 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
     }
     */
     // scp = GetScopeFromParent(n, given_scp);
-    if(IS_FLAG_ON(n->flags, NODE_FLAGS_IF_EXPR))
-    {
-      HERE()
-    }
     if (n->l->l != nullptr && !DescendNameFinding(lang_stat, n->l->l, scp) &&
         scp->parent != nullptr)
       return nullptr;

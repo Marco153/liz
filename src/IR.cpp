@@ -5517,7 +5517,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     bool is_if_expr_float = false;
     bool is_if_expr_packed_float = false;
     bool is_if_expr_unsigned = false;
-    bool is_if_expr_reg_sz = 0;
+    char is_if_expr_reg_sz = 0;
 
     if(ast->cond.expr_type.type != TYPE_AUTO)
     {
@@ -5674,6 +5674,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       lang_stat->ir_in_stmnt = was_in_stmnt;
 
     EmitBlockMakeCurrent(lang_stat, state, merge);
+    ret.kind = IR_VAL_VALUE;
     return ret;
   } break;
   case AST_FUNC:

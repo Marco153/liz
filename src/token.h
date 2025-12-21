@@ -287,7 +287,7 @@ struct type2
 	}
 	bool IsFloat()
 	{
-		return type == TYPE_F32 || type == TYPE_F64 || type == TYPE_VECTOR;
+		return type == TYPE_F32_RAW || type == TYPE_F64_RAW || type == TYPE_F32 || type == TYPE_F64 || type == TYPE_VECTOR;
 	}
 	type2()
 	{

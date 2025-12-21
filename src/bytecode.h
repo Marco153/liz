@@ -581,6 +581,7 @@ struct byte_code
 					bool is_packed_float;
 					short reg_dst;
           char reg_sz;
+          bool deref;
 					union
 					{
 						func_decl* call_func;

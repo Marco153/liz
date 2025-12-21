@@ -1622,15 +1622,28 @@ char GetAvailableReg(lang_state *lang_stat)
 }
 void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *lhs, ir_rep *out, bool is_float)
 {
-  out->type = IR_BIN;
-  out->bin.op = T_EQUAL;
-  out->bin.lhs.type = IR_TYPE_REG;
-  out->bin.lhs.reg = reg_dst;
-  out->bin.lhs.reg_sz = reg_sz;
-  out->bin.lhs.is_float = is_float;
-  out->bin.lhs.is_packed_float = is_float && lhs->is_packed_float;
-  out->bin.rhs = *lhs;
-  out->bin.rhs.voffset = lhs->voffset;
+
+  if(lhs->type == IR_TYPE_DECL && IS_FLAG_ON(lhs->decl->flags, DECL_IS_GLOBAL))
+  {
+    out->type = IR_GET_GLOBAL;
+    out->bin.lhs.type = IR_TYPE_REG;
+    out->bin.lhs.reg = reg_dst;
+    out->bin.lhs.reg_sz = reg_sz;
+    out->bin.lhs.ptr = 0;
+    out->bin.rhs = *lhs;
+  }
+  else
+  {
+    out->type = IR_BIN;
+    out->bin.op = T_EQUAL;
+    out->bin.lhs.type = IR_TYPE_REG;
+    out->bin.lhs.reg = reg_dst;
+    out->bin.lhs.reg_sz = reg_sz;
+    out->bin.lhs.is_float = is_float;
+    out->bin.lhs.is_packed_float = is_float && lhs->is_packed_float;
+    out->bin.rhs = *lhs;
+    out->bin.rhs.voffset = lhs->voffset;
+  }
 }
 void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs, char derefs, char max_derefs)
 {
@@ -5831,6 +5844,11 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     if(ret.kind == IR_VAL_ADDR)
     {
       ir.type = IR_ADDRESS_OF;
+      if(ret.type == IR_TYPE_DECL && IS_FLAG_ON(ret.decl->flags, DECL_IS_GLOBAL))
+      {
+        ir.type = IR_GET_GLOBAL;
+        ir.bin.lhs.ptr = 1;
+      }
       ir.bin.lhs.type = IR_TYPE_REG;
       if(ret.type == IR_TYPE_REG || ret.type == IR_TYPE_REG_MEM )
       {

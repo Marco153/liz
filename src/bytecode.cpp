@@ -368,7 +368,7 @@ void AddImm(long long val, char sz, machine_code& ret)
 	sz = sz <= 4 ? sz : 4;
 	EmplaceValueToCharVector(ret.code, val, sz);
 }
-void CreateMemToReg(byte_code *bc, char byte, char greater_byte, char is_rex_param, machine_code &ret, char base_reg = 5, bool lhs_is_final_reg = false)
+void CreateMemToReg(byte_code *bc, char byte, char greater_byte, char is_rex_param, machine_code &ret, char base_reg = 5, bool lhs_is_final_reg = false, bool four_byte_offset = false)
 {
 	base_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
 	char reg = bc->bin.lhs.reg;
@@ -387,8 +387,17 @@ void CreateMemToReg(byte_code *bc, char byte, char greater_byte, char is_rex_par
 	AddPreMemInsts(bc->bin.lhs.reg_sz, byte, greater_byte, ((char)is_rex), ret.code);
 
 	AddModRM(true, bc->bin.rhs.voffset, base_reg, reg, ret);
-	if(bc->bin.rhs.voffset > 0)
-		AddImm(bc->bin.rhs.voffset, bc->bin.rhs.voffset < 0x80 ? 1 : 4, ret);
+  if(!four_byte_offset)
+  {
+    if(bc->bin.rhs.voffset > 0)
+      AddImm(bc->bin.rhs.voffset, bc->bin.rhs.voffset < 0x80 ? 1 : 4, ret);
+  }
+  else
+  {
+    AddImm(bc->bin.rhs.voffset, 4, ret);
+
+  }
+
 }
 void CreateRegToMem(byte_code* bc, char byte, char greater_byte, machine_code& ret, char base_reg = 5, bool rhs_is_final_reg = false)
 {
@@ -1271,10 +1280,22 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				}
 				else
 				{
-					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() + 3, data_sym_name));
-
-					// emplacing a lea instruction here
-					AddLeaInst(ret, FromBCRegToAsmReg(bc->rel.reg_dst));
+          if(bc->rel.type == rel_type::REL_DATA_GLOBALS && bc->rel.deref)
+          {
+            byte_code aux;
+            aux.bin.lhs.reg = bc->rel.reg_dst;
+            aux.bin.lhs.reg_sz = bc->rel.reg_sz;
+            aux.bin.rhs.reg = 5;
+            aux.bin.lhs.reg = bc->rel.reg_dst;
+            CreateMemToReg(&aux, 0x8a, 0x8b, false, ret, 5, false, true);
+            //AddLeaInst(ret, FromBCRegToAsmReg(bc->rel.reg_dst));
+          }
+          else
+          {
+            // emplacing a lea instruction here
+            AddLeaInst(ret, FromBCRegToAsmReg(bc->rel.reg_dst));
+          }
+					ret.rels.emplace_back(machine_reloc(machine_rel_type::DATA, ret.code.size() - 4, data_sym_name));
 					/*
 					ret.code.emplace_back(0x48);
 					ret.code.emplace_back(0x8d);

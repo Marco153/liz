@@ -1092,6 +1092,9 @@ TESTS:const s32=0;
     globals.i = 6
 
     buffer :[32]u8
+    __dbg_break
+    __dbg_break
+    __dbg_break
     num_2_str(cast(s64)globals.i, buffer[0], 32)
 
     if *ptr_offset(buffer[0], 0, u8) != 0x36

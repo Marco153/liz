@@ -14752,6 +14752,20 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         }
 
       }break;
+      case IR_GET_GLOBAL:
+      {
+        bc.type = RELOC;
+        bc.rel.type = REL_DATA_GLOBALS;
+        bc.rel.reg_dst = ir->bin.lhs.reg;
+        bc.rel.offset = ir->bin.rhs.decl->offset;
+        bc.rel.deref = false;
+        if(ir->bin.lhs.ptr == 0)
+          bc.rel.deref = true;
+
+        bc.rel.reg_sz = ir->bin.lhs.reg_sz;
+        InsertBc(ret, bc);
+
+      }break;
       case IR_INDIRECT_CALL:
       {
         bc.type = INST_CALL_REG;

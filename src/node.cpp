@@ -9844,11 +9844,13 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
   case node_type::N_WHILE: {
     // cond
     if (n->l != nullptr) {
+      /*
       if (n->l->type == N_KEYWORD && n->l->kw == KW_FALSE) {
         n->r->type = N_EMPTY;
       } else if (n->l->type == N_KEYWORD && n->l->kw == KW_TRUE) {
         n->l->type = N_EMPTY;
       }
+      */
       DescendNode(lang_stat, n->l, scp);
     }
     // checking if the scope isn't zero and descending it

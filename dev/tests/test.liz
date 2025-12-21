@@ -2042,6 +2042,7 @@ else
     __dbg_break
     __dbg_break
     __dbg_break
+    retf := [4]f32{1.0f, 2.0f, 3.0f, 4.0f}
     a :u64= 2
     b := cast(*u32)&a
     *b = *b + 3

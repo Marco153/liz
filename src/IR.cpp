@@ -1312,7 +1312,9 @@ char AllocReg(lang_state *lang_stat, int start = 0) {
 }
 bool HasCall(lang_state *lang_stat, ast_rep *ast) {
   switch (ast->type) {
-  case AST_INT: {
+  case AST_INT: 
+  case AST_STR_LIT: 
+  {
     return false;
   } break;
   case AST_EMPTY: {
@@ -1321,6 +1323,16 @@ bool HasCall(lang_state *lang_stat, ast_rep *ast) {
   case AST_CALL: {
     return true;
   } break;
+  case AST_ARRAY_COSTRUCTION:
+  {
+    bool has_call= false;
+    FOR_VEC(c, ast->ar_constr.commas)
+    {
+      has_call = HasCall(lang_stat, *c);
+      if(has_call) return true;
+    }
+    return false;
+  }break;
   case AST_IDENT:
     return false;
   case AST_INDEX: {
@@ -1699,7 +1711,6 @@ void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   ir_rep ir;
   ir.type = IR_CMP;
   ir.bin.op = op;
-  BREAK(ast->line_number == 999)
   ir.bin.lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
   if(ir.bin.lhs.kind == IR_VAL_ADDR)
   {
@@ -1731,12 +1742,16 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
     {
       EmitJmp(lang_stat, state, cond_false);
     }
+    else if(ast->num == 1)
+    {
+
+    }
     else
     {
       ASSERT(false)
     }
   }
-  else if(ast->type == AST_BINOP)
+  else if(ast->type == AST_BINOP && ast->op != T_POINT)
   {
     if(IsComparisonOp(ast->op))
     {
@@ -5202,7 +5217,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
   case AST_INDEX: 
   {
-    HERE()
     rhs = GetIRFromAst2(lang_stat, ast->index.rhs, state, false);
 
     if(rhs.kind == IR_VAL_ADDR)
@@ -5307,6 +5321,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
     EmitBlockMakeCurrent(lang_stat, state, merge);
 
+    pop_tracker_stack(&state->continue_start_block);
+    pop_tracker_stack(&state->break_end_block);
+
     lang_stat->ir_in_stmnt = prev_is_in_stmnt;
     return ret;
 
@@ -5347,6 +5364,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
 
     EmitBlockMakeCurrent(lang_stat, state, merge);
+
+    pop_tracker_stack(&state->continue_start_block);
+    pop_tracker_stack(&state->break_end_block);
 
     lang_stat->ir_in_stmnt = prev_is_in_stmnt;
 
@@ -5498,6 +5518,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       lang_stat->ir_in_stmnt = was_in_stmnt;
 
     EmitBlockMakeCurrent(lang_stat, state, merge);
+    return ret;
   } break;
   case AST_FUNC:
   {
@@ -5586,6 +5607,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_INT:
   case AST_CHAR:
   case AST_IDENT:
+  case AST_STR_LIT:
   {
     GetIRVal(lang_stat, ast, &ret);
   }break;
@@ -5919,6 +5941,52 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
     GetIRCondValue(lang_stat, ast->ast, state, 0, 1);
   }break;
+  case AST_ARRAY_COSTRUCTION:
+  {
+    int offset = ast->ar_constr.at_offset;
+    int tp_sz = GetTypeSize(&ast->ar_constr.type);
+    // top->i = offset;
+
+    // ir.assign.to_assign.i = offset;
+    int len = ast->ar_constr.commas.size();
+
+    for (u32 i = 0; i < len; i++)
+    {
+
+      lhs = GetIRFromAst2(lang_stat, ast->ar_constr.commas[i], state, false);
+      ir.type = IR_BIN;
+      ir.bin.op = T_EQUAL;
+      ir.bin.lhs.type = IR_TYPE_ON_STACK;
+      ir.bin.lhs.is_unsigned = lhs.is_unsigned;
+      ir.bin.lhs.stack.on_stack_type = ON_STACK_STRUCT_CONSTR;
+      ir.bin.lhs.stack.i = offset + tp_sz * (len - (i + 1));
+      ir.bin.lhs.reg_sz = tp_sz;
+      ir.bin.lhs.is_float = lhs.is_float;
+      ir.bin.rhs = lhs;
+
+      InsertIr(state, ir);
+
+      if(lhs.type == IR_TYPE_REG || lhs.type == IR_TYPE_REG_MEM)
+      {
+        FreeReg(lang_stat, lhs.reg, lhs.is_float);
+      }
+    }
+    HERE()
+    ret.type = IR_TYPE_ON_STACK;
+    ret.is_float = ast->ar_constr.type.IsFloat();
+    ret.stack.on_stack_type = ON_STACK_STRUCT_CONSTR;
+    ret.stack.i = offset;
+    ret.reg_sz = ir.bin.lhs.reg_sz;
+    ret.voffset = 0;
+    //ret.is_packed_float = ast->strct_constr.is_vector;
+    if(ret.is_packed_float)
+    {
+      ret.reg_sz = 1;
+
+    }
+    ret.kind = IR_VAL_ADDR;
+
+  }break;
   case AST_STRUCT_COSTRUCTION:
   {
     int offset = ast->strct_constr.at_offset;
@@ -5951,7 +6019,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
     ret.type = IR_TYPE_ON_STACK;
     ret.is_float = ast->strct_constr.is_vector;
-    ret.i = offset;
+    ret.stack.on_stack_type = ON_STACK_STRUCT_CONSTR;
+    ret.stack.i = offset;
     ret.reg_sz = ir.bin.lhs.reg_sz;
     ret.voffset = 0;
     ret.is_packed_float = ast->strct_constr.is_vector;
@@ -6022,6 +6091,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       ret = lhs;
     }break;
     case T_MUL:
+    case T_PIPE:
     case T_DIV:
     case T_PERCENT:
     case T_AMPERSAND:
@@ -6157,6 +6227,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     block2 *top = *top_tracker_stack(&state->break_end_block);
     ASSERT(top)
     EmitJmp(lang_stat, state, top);
+    return ret;
   }break;
   case AST_CONTINUE: 
   {
@@ -6164,6 +6235,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ASSERT(top)
 
     EmitJmp(lang_stat, state, top);
+    return ret;
   } break;
   default: ASSERT(false)
   }

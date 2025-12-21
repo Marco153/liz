@@ -51,7 +51,7 @@ memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 	}
 }
 
-TESTS:const s32=1;
+TESTS:const s32=0;
 #if TESTS == 0
 {
 
@@ -1945,11 +1945,11 @@ TESTS:const s32=1;
     u_out : f32
     v_out : f32
     rinfo : raycast_info=?
-    rinfo.ray_origin = _vec{0.0, 1.0, 0.0, 0.0}
-    rinfo.ray_dir = _vec{0.0, -1.0, 0.0, 0.0}
-    rinfo.v0 = _vec{-0.5, 0.0, 0.5, 0.0}
-    rinfo.v1 = _vec{0.5, 0.0, 0.5, 0.0}
-    rinfo.v2 = _vec{0.5, 0.0, -0.5, 0.0}
+    rinfo.ray_origin = _vec{0.0f, 1.0f, 0.0f, 0.0f}
+    rinfo.ray_dir = _vec{0.0f, -1.0f, 0.0f, 0.0f}
+    rinfo.v0 = _vec{-0.5f, 0.0f, 0.5f, 0.0f}
+    rinfo.v1 = _vec{0.5f, 0.0f, 0.5f, 0.0f}
+    rinfo.v2 = _vec{0.5f, 0.0, -0.5f, 0.0f}
     //rinfo.t_out = &t_out
     //rinfo.u_out = &u_out
     //rinfo.v_out = &v_out

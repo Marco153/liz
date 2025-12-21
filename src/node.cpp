@@ -10913,7 +10913,10 @@ if(!decl)
       type2 rtp = DescendNode(lang_stat, n->r, scp);
       // ModifyNodeAndDoOperationsIfItsOnlyIntOrFloats(n, ltp, rtp, ret_type);
 
-      if (ltp.type == TYPE_INT) {
+      if (ltp.type == TYPE_INT && rtp.type == TYPE_INT) {
+        int val = GetExpressionValT<int>(n->t->type, ltp.i, rtp.i);
+        n->type = N_INT;
+        n->t->i = val;
       }
 
       if (ltp.type == TYPE_STRUCT && rtp.ptr == 0 ||

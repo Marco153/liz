@@ -800,7 +800,6 @@ void MovImmToReg(machine_code &m, short reg, char reg_sz, long long imm)
 {
 	char base_reg = FromBCRegToAsmReg(reg);
   char is_rex = IS_FLAG_ON(base_reg, 0x80);
-  if(is_rex) HERE()
   *(char *)&is_rex *= 2;
 	AddPreMemInsts(reg_sz, 0xc6, 0xc7, is_rex, m.code);
 	m.code.emplace_back(0xc0 + (char)(base_reg & 0xf));

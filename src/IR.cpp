@@ -1068,11 +1068,6 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->stack.i = ast->strct_constr.at_offset;
     // val->is_unsigned = IsUnsigned(ast->decl->type.type);
   } break;
-  case AST_STR_LIT: {
-    // InsertIntoDataSect(lang_stat, (void *))
-    val->type = IR_TYPE_STR_LIT;
-    val->str = std_str_to_heap(lang_stat, &ast->str);
-  } break;
   case AST_IDENT: {
     val->type = IR_TYPE_DECL;
     val->decl = ast->decl;
@@ -1321,6 +1316,7 @@ char AllocReg(lang_state *lang_stat, int start = 0) {
 bool HasCall(lang_state *lang_stat, ast_rep *ast) {
   switch (ast->type) {
   case AST_INT: 
+  case AST_F64: 
   case AST_STR_LIT: 
   {
     return false;
@@ -1681,6 +1677,8 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
         reg = float_reg;
       } 
       sz = rhs->reg_sz;
+      if(sz > 8) sz = 8;
+
     } 
 
     MakeIrLoadToReg(lang_stat, reg, sz, rhs, &ir, is_float);
@@ -1732,12 +1730,15 @@ void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   ir.bin.rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
   ir.bin.block_id = dst->id;
 
+  BREAK(ast->line_number == 527)
   ir.bin.lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
   if(ir.bin.lhs.kind == IR_VAL_ADDR)
   {
     LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.lhs, ir.bin.lhs.deref, ir.bin.lhs.deref);
     reg = ir.bin.lhs.reg;
   }
+  if(ir.bin.lhs.ptr > 0)
+    ir.bin.lhs.reg_sz = 8;
 
   InsertIr(state, ir);
 
@@ -3353,7 +3354,6 @@ if(e->line_number == 1467)
     } break;
     case AST_INT:
     case AST_CHAR:
-    case AST_STR_LIT:
     case AST_FLOAT:
     case AST_TYPE_DATA:
     case AST_IDENT: {
@@ -5528,7 +5528,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       is_if_expr_reg_sz = GetTypeSize(&ast->cond.expr_type);
       is_if_expr = true;
 
-      HERE()
     }
 
     bool is_stmnt_without_semicolon =
@@ -5733,6 +5732,20 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ast->func.fdecl->strct_constrct_size_per_statement = state->strct_ret_size_per_statement_max_gotten;
     return ret;
   }break;
+  case AST_STR_LIT: {
+    // InsertIntoDataSect(lang_stat, (void *))
+    //
+    int data_offset = lang_stat->data_sect.size();
+    InsertIntoDataSect(lang_stat, ast->str.c_str(), ast->str.size() + 1);
+    ir.type = IR_GET_STR_LIT;
+
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.reg_sz = 8;
+    ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+    ir.bin.rhs.on_data_sect_offset = data_offset;
+
+    ret = ir.bin.lhs;
+  } break;
   case AST_F64:
   {
     ir.type = IR_GET_FLOAT;
@@ -5764,7 +5777,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_INT:
   case AST_CHAR:
   case AST_IDENT:
-  case AST_STR_LIT:
   {
     GetIRVal(lang_stat, ast, &ret);
   }break;
@@ -6252,6 +6264,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_PERCENT:
     case T_AMPERSAND:
     case T_MINUS:
+    case T_SHIFT_LEFT:
+    case T_HAT:
+    case T_SHIFT_RIGHT:
     case T_PLUS:
     {
       //BREAK(ast->line_number == 1459)
@@ -6329,7 +6344,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_PLUS_EQUAL:
     case T_EQUAL:
     {
-      BREAK(ast->line_number == 706)
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
       bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;
@@ -6371,6 +6385,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         else
           ASSERT(false)
       }
+
       MakeIrStore(lang_stat, &lhs, &rhs, &ir);
 
       InsertIr(state, ir);

@@ -14836,6 +14836,15 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         }
 
       }break;
+      case IR_GET_STR_LIT:
+      {
+				bc.type = RELOC;
+				bc.rel.type = REL_DATA;
+				bc.rel.reg_dst = ir->bin.lhs.reg;
+				bc.rel.offset = ir->bin.rhs.on_data_sect_offset;
+				ret.emplace_back(bc);
+
+      }break;
       case IR_GET_FLOAT:
       {
         if(ir->bin.lhs.reg_sz == 4)
@@ -15075,7 +15084,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
             GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 4));
 
           }
-          else if(ir->bin.lhs.type == IR_TYPE_DECL && ir->bin.rhs.type == IR_TYPE_INT)
+          else if((ir->bin.lhs.type == IR_TYPE_DECL || ir->bin.lhs.type == IR_TYPE_ON_STACK) && ir->bin.rhs.type == IR_TYPE_INT)
           {
             GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 4));
 
@@ -17141,7 +17150,7 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 }
 void InitIrState(lang_state *lang_stat, thread_ir_state *ir_st)
 {
-  ir_st->blocks_max = 512;
+  ir_st->blocks_max = 1024;
   ir_st->blocks_ptr = AllocMiscData(lang_stat, sizeof(block2) * ir_st->blocks_max);
   init_tracker_stack(&ir_st->spilled_regs, 16);
   init_tracker_stack(&ir_st->break_end_block, 16);

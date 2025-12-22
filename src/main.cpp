@@ -1,6 +1,5 @@
 // #define USE_TEXT_EDITOR
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
-#include "machine_rel.h"
 #include <Zydis/Formatter.h>
 #include <Zydis/Mnemonic.h>
 #include <assimp/material.h>
@@ -9745,7 +9744,8 @@ void *_GetMem(int size)
 }
 void _PrintStr(const char *str)
 {
-  printf("%s", str);
+  printf("on _PrintStr, arg addr %p\n", str);
+  printf("%s\n", str);
 }
 bool cmp_str_dbg(char *str_sect, str_dbg *s1, const char *str)
 {
@@ -10054,6 +10054,7 @@ _pid ChildProcess(int pipes[2])
 
           *(u64*)&(cur_jmp_tbl)[6]= (u64)func_addr;
           (cur_jmp_tbl) += 16;
+          printf("CHILD: addr %p\n", func_addr);
         }
         else
         {
@@ -10085,7 +10086,7 @@ _pid ChildProcess(int pipes[2])
     for (int i = 0; i < total_rels; i++)
     {
       auto r = (dbg_rel*)(data + file->x64_rels_sect + i * sizeof(dbg_rel));
-      printf("CHILD: rel to name: %.*s, offset %d\n", r->name.name_len, str_sect+r->name.name_on_string_sect, r->name.name_on_string_sect);
+      //printf("CHILD: rel to name: %.*s, offset %d\n", r->name.name_len, str_sect+r->name.name_on_string_sect, r->name.name_on_string_sect);
       std::string key(
           str_sect + r->name.name_on_string_sect,
           r->name.name_len
@@ -10134,7 +10135,7 @@ _pid ChildProcess(int pipes[2])
           auto call_offset = (char*)(code + r->code_offset);
           int offset = ((long long)(jmp_addr - (call_offset + 4)));
           *(int *)call_offset = offset;
-          printf("CHILD: '%.*s' jmp %llx, addr %p, call_offset %p, offset %d\n", r->name.name_len, str_sect + r->name.name_on_string_sect, *(u64 *)jmp_addr, jmp_addr, call_offset, offset);
+          //printf("CHILD: '%.*s' jmp %llx, addr %p, call_offset %p, offset %d\n", r->name.name_len, str_sect + r->name.name_on_string_sect, *(u64 *)(jmp_addr + 2), jmp_addr, call_offset, offset);
 
           auto a = 0;
 
@@ -10185,7 +10186,7 @@ enum class child_process_state
 };
 
 func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *offset) {
-  printf("rip: offset: %d\n", (long long)(offset - code_start));
+  //printf("rip: offset: %d\n", (long long)(offset - code_start));
   FOR_VEC(it, lang_stat->winterp->funcs) {
     auto f = *it;
 
@@ -10251,8 +10252,8 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
   u8 *cur_addr = addr;
   while(ptr > 0)
   {
-    read_bytes_from_child(child_p, *(u64*)cur_addr, (u8 *)buffer, 8);
-    cur_addr = *(u8 **)&buffer;
+    //read_bytes_from_child(child_p, *(u64*)cur_addr, (u8 *)buffer, 8);
+    //cur_addr = *(u8 **)&buffer;
     ptr--;
   }
 
@@ -10377,7 +10378,8 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
     {
       // custom stack naming
       bool found = false;
-      if (op->mem.base == ZYDIS_REGISTER_RSP) {
+      if (op->mem.base == ZYDIS_REGISTER_RSP && scp) {
+
         decl2*d = GetVarByOffset(op->mem.disp.value, scp);
         if(d)
         {
@@ -10400,17 +10402,61 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
   }
   //printf("\n");
 }
+#define MAX_B_SIZE 1024 * 11
+
+void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
+{
+  if(addr == 0 ) return;
+  char buffer[MAX_B_SIZE];
+  read_bytes_from_child(child_p, (u64)addr, (u8 *)buffer, MAX_B_SIZE);
+
+  char buffer2[64];
+
+  int row_max = 5;
+  int column_max = 8;
+  ImGui::BeginChild("mem", ImVec2(500, 400));
+  
+  for(int row = 0; row < row_max; row++)
+  {
+    ImVec2 pos = ImGui::GetCursorPos();
+
+    for(int column = 0; column < column_max; column++)
+    {
+      ImGui::SetCursorPosX(pos.x + column * 40.0);
+      int idx = column + row * column_max; 
+      ImGui::Text("%02x", (char)buffer[idx]);
+      if((column + 1)< column_max)
+      {
+        ImGui::SameLine();
+      }
+    }
+  }
+  ImGui::EndChild();
+}
 void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl *fdecl, stmnt_dbg *cur_st, bool center_inst, scope *scp)
 {
-#define MAX_B_SIZE 1024 * 11
   char buffer[MAX_B_SIZE];
-  u64 cur_addr = code_start + fdecl->code_start_idx;
-  int max = fdecl->code_end_idx - fdecl->code_start_idx;
+  u64 cur_addr = 0;
+  int max = 0;
+  own_std::vector<char *> *lines = nullptr;
+  stmnt_dbg *selected_st = cur_st;
+
+  if(fdecl)
+  {
+    cur_addr = code_start + fdecl->code_start_idx;
+    max = fdecl->code_end_idx - fdecl->code_start_idx;
+    lines = &fdecl->from_file->lines;
+    cur_st = fdecl->wasm_stmnts.begin();
+  }
+  else
+  {
+    cur_addr = rip;
+    max = 1024 * 4;
+  }
 
   ASSERT(max < MAX_B_SIZE)
 
   read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, max);
-  stmnt_dbg *selected_st = cur_st;
 
   ZyanUSize offset = 0;
   ZydisDisassembledInstruction instruction;
@@ -10430,9 +10476,7 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
   }
 	static own_std::string aux_string;
 
-  own_std::vector<char *> &lines = fdecl->from_file->lines;
 
-  cur_st = fdecl->wasm_stmnts.begin();
 
   float inst_offset = 200;
   bool stat_displayed = false;
@@ -10510,12 +10554,12 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
     */
     ImGui::BeginChild("inst", ImVec2(500, h));
     ImVec2 pos = ImGui::GetCursorPos();
-    if(rel_addr >= cur_st->end)
+    if(cur_st && rel_addr >= cur_st->end)
     {
       cur_st++;
       stat_displayed = false;
     }
-    if(rel_addr >= cur_st->start && rel_addr <= cur_st->end && !stat_displayed)
+    if(fdecl && rel_addr >= cur_st->start && rel_addr <= cur_st->end && !stat_displayed)
     {
       //ImGui::SetCursorPosX(pos.x + inst_offset);
 
@@ -10532,7 +10576,7 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
         col = selected_color;
       }
 
-      ImGui::TextColored(col, "%s", lines[cur_st->line - 1]);
+      ImGui::TextColored(col, "%s", (*lines)[cur_st->line - 1]);
       stat_displayed = true;
     }
 
@@ -10542,13 +10586,6 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
     ImGui::SameLine();
     ImGui::SetCursorPosX(pos.x + inst_offset);
 
-    if(IS_FLAG_ON(instruction.info.attributes, ZYDIS_ATTRIB_HAS_MODRM))
-    {
-      auto r = &instruction.info.raw;
-
-      //printf("%d, reg %d, offset %d\n", offset, r->modrm.reg, r->disp.value);
-      //r.modrm.reg;
-    }
     if(dbg->inst_addr_print_type == 0)
     {
       ImGui::TextColored(text_color, "%d: %s\n", cur_addr - code_start, inst_buffer);
@@ -10686,13 +10723,14 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
 
   u64 assembly_addr;
+  u64 data_addr;
 
   ZydisFormatter formatter;
   ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
+  bool center_inst = true;
   while(true)
   {
-    bool center_inst = false;
     pid_t r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
     if (r == 0) {
       //ch_state = child_process_state::RUNNING;
@@ -10713,6 +10751,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         regs.rip--;
         ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
         assembly_addr = regs.rip;
+        center_inst = true;
       }
     }
     else if (WIFCONTINUED(status)) {
@@ -10783,7 +10822,13 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       waitpid(child_p, NULL, 0);
       stepped = true;
       center_inst = true;
-
+      ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+      int offset = regs.rip - (u64)code_start;
+      if(cur_f && (offset < cur_f->code_start_idx || offset > cur_f->code_end_idx))
+      {
+        cur_f = nullptr;
+        cur_scp = nullptr;
+      }
     }
 
     ImGui::SameLine();
@@ -10817,7 +10862,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         if(!cur_f)
         {
           ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
-          printf("DBG: trying rip %p\n", regs.rip);
+          //printf("DBG: trying rip %p\n", regs.rip);
           cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
         }
         ImGui::Text("in range");
@@ -10900,12 +10945,16 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
       //memcpy(&fregs.xmm_space, (xstate + 272), 16 * 16);
       ImGui::InputScalar("INT3: ", ImGuiDataType_U64, &assembly_addr, nullptr, nullptr, "%016llX");
+      ImGui::InputScalar("data: ", ImGuiDataType_U64, &data_addr, nullptr, nullptr, "%016llX");
 
       PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st, center_inst, cur_scp);
+      ImGui::SameLine();
+      PrintMem(child_p, dbg, data_addr, TYPE_CHAR);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
       ImGui::SameLine();
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);
 
+      center_inst = false;
     }break;
     case child_process_state::SEG_FAULT:
     {

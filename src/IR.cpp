@@ -3839,7 +3839,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
   case AST_INDEX: 
   {
-    BREAK(ast->line_number == 1101)
     rhs = GetIRFromAst2(lang_stat, ast->index.rhs, state, false);
 
     if(rhs.kind == IR_VAL_ADDR)

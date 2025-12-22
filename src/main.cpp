@@ -10325,10 +10325,12 @@ void PrintLocals(int child_p, dbg_state *dbg, u64 rsp, scope *scp)
 }
 void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl *fdecl, stmnt_dbg *cur_st)
 {
-  char buffer[2024];
-  u64 cur_addr = rip - 16;
-  int max = 2024;
+  char buffer[5024];
+  u64 cur_addr = code_start + fdecl->code_start_idx;
+  int max = fdecl->code_end_idx - fdecl->code_start_idx;
+
   read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, max);
+  stmnt_dbg *selected_st = cur_st;
 
   ZyanUSize offset = 0;
   ZydisDisassembledInstruction instruction;
@@ -10346,6 +10348,13 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
   }
 	static own_std::string aux_string;
 
+  own_std::vector<char *> &lines = fdecl->from_file->lines;
+
+  cur_st = fdecl->wasm_stmnts.begin();
+
+  float inst_offset = 200;
+  bool stat_displayed = false;
+  ImVec4 selected_color = ImVec4(ImColor(255, 0, 0));
   while (offset < max) 
   {
     auto val = ZydisDisassembleIntel(
@@ -10362,6 +10371,7 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
 
       continue;
     }
+    long long rel_addr = cur_addr - code_start;
 
 
     int len = instruction.info.length;
@@ -10374,11 +10384,12 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
     int offset_m = cur_addr - code_start ;
     buffer2[len * 2] = 0;
 
-    auto text_color = ImVec4(ImColor(255, 255, 255));
+    auto text_color = ImVec4(ImColor(200, 100, 150));
 
     if(rip == cur_addr)
-      text_color = ImVec4(ImColor(255, 0, 0));
+      text_color = selected_color;
 
+    /*
     ImGui::BeginChild("bytes", ImVec2(150, h));
     auto prev_ir = cur_ir;
     if(cur_st)
@@ -10394,7 +10405,6 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
         }
       }
     }
-    ImGui::TextColored(text_color, "%s", buffer2);
     ImGui::EndChild();
 
     cur_ir = prev_ir;
@@ -10413,6 +10423,31 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
         }
       }
     }
+    */
+    ImGui::BeginChild("inst", ImVec2(500, h));
+    ImVec2 pos = ImGui::GetCursorPos();
+    if(rel_addr > cur_st->end)
+    {
+      cur_st++;
+      stat_displayed = false;
+    }
+    if(rel_addr >= cur_st->start && rel_addr <= cur_st->end && !stat_displayed)
+    {
+      //ImGui::SetCursorPosX(pos.x + inst_offset);
+
+      ImVec4 col = ImVec4(ImColor(200, 200, 200));
+      if(cur_st->line == selected_st->line)
+        col = selected_color;
+
+      ImGui::TextColored(col, "%s", lines[cur_st->line - 1]);
+      stat_displayed = true;
+    }
+
+    pos = ImGui::GetCursorPos();
+    ImGui::TextColored(text_color, "%s", buffer2);
+    
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(pos.x + inst_offset);
 
     if(dbg->inst_addr_print_type == 0)
     {
@@ -10689,7 +10724,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           ImGui::Text("in func %s", cur_f->name.c_str());
           if(cur_st)
           {
-            ImGui::Text("st line %d", cur_st->line);
+            ImGui::Text("st line %d, start %d, end %d", cur_st->line, cur_st->start, cur_st->end);
           }
         }
         if(!cur_scp && cur_f && cur_st)

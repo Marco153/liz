@@ -403,7 +403,6 @@ TESTS:const s32=0;
 
     out_buffer :*char= cast(*char)in_buf;
 
-    __dbg_break
     buffer := cast(*char)aux_buffer;
 
     if num == 0
@@ -422,7 +421,6 @@ TESTS:const s32=0;
     while num != 0
     {
       mod := num % 10;
-      __dbg_break
       *ptr_offset(buffer, written, char) = cast(char)(cast(u8)'0 + cast(u8)mod);
       num = num / 10;
       written += 1;
@@ -1091,19 +1089,21 @@ TESTS:const s32=0;
     if i != 9
       __dbg_break
 
-    __dbg_break
-    __dbg_break
-    __dbg_break
     globals.i = 6
 
     buffer :[32]u8
+    __dbg_break
+    __dbg_break
+    __dbg_break
     num_2_str(cast(s64)globals.i, &buffer[0], 32)
+    __dbg_break
 
     if *ptr_offset(buffer[0], 0, u8) != 0x36
       __dbg_break
     if *ptr_offset(buffer[0], 1, u8) != 0
       __dbg_break
     PrintStr(cast(str_lit)buffer[0])
+
 
     m := minf(-6.0f, 1333.0f)
 

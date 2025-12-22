@@ -1649,6 +1649,21 @@ void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *l
 void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs, char derefs, char max_derefs)
 {
   ir_rep ir;
+  if(rhs->type == IR_TYPE_INT)
+  {
+    ir.type = IR_BIN;
+    ir.bin.op = T_EQUAL;
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+    ir.bin.lhs.reg_sz = 4;
+    ir.bin.rhs = *rhs;
+
+    *rhs = ir.bin.lhs;
+
+    out->emplace_back(ir);
+
+    return;
+  }
   char reg = 0;
   bool derefs_equal = derefs == max_derefs;
   bool was_float = rhs->is_float;
@@ -5297,6 +5312,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
   case AST_INDEX: 
   {
+    BREAK(ast->line_number == 1101)
     rhs = GetIRFromAst2(lang_stat, ast->index.rhs, state, false);
 
     if(rhs.kind == IR_VAL_ADDR)
@@ -6524,7 +6540,18 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       {
         if(lhs.is_float)
         {
+          ir_val aux = lhs;
+          LoadDerefs(lang_stat, &state->cur_block->irs, &aux, aux.deref, aux.deref);
+          ir.type = IR_BIN;
+          ir.bin.op = T_PLUS;
+          ir.bin.lhs = aux;
+          ir.bin.rhs = rhs;
 
+          InsertIr(state, ir);
+
+          MakeIrStore(lang_stat, &lhs, &aux, &ir);
+
+          InsertIr(state, ir);
         }
         else
         {
@@ -6534,9 +6561,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           ir.bin.rhs = rhs;
 
           InsertIr(state, ir);
-
         }
-
       }break;
       }
       ret = lhs;

@@ -917,9 +917,12 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 
 	func_decl* cur_func = nullptr;
 
+
 	int cur_func_start = 0;
   int cur_line;
   bool is_syscall = false;
+  own_std::vector<ir_rep>* func_irs;
+
 	FOR_VEC(bc, bcodes)
 	{
 
@@ -932,21 +935,28 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case IR_REP_END:
     {
-      SetIrStart(bc->ir, ret.code.size());
+      //SetIrStart(bc->ir, ret.code.size());
     }break;
 		case IR_REP_BEGIN:
     {
-      SetIrEnd(bc->ir, ret.code.size());
+      //SetIrEnd(bc->ir, ret.code.size());
     }break;
 		case END_STMNT:
     {
       stmnt_dbg *st = &cur_func->wasm_stmnts[bc->st_idx];
+      ir_rep *ir = &(*func_irs)[st->end_ir];
+
+      //ir->start = ret.code.size();
       st->end = ret.code.size();
     }break;
 		case BEGIN_STMNT:
     {
       stmnt_dbg *st = &cur_func->wasm_stmnts[bc->st_idx];
       st->start = ret.code.size();
+      ir_rep *ir = &(*func_irs)[st->start_ir];
+
+      //ir->start = ret.code.size();
+
       cur_line = st->line;
     }break;
 		case END_FUNC:
@@ -961,6 +971,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			func_decl* fdecl = bc->fdecl;
 			fdecl->code_start_idx = ret.code.size();
 			cur_func = fdecl;
+      func_irs = (own_std::vector<ir_rep> *) &cur_func->ir;
 		}break;
 		case BEGIN_FUNC_FOR_INTERPRETER:
 		{

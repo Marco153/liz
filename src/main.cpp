@@ -10327,7 +10327,8 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
 {
   char buffer[2024];
   u64 cur_addr = rip - 16;
-  read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, 2024);
+  int max = 2024;
+  read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, max);
 
   ZyanUSize offset = 0;
   ZydisDisassembledInstruction instruction;
@@ -10344,15 +10345,25 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
     cur_ir = start_ir + cur_st->start_ir;
   }
 	static own_std::string aux_string;
-  //HERE()
 
-  while (ZYAN_SUCCESS(ZydisDisassembleIntel(
-      /* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
-      /* runtime_address: */ cur_addr,
-      /* buffer:          */ buffer + offset,
-      /* length:          */ 2024,
-      /* instruction:     */ &instruction
-  ))) {
+  while (offset < max) 
+  {
+    auto val = ZydisDisassembleIntel(
+        /* machine_mode:    */ ZYDIS_MACHINE_MODE_LONG_64,
+        /* runtime_address: */ cur_addr,
+        /* buffer:          */ buffer + offset,
+        /* length:          */ max,
+        /* instruction:     */ &instruction
+        );
+    if(!ZYAN_SUCCESS(val)){
+      int code =ZYAN_STATUS_CODE(val);
+      offset += 1;
+      cur_addr += 1;
+
+      continue;
+    }
+
+
     int len = instruction.info.length;
     int cur_i = 0;
     for(int i = 0; i < len; i++)
@@ -10372,8 +10383,10 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
     auto prev_ir = cur_ir;
     if(cur_st)
     {
+      printf("DBG: has st\n");
       if(dbg->show_ir)
       {
+        printf("DBG: will try to print ir\n");
         while (cur_ir && cur_ir->start == offset_m)
         {
           ImGui::NewLine();

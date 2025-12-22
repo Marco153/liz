@@ -7261,7 +7261,7 @@ case node_type::N_SCOPE:
 
         auto prev_fdecl = lang_stat->cur_func;
         lang_stat->cur_func = scp->fdecl;
-        CompileDo(lang_stat, n->r->r, scp);
+        //CompileDo(lang_stat, n->r->r, scp);
         lang_stat->cur_func = prev_fdecl;
         // n->type = N_EMPTY;
         n->flags |= NODE_FLAGS_IS_PROCESSED2;
@@ -7464,7 +7464,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
 
     ident->when_used_code = (own_std::vector<int> *)AllocMiscData(
         lang_stat, sizeof(own_std::vector<int>));
-    AstCreateCode(lang_stat, n->r, scp, ident->when_used_code);
+    //AstCreateCode(lang_stat, n->r, scp, ident->when_used_code);
 
     lang_stat->cur_func = prev_fdecl;
     // n->type = N_EMPTY;
@@ -7518,7 +7518,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
 
         auto prev_fdecl = lang_stat->cur_func;
         lang_stat->cur_func = scp->fdecl;
-        CompileDo(lang_stat, n->r->r, scp);
+        //CompileDo(lang_stat, n->r->r, scp);
         lang_stat->cur_func = prev_fdecl;
         // n->type = N_EMPTY;
         n->flags |= NODE_FLAGS_IS_PROCESSED2;

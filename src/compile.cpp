@@ -11732,7 +11732,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 
 	bool print_ir = false;
 
-	unsigned int stack_size = (MAX_CALL_REGS + REGS_PUSHED) * 8 + on_stack_args * 8;
+	unsigned int stack_size = 0;
 	int total_args = 0;
 	int cur_line = 0;
 	int start = ret.size();

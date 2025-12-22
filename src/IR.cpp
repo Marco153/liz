@@ -1084,10 +1084,12 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
       val->reg_sz = 8;
 
     val->is_unsigned = false;
+    val->deref = 1;
     if (ast->decl->type.type == TYPE_STATIC_ARRAY) {
       // val->is_unsigned = IsUnsigned(ast->decl->type.tp->type);
       val->is_unsigned = true;
       val->reg_sz = 8;
+      val->deref = 0;
     } else if (ast->decl->type.type == TYPE_STRUCT_TYPE &&
                IS_FLAG_ON(ast->decl->type.strct->flags, TP_STRCT_ETRUCT)) {
       val->is_unsigned = true;
@@ -1107,7 +1109,6 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     }
     val->is_float = val->is_float || val->is_packed_float;
     val->ptr = ast->decl->type.ptr;
-    val->deref = 1;
     val->kind = IR_VAL_ADDR;
     val->reg = (char)regs_enum::RSP;
     val->voffset = 0;
@@ -1674,6 +1675,20 @@ void LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     final_reg = (char)regs_enum::RSP;
   }
 
+  if(rhs->type == IR_TYPE_DECL && rhs->decl->type.type == TYPE_STATIC_ARRAY && derefs == 0)
+  {
+    ir.type = IR_ADDRESS_OF;
+    if(!reg_was_allocated)
+    {
+      reg = GetAvailableReg(lang_stat);
+    }
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.reg = reg;
+    ir.bin.lhs.reg_sz = 8;
+    ir.bin.rhs = *rhs;
+    out->emplace_back(ir);
+    final_reg = reg;
+  }
   
   while(ptr > 0)
   {
@@ -5905,6 +5920,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   }break;
   case AST_CAST:
   {
+    //BREAK(ast->line_number == 407)
     ast_rep *casted_ast = ast->cast.casted;
     ret = GetIRFromAst2(lang_stat, casted_ast, state, false);
 
@@ -6473,7 +6489,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       if(rhs.kind != IR_VAL_VALUE)
       {
-        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, 1, 1);
+        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, rhs.deref, rhs.deref);
       }
 
       if(lhs.is_packed_float && rhs.type == IR_TYPE_INT)
@@ -6495,9 +6511,38 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           ASSERT(false)
       }
 
-      MakeIrStore(lang_stat, &lhs, &rhs, &ir);
+      switch(ast->op)
+      {
+      case T_EQUAL:
+      {
+        MakeIrStore(lang_stat, &lhs, &rhs, &ir);
 
-      InsertIr(state, ir);
+      }break;
+      case T_PLUS_EQUAL:
+      {
+        ir_val aux = lhs;
+        if(lhs.is_packed_float)
+        {
+          HERE()
+          LoadDerefs(lang_stat, &state->cur_block->irs, &aux, aux.deref, aux.deref);
+          ir.type = IR_BIN;
+          ir.bin.op = T_PLUS;
+          ir.bin.lhs = aux;
+          ir.bin.rhs = rhs;
+          InsertIr(state, ir);
+
+          MakeIrStore(lang_stat, &lhs, &aux, &ir);
+        }
+        else
+        {
+          ir.type = IR_BIN;
+          ir.bin.op = T_PLUS;
+          ir.bin.lhs = aux;
+          ir.bin.rhs = rhs;
+        }
+        InsertIr(state, ir);
+      }break;
+      }
       ret = lhs;
     }break;
     default: ASSERT(false)

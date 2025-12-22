@@ -403,7 +403,8 @@ TESTS:const s32=0;
 
     out_buffer :*char= cast(*char)in_buf;
 
-    buffer := cast(*char)aux_buffer;
+    __dbg_break
+    buffer := cast(*char)&aux_buffer;
 
     if num == 0
     {
@@ -421,6 +422,7 @@ TESTS:const s32=0;
     while num != 0
     {
       mod := num % 10;
+      __dbg_break
       *ptr_offset(buffer, written, char) = cast(char)(cast(u8)'0 + cast(u8)mod);
       num = num / 10;
       written += 1;
@@ -1089,13 +1091,13 @@ TESTS:const s32=0;
     if i != 9
       __dbg_break
 
+    __dbg_break
+    __dbg_break
+    __dbg_break
     globals.i = 6
 
     buffer :[32]u8
-    __dbg_break
-    __dbg_break
-    __dbg_break
-    num_2_str(cast(s64)globals.i, buffer[0], 32)
+    num_2_str(cast(s64)globals.i, &buffer[0], 32)
 
     if *ptr_offset(buffer[0], 0, u8) != 0x36
       __dbg_break
@@ -1350,7 +1352,7 @@ TESTS:const s32=0;
 
     fsum = 1.0f;
     testt: = [3]f32{ ret_f32_summed_with_one(fsum), ret_f32_summed_with_one(fsum), 3.0f };
-    fsum = *testt[0] + *testt[1] + *testt[2];
+    fsum = testt[0] + testt[1] + testt[2];
     
     if fsum < 6.9f || fsum > 7.1f
       debug_break();
@@ -1398,7 +1400,7 @@ TESTS:const s32=0;
       ar: [4] f32;
     }
     modify_static_ar_through_void_ptr(cast(*void)ar_strct_ar.ar);
-    if *ar_strct_ar.ar[0] < 1.4f || *ar_strct_ar.ar[0] > 1.6f
+    if ar_strct_ar.ar[0] < 1.4f || ar_strct_ar.ar[0] > 1.6f
       debug_break();
 
     i = 5;
@@ -1409,9 +1411,9 @@ TESTS:const s32=0;
       debug_break();
 
     static_ar: [4] f32;
-    *static_ar[0] = 0.5f;
+    static_ar[0] = 0.5f;
 
-    if* static_ar[0] < 0.4f || *static_ar[0] > 0.6f
+    if static_ar[0] < 0.4f || static_ar[0] > 0.6f
       debug_break();
 
     test_strct : struct
@@ -1420,8 +1422,8 @@ TESTS:const s32=0;
     }
 
     color:test_strct;
-    *color.ar[1] = 0.5f;
-    if* color.ar[1] < 0.4f || *color.ar[1] > 0.6f
+    color.ar[1] = 0.5f;
+    if color.ar[1] < 0.4f || color.ar[1] > 0.6f
       debug_break();
 
 
@@ -1524,7 +1526,7 @@ TESTS:const s32=0;
 
     ar_test := []f32{ 1.0f, 2.0f, 3.0f, 4.0f };
 
-    if *ar_test[0] > 1.1f || *ar_test[0] < 0.9f
+    if ar_test[0] > 1.1f || ar_test[0] < 0.9f
       debug_break();
 
     i = 2;
@@ -1633,7 +1635,7 @@ TESTS:const s32=0;
       debug_break();
 
     dyn_test :dyn_array(s32);
-    dyn_test.data = s32_ar[0];
+    dyn_test.data = &s32_ar[0];
     dyn_test.cap = 5;
     dyn_test.count = 5;
 

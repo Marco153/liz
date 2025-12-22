@@ -3810,8 +3810,8 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
 
 				float_reg++;
 			}
-      else
-        normal_reg++;
+      //else
+        //normal_reg++;
 
 			// bool param is if the reg is lhs or not
 

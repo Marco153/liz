@@ -4994,7 +4994,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
   {
     if(i >= MAX_CALL_REGS)
     {
-      if(ir.bin.rhs.kind == IR_VAL_ADDR)
+      if(ir.bin.rhs.kind == IR_VAL_ADDR && ir.bin.rhs.deref > 0)
       {
         char deref = ir.bin.rhs.deref;
         LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs, deref, deref);
@@ -5022,6 +5022,16 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
 
 }
 
+void UnspillReg(thread_ir_state *state, char reg)
+{
+  ir_rep ir;
+  ir.type = IR_UNSPILL;
+  ir.bin.lhs.type =  IR_TYPE_REG;
+  ir.bin.lhs.reg =  reg;
+  ir.bin.lhs.reg_sz =  8;
+  ir.bin.rhs.reg =  state->spilled_regs.cur;
+  InsertIr(state, ir);
+}
 void SpillReg(thread_ir_state *state, char reg)
 {
   ir_rep ir;
@@ -5155,14 +5165,9 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
   while(state->spilled_regs.cur > call_base)
   {
-    ir.type = IR_UNSPILL;
     char unspill = *pop_tracker_stack(&state->spilled_regs);
-    ir.bin.lhs.type =  IR_TYPE_REG;
-    ir.bin.lhs.reg =  unspill;
-    ir.bin.lhs.reg_sz =  8;
-    ir.bin.rhs.reg =  state->spilled_regs.cur;
 
-    InsertIr(state, ir);
+    UnspillReg(state, unspill);
   }
 
   ret.type = IR_TYPE_REG;
@@ -5178,6 +5183,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   }
   ret.reg = 0;
   ret.reg_sz = max(1, ret.reg_sz);
+  ret.deref = ret.ptr + 1;
   //if(callf->ret_type.)
 
   return ret;
@@ -5255,6 +5261,13 @@ ir_val GetFloatIr(lang_state *lang_stat, thread_ir_state *state, float f)
   ret = ir.bin.lhs;
   return ret;
 }
+void CheckRegInUseMaybeSpill(lang_state *lang_stat, thread_ir_state *state, char reg)
+{
+  if(IsRegInUse(lang_stat, reg))
+  {
+    SpillReg(state, reg);
+  }
+}
 ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
 {
   ir_val ret;
@@ -5296,6 +5309,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     lhs = GetIRFromAst2(lang_stat, ast->index.lhs, state, true);
 
     bool can_do_plus = true;
+    lhs.kind = IR_VAL_ADDR;
     if(lhs.type == IR_TYPE_DECL)
     {
       if(lhs.ptr > 0)
@@ -5322,6 +5336,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         lhs = ir.bin.lhs;
         lhs.ptr = 0;
         lhs.deref = 0;
+        lhs.kind = IR_VAL_VALUE;
+        lhs.type = IR_TYPE_REG;
       }
     }
 
@@ -5336,8 +5352,14 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
 
     ret = lhs;
-    ret.type = IR_TYPE_REG_MEM;
-    ret.kind = IR_VAL_ADDR;
+    //ret.type = IR_TYPE_REG_MEM;
+    if(!is_lhs)
+    {
+      LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
+      ret.deref = 0;
+      ret.kind = IR_VAL_VALUE;
+      ret.type = IR_TYPE_REG;
+    }
 
   }break;
   case AST_WHILE: 
@@ -5840,6 +5862,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_ADDRESS_OF:
   {
     ast_rep *addr = ast->ast;
+    //BREAK(ast->line_number == 1098)
     ret = GetIRFromAst2(lang_stat, addr, state, true);
     if(ret.kind == IR_VAL_ADDR)
     {
@@ -5899,6 +5922,12 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
     else
     {
+      if(ret.ptr > 0)
+      {
+        ret.reg_sz = 8;
+        ret.is_unsigned = true;
+        ret.is_float = false;
+      }
       if(cast_sz != ret.reg_sz && ret.type != IR_TYPE_INT)
       {
         if(ret.is_float && !ast->cast.type.IsFloat())
@@ -5969,6 +5998,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       else if(ast->cast.type.IsFloat() && !ret.is_float)
       {
+
+      }
+      else if(ast->cast.type.IsFloat() && !ret.is_float)
+      {
         if(ret.kind == IR_VAL_ADDR)
         {
           LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
@@ -5986,6 +6019,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
         ret.kind = IR_VAL_VALUE;
       }
+      else if(cast_sz == ret.reg_sz)
+      {
+        LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
+      }
 
       if(can_add)
         InsertIr(state, ir);
@@ -6002,6 +6039,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ret.is_packed_float = ir.bin.lhs.is_packed_float;
     ret.is_unsigned = ir.bin.lhs.is_unsigned;
     ret.reg_sz = cast_sz;
+    ret.ptr = ast->cast.type.ptr;
 
   }break;
   case AST_STATS:
@@ -6259,8 +6297,24 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }break;
     case T_POINT:
     {
+      //BREAK(ast->line_number == 714)
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
 
+      if(lhs.ptr == 0 && lhs.type == IR_TYPE_DECL && IS_FLAG_ON(lhs.decl->flags, DECL_IS_GLOBAL))
+      {
+        ir.type = IR_GET_GLOBAL;
+        ir.bin.lhs.type = IR_TYPE_REG;
+        ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+        ir.bin.lhs.reg_sz = 8;
+        ir.bin.lhs.ptr = 1;
+        ir.bin.rhs = lhs;
+        InsertIr(state, ir);
+        lhs = ir.bin.lhs;
+        lhs.type = IR_TYPE_REG_MEM;
+        lhs.ptr = 0;
+        lhs.deref = 0;
+
+      }
       int offset = 0;
       for(int i =1; i < ast->points.size();i++)
       {
@@ -6273,25 +6327,25 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           offset = 0;
           lhs.ptr = d->type.ptr;
         }
-        else
-        {
-
-        }
         offset += d->offset;
 
         lhs.reg_sz = GetTypeSize(&d->type);
         lhs.voffset = offset;
         lhs.is_float = d->type.IsFloat();
         lhs.is_packed_float = d->type.type == TYPE_VECTOR;
+        lhs.deref = lhs.ptr + 1;
       }
       lhs.kind = IR_VAL_ADDR;
       if(!is_lhs)
       {
+        char prev_reg = lhs.reg;
+        auto prev_type = lhs.type;
         LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref, lhs.deref);
         if(lhs.is_float)
         {
-          FreeReg(lang_stat, lhs.reg, false);
+          FreeReg(lang_stat, prev_reg, false);
         }
+
         lhs.kind = IR_VAL_VALUE;
       }
       ret = lhs;
@@ -6308,7 +6362,16 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_PLUS:
     {
       //BREAK(ast->line_number == 1459)
+      u32 spill_base = state->spilled_regs.cur;
+
+      if(ast->op == T_DIV)
+      {
+        CheckRegInUseMaybeSpill(lang_stat, state, (char)regs_enum::RAX);
+        CheckRegInUseMaybeSpill(lang_stat, state, (char)regs_enum::RDX);
+      }
+
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
+
       for(int i= 1; i < ast->e_holder.expr.size(); i++)
       {
         rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[i], state, false);
@@ -6378,6 +6441,12 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         InsertIr(state, ir);
       }
       ret.kind = IR_VAL_VALUE;
+
+      while(state->spilled_regs.cur > spill_base)
+      {
+        char unspill = *pop_tracker_stack(&state->spilled_regs);
+        UnspillReg(state, unspill);
+      }
     }break;
     case T_PLUS_EQUAL:
     case T_EQUAL:
@@ -6394,17 +6463,19 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       {
         LoadDerefs(lang_stat, &state->cur_block->irs, &lhs, lhs.deref - 1, lhs.deref);
       }
-      if(rhs.kind != IR_VAL_VALUE)
-      {
-        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, 1, 1);
-      }
-
       if(lhs.ptr > 0)
       {
         lhs.reg_sz = 8;
         rhs.reg_sz = 8;
         lhs.is_float = false;
+        lhs.is_unsigned = true;
+        rhs.is_unsigned = true;
       }
+      if(rhs.kind != IR_VAL_VALUE)
+      {
+        LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, 1, 1);
+      }
+
       if(lhs.is_packed_float && rhs.type == IR_TYPE_INT)
       {
         if(rhs.i == 0)

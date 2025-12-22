@@ -3827,7 +3827,7 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
       switch (lhs_type.type) {
       case enum_type2::TYPE_STATIC_ARRAY: {
         ret_type = *lhs_type.tp;
-        ret_type.ptr++;
+        //ret_type.ptr++;
       } break;
       case enum_type2::TYPE_STRUCT: {
         auto index_op =
@@ -3891,11 +3891,13 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
       if (!NameFindingGetType(lang_stat, n->r, scp, ret_type))
         return false;
 
+      //BREAK(n->t->line == 1098)
+
       if (IsNodeUnop(n->r, T_MUL))
         memcpy(n, n->r->r, sizeof(node));
       // index already returns a pointer so we removing the "taking address of"
-      else if (CMP_NTYPE(n->r, N_INDEX))
-        memcpy(n, n->r, sizeof(node));
+      //else if (CMP_NTYPE(n->r, N_INDEX))
+        //memcpy(n, n->r, sizeof(node));
       else {
         switch (ret_type.type) {
           /*
@@ -9953,6 +9955,22 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
     }
     auto rhs_type = DescendNode(lang_stat, n->r, scp);
 
+    //BREAK(n->t->line == 1442)
+    if (lhs_type.type == TYPE_F32_TYPE && rhs_type.type == TYPE_INT)
+    {
+      n->type = N_FLOAT;
+      n->t->f = rhs_type.i;
+      rhs_type.type = TYPE_F32_RAW;
+      rhs_type.f = n->t->f;
+    }
+    if (lhs_type.type == TYPE_F64_TYPE && rhs_type.type == TYPE_INT)
+    {
+      n->type = N_FLOAT64;
+      n->t->f64 = rhs_type.i;
+      rhs_type.type = TYPE_F64_RAW;
+      rhs_type.f64 = n->t->f64;
+    }
+
     bool can_rhs_be_ptr =
         rhs_type.ptr > 0 || rhs_type.type == TYPE_STATIC_ARRAY ||
         rhs_type.ptr == 0 &&
@@ -10133,10 +10151,6 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
       }
       // index already returns a pointer so we removing the "taking address
       // of"
-      else if (CMP_NTYPE(n->r, N_INDEX)) {
-        memcpy(n, n->r, sizeof(node));
-        maybe_lhs_or_modified_nd = n;
-      }
 
       NameFindingGetType(lang_stat, n, scp, ret_type);
       auto tp = DescendNode(lang_stat, maybe_lhs_or_modified_nd, scp);
@@ -10149,6 +10163,7 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
 
       if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_AFTER_TYPE_CHECK))
         DescendNode(lang_stat, maybe_lhs_or_modified_nd, scp);
+      //ret_type.ptr++;
     } break;
     case tkn_type2::T_MUL: {
       ret_type = DescendNode(lang_stat, n->r, scp);
@@ -10751,7 +10766,7 @@ if(!decl)
       case enum_type2::TYPE_ARRAY:
       case enum_type2::TYPE_ARRAY_DYN:
         ret_type = *lhs.tp;
-        ret_type.ptr++;
+        //ret_type.ptr++;
         break;
       case enum_type2::TYPE_STRUCT: {
         // operator overload

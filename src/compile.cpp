@@ -14425,6 +14425,9 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
 	int on_stack_args = max(args, 0);
   auto &ret = mach.bcs;
 
+  own_std::vector<ir_rep>* func_irs = (own_std::vector<ir_rep> *) &cur_func->ir;
+  func_irs->reserve(64);
+
 	bool print_ir = false;
 
 	unsigned int stack_size = (MAX_CALL_REGS + REGS_PUSHED) * 8 + on_stack_args * 8;
@@ -14465,6 +14468,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
     FOR_VEC(cur_ir, cur_b->irs)
     {
       auto ir = cur_ir;
+      func_irs->emplace_back(*ir);
       /*
       if(ret.size() >= 32)
       {
@@ -14551,6 +14555,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         cur_line = ir->block.stmnt.line;
         stmnt_dbg cur_st;
         cur_st.line = cur_line;
+        cur_st.start_ir = func_irs->size();
         if(lang_stat->is_machine_x64_backend)
         {
           bc.type = BEGIN_STMNT;
@@ -14569,6 +14574,7 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
         FreeAllRegs(lang_stat);
         FreeAllFloatRegs(lang_stat);
         stmnt_dbg *cur_st = &cur_func->wasm_stmnts.back();
+        cur_st->end_ir = func_irs->size();
         if(lang_stat->is_machine_x64_backend)
         {
           bc.type = END_STMNT;

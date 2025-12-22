@@ -10183,6 +10183,7 @@ enum class child_process_state
 };
 
 func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *offset) {
+  printf("rip: offset: %d\n", (long long)(offset - code_start));
   FOR_VEC(it, lang_stat->winterp->funcs) {
     auto f = *it;
 
@@ -10545,7 +10546,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       //ch_state = child_process_state::RUNNING;
       //printf("Child: running (no state change)\n");
     }
-    else if (WIFSTOPPED(status)) {
+    else if (WIFSTOPPED(status) && r == child_p) {
       if(WSTOPSIG(status) == 11)
       {
         ch_state = child_process_state::SEG_FAULT;
@@ -10610,6 +10611,11 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
       waitpid(child_p, NULL, 0);
       ptrace(PTRACE_CONT, child_p, 0, 0);
+
+      cur_f = nullptr;
+      cur_scp = nullptr;
+      ch_state = child_process_state::RUNNING;
+
     }
     ImGui::SameLine();
     bool f10_pressed = false;
@@ -10648,83 +10654,86 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     {
       dbg->inst_addr_print_type = (dbg->inst_addr_print_type + 1) % 2;
     }
-    if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
-    {
-      if(!cur_f)
-      {
-        cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
-      }
-      ImGui::Text("in range");
-      if(cur_f)
-      {
-        printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());
-        int offset = (u64)((char *)regs.rip - code_start);
-        cur_st = GetStmntBasedOnOffset(&cur_f->wasm_stmnts, offset);
-        ImGui::Text("in func %s", cur_f->name.c_str());
-        if(cur_st)
-        {
-          ImGui::Text("st line %d", cur_st->line);
-        }
-      }
-      if(!cur_scp && cur_f && cur_st)
-      {
-        cur_scp = FindScpWithLine(cur_f, cur_st->line);
-      }
-      if(!cur_bp)
-      {
-        int i= 0;
-        FOR_VEC(b, breakpoints)
-        {
-          if((u64)b->inst == regs.rip)
-          {
-            cur_bp = b;
-            cur_bp_idx = i;
-            break;
-          }
-          i++;
-        }
-      }
-      if(cur_bp)
-      {
-        //HERE()
-        write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
-      }
-      if (f10_pressed)
-      //if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F10))
-      {
-        if((cur_st + 1) < cur_f->wasm_stmnts.end())
-        {
-          stmnt_dbg *next_st = cur_st + 1;
-          u64 next_addr = (u64)(code_start + next_st->start);
-          MakeInstAddrToBeBreakpoint2(child_p, &breakpoints, next_addr, true);
-        }
-        if(cur_bp)
-        {
-          //write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
-          breakpoints.remove(cur_bp_idx);
-          //regs.rip--;
-          //ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
-
-          //ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
-
-        }
-        else
-        {
-          //printf("rip bef %p\n", regs.rip);
-          ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
-          waitpid(child_p, NULL, 0);
-
-          ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
-          //printf("rip after %p\n", regs.rip);
-        }
-
-        ptrace(PTRACE_CONT, child_p, 0, 0);
-      }
-    }
     switch(ch_state)
     {
     case child_process_state::INT3:
     {
+      if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
+      {
+        //printf("DBG: rip %p\n", regs.rip);
+        if(!cur_f)
+        {
+          ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+          printf("DBG: trying rip %p\n", regs.rip);
+          cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
+        }
+        ImGui::Text("in range");
+        if(cur_f)
+        {
+          //printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());
+          int offset = (u64)((char *)regs.rip - code_start);
+          cur_st = GetStmntBasedOnOffset(&cur_f->wasm_stmnts, offset);
+          ImGui::Text("in func %s", cur_f->name.c_str());
+          if(cur_st)
+          {
+            ImGui::Text("st line %d", cur_st->line);
+          }
+        }
+        if(!cur_scp && cur_f && cur_st)
+        {
+          cur_scp = FindScpWithLine(cur_f, cur_st->line);
+        }
+        if(!cur_bp)
+        {
+          int i= 0;
+          FOR_VEC(b, breakpoints)
+          {
+            if((u64)b->inst == regs.rip)
+            {
+              cur_bp = b;
+              cur_bp_idx = i;
+              break;
+            }
+            i++;
+          }
+        }
+        if(cur_bp)
+        {
+          //HERE()
+          write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
+        }
+        if (f10_pressed)
+        //if (IsKeyRepeat(0, dbg->data, GLFW_KEY_F10))
+        {
+          if((cur_st + 1) < cur_f->wasm_stmnts.end())
+          {
+            stmnt_dbg *next_st = cur_st + 1;
+            u64 next_addr = (u64)(code_start + next_st->start);
+            MakeInstAddrToBeBreakpoint2(child_p, &breakpoints, next_addr, true);
+          }
+          if(cur_bp)
+          {
+            //write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
+            breakpoints.remove(cur_bp_idx);
+            //regs.rip--;
+            //ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
+
+            //ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
+
+          }
+          else
+          {
+            //printf("rip bef %p\n", regs.rip);
+            ptrace(PTRACE_SINGLESTEP, child_p, 0, 0);
+            waitpid(child_p, NULL, 0);
+
+            ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+            //printf("rip after %p\n", regs.rip);
+          }
+
+          ptrace(PTRACE_CONT, child_p, 0, 0);
+        }
+      }
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       ptrace(PTRACE_GETREGSET, child_p, (void*)NT_X86_XSTATE, &iov);
       //printf("iov_len returned = %zu\n", iov.iov_len);

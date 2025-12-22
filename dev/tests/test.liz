@@ -418,6 +418,10 @@ TESTS:const s32=0;
     }
 
 
+    __dbg_break
+    __dbg_break
+    __dbg_break
+
     while num != 0
     {
       mod := num % 10;

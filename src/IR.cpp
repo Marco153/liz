@@ -6511,9 +6511,34 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           ASSERT(false)
       }
 
-      MakeIrStore(lang_stat, &lhs, &rhs, &ir);
+      switch(ast->op)
+      {
+      case T_EQUAL:
+      {
+        MakeIrStore(lang_stat, &lhs, &rhs, &ir);
 
-      InsertIr(state, ir);
+        InsertIr(state, ir);
+
+      }break;
+      case T_PLUS_EQUAL:
+      {
+        if(lhs.is_float)
+        {
+
+        }
+        else
+        {
+          ir.type = IR_BIN;
+          ir.bin.op = T_PLUS;
+          ir.bin.lhs = lhs;
+          ir.bin.rhs = rhs;
+
+          InsertIr(state, ir);
+
+        }
+
+      }break;
+      }
       ret = lhs;
     }break;
     default: ASSERT(false)

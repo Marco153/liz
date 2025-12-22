@@ -10424,7 +10424,7 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
     {
       ImGui::SetCursorPosX(pos.x + column * 40.0);
       int idx = column + row * column_max; 
-      ImGui::Text("%02x", (char)buffer[idx]);
+      ImGui::Text("%02x", (u8)buffer[idx]);
       if((column + 1)< column_max)
       {
         ImGui::SameLine();
@@ -10554,30 +10554,33 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
     */
     ImGui::BeginChild("inst", ImVec2(500, h));
     ImVec2 pos = ImGui::GetCursorPos();
-    if(cur_st && rel_addr >= cur_st->end)
+    if(fdecl && cur_st < fdecl->wasm_stmnts.end())
     {
-      cur_st++;
-      stat_displayed = false;
-    }
-    if(fdecl && rel_addr >= cur_st->start && rel_addr <= cur_st->end && !stat_displayed)
-    {
-      //ImGui::SetCursorPosX(pos.x + inst_offset);
-
-      ImVec4 col = ImVec4(ImColor(200, 200, 200));
-      if(selected_st && cur_st->line == selected_st->line)
+      if(cur_st && rel_addr >= cur_st->end)
       {
-        if (center_inst)
-        {
-          printf("will center \n");
-          ImVec2 pos = ImGui::GetCursorPos();
-          ImGui::SetScrollY(pos.y - h / 2);
-          center_inst = false;
-        }
-        col = selected_color;
+        cur_st++;
+        stat_displayed = false;
       }
+      if(fdecl && rel_addr >= cur_st->start && rel_addr <= cur_st->end && !stat_displayed)
+      {
+        //ImGui::SetCursorPosX(pos.x + inst_offset);
 
-      ImGui::TextColored(col, "%s", (*lines)[cur_st->line - 1]);
-      stat_displayed = true;
+        ImVec4 col = ImVec4(ImColor(200, 200, 200));
+        if(selected_st && cur_st->line == selected_st->line)
+        {
+          if (center_inst)
+          {
+            printf("will center \n");
+            ImVec2 pos = ImGui::GetCursorPos();
+            ImGui::SetScrollY(pos.y - h / 2);
+            center_inst = false;
+          }
+          col = selected_color;
+        }
+
+        ImGui::TextColored(col, "%s", (*lines)[cur_st->line - 1]);
+        stat_displayed = true;
+      }
     }
 
     pos = ImGui::GetCursorPos();
@@ -10856,7 +10859,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     {
     case child_process_state::INT3:
     {
-      if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end)
+      if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end || ! cur_f)
       {
         //printf("DBG: rip %p\n", regs.rip);
         if(!cur_f)
@@ -10948,8 +10951,11 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ImGui::InputScalar("data: ", ImGuiDataType_U64, &data_addr, nullptr, nullptr, "%016llX");
 
       PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st, center_inst, cur_scp);
-      ImGui::SameLine();
-      PrintMem(child_p, dbg, data_addr, TYPE_CHAR);
+      if(data_addr != 0)
+      {
+        ImGui::SameLine();
+        PrintMem(child_p, dbg, data_addr, TYPE_CHAR);
+      }
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
       ImGui::SameLine();
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);
@@ -10958,10 +10964,32 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     }break;
     case child_process_state::SEG_FAULT:
     {
+      if(!cur_f)
+      {
+        ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+        //printf("DBG: trying rip %p\n", regs.rip);
+        cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
+      }
+      ImGui::Text("in range");
+      if(cur_f)
+      {
+        //printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());
+        int offset = (u64)((char *)regs.rip - code_start);
+        cur_st = GetStmntBasedOnOffset(&cur_f->wasm_stmnts, offset);
+        ImGui::Text("in func %s, start %d, end %d", cur_f->name.c_str(), cur_f->code_start_idx, cur_f->code_end_idx);
+        if(cur_st)
+        {
+          ImGui::Text("st line %d, start %d, end %d", cur_st->line, cur_st->start, cur_st->end);
+        }
+      }
+      if(!cur_scp && cur_f && cur_st)
+      {
+        cur_scp = FindScpWithLine(cur_f, cur_st->line);
+      }
       ImGui::Text("SIGSEGV");
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       ImGui::Text("%p", regs.rip);
-      PrintInsts(child_p, dbg, regs.rip, (u64)code_start, nullptr, nullptr, center_inst, cur_scp);
+      PrintInsts(child_p, dbg, regs.rip, (u64)code_start, cur_f, cur_st, center_inst, cur_scp);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 272));
       ImGui::SameLine();
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);

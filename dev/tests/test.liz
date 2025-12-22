@@ -479,6 +479,7 @@ TESTS:const s32=0;
   }
   test_ref::fn(alloc : *mem_alloc)
   {
+    __dbg_break
     *ptr_offset(alloc.buffer, 2, u8) = 2;
   }
   test_init ::fn(alloc : *mem_alloc)
@@ -1095,19 +1096,17 @@ TESTS:const s32=0;
     buffer :[32]u8
     num_2_str(cast(s64)globals.i, &buffer[0], 32)
 
-    __dbg_break
     if *ptr_offset(buffer[0], 0, u8) != 0x36
       __dbg_break
     if *ptr_offset(buffer[0], 1, u8) != 0
       __dbg_break
-    __dbg_break
-    __dbg_break
-    __dbg_break
     PrintStr(cast(str_lit)buffer[0])
-    __dbg_break
 
 
     m := minf(-6.0f, 1333.0f)
+    __dbg_break
+    __dbg_break
+    __dbg_break
 
     if m >= -5.9f || m <= -6.1f
       debug_break();

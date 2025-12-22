@@ -1705,16 +1705,24 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case CMP_MEM_2_SSE:
 		{
 			char src = bc->bin.rhs.reg;
-			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+			char dst = bc->bin.lhs.reg;
+      char zero = 0;
+      if(bc->bin.lhs.reg_sz == 8)
+        ret.code.emplace_back(0x66);
+
+      AddSSEExtendedByte(&dst, &zero, &ret);
+
 			ret.code.emplace_back(0x0f);
 			ret.code.emplace_back(0x2f);
 
-			AddModRM(true, bc->bin.lhs.voffset, dst, src & 0xf, ret);
-			if (bc->bin.lhs.voffset != 0)
-				AddImm(bc->bin.lhs.voffset, ((unsigned int)bc->bin.lhs.voffset) < DISP_BYTE_MAX ? 1 : 4, ret);
+      int offset = bc->bin.rhs.voffset;
+			AddModRM(true, offset, src, dst & 0xf, ret);
+			if (offset != 0)
+				AddImm(offset, ((unsigned int)offset) < DISP_BYTE_MAX ? 1 : 4, ret);
 		}break;
 		case CMP_SSE_2_MEM:
 		{
+      ASSERT(false)
 			int start = ret.code.size();
 			// we moving the mem to reg 4, so the lhs sse must be a different reg
 			ASSERT(bc->bin.rhs.reg != 4)
@@ -1748,7 +1756,15 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			*/
 		case CMP_SSE_2_SSE:
 		{
-			char mod = MakeModRM(false, 0, bc->bin.rhs.reg, bc->bin.lhs.reg);
+			char src = bc->bin.rhs.reg;
+			char dst = bc->bin.lhs.reg;
+      char zero = 0;
+      if(bc->bin.lhs.reg_sz == 8)
+        ret.code.emplace_back(0x66);
+
+      AddSSEExtendedByte(&dst, &src, &ret);
+
+			char mod = MakeModRM(false, 0, src, dst);
 
 			ret.code.emplace_back(0x0f);
 			ret.code.emplace_back(0x2f);

@@ -9546,6 +9546,7 @@ void WasmInterpInit(wasm_interp* winterp, unsigned char* data, unsigned int len,
 	auto scp_pre = (scope_dbg*)(data + file->scopes_sect);
 	scope* root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, false);
 	root = WasmInterpBuildScopes(winterp, data, len, lang_stat, file, nullptr, scp_pre, true);
+  root->parent = nullptr;
 	//own_std::string scp_pre_str = PrintScpPre(data + file->scopes_sect, scp_pre);
 
 	//printf("\nscop 3:\n%s", root->Print(0).c_str());

@@ -63,7 +63,6 @@ void ExitProcess(int val) {
 #include <sndfile.h> // Library for reading WAV files
 #include <xaudio2.h>
 #endif
-
 int clamp(int v, int min, int max) {
   if (v <= min)
     return min;
@@ -9062,6 +9061,7 @@ void Sqrt(int thread_id, dbg_state *dbg) {
   *(float *)GetRegValPtr(thread_id, dbg, RET_1_REG) = sqrt(val);
 }
 void PrintStr(int thread_id, dbg_state *dbg) {
+  HERE()
   int base_ptr = *(int *)GetRegValPtr(thread_id, dbg, STACK_PTR_REG);
   int str_offset = *(int *)&dbg->mem_buffer[base_ptr + 8];
   char *str = (char *)&dbg->mem_buffer[str_offset];
@@ -10258,42 +10258,59 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
 
   ImGui::Text("name %.*s: ", v->name.size(), v->name.data());
 
-  switch(v->type.type)
+  if(orig_ptr > 0)
+  {
+    ImGui::SameLine();
+    ImGui::Text("%p ", (u8 *)cur_addr);
+    return;
+    ImGui::SameLine();
+  }
+  switch (v->type.type)
   {
   case TYPE_U8:
-  {
-    if(orig_ptr > 0)
-    {
-      ImGui::Text("%p", (u8 *)cur_addr);
-    }
-    else
-    {
-      ImGui::Text("%hhu", *(u8 *)cur_addr);
-    }
+      ImGui::SameLine();
+      ImGui::Text("%hhu", *(u8*)cur_addr);
+      break;
 
-  }break;
-  case TYPE_S64:
-  {
-    ImGui::SameLine();
-    ImGui::Text("%ll", *(u32 *)cur_addr);
-  }break;
-  case TYPE_U64:
-  {
-    ImGui::SameLine();
-    ImGui::Text("%llu", *(u32 *)cur_addr);
+  case TYPE_S8:
+      ImGui::SameLine();
+      ImGui::Text("%hhd", *(s8*)cur_addr);
+      break;
 
-  }break;
-  case TYPE_S32:
-  {
-    ImGui::SameLine();
-    ImGui::Text("%u", *(u32 *)cur_addr);
-  }break;
+  case TYPE_U16:
+      ImGui::SameLine();
+      ImGui::Text("%hu", *(u16*)cur_addr);
+      break;
+
+  case TYPE_S16:
+      ImGui::SameLine();
+      ImGui::Text("%hd", *(s16*)cur_addr);
+      break;
+
   case TYPE_U32:
-  {
-    ImGui::SameLine();
-    ImGui::Text("%u", *(u32 *)cur_addr);
+      ImGui::SameLine();
+      ImGui::Text("%u", *(u32*)cur_addr);
+      break;
 
-  }break;
+  case TYPE_S32:
+      ImGui::SameLine();
+      ImGui::Text("%d", *(s32*)cur_addr);
+      break;
+
+  case TYPE_U64:
+      ImGui::SameLine();
+      ImGui::Text("%llu", (unsigned long long)*(u64*)cur_addr);
+      break;
+
+  case TYPE_S64:
+      ImGui::SameLine();
+      ImGui::Text("%lld", (long long)*(s64*)cur_addr);
+      break;
+
+  default:
+      ImGui::SameLine();
+      ImGui::Text("<unknown>");
+      break;
   }
 }
 void PrintScope(int child_p, dbg_state *dbg, u8 *main_func_stack_buffer, u8 *rsp, scope *scp)
@@ -10316,7 +10333,6 @@ void PrintScope(int child_p, dbg_state *dbg, u8 *main_func_stack_buffer, u8 *rsp
 
 void PrintLocals(int child_p, dbg_state *dbg, u64 rsp, scope *scp)
 {
-  return;
   char buffer[2024];
 
   if(!scp) return;
@@ -10386,9 +10402,12 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
 }
 void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl *fdecl, stmnt_dbg *cur_st, bool center_inst, scope *scp)
 {
-  char buffer[5024];
+#define MAX_B_SIZE 1024 * 11
+  char buffer[MAX_B_SIZE];
   u64 cur_addr = code_start + fdecl->code_start_idx;
   int max = fdecl->code_end_idx - fdecl->code_start_idx;
+
+  ASSERT(max < MAX_B_SIZE)
 
   read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, max);
   stmnt_dbg *selected_st = cur_st;
@@ -10884,6 +10903,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
       PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st, center_inst, cur_scp);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
+      ImGui::SameLine();
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);
 
     }break;
@@ -10894,6 +10914,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ImGui::Text("%p", regs.rip);
       PrintInsts(child_p, dbg, regs.rip, (u64)code_start, nullptr, nullptr, center_inst, cur_scp);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 272));
+      ImGui::SameLine();
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);
     }break;
     }

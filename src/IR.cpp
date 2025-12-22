@@ -4395,6 +4395,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   }break;
   case AST_DEREF:
   {
+    BREAK(ast->line_number == 445)
     ast_rep *df = ast->deref.exp;
 
     rhs = GetIRFromAst2(lang_stat, df, state, is_lhs);
@@ -4404,6 +4405,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       //rhs.deref += 1;
     if(!is_lhs)
     {
+      if(rhs.type == IR_TYPE_REG)
+        rhs.type = IR_TYPE_REG_MEM;
       LoadDerefs(lang_stat, &state->cur_block->irs, &rhs, rhs.deref, rhs.deref);
     }
     else
@@ -4477,6 +4480,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     //BREAK(ast->line_number == 2046)
     if(ast->cast.type.ptr > 0)
     {
+      ret.kind = IR_VAL_ADDR;
     }
     else
     {

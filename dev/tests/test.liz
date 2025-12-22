@@ -417,9 +417,6 @@ TESTS:const s32=0;
       num = num * -1;
     }
 
-    __dbg_break
-    __dbg_break
-    __dbg_break
 
 
     while num != 0
@@ -1097,7 +1094,6 @@ TESTS:const s32=0;
 
     buffer :[32]u8
     num_2_str(cast(s64)globals.i, &buffer[0], 32)
-    __dbg_break
 
     if *ptr_offset(buffer[0], 0, u8) != 0x36
       __dbg_break
@@ -1105,6 +1101,9 @@ TESTS:const s32=0;
       __dbg_break
     PrintStr(cast(str_lit)buffer[0])
 
+    __dbg_break
+    __dbg_break
+    __dbg_break
 
     m := minf(-6.0f, 1333.0f)
 

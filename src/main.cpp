@@ -10402,7 +10402,7 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
   }
   //printf("\n");
 }
-#define MAX_B_SIZE 1024 * 11
+#define MAX_B_SIZE 1024 * 14
 
 void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
 {

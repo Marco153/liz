@@ -12002,6 +12002,19 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
             //bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
             ret.emplace_back(bc);
           }break;
+          case IR_TYPE_REG_MEM:
+          {
+            bc.type = (byte_code_enum)((int)inst + 1);
+            if(ir->bin.rhs.reg_sz == 4 && ir->bin.lhs.reg_sz == 8)
+            {
+              bc.type = MOV_M;
+              bc.bin.lhs.reg_sz = ir->bin.rhs.reg_sz;
+            }
+            bc.ir = ir;
+            bc.bin.rhs.reg = ir->bin.rhs.reg;
+            bc.bin.rhs.reg_sz = ir->bin.rhs.reg_sz;
+            ret.emplace_back(bc);
+          }break;
           case IR_TYPE_REG:
           {
             bc.type = inst;

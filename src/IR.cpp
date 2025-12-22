@@ -3825,6 +3825,15 @@ void CheckRegInUseMaybeSpill(lang_state *lang_stat, thread_ir_state *state, char
     SpillReg(state, reg);
   }
 }
+void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
+{
+  //BREAK(ast->line_number == 764)
+  if(aux->kind == IR_VAL_ADDR)
+  {
+    LoadDerefs(lang_stat, &state->cur_block->irs, aux, aux->deref, aux->deref);
+    aux->kind = IR_VAL_VALUE;
+  }
+}
 ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
 {
   ir_val ret;
@@ -4466,7 +4475,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_CAST:
   {
     ast_rep *casted_ast = ast->cast.casted;
-    ret = GetIRFromAst2(lang_stat, casted_ast, state, false);
+    ret = GetIRFromAst2(lang_stat, casted_ast, state, true);
 
     char prev = ast->cast.type.ptr;
     int cast_sz = GetTypeSize(&ast->cast.type, 0);
@@ -4502,11 +4511,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         }
         else if(ret.is_float && ast->cast.type.IsFloat())
         {
-          //BREAK(ast->line_number == 764)
-          if(ret.kind == IR_VAL_ADDR)
-          {
-            LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
-          }
+          EnsureValue(lang_stat, state, &ret);
           ir.type = IR_CAST_FLOAT_TO_FLOAT;
           ir.bin.lhs = ret;
           ir.bin.rhs = ret;
@@ -4541,10 +4546,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       bool can_add = false;
       if(!ast->cast.type.IsFloat() && ret.is_float)
       {
-        if(ret.kind == IR_VAL_ADDR)
-        {
-          LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
-        }
+        EnsureValue(lang_stat, state, &ret);
         ir.type = IR_CAST_FLOAT_TO_INT;
         ir.bin.lhs.type = IR_TYPE_REG;
         ir.bin.lhs.reg = GetAvailableReg(lang_stat);
@@ -4563,11 +4565,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       else if(ast->cast.type.IsFloat() && !ret.is_float)
       {
-        if(ret.kind == IR_VAL_ADDR)
-        {
-          LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
-          ret.kind = IR_VAL_VALUE;
-        }
+        EnsureValue(lang_stat, state, &ret);
         ir.type = IR_CAST_INT_TO_FLOAT;
         ir.bin.lhs.type = IR_TYPE_REG;
         ir.bin.lhs.reg = AllocFloatReg(lang_stat);
@@ -4582,7 +4580,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       else if(cast_sz == ret.reg_sz)
       {
-        LoadDerefs(lang_stat, &state->cur_block->irs, &ret, ret.deref, ret.deref);
+        EnsureValue(lang_stat, state, &ret);
       }
 
       if(can_add)
@@ -4858,6 +4856,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }break;
     case T_POINT:
     {
+      BREAK(ast->line_number == 483)
       //BREAK(ast->line_number == 714)
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
 

@@ -404,7 +404,7 @@ TESTS:const s32=0;
     out_buffer :*char= cast(*char)in_buf;
 
     __dbg_break
-    buffer := cast(*char)&aux_buffer;
+    buffer := cast(*char)aux_buffer;
 
     if num == 0
     {

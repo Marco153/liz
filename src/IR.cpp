@@ -5920,7 +5920,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   }break;
   case AST_CAST:
   {
-    //BREAK(ast->line_number == 407)
+    BREAK(ast->line_number == 407)
     ast_rep *casted_ast = ast->cast.casted;
     ret = GetIRFromAst2(lang_stat, casted_ast, state, false);
 
@@ -6511,38 +6511,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           ASSERT(false)
       }
 
-      switch(ast->op)
-      {
-      case T_EQUAL:
-      {
-        MakeIrStore(lang_stat, &lhs, &rhs, &ir);
+      MakeIrStore(lang_stat, &lhs, &rhs, &ir);
 
-      }break;
-      case T_PLUS_EQUAL:
-      {
-        ir_val aux = lhs;
-        if(lhs.is_packed_float)
-        {
-          HERE()
-          LoadDerefs(lang_stat, &state->cur_block->irs, &aux, aux.deref, aux.deref);
-          ir.type = IR_BIN;
-          ir.bin.op = T_PLUS;
-          ir.bin.lhs = aux;
-          ir.bin.rhs = rhs;
-          InsertIr(state, ir);
-
-          MakeIrStore(lang_stat, &lhs, &aux, &ir);
-        }
-        else
-        {
-          ir.type = IR_BIN;
-          ir.bin.op = T_PLUS;
-          ir.bin.lhs = aux;
-          ir.bin.rhs = rhs;
-        }
-        InsertIr(state, ir);
-      }break;
-      }
+      InsertIr(state, ir);
       ret = lhs;
     }break;
     default: ASSERT(false)

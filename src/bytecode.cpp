@@ -371,15 +371,15 @@ void AddImm(long long val, char sz, machine_code& ret)
 void CreateMemToReg(byte_code *bc, char byte, char greater_byte, char is_rex_param, machine_code &ret, char base_reg = 5, bool lhs_is_final_reg = false, bool four_byte_offset = false)
 {
 	base_reg = FromBCRegToAsmReg(bc->bin.rhs.reg);
-	char reg = bc->bin.lhs.reg;
+	char reg = FromBCRegToAsmReg(bc->bin.lhs.reg);
 	if(!lhs_is_final_reg)
 	{
-		reg = FromBCRegToAsmReg(reg);
+		//reg = FromBCRegToAsmReg(reg);
 
 	}
 	char is_rex_lhs = IS_FLAG_ON(reg, 0x80);
 	char is_rex_rhs = IS_FLAG_ON(base_reg, 0x80);
-  char is_rex = is_rex_rhs | (is_rex_lhs << 1);
+  char is_rex = is_rex_lhs | (is_rex_rhs << 1);
 
 	bc->bin.rhs.reg = base_reg;
 	bc->bin.lhs.reg = reg;

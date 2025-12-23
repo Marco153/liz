@@ -2039,6 +2039,7 @@ test_st:struct
 {
   b : u32,
   a : u32,
+  d : u32,
   c : *u32,
 }
 main::fn()
@@ -2059,6 +2060,7 @@ main::fn()
 
   tp.a = 9;
 
-  a := *cast(*u32)(cast(u64)tp.c)  + tp.a
+  *cast(*u32)(cast(u64)tp + 8) = *cast(*u32)(cast(u64)tp.c)  + tp.a
+  a := tp.d
 
 }

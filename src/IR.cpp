@@ -1492,6 +1492,11 @@ char GetAvailableReg(lang_state *lang_stat)
     lang_stat->regs[3] |= REG_USED_FLAG;
     return 3;
   }
+  else if (IS_FLAG_OFF(lang_stat->regs[14], REG_USED_FLAG)) 
+  {
+    lang_stat->regs[14] |= REG_USED_FLAG;
+    return 14;
+  }
   else if (IS_FLAG_OFF(lang_stat->regs[15], REG_USED_FLAG)) 
   {
     lang_stat->regs[15] |= REG_USED_FLAG;

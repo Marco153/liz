@@ -10253,15 +10253,23 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
   char buffer[2024];
   char orig_ptr = v->type.ptr;
   char ptr = v->type.ptr;
-  u8 *cur_addr = addr;
-  while(ptr > 0)
+  u8 *cur_addr = (rsp + v->offset);
+  int success = 0;
+  while(ptr > 0 && cur_addr != 0)
   {
-    //read_bytes_from_child(child_p, *(u64*)cur_addr, (u8 *)buffer, 8);
-    //cur_addr = *(u8 **)&buffer;
+    success = read_bytes_from_child(child_p, *(u64*)cur_addr, (u8 *)buffer, 8);
+    if(success == -1) break;
+
+    cur_addr = *(u8 **)&buffer;
     ptr--;
   }
 
-  ImGui::Text("name %.*s: ", v->name.size(), v->name.data());
+  ImGui::Text("name (&%p) %.*s: ", rsp + v->offset, v->name.size(), v->name.data());
+
+  if(success == -1)
+  {
+    return;
+  }
 
   if(orig_ptr > 0)
   {
@@ -10321,7 +10329,7 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
 void PrintScope(int child_p, dbg_state *dbg, u8 *main_func_stack_buffer, u8 *rsp, scope *scp)
 {
   scope *cur_scp = scp;
-  ImGui::BeginChild("scopevars", ImVec2(200, 1000));
+  ImGui::BeginChild("scopevars", ImVec2(400, 1000));
 
   while(cur_scp)
   {

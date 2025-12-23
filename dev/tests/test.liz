@@ -533,6 +533,7 @@ TESTS:const s32=0;
     if alloc.probable_unallocated != base_addr
       debug_break();
 
+    __dbg_break
     *ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = &chunk1;
 
 
@@ -551,6 +552,7 @@ TESTS:const s32=0;
     if chunk1.size != 2
       debug_break();
 
+    __dbg_break
     cur: = ptr_offset(alloc.probable_unallocated, 0, *mem_chunk);
 
     if *cur == nil
@@ -1160,7 +1162,6 @@ TESTS:const s32=0;
     if *ptr_offset(alloc.buffer, 1, u8) != 1
       debug_break();
 
-    __dbg_break
     test_ref(&alloc);
 
     if *ptr_offset(alloc.buffer, 2, u8) != 2

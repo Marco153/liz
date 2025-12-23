@@ -1273,9 +1273,16 @@ void FreeSpecificReg(lang_state *lang_stat, char idx) {
   // ASSERT(IS_FLAG_ON(lang_stat->regs[idx], REG_FREE_FLAG));
   lang_stat->regs[idx] &= ~REG_USED_FLAG;
 }
-void AllocSpecificReg(lang_state *lang_stat, char idx) {
+void AllocSpecificReg(lang_state *lang_stat, char idx, bool is_float = false) {
+  if(is_float)
+  {
+    lang_stat->float_regs[idx] |= REG_USED_FLAG;
+  }
+  else
+  {
+    lang_stat->regs[idx] |= REG_USED_FLAG;
+  }
   // ASSERT(IS_FLAG_OFF(lang_stat->regs[idx], REG_FREE_FLAG));
-  lang_stat->regs[idx] |= REG_USED_FLAG;
   if (lang_stat->track_alloc_regs) {
     lang_stat->tracked_regs.emplace_back(idx);
   }
@@ -1536,8 +1543,16 @@ char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
   ir_rep ir;
   char deref = rhs->deref;
   char reg = -1;
+  auto prev_type = rhs->type;
   if(rhs->type == IR_TYPE_REG_MEM)
+  {
     reg = rhs->reg;
+  }
+  else if (rhs->type == IR_TYPE_REG)
+  {
+    rhs->type = IR_TYPE_REG_MEM;
+  }
+
   while(deref > 0)
   {
     if(reg == -1) reg = GetAvailableReg(lang_stat);
@@ -1553,8 +1568,12 @@ char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     out->emplace_back(ir);
     *rhs = ir.bin.lhs;
     rhs->kind = IR_VAL_VALUE;
+    rhs->reg = reg;
+    rhs->voffset = 0;
     deref--;
   }
+  if(prev_type == IR_TYPE_REG)
+    rhs->type = prev_type;
   return reg;
   /*
   return;
@@ -1691,6 +1710,7 @@ void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
     aux->kind = IR_VAL_VALUE;
     aux->type = IR_TYPE_REG;
     aux->reg = reg;
+    aux->voffset = 0;
   }
 }
 void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, tkn_type2 op, block2 *dst) 
@@ -2574,7 +2594,10 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   }
   ret.reg = 0;
   ret.reg_sz = max(1, ret.reg_sz);
-  ret.deref = callf->ret_type.ptr + 1;
+  ret.deref = 0;
+  ret.voffset = 0;
+
+  AllocSpecificReg(lang_stat, 0, ret.is_float);
   //if(callf->ret_type.)
 
   return ret;
@@ -3042,6 +3065,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       //if (is_stmnt_without_semicolon)
         //GenIfExpr(lang_stat, ast->cond.scope->stats.back(), out, top);
+      if(ast->cond.elses.size() > 0)
       EmitJmp(lang_stat, state, merge);
       lang_stat->no_stmnt_of_conds = prev;
     }
@@ -3680,6 +3704,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }break;
     case T_POINT:
     {
+      BREAK(ast->line_number == 551)
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
 
       /*
@@ -3737,6 +3762,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         {
           FreeReg(lang_stat, prev_reg, false);
         }
+        lhs.voffset = 0;
       }
       else
       {
@@ -3839,8 +3865,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_EQUAL:
     {
       //BREAK(ast->line_number == 29)
-      lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
+
+      lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;
 
       if(!rhs_wal_value && !lhs.is_packed_float)

@@ -726,7 +726,11 @@ void Create0FMemToReg(byte_code *bc, char op, machine_code *ret)
 	char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
 	auto reg_base = FromBCRegToAsmReg(bc->bin.rhs.reg);
 
-	AddPreMemInsts(8, 0x0f, 0x0f, false, ret->code);
+
+	char is_rex_lhs = IS_FLAG_ON(dst, 0x80);
+	char is_rex_rhs = IS_FLAG_ON(reg_base, 0x80);
+  char is_rex = is_rex_lhs | (is_rex_rhs << 1);
+	AddPreMemInsts(8, 0x0f, 0x0f, is_rex, ret->code);
 
 	if (bc->bin.rhs.reg_sz == 2 || bc->bin.rhs.reg_sz == 8)
 		ret->code.emplace_back(op + 1);

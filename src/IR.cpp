@@ -1443,9 +1443,9 @@ bool IsComparisonOp(tkn_type2 op) {
 }
 void InsertIr(thread_ir_state *state, ir_rep &ir)
 {
-  if(ir.type == IR_BIN && ir.bin.op == T_EQUAL && (int)ir.bin.rhs.type > 1000)
+  if(ir.type == IR_BIN)
   {
-    HERE()
+    ASSERT(ir.bin.lhs.reg_sz <= 8 && ir.bin.rhs.reg_sz <= 8)
   }
   state->cur_block->irs.emplace_back(ir);
 }
@@ -1673,7 +1673,7 @@ void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
   if(aux->kind == IR_VAL_ADDR)
   {
     char reg = -1;
-    if(aux->type == IR_TYPE_REG)
+    if(aux->type == IR_TYPE_REG || aux->type == IR_TYPE_REG_MEM)
     {
       aux->type = IR_TYPE_REG_MEM;
       reg = aux->reg;
@@ -1693,6 +1693,7 @@ void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   ir_rep ir;
   ir.type = IR_CMP;
   ir.bin.op = op;
+  //BREAK(ast->line_number == 612)
   ir.bin.rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
   ir.bin.block_id = dst->id;
 
@@ -2681,6 +2682,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
       InsertIr(state, ir);
     }
+    BREAK(ast->line_number == 1407)
 
     lhs = GetIRFromAst2(lang_stat, ast->index.lhs, state, true);
 
@@ -2733,6 +2735,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     if(!is_lhs)
     {
       LoadDerefs(lang_stat, &state->cur_block->irs, &ret);
+      EnsureValue(lang_stat, state, &ret);
       ret.deref = 0;
       ret.kind = IR_VAL_VALUE;
       ret.type = IR_TYPE_REG;
@@ -3227,6 +3230,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       if(rhs.type == IR_TYPE_REG)
         rhs.type = IR_TYPE_REG_MEM;
       LoadDerefs(lang_stat, &state->cur_block->irs, &rhs);
+      EnsureValue(lang_stat, state, &rhs);
     }
     else
     {
@@ -3242,7 +3246,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_ADDRESS_OF:
   {
     ast_rep *addr = ast->ast;
-    //BREAK(ast->line_number == 1098)
+    //BREAK(ast->line_number == 1084)
     ret = GetIRFromAst2(lang_stat, addr, state, true);
     if(ret.kind == IR_VAL_ADDR)
     {
@@ -3281,6 +3285,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
 
     ret.kind = IR_VAL_VALUE;
+    ret.reg_sz = 8;
 
   }break;
   case AST_CAST:
@@ -3290,8 +3295,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
     char prev = ast->cast.type.ptr;
     int cast_sz = GetTypeSize(&ast->cast.type, 0);
-    if(ast->cast.type.type == TYPE_VOID && ast->cast.type.ptr > 0)
+    if(ast->cast.type.type == TYPE_VOID && ast->cast.type.ptr > 0 || ast->cast.type.ptr)
       cast_sz = 8;
+    if(ast->cast.type.type == TYPE_VECTOR)
+      cast_sz = ast->cast.type.vec_type;
 
 
     //ret.reg_sz = cast_sz;
@@ -3301,9 +3308,14 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     {
       ret.kind = IR_VAL_ADDR;
     }
+    else if(ret.type == IR_TYPE_DECL && ret.decl->type.type == TYPE_STATIC_ARRAY)
+    {
+      ir.type = IR_ADDRESS_OF;
+      ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+      ir.bin.rhs = ret;
+    }
     else
     {
-      HERE()
       char prev_sz = ret.reg_sz;
 
       bool from_float = ret.is_float;
@@ -3432,6 +3444,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     if(lhs.kind != IR_VAL_VALUE)
     {
       LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
+      EnsureValue(lang_stat, state, &lhs);
     }
 
     if(lhs.is_float)
@@ -3640,7 +3653,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }break;
     case T_POINT:
     {
-      BREAK(ast->line_number == 483)
       //BREAK(ast->line_number == 714)
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
 
@@ -3670,13 +3682,21 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         {
           lhs.deref = lhs.ptr;
           LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
+          EnsureValue(lang_stat, state, &lhs);
 
           offset = 0;
           lhs.ptr = d->type.ptr;
         }
         offset += d->offset;
 
-        lhs.reg_sz = GetTypeSize(&d->type);
+        if(d->type.type == TYPE_STATIC_ARRAY)
+          lhs.reg_sz = GetTypeSize(d->type.tp);
+        else
+          lhs.reg_sz = GetTypeSize(&d->type);
+        
+        if(d->type.type == TYPE_VECTOR)
+          lhs.reg_sz = d->type.vec_type;
+
         lhs.voffset = offset;
         lhs.is_float = d->type.IsFloat();
         lhs.is_packed_float = d->type.type == TYPE_VECTOR;
@@ -3709,6 +3729,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_SHIFT_RIGHT:
     case T_PLUS:
     {
+      //BREAK(ast->line_number == 612)
       u32 spill_base = state->spilled_regs.cur;
 
       if(ast->op == T_DIV)
@@ -3790,6 +3811,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_PLUS_EQUAL:
     case T_EQUAL:
     {
+      //BREAK(ast->line_number == 29)
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
       bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;
@@ -3856,6 +3878,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         {
           ir_val aux = lhs;
           LoadDerefs(lang_stat, &state->cur_block->irs, &aux);
+          EnsureValue(lang_stat, state, &aux);
           ir.type = IR_BIN;
           ir.bin.op = T_PLUS;
           ir.bin.lhs = aux;

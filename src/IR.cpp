@@ -3680,7 +3680,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }break;
     case T_POINT:
     {
-      //BREAK(ast->line_number == 714)
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
 
       /*
@@ -3741,7 +3740,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       else
       {
-        lhs.type = IR_TYPE_REG_MEM;
+        if(lhs.type == IR_TYPE_REG)
+          lhs.type = IR_TYPE_REG_MEM;
       }
       ret = lhs;
     }break;
@@ -3899,6 +3899,18 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         rhs.type = IR_TYPE_REG;
       }
 
+      if(lhs.type == IR_TYPE_DECL && IS_FLAG_ON(lhs.decl->flags, DECL_IS_GLOBAL))
+      {
+        ir.type = IR_GET_GLOBAL;
+        ir.bin.lhs.type = IR_TYPE_REG;
+        ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+        ir.bin.lhs.reg_sz = 8;
+        ir.bin.lhs.ptr = 1;
+        ir.bin.rhs = lhs;
+        InsertIr(state, ir);
+        lhs = ir.bin.lhs;
+        lhs.type = IR_TYPE_REG_MEM;
+      }
       switch(ast->op)
       {
       case T_EQUAL:

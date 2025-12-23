@@ -10388,7 +10388,7 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
         if(d)
         {
           cur += sprintf(buffer + cur, "[%.*s]", d->name.size(), d->name.data());
-          found = true;
+          //found = true;
         }
 
       } else {

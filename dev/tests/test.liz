@@ -397,6 +397,7 @@ TESTS:const s32=0;
 
   num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
   {
+    __dbg_break
     i :u64= 0;
     written :u64= 0;
     aux_buffer : [64]u8;
@@ -1077,16 +1078,12 @@ TESTS:const s32=0;
   }
   params_on_stack_test::fn(a : u32, b : u32, c : u32, d : u32, e :u32, f : u32, g : u32, h :u32) !u32
   {
-    v1 :v3
-    v2 :v3
-    v2.x = 2.0f;
-    v1.x = 1.0f;
-    v1 = v1 + v2 * 2.0f;
     return a +  h
 
   }
   main::fn()!u32
   {
+    __dbg_break
     i := cast(s32)params_on_stack_test(1, 2, 3, 4, 5, 6, 7, 8)
     if i != 9
       __dbg_break

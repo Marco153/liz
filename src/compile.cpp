@@ -10798,6 +10798,14 @@ int GetOnStackOffsetWithIrVal(lang_state* lang_stat, ir_val* ir)
 	return ret;
 }
 #pragma optimize("", off)
+void InsertBc(own_std::vector<byte_code> &ret, byte_code &bc)
+{
+  if(bc.type == MOV_I_2_RM)
+  {
+    HERE()
+  }
+  ret.emplace_back(bc);
+}
 void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_val_aux *lhs, ir_val_aux *rhs, byte_code_enum inst)
 {
 	byte_code bc = {};
@@ -10925,7 +10933,7 @@ void GenX64BinInst(lang_state *lang_stat, own_std::vector<byte_code>& ret, ir_va
 		ASSERT(false)
 	}
   //BREAK(bc.bin.rhs.reg == 16)
-	ret.emplace_back(bc);
+  InsertBc(ret, bc);
 }
 #pragma optimize("", on)
 
@@ -11688,14 +11696,6 @@ void FromBcToBc2(web_assembly_state *wasm_state, own_std::vector<byte_code> *fro
 }
 //#pragma optimize("", on)
 
-void InsertBc(own_std::vector<byte_code> &ret, byte_code &bc)
-{
-  if(bc.type == ADD_SSE_2_MEM)
-  {
-    HERE()
-  }
-  ret.emplace_back(bc);
-}
 void FromIRIrValToIrValAux(lang_state *lang_stat, ir_val *val, ir_val_aux *aux)
 {
   aux->type = val->type;

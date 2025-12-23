@@ -10226,6 +10226,10 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs
   PrintReg("R9",  regs->r9);
   PrintReg("R10", regs->r10);
   PrintReg("R11", regs->r11);
+  PrintReg("R12", regs->r12);
+  PrintReg("R13", regs->r13);
+  PrintReg("R14", regs->r14);
+  PrintReg("R15", regs->r15);
   for(int i = 0; i < 16; i ++)
   {
     float *cur = fregs + i * 4;

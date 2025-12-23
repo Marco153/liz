@@ -2039,6 +2039,7 @@ test_st:struct
 {
   b : u32,
   a : u32,
+  c : *u32,
 }
 main::fn()
 {
@@ -2054,9 +2055,10 @@ main::fn()
   __dbg_break
   t :test_st=?
   tp := &t
-  tp.b = 8;
+  tp.c = &tp.a
+
   tp.a = 9;
 
-  a := *cast(*u32)(cast(u64)tp + 4)  + tp.a
+  a := *cast(*u32)(cast(u64)tp.c)  + tp.a
 
 }

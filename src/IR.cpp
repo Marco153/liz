@@ -3310,6 +3310,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         ret.kind = IR_VAL_ADDR;
         LoadDerefs(lang_stat, &state->cur_block->irs, &ret);
         EnsureValue(lang_stat, state, &ret);
+        ret.voffset = 0;
       }
 
 

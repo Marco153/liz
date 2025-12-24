@@ -11298,6 +11298,8 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
 	node* len = nullptr;
 	node* n;
   machine_code &mach = *lang_stat->mach;
+  ir_val rhs;
+  HERE()
 	{
 		own_std::vector<token2> tkns;
 		Tokenize2((char*)str.c_str(), str.size(), &tkns);
@@ -11320,7 +11322,7 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
 
     //HERE()
 
-    ir_val rhs = GetIRFromAst2(lang_stat, ast, &lang_stat->ir_states[0], false);
+    rhs = GetIRFromAst2(lang_stat, ast, &lang_stat->ir_states[0], false);
     ir_rep ir;
     ir.type = IR_BIN;
     ir.bin.op = T_EQUAL;

@@ -590,7 +590,21 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
 			else
 			{
 				out.type = tkn_type2::T_INT;
-				out.i = own_std::stoi(str);
+        char *end;
+        errno = 0;
+
+        char prev_char = str.data_[str.size()];
+        str.data_[str.size()] = 0;
+        long long v = strtoll(str.data(), &end, 10);
+
+        str.data_[str.size()] = prev_char;
+
+        if (errno == ERANGE) ASSERT(false)
+        if (end == str.data_ || *end != '\0') {}
+        if (v < INT64_MIN || v > INT64_MAX) ASSERT(false)
+
+        //*out = (int64_t)v;
+				out.i64 = v;
 				return i;
 			}
 		}

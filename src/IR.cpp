@@ -248,7 +248,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
     case T_MUL: {
       ret->type = AST_DEREF;
       node *cur = n;
-      while (cur->type == N_UNOP && n->t->type == T_MUL) {
+      while (cur->type == N_UNOP && cur->t->type == T_MUL) {
         ret->deref.times++;
         cur = cur->r;
       }

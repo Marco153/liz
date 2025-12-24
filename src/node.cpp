@@ -10076,6 +10076,7 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
     switch (n->t->type) {
     case tkn_type2::T_PERCENT: {
       ret_type.type = TYPE_S64;
+      ret_type.is_reg = true;
     }break;
     case tkn_type2::T_TILDE: {
       ret_type = DescendNode(lang_stat, n->r, scp);
@@ -10264,7 +10265,12 @@ if (!is_correct_ovrld)
         } break;
         }
         if (should_deref) {
-          if (ret_type.ptr <= 0) {
+          if(ret_type.is_reg)
+          {
+            ret_type.ptr++;
+
+          }
+          else if (ret_type.ptr <= 0) {
             ReportMessageOne(lang_stat, n->t,
                              "type '%s' cannot be dereferenced",
                              (void *)TypeToString(ret_type).c_str());

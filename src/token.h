@@ -205,7 +205,8 @@ struct type2
 #ifndef COMPILER
 	rel_ptr<type_struct2> strct;
 #else
-	bool is_const;
+	bool is_const:1;
+	bool is_reg:1;
 	int flags;
 	union
 	{

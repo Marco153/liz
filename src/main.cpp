@@ -11278,7 +11278,6 @@ void ExecuteDbgExpr(dbg_state* dbg, dbg_expr *exp, int child_p, char *buffer, in
   ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
 
   ptrace(PTRACE_CONT, child_p, 0, 0);
-
   waitpid(child_p, NULL, 0);
 
   ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
@@ -11288,6 +11287,7 @@ void ExecuteDbgExpr(dbg_state* dbg, dbg_expr *exp, int child_p, char *buffer, in
   ptrace(PTRACE_CONT, child_p, 0, 0);
   waitpid(child_p, NULL, 0);
 
+  ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
   regs.rip = prev_rip;
 
   ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
@@ -11357,10 +11357,14 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
 		{
       DescendNameFinding(dbg->lang_stat, n, scp);
       DescendNode(dbg->lang_stat, n, scp);
+
+    }
+    else
+    {
+      printf("error during evaluation of exp\n");
+      return nullptr;
     }
 
-
-    //HERE()
 		ast = AstFromNode(dbg->lang_stat, n, scp);
     thread_ir_state *state = &lang_stat->ir_states[0];
     state->cur_func = fdecl;

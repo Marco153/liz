@@ -401,6 +401,7 @@ enum ir_type
 
     IR_GET_FLOAT,
     IR_GET_STR_LIT,
+    IR_GET_FUNC_ADDR,
     IR_GET_GLOBAL,
     IR_CLEAR_SSE,
 };

@@ -1554,6 +1554,15 @@ void InsertIr(thread_ir_state *state, ir_rep &ir)
   }
   state->cur_block->irs.emplace_back(ir);
 }
+/*
+void EmitJmp(lang_state *lang_stat, block2 *dst, block2 * to)
+{
+  ir_rep ir;
+  ir.type = IR_JMP;
+  ir.i = to.id;
+  dst->irs.emplace_back(ir);
+}
+*/
 void EmitJmp(lang_state *lang_stat, thread_ir_state *state, block2 * block)
 {
   ir_rep ir;
@@ -1803,7 +1812,17 @@ void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
     }
     else
       reg = GetAvailableReg(lang_stat);
-    MakeIrLoadToReg(lang_stat, reg, aux->reg_sz, aux, &ir, aux->is_float);
+    
+    if(aux->type == IR_TYPE_DECL && (aux->decl->type.type == TYPE_FUNC_PTR || aux->decl->type.type == TYPE_FUNC))
+    {
+      ir.type = IR_GET_FUNC_ADDR;
+      ir.bin.lhs.reg = reg;
+      ir.bin.rhs.decl = aux->decl;
+    }
+    else
+    {
+      MakeIrLoadToReg(lang_stat, reg, aux->reg_sz, aux, &ir, aux->is_float);
+    }
     InsertIr(state, ir);
     aux->kind = IR_VAL_VALUE;
     aux->type = IR_TYPE_REG;
@@ -1850,7 +1869,8 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
   ASSERT(cond_true && cond_false)
   if(ast->type == AST_OPPOSITE)
   {
-    GetIRCond2(lang_stat, ast->ast, state, cond_false, cond_true);
+    //BREAK(ast->line_number == 1235)
+    GetIRCond2(lang_stat, ast->ast, state, cond_true, cond_false, false);
 
   }
   else if(ast->type == AST_INT)
@@ -1940,7 +1960,10 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
 
     ir_rep ir;
     ir.type = IR_CMP;
-    ir.bin.op = T_COND_NE;
+    if(!flip_comparison)
+      ir.bin.op = T_COND_EQ;
+    else
+      ir.bin.op = T_COND_NE;
     ir.bin.lhs = GetIRFromAst2(lang_stat, ast, state, true);
     ir.bin.rhs.type = IR_TYPE_INT;
     ir.bin.rhs.i = 1;
@@ -2954,6 +2977,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
     FreeRegs2(lang_stat);
     GetIRFromAst2(lang_stat, ast->for_info.at_loop_end_stat, state, false);
+
     EmitJmp(lang_stat, state, cond_start);
 
 
@@ -3167,7 +3191,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       //if (is_stmnt_without_semicolon)
         //GenIfExpr(lang_stat, ast->cond.scope->stats.back(), out, top);
       if(ast->cond.elses.size() > 0)
-      EmitJmp(lang_stat, state, merge);
+        EmitJmp(lang_stat, state, merge);
       lang_stat->no_stmnt_of_conds = prev;
     }
 
@@ -3226,7 +3250,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       //if (is_stmnt_without_semicolon)
         //GenIfExpr(lang_stat, e->cond.scope->stats.back(), out);
 
-      EmitBlockMakeCurrent(lang_stat, state, cond_false);
+      auto prev_cond_false = cond_false;
 
       if (!is_last) {
         EmitJmp(lang_stat, state, merge);
@@ -3234,6 +3258,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         cond_true = CreateBlock(lang_stat, state);
         cond_false = CreateBlock(lang_stat, state);
       }
+      EmitBlockMakeCurrent(lang_stat, state, prev_cond_false);
 
 
       i++;

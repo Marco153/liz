@@ -10224,6 +10224,17 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs
   PrintReg("RSP", regs->rsp);
   PrintReg("RDI", regs->rdi);
   PrintReg("RSI", regs->rsi);
+  ImGui::Text("EFLAGS ");
+  if(IS_FLAG_ON(regs->eflags, 1<<6))
+  {
+    ImGui::SameLine();
+    ImGui::Text("Z ");
+  }
+  if(IS_FLAG_ON(regs->eflags, 1<<7))
+  {
+    ImGui::SameLine();
+    ImGui::Text("S ");
+  }
   PrintReg("R8",  regs->r8);
   PrintReg("R9",  regs->r9);
   PrintReg("R10", regs->r10);
@@ -10375,6 +10386,21 @@ decl2 *GetVarByOffset(int offset, scope *scp)
   }
   return nullptr;
 }
+const char* MemSizeToStr(uint16_t bits)
+{
+    switch (bits)
+    {
+        case 8:   return "byte";
+        case 16:  return "word";
+        case 32:  return "dword";
+        case 64:  return "qword";
+        case 80:  return "tword";
+        case 128: return "xmmword";
+        case 256: return "ymmword";
+        case 512: return "zmmword";
+        default:  return NULL;
+    }
+}
 void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int size, scope *scp)
 {
   int cur = sprintf(buffer, "%s ", ZydisMnemonicGetString(instruction->info.mnemonic));
@@ -10396,6 +10422,8 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
     else if (op->type == ZYDIS_OPERAND_TYPE_MEMORY) 
     {
       // custom stack naming
+
+        cur += sprintf(buffer + cur, "%s", MemSizeToStr(op->size));
       bool found = false;
       if (op->mem.base == ZYDIS_REGISTER_RSP && scp) {
 

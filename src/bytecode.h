@@ -577,6 +577,7 @@ struct byte_code
 					char *name;
           decl2 *decl;
 				
+					bool func_addr;
 					bool is_float;
 					bool is_packed_float;
 					short reg_dst;

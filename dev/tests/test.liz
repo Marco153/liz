@@ -571,7 +571,6 @@ TESTS:const s32=0;
       debug_break();
 
 
-    __dbg_break
     HHashStore(alloc, cast(*u8)1, cast(*u8)5);
     HHashStore(alloc, cast(*u8)513, cast(*u8)6);
 
@@ -1294,8 +1293,10 @@ TESTS:const s32=0;
     vec1:v3=?;
     vec2:v3=?;
     vec2.x = 1.0f;
+    __dbg_break
     memcpy(&vec1, &vec2, sizeof(v3));
 
+    __dbg_break
     if vec1.x > 1.1f || vec1.x < 0.9f
       debug_break();
 

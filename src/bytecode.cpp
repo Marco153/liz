@@ -948,7 +948,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case END_STMNT:
     {
       stmnt_dbg *st = &cur_func->wasm_stmnts[bc->st_idx];
-      ir_rep *ir = &(*func_irs)[st->end_ir];
+      //ir_rep *ir = &(*func_irs)[st->end_ir];
 
       //ir->start = ret.code.size();
       st->end = ret.code.size();
@@ -957,7 +957,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
     {
       stmnt_dbg *st = &cur_func->wasm_stmnts[bc->st_idx];
       st->start = ret.code.size();
-      ir_rep *ir = &(*func_irs)[st->start_ir];
+      //ir_rep *ir = &(*func_irs)[st->start_ir];
 
       //ir->start = ret.code.size();
 
@@ -1223,6 +1223,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				}
 
 				int offset_addr = is_rel_func ? 1 : 3;
+        if(bc->rel.func_addr)
+          offset_addr = 3;
 				auto fdecl_flags = bc->rel.call_func->flags;
 
 				// check if function is defined by the compiler, by means of testing if the fdecl has a body
@@ -1237,7 +1239,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 					ret.rels.emplace_back(machine_reloc(INSIDE_FUNC, ret.code.size() + offset_addr, std_str_to_heap(lang_stat, &bc->rel.call_func->name)));
         }
 
-				if(is_rel_func)
+				if(is_rel_func && !bc->rel.func_addr)
 				{
 					ret.code.emplace_back(0xe8);
 					AddImm(0, 4, ret);

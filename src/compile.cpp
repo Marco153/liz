@@ -12024,6 +12024,13 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         bc.bin.lhs.reg_sz = 8;
         ret.emplace_back(bc);
       }break;
+      case IR_GET_FUNC_ADDR:
+      {
+        func_decl *call_decl = ir->bin.rhs.decl->type.fdecl;
+        ret.emplace_back(byte_code(rel_type::REL_FUNC, (char*)call_decl->name.c_str(), (int)0, ir->bin.lhs.reg, call_decl));
+        byte_code *bc = &ret.back();
+        bc->rel.func_addr = true;
+      }break;
       case IR_CALL:
       {
         if (IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_INTRINSIC))

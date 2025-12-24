@@ -3824,6 +3824,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
       }
       */
+      BREAK(ast->line_number == 561)
       int offset = 0;
       for(int i =1; i < ast->points.size();i++)
       {
@@ -3831,9 +3832,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
         if(lhs.ptr > 0)
         {
-          lhs.deref = lhs.ptr;
-          LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
           EnsureValue(lang_stat, state, &lhs);
+          lhs.deref = lhs.ptr - 1;
+          LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
 
           offset = 0;
           lhs.ptr = d->type.ptr;
@@ -3964,7 +3965,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_PLUS_EQUAL:
     case T_EQUAL:
     {
-      //BREAK(ast->line_number == 29)
+      //BREAK(ast->line_number == 556)
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
@@ -3997,8 +3998,12 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       if(rhs.kind != IR_VAL_VALUE)
       {
+        char prev_sz = rhs.reg_sz;
+        rhs.reg_sz = 8;
+        if(rhs.kind == IR_VAL_ADDR)
+          EnsureValue(lang_stat, state, &rhs);
+        rhs.reg_sz = prev_sz;
         LoadDerefs(lang_stat, &state->cur_block->irs, &rhs);
-        EnsureValue(lang_stat, state, &rhs);
 
       }
 

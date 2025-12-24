@@ -5528,7 +5528,7 @@ void UpdateExprWindow(dbg_state& dbg, int stack_reg, int line)
 	memcpy(dbg.mem_buffer, saved_regs, 258);
 }
 u64* GetRegValPtr(int thread_id, dbg_state* dbg, short reg);
-void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int line)
+void AddNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u64 rsp)
 {
 	dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
 	//own_std::vector<token2> tkns;

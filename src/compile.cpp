@@ -423,6 +423,8 @@ struct lang_state
 	int execute_id;
 	int flags;
 
+  dbg_file_seriealize *child_proc_dbg_serialize_addr;
+
 	bool something_was_declared;
 	bool in_ir_stmnt;
 	bool is_lsp;
@@ -2070,12 +2072,13 @@ struct dbg_expr2
 struct dbg_expr
 {
 	dbg_expr_type type;
-	own_std::vector<ast_rep*> expr;
-	own_std::vector<ast_rep*> x_times;
-	own_std::vector<ir_rep > filter_cond;
+	own_std::vector<u8> expr_code;
+	own_std::vector<u8> x_times_code;
+	//own_std::vector<ir_rep > filter_cond;
 
 	func_decl* from_func;
 	own_std::string exp_str;
+	own_std::string exp_val_str;
 };
 struct command_info_args
 {
@@ -3488,6 +3491,8 @@ struct dbg_file_seriealize
 
 
 	dbg_code_type code_type;
+
+  char code_expr[512];
 };
 void WasmIrInterp(dbg_state* dbg, own_std::vector<int>* ar)
 {
@@ -3641,102 +3646,6 @@ void UpdateExprWindow(dbg_state& dbg, int stack_reg, int line)
 	memcpy(dbg.mem_buffer, saved_regs, 258);
 }
 /*
-void MaybeAddNewDbgExpr(dbg_state* dbg, own_std::string &str, int stack_reg, int line)
-{
-	dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
-	//own_std::vector<token2> tkns;
-	//Tokenize2((char *)str.c_str(), str.size(), &tkns);
-	scope* scp = FindScpWithLine(dbg->dbg_threads[thread_id].cur_func, line);
-
-	if (!scp)
-		return;
-
-	void* prev_alloc = __lang_globals.data;
-	__lang_globals.data = (void *)dbg->dbg_alloc;
-
-	ast_rep* ast;
-	node* len = nullptr;
-	node* n;
-	{
-		own_std::vector<token2> tkns;
-		Tokenize2((char*)str.c_str(), str.size(), &tkns);
-		node_iter niter(&tkns, dbg->lang_stat);
-		dbg->lang_stat->use_node_arena = true;
-		n = niter.parse_all();
-		DescendNameFinding(dbg->lang_stat, n, scp);
-		DescendNode(dbg->lang_stat, n, scp);
-
-		int dummy_prec = 0;
-		if (CMP_NTYPE_BIN(n, T_COMMA))
-		{
-			len = n->r;
-			n = n->l;
-		}
-
-		ast = AstFromNode(dbg->lang_stat, n, scp);
-	}
-	__lang_globals.data = prev_alloc;
-
-
-	dbg_expr2* exp;
-	type2 tp;
-	ir_rep ir = {};
-	ir.type = IR_ASSIGNMENT;
-	ir.assign.to_assign.type = IR_TYPE_DECL;
-	ir.assign.to_assign.decl = dbg->lang_stat->dbg_equal->e_holder.expr[0]->decl;
-	ir.assign.to_assign.deref = -1;
-	ir.assign.only_lhs = true;
-	ast_rep* dbg_equal = dbg->lang_stat->dbg_equal;
-	if (ast->type == AST_IDENT)
-	{
-		exp = (dbg_expr2 *)AllocMiscData(dbg->lang_stat, sizeof(dbg_expr2));;
-		if (!ast->decl)
-		{
-			return;
-		}
-		exp->d.type = DescendNode(dbg->lang_stat, n, scp);
-		dbg_equal->lhs_tp = exp->d.type;
-		ir.assign.lhs.type = IR_TYPE_DECL;
-		ir.assign.lhs.decl = ast->decl;
-		ir.assign.lhs.deref = 0;
-		if (ast->decl->type.type == TYPE_STRUCT)
-		{
-			if(exp->d.type.ptr == 0)
-				ir.assign.lhs.deref = -1;
-			exp->irs.emplace_back(ir);
-		}
-		else
-		{
-			dbg_equal->e_holder.expr[1] = ast;
-			GetIRFromAst(dbg->lang_stat, dbg_equal, &exp->irs);
-		}
-		exp->offset = *GetRegValPtr(0, dbg, stack_reg) + ast->decl->offset;
-	}
-	else
-	{
-		exp = (dbg_expr2 *)AllocMiscData(dbg->lang_stat, sizeof(dbg_expr2));;
-
-		exp->d.type = DescendNode(dbg->lang_stat, n, scp);
-		dbg_equal->lhs_tp = exp->d.type;
-
-		
-		dbg_equal->e_holder.expr[1] = ast;
-		GetIRFromAst(dbg->lang_stat, dbg_equal, &exp->irs);
-	}
-	if (len)
-	{
-		type2 tp = DescendNode(dbg->lang_stat, len, scp);
-		ASSERT(tp.type == TYPE_INT && exp->d.type.ptr > 0);
-		exp->d.flags = DECL_PTR_HAS_LEN;
-		exp->d.len_for_ptr_offset = 8;
-		exp->multiple_vals = tp.i;
-
-	}
-	exp->d.name = str.substr();
-	dbg->exprs2.emplace_back(exp);
-
-	UpdateExprWindow(*dbg, stack_reg, line);
-}
 */
 
 
@@ -3780,7 +3689,6 @@ void ShowExprWindow(dbg_state& dbg, int stack_reg, int line)
 	if(ImGui::IsItemDeactivatedAfterEdit())
 	{
 
-		InitMemAlloc(dbg.dbg_alloc);
 
 		own_std::string str = buffer;
 		int val = setjmp(dbg.lang_stat->jump_buffer);
@@ -11720,9 +11628,10 @@ void FromIRIrValToIrValAux(lang_state *lang_stat, ir_val *val, ir_val_aux *aux)
     aux->voffset += GetOnStackOffsetWithIrVal(lang_stat, val);
   }
 }
-void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_state *state, machine_code& mach, func_decl *cur_func)
+void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mach, func_decl *cur_func, bool first_time = true)
 {
-  cur_func->wasm_stmnts.reserve(64);
+  if(first_time)
+    cur_func->wasm_stmnts.reserve(64);
 
 	int args = cur_func->biggest_call_args - MAX_CALL_REGS;
 	int on_stack_args = max(args, 0);
@@ -11742,16 +11651,19 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
   ir_val_aux lhs_aux;
   ir_val_aux rhs_aux;
 
-  bc.type = BEGIN_FUNC;
-  bc.fdecl = cur_func;
-  ret.emplace_back(bc);
+  if(first_time)
+  {
+    bc.type = BEGIN_FUNC;
+    bc.fdecl = cur_func;
+    ret.emplace_back(bc);
 
-	bc.type = PUSH_R;
-	bc.val = (long long)regs_enum::RBX;
-	ret.emplace_back(bc);
-	
-	bc.val = (long long)regs_enum::RDI;
-	ret.emplace_back(bc);
+    bc.type = PUSH_R;
+    bc.val = (long long)regs_enum::RBX;
+    ret.emplace_back(bc);
+    
+    bc.val = (long long)regs_enum::RDI;
+    ret.emplace_back(bc);
+  }
 
   int st_idx = 0;
 
@@ -12568,10 +12480,13 @@ void FromIRToBc(lang_state *lang_stat, own_std::vector< ir_rep> *irs, thread_ir_
     }
   }
   lang_stat->global_funcs.emplace_back(cur_func);
-  cur_func->flags |= FUNC_DECL_CODE_WAS_GENERATED;
-  bc.type = END_FUNC;
-  bc.fdecl = cur_func;
-  ret.emplace_back(bc);
+  if(first_time)
+  {
+    cur_func->flags |= FUNC_DECL_CODE_WAS_GENERATED;
+    bc.type = END_FUNC;
+    bc.fdecl = cur_func;
+    ret.emplace_back(bc);
+  }
 }
 #pragma optimize("", off)
 void GenWasm(web_assembly_state* wasm_state)
@@ -13108,7 +13023,7 @@ void CreateAstFromFunc(lang_state* lang_stat, func_decl* f)
   lang_stat->ir_states[0].blocks_cur = 0;
 	GetIRFromAst2(lang_stat, ast, &lang_stat->ir_states[0], false);
 
-  FromIRToBc(lang_stat, ir, &lang_stat->ir_states[0], *lang_stat->mach, f);
+  FromIRToBc(lang_stat, &lang_stat->ir_states[0], *lang_stat->mach, f);
 
 }
 

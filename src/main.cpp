@@ -1,4 +1,5 @@
 // #define USE_TEXT_EDITOR
+#include "error_report.h"
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
 #include <Zydis/Formatter.h>
 #include <Zydis/Mnemonic.h>
@@ -9788,14 +9789,15 @@ int write_bytes_from_child(_pid pid, unsigned long addr, uint8_t *buffer, size_t
 int read_bytes_from_child(_pid pid, unsigned long long addr, uint8_t *buffer, size_t size) {
     size_t offset = 0;
 
+    //printf("read from child: cur_addr %p\n", addr);
     while (offset < size) {
         errno = 0;
 
         long long data = ptrace(PTRACE_PEEKDATA, pid, addr + offset, NULL);
 
         if (errno != 0) {
-            printf("error childp: %d\n", pid);
-            perror("ptrace PEEKDATA");
+            //printf("error childp: %d, at addr %p\n", pid, addr + offset);
+            //perror("ptrace PEEKDATA");
             //ASSERT(false)
             return -1;
             //ASSERT(0)
@@ -10252,17 +10254,20 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
 {
   char buffer[2024];
   char orig_ptr = v->type.ptr;
-  char ptr = v->type.ptr;
+  char ptr = v->type.ptr + 1;
   u8 *cur_addr = (rsp + v->offset);
   int success = 0;
-  while(ptr > 0 && cur_addr != 0)
+  //BREAK(v->name == "alloc")
+  //printf("locals: rsp %p, cur_addr %p\n", rsp, cur_addr);
+  do 
   {
-    success = read_bytes_from_child(child_p, *(u64*)cur_addr, (u8 *)buffer, 8);
+    success = read_bytes_from_child(child_p, (u64)cur_addr, (u8 *)buffer, 8);
     if(success == -1) break;
 
-    cur_addr = *(u8 **)&buffer;
+    cur_addr = (u8 *)buffer;
     ptr--;
-  }
+  }while(ptr > 0 && cur_addr != 0);
+
 
   ImGui::Text("name (&%p) %.*s: ", rsp + v->offset, v->name.size(), v->name.data());
 
@@ -10330,14 +10335,16 @@ void PrintScope(int child_p, dbg_state *dbg, u8 *main_func_stack_buffer, u8 *rsp
 {
   scope *cur_scp = scp;
   ImGui::BeginChild("scopevars", ImVec2(400, 1000));
-
+  int i =0;
   while(cur_scp)
   {
     FOR_VEC(var, cur_scp->vars)
     {
+      //printf("locals it %d: rsp %p\n", i, rsp);
       decl2 *v = *var;
       //HERE()
       PrintVar(child_p, dbg, v, main_func_stack_buffer + v->offset, rsp);
+      i++;
     }
     cur_scp = cur_scp->parent;
   }
@@ -10431,10 +10438,12 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
   for(int row = 0; row < row_max; row++)
   {
     ImVec2 pos = ImGui::GetCursorPos();
+    ImGui::Text("%p  ", addr);
+    ImGui::SameLine();
 
     for(int column = 0; column < column_max; column++)
     {
-      ImGui::SetCursorPosX(pos.x + column * 40.0);
+      ImGui::SetCursorPosX(pos.x + column * 40.0 + 150.0);
       int idx = column + row * column_max; 
       ImGui::Text("%02x", (u8)buffer[idx]);
       if((column + 1)< column_max)
@@ -10616,7 +10625,25 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
     //if(total >= 64) break;
     //total++;
   }
+}
+dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u64 rsp, func_decl *fdecl, scope *scp);
 
+dbg_expr *TextFieldAcceptsCode(dbg_state *dbg, char *name, char *buffer, int size, int child_p, user_regs_struct *regs, func_decl *fdecl, scope *scp)
+{
+
+  if(ImGui::InputText(name, buffer, size, ImGuiInputTextFlags_EnterReturnsTrue))
+  {
+    int len = strlen(buffer);
+    if(len == 0) return;
+    u64 rsp = regs->rsp;
+    lang_state *lang_stat = dbg->lang_stat;
+    printf("enter\n");
+    own_std::string str = buffer;
+    auto exp = CreateNewDbgExpr(dbg, str, child_p, rsp, fdecl, scp);
+
+    return exp;
+  }
+  return nullptr;
 }
 void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 {
@@ -10655,6 +10682,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
   }
   auto dbg = lang_stat->winterp->dbg;
+  dbg->lang_stat = lang_stat;
   auto gl_state = (open_gl_state *)lang_stat->winterp->dbg->data;
   glfwSetWindowUserPointer(window, (void *)gl_state);
   glfwSetKeyCallback(window, KeyCallback);
@@ -10701,6 +10729,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
   //HERE()
   read(pipes[0], &file_addr, 8);
+  lang_stat->child_proc_dbg_serialize_addr = (dbg_file_seriealize *)file_addr;
   char buffer[1024];
   read_bytes_from_child(child_p, (u64)file_addr, (u8 *)buffer, sizeof(dbg_file_seriealize));
 
@@ -10744,6 +10773,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
   bool center_inst = true;
+
+  char data_text_field[128];
   while(true)
   {
     pid_t r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
@@ -10960,7 +10991,26 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
       //memcpy(&fregs.xmm_space, (xstate + 272), 16 * 16);
       ImGui::InputScalar("INT3: ", ImGuiDataType_U64, &assembly_addr, nullptr, nullptr, "%016llX");
-      ImGui::InputScalar("data: ", ImGuiDataType_U64, &data_addr, nullptr, nullptr, "%016llX");
+      //ImGui::InputScalar("data: ", ImGuiDataType_U64, &data_addr, nullptr, nullptr, "%016llX");
+
+      auto data_exp=TextFieldAcceptsCode(dbg, "data: ", data_text_field, 128, child_p, &regs, cur_f, cur_scp);
+      if(data_exp)
+      {
+        char *str = data_exp->exp_val_str.c_str();
+        char *end;
+        errno = 0;
+        unsigned long long result = strtoull(str, &end, 16);
+
+        if (result == 0 && end == str) {
+            // The string was not a valid number
+        } else if (result == ULLONG_MAX && errno) {
+            // The value does not fit in an unsigned long long
+        } else if (*end) {
+            // The string contains extra characters after the number
+        }
+        data_addr = result;
+      }
+      //void TextFieldAcceptsCode(dbg_state *dbg, char *name, char *buffer, int size, int child_p, u64 rsp, func_decl *fdecl, scope *scp)
 
       PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st, center_inst, cur_scp);
       if(data_addr != 0)
@@ -11181,6 +11231,7 @@ int main(int argc, char *argv[]) {
 
   new (&sound) sound_state();
   sound.audio_clips_to_play.reserve(32);
+  InitIrState(&lang_stat, &lang_stat.ir_states[0]);
   if (!opts.release) {
     long long args[] = {0};
 
@@ -11203,4 +11254,105 @@ int main(int argc, char *argv[]) {
   ExitProcess(1);
   //CLONE_VM
   int a = 0;
+}
+void ExecuteDbgExpr(dbg_state* dbg, dbg_expr *exp, int child_p, char *buffer, int bsz)
+{
+  lang_state *lang_stat = dbg->lang_stat;
+  char *expr_code_addr = (char *)&lang_stat->child_proc_dbg_serialize_addr->code_expr;
+
+
+  ASSERT(exp->expr_code.size() < 512)
+  write_bytes_from_child(child_p, (u64)expr_code_addr, exp->expr_code.begin(), exp->expr_code.size());
+  user_regs_struct regs;
+  ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+
+  u64 prev_rip = regs.rip;
+  regs.rip = (u64)expr_code_addr;
+  ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
+
+  ptrace(PTRACE_CONT, child_p, 0, 0);
+
+  waitpid(child_p, NULL, 0);
+
+  ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
+
+  sprintf(buffer, "%p", regs.rax);
+
+  regs.rip = prev_rip;
+
+  ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
+
+  int a =0;
+
+  
+}
+dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u64 rsp, func_decl *fdecl, scope *scp)
+{
+  lang_state *lang_stat = dbg->lang_stat;
+
+	dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
+	void* prev_alloc = __lang_globals.data;
+	//__lang_globals.data = (void *)dbg->dbg_alloc;
+
+	ast_rep* ast;
+	node* len = nullptr;
+	node* n;
+  machine_code &mach = *lang_stat->mach;
+	{
+		own_std::vector<token2> tkns;
+		Tokenize2((char*)str.c_str(), str.size(), &tkns);
+		node_iter niter(&tkns, dbg->lang_stat);
+		dbg->lang_stat->use_node_arena = true;
+		n = niter.parse_all();
+		DescendNameFinding(dbg->lang_stat, n, scp);
+		DescendNode(dbg->lang_stat, n, scp);
+
+
+		ast = AstFromNode(dbg->lang_stat, n, scp);
+    thread_ir_state *state = &lang_stat->ir_states[0];
+    state->cur_func = fdecl;
+    state->blocks_cur = 0;
+    fdecl->blocks.clear();
+    auto block = CreateBlock(lang_stat, state);
+    EmitBlockMakeCurrent(lang_stat, state, block);
+
+    FreeRegs2(lang_stat);
+
+    //HERE()
+
+    ir_val rhs = GetIRFromAst2(lang_stat, ast, &lang_stat->ir_states[0], false);
+    ir_rep ir;
+    ir.type = IR_BIN;
+    ir.bin.op = T_EQUAL;
+    ir.bin.lhs.type = IR_TYPE_REG;
+    ir.bin.lhs.reg = 0;
+    ir.bin.lhs.is_float = rhs.is_float;
+    ir.bin.lhs.is_packed_float = rhs.is_packed_float;
+    ir.bin.lhs.reg_sz = rhs.reg_sz;
+    ir.bin.rhs = rhs;
+    InsertIr(&lang_stat->ir_states[0], ir);
+
+    ir.type = IR_DBG_BREAK;
+    InsertIr(&lang_stat->ir_states[0], ir);
+
+    mach.code.clear();
+    mach.bcs.clear();
+
+    FromIRToBc(lang_stat, &lang_stat->ir_states[0], mach, fdecl, false);
+    GenX64(lang_stat, mach.bcs, mach);
+    //CompleteMachineCode(lang_stat, mach);
+	}
+	//__lang_globals.data = prev_alloc;
+
+
+	auto exp = (dbg_expr*)AllocMiscData(lang_stat, sizeof(dbg_expr));
+  exp->expr_code.insert(exp->expr_code.begin(), mach.code.begin(), mach.code.end());
+
+  char buffer[1024];
+  ExecuteDbgExpr(dbg, exp, child_p, buffer, 1024);
+  exp->exp_str = str;
+  exp->exp_val_str = buffer;
+
+  return exp;
+	//UpdateExprWindow(*dbg, stack_reg, line);
 }

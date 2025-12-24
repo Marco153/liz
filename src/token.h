@@ -95,6 +95,7 @@ enum enum_type2
 	//
 
 	TYPE_INT,
+	TYPE_INT64,
 
 	TYPE_IMPORT,
 

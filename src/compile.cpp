@@ -12356,6 +12356,13 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           {
             GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 7));
           }
+          else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_INT64)
+          {
+            bc.type =  MOV_ABS;
+            bc.bin.lhs.reg = ir->bin.lhs.reg;
+            bc.bin.rhs.u64 = ir->bin.rhs.val;
+            InsertBc(ret, bc);
+          }
           else if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_INT)
           {
             GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 3));

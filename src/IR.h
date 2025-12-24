@@ -10,6 +10,7 @@ enum ast_type
     AST_CONTINUE,
     AST_FUNC,
     AST_INT,
+    AST_INT64,
     AST_TYPE_DATA,
     AST_GET_FUNC_BC,
     AST_CHAR,

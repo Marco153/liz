@@ -10207,7 +10207,7 @@ void PrintReg(char *name, u64 addr)
   sprintf(buffer, "Copy##%p", name);
   if(ImGui::Button(buffer))
   {
-    sprintf(buffer, "%llx", addr);
+    sprintf(buffer, "0x%llx", addr);
     ImGui::SetClipboardText(buffer);
   }
 
@@ -11001,11 +11001,16 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         errno = 0;
         unsigned long long result = strtoull(str, &end, 16);
 
-        if (result == 0 && end == str) {
+        if (result == 0 && end == str) 
+        {
             // The string was not a valid number
-        } else if (result == ULLONG_MAX && errno) {
+        }
+        else if (result == ULLONG_MAX && errno) 
+        {
             // The value does not fit in an unsigned long long
-        } else if (*end) {
+        }
+        else if (*end) 
+        {
             // The string contains extra characters after the number
         }
         data_addr = result;
@@ -11306,8 +11311,12 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
 		node_iter niter(&tkns, dbg->lang_stat);
 		dbg->lang_stat->use_node_arena = true;
 		n = niter.parse_all();
-		DescendNameFinding(dbg->lang_stat, n, scp);
-		DescendNode(dbg->lang_stat, n, scp);
+		int val = setjmp(lang_stat->jump_buffer);
+		if (val == 0)
+		{
+      DescendNameFinding(dbg->lang_stat, n, scp);
+      DescendNode(dbg->lang_stat, n, scp);
+    }
 
 
 		ast = AstFromNode(dbg->lang_stat, n, scp);

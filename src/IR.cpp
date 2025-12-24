@@ -416,6 +416,10 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
       ASSERT(0);
     }
   } break;
+  case node_type::N_INT64: {
+    ret->type = AST_INT64;
+    ret->num = n->t->i64;
+  } break;
   case node_type::N_INT: {
     ret->type = AST_INT;
     ret->num = n->t->i;
@@ -1136,6 +1140,14 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->is_unsigned = ast->num < 0 ? false : true;
     val->reg_sz = 8;
   }break;
+  case AST_INT64: {
+    val->type = IR_TYPE_INT64;
+    val->val = ast->num;
+    val->is_unsigned = ast->num < 0 ? false : true;
+    val->is_float = false;
+    val->is_packed_float = false;
+    val->reg_sz = 8;
+  } break;
   case AST_CHAR:
   case AST_INT: {
     val->type = IR_TYPE_INT;
@@ -1143,7 +1155,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->is_unsigned = ast->num < 0 ? false : true;
     val->is_float = false;
     val->is_packed_float = false;
-    val->reg_sz = 8;
+    val->reg_sz = 4;
   } break;
   default:
     ASSERT(0)
@@ -3247,6 +3259,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ret.kind = IR_VAL_VALUE;
     ret = ir.bin.lhs;
   }break;
+  case AST_INT64:
   case AST_INT:
   case AST_CHAR:
   case AST_IDENT:

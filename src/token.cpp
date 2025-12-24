@@ -521,7 +521,7 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
 			}
 
 			char cur_nibble = 0;
-			long long final_number = 0;
+			unsigned long long final_number = 0;
 
 			for (int i = numbers.size() - 1; i >= 0; i--)
 			{
@@ -541,7 +541,15 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
 				cur_nibble += 4;
 			}
 
-			out.type = tkn_type2::T_INT;
+      if (final_number <= UINT32_MAX)
+      {
+        out.type = tkn_type2::T_INT;
+      }
+      else
+      {
+        out.type = tkn_type2::T_INT64;
+      }
+
 			out.i64 = final_number;
 
 			return i;
@@ -602,6 +610,14 @@ long long GetWordNum(char *input, int input_sz, int start, token2 &out)
         if (errno == ERANGE) ASSERT(false)
         if (end == str.data_ || *end != '\0') {}
         if (v < INT64_MIN || v > INT64_MAX) ASSERT(false)
+        if (v >= INT32_MIN && v <= INT32_MAX)
+        {
+          out.type = tkn_type2::T_INT;
+        }
+        else
+        {
+          out.type = tkn_type2::T_INT64;
+        }
 
         //*out = (int64_t)v;
 				out.i64 = v;

@@ -4,6 +4,7 @@
 
 int GetCurFileNameAndLine(lang_state *lang_stat, char *buffer, int sz, int ln)
 {
+  if(!lang_stat->cur_file ) return -1;
 	char *fl_name = (char *)lang_stat->cur_file->name.c_str();
 	return snprintf(buffer, sz, "%s(%d) ", fl_name, ln);
 }
@@ -24,6 +25,10 @@ void ReportError(lang_state *lang_stat, int line, int line_offset, char *str, in
 {
 	char msg_hdr[256];
   //BREAK(line == 5574)
+	if (IS_FLAG_ON(lang_stat->flags, PSR_FLAGS_ON_JMP_WHEN_ERROR) && !lang_stat->cur_file)
+	{
+		longjmp(lang_stat->jump_buffer, 1);
+	}
 
 	own_std::vector<char *> *lines = &lang_stat->cur_file->lines;
 	char* cur_line = (*lines)[line - 1];

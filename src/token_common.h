@@ -27,6 +27,7 @@ enum tkn_type2 : unsigned char
 	T_CLOSE_BRACKETS,
 	T_NUM,
 	T_INT,
+	T_INT64,
 	T_HASHTAG,
 	T_FLOAT,
 	T_FLOAT64,

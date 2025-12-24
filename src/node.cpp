@@ -666,6 +666,7 @@ bool CompareTypes(type2 *lhs, type2 *rhs, bool assert = false) {
             rhs->type == enum_type2::TYPE_STATIC_ARRAY ||
             CompareTypes(lhs->tp, rhs->tp));
   } break;
+  case enum_type2::TYPE_INT64:
   case enum_type2::TYPE_INT:
     cond =
         (rhs->type == enum_type2::TYPE_S64 ||
@@ -1202,6 +1203,9 @@ node *node_iter::parse_expr() {
   } break;
   case tkn_type2::T_FLOAT: {
     n->type = node_type::N_FLOAT;
+  } break;
+  case tkn_type2::T_INT64: {
+    n->type = node_type::N_INT64;
   } break;
   case tkn_type2::T_INT: {
     n->type = node_type::N_INT;
@@ -10398,6 +10402,11 @@ if (!is_correct_ovrld)
     ret_type.type = enum_type2::TYPE_F32_RAW;
     ret_type.f = n->t->f;
   } break;
+  case node_type::N_INT64: {
+    ret_type.type = enum_type2::TYPE_INT64;
+    ret_type.i = n->t->i;
+
+  } break;
   case node_type::N_INT: {
     ret_type.type = enum_type2::TYPE_INT;
     ret_type.i = n->t->i;
@@ -11072,6 +11081,12 @@ if(!decl)
       if (ltp.type == TYPE_INT && rtp.type == TYPE_INT) {
         n->type = N_INT;
         n->t->i = GetExpressionValT<int>(n->t->type, ltp.i, rtp.i);
+        ret_type.i = n->t->i;
+        // GetExpressionVal(n);
+      }
+      if (ltp.type == TYPE_INT64 && rtp.type == TYPE_INT) {
+        n->type = N_INT64;
+        n->t->i = GetExpressionValT<s64>(n->t->type, ltp.i, rtp.i);
         ret_type.i = n->t->i;
         // GetExpressionVal(n);
       }

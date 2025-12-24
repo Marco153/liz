@@ -1928,7 +1928,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			aux.bin.rhs.voffset = bc->bin.rhs.voffset;
 			CreateRegToReg(&aux, 0x8a, 0x8b, &ret);
 
-			MovImmToReg(ret, 3, 4, bc->bin.rhs.u64);
+			//MovImmToReg(ret, 3, 4, bc->bin.rhs.u64);
 
 			// multiplying rax by src
 

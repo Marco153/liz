@@ -2968,37 +2968,40 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   } break;
   case AST_RET: 
   {
-    if(!ast->ret.ast) break;
+    if(ast->ret.ast){
+      bool is_lhs = false;
+      //BREAK(ast->line_number == 2045)
 
-    bool is_lhs = false;
-    //BREAK(ast->line_number == 2045)
+      if(lang_stat->cur_func->ret_type.type == TYPE_STRUCT && lang_stat->cur_func->ret_type.ptr == 0)
+      {
+        is_lhs = true;
+      }
 
-    if(lang_stat->cur_func->ret_type.type == TYPE_STRUCT && lang_stat->cur_func->ret_type.ptr == 0)
-    {
-      is_lhs = true;
+      ret = GetIRFromAst2(lang_stat, ast->ret.ast, state, is_lhs);
+
+
+      if(is_lhs)
+      {
+        ir.type = IR_ADDRESS_OF;
+      }
+      else
+      {
+        ir.type = IR_BIN;
+        ir.bin.op = T_EQUAL;
+      }
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg = (char)regs_enum::RAX;
+      ir.bin.lhs.reg_sz = ret.reg_sz;
+      ir.bin.lhs.is_unsigned = ret.is_unsigned;
+      ir.bin.lhs.is_float = ret.is_float;
+      ir.bin.lhs.is_packed_float = ret.is_packed_float;
+      ir.bin.rhs = ret;
+
+      InsertIr(state, ir);
     }
-
-    ret = GetIRFromAst2(lang_stat, ast->ret.ast, state, is_lhs);
-
-
-    if(is_lhs)
-    {
-      ir.type = IR_ADDRESS_OF;
-    }
-    else
-    {
-      ir.type = IR_BIN;
-      ir.bin.op = T_EQUAL;
-    }
-    ir.bin.lhs.type = IR_TYPE_REG;
-    ir.bin.lhs.reg = (char)regs_enum::RAX;
-    ir.bin.lhs.reg_sz = ret.reg_sz;
-    ir.bin.lhs.is_unsigned = ret.is_unsigned;
-    ir.bin.lhs.is_float = ret.is_float;
-    ir.bin.lhs.is_packed_float = ret.is_packed_float;
-    ir.bin.rhs = ret;
-
+    ir.type = IR_RET;
     InsertIr(state, ir);
+
 
   }break;
   case AST_CALL: 
@@ -3804,7 +3807,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }break;
     case T_POINT:
     {
-      BREAK(ast->line_number == 551)
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
 
       /*
@@ -3824,7 +3826,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
       }
       */
-      BREAK(ast->line_number == 561)
       int offset = 0;
       for(int i =1; i < ast->points.size();i++)
       {

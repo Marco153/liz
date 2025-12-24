@@ -11699,6 +11699,11 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
       //BREAK(ret.size() >= 90)
       switch(cur_ir->type)
       {
+      case IR_RET:
+      {
+        GenX64RetGroup(lang_stat, stack_size, ret);
+
+      }break;
       case IR_FILL:
       {
         if(ir->bin.lhs.reg_sz == 4)

@@ -10296,6 +10296,17 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
   }
   switch (v->type.type)
   {
+  case TYPE_BOOL:
+      ImGui::SameLine();
+      if(*(bool*)cur_addr == true)
+      {
+        ImGui::Text("true");
+      }
+      else
+      {
+        ImGui::Text("false");
+      }
+      break;
   case TYPE_U8:
       ImGui::SameLine();
       ImGui::Text("%hhu", *(u8*)cur_addr);

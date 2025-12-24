@@ -1647,7 +1647,7 @@ void MakeIrLoadToReg(lang_state *lang_stat, char reg_dst, char reg_sz, ir_val *l
 }
 char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs)
 {
-  ir_rep ir;
+  ir_rep ir={};
   char deref = rhs->deref;
   char reg = -1;
   auto prev_type = rhs->type;
@@ -1660,6 +1660,9 @@ char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     rhs->type = IR_TYPE_REG_MEM;
   }
 
+  bool prev_float = rhs->is_float;
+  bool prev_packed = rhs->is_packed_float;
+  char prev_sz = rhs->reg_sz;
   while(deref > 0)
   {
     if(reg == -1) reg = GetAvailableReg(lang_stat);
@@ -1668,8 +1671,17 @@ char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     ir.bin.lhs.type = IR_TYPE_REG;
     ir.bin.lhs.reg = reg;
     ir.bin.lhs.reg_sz = 8;
-    ir.bin.lhs.is_float = false;
-    ir.bin.lhs.is_packed_float = false;
+    if(deref == 1)
+    {
+      ir.bin.lhs.is_float = prev_float;
+      ir.bin.lhs.is_packed_float = prev_packed;
+      ir.bin.lhs.reg_sz = prev_sz;
+    }
+    else
+    {
+      ir.bin.lhs.is_float = false;
+      ir.bin.lhs.is_packed_float = false;
+    }
     ir.bin.rhs = *rhs;
     ir.bin.rhs.voffset = rhs->voffset;
     out->emplace_back(ir);
@@ -1679,6 +1691,8 @@ char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
     rhs->voffset = 0;
     deref--;
   }
+  //rhs->is_float = prev_float;
+  //rhs->is_packed_float = prev_packed;
   if(prev_type == IR_TYPE_REG)
     rhs->type = prev_type;
   return reg;
@@ -1869,9 +1883,7 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
   ASSERT(cond_true && cond_false)
   if(ast->type == AST_OPPOSITE)
   {
-    //BREAK(ast->line_number == 1235)
     GetIRCond2(lang_stat, ast->ast, state, cond_true, cond_false, false);
-
   }
   else if(ast->type == AST_INT)
   {
@@ -1911,12 +1923,12 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
         ast_rep *e = *expr;
         if((i + 1) == ast->e_holder.expr.size())
         {
-          GetIRCond2(lang_stat, e, state, cond_true, cond_false);
+          GetIRCond2(lang_stat, e, state, cond_true, cond_false, flip_comparison);
         }
         else
         {
           block2 *mid = CreateBlock(lang_stat, state);
-          GetIRCond2(lang_stat, e, state, mid, cond_false);
+          GetIRCond2(lang_stat, e, state, mid, cond_false, flip_comparison);
           EmitBlock(lang_stat, state, mid);
 
           state->cur_block = mid;
@@ -1933,7 +1945,7 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
         ast_rep *e = *expr;
         if((i + 1) == ast->e_holder.expr.size())
         {
-          GetIRCond2(lang_stat, e, state, cond_true, cond_false);
+          GetIRCond2(lang_stat, e, state, cond_true, cond_false, flip_comparison);
         }
         else
         {
@@ -1941,6 +1953,8 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
           if(IsComparisonOp(e->op))
             aux_flip = false;
           block2 *mid = CreateBlock(lang_stat, state);
+          if(flip_comparison)
+            aux_flip = !aux_flip;
           GetIRCond2(lang_stat, e, state, cond_true, mid, aux_flip);
           EmitBlock(lang_stat, state, mid);
 
@@ -3383,7 +3397,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   }break;
   case AST_DEREF:
   {
-    BREAK(ast->line_number == 426)
     ast_rep *df = ast->deref.exp;
 
     rhs = GetIRFromAst2(lang_stat, df, state, is_lhs);
@@ -3991,7 +4004,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_PLUS_EQUAL:
     case T_EQUAL:
     {
-      //BREAK(ast->line_number == 556)
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);

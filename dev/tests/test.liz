@@ -1293,10 +1293,8 @@ TESTS:const s32=0;
     vec1:v3=?;
     vec2:v3=?;
     vec2.x = 1.0f;
-    __dbg_break
     memcpy(&vec1, &vec2, sizeof(v3));
 
-    __dbg_break
     if vec1.x > 1.1f || vec1.x < 0.9f
       debug_break();
 
@@ -1385,8 +1383,10 @@ TESTS:const s32=0;
 
 
     // static array stuff
+    __dbg_break
     ar_strct:[4]simple_strct_f32;
     modify_ar_strct(ar_strct);
+    __dbg_break
     if ar_strct[0].a < 3.4f || ar_strct[0].a > 3.6f
       debug_break();
 

@@ -1682,6 +1682,7 @@ node *node_iter::parse_expr() {
   }
   case tkn_type2::T_POINT:
   case tkn_type2::T_MINUS:
+  case tkn_type2::T_PERCENT:
   case tkn_type2::T_AMPERSAND:
   case tkn_type2::T_TILDE:
   case tkn_type2::T_MUL: {
@@ -1776,7 +1777,7 @@ void node_iter::CheckTwoBinaryOparatorsTogether(node *cur_node) {
   auto tkn = peek_tkn();
   int dummy_prec = 0;
   bool is_unary =
-      tkn->type == tkn_type2::T_DOLLAR || tkn->type == tkn_type2::T_AMPERSAND ||
+      tkn->type == tkn_type2::T_PERCENT || tkn->type == tkn_type2::T_DOLLAR || tkn->type == tkn_type2::T_AMPERSAND ||
       tkn->type == tkn_type2::T_EXCLAMATION || tkn->type == tkn_type2::T_MUL ||
       tkn->type == tkn_type2::T_MINUS || tkn->type == T_APOSTROPHE ||
       tkn->type == T_TILDE;
@@ -10073,6 +10074,9 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
   } break;
   case node_type::N_UNOP: {
     switch (n->t->type) {
+    case tkn_type2::T_PERCENT: {
+      ret_type.type = TYPE_S64;
+    }break;
     case tkn_type2::T_TILDE: {
       ret_type = DescendNode(lang_stat, n->r, scp);
       if(ret_type.type == TYPE_INT)

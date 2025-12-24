@@ -124,6 +124,89 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
   } break;
   case node_type::N_UNOP: {
     switch (n->t->type) {
+    case T_PERCENT: {
+      ret->type = AST_REG;
+      ret->reg.reg_sz = 8;
+      ret->reg.type = IR_TYPE_REG;
+      ret->reg.kind = IR_VAL_VALUE;
+
+      if(n->r->t->str == "rax")
+      {
+        ret->reg.reg = (char)regs_enum::RAX;
+      }
+      else if(n->r->t->str == "rcx")
+      {
+        ret->reg.reg = (char)regs_enum::RCX;
+      }
+      else if(n->r->t->str == "rdx")
+      {
+        ret->reg.reg = (char)regs_enum::RDX;
+      }
+      else if(n->r->t->str == "rbp")
+      {
+        ret->reg.reg = (char)regs_enum::RBP;
+      }
+      else if(n->r->t->str == "rsp")
+      {
+        ret->reg.reg = (char)regs_enum::RSP;
+      }
+      else if(n->r->t->str == "rdi")
+      {
+        ret->reg.reg = (char)regs_enum::RDI;
+      }
+      else if(n->r->t->str == "rsi")
+      {
+        ret->reg.reg = (char)regs_enum::RSI;
+      }
+      else if(n->r->t->str == "rbx")
+      {
+        ret->reg.reg = (char)regs_enum::RBX;
+      }
+      else if(n->r->t->str[0] == 'x')
+      {
+        char reg;
+        if(n->r->t->str.size() == 5)
+        {
+          char dezena = n->r->t->str[3] - '0';
+          char unidade = n->r->t->str[4] - '0';
+
+          reg = dezena * 10 + unidade;
+        }
+        else
+        {
+          char unidade = n->r->t->str[3] - '0';
+          reg = unidade;
+        }
+        ret->reg.reg = reg;
+        ret->reg.is_float = true;
+      }
+      else
+      {
+        if(n->r->t->str[0]=='r' && IsNumber(n->r->t->str[1]))
+        {
+
+          char reg;
+          if(n->r->t->str.size() == 3)
+          {
+            char dezena = n->r->t->str[1] - '0';
+            char unidade = n->r->t->str[2] - '0';
+
+            reg = dezena * 10 + unidade;
+          }
+          else
+          {
+            char unidade = n->r->t->str[1] - '0';
+            reg = unidade;
+          }
+          ret->reg.reg = (char)regs_enum::R8 + (reg - 8);
+          ret->reg.type = IR_TYPE_REG;
+          ret->reg.reg_sz = 8;
+        }
+      }
+      //if()
+      //ret->unop_assign.tp = DescendNode(lang_stat, n->r, scp);
+      //ret->unop_assign.ast = AstFromNode(lang_stat, n->r, scp);
+    } break;
     case T_MINUS_MINUS: {
       ret->type = AST_MINUS_MINUS;
       ret->unop_assign.tp = DescendNode(lang_stat, n->r, scp);
@@ -1072,6 +1155,9 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     val->stack.i = ast->strct_constr.at_offset;
     // val->is_unsigned = IsUnsigned(ast->decl->type.type);
   } break;
+  case AST_REG: {
+    *val = ast->reg;
+  }break;
   case AST_IDENT: {
     val->type = IR_TYPE_DECL;
     val->decl = ast->decl;
@@ -3263,6 +3349,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_INT:
   case AST_CHAR:
   case AST_IDENT:
+  case AST_REG:
   {
     GetIRVal(lang_stat, ast, &ret);
   }break;

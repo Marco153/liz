@@ -409,6 +409,8 @@ struct func_decl
 
   int syscall;
 
+  int dbg_saved_regs_offset;
+
   int wasm_func_sect_idx;
   int wasm_code_sect_idx;
 	int stack_size;

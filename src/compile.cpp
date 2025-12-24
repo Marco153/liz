@@ -424,6 +424,7 @@ struct lang_state
 	int flags;
 
   dbg_file_seriealize *child_proc_dbg_serialize_addr;
+  bool allow_get_reg;
 
 	bool something_was_declared;
 	bool in_ir_stmnt;
@@ -4485,7 +4486,10 @@ struct func_dbg
 	int flags;
 	bool created;
 
+
 	int ir_begin_stack_idx;
+
+	int dbg_saved_regs;
 
 	int strct_constr_offset;
 	int strct_ret_offset;
@@ -4721,6 +4725,7 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 	fdbg->flags = f->flags;
 	fdbg->stmnts_len = f->wasm_stmnts.size();
 	fdbg->strct_constr_offset = f->strct_constrct_at_offset;
+	fdbg->dbg_saved_regs = f->dbg_saved_regs_offset;
 	fdbg->strct_ret_offset = f->strct_ret_size_per_statement_offset;
 	fdbg->to_spill_offset = f->to_spill_offset;
 	fdbg->for_interpreter_x64_code_start = f->for_interpreter_code_start_idx;
@@ -5327,6 +5332,7 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
   fdecl->code_start_idx = fdbg->x64_code_start;
   fdecl->code_end_idx = fdbg->x64_end_start;
 	fdecl->for_interpreter_code_start_idx = fdbg->for_interpreter_x64_code_start;
+	fdecl->dbg_saved_regs_offset = fdbg->dbg_saved_regs;
 	fdecl->bcs2_start = fdbg->bcs2_start;
 	fdecl->bcs2_end = fdbg->bcs2_end;
 
@@ -11742,6 +11748,12 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         //gen_state->to_spill_offset = stack_size;
         cur_ir->fdecl->to_spill_offset = stack_size;
         stack_size += state->spilled_regs.max_cur_gotten * 16;
+
+        cur_ir->fdecl->to_spill_offset = stack_size;
+        stack_size += state->spilled_regs.max_cur_gotten * 16;
+
+        cur_ir->fdecl->dbg_saved_regs_offset = stack_size;
+        stack_size += 8 * 8;
 
         //gen_state->strcts_ret_stack_offset = stack_size;
         cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;

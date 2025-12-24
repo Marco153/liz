@@ -33,6 +33,9 @@ enum ast_type
     AST_ON,
     AST_STRUCT_COSTRUCTION,
     AST_ARRAY_COSTRUCTION,
+    AST_DOLAR,
+
+    AST_REG,
 
     AST_DEREF,
     AST_LABEL,
@@ -157,6 +160,74 @@ struct on_cond_ast
     ast_rep *cond;
     ast_rep *scp;
 };
+enum ir_val_type
+{
+    IR_TYPE_NONE,
+    IR_TYPE_REG,
+    IR_TYPE_REG_MEM,
+    IR_TYPE_INT,
+    IR_TYPE_INT64,
+    IR_TYPE_F32,
+    IR_TYPE_F64,
+    IR_TYPE_STR_LIT,
+    IR_TYPE_PARAM_REG,
+    IR_TYPE_ARG_REG,
+    IR_TYPE_RET_REG,
+    IR_TYPE_DECL,
+    IR_TYPE_GET_FUNC_BC,
+    IR_TYPE_ON_STACK,
+    IR_TYPE_TYPE_DATA,
+};
+enum on_stack_type
+{
+	ON_STACK_STRUCT_CONSTR,	
+	ON_STACK_STRUCT_RET,	
+	ON_STACK_SPILL,	
+	ON_STACK_SPILL_FLOAT,	
+};
+#define IR_VAL_ADDR 0 
+#define IR_VAL_VALUE 1
+struct ir_val
+{
+  ir_val_type type;
+  int kind;
+  union
+  {
+    decl2* decl;
+    func_decl* fdecl;
+  };
+  union
+  {
+    int decl_offset;
+    struct
+    {
+      on_stack_type on_stack_type;
+      int i;
+    }stack;
+    float f32;
+    double f64;
+    char* str;
+    u64 val;
+    int i;
+    u64* val_ptr;
+    struct
+    {
+      union
+      {
+        char reg;
+      };
+    };
+  };
+  int voffset;
+  short reg_ex;
+  int on_data_sect_offset;
+  bool is_unsigned : 1;
+  bool is_float:1;
+  bool is_packed_float:1;
+  char ptr;
+  char deref;
+  char reg_sz;
+};
 struct ast_rep
 {
   ast_type type;
@@ -184,6 +255,7 @@ struct ast_rep
     long long num;
     ast_rep *ast;
     decl2 *decl;
+    ir_val reg;
     own_std::string str;
     struct
     {
@@ -331,74 +403,6 @@ enum ir_type
     IR_GET_STR_LIT,
     IR_GET_GLOBAL,
     IR_CLEAR_SSE,
-};
-enum ir_val_type
-{
-    IR_TYPE_NONE,
-    IR_TYPE_REG,
-    IR_TYPE_REG_MEM,
-    IR_TYPE_INT,
-    IR_TYPE_INT64,
-    IR_TYPE_F32,
-    IR_TYPE_F64,
-    IR_TYPE_STR_LIT,
-    IR_TYPE_PARAM_REG,
-    IR_TYPE_ARG_REG,
-    IR_TYPE_RET_REG,
-    IR_TYPE_DECL,
-    IR_TYPE_GET_FUNC_BC,
-    IR_TYPE_ON_STACK,
-    IR_TYPE_TYPE_DATA,
-};
-enum on_stack_type
-{
-	ON_STACK_STRUCT_CONSTR,	
-	ON_STACK_STRUCT_RET,	
-	ON_STACK_SPILL,	
-	ON_STACK_SPILL_FLOAT,	
-};
-#define IR_VAL_ADDR 0 
-#define IR_VAL_VALUE 1
-struct ir_val
-{
-  ir_val_type type;
-  int kind;
-  union
-  {
-    decl2* decl;
-    func_decl* fdecl;
-  };
-  union
-  {
-    int decl_offset;
-    struct
-    {
-      on_stack_type on_stack_type;
-      int i;
-    }stack;
-    float f32;
-    double f64;
-    char* str;
-    u64 val;
-    int i;
-    u64* val_ptr;
-    struct
-    {
-      union
-      {
-        char reg;
-      };
-    };
-  };
-  int voffset;
-  short reg_ex;
-  int on_data_sect_offset;
-  bool is_unsigned : 1;
-  bool is_float:1;
-  bool is_packed_float:1;
-  char ptr;
-  char deref;
-  char reg_sz;
 };
 
 struct assign_info
@@ -557,6 +561,7 @@ struct thread_ir_state
 	void *blocks_ptr;
 	int blocks_cur;
 	int blocks_max;
+
 
   tracker_stack<char> spilled_regs;
   int strct_ret_size_per_statement_cur;

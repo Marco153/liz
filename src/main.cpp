@@ -10434,11 +10434,13 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
   int row_max = 5;
   int column_max = 8;
   ImGui::BeginChild("mem", ImVec2(500, 400));
+
+  char column_size = 1;
   
   for(int row = 0; row < row_max; row++)
   {
     ImVec2 pos = ImGui::GetCursorPos();
-    ImGui::Text("%p  ", addr);
+    ImGui::Text("%p  ", addr + row * column_size * column_max) ;
     ImGui::SameLine();
 
     for(int column = 0; column < column_max; column++)
@@ -11283,6 +11285,9 @@ void ExecuteDbgExpr(dbg_state* dbg, dbg_expr *exp, int child_p, char *buffer, in
 
   sprintf(buffer, "%p", regs.rax);
 
+  ptrace(PTRACE_CONT, child_p, 0, 0);
+  waitpid(child_p, NULL, 0);
+
   regs.rip = prev_rip;
 
   ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
@@ -11290,6 +11295,43 @@ void ExecuteDbgExpr(dbg_state* dbg, dbg_expr *exp, int child_p, char *buffer, in
   int a =0;
 
   
+}
+void UnspillDbgReg(thread_ir_state *state, char reg, int *cur, func_decl *fdecl)
+{
+  (*cur)--;
+
+  ir_rep ir;
+  ir.type = IR_BIN;
+  ir.bin.op =  T_EQUAL;
+  ir.bin.rhs.type = IR_TYPE_REG_MEM;
+  ir.bin.rhs.reg = (char)regs_enum::RSP;
+  ir.bin.rhs.voffset = fdecl->dbg_saved_regs_offset + *cur * 8;
+  ir.bin.lhs.type = IR_TYPE_REG;
+  ir.bin.lhs.reg = reg;
+  ir.bin.lhs.is_float = false;
+  ir.bin.lhs.is_packed_float = false;
+  ir.bin.lhs.reg_sz = 8;
+
+  InsertIr(state, ir);
+
+}
+void SpillDbgReg(thread_ir_state *state, char reg, int *cur, func_decl *fdecl)
+{
+  ir_rep ir;
+  ir.type = IR_BIN;
+  ir.bin.op =  T_EQUAL;
+  ir.bin.lhs.type = IR_TYPE_REG_MEM;
+  ir.bin.lhs.reg = (char)regs_enum::RSP;
+  ir.bin.lhs.reg_sz = 8;
+  ir.bin.lhs.is_float = false;
+  ir.bin.lhs.is_packed_float = false;
+  ir.bin.lhs.voffset = fdecl->dbg_saved_regs_offset + *cur * 8;
+  ir.bin.rhs.type = IR_TYPE_REG;
+  ir.bin.rhs.reg = reg;
+
+  InsertIr(state, ir);
+
+  (*cur)++;
 }
 dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u64 rsp, func_decl *fdecl, scope *scp)
 {
@@ -11304,7 +11346,6 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
 	node* n;
   machine_code &mach = *lang_stat->mach;
   ir_val rhs;
-  HERE()
 	{
 		own_std::vector<token2> tkns;
 		Tokenize2((char*)str.c_str(), str.size(), &tkns);
@@ -11319,6 +11360,7 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
     }
 
 
+    //HERE()
 		ast = AstFromNode(dbg->lang_stat, n, scp);
     thread_ir_state *state = &lang_stat->ir_states[0];
     state->cur_func = fdecl;
@@ -11331,6 +11373,12 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
 
     //HERE()
 
+    int cur = 0;
+    SpillDbgReg(state, (char)regs_enum::RAX, &cur, fdecl);
+    SpillDbgReg(state, (char)regs_enum::RBX, &cur, fdecl);
+    SpillDbgReg(state, (char)regs_enum::R14, &cur, fdecl);
+    SpillDbgReg(state, (char)regs_enum::R15, &cur, fdecl);
+
     rhs = GetIRFromAst2(lang_stat, ast, &lang_stat->ir_states[0], false);
     ir_rep ir;
     ir.type = IR_BIN;
@@ -11342,6 +11390,15 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
     ir.bin.lhs.reg_sz = rhs.reg_sz;
     ir.bin.rhs = rhs;
     InsertIr(&lang_stat->ir_states[0], ir);
+
+
+    ir.type = IR_DBG_BREAK;
+    InsertIr(&lang_stat->ir_states[0], ir);
+
+    UnspillDbgReg(state, (char)regs_enum::R15, &cur, fdecl);
+    UnspillDbgReg(state, (char)regs_enum::R14, &cur, fdecl);
+    UnspillDbgReg(state, (char)regs_enum::RBX, &cur, fdecl);
+    UnspillDbgReg(state, (char)regs_enum::RAX, &cur, fdecl);
 
     ir.type = IR_DBG_BREAK;
     InsertIr(&lang_stat->ir_states[0], ir);

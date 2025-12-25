@@ -1095,12 +1095,14 @@ TESTS:const s32=0;
     buffer :[32]u8
     num_2_str(cast(s64)globals.i, &buffer[0], 32)
 
-    if *ptr_offset(buffer[0], 0, u8) != 0x36
+    __dbg_break
+    if *ptr_offset(&buffer[0], 0, u8) != 0x36
       __dbg_break
-    if *ptr_offset(buffer[0], 1, u8) != 0
+    if *ptr_offset(&buffer[0], 1, u8) != 0
       __dbg_break
-    PrintStr(cast(str_lit)buffer[0])
+    PrintStr(cast(str_lit)&buffer[0])
 
+    __dbg_break
 
     m := minf(-6.0f, 1333.0f)
 
@@ -1383,10 +1385,8 @@ TESTS:const s32=0;
 
 
     // static array stuff
-    __dbg_break
     ar_strct:[4]simple_strct_f32;
     modify_ar_strct(ar_strct);
-    __dbg_break
     if ar_strct[0].a < 3.4f || ar_strct[0].a > 3.6f
       debug_break();
 
@@ -1411,6 +1411,7 @@ TESTS:const s32=0;
       debug_break();
 
     static_ar: [4] f32;
+    __dbg_break
     static_ar[0] = 0.5f;
 
     if static_ar[0] < 0.4f || static_ar[0] > 0.6f

@@ -1175,11 +1175,17 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
 
     val->is_unsigned = false;
     val->deref = 0;
+    type2 *tp = &ast->decl->type;
     if (ast->decl->type.type == TYPE_STATIC_ARRAY) {
       // val->is_unsigned = IsUnsigned(ast->decl->type.tp->type);
       val->is_unsigned = true;
       val->reg_sz = 8;
-      val->deref = 0;
+      tp = ast->decl->type.tp;
+      val->reg_sz = GetTypeSize(tp);
+      if(val->reg_sz > 8)
+      {
+        val->reg_sz = 8;
+      }
     } else if (ast->decl->type.type == TYPE_STRUCT_TYPE &&
                IS_FLAG_ON(ast->decl->type.strct->flags, TP_STRCT_ETRUCT)) {
       val->is_unsigned = true;
@@ -1191,11 +1197,11 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
     }
     // if (ast->decl->type.ptr > 0)
     // val->is_unsigned = true;
-    val->is_float = ast->decl->type.IsFloat();
-    val->is_packed_float = ast->decl->type.type == TYPE_VECTOR;
+    val->is_float = tp->IsFloat();
+    val->is_packed_float = tp->type == TYPE_VECTOR;
     if(val->is_packed_float)
     {
-      val->reg_sz = ast->decl->type.vec_type;
+      val->reg_sz = tp->vec_type;
     }
     val->is_float = val->is_float || val->is_packed_float;
     val->ptr = ast->decl->type.ptr;
@@ -1830,7 +1836,18 @@ void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
     if(aux->type == IR_TYPE_DECL && (aux->decl->type.type == TYPE_FUNC_PTR || aux->decl->type.type == TYPE_FUNC))
     {
       ir.type = IR_GET_FUNC_ADDR;
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg_sz = 8;
       ir.bin.lhs.reg = reg;
+      ir.bin.rhs.decl = aux->decl;
+    }
+    else if(aux->type == IR_TYPE_DECL && aux->decl->type.type == TYPE_STATIC_ARRAY)
+    {
+      ir.type = IR_ADDRESS_OF;
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg_sz = 8;
+      ir.bin.lhs.reg = reg;
+      ir.bin.rhs.type = IR_TYPE_DECL;
       ir.bin.rhs.decl = aux->decl;
     }
     else
@@ -2499,6 +2516,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
 
   char reg = -1;
 
+  //BREAK(arg->line_number == 1388)
   if(ir.bin.rhs.type == IR_TYPE_REG) 
   {
     reg = ir.bin.rhs.reg;
@@ -2509,15 +2527,13 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
   if(ir.bin.rhs.is_float)
   {
     char free_reg = -1;
-    if(ir.bin.rhs.kind == IR_VAL_ADDR)
+    char deref = ir.bin.rhs.deref;
+
+    EnsureValue(lang_stat, state, &ir.bin.rhs);
+    LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs);
+    if(deref > 1)
     {
-        char deref = ir.bin.rhs.deref;
-        if(deref > 1)
-        {
-          LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs);
-          EnsureValue(lang_stat, state, &ir.bin.lhs);
-          free_reg = ir.bin.rhs.reg;
-        }
+      free_reg = ir.bin.rhs.reg;
     }
     ASSERT(*float_args < 7)
 
@@ -2534,13 +2550,14 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
   }
   else
   {
+    char deref = ir.bin.rhs.deref;
+    EnsureValue(lang_stat, state, &ir.bin.rhs);
+    LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs);
+
     if(i >= MAX_CALL_REGS)
     {
       if(ir.bin.rhs.kind == IR_VAL_ADDR && ir.bin.rhs.deref > 0)
       {
-        char deref = ir.bin.rhs.deref;
-        LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs);
-        EnsureValue(lang_stat, state, &ir.bin.lhs);
       }
       ir.bin.lhs.type = IR_TYPE_REG_MEM;
       ir.bin.lhs.reg = (char)regs_enum::RSP;
@@ -2856,6 +2873,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       InsertIr(state, ir);
     }
 
+    BREAK(ast->line_number == 1098)
     lhs = GetIRFromAst2(lang_stat, ast->index.lhs, state, true);
 
     bool can_do_plus = true;
@@ -2884,10 +2902,17 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
         InsertIr(state, ir);
 
+        bool was_float = lhs.is_float;
+        bool was_packed = lhs.is_packed_float;
+        char reg_sz = lhs.reg_sz;
+
         lhs = ir.bin.lhs;
+        lhs.is_float = was_float;
+        lhs.is_packed_float = was_packed;
+        lhs.reg_sz = reg_sz;
         lhs.ptr = 0;
         lhs.deref = 0;
-        lhs.kind = IR_VAL_VALUE;
+        //lhs.kind = IR_VAL_VALUE;
         lhs.type = IR_TYPE_REG;
       }
     }
@@ -2897,6 +2922,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       ir.type = IR_BIN;
       ir.bin.op = T_PLUS;
       ir.bin.lhs = lhs;
+      ir.bin.lhs.is_float = false;
+      ir.bin.lhs.is_packed_float = false;
       ir.bin.rhs = rhs;
 
       InsertIr(state, ir);
@@ -3865,8 +3892,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       */
       int offset = 0;
+      bool is_static_array;
       for(int i =1; i < ast->points.size();i++)
       {
+        is_static_array = false;
         decl2 *d = ast->points[i].decl_strct;
 
         if(lhs.ptr > 0)
@@ -3880,8 +3909,13 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         }
         offset += d->offset;
 
+        type2 *tp = &d->type;
         if(d->type.type == TYPE_STATIC_ARRAY)
+        {
+          is_static_array = true;
           lhs.reg_sz = GetTypeSize(d->type.tp);
+          tp = d->type.tp;
+        }
         else
           lhs.reg_sz = GetTypeSize(&d->type);
         
@@ -3889,11 +3923,36 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           lhs.reg_sz = d->type.vec_type;
 
         lhs.voffset = offset;
-        lhs.is_float = d->type.IsFloat();
-        lhs.is_packed_float = d->type.type == TYPE_VECTOR;
+        lhs.is_float = tp->IsFloat();
+        lhs.is_packed_float = tp->type == TYPE_VECTOR;
         lhs.deref = 0;
       }
-      lhs.kind = IR_VAL_ADDR;
+      if(is_static_array)
+      {
+        char reg_sz = lhs.reg_sz;
+        bool was_float = lhs.is_float;
+        bool was_packed = lhs.is_packed_float;
+
+        ir.type = IR_ADDRESS_OF;
+        ir.bin.lhs.type = IR_TYPE_REG;
+        ir.bin.lhs.reg_sz = 8;
+        ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+        ir.bin.rhs = lhs;
+
+        InsertIr(state, ir);
+
+        lhs = ir.bin.lhs;
+
+        lhs.kind = IR_VAL_VALUE;
+        lhs.deref = 0;
+        lhs.type = IR_TYPE_REG;
+        lhs.is_float = was_float;
+        lhs.is_packed_float = was_packed;
+        lhs.reg_sz = reg_sz;
+        return lhs;
+      }
+      else
+        lhs.kind = IR_VAL_ADDR;
       if(!is_lhs)
       {
         char prev_reg = lhs.reg;

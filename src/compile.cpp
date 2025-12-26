@@ -11825,6 +11825,10 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           break;
         int to_sum = GetTypeSize(&cur_ir->decl->type);
         cur_ir->decl->offset = stack_size;
+        if(cur_ir->decl->type.type == TYPE_VECTOR)
+        {
+         cur_ir->decl->offset = get_even_address_with(16, cur_ir->decl->offset);
+        }
         stack_size += to_sum <= 4 ? 4 : to_sum;
         //cur_ir->fdecl->stack_size = stack_size;
       }break;

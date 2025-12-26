@@ -2887,7 +2887,7 @@ int CheckBiggestType(type2 *t, int cur_biggest) {
       cmp = t->strct->biggest_type;
       break;
     case enum_type2::TYPE_VECTOR: {
-      cmp = 4;
+      cmp = t->vec_type * 4;
     } break;
     case enum_type2::TYPE_STATIC_ARRAY:
     case enum_type2::TYPE_ARRAY:

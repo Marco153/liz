@@ -1522,7 +1522,6 @@ TESTS:const s32=0;
       debug_break();
 
     i = 2;
-    __dbg_break
     v2.x = cast(f32)-i;
 
 
@@ -1717,9 +1716,10 @@ TESTS:const s32=0;
     if !val
       debug_break();
 
-    __dbg_break
     vec_test: = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
     vec_test2: = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
+    __dbg_break
+    __dbg_break
     __dbg_break
     vec_test = vec_test + vec_test2
 

@@ -2873,7 +2873,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
   case AST_INDEX: 
   {
-    BREAK(ast->line_number == 1424)
+    //BREAK(ast->line_number == 1424)
     rhs = GetIRFromAst2(lang_stat, ast->index.rhs, state, false);
 
     if(rhs.kind == IR_VAL_ADDR)
@@ -4055,7 +4055,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           }
         }
 
-        if(rhs.type == IR_TYPE_REG_MEM || rhs.type == IR_TYPE_REG)
+        if((rhs.type == IR_TYPE_REG_MEM || rhs.type == IR_TYPE_REG) && (lhs.type != IR_TYPE_INT))
         {
           FreeReg(lang_stat, rhs.reg, rhs.is_float);
         }

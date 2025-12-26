@@ -9859,7 +9859,7 @@ bool CmpStrDbgGetJmpAddr(char *str_sect, str_dbg *s, const char *name, char **jm
 
 _pid ChildProcess(int pipes[2])
 {
-#define ON_PARENT
+//#define ON_PARENT
 #ifdef LINUX
   if(pipe(pipes) == -1)
   {

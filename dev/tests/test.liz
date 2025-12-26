@@ -803,7 +803,7 @@ TESTS:const s32=0;
     
     str_offset := ptr_offset(str, str.offset, u8)
 
-    for i in 0..ln
+    for i in 0..cast(s64)ln
     {
       lhs := ptr_offset(self.data.data, i, u8);
       rhs := ptr_offset(str_offset, i, u8);
@@ -821,7 +821,7 @@ TESTS:const s32=0;
       return false
     
 
-    for i in 0..ln
+    for i in 0..cast(s64)ln
     {
       lhs := ptr_offset(self.data.data, i, u8);
       rhs := ptr_offset(str.data.data, i, u8);
@@ -839,7 +839,7 @@ TESTS:const s32=0;
       return false
     
 
-    for i in 0..ln
+    for i in 0..cast(s64)ln
     {
       lhs := ptr_offset(self.data.data, i, u8);
       rhs := ptr_offset(str, i, u8);
@@ -1522,6 +1522,7 @@ TESTS:const s32=0;
       debug_break();
 
     i = 2;
+    __dbg_break
     v2.x = cast(f32)-i;
 
 
@@ -1575,7 +1576,6 @@ TESTS:const s32=0;
 
     val_test = 0;
     limit := 10;
-    __dbg_break
     for idx in 0..cast(s64)limit
     {
       val_test++;
@@ -1584,11 +1584,9 @@ TESTS:const s32=0;
     if val_test != limit
       debug_break();
 
-    __dbg_break
-    __dbg_break
     limit = 0;
     val_test = 5;
-    for rev val_test1 in 5..limit
+    for rev val_test1 in 5..cast(s64)limit
     {
       val_test--;
     }
@@ -1605,6 +1603,7 @@ TESTS:const s32=0;
     }
     if val_test != 10
       debug_break();
+
 
     val_test = 0;
     for cur in s32_ar
@@ -1651,8 +1650,6 @@ TESTS:const s32=0;
     if i != 3
       debug_break();
 
-    __dbg_break
-    __dbg_break
 
     i = overload_func(2);
 
@@ -1720,8 +1717,10 @@ TESTS:const s32=0;
     if !val
       debug_break();
 
+    __dbg_break
     vec_test: = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
     vec_test2: = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
+    __dbg_break
     vec_test = vec_test + vec_test2
 
     if vec_test.x < 1.9f || vec_test.x > 2.1f

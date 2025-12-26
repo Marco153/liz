@@ -9743,127 +9743,53 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
   } break;
   case node_type::N_FOR: {
     // scp = GetScopeFromParent(n->r, given_scp);
-    // BREAK(n->t->line == 5574)
-    if (IsNodeOperator(n->l, T_IN) &&
-        (n->l->r->type == N_IDENTIFIER || CMP_NTYPE_BIN(n->l->r, T_POINT))) {
-      type2 rhs = DescendNode(lang_stat, n->l->r, scp);
+    node *prev_n = n;
+    if (IsKeyword(n->l, KW_REV))
+      n = n->l->r;
+    else
+      n = n->l;
+    if (IsNodeOperator(n, T_IN))
+    {
+      if(n->r->type == N_IDENTIFIER || CMP_NTYPE_BIN(n->r, T_POINT))
+      {
+        type2 rhs = DescendNode(lang_stat, n->r, scp);
 
-      // transforming a 'x in array' into 'x in array[0].. array[end]'
-      if (rhs.type == TYPE_STATIC_ARRAY) {
-        node *len_nd = NewIntNode(lang_stat, rhs.i, n->t);
-        node *zero_nd = NewIntNode(lang_stat, 0, n->t);
-        node *index_start_nd = NewTypeNode(
-            lang_stat, new_node(lang_stat, n->l->r), N_INDEX, zero_nd, n->t);
-        node *index_end_nd = NewTypeNode(
-            lang_stat, new_node(lang_stat, n->l->r), N_INDEX, len_nd, n->t);
+        // transforming a 'x in array' into 'x in array[0].. array[end]'
+        if (rhs.type == TYPE_STATIC_ARRAY) {
+          node *len_nd = NewIntNode(lang_stat, rhs.i, n->t);
+          node *zero_nd = NewIntNode(lang_stat, 0, n->t);
+          node *index_start_nd = NewTypeNode(
+              lang_stat, new_node(lang_stat, n->r), N_INDEX, zero_nd, n->t);
 
-        node *two_points_bin_nd =
-            NewBinOpNode(lang_stat, index_start_nd, T_TWO_POINTS, index_end_nd);
-        memcpy(n->l->r, two_points_bin_nd, sizeof(node));
-      } else if (rhs.type == TYPE_STRUCT) {
-      } else {
-        ASSERT(0)
+          node *index_start_ref = NewUnOpNode(lang_stat, T_AMPERSAND, index_start_nd, n->t);
+
+          node *index_end_nd = NewTypeNode(
+              lang_stat, new_node(lang_stat, n->r), N_INDEX, len_nd, n->t);
+
+          node *index_end_ref = NewUnOpNode(lang_stat, T_AMPERSAND, index_end_nd, n->t);
+
+          node *two_points_bin_nd =
+              NewBinOpNode(lang_stat, index_start_ref, T_TWO_POINTS, index_end_ref);
+          memcpy(n->r, two_points_bin_nd, sizeof(node));
+        } else if (rhs.type == TYPE_STRUCT) {
+        } else {
+          ASSERT(0)
+        }
+      }
+      else
+      {
+        type2 lhs = DescendNode(lang_stat, n->l, prev_n->r->scp);
+        type2 rhs1 = DescendNode(lang_stat, n->r->l, scp);
+        type2 rhs2 = DescendNode(lang_stat, n->r->r, scp);
+
+
+        if (lhs.type != rhs1.type && rhs1.type != TYPE_INT)
+          ReportTypeMismatch(lang_stat, n->t, &lhs, &rhs1);
+        if (lhs.type != rhs2.type && rhs2.type != TYPE_INT)
+          ReportTypeMismatch(lang_stat, n->t, &lhs, &rhs2);
       }
     }
-    /*
-    else
-    {
-
-            own_std::string iterated = n->l->l->t->str;
-
-            type2 ar_type;
-
-            // check if iterated was already declared
-            auto decl_exist = FindIdentifier(iterated, scp, &ar_type);
-            if (decl_exist)
-            {
-                    ReportDeclaredTwice(lang_stat, n->l->l, decl_exist);
-            }
-
-            NameFindingGetType(lang_stat, n->l->r, scp, ar_type);
-
-            ASSERT(n->l->type == node_type::N_BINOP)
-
-                    ASSERT(ar_type.ptr == 0)
-
-                    own_std::string ar_type_str = StringifyNode(n->l->r);
-
-            own_std::string iterator = iterated + "iterator";
-            own_std::string ar_str = n->l->r->t->str;
-
-            char code[256];
-            char* it_name = (char*)iterator.c_str();
-            char* ar_name = (char*)ar_str.c_str();
-            char* itrd = (char*)iterated.c_str();
-
-
-
-            snprintf(code, 512, "\
-                    %s:= it_next(&%s);\n\
-                    if !%s break;\n\
-            ", itrd, it_name, itrd);
-            node* cond_break = ParseString(lang_stat, code, n->t->line);
-
-            node* while_n = nullptr;
-            node* top_n = nullptr;
-            if (ar_type.type == enum_type2::TYPE_STRUCT)
-            {
-                    auto op_func = ar_type.strct->FindOpOverload(lang_stat,
-    overload_op::FOR_OP); if (!op_func)
-                    {
-                            REPORT_ERROR(n->t->line, n->t->line_offset,
-                                    VAR_ARGS("struct '%s' doesn't have a
-    iterator overload:\n", ar_type.strct->name.c_str())
-                            )
-
-                                    ExitProcess(1);
-                    }
-                    char* func_name = (char*)op_func->name.c_str();
-                    ASSERT(op_func)
-
-                            snprintf(code, 512, "\
-                    %s := %s(&%s);\
-                    while 1\n\
-                    {\n\
-                    }", it_name, func_name, ar_type_str.c_str(),
-                                    it_name, ar_name);
-
-                    node* scope_n = ParseString(lang_stat, code, n->t->line);
-                    top_n = scope_n;
-                    while_n = scope_n->r->r;
-            }
-            else
-            {
-                    snprintf(code, 512, "\
-                    %s : iterator(&%s);\
-                    it_init(&%s, &%s);\
-                    while 1\n\
-                    {\n\
-                    }", it_name, ar_type_str.c_str(),
-                            it_name, ar_name);
-
-                    node* scope_n = ParseString(lang_stat, code, n->t->line);
-                    top_n = scope_n;
-                    while_n = scope_n->r;
-            }
-
-            node* new_stmnt = new_node(lang_stat, n->t);
-            CREATE_STMNT(new_stmnt, cond_break, n->r);
-
-            node* new_stmnt2 = new_node(lang_stat, n->t);
-            CREATE_STMNT(new_stmnt2, new_stmnt, nullptr);
-
-            while_n->r = new_stmnt2;
-            //SetNodeScopeIdx(&scope_n->flags, scp->children.size());
-            top_n->type = node_type::N_DESUGARED;
-            DescendNameFinding(lang_stat, top_n, scp);
-
-            DescendNode(lang_stat, top_n, scp);
-            top_n->flags = n->flags;
-
-            memcpy(n, top_n, sizeof(node));
-    }
-    */
+    n = prev_n;
     DescendNode(lang_stat, n->r, scp);
     n->r->scp->is_loop = true;
 

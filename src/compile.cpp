@@ -12299,7 +12299,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           //HERE()
           lhs_aux.type = IR_TYPE_REG_MEM;
           lhs_aux.reg = (char)regs_enum::RSP;
-          lhs_aux.reg_sz = 8;
+          //lhs_aux.reg_sz = 8;
           lhs_aux.voffset += GetOnStackOffsetWithIrVal(lang_stat, &ir->bin.lhs);
         }
 
@@ -12321,7 +12321,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         {
           rhs_aux.type = IR_TYPE_REG_MEM;
           rhs_aux.reg = (char)regs_enum::RSP;
-          rhs_aux.reg_sz = 8;
+          //rhs_aux.reg_sz = 8;
           rhs_aux.voffset += GetOnStackOffsetWithIrVal(lang_stat, &ir->bin.rhs);
         }
 

@@ -12361,7 +12361,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         }
         else
         {
-          if(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_DECL)
+          if(ir->bin.lhs.type == IR_TYPE_REG && (ir->bin.rhs.type == IR_TYPE_DECL || ir->bin.rhs.type == IR_TYPE_ON_STACK))
           {
             GenX64BinInst(lang_stat, ret, &lhs_aux, &rhs_aux, (byte_code_enum)(correct_inst + 2));
 

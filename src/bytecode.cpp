@@ -664,7 +664,7 @@ void CreateMemToSSE(byte_code* bc, char op, machine_code* ret, char reg_base = 5
 	char zero = 0;
 	reg_base = FromBCRegToAsmReg(bc->bin.rhs.reg);
 
-  AddSSEBasedOnSize(ret, &dst, &zero, bc->bin.lhs.reg_sz);
+  AddSSEBasedOnSize(ret, &dst, &reg_base, bc->bin.lhs.reg_sz);
 
 	ret->code.emplace_back(op);
 	AddModRM(true, bc->bin.rhs.voffset, reg_base, dst & 0xf, *ret);
@@ -1021,8 +1021,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       bool is_rex = IS_FLAG_ON(ireg, 0x80);
       char sz = bc->bin.lhs.reg_sz;
       char val = -1;
-      char op = 0x2d;
+      char op = 0x2c;
 
+      lhs = ireg;
+      rhs = freg;
+      char mod = 0;
 
       switch(bc->type)
       {
@@ -1034,33 +1037,54 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         lhs = freg;
         rhs = ireg;
         op = 0x2a;
+
+        mod = MakeModRM(false, 0, lhs&7, rhs&7);
+
+        is_rex = IS_FLAG_ON(ireg, 0x80);
+
+        if(is_rex && freg > 7)
+        {
+          val = 0x4d;
+        }
+        else if(!is_rex && freg > 7)
+        {
+          val = 0x4c;
+        }
+        else if(is_rex && freg <= 7)
+        {
+          val = 0x49;
+        }
       }break;
       case CVT_SS_2_SI:
       case CVT_SD_2_SI:
-      }
-      is_rex = IS_FLAG_ON(ireg, 0x80);
+      {
+        //BREAK(cur_line == 1457)
+        ireg = bc->bin.lhs.reg;
+        freg = bc->bin.rhs.reg;
+        lhs = ireg;
+        rhs = freg;
+        mod = MakeModRM(false, 0, rhs, lhs&7);
+        is_rex = IS_FLAG_ON(ireg, 0x80);
 
-      if(!is_rex && freg <= 7)
-      {
-        val = 0x48;
+        if(is_rex && freg > 7)
+        {
+          val = 0x4d;
+        }
+        else if(!is_rex && freg > 7)
+        {
+          val = 0x41;
+        }
+        else if(is_rex && freg <= 7)
+        {
+          val = 0x4c;
+        }
       }
-      else if(is_rex && freg > 7)
-      {
-        val = 0x4d;
-      }
-      else if(!is_rex && freg > 7)
-      {
-        val = 0x4c;
-      }
-      else if(is_rex && freg <= 7)
-      {
-        val = 0x49;
       }
 
       if(sz == 4)
       {
         ret.code.emplace_back(0xf3);
-        if(val != 0x48)
+        if(val != -1)
         {
           val = val & ~(1<<3);
           ret.code.emplace_back(val);
@@ -1073,7 +1097,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       }
       lhs &= 7;
       rhs &= 7;
-			char mod = MakeModRM(false, 0, lhs, rhs);
+			//char mod = MakeModRM(false, 0, lhs, rhs);
       ret.code.emplace_back(0x0f);
       ret.code.emplace_back(op);
       ret.code.emplace_back(mod);

@@ -1095,14 +1095,12 @@ TESTS:const s32=0;
     buffer :[32]u8
     num_2_str(cast(s64)globals.i, &buffer[0], 32)
 
-    __dbg_break
     if *ptr_offset(&buffer[0], 0, u8) != 0x36
       __dbg_break
     if *ptr_offset(&buffer[0], 1, u8) != 0
       __dbg_break
     PrintStr(cast(str_lit)&buffer[0])
 
-    __dbg_break
 
     m := minf(-6.0f, 1333.0f)
 
@@ -1155,7 +1153,6 @@ TESTS:const s32=0;
       debug_break();
 
     alloc.buffer = cast(*u8)GetMem(8);
-    __dbg_break
 
     *ptr_offset(alloc.buffer, 1, u8) = 1;
 
@@ -1187,7 +1184,6 @@ TESTS:const s32=0;
 
     if *ptr_offset(alloc.buffer, 1, u8) != 0
       debug_break();
-
 
     PrintStr("will test ptr\n")
     test_ptr(&alloc);
@@ -1411,7 +1407,6 @@ TESTS:const s32=0;
       debug_break();
 
     static_ar: [4] f32;
-    __dbg_break
     static_ar[0] = 0.5f;
 
     if static_ar[0] < 0.4f || static_ar[0] > 0.6f
@@ -1516,10 +1511,6 @@ TESTS:const s32=0;
 
     v2.x = 2.0f;
     v1.x = 1.0f;
-    __dbg_break
-    __dbg_break
-    __dbg_break
-    __dbg_break
     v1 = v1 + v2 * 2.0f;
 
     if v1.x > 5.1f || v1.x < 4.9f
@@ -1584,7 +1575,8 @@ TESTS:const s32=0;
 
     val_test = 0;
     limit := 10;
-    for idx in 0..limit
+    __dbg_break
+    for idx in 0..cast(s64)limit
     {
       val_test++;
     }
@@ -1592,6 +1584,8 @@ TESTS:const s32=0;
     if val_test != limit
       debug_break();
 
+    __dbg_break
+    __dbg_break
     limit = 0;
     val_test = 5;
     for rev val_test1 in 5..limit
@@ -1657,6 +1651,8 @@ TESTS:const s32=0;
     if i != 3
       debug_break();
 
+    __dbg_break
+    __dbg_break
 
     i = overload_func(2);
 

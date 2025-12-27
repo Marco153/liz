@@ -2725,6 +2725,8 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   }
   InsertIr(state, ir);
 
+  ret.ptr = 0;
+
   if(callf->ret_type.type == TYPE_STRUCT && callf->ret_type.ptr == 0)
   {
     int st_size = GetTypeSize(&callf->ret_type);
@@ -2779,6 +2781,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     ret.deref = 0;
     ret.voffset = 0;
 
+    ir = {};
 
     if(callf->ret_type.IsFloat())
     {
@@ -3546,7 +3549,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_ADDRESS_OF:
   {
     ast_rep *addr = ast->ast;
-    //BREAK(ast->line_number == 1084)
+    //BREAK(ast->line_number == 1766)
     ret = GetIRFromAst2(lang_stat, addr, state, true);
     if(ret.kind == IR_VAL_ADDR)
     {
@@ -3586,6 +3589,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
     ret.kind = IR_VAL_VALUE;
     ret.reg_sz = 8;
+    ret.ptr++;
 
   }break;
   case AST_CAST:
@@ -4187,18 +4191,16 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_PLUS_EQUAL:
     case T_EQUAL:
     {
-      BREAK(ast->line_number == 1776)
+      BREAK(ast->line_number == 1767)
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;
 
-      /*
-      if(!rhs_wal_value && !lhs.is_packed_float)
+      if(rhs.ptr > 0)
       {
         lhs.is_float = false;
       }
-      */
       if(lhs.deref > 0)
       {
         char prev_sz = lhs.reg_sz;

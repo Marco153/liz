@@ -1528,7 +1528,6 @@ TESTS:const s32=0;
     if v2.x > -1.9f || v2.x < -2.1f
       debug_break();
 
-    //__dbg_break
     fval = sqrt(4.0f);
     if fval > 2.1f || fval < 1.9f
       debug_break();
@@ -1742,11 +1741,7 @@ TESTS:const s32=0;
 
     vec_test = _vec{ 2.0f, 2.0f, 2.0f, 0.0f };
 
-    __dbg_break
-    __dbg_break
-    __dbg_break
     fsum = dot_vec(&vec_test, &vec_test);
-    __dbg_break
     if fsum < 11.9f || fsum > 12.1f
       debug_break();
 
@@ -1766,13 +1761,15 @@ TESTS:const s32=0;
     if vec_test.y < 1.9f || vec_test.y > 2.1f
       debug_break();
 
+    __dbg_break
+    __dbg_break
+    __dbg_break
     vec_ptr := &vec_test
     vec_ptr.y = 3.0f
     vec_ptr.y += 0.1f
     if vec_ptr.y < 3.0f || vec_test.y > 3.2f
       debug_break();
 
-    __dbg_break
     fsum = 0.1f
     vec_ptr.y += fsum
     if vec_ptr.y < 3.1f || vec_test.y > 3.3f

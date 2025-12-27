@@ -3874,7 +3874,7 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
 
 			// bool param is if the reg is lhs or not
 			//out->bcodes.emplace_back(byte_code(STORE_REG_PARAM, false, (char) 6 + i, (char)8, (int)offset, (int)8));
-      if(a && a->type.type == TYPE_VECTOR)
+      if(a && a->type.type == TYPE_VECTOR && a->type.ptr == 0)
       {
         bc.type = MOV_PCKD_SSE_2_MEM;
         offset += GetTypeSize(&a->type);

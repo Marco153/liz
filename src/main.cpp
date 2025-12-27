@@ -10463,7 +10463,7 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
 #define MAX_B_SIZE 1024 * 14
 
 char *enum_types_str[] = {"u8", "s8",  "u16", "s16", "u32", "s32", "u64", "s64", "f32", "f64", "char"};
-void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
+void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 *byte_type)
 {
 
   if(addr == 0 ) return;
@@ -10476,7 +10476,53 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
   int column_max = 8;
   ImGui::BeginChild("mem", ImVec2(500, 400));
 
+  static char *current_item = enum_types_str[0];
+  static int selected = 0;
+  if(ImGui::BeginCombo("##mem_type", current_item, ImGuiComboFlags_NoArrowButton))
+  {
+    for (int n = 0; n < IM_ARRAYSIZE(enum_types_str); n++)
+    {
+      bool is_selected = (current_item == enum_types_str[n]);
+      if (ImGui::Selectable(enum_types_str[n], is_selected))
+      {
+        current_item = enum_types_str[n];
+        selected = n;
+      }
+      if (is_selected)
+      {
+        ImGui::SetItemDefaultFocus();
+      }
+    }
+    ImGui::EndCombo();
+  }
+  //selected = ((u64)(current_item-enum_types_str[0]))/8;
+  //printf("sel %d\n", selected);
+
+  *byte_type = (enum_type2)((int)TYPE_U8 + selected);
+
   char column_size = 1;
+    switch(*byte_type)
+    {
+    case TYPE_F32:
+    case TYPE_S32:
+    case TYPE_U32:
+      column_size = 4;
+      break;
+    case TYPE_F64:
+    case TYPE_S64:
+    case TYPE_U64:
+      column_size = 8;
+      break;
+    case TYPE_S16:
+    case TYPE_U16:
+      column_size = 2;
+      break;
+    case TYPE_S8:
+    case TYPE_U8:
+    case TYPE_CHAR:
+      column_size = 1;
+    break;
+    }
   
   for(int row = 0; row < row_max; row++)
   {
@@ -10486,9 +10532,9 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
 
     for(int column = 0; column < column_max; column++)
     {
-      ImGui::SetCursorPosX(pos.x + column * 40.0 + 150.0);
-      int idx = column + row * column_max; 
-      switch(byte_type)
+      ImGui::SetCursorPosX(pos.x + column * 80.0 + 150.0);
+      int idx = (column + row * column_max) * column_size; 
+      switch(*byte_type)
       {
       case TYPE_F32:
         ImGui::Text("%.3f", *(float*)&buffer[idx]);
@@ -10524,6 +10570,8 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
       case TYPE_CHAR:
         ImGui::Text("%c", (u8)buffer[idx]);
         break;
+      default:
+        ImGui::Text("%c", (u8)buffer[idx]);
       }
       if((column + 1)< column_max)
       {
@@ -10857,6 +10905,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
   int selected_prent_mem_type;
   
+  enum_type2 print_mem_type;
   while(true)
   {
     pid_t r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
@@ -11104,7 +11153,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       if(data_addr != 0)
       {
         ImGui::SameLine();
-        PrintMem(child_p, dbg, data_addr, print_mem_type);
+        PrintMem(child_p, dbg, data_addr, &print_mem_type);
       }
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
       ImGui::SameLine();

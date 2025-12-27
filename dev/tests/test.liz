@@ -1761,9 +1761,6 @@ TESTS:const s32=0;
     if vec_test.y < 1.9f || vec_test.y > 2.1f
       debug_break();
 
-    __dbg_break
-    __dbg_break
-    __dbg_break
     vec_ptr := &vec_test
     vec_ptr.y = 3.0f
     vec_ptr.y += 0.1f
@@ -1938,6 +1935,9 @@ TESTS:const s32=0;
     }
 
     //ray_triangle_intersect_x64_test :: fn x64(rinfo : *raycast_info) ! u8
+    __dbg_break
+    __dbg_break
+    __dbg_break
     t_out : f32
     u_out : f32
     v_out : f32

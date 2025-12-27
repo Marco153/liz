@@ -116,6 +116,7 @@ struct ast_struct_construct
 {
     type_struct2 *strct;
     bool is_vector;
+    char vec_type;
 
     int at_offset;
 

@@ -3996,7 +3996,11 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
       ret.type = IR_TYPE_REG;
       ret.reg = 0;
+      ret.ptr = 0;
+      ret.deref = 0;
       ret.reg_sz = 8;
+      ret.voffset = 0;
+      ret.kind = IR_VAL_VALUE;
 
     }break;
     case T_POINT:
@@ -4022,6 +4026,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       */
       int offset = 0;
       bool is_static_array;
+      BREAK(ast->line_number == 982)
       for(int i =1; i < ast->points.size();i++)
       {
         is_static_array = false;

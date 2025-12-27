@@ -970,6 +970,7 @@ TESTS:const s32=0;
 
       edge2 := v2 - v0
       edge2.w = 0.0f;
+      __dbg_break
     if f32_approximate(edge1.x, 1.0f) == false || 
       f32_approximate(edge2.x, 1.0f) == false || 
       f32_approximate(edge2.z, -1.0f) == false
@@ -1935,9 +1936,6 @@ TESTS:const s32=0;
     }
 
     //ray_triangle_intersect_x64_test :: fn x64(rinfo : *raycast_info) ! u8
-    __dbg_break
-    __dbg_break
-    __dbg_break
     t_out : f32
     u_out : f32
     v_out : f32
@@ -1954,6 +1952,9 @@ TESTS:const s32=0;
     if ray_triangle_intersect(&rinfo) == false
       debug_break();
     
+    __dbg_break
+    __dbg_break
+    __dbg_break
     ret_val := ray_triangle_intersect_x64_test(&rinfo)
     if ret_val != 12
       debug_break();

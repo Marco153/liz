@@ -2,6 +2,7 @@
 #include "machine_rel.h"
 #include <locale>
 #include <pthread.h>
+#include <stack>
 typedef unsigned long long u64;
 typedef unsigned int u32;
 typedef unsigned short u16;
@@ -11829,11 +11830,11 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         if (IS_FLAG_ON(cur_ir->decl->flags, DECL_IS_GLOBAL))
           break;
         int to_sum = GetTypeSize(&cur_ir->decl->type);
-        cur_ir->decl->offset = stack_size;
         if(cur_ir->decl->type.type == TYPE_VECTOR)
         {
-         cur_ir->decl->offset = get_even_address_with(16, cur_ir->decl->offset);
+         stack_size = get_even_address_with(to_sum, stack_size);
         }
+        cur_ir->decl->offset = stack_size;
         stack_size += to_sum <= 4 ? 4 : to_sum;
         //cur_ir->fdecl->stack_size = stack_size;
       }break;

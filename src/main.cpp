@@ -10267,6 +10267,7 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
   char orig_ptr = v->type.ptr;
   char ptr = v->type.ptr + 1;
   u8 *cur_addr = (rsp + v->offset);
+  u8 *orig_addr = cur_addr;
   int success = 0;
   //BREAK(v->name == "alloc")
   //printf("locals: rsp %p, cur_addr %p\n", rsp, cur_addr);
@@ -10296,6 +10297,35 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
   }
   switch (v->type.type)
   {
+  case TYPE_VECTOR:
+  {
+    if(v->type.vec_type == 4)
+    {
+      //BREAK(v->name == "v0")
+      success = read_bytes_from_child(child_p, (u64)orig_addr, (u8 *)buffer, 16);
+      if(success == -1) break;
+
+      float x = *(float *)&buffer[0];
+      float y = *(float *)&buffer[4];
+      float z = *(float *)&buffer[8];
+      float w = *(float *)&buffer[12];
+
+      ImGui::SameLine();
+      ImGui::Text("{%.3f, %.3f, %.3f, %.3f}", x, y, z, w);
+    }
+    else
+    {
+      success = read_bytes_from_child(child_p, (u64)orig_addr, (u8 *)buffer, 32);
+      double x = *( double *)&buffer[0];
+      double y = *( double *)&buffer[8];
+      double z = *( double *)&buffer[16];
+      double w = *( double *)&buffer[24];
+
+      ImGui::SameLine();
+      ImGui::Text("{%.3f, %.3f, %.3f, %.3f}", (float)x, (float)y, (float)z, (float)w);
+
+    }
+  }break;
   case TYPE_BOOL:
       ImGui::SameLine();
       if(*(bool*)cur_addr == true)
@@ -10306,6 +10336,14 @@ void PrintVar(int child_p, dbg_state *dbg, decl2 *v, u8 *addr, u8*rsp)
       {
         ImGui::Text("false");
       }
+      break;
+  case TYPE_F64:
+      ImGui::SameLine();
+      ImGui::Text("%.3f", (float)*(double*)cur_addr);
+      break;
+  case TYPE_F32:
+      ImGui::SameLine();
+      ImGui::Text("%.3f", *(float*)cur_addr);
       break;
   case TYPE_U8:
       ImGui::SameLine();
@@ -11214,8 +11252,110 @@ int thread_test(void *arg)
 {
   printf("thread\n");
 }
+
+#include <stdbool.h>
+
+typedef struct {
+    float x, y, z, w;
+} vec4;
+
+static inline vec4 vec_sub(vec4 a, vec4 b) {
+    return (vec4){
+        a.x - b.x,
+        a.y - b.y,
+        a.z - b.z,
+        0.0f
+    };
+}
+
+static inline vec4 cross_vec(const vec4 *a, const vec4 *b) {
+    return (vec4){
+        a->y * b->z - a->z * b->y,
+        a->z * b->x - a->x * b->z,
+        a->x * b->y - a->y * b->x,
+        0.0f
+    };
+}
+
+static inline float dot_vec(const vec4 *a, const vec4 *b) {
+    return a->x * b->x + a->y * b->y + a->z * b->z;
+}
+
+typedef struct {
+    vec4 ray_origin;
+    vec4 ray_dir;
+    vec4 v0;
+    vec4 v1;
+    vec4 v2;
+    float t_out;
+    float u_out;
+    float v_out;
+} raycast_info;
+
+bool ray_triangle_intersect(raycast_info *rinfo)
+{
+    vec4 ray_origin = rinfo->ray_origin;
+    vec4 ray_dir    = rinfo->ray_dir;
+    vec4 v0         = rinfo->v0;
+    vec4 v1         = rinfo->v1;
+    vec4 v2         = rinfo->v2;
+
+    const float epsilon = 0.000001f;
+
+    vec4 edge1 = vec_sub(v1, v0);
+    vec4 edge2 = vec_sub(v2, v0);
+
+    vec4 h = cross_vec(&ray_dir, &edge2);
+    float a = dot_vec(&edge1, &h);
+
+    if (a > -epsilon && a < epsilon)
+        return false;
+
+    float f = 1.0f / a;
+
+    vec4 s = vec_sub(ray_origin, v0);
+    float u = f * dot_vec(&s, &h);
+
+    if (u < 0.0f || u > 1.0f)
+        return false;
+
+    vec4 q = cross_vec(&s, &edge1);
+    float v = f * dot_vec(&ray_dir, &q);
+
+    if (v < 0.0f || (u + v) > 1.0f)
+        return false;
+
+    float t = f * dot_vec(&edge2, &q);
+
+    if (t > epsilon) {
+        rinfo->t_out = t;
+        rinfo->u_out = u;
+        rinfo->v_out = v;
+        return true;
+    }
+
+    return false;
+}
+
+void test(void)
+{
+  //HERE()
+    raycast_info rinfo = {0};
+
+    rinfo.ray_origin = (vec4){ 0.0f,  1.0f,  0.0f, 0.0f };
+    rinfo.ray_dir    = (vec4){ 0.0f, -1.0f,  0.0f, 0.0f };
+
+    rinfo.v0 = (vec4){ -0.5f, 0.0f,  0.5f, 0.0f };
+    rinfo.v1 = (vec4){  0.5f, 0.0f,  0.5f, 0.0f };
+    rinfo.v2 = (vec4){  0.5f, 0.0f, -0.5f, 0.0f };
+
+    if (!ray_triangle_intersect(&rinfo)) {
+        __builtin_trap();
+    }
+}
 int main(int argc, char *argv[]) {
 
+  test();
   int pipes[2];
   _pid child_p = ChildProcess(pipes);
   printf("childp is %d\n", child_p);
@@ -11463,6 +11603,7 @@ void SpillDbgReg(thread_ir_state *state, char reg, int *cur, func_decl *fdecl)
 
   (*cur)++;
 }
+
 dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u64 rsp, func_decl *fdecl, scope *scp)
 {
   lang_state *lang_stat = dbg->lang_stat;

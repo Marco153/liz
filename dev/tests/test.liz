@@ -1718,9 +1718,6 @@ TESTS:const s32=0;
 
     vec_test: = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
     vec_test2: = _vec{ 1.0f, 1.0f, 1.0f, 1.0f };
-    __dbg_break
-    __dbg_break
-    __dbg_break
     vec_test = vec_test + vec_test2
 
     if vec_test.x < 1.9f || vec_test.x > 2.1f
@@ -1745,7 +1742,11 @@ TESTS:const s32=0;
 
     vec_test = _vec{ 2.0f, 2.0f, 2.0f, 0.0f };
 
+    __dbg_break
+    __dbg_break
+    __dbg_break
     fsum = dot_vec(&vec_test, &vec_test);
+    __dbg_break
     if fsum < 11.9f || fsum > 12.1f
       debug_break();
 
@@ -1770,6 +1771,8 @@ TESTS:const s32=0;
     vec_ptr.y += 0.1f
     if vec_ptr.y < 3.0f || vec_test.y > 3.2f
       debug_break();
+
+    __dbg_break
     fsum = 0.1f
     vec_ptr.y += fsum
     if vec_ptr.y < 3.1f || vec_test.y > 3.3f

@@ -1346,9 +1346,14 @@ bool IsRegInUseFloat(lang_state *lang_stat, char idx) {
   // ASSERT(IS_FLAG_ON(lang_stat->float_regs[idx], REG_FREE_FLAG));
   return IS_FLAG_ON(lang_stat->float_regs[idx], REG_USED_FLAG);
 }
-bool IsRegInUse(lang_state *lang_stat, char idx) {
+bool IsRegInUse(lang_state *lang_stat, char idx, bool is_float = false) {
   // ASSERT(IS_FLAG_ON(lang_stat->float_regs[idx], REG_FREE_FLAG));
-  return IS_FLAG_ON(lang_stat->regs[idx], REG_USED_FLAG);
+  if(is_float)
+  {
+    return IS_FLAG_ON(lang_stat->float_regs[idx], REG_USED_FLAG);
+  }
+  else
+    return IS_FLAG_ON(lang_stat->regs[idx], REG_USED_FLAG);
 }
 void FreeSpecificFloatReg(lang_state *lang_stat, char idx) {
   // ASSERT(IS_FLAG_ON(lang_stat->float_regs[idx], REG_FREE_FLAG));
@@ -2599,26 +2604,26 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
 
 }
 
-void UnspillReg(thread_ir_state *state, char reg)
+void UnspillReg(thread_ir_state *state, ir_val *aux)
 {
   ir_rep ir;
   ir.type = IR_UNSPILL;
-  ir.bin.lhs.type =  IR_TYPE_REG;
-  ir.bin.lhs.reg =  reg;
-  ir.bin.lhs.reg_sz =  8;
+  ir.bin.lhs = *aux;
   ir.bin.rhs.reg =  state->spilled_regs.cur;
   InsertIr(state, ir);
 }
-void SpillReg(thread_ir_state *state, char reg)
+void SpillReg(thread_ir_state *state, ir_val *aux)
 {
   ir_rep ir;
   ir.type = IR_SPILL;
   ir.bin.lhs.reg =  state->spilled_regs.cur;
+  ir.bin.lhs.is_float =  aux->is_float;
+  ir.bin.lhs.is_packed_float =  aux->is_packed_float;
+  ir.bin.lhs.reg_sz =  aux->reg_sz;
   ir.bin.rhs.type =  IR_TYPE_REG;
-  ir.bin.rhs.reg =  reg;
-  ir.bin.rhs.reg_sz =  8;
+  ir.bin.rhs = *aux;
   InsertIr(state, ir);
-  push_tracker_stack(&state->spilled_regs, reg);
+  push_tracker_stack(&state->spilled_regs, *aux);
 }
 ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
 {
@@ -2637,9 +2642,28 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
     if(IsRegInUse(lang_stat, reg_arg))
     {
-      SpillReg(state, reg_arg);
+      ir_val aux = {};
+      aux.type = IR_TYPE_REG;
+      aux.reg_sz = 8;
+      aux.reg = reg_arg;
+      SpillReg(state, &aux);
     }
     if(i >= 6) break;
+  }
+  //BREAK(ast->line_number == 1764)
+  for(i = 0; i < 8; i++)
+  {
+    ir.type = IR_SPILL;
+    if(IsRegInUse(lang_stat, i + 8, true))
+    {
+      ir_val aux = {};
+      aux.type = IR_TYPE_REG;
+      aux.reg_sz = 8;
+      aux.reg = i + 8;
+      aux.is_float = true;
+      aux.is_packed_float = true;
+      SpillReg(state, &aux);
+    }
   }
   i = 0;
   int f_args = 0;
@@ -2755,16 +2779,41 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     ret.deref = 0;
     ret.voffset = 0;
 
-    AllocSpecificReg(lang_stat, 0, ret.is_float);
+
+    if(callf->ret_type.IsFloat())
+    {
+      ir.type = IR_BIN;
+      ir.bin.op = T_EQUAL;
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg = AllocFloatReg(lang_stat);
+      ir.bin.lhs.is_float = callf->ret_type.IsFloat();
+      ir.bin.lhs.is_packed_float = callf->ret_type.type == TYPE_VECTOR;
+
+      if(ret.reg_sz > 8) ret.reg_sz = 8;
+
+      if(callf->ret_type.type == TYPE_VECTOR)
+      {
+        ir.bin.lhs.reg_sz = callf->ret_type.vec_type;
+      }
+      else
+      {
+        ir.bin.lhs.reg_sz = ret.reg_sz;
+      }
+      ir.bin.rhs = ret;
+      ret = ir.bin.lhs;
+      InsertIr(state, ir);
+    }
+    else
+      AllocSpecificReg(lang_stat, 0, ret.is_float);
     ret.kind = IR_VAL_VALUE;
   }
 
 
   while(state->spilled_regs.cur > call_base)
   {
-    char unspill = *pop_tracker_stack(&state->spilled_regs);
+    ir_val unspill = *pop_tracker_stack(&state->spilled_regs);
 
-    UnspillReg(state, unspill);
+    UnspillReg(state, &unspill);
   }
 
   ret.is_float = callf->ret_type.IsFloat();
@@ -2856,7 +2905,11 @@ void CheckRegInUseMaybeSpill(lang_state *lang_stat, thread_ir_state *state, char
 {
   if(IsRegInUse(lang_stat, reg))
   {
-    SpillReg(state, reg);
+    ir_val aux ={};
+    aux.type = IR_TYPE_REG;
+    aux.reg = reg;
+    aux.reg_sz = 8;
+    SpillReg(state, &aux);
   }
 }
 ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bool is_lhs)
@@ -3946,9 +3999,19 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
         if(lhs.ptr > 0)
         {
+          bool prev_float = lhs.is_float;
+          bool prev_is_packed = lhs.is_packed_float;
+          lhs.is_float = false;
+          lhs.is_packed_float = false;
+
           EnsureValue(lang_stat, state, &lhs);
+
+          lhs.is_float = prev_float;
+          lhs.is_packed_float = prev_is_packed;
+
           lhs.deref = lhs.ptr - 1;
           LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
+
 
           offset = 0;
           lhs.ptr = d->type.ptr;
@@ -4088,6 +4151,21 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
           InsertIr(state, ir);
         }
+        if(lhs.is_packed_float && rhs.is_float && !rhs.is_packed_float)
+        {
+          EnsureValue(lang_stat, state, &rhs);
+          ir.type = IR_FILL;
+          ir.bin.lhs.type = IR_TYPE_REG;
+          ir.bin.lhs.reg = AllocFloatReg(lang_stat);
+          ir.bin.lhs.is_float = true;
+          ir.bin.lhs.is_packed_float = true;
+          ir.bin.lhs.reg_sz = lhs.reg_sz;
+          ir.bin.rhs = rhs;
+
+          InsertIr(state, ir);
+
+          rhs = ir.bin.lhs;
+        }
 
         ret = lhs;
 
@@ -4102,22 +4180,25 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
       while(state->spilled_regs.cur > spill_base)
       {
-        char unspill = *pop_tracker_stack(&state->spilled_regs);
-        UnspillReg(state, unspill);
+        ir_val unspill = *pop_tracker_stack(&state->spilled_regs);
+        UnspillReg(state, &unspill);
       }
     }break;
     case T_PLUS_EQUAL:
     case T_EQUAL:
     {
+      BREAK(ast->line_number == 1776)
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
       bool rhs_wal_value = rhs.kind == IR_VAL_VALUE;
 
+      /*
       if(!rhs_wal_value && !lhs.is_packed_float)
       {
         lhs.is_float = false;
       }
+      */
       if(lhs.deref > 0)
       {
         char prev_sz = lhs.reg_sz;
@@ -4200,8 +4281,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         if(lhs.is_float)
         {
           ir_val aux = lhs;
-          LoadDerefs(lang_stat, &state->cur_block->irs, &aux);
           EnsureValue(lang_stat, state, &aux);
+          LoadDerefs(lang_stat, &state->cur_block->irs, &aux);
           ir.type = IR_BIN;
           ir.bin.op = T_PLUS;
           ir.bin.lhs = aux;

@@ -10462,8 +10462,10 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
 }
 #define MAX_B_SIZE 1024 * 14
 
+char *enum_types_str[] = {"u8", "s8",  "u16", "s16", "u32", "s32", "u64", "s64", "f32", "f64", "char"};
 void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
 {
+
   if(addr == 0 ) return;
   char buffer[MAX_B_SIZE];
   read_bytes_from_child(child_p, (u64)addr, (u8 *)buffer, MAX_B_SIZE);
@@ -10486,7 +10488,43 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 byte_type)
     {
       ImGui::SetCursorPosX(pos.x + column * 40.0 + 150.0);
       int idx = column + row * column_max; 
-      ImGui::Text("%02x", (u8)buffer[idx]);
+      switch(byte_type)
+      {
+      case TYPE_F32:
+        ImGui::Text("%.3f", *(float*)&buffer[idx]);
+        break;
+      case TYPE_F64:
+        ImGui::Text("%.3f", (float)*(double*)&buffer[idx]);
+        break;
+      case TYPE_S64:
+        ImGui::Text("%lld", *(s64*)&buffer[idx]);
+        break;
+      case TYPE_U64:
+        ImGui::Text("%p", *(u64*)&buffer[idx]);
+        break;
+
+      case TYPE_S32:
+        ImGui::Text("%d", *(s32*)&buffer[idx]);
+        break;
+
+      case TYPE_U32:
+        ImGui::Text("%04x", *(u32*)&buffer[idx]);
+        break;
+
+      case TYPE_S16:
+      case TYPE_U16:
+        ImGui::Text("%04x", *(u16*)&buffer[idx]);
+        break;
+      case TYPE_S8:
+        ImGui::Text("%d", *(char*)&buffer[idx]);
+      break;
+      case TYPE_U8:
+        ImGui::Text("%02x", (u8)buffer[idx]);
+        break;
+      case TYPE_CHAR:
+        ImGui::Text("%c", (u8)buffer[idx]);
+        break;
+      }
       if((column + 1)< column_max)
       {
         ImGui::SameLine();
@@ -10816,6 +10854,9 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   bool center_inst = true;
 
   char data_text_field[128];
+
+  int selected_prent_mem_type;
+  
   while(true)
   {
     pid_t r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
@@ -10939,6 +10980,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     {
       dbg->inst_addr_print_type = (dbg->inst_addr_print_type + 1) % 2;
     }
+    int selected_print_mem_type = 0;
     switch(ch_state)
     {
     case child_process_state::INT3:
@@ -11062,7 +11104,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       if(data_addr != 0)
       {
         ImGui::SameLine();
-        PrintMem(child_p, dbg, data_addr, TYPE_CHAR);
+        PrintMem(child_p, dbg, data_addr, print_mem_type);
       }
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
       ImGui::SameLine();

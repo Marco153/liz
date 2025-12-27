@@ -519,6 +519,7 @@ struct tracker_stack
 };
 
 
+
 template<class T>
 void init_tracker_stack(tracker_stack<T> *ar, u32 limit)
 {
@@ -554,6 +555,7 @@ void push_tracker_stack(tracker_stack<T> *ar, T val)
     ar->max_cur_gotten = ar->cur;
 }
 
+#define SPILL_REG_SIZE 32
 struct thread_ir_state
 {
   block2 *cur_block;
@@ -564,7 +566,7 @@ struct thread_ir_state
 	int blocks_max;
 
 
-  tracker_stack<char> spilled_regs;
+  tracker_stack<ir_val> spilled_regs;
   int strct_ret_size_per_statement_cur;
   int strct_ret_size_per_statement_max_gotten;
   tracker_stack<block2 *> continue_start_block;

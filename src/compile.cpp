@@ -4386,6 +4386,7 @@ struct var_dbg
 	str_dbg name;
 	str_dbg ptr_has_len_var_name;
 	enum_type2 type;
+  char vec_type;
 	int type_idx;
 	int offset;
 	int ar_size;
@@ -4933,7 +4934,6 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_ENUM_IDX_32:
 		case TYPE_OVERLOADED_FUNCS:
 		case TYPE_CHAR_TYPE:
-		case TYPE_VECTOR_TYPE:
 		case TYPE_U8_TYPE:
 		case TYPE_F64_TYPE:
 		case TYPE_U16_TYPE:
@@ -4945,10 +4945,14 @@ void WasmSerializeScope(web_assembly_state* wasm_state, serialize_state *ser_sta
 		case TYPE_S32_TYPE:
 		case TYPE_S64_TYPE:
 		case TYPE_CHAR:
-		case TYPE_VECTOR:
 		case TYPE_TYPEDEF:
 		
 		break;
+		case TYPE_VECTOR_TYPE:
+		case TYPE_VECTOR:
+    {
+      vdbg->vec_type = d->type.vec_type;
+    }break;
 		default:
 			ASSERT(0);
 		}
@@ -5498,10 +5502,14 @@ void WasmInterpBuildVarsForScope(unsigned char* data, unsigned int len, lang_sta
 
 		case TYPE_TYPEDEF:
 
-		case TYPE_CHAR_TYPE:
-		case TYPE_VECTOR_TYPE:
 		case TYPE_VECTOR:
 		case TYPE_VOID_TYPE:
+    {
+      tp.vec_type = cur_var->vec_type;
+
+    }break;
+		case TYPE_CHAR_TYPE:
+		case TYPE_VECTOR_TYPE:
 			break;
 		default:
 			ASSERT(0);
@@ -11752,10 +11760,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
 
         //gen_state->to_spill_offset = stack_size;
         cur_ir->fdecl->to_spill_offset = stack_size;
-        stack_size += state->spilled_regs.max_cur_gotten * 16;
-
-        cur_ir->fdecl->to_spill_offset = stack_size;
-        stack_size += state->spilled_regs.max_cur_gotten * 16;
+        stack_size += state->spilled_regs.max_cur_gotten * SPILL_REG_SIZE;
 
         cur_ir->fdecl->dbg_saved_regs_offset = stack_size;
         stack_size += 8 * 8;
@@ -12200,7 +12205,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           cur_ir->bin.lhs.type = IR_TYPE_REG_MEM;
           cur_ir->bin.lhs.reg = (char)regs_enum::RSP;
           cur_ir->bin.lhs.reg_sz = 8;
-          cur_ir->bin.lhs.voffset = cur_func->to_spill_offset + offset * 8;
+          cur_ir->bin.lhs.voffset = cur_func->to_spill_offset + offset * SPILL_REG_SIZE;
           // rhs was already filled when the ir was generated
         }
         else if(cur_ir->type == IR_UNSPILL)
@@ -12210,7 +12215,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           cur_ir->bin.rhs.type = IR_TYPE_REG_MEM;
           cur_ir->bin.rhs.reg = (char)regs_enum::RSP;
           cur_ir->bin.rhs.reg_sz = 8;
-          cur_ir->bin.rhs.voffset = cur_func->to_spill_offset + offset * 8;
+          cur_ir->bin.rhs.voffset = cur_func->to_spill_offset + offset * SPILL_REG_SIZE;
           // lhs was already filled when the ir was generated
         }
         byte_code_enum base_inst = MOV_I;

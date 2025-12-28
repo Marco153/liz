@@ -1,3 +1,4 @@
+import "../opengl/"
 draw_info:etruct
 {
   LINE(
@@ -13,5 +14,83 @@ draw_info:etruct
 render_info:struct
 {
   //draws : 
+}
+shader_type : enum
+{
+	VERTEX   = 0x8B31, // GL_VERTEX_SHADER
+	FRAGMENT = 0x8B30, // GL_FRAGMENT_SHADER
+	COMPUTE  = 0x91B9, // GL_COMPUTE_SHADER
+}
+shader_error : enum
+{
+	OK = 0,
+	CREATE_FAILED,
+	COMPILE_FAILED,
+	LINK_FAILED,
+	LOG_TOO_SMALL,
+}
+shader : struct
+{
+	id   : u32,
+	type : shader_type,
+}
+get_shader_log :: fn(sh : u32,
+	out_buf : *u8,
+	buf_sz : u32
+) ! u32
+{
+	log_len : s32 = 0;
+	glGetShaderiv(sh, GL_INFO_LOG_LENGTH, &log_len);
+
+	if log_len <= 0
+	{
+		return 0;
+	}
+
+	if cast(u32)log_len > buf_sz
+	{
+		return -1;
+	}
+
+	glGetShaderInfoLog(sh,
+		log_len,
+		nil,
+		cast(*char)out_buf);
+
+	return cast(u32)log_len;
+}
+compile_shader :: fn(src : *u8,
+	src_len  : u32,
+	typ      : shader_type,
+	out_sh   : *shader,
+	log_buf  : *u8,
+	log_sz   : u32
+) ! shader_error
+{
+	sh : u32 = glCreateShader(cast(u32)typ);
+	if sh == 0
+	{
+		return shader_error.CREATE_FAILED;
+	}
+
+	src_ptr : *char = cast(*char)src;
+	len     : s32   = cast(s32)src_len;
+
+	glShaderSource(sh, 1, &src_ptr, &len);
+	glCompileShader(sh);
+
+	status : s32 = 0;
+	glGetShaderiv(sh, GL_COMPILE_STATUS, &status);
+
+	if status == GL_FALSE
+	{
+		get_shader_log(sh, log_buf, log_sz);
+		glDeleteShader(sh);
+		return shader_error.COMPILE_FAILED;
+	}
+
+	out_sh.id   = sh;
+	out_sh.type = typ;
+	return shader_error.OK;
 }
 

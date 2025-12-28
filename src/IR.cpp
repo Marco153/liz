@@ -1850,7 +1850,7 @@ void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
     else
       reg = GetAvailableReg(lang_stat);
     
-    if(aux->type == IR_TYPE_DECL && (aux->decl->type.type == TYPE_FUNC_PTR || aux->decl->type.type == TYPE_FUNC))
+    if(aux->type == IR_TYPE_DECL && (aux->decl->type.type == TYPE_FUNC))
     {
       ir.type = IR_GET_FUNC_ADDR;
       ir.bin.lhs.type = IR_TYPE_REG;
@@ -2835,7 +2835,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
       InsertIr(state, ir);
     }
     else
-      AllocSpecificReg(lang_stat, 0, ret.is_float);
+      AllocSpecificReg(lang_stat, 0, false);
     ret.kind = IR_VAL_VALUE;
   }
 

@@ -15,7 +15,6 @@ RENDER_API :const s32= OPENGL
   import "../opengl";
 }
 
-
 thread :: fn(arg : *void)
 {
   while true
@@ -27,6 +26,8 @@ thread :: fn(arg : *void)
 game_info:struct
 {
   wnd:*u8
+  alloc : *mem_alloc
+  main_alloc : mem_alloc
 }
 
 create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
@@ -38,7 +39,9 @@ create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
 
   return glfwCreateWindow(w, h, name, nil, nil);
 }
-
+init_shaders::fn(g : *game_info)
+{
+}
 init_game::fn(g : *game_info)
 {
   io_globals.linear_max = 1024
@@ -47,6 +50,11 @@ init_game::fn(g : *game_info)
   printf("on main: {io_globals.linear_max}\n")
   PrintStr("mincraft start\n")
 
+  InitMemAlloc(&g.main_alloc, 16000)
+
+  __dbg_break
+  __dbg_break
+  __dbg_break
   res := glfwInit()
   if res == 0 __dbg_break
 
@@ -89,5 +97,4 @@ main::fn()
   init_game(&game)
 
   run_game(&game)
-
 }

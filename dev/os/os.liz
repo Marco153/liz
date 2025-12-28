@@ -7,6 +7,7 @@ OS:const s32=LINUX;
 
 PrintStr::fn outsider(str_lit);
 ReadEntireFileMalloc::fn outsider(name : str_lit, file_sz : *u64) ! *u8;
+ReadEntireFileBuffer::fn outsider(name : str_lit, file_sz : *u64, buffer : *u8, bsz : u32);
 
 
 file:struct

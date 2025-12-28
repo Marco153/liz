@@ -344,7 +344,6 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 
 		if* ptr_offset(format, format_idx, char) == '%
 		{
-      __dbg_break
 			cur_arg: = (*__var_args)[arg_idx];
 			if* ptr_offset(format, format_idx + 1, char) == '*
 			{

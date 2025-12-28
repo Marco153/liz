@@ -2540,7 +2540,7 @@ void FreeRegs2(lang_state *lang_stat)
     lang_stat->float_regs[i] = 0;
   }
 }
-void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start = MAX_CALL_REGS)
+void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start, bool is_sys_call)
 {
   ir_rep ir={};
   ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
@@ -2599,7 +2599,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
     }
     else
     {
-      char reg_arg = FromIdxToArgReg(i);
+      char reg_arg = FromIdxToArgReg(i, is_sys_call);
       AllocSpecificReg(lang_stat, reg_arg);
       ir.bin.lhs.type = IR_TYPE_REG;
       ir.bin.lhs.reg = reg_arg;
@@ -2643,6 +2643,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   int i = 0;
 
   int call_base = state->spilled_regs.cur;
+  bool is_syscall = IS_FLAG_ON(callf->flags, FUNC_DECL_SYSCALL);
 
   int total_var_args = ast->call.args.size() - callf->args.size();
   int start_on_regs = callf->args.size();
@@ -2694,7 +2695,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   {
     if(HasCall(lang_stat, *arg))
     {
-      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs);
+      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall);
       (*arg)->ir_generated = true;
     }
 
@@ -2709,7 +2710,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
     if(!(*arg)->ir_generated)
     {
-      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs);
+      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall);
     }
 
     i++;

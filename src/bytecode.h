@@ -24,8 +24,23 @@ enum class regs_enum
   R14,
   R15,
 };
-char FromIdxToArgReg(char i)
+char FromIdxToArgReg(char i, bool is_sys_call = false)
 {
+  if(is_sys_call)
+  {
+    switch(i)
+    {
+#ifdef LINUX
+      case 0: return (char)regs_enum::RDI;
+      case 1: return (char)regs_enum::RSI;
+      case 2: return (char)regs_enum::RDX;
+      case 3: return (char)regs_enum::R10;
+      case 4: return (char)regs_enum::R8;
+      case 5: return (char)regs_enum::R9;
+#else
+#endif
+    }
+  }
   switch(i)
   {
 #ifdef LINUX

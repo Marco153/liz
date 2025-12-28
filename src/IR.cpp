@@ -4181,8 +4181,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         if(IsIrValLiteral(lhs.type) && !IsIrValLiteral(rhs.type))
         {
           // swap rhs and lhs, rhs should be a value, so this should be safe, we wouldnt be modifying any memory
-          if(ast->op == T_PLUS || ast->op == T_MUL)
+          if(ast->op == T_PLUS || ast->op == T_MUL || ast->op == T_MINUS)
           {
+            EnsureValue(lang_stat, state, &rhs);
             ASSERT(rhs.kind == IR_VAL_VALUE)
             auto aux = lhs;
             lhs = rhs;

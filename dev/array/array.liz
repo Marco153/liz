@@ -1,6 +1,4 @@
-
-PrintCallStack::fn outsider();
-
+import "../memory/"
 rel_array: struct(T)
 {
 	data : *T,
@@ -11,7 +9,6 @@ operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
 {
 	if(idx >= dyn.count)
   {
-    PrintCallStack()
     __dbg_break
   }
 	addr := cast(u64)&dyn.data + *cast(*u64)&dyn.data;
@@ -43,7 +40,6 @@ operator []{ T }(dyn : *dyn_array(T), idx : u64) !*T
 {
 	if(idx >= dyn.count)
   {
-    PrintCallStack()
     __dbg_break
   }
 	return ptr_offset(dyn.data, idx, T);

@@ -1,29 +1,19 @@
+import "../memory/"
+import "../array/"
+
 LINUX:const s32=0;
 
 OS:const s32=LINUX;
 
 PrintStr::fn outsider(str_lit);
-GetMem::fn outsider(size : u32)! *void;
-ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
+ReadEntireFileMalloc::fn outsider(name : str_lit, file_sz : *u64) ! *u8;
+
+
+file:struct
 {
-	(cast(*type)(cast(s64)ptr + cast(s64)offset * sizeof(type)))
-}
-ASSERT::fn macro(exp : _expr)
-{
-	if !(exp)
-  {
-		__dbg_break;
-  }
-}
-_own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
-{
-	//ASSERT(cast(u64)dst > 128);
-	i:u64 = 0;
-	while i < sz
-	{
-		*ptr_offset(dst, i, u8) = val;
-		i++;
-	}
+  name : str_lit
+  data : *u8
+  sz : u64
 }
 
 #if OS == LINUX
@@ -36,7 +26,10 @@ _own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
 
     return id
   }
-  //read_file::fn(file_name : str_lit)
+  read_file::fn(file_name : str_lit, out : *file)
+  {
+    file.data = ReadEntireFileMalloc(file_name, &file.sz)
+  }
 }
 io_globals_struct:struct
 {
@@ -137,17 +130,6 @@ type_enum : enum
 	TYPE_VECTOR,
 	TYPE_MAX,
 }
-str_ln::fn(str :str_lit) !u64
-{
-	s: = cast(*u8)str;
-	
-	i:u64 = 0;
-	while *ptr_offset(s, i, u8) != 0
-	{
-		i++;
-	}
-	return i;
-}
 rel_string : struct
 {
 	offset : u32,
@@ -216,66 +198,6 @@ var_arg:struct
 	type_info : *type_data,
 	ptr : u8,
 	val : *void,
-}
-rel_array: struct(T)
-{
-	data : *T,
-	count : u64,
-	#make_ptr_len(data, count)
-}
-operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
-{
-	if(idx >= dyn.count)
-  {
-    //PrintCallStack()
-    __dbg_break
-  }
-	addr := cast(u64)&dyn.data + *cast(*u64)&dyn.data;
-	return cast(*T)ptr_offset(addr, idx, T);
-}
-operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
-{
-	if(idx >= dyn.count)
-  {
-    //PrintCallStack()
-    __dbg_break
-  }
-	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
-	return cast(*T)ptr_offset(addr, idx, T);
-}
-memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
-{
-	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
-	i:u64 = 0;
-	if (sz % 16) == 0
-	{
-		total := sz / 16
-
-		while i < total
-		{
-			*ptr_offset(dst, i, _vec) = *ptr_offset(src, i, _vec);
-			i++
-		}
-	}
-	else if (sz % 8) == 0
-	{
-		total := sz / 8
-
-		while i < total
-		{
-			*ptr_offset(dst, i, u64) = *ptr_offset(src, i, u64);
-			i++
-		}
-
-	}
-	else
-	{
-		while i < sz
-		{
-			*ptr_offset(dst, i, u8) = *ptr_offset(src, i, u8);
-			i++;
-		}
-	}
 }
 
 num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64

@@ -1,4 +1,5 @@
 #pragma once
+#include "assert.cpp"
 #include "token.h"
 #include <queue>
 
@@ -370,6 +371,17 @@ int GetNameSimpleHash(const own_std::string &str)
 		sum += (str[i] * 2) << 1;
 	}
 	return sum;
+}
+void ReportDeclaredTwice(lang_state *lang_stat, node *twice, decl2 *decl) {
+  char msg_hdr[256];
+  int decl_exist_ln = decl->decl_nd->t->line;
+  REPORT_ERROR(
+      twice->t->line, twice->t->line_offset,
+      VAR_ARGS("variable '%s' declred here:\n\n%d|%s\n\nHas the same name as "
+               "this one\n",
+               decl->name.c_str(), decl_exist_ln,
+               GetFileLn(lang_stat, decl_exist_ln - 1, decl->from_file)))
+  ExitProcess(1);
 }
 #define CACHED_DECLS_MAX  128
 struct scope

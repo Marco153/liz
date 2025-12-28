@@ -1,3 +1,5 @@
+GetMem::fn outsider(size : u64)! *void;
+
 CHUNK_FREE : const s32 = 1;
 CHUNK_ALLOCATED : const s32= 4;
 
@@ -36,11 +38,6 @@ mem_alloc : struct
 BYTES_PER_CHUNK : const s32= 8;
 UNALLOCATED_BUFFER_ITEMS : const s32=  8;
 
-GetMem::fn outsider(sz:u64) ! *void;
-SubMem::fn outsider(sz:u64);
-SetMem::fn outsider(sz:u64);
-Print::fn outsider(sz:*mem_alloc) ! *void;
-
 debug_break::fn macro()
 {
 	#if RELEASE == 1
@@ -78,14 +75,16 @@ heap_insert_unallocated::fn(alloc : *mem_alloc, a : *mem_chunk)
 		i++;
 	}
 }
-push_str_lit_on_buffer::fn(buffer : *char, bf_sz : u32, bf_offset : *u32, str : str_lit)
-{
-  slen := str_ln(str)
-  memcpy(ptr_offset(buffer, *bf_offset, u8), str, slen)
-  *bf_offset += cast(u32)slen
-  *ptr_offset(buffer, *bf_offset, u8) = 0
-}
 
+assert::fn(val : bool, str : str_lit="", line :str_lit= __SRC_LINE__)
+{
+  if !val
+  {
+    //printf("\nassertion failed: {line}\n{str}\n")
+    //PrintCallStack()
+    __dbg_break
+  }
+}
 ASSERT::fn macro(exp : _expr)
 {
 	if !(exp)
@@ -405,7 +404,7 @@ heap_clear::fn(alloc : *mem_alloc)
 }
 heap_free::fn(alloc : *mem_alloc, ptr : *void)
 {
-  LockMutex(alloc.mutex)
+  //LockMutex(alloc.mutex)
 
   if ptr == nil
   {
@@ -511,12 +510,12 @@ heap_free::fn(alloc : *mem_alloc, ptr : *void)
 	}
 	*/
 	//memset(chunk_to_free.addr, 'x', chunk_to_free.size * BYTES_PER_CHUNK);
-  UnlockMutex(alloc.mutex)
+  //UnlockMutex(alloc.mutex)
 
 }
 heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 {
-  LockMutex(alloc.mutex)
+  //LockMutex(alloc.mutex)
 
   cur:*mem_chunk= alloc.head_free;
 	ASSERT(alloc.id == 0x1234);
@@ -585,13 +584,13 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 	HHashStore(alloc, cur.addr, cast(*u8)cur);
 	cur.size = min_alloc_size / BYTES_PER_CHUNK;
 
-  UnlockMutex(alloc.mutex)
+  //UnlockMutex(alloc.mutex)
 	ASSERT(cur.next != cur);
     return cur.addr;
 }
 InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 {
-  alloc.mutex = globals.worker_mutex
+  //alloc.mutex = globals.worker_mutex
 	alloc.id = 0x1234;
 	aux := chunks_cap / 4
 	alloc.chunks_cap = chunks_cap;
@@ -634,140 +633,3 @@ InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 
 
 
-test_call2::fn(alloc : *mem_alloc)
-{
-	*ptr_offset(alloc.buffer, 3, u8) = 4;
-}
-test_call1::fn(alloc : *mem_alloc)
-{
-	*ptr_offset(alloc.buffer, 2, u8) = 3;
-	test_call2(alloc);
-}
-test_ref::fn(alloc : *mem_alloc)
-{
-	*ptr_offset(alloc.buffer, 2, u8) = 2;
-}
-test_init ::fn(alloc : *mem_alloc)
-{
-	alloc.buffer = cast(*u8)GetMem(8);
-}
-test_change_heap_hash::fn(h : *heap_hash)
-{
-	h.data = cast(*heap_hash.inner)100;
-}
-
-test_sum_float::fn(f1 : f32, f2 : f32) !f32
-{
-	return f1 + f2;
-}
-
-test_ptr::fn(alloc : *mem_alloc)
-{
-	test_change_heap_hash(&alloc.in_use);
-	if (cast(u64)alloc.in_use.data) != 100
-		debug_break();
-
-	alloc.chunks_cap = 9000;
-	alloc.hash_table_size = 9000;
-	in_use_hash_sz:u64 = alloc.hash_table_size * sizeof(heap_hash.inner);
-	alloc.in_use.data = cast(*heap_hash.inner)GetMem(cast(u64)in_use_hash_sz);
-	memset(cast(*u8)alloc.in_use.data, 0, in_use_hash_sz);
-
-
-	if alloc.in_use.data == nil
-		debug_break();
-
-
-	chunk1:mem_chunk;
-
-	base_addr: = cast(**mem_chunk)GetMem(8 * 8);
-	alloc.probable_unallocated = base_addr;
-	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = nil;
-
-	if* ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) != nil
-		debug_break();
-
-	alloc.probable_unallocated = base_addr;
-	if alloc.probable_unallocated != base_addr
-		debug_break();
-
-	*ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) = &chunk1;
-
-
-	if alloc.probable_unallocated != base_addr
-		debug_break();
-
-	if alloc.probable_unallocated == cast(**mem_chunk) &chunk1
-		debug_break();
-
-	if *ptr_offset(alloc.probable_unallocated, 0, *mem_chunk) == nil
-		debug_break();
-
-	ptr_offset(alloc.probable_unallocated, 0, *mem_chunk).size = 2;
-
-	if chunk1.size != 2
-		debug_break();
-
-	cur: = ptr_offset(alloc.probable_unallocated, 0, *mem_chunk);
-
-	if *cur == nil
-		debug_break();
-
-	if cur.size != 2
-		debug_break();
-
-
-	cur.size = 4;
-	target:u32 = 24;
-	if (cur.size * 8) < target
-		debug_break();
-
-	*cur = nil;
-
-	if *cur
-		debug_break();
-
-
-	HHashStore(alloc, cast(*u8)1, cast(*u8)5);
-	HHashStore(alloc, cast(*u8)513, cast(*u8)6);
-
-    val := cast(u64)HHashGet(alloc, cast(*u8)1);
-    val2 := cast(u64)HHashGet(alloc, cast(*u8)513);
-	if val != 5 || val2 != 6
-		debug_break();
-
-	ptr1:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
-	ptr2:= cast(*mem_chunk)GetMem(sizeof(mem_chunk));
-
-	ptr1.addr = cast(*u8)10;
-	ptr2.addr = cast(*u8)20;
-
-	if ptr1.addr > ptr2.addr
-		debug_break();
-
-	ptr1.size = 5;
-	ptr2.size = 5;
-
-	ptr1.size += ptr2.size;
-
-	if ptr1.size  != 10
-		debug_break();
-
-	contiguous_with_ptr2 := (cast(u64)ptr1.addr + 10) == cast(u64)ptr2.addr;
-
-	if contiguous_with_ptr2 != cast(bool)1
-		debug_break();
-	
-	contiguous_with_ptr2 = false;
-
-	ptr1.size = 5;
-	contiguous_with_ptr2 = (cast(u64)ptr1.addr + ptr1.size * 2) == cast(u64)ptr2.addr;
-	if contiguous_with_ptr2 != cast(bool)1
-		debug_break();
-	
-	*cur = &chunk1;
-	cur.flags = CHUNK_ALLOCATED;
-
-	if is_flag_off(cur.flags, CHUNK_ALLOCATED)
-		debug_break();
-}

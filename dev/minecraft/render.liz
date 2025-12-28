@@ -1,0 +1,17 @@
+draw_info:etruct
+{
+  LINE(
+
+  ),
+  OBJECT(
+    pos : _vec
+    sz : _vec
+    model : u32
+  )
+}
+
+render_info:struct
+{
+  //draws : 
+}
+

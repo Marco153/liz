@@ -9946,6 +9946,7 @@ _pid ChildProcess(int pipes[2])
 
 
     outsiders["pthread_create"]             = (u64)_pthread_create;
+    outsiders["ReadEntireFileMalloc"]             = (u64)ReadEntireFileMalloc;
 
     outsiders["glClearColor"]             = (u64)glClearColor;
     outsiders["glClear"]                  = (u64)glClear;

@@ -1,5 +1,9 @@
 import "../glfw";
 import "../os";
+import "../memory";
+
+typedef float as f64;
+typedef vector as _vec2;
 
 OPENGL :const s32= 0
 VULKAN :const s32= 1
@@ -25,7 +29,7 @@ game_info:struct
   wnd:*u8
 }
 
-create_window::fn(name : str_lit, w : u32, h : u32) ! *u8
+create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
 {
   glfwWindowHint(CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(CONTEXT_VERSION_MINOR, 3);
@@ -34,6 +38,7 @@ create_window::fn(name : str_lit, w : u32, h : u32) ! *u8
 
   return glfwCreateWindow(w, h, name, nil, nil);
 }
+
 init_game::fn(g : *game_info)
 {
   io_globals.linear_max = 1024
@@ -45,7 +50,7 @@ init_game::fn(g : *game_info)
   res := glfwInit()
   if res == 0 __dbg_break
 
-  g.wnd = create_window("minecraft", 1000, 1000)
+  g.wnd = create_window(g, "minecraft", 1000, 1000)
 
   if g.wnd == nil __dbg_break
 

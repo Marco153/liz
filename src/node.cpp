@@ -4170,6 +4170,7 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
 bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node *fnode,
                    scope *child_scp, type2 *ret_type, int flags,
                    int template_end_idx, bool is_outsider) {
+  //BREAK(fnode->t->line == 449)
   if (template_end_idx == 0 && !is_outsider)
     ASSERT(child_scp->vars.size() == 0);
 
@@ -4206,12 +4207,18 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node *fnode,
   decl2 *normal_func_first_arg_decl_with_using = nullptr;
 
   type2 dummy_type;
+  own_std::string str("rel_array");
+  decl2 *rel_ar = FindIdentifier(str, child_scp, &dummy_type);
+
+  str = "var_arg";
+  decl2 *var_arg = FindIdentifier(str, child_scp, &dummy_type);
+
   FOR_VEC(t, args) {
     if (t->type == COMMA_VAR_ARGS) {
-      own_std::string str("var_arg");
-      decl2 *var_arg = FindIdentifier(str, child_scp, &dummy_type);
       if (!var_arg)
         return false;
+    if (!rel_ar || !var_arg)
+    return false;
     } else if (t->type == COMMA_RET_EXPR && CMP_NTYPE_BIN(t->n, T_EQUAL)) {
 
       fdecl->flags |= FUNC_DECL_HAS_DEFAULT_ARGUMENTS;
@@ -4232,6 +4239,7 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node *fnode,
       }
     }
   }
+
   // getting type of args
   i = 0;
   FOR_VEC(t, args) {
@@ -4242,13 +4250,7 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node *fnode,
     if (t->type == COMMA_VAR_ARGS) {
       dummy_type.type = TYPE_STRUCT_TYPE;
 
-      own_std::string str("rel_array");
-      decl2 *rel_ar = FindIdentifier(str, child_scp, &dummy_type);
 
-      str = "var_arg";
-      decl2 *var_arg = FindIdentifier(str, child_scp, &dummy_type);
-      if (!rel_ar || !var_arg)
-        return false;
       type_struct2 *rel_ar_var_arg;
       own_std::vector<comma_ret> templates;
       /*
@@ -5795,17 +5797,6 @@ void NewVarArgToScope(lang_state *lang_stat, scope *scp, type2 *tp,
   scp->AddDecl(new_decl);
 }
 
-void ReportDeclaredTwice(lang_state *lang_stat, node *twice, decl2 *decl) {
-  char msg_hdr[256];
-  int decl_exist_ln = decl->decl_nd->t->line;
-  REPORT_ERROR(
-      twice->t->line, twice->t->line_offset,
-      VAR_ARGS("variable '%s' declred here:\n\n%d|%s\n\nHas the same name as "
-               "this one\n",
-               decl->name.c_str(), decl_exist_ln,
-               GetFileLn(lang_stat, decl_exist_ln - 1, decl->from_file)))
-  ExitProcess(1);
-}
 
 void LookingForLabels(lang_state *lang_stat, node *n, scope *scp) {
   type2 ret_type;
@@ -6017,7 +6008,6 @@ bool FunctionIsDone(lang_state *lang_stat, node *n, scope *scp, type2 *ret_type,
   if (IS_FLAG_ON(fdecl->flags, FUNC_DECL_IS_OUTSIDER)) {
     lang_stat->outsider_funcs.emplace_back(fdecl);
   }
-   //BREAK(fnode->t->line == 2018)
 
   if (IS_FLAG_OFF(flags, DONT_DESCEND_SCOPE) &&
       IS_FLAG_OFF(fdecl->flags, FUNC_DECL_MACRO)) {
@@ -6412,7 +6402,7 @@ decl2 *PointLogic(lang_state *lang_stat, node *n, scope *scp, type2 *ret_tp) {
 void ReportUndeclaredIdentifier(lang_state *lang_stat, token2 *t) {
   // own_std::string s = StringifyNode(lang_stat->cur_file->s);
   // printf("%s", s.c_str());
-  HERE()
+  //HERE()
   char msg_hdr[256];
   REPORT_ERROR(t->line, t->line_offset,
                VAR_ARGS("undeclared identifier: %s\n", t->str.c_str()));
@@ -10878,6 +10868,13 @@ if(!decl)
         n->type = N_INT;
         n->t->i = val;
       }
+      if (ltp.type == TYPE_F32 && rtp.type == TYPE_F64_RAW) {
+        n->r->type = N_FLOAT;
+        n->r->t->f = n->r->t->f64;
+        rtp.type = TYPE_F32;
+        rtp.f = n->r->t->f;
+        // GetExpressionVal(n);
+      }
 
       if (ltp.type == TYPE_STRUCT && rtp.ptr == 0 ||
           ltp.type == TYPE_STRUCT && ltp.ptr == 0) {
@@ -11030,6 +11027,20 @@ if(!decl)
         n->type = N_FLOAT;
         n->t->f = GetExpressionValT<float>(n->t->type, ltp.f, rtp.f);
         ret_type.f = n->t->f;
+        // GetExpressionVal(n);
+      }
+      if (ltp.type == TYPE_F64_RAW && rtp.type == TYPE_F32) {
+        n->l->type = N_FLOAT;
+        n->l->t->f = n->l->t->f64;
+        ltp.type = TYPE_F32;
+        ltp.f = n->l->t->f;
+        // GetExpressionVal(n);
+      }
+      if (ltp.type == TYPE_F32 && rtp.type == TYPE_F64_RAW) {
+        n->r->type = N_FLOAT;
+        n->r->t->f = n->r->t->f64;
+        rtp.type = TYPE_F32;
+        rtp.f = n->r->t->f;
         // GetExpressionVal(n);
       }
 

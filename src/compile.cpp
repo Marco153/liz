@@ -14293,7 +14293,7 @@ void Compile(lang_state* lang_stat, compile_options *opts)
 		auto f = lang_stat->files[cur_f];
 		lang_stat->cur_file = f;
     //HERE()
-		DescendNode(lang_stat, f->s, f->global);
+    DescendNameFinding(lang_stat, f->s, f->global);
 	}
 	//DescendIndefinedIdents(s, &global);
 	

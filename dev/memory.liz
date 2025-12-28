@@ -212,15 +212,37 @@ memset32::fn x64(dst : *void, val : u32, sz : u64) !void
 	}
 
 }
-memset::fn x64(dst : *void, val : u8, sz : u64) !void
+#if MEM_TYPE == 0
 {
-  ASSERT(cast(u64)dst > 128);
-  i:u64 = 0;
-  while i < sz
-  {
-    *ptr_offset(dst, i, u8) = val;
-    i++;
-  }
+	memset::fn outsider(dst : *void, val : u8, sz : u64) !void;
+}
+else if MEM_TYPE == 1
+{
+	memset::fn x64(dst : *void, val : u8, sz : u64) !void
+	{
+		ASSERT(cast(u64)dst > 128);
+		i:u64 = 0;
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = val;
+			i++;
+		}
+
+	}
+}
+else
+{
+	memset::fn(dst : *void, val : u8, sz : u64) !void
+	{
+		ASSERT(cast(u64)dst > 128);
+		i:u64 = 0;
+		while i < sz
+		{
+			*ptr_offset(dst, i, u8) = val;
+			i++;
+		}
+
+	}
 
 }
 

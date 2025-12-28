@@ -868,6 +868,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
       var_arg_info.emplace_back(offset_to_var_args);
 
       int total_var_args = ret->call.args.size() - var_arg_start_idx;
+      
       ast_rep *total_var_args_ast = NewAst();
       total_var_args_ast->type = AST_INT;
       total_var_args_ast->num = total_var_args;
@@ -2539,7 +2540,7 @@ void FreeRegs2(lang_state *lang_stat)
     lang_stat->float_regs[i] = 0;
   }
 }
-void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args)
+void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start = MAX_CALL_REGS)
 {
   ir_rep ir={};
   ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
@@ -2585,7 +2586,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
     EnsureValue(lang_stat, state, &ir.bin.rhs);
     LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs);
 
-    if(i >= MAX_CALL_REGS)
+    if(i >= args_on_stack_start)
     {
       if(ir.bin.rhs.kind == IR_VAL_ADDR && ir.bin.rhs.deref > 0)
       {
@@ -2593,7 +2594,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
       ir.bin.lhs.type = IR_TYPE_REG_MEM;
       ir.bin.lhs.reg = (char)regs_enum::RSP;
       ir.bin.lhs.reg_sz = 8;
-      ir.bin.lhs.voffset = (i - MAX_CALL_REGS) * 8;
+      ir.bin.lhs.voffset = (i - args_on_stack_start) * 8;
 
     }
     else
@@ -2643,6 +2644,19 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
   int call_base = state->spilled_regs.cur;
 
+  int total_var_args = ast->call.args.size() - callf->args.size();
+  int start_on_regs = callf->args.size();
+
+  if(total_var_args > 0) start_on_regs--;
+
+
+  if(start_on_regs >= MAX_CALL_REGS)
+  {
+    start_on_regs = MAX_CALL_REGS;
+  }
+
+  add_var_args(state, total_var_args);
+
   for(i = 0; i < MAX_CALL_REGS; i++)
   {
     char reg_arg = FromIdxToArgReg(i);
@@ -2680,7 +2694,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   {
     if(HasCall(lang_stat, *arg))
     {
-      GetIRCallArg(lang_stat, *arg, state, i, &f_args);
+      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs);
       (*arg)->ir_generated = true;
     }
 
@@ -2695,7 +2709,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
     if(!(*arg)->ir_generated)
     {
-      GetIRCallArg(lang_stat, *arg, state, i, &f_args);
+      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs);
     }
 
     i++;
@@ -3479,6 +3493,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     lang_stat->cur_func = last_func;
 
     ast->func.fdecl->strct_constrct_size_per_statement = state->strct_ret_size_per_statement_max_gotten;
+    ast->func.fdecl->total_of_var_args = state->var_args_max_gotten;
     return ret;
   }break;
   case AST_STR_LIT: {
@@ -4026,7 +4041,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       */
       int offset = 0;
       bool is_static_array;
-      BREAK(ast->line_number == 982)
       for(int i =1; i < ast->points.size();i++)
       {
         is_static_array = false;
@@ -4112,6 +4126,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         if(lhs.type == IR_TYPE_REG)
           lhs.type = IR_TYPE_REG_MEM;
       }
+      //BREAK(ast->line_number == 519)
       ret = lhs;
     }break;
     case T_MUL:
@@ -4297,8 +4312,16 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         ir.bin.lhs.ptr = 1;
         ir.bin.rhs = lhs;
         InsertIr(state, ir);
+
+        char prev_sz = lhs.reg_sz;
+        int prev_offset = lhs.voffset;
+
         lhs = ir.bin.lhs;
+
         lhs.type = IR_TYPE_REG_MEM;
+        lhs.reg_sz = prev_sz;
+        lhs.voffset = prev_offset;
+
       }
       switch(ast->op)
       {

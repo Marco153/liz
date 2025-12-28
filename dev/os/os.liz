@@ -164,7 +164,7 @@ operator ==(self: *rel_string, str : *rel_string) !bool
 	start := cast(*u8)(cast(u64)self + self.offset)
 	start2 := cast(*u8)(cast(u64)str + str.offset)
 
-	for i in 0..ln
+	for i in 0..cast(s64)ln
 	{
 		lhs := ptr_offset(start, i, u8);
 		rhs := ptr_offset(start2, i, u8);
@@ -182,7 +182,7 @@ operator ==(self: *rel_string, str : str_lit) !bool
 
 	start := cast(*u8)(cast(u64)self + self.offset)
 
-	for i in 0..ln
+	for i in 0..cast(s64)ln
 	{
 		lhs := ptr_offset(start, i, u8);
 		rhs := ptr_offset(str, i, u8);
@@ -232,7 +232,7 @@ operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
     //PrintCallStack()
     __dbg_break
   }
-	addr := cast(u64)&dyn.data + *cast(*u64)dyn.data;
+	addr := cast(u64)&dyn.data + *cast(*u64)&dyn.data;
 	return cast(*T)ptr_offset(addr, idx, T);
 }
 operator []{ T }(dyn : *rel_array(T), idx : u64) !*T
@@ -345,12 +345,6 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 		if* ptr_offset(format, format_idx, char) == '%
 		{
       __dbg_break
-      __dbg_break
-      __dbg_break
-      __dbg_break
-      __dbg_break
-      __dbg_break
-
 			cur_arg: = (*__var_args)[arg_idx];
 			if* ptr_offset(format, format_idx + 1, char) == '*
 			{
@@ -447,7 +441,7 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 			{
 				f := *cast(*f32)&cur_arg.val
 				lhs := cast(s32)f
-				rhs := cast(s32)((f - cast(f32)lhs)* 100.0)
+				rhs := cast(s32)((f - cast(f32)lhs)* 100.0f)
 
 				negative := false
 				if rhs < 0 && lhs == 0
@@ -463,16 +457,16 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 
 				//if cast(s64)cur_arg.val == 32
 					//__dbg_break
-				num_ln: = num_2_str(cast(s64)lhs, aux_num_buffer[0], 16);
+				num_ln: = num_2_str(cast(s64)lhs, &aux_num_buffer[0], 16);
 				if negative
 				{
 					*ptr_offset(buffer, buffer_idx, u8) = '-
 					buffer_idx++
 				}
 				*ptr_offset(aux_num_buffer[0], num_ln, u8) = '.
-				num_ln2: = num_2_str(cast(s64)rhs, aux_num_buffer[num_ln + 1], 16);
+				num_ln2: = num_2_str(cast(s64)rhs, &aux_num_buffer[num_ln + 1], 16);
 
-				memcpy(ptr_offset(buffer, buffer_idx, u8), aux_num_buffer[0], num_ln + num_ln2 + 1);
+				memcpy(ptr_offset(buffer, buffer_idx, u8), &aux_num_buffer[0], num_ln + num_ln2 + 1);
 				buffer_idx += num_ln + num_ln2 + 1;
 
 

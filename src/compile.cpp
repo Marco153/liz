@@ -11754,7 +11754,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         //stack_size += 32 + on_stack_args * 8;
         //gen_state->strcts_construct_stack_offset = stack_size;
 
-        stack_size += cur_ir->fdecl->biggest_call_args * 8;
+        stack_size += cur_ir->fdecl->total_of_var_args * 8;
 
         cur_ir->fdecl->strct_constrct_at_offset = stack_size;
         stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
@@ -11843,6 +11843,11 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
 #ifdef LINUX
 
         cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + total_args * 8;
+        if(IS_FLAG_ON(cur_ir->decl->flags, DECL_IS_VAR_ARG))
+        {
+          //HERE()
+          total_args = MAX_CALL_REGS;
+        }
         if(total_args == MAX_CALL_REGS)
         {
           // 3 because, accounting for the ret address
@@ -12023,13 +12028,17 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
       }break;
       case IR_GET_GLOBAL:
       {
+        //BREAK(cur_line == 516)
         bc.type = RELOC;
         bc.rel.type = REL_DATA_GLOBALS;
         bc.rel.reg_dst = ir->bin.lhs.reg;
         bc.rel.offset = ir->bin.rhs.decl->offset;
         bc.rel.deref = false;
         if(ir->bin.lhs.ptr == 0)
+        {
+          bc.rel.offset += ir->bin.rhs.voffset;
           bc.rel.deref = true;
+        }
 
         bc.rel.reg_sz = ir->bin.lhs.reg_sz;
         InsertBc(ret, bc);

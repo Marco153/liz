@@ -3,6 +3,7 @@
 #include "include/vulkan_includes/vulkan/vulkan_core.h"
 #include <Zydis/Formatter.h>
 #include <Zydis/Mnemonic.h>
+#include <Zydis/Register.h>
 #include <assimp/material.h>
 #include <csignal>
 #include <cstdlib>
@@ -9745,7 +9746,6 @@ void *_GetMem(int size)
 }
 void _PrintStr(const char *str)
 {
-  printf("on _PrintStr, arg addr %p\n", str);
   printf("%s\n", str);
 }
 bool cmp_str_dbg(char *str_sect, str_dbg *s1, const char *str)
@@ -9889,7 +9889,7 @@ _pid ChildProcess(int pipes[2])
       ASSERT(false)
     }
     u32 read;
-    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/tests.dbg", &read);
+    auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/minecraft.dbg", &read);
     auto file = (dbg_file_seriealize*)(file_ptr);
 
     printf("CHILD: total funcs %d\n", file->total_funcs);
@@ -10106,6 +10106,7 @@ _pid ChildProcess(int pipes[2])
             case SYM_DATA_GLOBALS:
             {
               at_address = globals_start + cur_s->offset;
+              printf("global offset %d, %p\n", cur_s->offset, at_address);
             }break;
             case SYM_DATA_TYPE:
             {
@@ -10450,7 +10451,7 @@ const char* MemSizeToStr(uint16_t bits)
         default:  return NULL;
     }
 }
-void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int size, scope *scp)
+void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int size, scope *scp, user_regs_struct *regs)
 {
   int cur = sprintf(buffer, "%s ", ZydisMnemonicGetString(instruction->info.mnemonic));
   for (int i = 0; i < instruction->info.operand_count_visible; ++i) 
@@ -10488,9 +10489,16 @@ void GetInstString(ZydisDisassembledInstruction *instruction, char *buffer, int 
       }
       if(!found)
       {
-        cur += sprintf(buffer + cur, "[%s+%lld]",
+        u64 r = *((u64 *)&regs->rax + op->mem.base);
+        if(op->mem.base == ZYDIS_REGISTER_RIP)
+        {
+          r = regs->rip;
+        }
+
+        cur += sprintf(buffer + cur, "[%s+%lld](%p)",
             ZydisRegisterGetString(op->mem.base),
-            op->mem.disp.value
+            op->mem.disp.value,
+            r + op->mem.disp.value
             );
 
       }
@@ -10619,7 +10627,7 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 *byte_type)
   }
   ImGui::EndChild();
 }
-void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl *fdecl, stmnt_dbg *cur_st, bool center_inst, scope *scp)
+void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl *fdecl, stmnt_dbg *cur_st, bool center_inst, scope *scp, user_regs_struct *regs)
 {
   char buffer[MAX_B_SIZE];
   u64 cur_addr = 0;
@@ -10684,7 +10692,7 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
       continue;
     }
     char inst_buffer[128];
-    GetInstString(&instruction, inst_buffer, 32, scp);
+    GetInstString(&instruction, inst_buffer, 32, scp, regs);
     long long rel_addr = cur_addr - code_start;
 
 
@@ -11187,7 +11195,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       }
       //void TextFieldAcceptsCode(dbg_state *dbg, char *name, char *buffer, int size, int child_p, u64 rsp, func_decl *fdecl, scope *scp)
 
-      PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st, center_inst, cur_scp);
+      PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st, center_inst, cur_scp, &regs);
       if(data_addr != 0)
       {
         ImGui::SameLine();
@@ -11226,7 +11234,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ImGui::Text("SIGSEGV");
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       ImGui::Text("%p", regs.rip);
-      PrintInsts(child_p, dbg, regs.rip, (u64)code_start, cur_f, cur_st, center_inst, cur_scp);
+      PrintInsts(child_p, dbg, regs.rip, (u64)code_start, cur_f, cur_st, center_inst, cur_scp, &regs);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 272));
       ImGui::SameLine();
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);

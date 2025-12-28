@@ -4271,7 +4271,7 @@ bool FuncArgsLogic(lang_state *lang_stat, func_decl *fdecl, node *fnode,
       // getting where the var_args start
       // we're subtracting one because the var counts as an argument
       // idk its the same as args.size() * 8, but whatever
-      fdecl->var_args_start_offset = (args.size() - 1) * 8 + 8;
+      fdecl->var_args_start_offset = i;
       is_var_args = true;
       type2 aux_type;
       continue;

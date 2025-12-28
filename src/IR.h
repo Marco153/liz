@@ -570,9 +570,17 @@ struct thread_ir_state
   tracker_stack<ir_val> spilled_regs;
   int strct_ret_size_per_statement_cur;
   int strct_ret_size_per_statement_max_gotten;
+  int var_args_max_gotten;
   tracker_stack<block2 *> continue_start_block;
   tracker_stack<block2 *> break_end_block;
 };
+void add_var_args(thread_ir_state *state, int sz)
+{
+  if(sz > state->var_args_max_gotten)
+  {
+    state->var_args_max_gotten = sz;
+  }
+}
 int get_strct_ret(thread_ir_state *state)
 {
   return state->strct_ret_size_per_statement_cur;

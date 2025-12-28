@@ -4,6 +4,8 @@ glfwCreateWindow::fn outsider(width:u32, height : u32, title:str_lit, mon : *u32
 glfwMakeContextCurrent::fn outsider(wnd : *u8);
 glfwSwapBuffers::fn outsider(wnd : *u8);
 
+
+
 LIENT_API: const s32 = 0x00022001;
 CONTEXT_VERSION_MAJOR: const s32 = 0x00022002;
 CONTEXT_VERSION_MINOR: const s32 = 0x00022003;
@@ -61,3 +63,5 @@ RELEASE_BEHAVIOR_NONE: const s32 = 0x00035002;
 NATIVE_CONTEXT_API: const s32 = 0x00036001;
 EGL_CONTEXT_API: const s32 = 0x00036002;
 OSMESA_CONTEXT_API: const s32 = 0x00036003;
+
+

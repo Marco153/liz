@@ -1,6 +1,16 @@
 import "../glfw";
-import "../opengl";
 import "../os";
+
+OPENGL :const s32= 0
+VULKAN :const s32= 1
+RENDER_API :const s32= OPENGL
+
+
+#if RENDER_API == OPENGL
+{
+  import "../opengl";
+}
+
 
 thread :: fn(arg : *void)
 {
@@ -10,40 +20,69 @@ thread :: fn(arg : *void)
   }
 }
 
-main::fn()
+game_info:struct
 {
-  __dbg_break
-  __dbg_break
-  __dbg_break
-  __dbg_break
-  io_globals.linear_max = 1024
-  io_globals.linear_cur = 0
-  io_globals.linear_data = cast(*u8)GetMem(io_globals.linear_max)
-  printf("on main: {io_globals.linear_max}\n")
-  PrintStr("mincraft start\n")
-  res := glfwInit()
-  if res == 0 __dbg_break
+  wnd:*u8
+}
 
-
+create_window::fn(name : str_lit, w : u32, h : u32) ! *u8
+{
   glfwWindowHint(CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(OPENGL_PROFILE, OPENGL_CORE_PROFILE);
   glfwWindowHint(OPENGL_DEBUG_CONTEXT, 1);
 
-  wnd := glfwCreateWindow(1000, 1000, "Hello World", nil, nil);
-  if wnd == nil __dbg_break
+  return glfwCreateWindow(w, h, name, nil, nil);
+}
+init_game::fn(g : *game_info)
+{
+  io_globals.linear_max = 1024
+  io_globals.linear_cur = 0
+  io_globals.linear_data = cast(*u8)GetMem(io_globals.linear_max)
+  printf("on main: {io_globals.linear_max}\n")
+  PrintStr("mincraft start\n")
 
-  glfwMakeContextCurrent(wnd)
+  res := glfwInit()
+  if res == 0 __dbg_break
+
+  g.wnd = create_window("minecraft", 1000, 1000)
+
+  if g.wnd == nil __dbg_break
+
+  glfwMakeContextCurrent(g.wnd)
+
 
   ret := glewInit()
 
   if ret != 0 __dbg_break
 
   th := create_thread(thread, nil)
-
+}
+swap_buffers::fn(g : *game_info)
+{
+  glfwSwapBuffers(g.wnd)
+}
+clear_background_color::fn(gptr : *game_info, r : f32, g : f32, b : f32, a : f32)
+{
+  glClearColor(r, g, b, a)
+  glClear(GL_COLOR_BUFFER_BIT)
+}
+run_game::fn(g : *game_info)
+{
   while true
   {
-    glfwSwapBuffers(wnd)
-    PrintStr("on loop\n")
+    clear_background_color(g, 0.4f, 0.1f, 0.3f, 0.0f)
+
+    swap_buffers(g)
   }
+}
+
+main::fn()
+{
+  game : game_info
+
+  init_game(&game)
+
+  run_game(&game)
+
 }

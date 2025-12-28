@@ -15,22 +15,28 @@ ASSERT::fn macro(exp : _expr)
 		__dbg_break;
   }
 }
+_own_memset::fn x64(dst : *void, val : u8, sz : u64) !void
+{
+	//ASSERT(cast(u64)dst > 128);
+	i:u64 = 0;
+	while i < sz
+	{
+		*ptr_offset(dst, i, u8) = val;
+		i++;
+	}
+}
 
 #if OS == LINUX
 {
   import "../linux"
   create_thread::fn(f : fn(*void), arg : *void)!u64
   {
-    __dbg_break
-    __dbg_break
-    __dbg_break
-
-
     id : u64
     ret := pthread_create(&id, f, nil, arg)
 
     return id
   }
+  //read_file::fn(file_name : str_lit)
 }
 io_globals_struct:struct
 {

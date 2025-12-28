@@ -9857,6 +9857,10 @@ bool CmpStrDbgGetJmpAddr(char *str_sect, str_dbg *s, const char *name, char **jm
   return false;
 }
 
+int _pthread_create(unsigned long int *id, void *(*fn)(void *), void *attrs, void *args)
+{
+  return pthread_create(id, NULL, fn, args);
+}
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -9941,6 +9945,7 @@ _pid ChildProcess(int pipes[2])
     outsiders["glewInit"] = (u64)glewInit;
 
 
+    outsiders["pthread_create"]             = (u64)_pthread_create;
 
     outsiders["glClearColor"]             = (u64)glClearColor;
     outsiders["glClear"]                  = (u64)glClear;

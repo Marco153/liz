@@ -12,13 +12,13 @@ thread :: fn(arg : *void)
 
 main::fn()
 {
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  __dbg_break
   io_globals.linear_max = 1024
   io_globals.linear_cur = 0
   io_globals.linear_data = cast(*u8)GetMem(io_globals.linear_max)
-  __dbg_break
-  __dbg_break
-  __dbg_break
-  __dbg_break
   printf("on main: {io_globals.linear_max}\n")
   PrintStr("mincraft start\n")
   res := glfwInit()

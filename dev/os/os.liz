@@ -19,25 +19,17 @@ ASSERT::fn macro(exp : _expr)
 #if OS == LINUX
 {
   import "../linux"
-  create_thread::fn(f : fn(*void), arg : *void)!s32
+  create_thread::fn(f : fn(*void), arg : *void)!u64
   {
-    size :u32= 1024 * 4
-    stack := ptr_offset(GetMem(size), size - 8, u8)
-    flags :u32= CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM;
-    PrintStr("will create thread\n")
     __dbg_break
     __dbg_break
     __dbg_break
-    id := clone(flags, stack, nil, nil, 0);
-    if id == 0
-    {
-      PrintStr("child will execute\n")
-      f(arg)
-      PrintStr("child executed\n")
-    }
-    PrintStr("parent will continue\n")
 
-    return 1
+
+    id : u64
+    ret := pthread_create(&id, f, nil, arg)
+
+    return id
   }
 }
 io_globals_struct:struct

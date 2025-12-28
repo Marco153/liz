@@ -1,4 +1,5 @@
 #pragma once
+#include <cstring>
 #include <string>
 #include "machine_rel.h"
 #include "token.h"
@@ -631,6 +632,7 @@ struct byte_code
 		}break;
 		case rel_type::REL_FUNC:
 		{
+      //ASSERT(strlen(name) != 0)
 			this->rel.name = name;
 			this->rel.call_func = fdecl;
 		}break;

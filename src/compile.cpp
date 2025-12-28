@@ -12060,6 +12060,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
       }break;
       case IR_CALL:
       {
+        //BREAK(cur_line == 30)
         if (IS_FLAG_ON(ir->call.fdecl->flags, FUNC_DECL_INTRINSIC))
         {
           if (ir->call.fdecl->name == "__sqrt")

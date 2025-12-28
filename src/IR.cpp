@@ -2751,6 +2751,9 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
   ret.ptr = 0;
 
+  //if(callf->name == "GetMem" && ast->line_number == 28) HERE()
+
+
   if(callf->ret_type.type == TYPE_STRUCT && callf->ret_type.ptr == 0)
   {
     int st_size = GetTypeSize(&callf->ret_type);
@@ -2804,6 +2807,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     ret.reg_sz = max(1, ret.reg_sz);
     ret.deref = 0;
     ret.voffset = 0;
+    ret.ptr = callf->ret_type.ptr;
 
     ir = {};
 

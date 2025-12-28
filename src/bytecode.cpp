@@ -1238,6 +1238,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 					{
 						//TODO
 					}
+          else if(bc->rel.func_addr)
+          {
+
+          }
 					else
 					{
 						// asserting that the function was already compiled

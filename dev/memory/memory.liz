@@ -702,6 +702,40 @@ string : struct
   cap : u64
   alloc : generic_allocator
 }
+get_buffer_from_generic_alloc::fn(alloc : *generic_allocator, sz : u64)!*void
+{
+  if alloc == nil
+  {
+    return get_linear_ptr(cast(u32)sz);
+  }
+  else
+    return generic_alloc(alloc, sz);
+
+  return nil
+}
+build_string::fn(str : str_lit, out : *string, alloc : *generic_allocator)
+{
+  len := str_ln(str)
+
+  buffer:= get_buffer_from_generic_alloc(alloc, len + 1)
+
+  memcpy(buffer, str, len)
+
+  *ptr_offset(buffer, len, u8) = 0
+
+  out.data = cast(*u8)buffer;
+  out.cap = len;
+  out.sz = len;
+}
+
+to_cstr::fn(str : *string, alloc : *generic_allocator) ! str_lit
+{
+  buffer:= cast(*u8)get_buffer_from_generic_alloc(alloc, str.sz + 1)
+  memcpy(buffer, str.data, str.sz)
+  *ptr_offset(buffer, str.sz, u8) = 0
+  return cast(str_lit)buffer
+}
+
 operator +(self: *string, str : str_lit) !string
 {
   ret : string

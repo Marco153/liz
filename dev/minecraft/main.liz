@@ -19,7 +19,7 @@ thread :: fn(arg : *void)
 {
   while true
   {
-    PrintStr("on thread \n")
+    //PrintStr("on thread \n")
   }
 }
 
@@ -28,6 +28,7 @@ game_info:struct
   wnd:*u8
   alloc : *mem_alloc
   main_alloc : mem_alloc
+  work_dir : string
 }
 
 create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
@@ -46,6 +47,8 @@ init_shaders::fn(g : *game_info)
   galloc.HEAP_ALLOC.alloc = g.alloc
 
   terrain_vs_file:file
+  //read_file()
+
 }
 init_game::fn(g : *game_info)
 {
@@ -56,6 +59,9 @@ init_game::fn(g : *game_info)
   PrintStr("mincraft start\n")
 
   InitMemAlloc(&g.main_alloc, 16000)
+
+  dir := get_cwd()
+  printf("work dir is {to_cstr(&dir, nil)}")
 
   __dbg_break
   __dbg_break

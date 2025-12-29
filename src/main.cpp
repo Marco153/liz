@@ -9820,8 +9820,9 @@ void MakeInstAddrToBeBreakpoint2(int child_p, own_std::vector<breakpoint> *bps, 
 
 	bp.prev_i = prev_i;
 
+  printf("after prev_i 0x%llx\n", prev_i);
+
   prev_i = (prev_i & ~(u64)0xff) | 0xcc;
-  //printf("after prev_i 0x%llx\n", prev_i);
 
 	bp.inst = address;
 	bp.one_time_bp = one_time;
@@ -10578,6 +10579,7 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 *byte_type)
     break;
     }
   
+  float offset = column_size * 20.0;
   for(int row = 0; row < row_max; row++)
   {
     ImVec2 pos = ImGui::GetCursorPos();
@@ -10586,7 +10588,8 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 *byte_type)
 
     for(int column = 0; column < column_max; column++)
     {
-      ImGui::SetCursorPosX(pos.x + column * 80.0 + 150.0);
+
+      ImGui::SetCursorPosX(pos.x + column * offset + 150.0);
       int idx = (column + row * column_max) * column_size; 
       switch(*byte_type)
       {
@@ -11055,6 +11058,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       center_inst = true;
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       int offset = regs.rip - (u64)code_start;
+      cur_st = nullptr;
+      cur_bp = nullptr;
       if(cur_f && (offset < cur_f->code_start_idx || offset > cur_f->code_end_idx))
       {
         cur_f = nullptr;
@@ -11098,11 +11103,14 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
         }
         ImGui::Text("in range");
-        if(cur_f)
+        if(cur_f && !cur_st)
         {
           //printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());
           int offset = (u64)((char *)regs.rip - code_start);
           cur_st = GetStmntBasedOnOffset(&cur_f->wasm_stmnts, offset);
+        }
+        if(cur_st)
+        {
           ImGui::Text("in func %s, start %d, end %d", cur_f->name.c_str(), cur_f->code_start_idx, cur_f->code_end_idx);
           if(cur_st)
           {
@@ -11130,6 +11138,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         if(cur_bp)
         {
           //HERE()
+          printf("on bp, inst prev %llx\n", cur_bp->prev_i);
           write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
         }
         if (f10_pressed)
@@ -11144,7 +11153,9 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           if(cur_bp)
           {
             //write_bytes_from_child(child_p, regs.rip, (u8 *)&cur_bp->prev_i, 8);
+            printf("will remove bp idx %d, prev_size %d\n", cur_bp_idx, breakpoints.size());
             breakpoints.remove(cur_bp_idx);
+            printf("after_size %d\n", cur_bp_idx, breakpoints.size());
             //regs.rip--;
             //ptrace(PTRACE_SETREGS, child_p, NULL, &regs);
 
@@ -11160,6 +11171,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
             ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
             //printf("rip after %p\n", regs.rip);
           }
+          cur_st = nullptr;
+          cur_bp = nullptr;
 
           ptrace(PTRACE_CONT, child_p, 0, 0);
         }

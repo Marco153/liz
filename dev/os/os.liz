@@ -42,8 +42,20 @@ file:struct
     ReadEntireFileBuffer(file_name, file.data, cast(u32)sz)
     file.name = new_str_lit(alloc, file_name)
   }
-  get_cwd::fn() ! *u8
+  get_cwd::fn(alloc_type : u32 = 0, alloc : *void = nil) ! string
   {
+    ret:string
+    buffer : [1024]u8
+    __dbg_break
+    __dbg_break
+    __dbg_break
+    len := getcwd(buffer, 1024)
+
+    *ptr_offset(buffer, len, u8) = 0;
+
+    build_string(cast(str_lit)buffer, &ret, nil)
+
+    return ret;
   }
 
 }

@@ -4940,11 +4940,12 @@ node *ContructTreeFromArgs(lang_state *lang_stat, node *args_nd,
 void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl,
                    own_std::vector<comma_ret> *args) {
   own_std::vector<node *> sorted_args;
-  sorted_args.reserve(fdecl->args.size());
+  sorted_args.make_count(fdecl->args.size());
 
   bool found_assignment = false;
   // BREAK(ncall->t->line == 4682)
 
+  int i = 0;
   FOR_VEC(t, *args) {
     if (t->type == COMMA_RET_EXPR && CMP_NTYPE_BIN(t->n, T_EQUAL)) {
       found_assignment = true;
@@ -4955,8 +4956,9 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl,
       }
     }
     if (!found_assignment) {
-      sorted_args.emplace_back(t->n);
+      sorted_args[i] = t->n;
     }
+    i++;
   }
   FOR_VEC(t, *args) {
     if (t->type == COMMA_RET_EXPR && CMP_NTYPE_BIN(t->n, T_EQUAL)) {
@@ -4973,8 +4975,8 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl,
       sorted_args[d->func_arg_idx] = t->n->r;
     }
   }
+  i = 0;
   // assigning the default args that werent declared by the user
-  int i = 0;
   FOR_VEC(t, fdecl->args) {
     decl2 *d = *t;
     if (d->to_assign_value && sorted_args[i] == nullptr) {
@@ -4996,7 +4998,12 @@ void MaybeSortArgs(lang_state *lang_stat, node *ncall, func_decl *fdecl,
     }
     i++;
   }
-  ncall->r = ContructTreeFromArgs(lang_stat, ncall->r, sorted_args,
+  node *rhs = ncall->r;
+  if(!rhs)
+  {
+    rhs = new_node(lang_stat, ncall->t);
+  }
+  ncall->r = ContructTreeFromArgs(lang_stat, rhs, sorted_args,
                                   fdecl->args.size() - 1);
 }
 

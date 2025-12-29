@@ -46,9 +46,6 @@ file:struct
   {
     ret:string
     buffer : [1024]u8
-    __dbg_break
-    __dbg_break
-    __dbg_break
     len := getcwd(buffer, 1024)
 
     *ptr_offset(buffer, len, u8) = 0;
@@ -288,8 +285,6 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 
 	while format_idx < format_ln
 	{
-    PrintStr("here\n")
-
 		if* ptr_offset(format, format_idx, char) == '%
 		{
 			cur_arg: = (*__var_args)[arg_idx];
@@ -471,9 +466,7 @@ sprintf_temp::fn(format : str_lit, ...) !str_lit
 	ret: = get_linear_ptr(cast(u32)sz)
   
 
-  PrintStr("will call memcpy\n")
 	memcpy(ret, buffer, cast(u32)sz + 1);
-  PrintStr("called memcpy\n")
 	return cast(str_lit)ret;
 }
 printf::fn(format : str_lit, ...)

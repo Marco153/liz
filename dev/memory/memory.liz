@@ -531,13 +531,14 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
   //LockMutex(alloc.mutex)
 
   cur:*mem_chunk= alloc.head_free;
+  printf("cur sz {cur.size}\n")
 	ASSERT(alloc.id == 0x1234);
 
-    while cur != nil && (cur.size * BYTES_PER_CHUNK) < size
-    {
-        cur = cur.next;
-    }
-    ASSERT(cur != nil && (cur.size * BYTES_PER_CHUNK) >= size);
+  while cur != nil && (cur.size * BYTES_PER_CHUNK) < size
+  {
+      cur = cur.next;
+  }
+  ASSERT(cur != nil && (cur.size * BYTES_PER_CHUNK) >= size);
 
 	got_all_bytes_from_chunk:bool= ((cur.size * BYTES_PER_CHUNK) - size) == 0;
 	got_all_bytes_from_chunk= got_all_bytes_from_chunk || cur.size == 1
@@ -712,6 +713,17 @@ get_buffer_from_generic_alloc::fn(alloc : *generic_allocator, sz : u64)!*void
     return generic_alloc(alloc, sz);
 
   return nil
+}
+build_string::fn(src : *string, out : *string, alloc : *generic_allocator)
+{
+  buffer:= get_buffer_from_generic_alloc(alloc, src.sz + 1)
+
+  memcpy(buffer, src.data, src.sz)
+
+
+  out.data = cast(*u8)buffer;
+  out.cap = src.sz;
+  out.sz = src.sz;
 }
 build_string::fn(str : str_lit, out : *string, alloc : *generic_allocator)
 {

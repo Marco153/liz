@@ -29,6 +29,8 @@ game_info:struct
   alloc : *mem_alloc
   main_alloc : mem_alloc
   work_dir : string
+
+  main_galloc : generic_allocator
 }
 
 create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
@@ -60,12 +62,19 @@ init_game::fn(g : *game_info)
 
   InitMemAlloc(&g.main_alloc, 16000)
 
-  dir := get_cwd()
-  printf("work dir is {to_cstr(&dir, nil)}")
+  g.main_galloc.type = generic_allocator.HEAP_ALLOC
+  g.main_galloc.HEAP_ALLOC.alloc = &g.main_alloc
+
 
   __dbg_break
   __dbg_break
   __dbg_break
+  aux := get_cwd()
+  build_string(&aux, &g.work_dir, &g.main_galloc)
+
+  printf("work dir is {to_cstr(&g.work_dir, nil)}")
+
+
   res := glfwInit()
   if res == 0 __dbg_break
 

@@ -7,7 +7,8 @@ OS:const s32=LINUX;
 
 PrintStr::fn outsider(str_lit);
 ReadEntireFileMalloc::fn outsider(name : str_lit, file_sz : *u64) ! *u8;
-ReadEntireFileBuffer::fn outsider(name : str_lit, file_sz : *u64, buffer : *u8, bsz : u32);
+ReadEntireFileBuffer::fn outsider(name : str_lit, buffer : *void, bsz : u32);
+GetFileSize::fn outsider(name : str_lit, file_sz : *u64)!s32;
 
 
 file:struct
@@ -16,6 +17,8 @@ file:struct
   data : *u8
   sz : u64
 }
+
+
 
 #if OS == LINUX
 {
@@ -27,10 +30,22 @@ file:struct
 
     return id
   }
-  read_file::fn(file_name : str_lit, out : *file)
+  read_file::fn(file_name : str_lit, out : *file, alloc : *generic_allocator)
   {
-    file.data = ReadEntireFileMalloc(file_name, &file.sz)
+    sz :u64
+    ret := GetFileSize(file_name, &sz)
+
+    if ret == -1 __dbg_break
+
+    file.data = cast(*u8)generic_alloc(alloc, sz)
+
+    ReadEntireFileBuffer(file_name, file.data, cast(u32)sz)
+    file.name = new_str_lit(alloc, file_name)
   }
+  get_cwd::fn() ! *u8
+  {
+  }
+
 }
 io_globals_struct:struct
 {

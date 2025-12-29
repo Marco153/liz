@@ -41,6 +41,11 @@ create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
 }
 init_shaders::fn(g : *game_info)
 {
+  galloc :generic_allocator
+  galloc.type = generic_allocator.HEAP_ALLOC
+  galloc.HEAP_ALLOC.alloc = g.alloc
+
+  terrain_vs_file:file
 }
 init_game::fn(g : *game_info)
 {
@@ -70,6 +75,8 @@ init_game::fn(g : *game_info)
   if ret != 0 __dbg_break
 
   th := create_thread(thread, nil)
+
+  init_shaders(g)
 }
 swap_buffers::fn(g : *game_info)
 {

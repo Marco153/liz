@@ -23,5 +23,7 @@ CLONE_NEWNET:const s32 = 0x40000000;
 CLONE_IO:const s32 = 0x80000000;
 
 lock_xchg::fn intrinsic(ptr : *u64, val : u64) ! u64;
-clone::fn syscall 56(flags : u32, stack_ptr : *void, parent_tidptr : *u32, child_tidptr : *u32, new_tls : u32) ! s32;
 pthread_create::fn outsider(_id : *u64, func : fn(*void), attrs : *void, args : *void) ! s32;
+
+clone::fn syscall 56(flags : u32, stack_ptr : *void, parent_tidptr : *u32, child_tidptr : *u32, new_tls : u32) ! s32;
+getcwd::fn syscall 79(buf : *u8, bsz : u64) ! u64;

@@ -1,8 +1,21 @@
+import "../os"
+
 GetMem::fn outsider(size : u64)! *void;
 
 CHUNK_FREE : const s32 = 1;
 CHUNK_ALLOCATED : const s32= 4;
 
+str_ln::fn(str :str_lit) !u64
+{
+	s: = cast(*u8)str;
+	
+	i:u64 = 0;
+	while *ptr_offset(s, i, u8) != 0
+	{
+		i++;
+	}
+	return i;
+}
 heap_hash : struct
 {
 	inner :struct
@@ -632,4 +645,91 @@ InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 }
 
 
+generic_allocator:etruct
+{
+  NONE(
+  ),
+  HEAP_ALLOC(
+    alloc : *mem_alloc
+  ),
+  LINEAR_ALLOC(
 
+  )
+}
+generic_free::fn(alloc : *generic_allocator, ptr : *void) ! *void
+{
+  on *alloc
+  {
+  HEAP_ALLOC
+  {
+    return heap_free(alloc.HEAP_ALLOC.alloc, ptr)
+  }
+  default
+    __dbg_break
+  }
+}
+generic_alloc::fn(alloc : *generic_allocator, sz : u64) ! *void
+{
+  on *alloc
+  {
+  NONE
+  {
+    return get_linear_ptr(cast(u32)sz)
+  }
+  HEAP_ALLOC
+  {
+    return heap_alloc(alloc.HEAP_ALLOC.alloc, cast(u32)sz)
+  }
+  default
+    __dbg_break
+  }
+}
+
+new_str_lit::fn(alloc : *generic_allocator, str: str_lit) ! str_lit
+{
+	ln := str_ln(str)
+	ret := cast(*u8)generic_alloc(alloc, cast(u32)ln + 1)
+	memcpy(ret, str, ln)
+	*ptr_offset(ret, ln, u8) = 0
+	return cast(str_lit)ret
+}
+
+
+string : struct
+{
+	data : *u8
+  sz : u64
+  cap : u64
+  alloc : generic_allocator
+}
+operator +(self: *string, str : str_lit) !string
+{
+  ret : string
+
+  ln := str_ln(str)
+
+  max := ret.sz + ln
+
+  ret.cap = self.cap
+  ret.sz = self.sz
+
+  if max >= ret.cap
+  {
+    while ret.cap < max
+    {
+      ret.cap = ret.cap * 2
+    }
+
+    ret.data = cast(*u8)generic_alloc(&self.alloc, ret.cap)
+    memcpy(ret.data, self.data, self.sz)
+  }
+  else
+  {
+    ret.data = cast(*u8)generic_alloc(&self.alloc, ret.cap)
+    memcpy(ret.data, self.data, self.sz)
+  }
+  dst := ptr_offset(ret.data, ret.sz, u8)
+  memcpy(dst, str, ln)
+
+  return ret
+}

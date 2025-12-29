@@ -496,7 +496,14 @@ operator ==(self: *rel_string, str : str_lit) !bool
 }
 string : struct
 {
-	data : dyn_array(char)
+	data : *u8
+  sz : u64
+  cap : u64
+  alloc : generic_allocator
+}
+operator +(self: *string, str : str_lit) !string
+{
+
 }
 operator ==(self: *string, str : *rel_string) !bool
 {

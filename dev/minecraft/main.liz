@@ -49,12 +49,17 @@ init_shaders::fn(g : *game_info)
   galloc.HEAP_ALLOC.alloc = g.alloc
 
   terrain_vs_file:file
-  //read_file()
+  
+  __dbg_break
+  read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/chunk_vs.glsl", &terrain_vs_file, nil)
+  __dbg_break
 
+  printf("file is {cast(str_lit)terrain_vs_file.data}\n")
+  __dbg_break
 }
 init_game::fn(g : *game_info)
 {
-  io_globals.linear_max = 1024
+  io_globals.linear_max = 1024 * 32
   io_globals.linear_cur = 0
   io_globals.linear_data = cast(*u8)GetMem(io_globals.linear_max)
   printf("on main: {io_globals.linear_max}\n")

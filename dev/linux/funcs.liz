@@ -27,3 +27,38 @@ pthread_create::fn outsider(_id : *u64, func : fn(*void), attrs : *void, args : 
 
 clone::fn syscall 56(flags : u32, stack_ptr : *void, parent_tidptr : *u32, child_tidptr : *u32, new_tls : u32) ! s32;
 getcwd::fn syscall 79(buf : *u8, bsz : u64) ! u64;
+
+stat : struct 
+{
+  st_dev     : u64,
+  st_ino     : u64
+  st_nlink   : u64
+
+  st_mode    : u32
+  st_uid     : u32
+  st_gid     : u32
+  _pad0      : u32   // alignment padding
+
+  st_rdev    : u64
+  st_size    : s64 
+  st_blksize : s64
+  st_blocks  : s64
+
+  st_atim :: struct 
+  {
+    tv_sec  : s64
+    tv_nsec : s64
+  }
+
+  st_mtim :: struct 
+  {
+      tv_sec  : s64
+      tv_nsec : s64
+  }
+
+  st_ctim :: struct 
+  {
+      tv_sec  : s64
+      tv_nsec : s64
+  }
+}

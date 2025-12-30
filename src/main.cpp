@@ -10528,7 +10528,7 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 *byte_type)
   char buffer2[64];
 
   int row_max = 5;
-  int column_max = 8;
+  int column_max = 16;
   ImGui::BeginChild("mem", ImVec2(500, 400));
 
   static char *current_item = enum_types_str[0];

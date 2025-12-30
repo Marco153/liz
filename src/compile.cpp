@@ -690,6 +690,8 @@ u32 _GetFileSize(char* name, unsigned int* read_out)
 		close(fh);
 		return -1;
 	}
+	stat(name, &v);
+  *read_out = v.st_size;
   return v.st_size;
 #else
 	HANDLE file = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);

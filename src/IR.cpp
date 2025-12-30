@@ -3644,7 +3644,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
     //ret.reg_sz = cast_sz;
 
-    //BREAK(ast->line_number == 407)
+    //BREAK(ast->line_number == 43)
     if(ret.type == IR_TYPE_DECL && ret.decl->type.type == TYPE_STATIC_ARRAY)
     {
       ir.type = IR_ADDRESS_OF;
@@ -3670,6 +3670,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       bool to_float = ast->cast.type.IsFloat();
 
       //BREAK(ast->line_number == 425)
+      bool casted = false;
       if (ret.ptr > 0 && ast->cast.type.ptr == 0) {
         // Need the pointed value
         if (ret.kind == IR_VAL_ADDR)
@@ -3678,6 +3679,11 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         LoadDerefs(lang_stat, &state->cur_block->irs, &ret);
       }
       if (ast->cast.type.ptr == 0) {
+        if(cast_sz == 4 && ret.reg_sz == 8)
+        {
+          casted = true;
+          ret.reg_sz = 4;
+        }
         EnsureValue(lang_stat, state, &ret);
       }
       
@@ -3685,7 +3691,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       //if(ret)
 
 
-      if(ret.ptr == 0)
+      if(ret.ptr == 0 && !casted)
       {
         if(from_float && to_float && cast_sz != ret.reg_sz)
         {

@@ -37,10 +37,13 @@ file:struct
 
     if ret == -1 __dbg_break
 
-    file.data = cast(*u8)generic_alloc(alloc, sz)
+    if sz == 0 __dbg_break
 
-    ReadEntireFileBuffer(file_name, file.data, cast(u32)sz)
-    file.name = new_str_lit(alloc, file_name)
+    __dbg_break
+    out.data = cast(*u8)get_buffer_from_generic_alloc(alloc, sz)
+
+    ReadEntireFileBuffer(file_name, out.data, cast(u32)sz)
+    out.name = new_str_lit(alloc, file_name)
   }
   get_cwd::fn(alloc_type : u32 = 0, alloc : *void = nil) ! string
   {

@@ -43,6 +43,7 @@ file:struct
 
     ReadEntireFileBuffer(file_name, out.data, cast(u32)sz)
     out.name = new_str_lit(alloc, file_name)
+    out.sz = sz
   }
   get_cwd::fn(alloc_type : u32 = 0, alloc : *void = nil) ! string
   {
@@ -462,9 +463,9 @@ get_linear_ptr::fn(sz : u32) ! *u8
 }
 sprintf_temp::fn(format : str_lit, ...) !str_lit
 {
-	buffer: [512] char;
+	buffer: [1024 * 4] char;
 
-	sz: = sprintf_base(buffer, 512, format, &__var_args);
+	sz: = sprintf_base(buffer, buffer.len, format, &__var_args);
 	ret: = get_linear_ptr(cast(u32)sz + 1)
   
 
@@ -477,8 +478,8 @@ printf::fn(format : str_lit, ...)
 {
 	prev_sz := io_globals.linear_cur
 
-	buffer : [128]u8;
-	sprintf_base(buffer, 128, format, &__var_args);
+	buffer : [1024 * 4]u8;
+	sprintf_base(buffer, buffer.len, format, &__var_args);
 	PrintStr(cast(str_lit)buffer);
 
 	io_globals.linear_cur = prev_sz 

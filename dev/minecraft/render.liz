@@ -1,5 +1,6 @@
 import "../opengl/"
 import "../memory/"
+import "../os/"
 import "../asset/"
 draw_info:etruct
 {
@@ -57,6 +58,7 @@ get_shader_log :: fn(sh : u32,
 
 	if cast(u32)log_len > buf_sz
 	{
+    __dbg_break
 		return -1;
 	}
 
@@ -139,15 +141,28 @@ link_program :: fn(shaders    : **shader,
 }
 compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32, sh : *material_info)
 {
-  log : [512]u8
+  log : [1024 * 4]u8
   vs_sh : shader
   fs_sh : shader
   shaders :[2]*shader
   shaders[0] = &vs_sh
   shaders[1] = &fs_sh
 
-  compile_shader(vs, vs_len, shader_type.VERTEX, &vs_sh, log, 512)
-  compile_shader(fs, fs_len, shader_type.FRAGMENT, &fs_sh, log, 512)
+  res := compile_shader(vs, vs_len, shader_type.VERTEX, &vs_sh, log, log.len)
+  if res != shader_error.OK
+  {
+    printf("shader vs error \n")
+    printf("log: {cast(str_lit)log} \n")
+    __dbg_break;
+  }
+
+  res = compile_shader(fs, fs_len, shader_type.FRAGMENT, &fs_sh, log, log.len)
+  if res != shader_error.OK
+  {
+    printf("shader fs error \n")
+    printf("log: {cast(str_lit)log} \n")
+    __dbg_break;
+  }
 
   prog : u32
 
@@ -167,6 +182,7 @@ compile_shader :: fn(src : *u8,
 	log_sz   : u32
 ) ! shader_error
 {
+  ASSERT(src_len != 0)
   gl_sh_type:shader_type_gl
 
   on typ
@@ -181,9 +197,7 @@ compile_shader :: fn(src : *u8,
   }
   }
 
-  __dbg_break
 	sh : u32 = glCreateShader(cast(u32)gl_sh_type);
-  __dbg_break
 	if sh == 0
 	{
 		return shader_error.CREATE_FAILED;
@@ -200,6 +214,9 @@ compile_shader :: fn(src : *u8,
 
 	if status == GL_FALSE
 	{
+    __dbg_break
+    __dbg_break
+    __dbg_break
 		get_shader_log(sh, log_buf, log_sz);
 		glDeleteShader(sh);
 		return shader_error.COMPILE_FAILED;

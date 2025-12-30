@@ -9862,6 +9862,129 @@ int _pthread_create(unsigned long int *id, void *(*fn)(void *), void *attrs, voi
 {
   return pthread_create(id, NULL, fn, args);
 }
+int _glCreateShader(int type)
+{
+  return glCreateShader(type);
+}
+
+void _glShaderSource(
+    GLuint shader,
+    GLsizei count,
+    const GLchar *const *string,
+    const GLint *length
+)
+{
+    glShaderSource(shader, count, string, length);
+}
+
+void _glCompileShader(GLuint shader)
+{
+    glCompileShader(shader);
+}
+
+void _glGetShaderiv(
+    GLuint shader,
+    GLenum pname,
+    GLint *params
+)
+{
+    glGetShaderiv(shader, pname, params);
+}
+
+void _glGetShaderInfoLog(
+    GLuint shader,
+    GLsizei bufSize,
+    GLsizei *length,
+    GLchar *infoLog
+)
+{
+    glGetShaderInfoLog(shader, bufSize, length, infoLog);
+}
+
+void _glDeleteShader(GLuint shader)
+{
+    glDeleteShader(shader);
+}
+GLint _glGetUniformLocation(GLuint program, const GLchar *name)
+{
+    return glGetUniformLocation(program, name);
+}
+
+void _glUniform1i(GLint location, GLint v0)
+{
+    glUniform1i(location, v0);
+}
+
+void _glUniform1f(GLint location, GLfloat v0)
+{
+    glUniform1f(location, v0);
+}
+
+void _glUniform2f(GLint location, GLfloat v0, GLfloat v1)
+{
+    glUniform2f(location, v0, v1);
+}
+
+void _glUniform3f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2)
+{
+    glUniform3f(location, v0, v1, v2);
+}
+
+void _glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)
+{
+    glUniform4f(location, v0, v1, v2, v3);
+}
+
+void _glUniformMatrix4fv(
+    GLint location,
+    GLsizei count,
+    GLboolean transpose,
+    const GLfloat *value
+)
+{
+    glUniformMatrix4fv(location, count, transpose, value);
+}
+
+GLuint _glCreateProgram(void)
+{
+    return glCreateProgram();
+}
+
+void _glAttachShader(GLuint program, GLuint shader)
+{
+    glAttachShader(program, shader);
+}
+
+void _glLinkProgram(GLuint program)
+{
+    glLinkProgram(program);
+}
+
+void _glGetProgramiv(GLuint program, GLenum pname, GLint *params)
+{
+    glGetProgramiv(program, pname, params);
+}
+
+void _glGetProgramInfoLog(
+    GLuint program,
+    GLsizei bufSize,
+    GLsizei *length,
+    GLchar *infoLog
+)
+{
+    glGetProgramInfoLog(program, bufSize, length, infoLog);
+}
+
+void _glUseProgram(GLuint program)
+{
+    glUseProgram(program);
+}
+
+void _glDeleteProgram(GLuint program)
+{
+    glDeleteProgram(program);
+}
+
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -9936,8 +10059,6 @@ _pid ChildProcess(int pipes[2])
     int main_start = 0;
 
     std::unordered_map<std::string, u64> outsiders;
-
-
     outsiders["PrintStr"] = (u64)_PrintStr;
     outsiders["GetMem"] = (u64)_GetMem;
     outsiders["glfwWindowHint"] = (u64)glfwWindowHint;
@@ -9991,31 +10112,31 @@ _pid ChildProcess(int pipes[2])
     outsiders["glDrawArraysInstanced"]    = (u64)glDrawArraysInstanced;
     outsiders["glDrawElementsInstanced"]  = (u64)glDrawElementsInstanced;
 
-    outsiders["glCreateShader"]           = (u64)glCreateShader;
-    outsiders["glShaderSource"]           = (u64)glShaderSource;
-    outsiders["glCompileShader"]          = (u64)glCompileShader;
-    outsiders["glGetShaderiv"]            = (u64)glGetShaderiv;
-    outsiders["glGetProgramiv"]            = (u64)glGetProgramiv;
-    outsiders["glGetShaderInfoLog"]       = (u64)glGetShaderInfoLog;
-    outsiders["glGetProgramInfoLog"]       = (u64)glGetProgramInfoLog;
+    outsiders["glCreateShader"]           = (u64)_glCreateShader;
+    outsiders["glShaderSource"]           = (u64)_glShaderSource;
+    outsiders["glCompileShader"]          = (u64)_glCompileShader;
+    outsiders["glGetShaderiv"]            = (u64)_glGetShaderiv;
+    outsiders["glGetProgramiv"]            = (u64)_glGetProgramiv;
+    outsiders["glGetShaderInfoLog"]       = (u64)_glGetShaderInfoLog;
+    outsiders["glGetProgramInfoLog"]       = (u64)_glGetProgramInfoLog;
 
-    outsiders["glDeleteShader"]           = (u64)glDeleteShader;
+    outsiders["glDeleteShader"]           = (u64)_glDeleteShader;
 
-    outsiders["glCreateProgram"]          = (u64)glCreateProgram;
-    outsiders["glAttachShader"]           = (u64)glAttachShader;
-    outsiders["glLinkProgram"]            = (u64)glLinkProgram;
-    outsiders["glGetProgramiv"]           = (u64)glGetProgramiv;
-    outsiders["glGetProgramInfoLog"]      = (u64)glGetProgramInfoLog;
-    outsiders["glUseProgram"]             = (u64)glUseProgram;
-    outsiders["glDeleteProgram"]          = (u64)glDeleteProgram;
+    outsiders["glCreateProgram"]          = (u64)_glCreateProgram;
+    outsiders["glAttachShader"]           = (u64)_glAttachShader;
+    outsiders["glLinkProgram"]            = (u64)_glLinkProgram;
+    outsiders["glGetProgramiv"]           = (u64)_glGetProgramiv;
+    outsiders["glGetProgramInfoLog"]      = (u64)_glGetProgramInfoLog;
+    outsiders["glUseProgram"]             = (u64)_glUseProgram;
+    outsiders["glDeleteProgram"]          = (u64)_glDeleteProgram;
 
-    outsiders["glGetUniformLocation"]     = (u64)glGetUniformLocation;
-    outsiders["glUniform1i"]              = (u64)glUniform1i;
-    outsiders["glUniform1f"]              = (u64)glUniform1f;
-    outsiders["glUniform2f"]              = (u64)glUniform2f;
-    outsiders["glUniform3f"]              = (u64)glUniform3f;
-    outsiders["glUniform4f"]              = (u64)glUniform4f;
-    outsiders["glUniformMatrix4fv"]       = (u64)glUniformMatrix4fv;
+    outsiders["glGetUniformLocation"]     = (u64)_glGetUniformLocation;
+    outsiders["glUniform1i"]              = (u64)_glUniform1i;
+    outsiders["glUniform1f"]              = (u64)_glUniform1f;
+    outsiders["glUniform2f"]              = (u64)_glUniform2f;
+    outsiders["glUniform3f"]              = (u64)_glUniform3f;
+    outsiders["glUniform4f"]              = (u64)_glUniform4f;
+    outsiders["glUniformMatrix4fv"]       = (u64)_glUniformMatrix4fv;
 
     outsiders["glGenTextures"]            = (u64)glGenTextures;
     outsiders["glBindTexture"]            = (u64)glBindTexture;

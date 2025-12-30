@@ -1,0 +1,18 @@
+VkStructureType:enum
+{
+  VK_STRUCTURE_TYPE_APPLICATION_INFO = 0,
+  VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO = 1,
+  VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO = 2,
+  VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO = 3,
+  VK_STRUCTURE_TYPE_SUBMIT_INFO = 4,
+}
+VkApplicationInfo : struct
+{
+	sType              : VkStructureType,
+	pNext              : *void,
+	pApplicationName   : str_lit,
+	applicationVersion : u32,
+	pEngineName        : str_lit,
+	engineVersion      : u32,
+	apiVersion         : u32,
+}

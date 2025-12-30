@@ -1,4 +1,4 @@
-#version 430 core
+version 430 core
 layout(std140) uniform ubo {
     mat4 view;
     mat4 proj;
@@ -24,7 +24,7 @@ uniform sampler2D tex;
 void main(){
   ivec2 uv = ivec2(out_uv.x * (16.0) + (16 * tex_uv.x), out_uv.y * 16.0 + ((15 - tex_uv.y) * 16));
 
-  float l = 0.25 + float(face_light) * 0.75;
+  float l  0.25 + float(face_light) * 0.75;
   FragColor =  texelFetch(tex, uv, 0) * l;
   FragColor.w = 1.0;
   vec3 aux = normal;

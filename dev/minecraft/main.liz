@@ -2,6 +2,7 @@ import "../glfw";
 import "../os";
 import "../memory";
 import "../asset";
+import "../vulkan";
 
 typedef float as f64;
 typedef vector as _vec2;
@@ -87,6 +88,10 @@ init_shaders::fn(g : *game_info)
 
   __dbg_break
 }
+init_vulkan::fn(g : *game_info)
+{
+
+}
 init_game::fn(g : *game_info)
 {
   io_globals.linear_max = 1024 * 32
@@ -104,13 +109,8 @@ init_game::fn(g : *game_info)
   g.main_galloc.type = generic_allocator.HEAP_ALLOC
   g.main_galloc.HEAP_ALLOC.alloc = &g.main_alloc
 
-
-
   g.assets = cast(*asset_info)heap_alloc(g.alloc, sizeof(asset_info) * TOTAL_ASSETS)
 
-
-  __dbg_break
-  __dbg_break
   aux := get_cwd() + "/dev"
   build_string(&aux, &g.work_dir, &g.main_galloc)
 

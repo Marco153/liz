@@ -9936,6 +9936,8 @@ _pid ChildProcess(int pipes[2])
     int main_start = 0;
 
     std::unordered_map<std::string, u64> outsiders;
+
+
     outsiders["PrintStr"] = (u64)_PrintStr;
     outsiders["GetMem"] = (u64)_GetMem;
     outsiders["glfwWindowHint"] = (u64)glfwWindowHint;
@@ -9993,7 +9995,10 @@ _pid ChildProcess(int pipes[2])
     outsiders["glShaderSource"]           = (u64)glShaderSource;
     outsiders["glCompileShader"]          = (u64)glCompileShader;
     outsiders["glGetShaderiv"]            = (u64)glGetShaderiv;
+    outsiders["glGetProgramiv"]            = (u64)glGetProgramiv;
     outsiders["glGetShaderInfoLog"]       = (u64)glGetShaderInfoLog;
+    outsiders["glGetProgramInfoLog"]       = (u64)glGetProgramInfoLog;
+
     outsiders["glDeleteShader"]           = (u64)glDeleteShader;
 
     outsiders["glCreateProgram"]          = (u64)glCreateProgram;
@@ -11103,8 +11108,11 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
         }
         ImGui::Text("in range");
-        ImGui::Text("func strct_ret_offset %d", cur_f->strct_ret_size_per_statement_offset);
-        ImGui::Text("func strct_ret_sz %d", cur_f->strct_constrct_size_per_statement);
+        if(cur_f)
+        {
+          ImGui::Text("func strct_ret_offset %d", cur_f->strct_ret_size_per_statement_offset);
+          ImGui::Text("func strct_ret_sz %d", cur_f->strct_constrct_size_per_statement);
+        }
         if(cur_f && !cur_st)
         {
           //printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());

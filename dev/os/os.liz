@@ -39,7 +39,6 @@ file:struct
 
     if sz == 0 __dbg_break
 
-    __dbg_break
     out.data = cast(*u8)get_buffer_from_generic_alloc(alloc, sz)
 
     ReadEntireFileBuffer(file_name, out.data, cast(u32)sz)
@@ -466,10 +465,12 @@ sprintf_temp::fn(format : str_lit, ...) !str_lit
 	buffer: [512] char;
 
 	sz: = sprintf_base(buffer, 512, format, &__var_args);
-	ret: = get_linear_ptr(cast(u32)sz)
+	ret: = get_linear_ptr(cast(u32)sz + 1)
   
 
 	memcpy(ret, buffer, cast(u32)sz + 1);
+  *ptr_offset(ret, sz, u8) = 0
+
 	return cast(str_lit)ret;
 }
 printf::fn(format : str_lit, ...)

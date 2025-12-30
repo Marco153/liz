@@ -1,0 +1,32 @@
+TOTAL_ASSETS:const s32= 16
+ASSET_MAT_START:const s32= 8
+texture_info :struct
+{
+  tex_id : u32
+}
+model_info :struct
+{
+  model_id : u32
+}
+material_info :struct
+{
+	shader_id : u32
+}
+asset_type:etruct
+{
+    TEXTURE(
+        id : texture_info
+    ),
+    MODEL(
+        mod : model_info
+    ),
+    MATERIAL(
+        mat : material_info
+    ),
+}
+asset_info:struct
+{
+  in_use : bool,
+  name : [16]char
+  using type : asset_type
+}

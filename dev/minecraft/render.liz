@@ -1,4 +1,6 @@
 import "../opengl/"
+import "../memory/"
+import "../asset/"
 draw_info:etruct
 {
   LINE(
@@ -15,11 +17,17 @@ render_info:struct
 {
   //draws : 
 }
-shader_type : enum
+shader_type_gl : enum
 {
 	VERTEX   = 0x8B31, // GL_VERTEX_SHADER
 	FRAGMENT = 0x8B30, // GL_FRAGMENT_SHADER
 	COMPUTE  = 0x91B9, // GL_COMPUTE_SHADER
+}
+shader_type : enum
+{
+	VERTEX,
+	FRAGMENT,
+	COMPUTE,
 }
 shader_error : enum
 {
@@ -59,6 +67,98 @@ get_shader_log :: fn(sh : u32,
 
 	return cast(u32)log_len;
 }
+get_program_log :: fn(prog : u32,
+	out_buf : *u8,
+	buf_sz : u32
+) ! u32
+{
+	log_len : s32 = 0;
+	glGetProgramiv(prog, GL_INFO_LOG_LENGTH, &log_len);
+
+	if log_len <= 0
+	{
+		return 0;
+	}
+
+	if cast(u32)log_len > buf_sz
+	{
+		return cast(u32)shader_error.LOG_TOO_SMALL;
+	}
+
+	glGetProgramInfoLog(prog,
+		log_len,
+		nil,
+		cast(*char)out_buf);
+
+	return cast(u32)log_len;
+}
+link_program :: fn(shaders    : **shader,
+	shader_cnt : u32,
+	out_prog   : *u32,
+	log_buf    : *u8,
+	log_sz     : u32
+) ! shader_error
+{
+	prog : u32 = glCreateProgram();
+	if prog == 0
+	{
+		return shader_error.CREATE_FAILED;
+	}
+
+	i : u32 = 0;
+	while i < shader_cnt
+	{
+		glAttachShader(prog, ptr_offset(shaders, i, shader).id);
+		i += 1;
+	}
+
+	glLinkProgram(prog);
+
+	status : s32 = 0;
+	glGetProgramiv(prog, GL_LINK_STATUS, &status);
+
+	if status == GL_FALSE
+	{
+		get_program_log(prog, log_buf, log_sz);
+		glDeleteProgram(prog);
+		return shader_error.LINK_FAILED;
+	}
+
+/*
+	// optional: detach after successful link
+	i = 0;
+	while i < shader_cnt
+	{
+		glDetachShader(prog, ptr_offset(shaders, i, shader).id);
+		i += 1;
+	}
+  */
+
+	*out_prog = prog;
+	return shader_error.OK;
+}
+compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32, sh : *material_info)
+{
+  log : [512]u8
+  vs_sh : shader
+  fs_sh : shader
+  shaders :[2]*shader
+  shaders[0] = &vs_sh
+  shaders[1] = &fs_sh
+
+  compile_shader(vs, vs_len, shader_type.VERTEX, &vs_sh, log, 512)
+  compile_shader(fs, fs_len, shader_type.FRAGMENT, &fs_sh, log, 512)
+
+  prog : u32
+
+  link_program(cast(**shader)&shaders,
+    2,
+    &prog,
+    log, 
+    512)
+
+
+}
 compile_shader :: fn(src : *u8,
 	src_len  : u32,
 	typ      : shader_type,
@@ -67,7 +167,23 @@ compile_shader :: fn(src : *u8,
 	log_sz   : u32
 ) ! shader_error
 {
-	sh : u32 = glCreateShader(cast(u32)typ);
+  gl_sh_type:shader_type_gl
+
+  on typ
+  {
+  shader_type.VERTEX
+  {
+    gl_sh_type = shader_type_gl.VERTEX
+  }
+  shader_type.FRAGMENT
+  {
+    gl_sh_type = shader_type_gl.FRAGMENT
+  }
+  }
+
+  __dbg_break
+	sh : u32 = glCreateShader(cast(u32)gl_sh_type);
+  __dbg_break
 	if sh == 0
 	{
 		return shader_error.CREATE_FAILED;

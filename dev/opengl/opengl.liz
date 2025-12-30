@@ -15,8 +15,12 @@ glUseProgram::fn outsider(program: u32) ! void;
 glDeleteShader::fn outsider(shader: u32) ! void;
 
 glGetShaderiv::fn outsider(shader : u32, pname : u32, status : *s32);
+glGetProgramiv::fn outsider(shader : u32, pname : u32, status : *s32);
 
 glGetShaderInfoLog::fn outsider(shader : u32, max_len : s32, ret_len : *s32, buffer : *u8);
+glGetProgramInfoLog::fn outsider(shader : u32, max_len : s32, ret_len : *s32, buffer : *u8);
+
+glDeleteProgram::fn outsider(program : u32);
 
 glGenBuffers::fn outsider(n: s32, buffers: *u32) ! void;
 glBindBuffer::fn outsider(target: u32, buffer: u32) ! void;

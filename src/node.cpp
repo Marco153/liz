@@ -3973,6 +3973,11 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
         return false;
 
       bool should_deref = false;
+      if(n->r->type == N_STRUCT_CONSTRUCTION)
+      {
+        ret_type.type = TYPE_STRUCT_TYPE;
+        ret_type.ptr++;
+      }
 
       switch (ret_type.type) {
       case enum_type2::TYPE_INT: {
@@ -4024,7 +4029,7 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
       case enum_type2::TYPE_VECTOR:
         if (ret_type.ptr == 0) {
           REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
-                       VAR_ARGS("It's not a ptr to be derefd"));
+                       VAR_ARGS("It's not a ptr to be derefd\n"));
           ExitProcess(1);
         }
         ret_type.ptr--;
@@ -9459,8 +9464,16 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
       }
     } else {
       FOR_VEC(c, *n->exprs) {
-        if (!DescendNameFinding(lang_stat, c->n->l, n->scp))
-          return 0;
+        if(c->n->type == N_UNOP)
+        {
+          if (!DescendNameFinding(lang_stat, c->n->r, n->scp))
+            return 0;
+        }
+        else
+        {
+          if (!DescendNameFinding(lang_stat, c->n->l, n->scp))
+            return 0;
+        }
         // if()
       }
     }

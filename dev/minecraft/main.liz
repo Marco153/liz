@@ -1,6 +1,7 @@
 import "../glfw";
 import "../os";
 import "../memory";
+import "../asset";
 
 typedef float as f64;
 typedef vector as _vec2;
@@ -28,9 +29,33 @@ game_info:struct
   wnd:*u8
   alloc : *mem_alloc
   main_alloc : mem_alloc
+  names_alloc : mem_alloc
   work_dir : string
 
   main_galloc : generic_allocator
+
+  assets : *asset_info
+}
+get_material_asset::fn(g : *game_info, name : str_lit)!u64
+{
+  ret : u64
+  i :u64= ASSET_MAT_START
+  ln := str_ln(name)
+  ASSERT(ln < 15)
+  while i < TOTAL_ASSETS
+  {
+    cur := ptr_offset(g.assets, i, asset_info)
+    if !cur.in_use 
+    {
+      memcpy(&cur.name, name, 15)
+      cur.in_use = true
+      return i
+    }
+  }
+
+  __dbg_break
+
+  return  -1
 }
 
 create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
@@ -48,13 +73,18 @@ init_shaders::fn(g : *game_info)
   galloc.type = generic_allocator.HEAP_ALLOC
   galloc.HEAP_ALLOC.alloc = g.alloc
 
-  terrain_vs_file:file
+  t_vs_file:file
+  t_fs_file:file
   
-  __dbg_break
-  read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/chunk_vs.glsl", &terrain_vs_file, nil)
-  __dbg_break
+  read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/chunk_vs.glsl", &t_vs_file, nil)
+  read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/chunk_fs.glsl", &t_fs_file, nil)
 
-  printf("file is {cast(str_lit)terrain_vs_file.data}\n")
+  mat_idx := get_material_asset(g, "chunk")
+  mat := ptr_offset(g.assets, mat_idx, asset_info)
+
+  __dbg_break
+  compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz, &mat.MATERIAL.mat)
+
   __dbg_break
 }
 init_game::fn(g : *game_info)
@@ -67,8 +97,16 @@ init_game::fn(g : *game_info)
 
   InitMemAlloc(&g.main_alloc, 16000)
 
+  InitMemAlloc(&g.names_alloc, 1000)
+
+  g.alloc = &g.main_alloc
+
   g.main_galloc.type = generic_allocator.HEAP_ALLOC
   g.main_galloc.HEAP_ALLOC.alloc = &g.main_alloc
+
+
+
+  g.assets = cast(*asset_info)heap_alloc(g.alloc, sizeof(asset_info) * TOTAL_ASSETS)
 
 
   __dbg_break

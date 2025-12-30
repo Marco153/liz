@@ -12004,7 +12004,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           bc.type = MOV_R_2_R;
           bc.bin.lhs.reg = ir->bin.lhs.reg;
           bc.bin.lhs.reg_sz = ir->bin.lhs.reg_sz;
-          bc.bin.rhs.reg = ir->bin.lhs.reg;
+          bc.bin.rhs.reg = ir->bin.rhs.reg;
           InsertBc(ret, bc);
         }
         else if(ir->bin.lhs.type == IR_TYPE_REG && (ir->bin.rhs.type == IR_TYPE_REG_MEM || ir->bin.rhs.type == IR_TYPE_ON_STACK))

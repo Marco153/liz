@@ -3586,7 +3586,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_ADDRESS_OF:
   {
     ast_rep *addr = ast->ast;
-    //BREAK(ast->line_number == 1766)
     ret = GetIRFromAst2(lang_stat, addr, state, true);
     if(ret.kind == IR_VAL_ADDR)
     {

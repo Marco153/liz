@@ -11103,6 +11103,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
         }
         ImGui::Text("in range");
+        ImGui::Text("func strct_ret_offset %d", cur_f->strct_ret_size_per_statement_offset);
+        ImGui::Text("func strct_ret_sz %d", cur_f->strct_constrct_size_per_statement);
         if(cur_f && !cur_st)
         {
           //printf("DBG: fstart %d, fend %d, name %s\n", cur_f->code_start_idx, cur_f->code_end_idx, cur_f->name.c_str());

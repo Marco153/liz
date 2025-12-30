@@ -4605,6 +4605,7 @@ struct func_dbg
 	int dbg_saved_regs;
 
 	int strct_constr_offset;
+	int strct_constr_sz;
 	int strct_ret_offset;
 	int to_spill_offset;
 	int for_interpreter_x64_code_start;
@@ -4838,6 +4839,7 @@ void WasmSerializeFunc(web_assembly_state* wasm_state, serialize_state *ser_stat
 	fdbg->flags = f->flags;
 	fdbg->stmnts_len = f->wasm_stmnts.size();
 	fdbg->strct_constr_offset = f->strct_constrct_at_offset;
+	fdbg->strct_constr_sz = f->strct_constrct_size_per_statement;
 	fdbg->dbg_saved_regs = f->dbg_saved_regs_offset;
 	fdbg->strct_ret_offset = f->strct_ret_size_per_statement_offset;
 	fdbg->to_spill_offset = f->to_spill_offset;
@@ -5440,6 +5442,7 @@ decl2 *WasmInterpBuildFunc(unsigned char *data, wasm_interp *winterp, lang_state
 	}
 	fdecl->this_decl = d;
 	fdecl->strct_constrct_at_offset = fdbg->strct_constr_offset;
+	fdecl->strct_constrct_size_per_statement = fdbg->strct_constr_sz;
 	fdecl->strct_ret_size_per_statement_offset = fdbg->strct_ret_offset;
 	fdecl->to_spill_offset = fdbg->to_spill_offset;
 	fdecl->ir_stack_begin_idx = fdbg->ir_begin_stack_idx;
@@ -11879,7 +11882,9 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
 
         //gen_state->strcts_ret_stack_offset = stack_size;
         cur_ir->fdecl->strct_ret_size_per_statement_offset = stack_size;
-        stack_size += cur_ir->fdecl->strct_ret_size_per_statement;
+        stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
+
+        stack_size += MAX_CALL_REGS * 8;
         //printf("stacksize %d\n", stack_size);
         //cur_ir->fdecl->stack_size = stack_size;
         cur_ir->fdecl->stack_size = stack_size;

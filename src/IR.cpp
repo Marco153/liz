@@ -1927,105 +1927,14 @@ void FreeSomeRegs(lang_state *lang_stat)
   lang_stat->regs[14] = 0;
   lang_stat->regs[15] = 0;
 }
-
-void GetIRCond2(lang_state *lang_stat,
-                ast_rep *ast,
-                thread_ir_state *state,
-                block2 *cond_true,
-                block2 *cond_false)
-{
-    ASSERT(cond_true && cond_false);
-
-    // !expr  → swap targets
-    if (ast->type == AST_OPPOSITE) {
-        GetIRCond2(lang_stat, ast->ast, state, cond_false, cond_true);
-        return;
-    }
-
-    // constant
-    if (ast->type == AST_INT) {
-        EmitJmp(lang_stat, state, ast->num ? cond_true : cond_false);
-        return;
-    }
-
-    // binary operators
-    if (ast->type == AST_BINOP && ast->op != T_POINT) {
-
-        // comparisons
-        if (IsComparisonOp(ast->op)) {
-            GetIRComparison(lang_stat, ast, state, ast->op, cond_true);
-            EmitJmp(lang_stat, state, cond_false);
-            return;
-        }
-
-        // logical AND
-        if (ast->op == T_COND_AND) {
-            int i = 0;
-            FOR_VEC(expr, ast->e_holder.expr) {
-                ast_rep *e = *expr;
-
-                if ((i + 1) == ast->e_holder.expr.size()) {
-                    GetIRCond2(lang_stat, e, state, cond_true, cond_false);
-                } else {
-                    block2 *mid = CreateBlock(lang_stat, state);
-                    GetIRCond2(lang_stat, e, state, mid, cond_false);
-                    EmitBlock(lang_stat, state, mid);
-                    state->cur_block = mid;
-                }
-
-                i++;
-                FreeSomeRegs(lang_stat);
-            }
-            return;
-        }
-
-        // logical OR
-        if (ast->op == T_COND_OR) {
-            int i = 0;
-            FOR_VEC(expr, ast->e_holder.expr) {
-                ast_rep *e = *expr;
-
-                if ((i + 1) == ast->e_holder.expr.size()) {
-                    GetIRCond2(lang_stat, e, state, cond_true, cond_false);
-                } else {
-                    block2 *mid = CreateBlock(lang_stat, state);
-                    GetIRCond2(lang_stat, e, state, cond_true, mid);
-                    EmitBlock(lang_stat, state, mid);
-                    state->cur_block = mid;
-                }
-
-                i++;
-                FreeSomeRegs(lang_stat);
-            }
-            return;
-        }
-
-        ASSERT(false);
-    }
-
-    // truthy fallback: expr != 0
-    {
-        ir_rep ir;
-        ir.type = IR_CMP;
-        ir.bin.op = T_COND_NE;
-        ir.bin.lhs = GetIRFromAst2(lang_stat, ast, state, true);
-        ir.bin.rhs.type = IR_TYPE_INT;
-        ir.bin.rhs.i = 0;
-        ir.bin.block_id = cond_true->id;
-        InsertIr(state, ir);
-
-        EmitJmp(lang_stat, state, cond_false);
-    }
-
-}
-/*
 void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, block2 *cond_true, block2 *cond_false, bool flip_comparison = true) 
 {
   ASSERT(cond_true && cond_false)
-    BREAK(ast->line_number == 542)
+  //BREAK(ast->line_number == 541)
   if(ast->type == AST_OPPOSITE)
   {
-    GetIRCond2(lang_stat, ast->ast, state, cond_true, cond_false, false);
+    bool aux_flip = false;
+    GetIRCond2(lang_stat, ast->ast, state, cond_false, cond_true, false);
   }
   else if(ast->type == AST_INT)
   {
@@ -2070,7 +1979,7 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
         else
         {
           block2 *mid = CreateBlock(lang_stat, state);
-          GetIRCond2(lang_stat, e, state, mid, cond_false, flip_comparison);
+          GetIRCond2(lang_stat, e, state, mid, cond_false, true);
           EmitBlock(lang_stat, state, mid);
 
           state->cur_block = mid;
@@ -2127,7 +2036,6 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
     InsertIr(state, ir);
   }
 }
-*/
 bool IsCondAndOr(tkn_type2 t) { return t == T_COND_AND || t == T_COND_OR; }
 
 void GenIRSubBin(lang_state *lang_stat, ast_rep *ast,
@@ -2850,6 +2758,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
   if(callf->ret_type.type == TYPE_STRUCT && callf->ret_type.ptr == 0)
   {
+    //BREAK(ast->line_number == 72)
     int st_size = GetTypeSize(&callf->ret_type);
     int offset = get_strct_ret(state);
     add_strct_ret(state, st_size);

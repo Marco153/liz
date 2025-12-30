@@ -68,8 +68,7 @@ init_game::fn(g : *game_info)
 
   __dbg_break
   __dbg_break
-  __dbg_break
-  aux := get_cwd()
+  aux := get_cwd() + "/dev"
   build_string(&aux, &g.work_dir, &g.main_galloc)
 
   printf("work dir is {to_cstr(&g.work_dir, nil)}")

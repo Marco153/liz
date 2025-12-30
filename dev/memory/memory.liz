@@ -328,7 +328,7 @@ HHashGet :: fn (alloc: *mem_alloc, key : *void) ! *u8
 			return cur.value;
 		i++;
 	}
-	ASSERT(0 == 1);
+  __dbg_break
 	return nil;
 }
 HHashRemove :: fn (alloc: *mem_alloc, key : *void)
@@ -531,7 +531,6 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
   //LockMutex(alloc.mutex)
 
   cur:*mem_chunk= alloc.head_free;
-  printf("cur sz {cur.size}\n")
 	ASSERT(alloc.id == 0x1234);
 
   while cur != nil && (cur.size * BYTES_PER_CHUNK) < size
@@ -671,6 +670,7 @@ generic_free::fn(alloc : *generic_allocator, ptr : *void) ! *void
 }
 generic_alloc::fn(alloc : *generic_allocator, sz : u64) ! *void
 {
+  if !alloc return get_linear_ptr(cast(u32)sz)
   on *alloc
   {
   NONE
@@ -757,7 +757,8 @@ operator +(self: *string, str : str_lit) !string
   max := ret.sz + ln
 
   ret.cap = self.cap
-  ret.sz = self.sz
+  ret.sz = self.sz + ln
+
 
   if max >= ret.cap
   {
@@ -774,7 +775,7 @@ operator +(self: *string, str : str_lit) !string
     ret.data = cast(*u8)generic_alloc(&self.alloc, ret.cap)
     memcpy(ret.data, self.data, self.sz)
   }
-  dst := ptr_offset(ret.data, ret.sz, u8)
+  dst := ptr_offset(ret.data, self.sz, u8)
   memcpy(dst, str, ln)
 
   return ret

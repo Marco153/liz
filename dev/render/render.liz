@@ -146,7 +146,7 @@ link_program :: fn(shaders    : **shader,
 	*out_prog = prog;
 	return shader_error.OK;
 }
-compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32)
+compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32) ! u32
 {
   log : [1024 * 4]u8
   vs_sh : shader
@@ -178,6 +178,8 @@ compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32)
     &prog,
     log, 
     512)
+
+  return prog
 }
 compile_shader :: fn(src : *u8,
 	src_len  : u32,
@@ -247,6 +249,22 @@ uniform_buffer:struct
 }
 }
 
+create_uniform_buffer::fn(size : u32)!uniform_buffer
+{
+#if RENDER_API == OPENGL
+{
+  ret : uniform_buffer
+  glGenBuffers(1, &ret.id);                  // generate buffer
+  glBindBuffer(GL_UNIFORM_BUFFER, ret.id);
+  glBufferData(GL_UNIFORM_BUFFER, size, nil, GL_DYNAMIC_DRAW); // no data yet
+  glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  return ret
+}
+}
 create_storage_buffer::fn(size : u32)!storage_buffer
 {
 #if RENDER_API == OPENGL
@@ -279,7 +297,7 @@ update_storage_buffer::fn(storage : *storage_buffer, data : *void, data_size:s64
 enable_shader_uniform::fn(name          : str_lit,
     binding       : s32,
     shaderProgram : u32,
-    ubo           : u32
+    ubo           : *uniform_buffer
 )
 {
     uniformBlockUBO : u32 =
@@ -299,17 +317,17 @@ enable_shader_uniform::fn(name          : str_lit,
 
     glBindBufferBase(GL_UNIFORM_BUFFER,
         cast(u32)binding,
-        ubo);
+        ubo.id);
 }
-enable_shader_uniforms::fn(g : *game_info, mat : *material_info)
+enable_shader_uniforms::fn(mat : *material_info, global_ubo : *uniform_buffer)
 {
     enable_shader_uniform("ubo",
         0,
-        shaderProgram,
+        mat.shader_id,
         global_ubo);
 
     enable_shader_uniform("_model",
         1,
-        shaderProgram,
-        model_ubo_buffer);
+        mat.shader_id,
+        &mat.model_uniform);
 }

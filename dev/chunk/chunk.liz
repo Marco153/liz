@@ -1,4 +1,4 @@
-import "../minecraft/"
+import "../render/"
 FACE_RIGHT:const s32= 0
 FACE_LEFT:const s32= 1
 FACE_UP:const s32= 2

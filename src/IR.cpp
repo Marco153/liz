@@ -3190,6 +3190,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       if(is_lhs)
       {
         ir.type = IR_ADDRESS_OF;
+        ir.bin.lhs.reg_sz = 8;
       }
       else
       {
@@ -3200,10 +3201,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         EnsureValue(lang_stat, state, &ret);
         ir.type = IR_BIN;
         ir.bin.op = T_EQUAL;
+        ir.bin.lhs.reg_sz = ret.reg_sz;
       }
       ir.bin.lhs.type = IR_TYPE_REG;
       ir.bin.lhs.reg = (char)regs_enum::RAX;
-      ir.bin.lhs.reg_sz = ret.reg_sz;
       ir.bin.lhs.is_unsigned = ret.is_unsigned;
       ir.bin.lhs.is_float = ret.is_float;
       ir.bin.lhs.is_packed_float = ret.is_packed_float;
@@ -3212,6 +3213,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       InsertIr(state, ir);
     }
     ir.type = IR_RET;
+    ir.bin.lhs.reg_sz = 8;
     InsertIr(state, ir);
 
 

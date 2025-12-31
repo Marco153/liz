@@ -7,6 +7,7 @@ import "../vulkan";
 import "../math";
 import "../entity";
 import "../chunk";
+import "../render";
 
 
 
@@ -117,6 +118,16 @@ create_ents::fn(g : *game_info)
   printf("ents created\n")
 
 }
+create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : *file,mat : *material_info)
+{
+  empty_frag_str := "#version 330 core \nvoid main()\{\};";
+  empty_frag_strln := cast(u32)str_ln(empty_frag_str)
+
+  mat.shader_id     = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz)
+  mat.depth_only_id = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, empty_frag_str, empty_frag_strln)
+
+  mat.model_uniform = create_uniform_buffer(64)
+}
 init_shaders::fn(g : *game_info)
 {
   galloc :generic_allocator
@@ -126,8 +137,6 @@ init_shaders::fn(g : *game_info)
   t_vs_file:file
   t_fs_file:file
   
-  empty_frag_str := "#version 330 core \nvoid main()\{\};";
-  empty_frag_strln := cast(u32)str_ln(empty_frag_str)
 
   read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/chunk_vs.glsl", &t_vs_file, nil)
   read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/chunk_fs.glsl", &t_fs_file, nil)
@@ -135,8 +144,7 @@ init_shaders::fn(g : *game_info)
   mat_idx := get_material_asset(g, "chunk")
   mat := ptr_offset(g.assets, mat_idx, asset_info)
 
-  &mat.MATERIAL.mat.shader_id     = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz)
-  &mat.MATERIAL.mat.depth_only_id = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, empty_frag_str, empty_frag_strln)
+  create_shader_and_depth_only(g, &t_vs_file, &t_fs_file, &mat.MATERIAL.mat)
 }
 init_game::fn(g : *game_info)
 {

@@ -9,9 +9,6 @@ import "../entity";
 import "../chunk";
 import "../render";
 
-
-
-
 #if RENDER_API == OPENGL
 {
   import "../opengl";

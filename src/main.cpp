@@ -10144,8 +10144,81 @@ void _glUniformBlockBinding(
     glUniformBlockBinding(program, uniformBlockIndex, binding);
 }
 
+// ---------- GL error helper ----------
+static inline void _gl_check_error(const char *fn, int line)
+{
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        printf("\nGL error 0x%x in %s at line %d\n", err, fn, line);
+        fflush(stdout);
+        ExitProcess(1);
+    }
+}
 
+// ---------- glGenFramebuffers ----------
+void _glGenFramebuffers(s32 n, u32 *framebuffers)
+{
+    glGenFramebuffers((GLsizei)n, (GLuint *)framebuffers);
+    _gl_check_error("_glGenFramebuffers", __LINE__);
+}
 
+// ---------- glBindFramebuffer ----------
+void _glBindFramebuffer(u32 target, u32 framebuffer)
+{
+    glBindFramebuffer((GLenum)target, (GLuint)framebuffer);
+    _gl_check_error("_glBindFramebuffer", __LINE__);
+}
+
+// ---------- glFramebufferTexture2D ----------
+void _glFramebufferTexture2D(
+    u32 target,
+    u32 attachment,
+    u32 textarget,
+    u32 texture,
+    s32 level
+)
+{
+    glFramebufferTexture2D(
+        (GLenum)target,
+        (GLenum)attachment,
+        (GLenum)textarget,
+        (GLuint)texture,
+        (GLint)level
+    );
+    _gl_check_error("_glFramebufferTexture2D", __LINE__);
+}
+// ---------- glGenRenderbuffers ----------
+void _glGenRenderbuffers(s32 n, u32 *renderbuffers)
+{
+    glGenRenderbuffers((GLsizei)n, (GLuint *)renderbuffers);
+}
+
+// ---------- glBindRenderbuffer ----------
+void _glBindRenderbuffer(u32 target, u32 renderbuffer)
+{
+    glBindRenderbuffer((GLenum)target, (GLuint)renderbuffer);
+}
+
+// ---------- glDrawBuffer ----------
+void _glDrawBuffer(u32 buf)
+{
+    glDrawBuffer((GLenum)buf);
+}
+
+// ---------- glReadBuffer ----------
+void _glReadBuffer(u32 buf)
+{
+    glReadBuffer((GLenum)buf);
+}
+void _glDrawBuffers(s32 n, s32 *bufs)
+{
+    glDrawBuffers((GLsizei)n, (const GLenum *)bufs);
+}
+// ---------- glCheckFramebufferStatus ----------
+s32 _glCheckFramebufferStatus(u32 target)
+{
+    return (s32)glCheckFramebufferStatus((GLenum)target);
+}
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -10235,6 +10308,16 @@ _pid ChildProcess(int pipes[2])
     outsiders["asinf"] = (u64)asinf;
     outsiders["acosf"] = (u64)acosf;
     outsiders["atan2f"] = (u64)atan2f;
+
+    outsiders["glGenRenderbuffers"]        = (u64)_glGenRenderbuffers;
+    outsiders["glBindRenderbuffer"]        = (u64)_glBindRenderbuffer;
+    outsiders["glDrawBuffer"]              = (u64)_glDrawBuffer;
+    outsiders["glReadBuffer"]              = (u64)_glReadBuffer;
+    outsiders["glCheckFramebufferStatus"]  = (u64)_glCheckFramebufferStatus;
+    outsiders["glDrawBuffers"]             = (u64)_glDrawBuffers;
+    outsiders["glGenFramebuffers"]         = (u64)_glGenFramebuffers;
+    outsiders["glBindFramebuffer"]         = (u64)_glBindFramebuffer;
+    outsiders["glFramebufferTexture2D"]    = (u64)_glFramebufferTexture2D;
 
     outsiders["glGetUniformBlockIndex"] = (uint64_t)_glGetUniformBlockIndex;
     outsiders["glGetError"]             = (uint64_t)_glGetError;

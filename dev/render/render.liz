@@ -259,11 +259,162 @@ create_uniform_buffer::fn(size : u32)!uniform_buffer
   glBufferData(GL_UNIFORM_BUFFER, size, nil, GL_DYNAMIC_DRAW); // no data yet
   glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-  __dbg_break
-  __dbg_break
-  __dbg_break
   return ret
 }
+}
+create_fbo_args : struct
+{
+    fbo              : *u32;
+    color_texture    : *u32;
+    normal_texture   : *u32;
+
+    width            : s32;
+    height           : s32;
+
+    internal_format  : s32;
+    format           : s32;
+    type             : s32;
+    attachment_type  : s32;
+}
+create_framebuffer::fn(args : *create_fbo_args) ! void
+{
+#if RENDER_API == OPENGL
+{
+    Buffer   : u32;
+    offDepth : u32;
+
+    // Create and bind framebuffer
+    glGenFramebuffers(1, args.fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, *args.fbo);
+
+    // Create color texture
+    glGenTextures(1, args.color_texture);
+    glBindTexture(GL_TEXTURE_2D, *args.color_texture);
+
+    glTexImage2D(GL_TEXTURE_2D,
+        0,
+        args.internal_format,
+        args.width,
+        args.height,
+        0,
+        cast(u32)args.format,
+        cast(u32)args.type,
+        nil);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // Attach color texture
+    glFramebufferTexture2D(GL_FRAMEBUFFER,
+        cast(u32)args.attachment_type,
+        GL_TEXTURE_2D,
+        *args.color_texture,
+        0);
+
+    // Depth / MRT handling
+    glGenRenderbuffers(1, &Buffer);
+
+    if args.attachment_type == GL_DEPTH_ATTACHMENT
+    {
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+    }
+    else
+    {
+        // Depth texture
+        glGenTextures(1, &offDepth);
+        glBindTexture(GL_TEXTURE_2D, offDepth);
+
+        glTexImage2D(GL_TEXTURE_2D,
+            0,
+            GL_DEPTH_COMPONENT24,
+            args.width,
+            args.height,
+            0,
+            GL_DEPTH_COMPONENT,
+            GL_FLOAT,
+            nil);
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER,
+            GL_DEPTH_ATTACHMENT,
+            GL_TEXTURE_2D,
+            offDepth,
+            0);
+
+        // Normal buffer
+        glGenTextures(1, args.normal_texture);
+        glBindTexture(GL_TEXTURE_2D, *args.normal_texture);
+
+        glTexImage2D(GL_TEXTURE_2D,
+            0,
+            GL_RGBA16F,
+            args.width,
+            args.height,
+            0,
+            GL_RGBA,
+            GL_FLOAT,
+            nil);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT1,
+            GL_TEXTURE_2D,
+            *args.normal_texture,
+            0);
+
+        bufs : [2]s32
+        bufs[0]  = GL_COLOR_ATTACHMENT0
+        bufs[1]  = GL_COLOR_ATTACHMENT1
+        glDrawBuffers(2, &bufs);
+    }
+
+    // Check framebuffer completeness
+    fbo_status : s32 = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if fbo_status != GL_FRAMEBUFFER_COMPLETE
+    {
+        printf("Error: Framebuffer is not complete!\n");
+        ASSERT(false);
+    }
+
+    // Unbind framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+}
+create_framebuffers::fn(depth_fbo : *u32, offscreen_fbo: *u32, depth_tex : *u32, normal_tex : *u32, color_tex : *u32, width : s32, height : s32 ) ! void
+{
+  depth_fbo_args : create_fbo_args;
+
+  depth_fbo_args.fbo             = depth_fbo;
+  depth_fbo_args.color_texture   = depth_tex;
+  depth_fbo_args.normal_texture  = nil;
+
+  depth_fbo_args.width           = width;
+  depth_fbo_args.height          = height;
+
+  depth_fbo_args.internal_format = GL_DEPTH_COMPONENT24;
+  depth_fbo_args.format          = GL_DEPTH_COMPONENT;
+  depth_fbo_args.type            = GL_FLOAT;
+  depth_fbo_args.attachment_type = GL_DEPTH_ATTACHMENT;
+
+  create_framebuffer(&depth_fbo_args);
+
+  offscreen_fbo_args : create_fbo_args;
+
+  offscreen_fbo_args.fbo             = offscreen_fbo;
+  offscreen_fbo_args.color_texture   = color_tex;
+  offscreen_fbo_args.normal_texture  = normal_tex;
+
+  offscreen_fbo_args.width           = width;
+  offscreen_fbo_args.height          = height;
+
+  offscreen_fbo_args.internal_format = GL_RGBA8;
+  offscreen_fbo_args.format          = GL_RGBA;
+  offscreen_fbo_args.type            = GL_UNSIGNED_BYTE;
+  offscreen_fbo_args.attachment_type = GL_COLOR_ATTACHMENT0;
+
+  create_framebuffer(&offscreen_fbo_args);
 }
 create_storage_buffer::fn(size : u32)!storage_buffer
 {

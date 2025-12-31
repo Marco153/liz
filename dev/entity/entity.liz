@@ -1,9 +1,13 @@
 import "../typedefs/"
 import "../minecraft/"
+import "../memory/"
 import "../chunk/"
 
+ENT_FLAGS_IN_USE:const s32= 1
 entity :struct
 {
+  idx : u32
+  flags : u32
   pos : vector
   rot : _vec
 
@@ -11,4 +15,28 @@ entity :struct
   {
     trn : *terrain_info
   }
+}
+entity_manager:struct
+{
+  ents : *entity
+  total_ents : u32
+
+}
+init_ent_man::fn(man : *entity_manager, alloc : *generic_allocator)
+{
+  man.total_ents = 16;
+  man.ents = cast(*entity)get_buffer_from_generic_alloc(alloc, man.total_ents * sizeof(entity))
+}
+instantiate_ent::fn(man : *entity_manager) ! *entity
+{
+  for i in 0..cast(s64)man.total_ents
+  {
+    e := ptr_offset(man.ents, i, entity)
+    if is_flag_off(e.flags, ENT_FLAGS_IN_USE)
+    {
+      e.flags = e.flags | ENT_FLAGS_IN_USE;
+      return e;
+    }
+  }
+  return nil;
 }

@@ -1,4 +1,4 @@
-import "../typedefs/"
+import "../typedefs/";
 import "../glfw";
 import "../os";
 import "../memory";
@@ -6,6 +6,7 @@ import "../asset";
 import "../vulkan";
 import "../math";
 import "../entity";
+import "../chunk";
 
 
 
@@ -23,6 +24,7 @@ thread :: fn(arg : *void)
   }
 }
 
+
 game_info:struct
 {
   wnd:*u8
@@ -35,7 +37,12 @@ game_info:struct
 
   assets : *asset_info
 
+  ent_man:entity_manager
+
   cam_pos : vector
+  player : *entity
+  trn : *entity
+
 }
 get_material_asset::fn(g : *game_info, name : str_lit)!u64
 {
@@ -68,6 +75,48 @@ create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
 
   return glfwCreateWindow(w, h, name, nil, nil);
 }
+init_terrain::fn(g : *game_info, trn : *terrain_info)
+{
+  bsz := cast(u32)8 * 6
+  trn.ubo = create_storage_buffer(bsz)
+
+
+  block: [6]u64
+  val : u64
+
+  make_face_val(val, 0, 0, 0, FACE_RIGHT, 15, 0, 0)
+  block[0] = val
+
+  make_face_val(val, 0, 0, 0, FACE_LEFT, 15, 0, 0)
+  block[1] = val
+
+  make_face_val(val, 0, 0, 0, FACE_UP, 15, 0, 0)
+  block[2] = val
+
+  make_face_val(val, 0, 0, 0, FACE_DOWN, 15, 0, 0)
+  block[3] = val
+
+  make_face_val(val, 0, 0, 0, FACE_FORWARD, 15, 0, 0)
+  block[4] = val
+
+  make_face_val(val, 0, 0, 0, FACE_BACK, 15, 0, 0)
+  block[5] = val
+
+
+  create_storage_buffer(bsz)
+
+
+}
+create_ents::fn(g : *game_info)
+{
+  g.player = instantiate_ent(&g.ent_man)
+  g.trn    = instantiate_ent(&g.ent_man)
+
+  g.trn.trn = new_ptr(terrain_info)
+
+  printf("ents created\n")
+
+}
 init_shaders::fn(g : *game_info)
 {
   galloc :generic_allocator
@@ -77,13 +126,17 @@ init_shaders::fn(g : *game_info)
   t_vs_file:file
   t_fs_file:file
   
+  empty_frag_str := "#version 330 core \nvoid main()\{\};";
+  empty_frag_strln := cast(u32)str_ln(empty_frag_str)
+
   read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/chunk_vs.glsl", &t_vs_file, nil)
   read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/chunk_fs.glsl", &t_fs_file, nil)
 
   mat_idx := get_material_asset(g, "chunk")
   mat := ptr_offset(g.assets, mat_idx, asset_info)
 
-  compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz, &mat.MATERIAL.mat)
+  &mat.MATERIAL.mat.shader_id     = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz)
+  &mat.MATERIAL.mat.depth_only_id = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, empty_frag_str, empty_frag_strln)
 }
 init_game::fn(g : *game_info)
 {
@@ -127,6 +180,10 @@ init_game::fn(g : *game_info)
   th := create_thread(thread, nil)
 
   init_shaders(g)
+
+  init_ent_man(&g.ent_man, &g.main_galloc)
+
+  create_ents(g)
 }
 swap_buffers::fn(g : *game_info)
 {

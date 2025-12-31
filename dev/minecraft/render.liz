@@ -9,6 +9,10 @@ draw_info:etruct
   LINE(
 
   ),
+  CHUNK(
+    pos : _vec
+    ubo : storage_buffer
+  ),
   OBJECT(
     pos : _vec
     sz : _vec
@@ -16,9 +20,8 @@ draw_info:etruct
   )
 }
 
-render_info:struct
+render_manager:struct
 {
-  //cam_pos : _vec
   draws : *draw_info
   cur_draws : u32
 }
@@ -143,7 +146,7 @@ link_program :: fn(shaders    : **shader,
 	*out_prog = prog;
 	return shader_error.OK;
 }
-compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32, sh : *material_info)
+compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32)
 {
   log : [1024 * 4]u8
   vs_sh : shader
@@ -235,10 +238,16 @@ storage_buffer:struct
 {
   id : u32
 }
-
+}
+uniform_buffer:struct
+{
+#if RENDER_API == OPENGL
+{
+  id : u32
+}
 }
 
-CreateStorageBuffer::fn(size : u32)!storage_buffer
+create_storage_buffer::fn(size : u32)!storage_buffer
 {
 #if RENDER_API == OPENGL
 {
@@ -251,7 +260,7 @@ CreateStorageBuffer::fn(size : u32)!storage_buffer
   return ret
 }
 }
-UpdateStorageBuffer::fn(storage : *storage_buffer, data : *void, data_size:s64)
+update_storage_buffer::fn(storage : *storage_buffer, data : *void, data_size:s64)
 {
 #if RENDER_API == OPENGL
 {
@@ -266,4 +275,41 @@ UpdateStorageBuffer::fn(storage : *storage_buffer, data : *void, data_size:s64)
   glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
+}
+enable_shader_uniform::fn(name          : str_lit,
+    binding       : s32,
+    shaderProgram : u32,
+    ubo           : u32
+)
+{
+    uniformBlockUBO : u32 =
+        glGetUniformBlockIndex(shaderProgram, name);
+
+    if glGetError() == GL_INVALID_INDEX
+    {
+        // keeping semantics; replace with your own logging if needed
+        __dbg_break
+        __dbg_break
+        __dbg_break
+    }
+
+    glUniformBlockBinding(shaderProgram,
+        uniformBlockUBO,
+        cast(u32)binding);
+
+    glBindBufferBase(GL_UNIFORM_BUFFER,
+        cast(u32)binding,
+        ubo);
+}
+enable_shader_uniforms::fn(g : *game_info, mat : *material_info)
+{
+    enable_shader_uniform("ubo",
+        0,
+        shaderProgram,
+        global_ubo);
+
+    enable_shader_uniform("_model",
+        1,
+        shaderProgram,
+        model_ubo_buffer);
 }

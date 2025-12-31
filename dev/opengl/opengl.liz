@@ -31,6 +31,10 @@ glGenVertexArrays::fn outsider(n: s32, arrays: *u32) ! void;
 glBindVertexArray::fn outsider(array: u32) ! void;
 glEnableVertexAttribArray::fn outsider(index: u32) ! void;
 
+glBindBufferBase::fn outsider(target : u32,
+    index  : u32,
+    buffer : u32
+) ! void;
 glMapBufferRange::fn outsider(target : u32,
     offset : s64,
     length : s64,
@@ -39,6 +43,18 @@ glMapBufferRange::fn outsider(target : u32,
 
 glUnmapBuffer::fn outsider(target : u32
 ) ! u8;
+
+
+glGetUniformBlockIndex::fn outsider(program : u32,
+    name    : str_lit
+) ! u32;
+
+glGetError::fn outsider() ! u32;
+
+glUniformBlockBinding::fn outsider(program           : u32,
+    uniformBlockIndex : u32,
+    binding            : u32
+) ! void;
 
 glVertexAttribPointer::fn outsider(index: u32, size: s32, type: u32, normalized: u8, stride: u32, pointer: *void) ! void;
 
@@ -136,3 +152,5 @@ GL_MAP_FLUSH_EXPLICIT_BIT:    const s32 = 0x0010;
 GL_MAP_UNSYNCHRONIZED_BIT:    const s32 = 0x0020;
 GL_MAP_PERSISTENT_BIT:        const s32 = 0x0040;
 GL_MAP_COHERENT_BIT:          const s32 = 0x0080;
+
+GL_INVALID_INDEX: const s32 = 0xFFFFFFFF;

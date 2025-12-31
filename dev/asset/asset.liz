@@ -1,3 +1,4 @@
+import "../typedefs/"
 TOTAL_ASSETS:const s32= 16
 ASSET_MAT_START:const s32= 8
 texture_info :struct
@@ -10,7 +11,12 @@ model_info :struct
 }
 material_info :struct
 {
+#if RENDER_API == OPENGL
+{
+
 	shader_id : u32
+  depth_only_id : u32
+}
 }
 asset_type:etruct
 {

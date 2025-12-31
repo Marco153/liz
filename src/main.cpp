@@ -5025,7 +5025,7 @@ void DrawObjects(int thread_id, dbg_state *dbg, scene_draw_info *draw, bool dept
 
     if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_IS_TERRAIN_CHUNK))
     {
-      glDrawArrays(GL_TRIANGLES, 0, trn_chnk->total_faces * 6); // 4 vertices per face
+      glDrawArrays(GL_TRIANGLES, 0, trn_chnk->total_faces * 6);
     }
     else if(IS_FLAG_ON(cur_opaque->flags, OBJ_DRAW_FLAGS_IS_CUBE_EDGES))
     {
@@ -10125,6 +10125,27 @@ void _glVertexAttribDivisor(GLuint index, GLuint divisor)
 {
     glVertexAttribDivisor(index, divisor);
 }
+GLuint _glGetUniformBlockIndex(GLuint program, const GLchar *name)
+{
+    return glGetUniformBlockIndex(program, name);
+}
+
+GLenum _glGetError(void)
+{
+    return glGetError();
+}
+
+void _glUniformBlockBinding(
+    GLuint program,
+    GLuint uniformBlockIndex,
+    GLuint binding
+)
+{
+    glUniformBlockBinding(program, uniformBlockIndex, binding);
+}
+
+
+
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -10215,10 +10236,18 @@ _pid ChildProcess(int pipes[2])
     outsiders["acosf"] = (u64)acosf;
     outsiders["atan2f"] = (u64)atan2f;
 
+    outsiders["glGetUniformBlockIndex"] = (uint64_t)_glGetUniformBlockIndex;
+    outsiders["glGetError"]             = (uint64_t)_glGetError;
+    outsiders["glUniformBlockBinding"]  = (uint64_t)_glUniformBlockBinding;
+    outsiders["glBindBufferBase"] = (u64)_glBindBufferBase;
+
     outsiders["pthread_create"]             = (u64)_pthread_create;
     outsiders["ReadEntireFileMalloc"]             = (u64)ReadEntireFileMalloc;
     outsiders["ReadEntireFileBuffer"]             = (u64)ReadEntireFileBuffer;
     outsiders["GetFileSize"]             = (u64)_GetFileSize;
+
+    outsiders["glClearColor"]             = (u64)glClearColor;
+    outsiders["glClear"]                  = (u64)glClear;
 
     outsiders["glClearColor"]             = (u64)glClearColor;
     outsiders["glClear"]                  = (u64)glClear;

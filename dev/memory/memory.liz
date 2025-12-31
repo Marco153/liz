@@ -64,7 +64,7 @@ debug_break::fn macro()
 
 new_ptr::fn macro(type: _expr)
 {
-	cast(*type)heap_alloc(globals.alloc, sizeof(type))
+	cast(*type)generic_alloc(&g.main_galloc, sizeof(type))
 }
 ptr_offset::fn macro(ptr : _expr, offset : _expr, type : _expr)
 {

@@ -14701,7 +14701,8 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	decl2 *decl_strct = DescendNameFinding(lang_stat, n, lang_stat->root);
 	tp.strct = decl_strct->type.strct;
   tp.vec_type = 4;
-	lang_stat->root->vars.push_back(NewDecl(lang_stat, "_vec", tp));
+  decl_strct = NewDecl(lang_stat, "_vec", tp);
+	lang_stat->root->vars.push_back(decl_strct);
 	lang_stat->_vec_strct = decl_strct;
 
 	tp.type = enum_type2::TYPE_VECTOR_TYPE;
@@ -14709,7 +14710,8 @@ int InitLang(lang_state *lang_stat, AllocTypeFunc alloc_addr, FreeTypeFunc free_
 	decl_strct = DescendNameFinding(lang_stat, n, lang_stat->root);
 	tp.strct = decl_strct->type.strct;
   tp.vec_type = 8;
-	lang_stat->root->vars.push_back(NewDecl(lang_stat, "_vec2", tp));
+  decl_strct = NewDecl(lang_stat, "_vec2", tp);
+	lang_stat->root->vars.push_back(decl_strct);
 	lang_stat->_vec2_strct = decl_strct;
 
 

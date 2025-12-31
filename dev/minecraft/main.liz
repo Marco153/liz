@@ -1,11 +1,11 @@
+import "../typedefs/"
 import "../glfw";
 import "../os";
 import "../memory";
 import "../asset";
 import "../vulkan";
+import "../math";
 
-typedef float as f64;
-typedef vector as _vec2;
 
 OPENGL :const s32= 0
 VULKAN :const s32= 1
@@ -83,14 +83,7 @@ init_shaders::fn(g : *game_info)
   mat_idx := get_material_asset(g, "chunk")
   mat := ptr_offset(g.assets, mat_idx, asset_info)
 
-  __dbg_break
   compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz, &mat.MATERIAL.mat)
-
-  __dbg_break
-}
-init_vulkan::fn(g : *game_info)
-{
-
 }
 init_game::fn(g : *game_info)
 {

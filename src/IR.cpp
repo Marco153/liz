@@ -1848,7 +1848,12 @@ void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
         reg = aux->reg;
     }
     else
-      reg = GetAvailableReg(lang_stat);
+    {
+      if(aux->is_float && aux->deref == 0)
+        reg = AllocFloatReg(lang_stat);
+      else
+        reg = GetAvailableReg(lang_stat);
+    }
     
     if(aux->type == IR_TYPE_DECL && (aux->decl->type.type == TYPE_FUNC))
     {
@@ -1926,6 +1931,10 @@ void FreeSomeRegs(lang_state *lang_stat)
   lang_stat->regs[4] = 0;
   lang_stat->regs[14] = 0;
   lang_stat->regs[15] = 0;
+  for(int i = 8; i < 16;i++)
+  {
+    lang_stat->float_regs[i] = 0;
+  }
 }
 void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, block2 *cond_true, block2 *cond_false, bool flip_comparison = true) 
 {
@@ -1934,7 +1943,14 @@ void GetIRCond2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, blo
   if(ast->type == AST_OPPOSITE)
   {
     bool aux_flip = false;
-    GetIRCond2(lang_stat, ast->ast, state, cond_false, cond_true, false);
+    if(ast->ast->type == AST_BINOP && ast->ast->op == T_POINT || ast->ast->type == AST_IDENT)
+    {
+      //aux_flip = true;
+      auto prev = cond_false;
+      cond_false = cond_true;
+      cond_true = prev;
+    }
+    GetIRCond2(lang_stat, ast->ast, state, cond_false, cond_true, aux_flip);
   }
   else if(ast->type == AST_INT)
   {
@@ -4127,7 +4143,24 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       if(!is_lhs)
       {
         char prev_reg = lhs.reg;
-        EnsureValue(lang_stat, state, &lhs);
+        LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
+        /*
+        if(lhs.is_float)
+        {
+          ir.type = IR_BIN;
+          ir.bin.op = T_EQUAL;
+          ir.bin.lhs.type = IR_TYPE_REG;
+          ir.bin.lhs.reg = AllocFloatReg(lang_stat);
+          ir.bin.lhs.is_float = true;
+          ir.bin.lhs.reg_sz = lhs.reg_sz;
+          ir.bin.lhs.is_packed_float = lhs.is_packed_float;
+          ir.bin.rhs = lhs;
+          lhs = ir.bin.lhs;
+          InsertIr(state, ir);
+        }
+        else
+        */
+          EnsureValue(lang_stat, state, &lhs);
         if(lhs.is_float)
         {
           FreeReg(lang_stat, prev_reg, false);

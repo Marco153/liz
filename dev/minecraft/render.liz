@@ -16,7 +16,9 @@ draw_info:etruct
 
 render_info:struct
 {
-  //draws : 
+  //cam_pos : _vec
+  draws : *draw_info
+  cur_draws : u32
 }
 shader_type_gl : enum
 {
@@ -171,8 +173,6 @@ compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32, sh 
     &prog,
     log, 
     512)
-
-
 }
 compile_shader :: fn(src : *u8,
 	src_len  : u32,

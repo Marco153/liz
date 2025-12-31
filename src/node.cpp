@@ -7683,7 +7683,8 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
 
       auto new_d = (decl2 *)AllocMiscData(lang_stat, sizeof(decl2));
       new_d->type = type_decl->type;
-      new_d->type.type = FromVarTypeToType(new_d->type.type);
+      if(new_d->type.type != TYPE_VECTOR_TYPE)
+        new_d->type.type = FromVarTypeToType(new_d->type.type);
 
       other_type.type_def_decl = new_d;
       DeclareDeclToScopeAndMaybeToFunc(lang_stat, n->r->l->t->str, &other_type,

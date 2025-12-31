@@ -1,0 +1,53 @@
+import "../typedefs/"
+
+__sqrt::fn intrinsic(a : f32) !f32;
+sqrt::fn x64(a : f32) !f32
+{
+  return __sqrt(a);
+}
+sinf::fn outsider(f32) !f32;
+cosf::fn outsider(f32) !f32;
+tanf::fn outsider(f32) !f32;
+asinf::fn outsider(f32) !f32;
+acosf::fn outsider(f32) !f32;
+atan2f::fn outsider(f32, f32) !f32;
+
+quaternion : struct
+{
+	v : vector
+}
+normalize_quaternion::fn x64(out : vector, q : vector) {
+
+  val := q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z
+  mag := cast(float)sqrt(cast(f32)val)
+	if mag == 0.0
+	{
+		out.x = 1.0
+		out.y = 0.0
+		out.z = 0.0
+		out.w = 0.0
+	}
+	else
+	{
+		out.x = q.x/mag
+		out.y = q.y/mag
+		out.z = q.z/mag
+		out.w = q.w/mag
+	}
+}
+create_from_axis_angle::fn(xx:float, yy:float, zz:float, a:float) ! quaternion
+{
+	q : quaternion=?
+  // Here we calculate the sinf( theta / 2) once for optimization
+  factor: = cast(float)sinf( cast(f32)a / 2.0 );
+
+  // Calculate the x, y and z of the quaternion
+  q.v.x = xx * factor;
+  q.v.y = yy * factor;
+  q.v.z = zz * factor;
+
+  // Calcualte the w value by cos( theta / 2 )
+  q.v.w = cast(float)cosf( cast(f32)a / 2.0 );
+	normalize_quaternion(q.v, q.v)
+  return q
+}

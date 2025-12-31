@@ -5,6 +5,7 @@
 #include <Zydis/Mnemonic.h>
 #include <Zydis/Register.h>
 #include <assimp/material.h>
+#include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
@@ -10068,6 +10069,12 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwSwapBuffers"] = (u64)glfwSwapBuffers;
     outsiders["glewInit"] = (u64)glewInit;
 
+    outsiders["sinf"] = (u64)sinf;
+    outsiders["cosf"] = (u64)cosf;
+    outsiders["tanf"] = (u64)tanf;
+    outsiders["asinf"] = (u64)asinf;
+    outsiders["acosf"] = (u64)acosf;
+    outsiders["atan2f"] = (u64)atan2f;
 
     outsiders["pthread_create"]             = (u64)_pthread_create;
     outsiders["ReadEntireFileMalloc"]             = (u64)ReadEntireFileMalloc;

@@ -3750,7 +3750,11 @@ decl2 *FromTypeToDecl(lang_state *lang_stat, type2 *tp)
 	if(tp->IsStrct(&decl))
 		return decl;
 	else
+  {
+    if(tp->type == TYPE_VECTOR_TYPE && tp->vec_type == 8) return lang_stat->_vec2_strct;
+
 		return FromBuiltinTypeToDecl(lang_stat, tp->type);
+  }
 
 }
 

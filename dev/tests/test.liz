@@ -970,7 +970,6 @@ TESTS:const s32=0;
 
       edge2 := v2 - v0
       edge2.w = 0.0f;
-      __dbg_break
     if f32_approximate(edge1.x, 1.0f) == false || 
       f32_approximate(edge2.x, 1.0f) == false || 
       f32_approximate(edge2.z, -1.0f) == false
@@ -1084,6 +1083,10 @@ TESTS:const s32=0;
     v1 = v1 + v2 * 2.0f;
     return a +  h
 
+  }
+  vec_func::fn(a : _vec) ! f32
+  {
+    return a.x * a.x + a.y*a.y + a.z*a.z + a.w*a.w
   }
   main::fn()!u32
   {
@@ -1670,6 +1673,8 @@ TESTS:const s32=0;
     }
 
     bool_strct.a_in = true;
+      
+    __dbg_break
     if i == 89 || !bool_strct.a_in
       i = 9;
 
@@ -1867,7 +1872,6 @@ TESTS:const s32=0;
     //__dbg_break
 
     //buffer: dyn_array(char);
-    __dbg_break
 
 
     str1 :string
@@ -1952,9 +1956,6 @@ TESTS:const s32=0;
     if ray_triangle_intersect(&rinfo) == false
       debug_break();
     
-    __dbg_break
-    __dbg_break
-    __dbg_break
     ret_val := ray_triangle_intersect_x64_test(&rinfo)
     if ret_val != 12
       debug_break();
@@ -1987,6 +1988,15 @@ TESTS:const s32=0;
     //double :f64
     */
 
+    tvec :_vec
+    tvec.x = 2.0f
+    tvec.y = 2.0f
+    __dbg_break
+    __dbg_break
+    __dbg_break
+    fsum = vec_func(tvec)
+    if fsum < 7.9 || fsum > 8.1
+      debug_break()
 
     return 6
   }

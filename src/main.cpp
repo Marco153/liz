@@ -9986,6 +9986,145 @@ void _glDeleteProgram(GLuint program)
     glDeleteProgram(program);
 }
 
+void _glGenBuffers(GLsizei n, GLuint *buffers)
+{
+    glGenBuffers(n, buffers);
+}
+
+void _glBindBuffer(GLenum target, GLuint buffer)
+{
+    glBindBuffer(target, buffer);
+}
+
+void _glBufferData(
+    GLenum target,
+    GLsizeiptr size,
+    const void *data,
+    GLenum usage
+)
+{
+    glBufferData(target, size, data, usage);
+}
+
+void _glBufferSubData(
+    GLenum target,
+    GLintptr offset,
+    GLsizeiptr size,
+    const void *data
+)
+{
+    glBufferSubData(target, offset, size, data);
+}
+
+void *_glMapBuffer(GLenum target, GLenum access)
+{
+    return glMapBuffer(target, access);
+}
+
+void *_glMapBufferRange(
+    GLenum target,
+    GLintptr offset,
+    GLsizeiptr length,
+    GLbitfield access
+)
+{
+    return glMapBufferRange(target, offset, length, access);
+}
+
+GLboolean _glUnmapBuffer(GLenum target)
+{
+    return glUnmapBuffer(target);
+}
+
+void _glInvalidateBufferData(GLuint buffer)
+{
+    glInvalidateBufferData(buffer);
+}
+
+void _glInvalidateBufferSubData(
+    GLuint buffer,
+    GLintptr offset,
+    GLsizeiptr length
+)
+{
+    glInvalidateBufferSubData(buffer, offset, length);
+}
+
+void _glBindBufferBase(
+    GLenum target,
+    GLuint index,
+    GLuint buffer
+)
+{
+    glBindBufferBase(target, index, buffer);
+}
+
+void _glBindBufferRange(
+    GLenum target,
+    GLuint index,
+    GLuint buffer,
+    GLintptr offset,
+    GLsizeiptr size
+)
+{
+    glBindBufferRange(target, index, buffer, offset, size);
+}
+
+void _glGenVertexArrays(GLsizei n, GLuint *arrays)
+{
+    glGenVertexArrays(n, arrays);
+}
+
+void _glBindVertexArray(GLuint array)
+{
+    glBindVertexArray(array);
+}
+
+void _glEnableVertexAttribArray(GLuint index)
+{
+    glEnableVertexAttribArray(index);
+}
+
+void _glVertexAttribPointer(
+    GLuint index,
+    GLint size,
+    GLenum type,
+    GLboolean normalized,
+    GLsizei stride,
+    const void *pointer
+)
+{
+    glVertexAttribPointer(
+        index,
+        size,
+        type,
+        normalized,
+        stride,
+        pointer
+    );
+}
+
+void _glVertexAttribIPointer(
+    GLuint index,
+    GLint size,
+    GLenum type,
+    GLsizei stride,
+    const void *pointer
+)
+{
+    glVertexAttribIPointer(
+        index,
+        size,
+        type,
+        stride,
+        pointer
+    );
+}
+
+void _glVertexAttribDivisor(GLuint index, GLuint divisor)
+{
+    glVertexAttribDivisor(index, divisor);
+}
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -10094,30 +10233,29 @@ _pid ChildProcess(int pipes[2])
     outsiders["glDepthFunc"]              = (u64)glDepthFunc;
     outsiders["glDepthMask"]              = (u64)glDepthMask;
 
-    outsiders["glGenBuffers"]             = (u64)glGenBuffers;
-    outsiders["glBindBuffer"]             = (u64)glBindBuffer;
-    outsiders["glBufferData"]             = (u64)glBufferData;
-    outsiders["glBufferSubData"]          = (u64)glBufferSubData;
-    outsiders["glMapBuffer"]              = (u64)glMapBuffer;
-    outsiders["glMapBufferRange"]         = (u64)glMapBufferRange;
-    outsiders["glUnmapBuffer"]            = (u64)glUnmapBuffer;
-    outsiders["glInvalidateBufferData"]   = (u64)glInvalidateBufferData;
-    outsiders["glInvalidateBufferSubData"]= (u64)glInvalidateBufferSubData;
+    outsiders["glGenBuffers"]             = (u64)_glGenBuffers;
+    outsiders["glBindBuffer"]             = (u64)_glBindBuffer;
+    outsiders["glBufferData"]             = (u64)_glBufferData;
+    outsiders["glBufferSubData"]          = (u64)_glBufferSubData;
+    outsiders["glMapBuffer"]              = (u64)_glMapBuffer;
+    outsiders["glMapBufferRange"]         = (u64)_glMapBufferRange;
+    outsiders["glUnmapBuffer"]            = (u64)_glUnmapBuffer;
+    outsiders["glInvalidateBufferData"]   = (u64)_glInvalidateBufferData;
+    outsiders["glInvalidateBufferSubData"]= (u64)_glInvalidateBufferSubData;
 
-    outsiders["glBindBufferBase"]         = (u64)glBindBufferBase;
-    outsiders["glBindBufferRange"]        = (u64)glBindBufferRange;
-
-    outsiders["glGenVertexArrays"]        = (u64)glGenVertexArrays;
-    outsiders["glBindVertexArray"]        = (u64)glBindVertexArray;
-    outsiders["glEnableVertexAttribArray"]= (u64)glEnableVertexAttribArray;
-    outsiders["glVertexAttribPointer"]    = (u64)glVertexAttribPointer;
-    outsiders["glVertexAttribIPointer"]   = (u64)glVertexAttribIPointer;
-    outsiders["glVertexAttribDivisor"]    = (u64)glVertexAttribDivisor;
+    outsiders["glBindBufferBase"]         = (u64)_glBindBufferBase;
+    outsiders["glBindBufferRange"]        = (u64)_glBindBufferRange;
+    outsiders["glGenVertexArrays"]        = (u64)_glGenVertexArrays;
+    outsiders["glBindVertexArray"]        = (u64)_glBindVertexArray;
+    outsiders["glEnableVertexAttribArray"]= (u64)_glEnableVertexAttribArray;
+    outsiders["glVertexAttribPointer"]    = (u64)_glVertexAttribPointer;
+    outsiders["glVertexAttribIPointer"]   = (u64)_glVertexAttribIPointer;
+    outsiders["glVertexAttribDivisor"]    = (u64)_glVertexAttribDivisor;
 
     outsiders["glDrawArrays"]             = (u64)glDrawArrays;
     outsiders["glDrawElements"]           = (u64)glDrawElements;
-    outsiders["glDrawArraysInstanced"]    = (u64)glDrawArraysInstanced;
-    outsiders["glDrawElementsInstanced"]  = (u64)glDrawElementsInstanced;
+    //outsiders["glDrawArraysInstanced"]    = (u64)_glDrawArraysInstanced;
+    //outsiders["glDrawElementsInstanced"]  = (u64)_glDrawElementsInstanced;
 
     outsiders["glCreateShader"]           = (u64)_glCreateShader;
     outsiders["glShaderSource"]           = (u64)_glShaderSource;

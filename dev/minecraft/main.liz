@@ -5,11 +5,9 @@ import "../memory";
 import "../asset";
 import "../vulkan";
 import "../math";
+import "../entity";
 
 
-OPENGL :const s32= 0
-VULKAN :const s32= 1
-RENDER_API :const s32= OPENGL
 
 
 #if RENDER_API == OPENGL
@@ -36,6 +34,8 @@ game_info:struct
   main_galloc : generic_allocator
 
   assets : *asset_info
+
+  cam_pos : vector
 }
 get_material_asset::fn(g : *game_info, name : str_lit)!u64
 {

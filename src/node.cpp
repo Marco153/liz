@@ -7242,14 +7242,19 @@ case node_type::N_SCOPE:
           if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
             from = from->l;
           memcpy(n, from, sizeof(node));
-        } else if (GetExpressionVal(cur->l->l, scp) == 1) {
-          node *from = cur->l->r;
-          if (from->type == N_SCOPE)
-            from = from->r;
-          if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
-            from = from->l;
-          memcpy(n, from, sizeof(node));
+        } else{
+          if(!DescendNameFinding(lang_stat, cur->l->l, scp)) return 0;
+
+          if(GetExpressionVal(cur->l->l, scp) == 1)
+          {
+            node *from = cur->l->r;
+            if (from->type == N_SCOPE)
+              from = from->r;
+            if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
+              from = from->l;
+            memcpy(n, from, sizeof(node));
           break;
+          }
         }
         cur = cur->r;
       } while (cur->type == N_ELSE || cur->type == N_ELSE_IF);

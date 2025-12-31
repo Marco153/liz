@@ -1167,7 +1167,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
 
     val->reg_sz = GetTypeSize(&ast->decl->type, 0);
 
-    if (val->reg_sz < 0)
+    if (val->reg_sz <= 0)
       val->reg_sz = 8;
 
     val->reg_sz = min(val->reg_sz, 8);

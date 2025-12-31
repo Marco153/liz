@@ -1,7 +1,9 @@
 import "../opengl/"
+import "../typedefs/"
 import "../memory/"
 import "../os/"
 import "../asset/"
+
 draw_info:etruct
 {
   LINE(
@@ -227,3 +229,41 @@ compile_shader :: fn(src : *u8,
 	return shader_error.OK;
 }
 
+storage_buffer:struct
+{
+#if RENDER_API == OPENGL
+{
+  id : u32
+}
+
+}
+
+CreateStorageBuffer::fn(size : u32)!storage_buffer
+{
+#if RENDER_API == OPENGL
+{
+  ret : storage_buffer
+  glGenBuffers(1, &ret.id);                  // generate buffer
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, ret.id);
+  glBufferData(GL_SHADER_STORAGE_BUFFER, size, nil, GL_DYNAMIC_DRAW); // no data yet
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+  return ret
+}
+}
+UpdateStorageBuffer::fn(storage : *storage_buffer, data : *void, data_size:s64)
+{
+#if RENDER_API == OPENGL
+{
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, storage.id);
+  ptr := glMapBufferRange(GL_SHADER_STORAGE_BUFFER,
+      0,
+      data_size,
+      GL_MAP_WRITE_BIT |
+      GL_MAP_INVALIDATE_BUFFER_BIT |
+      GL_MAP_UNSYNCHRONIZED_BIT);
+  memcpy(ptr, data, cast(u64)data_size);
+  glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+}
+}

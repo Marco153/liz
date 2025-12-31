@@ -1,0 +1,14 @@
+import "../typedefs/"
+import "../minecraft/"
+import "../chunk/"
+
+entity :struct
+{
+  pos : vector
+  rot : _vec
+
+  using u :: union
+  {
+    trn : *terrain_info
+  }
+}

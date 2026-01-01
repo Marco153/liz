@@ -2715,6 +2715,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     {
       GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall);
       (*arg)->ir_generated = true;
+      FreeSomeRegs(lang_stat);
     }
 
     i++;
@@ -2729,6 +2730,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     if(!(*arg)->ir_generated)
     {
       GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall);
+      FreeSomeRegs(lang_stat);
     }
 
     i++;

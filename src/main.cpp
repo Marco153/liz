@@ -10225,6 +10225,27 @@ void _glDeleteFramebuffers(s32 n, u32 *framebuffers)
 {
     glDeleteFramebuffers((GLsizei)n, (const GLuint *)framebuffers);
 }
+void _glColorMask(s32 red, s32 green, s32 blue, s32 alpha)
+{
+    glColorMask(
+        (GLboolean)red,
+        (GLboolean)green,
+        (GLboolean)blue,
+        (GLboolean)alpha
+    );
+}
+void _glClearDepth(float depth)
+{
+    glClearDepth(depth);
+}
+void _glDepthMask(s32 flag)
+{
+    glDepthMask((GLboolean)flag);
+}
+void _glActiveTexture(s32 texture)
+{
+    glActiveTexture((GLenum)texture);
+}
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -10315,6 +10336,11 @@ _pid ChildProcess(int pipes[2])
     outsiders["acosf"] = (u64)acosf;
     outsiders["atan2f"] = (u64)atan2f;
 
+
+    outsiders["glActiveTexture"] = (u64)_glActiveTexture;
+    outsiders["glClearDepth"] = (u64)_glClearDepth;
+    outsiders["glDepthMask"] = (u64)_glDepthMask;
+    outsiders["glColorMask"] = (u64)_glColorMask;
     outsiders["glGenRenderbuffers"]        = (u64)_glGenRenderbuffers;
     outsiders["glBindRenderbuffer"]        = (u64)_glBindRenderbuffer;
     outsiders["glDrawBuffer"]              = (u64)_glDrawBuffer;

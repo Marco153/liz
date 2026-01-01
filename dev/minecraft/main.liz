@@ -71,6 +71,9 @@ game_info:struct
   terrain_shader   : *material_info
   to_screen_shader : *material_info
 
+  near_plane : f32
+  far_plane : f32
+
 }
 get_material_asset::fn(g : *game_info, name : str_lit)!u64
 {
@@ -253,7 +256,7 @@ render::fn(g : *game_info, rman : *render_manager)
   to_screen_shader := g.to_screen_shader.shader_id
 
   glBindFramebuffer(GL_FRAMEBUFFER, g.depth_fbo.fbo.id);
-  glViewport(0, 0, g.wnd_width, g.wnd_height)
+  glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
   glEnable(GL_DEPTH_TEST);
   glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); // disable color writes
   glClearDepth(1.0f);          // depth clear value (1.0 = far)
@@ -265,7 +268,7 @@ render::fn(g : *game_info, rman : *render_manager)
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
   glBindFramebuffer(GL_FRAMEBUFFER, g.offscreen_fbo.fbo.id);
-  glViewport(0, 0, g.wnd_width, g.wnd_height)
+  glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
   glEnable(GL_DEPTH_TEST);
   glClearColor(0.5f, 0.2f, 0.4f, 1.0f); // background color
   glClearDepth(1.0f);
@@ -274,17 +277,17 @@ render::fn(g : *game_info, rman : *render_manager)
   draw_objects(g)
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-  glViewport(0, 0, g.wnd_width, g.wnd_height)
+  glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
   glUseProgram(to_screen_shader)
 
   glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, g.offscreen_fbo.color_tex);
+  glBindTexture(GL_TEXTURE_2D, g.offscreen_fbo.color_tex.id);
 
   glActiveTexture(GL_TEXTURE0 + 1);
-  glBindTexture(GL_TEXTURE_2D, g.depth_fbo.color_tex);
+  glBindTexture(GL_TEXTURE_2D, g.depth_fbo.color_tex.id);
 
   glActiveTexture(GL_TEXTURE0 + 2);
-  glBindTexture(GL_TEXTURE_2D, g.offscreen_fbo.normal_tex);
+  glBindTexture(GL_TEXTURE_2D, g.offscreen_fbo.normal_tex.id);
 
   // set sampler uniform
   glUniform1i(glGetUniformLocation(to_screen_shader, "uScene"), 0);
@@ -293,10 +296,10 @@ render::fn(g : *game_info, rman : *render_manager)
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_CULL_FACE);
 
-  int loc = glGetUniformLocation(to_screen_shader, "uNear");
-  glUniform1f(loc, gl_state->near_plane);
+  loc := glGetUniformLocation(to_screen_shader, "uNear");
+  glUniform1f(loc, g.near_plane);
   loc = glGetUniformLocation(to_screen_shader, "uFar");
-  glUniform1f(loc, gl_state->far_plane);
+  glUniform1f(loc, g.far_plane);
 
   loc = glGetUniformLocation(to_screen_shader, "sun_color");
   glUniform4f(loc, rman.sun_color.x, rman.sun_color.y, rman.sun_color.z, rman.sun_color.w);

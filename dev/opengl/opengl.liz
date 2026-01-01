@@ -35,6 +35,9 @@ glGenRenderbuffers::fn outsider(n: s32, renderbuffers: *u32) ! void;
 glBindRenderbuffer::fn outsider(target: s32, renderbuffer: u32) ! void;
 glDrawBuffer::fn outsider(buf: s32) ! void;
 glReadBuffer::fn outsider(buf: s32) ! void;
+
+glEnable::fn outsider(buf: s32) ! void;
+
 glCheckFramebufferStatus::fn outsider(target: s32) ! s32;
 
 glDeleteFramebuffers::fn outsider(n: s32, framebuffers: *u32) ! void;
@@ -93,17 +96,36 @@ glDrawElements::fn outsider(    mode: u32,    count: s32,    type: u32,    indic
 
 glGetUniformLocation::fn outsider(program: u32, name: *u8) ! s32;
 
-glUniform1i::fn outsider(loc: s32, v0: s32) ! void;
-glUniform1f::fn outsider(loc: s32, v0: f32) ! void;
-
-glUniform3f::fn outsider(loc: s32, x: f32, y: f32, z: f32) ! void;
-
-glUniformMatrix4fv::fn outsider(    loc: s32,    count: s32,    transpose: u8,    value: *f32) ! void;
-
 glDrawBuffers::fn outsider(n: s32, bufs: *s32) ! void;
 
 glewInit::fn outsider()!u32;
 
+glColorMask::fn outsider(red:   s32,
+    green: s32,
+    blue:  s32,
+    alpha: s32
+) ! void;
+
+glClearDepth::fn outsider(depth: f32) ! void;
+
+glDepthMask::fn outsider(flag: s32) ! void;
+
+
+glActiveTexture::fn outsider(texture: s32) ! void;
+
+glDisable::fn outsider(val: s32) ! void;
+
+glUniform1i::fn outsider(loc: s32, v0: s32) ! void;
+glUniform1f::fn outsider(location: s32, v0: f32) ! void;
+glUniform2f::fn outsider(location: s32, v0: f32, v1: f32) ! void;
+glUniform3f::fn outsider(location: s32, v0: f32, v1: f32, v2: f32) ! void;
+glUniform4f::fn outsider(location: s32, v0: f32, v1: f32, v2: f32, v3: f32) ! void;
+
+glUniformMatrix4fv::fn outsider(location: s32,
+    count:    s32,
+    transpose: s32,
+    value:    *f32
+) ! void;
 
 GL_NONE:                      const s32 = 0;
 
@@ -155,7 +177,8 @@ GL_TEXTURE_CUBE_MAP:          const s32 = 0x8513;
 GL_RGBA:                      const s32 = 0x1908;
 GL_RGB:                       const s32 = 0x1907;
 GL_DEPTH_COMPONENT:           const s32 = 0x1902;
-GL_DEPTH_STENCIL:             const s32 = 0x84F9;
+
+GL_DEPTH_TEST:                const s32 = 0x0B71;
 
 GL_DEPTH_COMPONENT24:         const s32 = 0x81A6;
 
@@ -189,3 +212,6 @@ GL_MAP_PERSISTENT_BIT:        const s32 = 0x0040;
 GL_MAP_COHERENT_BIT:          const s32 = 0x0080;
 
 GL_INVALID_INDEX: const s32 = 0xFFFFFFFF;
+
+GL_TEXTURE0: const s32 = 0x84C0;
+GL_CULL_FACE: const s32 = 0xB44;

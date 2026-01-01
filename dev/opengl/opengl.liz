@@ -37,6 +37,8 @@ glDrawBuffer::fn outsider(buf: s32) ! void;
 glReadBuffer::fn outsider(buf: s32) ! void;
 glCheckFramebufferStatus::fn outsider(target: s32) ! s32;
 
+glDeleteFramebuffers::fn outsider(n: s32, framebuffers: *u32) ! void;
+
 glGenFramebuffers::fn outsider(n           : s32,
     framebuffers: *u32
 ) ! void;

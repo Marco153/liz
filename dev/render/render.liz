@@ -24,6 +24,9 @@ render_manager:struct
 {
   draws : *draw_info
   cur_draws : u32
+
+  sun_color : _vec
+  sun_dir   : _vec
 }
 shader_type_gl : enum
 {
@@ -415,6 +418,8 @@ create_framebuffers::fn(depth_fbo : *u32, offscreen_fbo: *u32, depth_tex : *u32,
   offscreen_fbo_args.attachment_type = GL_COLOR_ATTACHMENT0;
 
   create_framebuffer(&offscreen_fbo_args);
+
+  printf("frame buffers generated\n")
 }
 create_storage_buffer::fn(size : u32)!storage_buffer
 {

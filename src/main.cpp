@@ -10158,15 +10158,17 @@ static inline void _gl_check_error(const char *fn, int line)
 // ---------- glGenFramebuffers ----------
 void _glGenFramebuffers(s32 n, u32 *framebuffers)
 {
-    glGenFramebuffers((GLsizei)n, (GLuint *)framebuffers);
-    _gl_check_error("_glGenFramebuffers", __LINE__);
+  while (glGetError() != GL_NO_ERROR) {}
+  glGenFramebuffers((GLsizei)n, (GLuint *)framebuffers);
+  _gl_check_error("_glGenFramebuffers", __LINE__);
 }
 
 // ---------- glBindFramebuffer ----------
 void _glBindFramebuffer(u32 target, u32 framebuffer)
 {
-    glBindFramebuffer((GLenum)target, (GLuint)framebuffer);
-    _gl_check_error("_glBindFramebuffer", __LINE__);
+  while (glGetError() != GL_NO_ERROR) {}
+  glBindFramebuffer((GLenum)target, (GLuint)framebuffer);
+  _gl_check_error("_glBindFramebuffer", __LINE__);
 }
 
 // ---------- glFramebufferTexture2D ----------
@@ -10218,6 +10220,10 @@ void _glDrawBuffers(s32 n, s32 *bufs)
 s32 _glCheckFramebufferStatus(u32 target)
 {
     return (s32)glCheckFramebufferStatus((GLenum)target);
+}
+void _glDeleteFramebuffers(s32 n, u32 *framebuffers)
+{
+    glDeleteFramebuffers((GLsizei)n, (const GLuint *)framebuffers);
 }
 _pid ChildProcess(int pipes[2])
 {
@@ -10318,6 +10324,7 @@ _pid ChildProcess(int pipes[2])
     outsiders["glGenFramebuffers"]         = (u64)_glGenFramebuffers;
     outsiders["glBindFramebuffer"]         = (u64)_glBindFramebuffer;
     outsiders["glFramebufferTexture2D"]    = (u64)_glFramebufferTexture2D;
+    outsiders["glDeleteFramebuffers"]      = (u64)_glDeleteFramebuffers;
 
     outsiders["glGetUniformBlockIndex"] = (uint64_t)_glGetUniformBlockIndex;
     outsiders["glGetError"]             = (uint64_t)_glGetError;
@@ -10402,10 +10409,6 @@ _pid ChildProcess(int pipes[2])
     outsiders["glTexParameteri"]          = (u64)glTexParameteri;
     outsiders["glGenerateMipmap"]         = (u64)glGenerateMipmap;
 
-    outsiders["glGenFramebuffers"]        = (u64)glGenFramebuffers;
-    outsiders["glBindFramebuffer"]        = (u64)glBindFramebuffer;
-    outsiders["glFramebufferTexture2D"]   = (u64)glFramebufferTexture2D;
-    outsiders["glCheckFramebufferStatus"] = (u64)glCheckFramebufferStatus;
     outsiders["glDeleteFramebuffers"]     = (u64)glDeleteFramebuffers;
 
     outsiders["glFenceSync"]              = (u64)glFenceSync;

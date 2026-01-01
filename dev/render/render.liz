@@ -120,7 +120,7 @@ link_program :: fn(shaders    : **shader,
 	i : u32 = 0;
 	while i < shader_cnt
 	{
-		glAttachShader(prog, ptr_offset(shaders, i, shader).id);
+		glAttachShader(prog, ptr_offset(shaders, i, *shader).id);
 		i += 1;
 	}
 
@@ -164,6 +164,8 @@ compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32) ! u
     printf("shader vs error \n")
     printf("log: {cast(str_lit)log} \n")
     __dbg_break;
+    __dbg_break;
+    __dbg_break;
   }
 
   res = compile_shader(fs, fs_len, shader_type.FRAGMENT, &fs_sh, log, log.len)
@@ -176,11 +178,17 @@ compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32) ! u
 
   prog : u32
 
-  link_program(cast(**shader)&shaders,
+  res = link_program(cast(**shader)&shaders,
     2,
     &prog,
     log, 
     512)
+
+  if res != shader_error.OK
+  {
+    printf("shader linx error\n")
+    printf("log: {cast(str_lit)log} \n")
+  }
 
   return prog
 }

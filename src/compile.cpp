@@ -798,6 +798,7 @@ char* ReadEntireFileLang(char* name, unsigned int* read_out)
 	struct stat v;
 
 	fh = open(name, O_RDONLY);
+  printf("OPEN: %s\n", name);
 	if (fh == -1) {
 		perror("open");
 		printf("file not found\"%s\"", name);

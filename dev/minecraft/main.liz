@@ -193,6 +193,8 @@ init_shaders::fn(g : *game_info)
 
   mat.MATERIAL.mat.shader_id     = compile_shader_complete(to_screen_vs.data, cast(u32)to_screen_vs.sz, to_screen_fs.data, cast(u32)to_screen_fs.sz)
   g.to_screen_shader = &mat.MATERIAL.mat
+
+  printf("to screen prog {g.to_screen_shader.shader_id}\n")
 }
 
 init_game::fn(g : *game_info)
@@ -280,6 +282,7 @@ render::fn(g : *game_info, rman : *render_manager)
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
   glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
+  //printf("to screen prog {to_screen_shader}\n")
   glUseProgram(to_screen_shader)
 
   glActiveTexture(GL_TEXTURE0);

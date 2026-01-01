@@ -10264,8 +10264,6 @@ _pid ChildProcess(int pipes[2])
     printf("CHILD: will stop\n");
     raise(SIGSTOP);  // puts itself to sleep
     printf("CHILD: resumed\n");
-#endif
-
     if (prctl(PR_SET_PDEATHSIG, SIGTERM) == -1) perror("prctl");
     if (getppid() == 1) {
         // parent already gone
@@ -10277,6 +10275,8 @@ _pid ChildProcess(int pipes[2])
       printf("error on close write end child\n");
       ASSERT(false)
     }
+#endif
+
     u32 read;
     auto file_ptr = (unsigned char *)ReadEntireFileMalloc("build/minecraft.dbg", &read);
     auto file = (dbg_file_seriealize*)(file_ptr);
@@ -11800,7 +11800,13 @@ void test(void)
 }
 int main(int argc, char *argv[]) {
 
-  test();
+#ifdef LINUX
+  char path[1024];
+  ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+
+  printf("first, path %s\n", path);
+#endif
+
   int pipes[2];
   _pid child_p = ChildProcess(pipes);
   printf("childp is %d\n", child_p);
@@ -11826,8 +11832,6 @@ int main(int argc, char *argv[]) {
            &alloc);
 
 #ifdef LINUX
-  char path[1024];
-  ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
 
   own_std::string exe_full;
   if (len != -1) {

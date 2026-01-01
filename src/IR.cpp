@@ -4086,13 +4086,17 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           lhs.is_float = false;
           lhs.is_packed_float = false;
 
+          char prev_sz = lhs.reg_sz;
+          lhs.deref = lhs.ptr;
+          lhs.reg_sz = 8;
+          LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
+          lhs.reg_sz = prev_sz;
+
           EnsureValue(lang_stat, state, &lhs);
 
           lhs.is_float = prev_float;
           lhs.is_packed_float = prev_is_packed;
 
-          lhs.deref = lhs.ptr - 1;
-          LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
 
 
           offset = 0;
@@ -4147,6 +4151,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       if(!is_lhs)
       {
         char prev_reg = lhs.reg;
+        lhs.deref = lhs.ptr;
         LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
         /*
         if(lhs.is_float)

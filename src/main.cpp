@@ -10585,7 +10585,6 @@ _pid ChildProcess(int pipes[2])
     }
     printf("code start %p, end %p\n", code, code_end);
 #ifdef ON_PARENT
-    HERE()
 #endif
     auto call = (void(*)())(code + main_start);
     call();

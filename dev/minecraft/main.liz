@@ -58,6 +58,8 @@ game_info:struct
 
   ent_man:entity_manager
 
+  rman : render_manager
+
   cam_pos : vector
   player : *entity
   trn : *entity
@@ -325,8 +327,7 @@ run_game::fn(g : *game_info)
 {
   while true
   {
-    clear_background_color(g, 0.4f, 0.1f, 0.3f, 0.0f)
-
+    render(g, &g.rman)
     swap_buffers(g)
   }
 }

@@ -52,6 +52,8 @@ game_info:struct
   names_alloc : mem_alloc
   work_dir : string
 
+  empty_vao : u32
+
   main_galloc : generic_allocator
 
   assets : *asset_info
@@ -163,6 +165,11 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
 }
 init_shaders::fn(g : *game_info)
 {
+#if RENDER_API == OPENGL
+{
+  glGenVertexArrays(1, &g.empty_vao);
+}
+  
   galloc :generic_allocator
   galloc.type = generic_allocator.HEAP_ALLOC
   galloc.HEAP_ALLOC.alloc = g.alloc
@@ -312,6 +319,7 @@ render::fn(g : *game_info, rman : *render_manager)
   glUniform4f(loc, rman.sun_dir.x, rman.sun_dir.y, rman.sun_dir.z, rman.sun_dir.w);
 
 
+  glBindVertexArray(g.empty_vao);
   // draw fullscreen triangle with vertex IDs
   glDrawArrays(GL_TRIANGLES, 0, 3);
   glEnable(GL_CULL_FACE);

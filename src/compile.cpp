@@ -11780,6 +11780,8 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
 	int cur_line = 0;
 	int start = ret.size();
 
+  int start_vec_type_stack = 0;
+
   byte_code bc;
   ir_val_aux lhs_aux;
   ir_val_aux rhs_aux;
@@ -11864,7 +11866,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
 
         int start = stack_size - MAX_CALL_REGS * 8;
         cur_ir->fdecl->stack_size = stack_size;
-        ParametersToStack(cur_ir->fdecl, &ret, start);
+        ParametersToStack(cur_ir->fdecl, &ret, start, start_vec_type_stack);
 
       }break;
       case IR_STACK_BEGIN:
@@ -11873,6 +11875,9 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         //gen_state->strcts_construct_stack_offset = stack_size;
 
         stack_size += cur_ir->fdecl->total_of_var_args * 8;
+
+        start_vec_type_stack = stack_size;
+        stack_size += cur_ir->fdecl->total_vec_sz_args;
 
         cur_ir->fdecl->strct_constrct_at_offset = stack_size;
         stack_size += cur_ir->fdecl->strct_constrct_size_per_statement;
@@ -11961,7 +11966,11 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
       case IR_DECLARE_ARG:
       {
 #ifdef LINUX
-        cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + (total_args + total_vec_args) * 8;
+        if(cur_ir->decl->type.type == TYPE_VECTOR && cur_ir->decl->type.ptr == 0)
+        {
+          break;
+        }
+        cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + (total_args) * 8;
         if(IS_FLAG_ON(cur_ir->decl->flags, DECL_IS_VAR_ARG))
         {
           //HERE()
@@ -11973,12 +11982,9 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           // for the push rbx
           // and for the push rbp
           total_args += 3;
-          cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + (total_args + total_vec_args) * 8;
+          cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + (total_args) * 8;
         }
-        if(cur_ir->decl->type.type == TYPE_VECTOR)
-        {
-          total_vec_args += cur_ir->decl->type.vec_type;
-        }
+
         total_args++;
 #else
           cur_ir->decl->offset = stack_size + total_args * 8 + 8;

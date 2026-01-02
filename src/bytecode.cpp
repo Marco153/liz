@@ -3807,11 +3807,12 @@ own_std::vector<decl2 *> GetScopeDecls(scope *scp)
 	own_std::vector<decl2 *> ret;
 	return ret;
 }
-void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int start)
+void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int start, int vec_type_start)
 {
 	int cur_arg = 6;
 	//descend_func_ret sp;
 	
+  int cur_vec_offset = 0;
 	// byte code stack
 	if (false)
 	{
@@ -3886,7 +3887,11 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
       if(a && a->type.type == TYPE_VECTOR && a->type.ptr == 0)
       {
         bc.type = MOV_PCKD_SSE_2_MEM;
-        offset += GetTypeSize(&a->type);
+        cur_vec_offset += GetTypeSize(&a->type);
+        bc.bin.lhs.voffset = vec_type_start + cur_vec_offset;
+
+        a->offset = bc.bin.lhs.voffset;
+
         bc.bin.rhs.reg_sz = a->type.vec_type;
       }
       else

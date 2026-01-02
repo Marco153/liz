@@ -408,6 +408,8 @@ struct func_decl
 	int for_interpreter_code_start_idx;
 	int code_size;
 
+  int total_vec_sz_args;
+
   int syscall;
 
   int dbg_saved_regs_offset;

@@ -267,10 +267,12 @@ init_game::fn(g : *game_info)
   g.global_ubo = create_uniform_buffer(sizeof(global_ubo_uniform))
 
   g.cam_rot.w = 1.0
+
+  g.up.y = 1.0
 }
 update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
 {
-  up :=g.up
+  up := g.up
   right :_vec
   right.x = 1.0
   crot :quaternion
@@ -282,9 +284,6 @@ update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
   yaw := create_from_axis_angle(up.x, up.y, up.z, dx)
   pitch := create_from_axis_angle(cam_right.x, cam_right.y, cam_right.z, dy)
 
-  __dbg_break
-  __dbg_break
-  __dbg_break
   g.cam_rot = (yaw * pitch * crot).v
 }
 draw_objects::fn(g : *game_info, rman : *render_manager)
@@ -379,7 +378,6 @@ run_game::fn(g : *game_info)
   while true
   {
     update_cam_rot(g, 0.0f, 0.0f)
-    __dbg_break
     print_vec(g.cam_rot)
     render(g, &g.rman)
     swap_buffers(g)

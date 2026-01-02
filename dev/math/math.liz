@@ -130,7 +130,6 @@ quaternion : struct
 	v : _vec
 }
 normalize_quaternion::fn x64(out : *_vec, q : _vec) {
-
   val := q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z
   mag := sqrt(cast(f32)val)
 	if mag == 0.0
@@ -201,8 +200,6 @@ operator * x64(self : *quaternion, rhs : *quaternion) !quaternion
 {
 	ret : quaternion = ?
 
-__dbg_break;
-__dbg_break;
 	multiply_quaternions(&ret.v, self.v, rhs.v)
 	return ret
 }

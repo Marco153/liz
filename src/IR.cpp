@@ -3519,6 +3519,11 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
         ir.decl = a;
         InsertIr(state, ir);
+
+        if(a->type.type == TYPE_VECTOR)
+        {
+          ast->func.fdecl->total_vec_sz_args += GetTypeSize(&a->type);
+        }
       }
     }
 

@@ -10328,6 +10328,14 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwMakeContextCurrent"] = (u64)glfwMakeContextCurrent;
     outsiders["glfwSwapBuffers"] = (u64)glfwSwapBuffers;
     outsiders["glewInit"] = (u64)glewInit;
+    outsiders["glfwSetWindowUserPointer"]      = (u64)glfwSetWindowUserPointer;
+    outsiders["glfwGetWindowUserPointer"]      = (u64)glfwGetWindowUserPointer;
+    outsiders["glfwSetKeyCallback"]            = (u64)glfwSetKeyCallback;
+    outsiders["glfwSetScrollCallback"]         = (u64)glfwSetScrollCallback;
+    outsiders["glfwSetWindowCloseCallback"]    = (u64)glfwSetWindowCloseCallback;
+    outsiders["glfwSetMouseButtonCallback"]    = (u64)glfwSetMouseButtonCallback;
+    outsiders["glfwSetCursorPosCallback"]      = (u64)glfwSetCursorPosCallback;
+    outsiders["glfwGetTime"]      = (u64)glfwGetTime;
 
     outsiders["sinf"] = (u64)sinf;
     outsiders["cosf"] = (u64)cosf;
@@ -10335,6 +10343,7 @@ _pid ChildProcess(int pipes[2])
     outsiders["asinf"] = (u64)asinf;
     outsiders["acosf"] = (u64)acosf;
     outsiders["atan2f"] = (u64)atan2f;
+
 
 
     outsiders["glActiveTexture"] = (u64)_glActiveTexture;

@@ -3,7 +3,33 @@ glfwInit::fn outsider() ! u32;
 glfwCreateWindow::fn outsider(width:u32, height : u32, title:str_lit, mon : *u32, share : *u32) ! *u8;
 glfwMakeContextCurrent::fn outsider(wnd : *u8);
 glfwSwapBuffers::fn outsider(wnd : *u8);
+glfwGetTime::fn outsider() ! f64;
 
+glfwSetWindowUserPointer::fn outsider(window: *u8,
+    pointer: *void
+) ! void;
+glfwGetWindowUserPointer::fn outsider(window: *u8) ! *void;
+
+glfwSetKeyCallback::fn outsider(window: *u8,
+    cbfun: u64
+) ! void;
+
+
+glfwSetScrollCallback::fn outsider(window: *u8,
+    cbfun: u64
+) ! void;
+
+glfwSetWindowCloseCallback::fn outsider(window: *u8,
+    cbfun: u64
+) ! void;
+
+glfwSetMouseButtonCallback::fn outsider(window: *u8,
+    cbfun: u64
+) ! void;
+
+glfwSetCursorPosCallback::fn outsider(window: *u8,
+    cbfun: u64
+) ! void;
 
 
 LIENT_API: const s32 = 0x00022001;
@@ -64,4 +90,9 @@ NATIVE_CONTEXT_API: const s32 = 0x00036001;
 EGL_CONTEXT_API: const s32 = 0x00036002;
 OSMESA_CONTEXT_API: const s32 = 0x00036003;
 
+GLFW_RELEASE: const s32 = 0;
+GLFW_PRESS:   const s32 = 1;
+GLFW_REPEAT:  const s32 = 2;
 
+GLFW_KEY_MENU:const s32= 348;
+GLFW_KEY_LAST:const s32= GLFW_KEY_MENU;

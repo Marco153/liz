@@ -2205,6 +2205,9 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case AND_M_2_R:
 			CreateMemToReg(&*bc, 0x22, 0x23, false, ret);
 			break;
+		case AND_I_2_M:
+			CreateImmToMem(&*bc, 4, ret);
+			break;
 		case AND_I_2_R:
 			CreateImmToReg(0x24, 0x25, 4, &*bc, ret);
 			break;

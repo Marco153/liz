@@ -9,6 +9,15 @@ import "../entity";
 import "../chunk";
 import "../render";
 
+KEY_HELD:                const s32 = 0x01;
+KEY_DOWN:                const s32 = 0x02;
+KEY_UP:                  const s32 = 0x04;
+KEY_RECENTLY_DOWN:       const s32 = 0x08;
+KEY_REPEAT:              const s32 = 0x10;
+KEY_DOUBLE_CLICK:        const s32 = 0x20;
+DOUBLE_CLICK_MAX_TIME:   const f32 = 0.2;
+TOTAL_KEYS:              const s32 = (GLFW_KEY_LAST + 3);
+
 #if RENDER_API == OPENGL
 {
   import "../opengl";
@@ -83,6 +92,32 @@ game_info:struct
   near_plane : f32
   far_plane : f32
 
+  buttons:[TOTAL_KEYS]u32;
+  time_pressed:[TOTAL_KEYS]f32;
+}
+key_callback::fn(window:*u8, _key : u32, scancode : u32, action : u32, mods:u32)
+{
+  key:= cast(u64)_key
+
+  g := cast(*game_info)glfwGetWindowUserPointer(window);
+  printf("somthing was pressed\n");
+  if (action == GLFW_PRESS) {
+    g.buttons[key] |= (KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN);
+
+    t := cast(f32)glfwGetTime();
+
+    if ((t - g.time_pressed[key]) < DOUBLE_CLICK_MAX_TIME)
+      g.buttons[key] |= KEY_DOUBLE_CLICK;
+
+    g.time_pressed[key] = t;
+    // printf("key(%d) is %d", key, g.buttons[key]);
+  } else if (action == GLFW_RELEASE) {
+    g.buttons[key] &= ~KEY_HELD;
+    g.buttons[key] |= KEY_UP;
+    // printf("key release(%d) is %d", key, g.buttons[key]);
+  } else if (action == GLFW_REPEAT) {
+    g.buttons[key] |= KEY_REPEAT;
+  }
 }
 get_material_asset::fn(g : *game_info, name : str_lit)!u64
 {
@@ -269,6 +304,8 @@ init_game::fn(g : *game_info)
   g.cam_rot.w = 1.0
 
   g.up.y = 1.0
+
+  glfwSetWindowUserPointer(g.wnd, &g)
 }
 update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
 {
@@ -378,7 +415,7 @@ run_game::fn(g : *game_info)
   while true
   {
     update_cam_rot(g, 0.0f, 0.0f)
-    print_vec(g.cam_rot)
+    //print_vec(g.cam_rot)
     render(g, &g.rman)
     swap_buffers(g)
   }

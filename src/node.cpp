@@ -431,7 +431,13 @@ bool node_iter::is_operator(token2 *tkn, int *precedence) {
     *precedence = PREC_GREATER - 1;
     return true;
 
+  case tkn_type2::T_PIPE_EQUAL:
   case tkn_type2::T_PLUS_EQUAL:
+  case tkn_type2::T_NEG_EQUAL:
+  case tkn_type2::T_MOD_EQUAL:
+  case tkn_type2::T_AMPERSAND_EQUAL:
+  case tkn_type2::T_DIV_EQUAL:
+  case tkn_type2::T_MUL_EQUAL:
   case tkn_type2::T_MINUS_EQUAL:
   case tkn_type2::T_EQUAL: {
     *precedence = PREC_EQUAL;
@@ -8219,8 +8225,29 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
       if (!DescendNameFinding(lang_stat, ncall, scp))
         return nullptr;
     } break;
+    case tkn_type2::T_MUL_EQUAL:
+    {
+      node *bin = NewBinOpNode(lang_stat, n->l, T_MUL, n->r);
+      node *eq = NewBinOpNode(lang_stat, n->l, T_EQUAL, bin);
+
+      memcpy(n, eq, sizeof(node));
+      return DescendNameFinding(lang_stat, n, scp);
+
+    }break;
+    case tkn_type2::T_DIV_EQUAL:
+    {
+      node *bin = NewBinOpNode(lang_stat, n->l, T_DIV, n->r);
+      node *eq = NewBinOpNode(lang_stat, n->l, T_EQUAL, bin);
+
+      memcpy(n, eq, sizeof(node));
+      return DescendNameFinding(lang_stat, n, scp);
+    }break;
     case tkn_type2::T_MINUS_EQUAL:
     case tkn_type2::T_PLUS_EQUAL:
+    case tkn_type2::T_NEG_EQUAL:
+    case tkn_type2::T_PIPE_EQUAL:
+    case tkn_type2::T_MOD_EQUAL:
+    case tkn_type2::T_AMPERSAND_EQUAL:
       // %EQUAL
     case tkn_type2::T_EQUAL: {
       decl2 *lhs;
@@ -11179,7 +11206,14 @@ if (!is_correct_ovrld)
     } break;
     case tkn_type2::T_MINUS_EQUAL:
     case tkn_type2::T_PLUS_EQUAL:
-    case tkn_type2::T_EQUAL: {
+    case tkn_type2::T_NEG_EQUAL:
+    case tkn_type2::T_AMPERSAND_EQUAL:
+    case tkn_type2::T_MOD_EQUAL:
+    case tkn_type2::T_DIV_EQUAL:
+    case tkn_type2::T_MUL_EQUAL:
+    case tkn_type2::T_PIPE_EQUAL:
+    case tkn_type2::T_EQUAL: 
+    {
       //BREAK(n->t->line == 7073)
       if (IS_PRS_FLAG_ON(PSR_FLAGS_ON_ENUM_DECL))
         break;

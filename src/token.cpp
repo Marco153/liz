@@ -1,4 +1,5 @@
 #include "token.h"
+#include "token_common.h"
 
 
 
@@ -718,7 +719,13 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			case '~':
 			{
 				found_char = true;
-				tkn.type = T_TILDE;
+        if(ch[1] == '=')
+        {
+          tkn.type = T_NEG_EQUAL;
+          i++;
+        }
+        else
+          tkn.type = T_TILDE;
 			}break;
 			case '?':
 			{
@@ -739,7 +746,12 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			case '|':
 			{
 				found_char = true;
-				if(ch[1] == '|')
+				if(ch[1] == '=')
+        {
+          tkn.type = T_PIPE_EQUAL;
+          i++;
+        }
+        else if(ch[1] == '|')
 				{
 					tkn.type = T_COND_OR;
 					i++;
@@ -826,13 +838,25 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				}
 				else
 				{
-					tkn.type = T_DIV;
+          if(ch[1]== '=')
+          {
+            tkn.type = T_DIV_EQUAL;
+            i++;
+          }
+          else
+            tkn.type = T_DIV;
 				}
 			}break;
 			case '%':
 			{
 				found_char = true;
-				tkn.type = T_PERCENT;
+        if(ch[1]== '=')
+        {
+          tkn.type = T_MOD_EQUAL;
+          i++;
+        }
+        else
+          tkn.type = T_PERCENT;
 			}break;
 			case '&':
 			{
@@ -840,6 +864,11 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 				if(ch[1] == '&')
 				{
 					tkn.type = T_COND_AND;
+					i++;
+				}
+        else if(ch[1] == '=')
+				{
+					tkn.type = T_AMPERSAND_EQUAL;
 					i++;
 				}
 				else
@@ -880,7 +909,7 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 					tkn.type = T_PLUS_EQUAL;
 					i++;
 				}
-                else if(ch[1] == '+')
+        else if(ch[1] == '+')
 				{
 					tkn.type = T_PLUS_PLUS;
 					i++;
@@ -952,7 +981,13 @@ void Tokenize2(char *input, unsigned int input_sz, own_std::vector<token2> *tkns
 			case '*':
 			{
 				found_char = true;
-				tkn.type = T_MUL;
+        if(ch[1]== '=')
+        {
+          tkn.type = T_MUL_EQUAL;
+          i++;
+        }
+        else
+          tkn.type = T_MUL;
 			}break;
 			case ',':
 			{

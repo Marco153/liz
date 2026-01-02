@@ -12374,6 +12374,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           base_inst_sse = CMP_SSE_2_SSE;
         }break;
         case T_DIV:
+        case T_DIV_EQUAL:
           base_inst = DIV_M_2_M;
           base_inst_sse = DIV_SSE_2_SSE;
           break;
@@ -12382,23 +12383,28 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           base_inst_sse = MOV_SSE_2_SSE;
         break;
         case T_MUL:
+        case T_MUL_EQUAL:
           base_inst = MUL_M_2_M;
           base_inst_sse = MUL_SSE_2_SSE;
         break;
         case T_PERCENT:
+        case T_MOD_EQUAL:
           base_inst = MOD_M_2_M;
         break;
         case T_POINT:
         {
         }break;
         case T_PIPE:
+        case T_PIPE_EQUAL:
           base_inst = OR_M_2_M;
         break;
         case T_AMPERSAND:
+        case T_AMPERSAND_EQUAL:
           base_inst = AND_M_2_M;
 
         break;
         case T_PLUS:
+        case T_PLUS_EQUAL:
           base_inst = ADD_M_2_M;
           base_inst_sse = ADD_SSE_2_SSE;
 
@@ -12414,6 +12420,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           base_inst_sse = XOR_SSE_2_SSE;
           break;
         case T_MINUS:
+        case T_MINUS_EQUAL:
           base_inst = SUB_M_2_M;
           base_inst_sse = SUB_SSE_2_SSE;
           break;

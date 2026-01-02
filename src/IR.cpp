@@ -475,8 +475,16 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
     case T_MUL:
     case T_COND_NE:
     case T_LESSER_EQ:
-    case T_PLUS_EQUAL:
-    case T_MINUS_EQUAL:
+
+    case tkn_type2::T_MINUS_EQUAL:
+    case tkn_type2::T_PLUS_EQUAL:
+    case tkn_type2::T_NEG_EQUAL:
+    case tkn_type2::T_AMPERSAND_EQUAL:
+    case tkn_type2::T_MOD_EQUAL:
+    case tkn_type2::T_DIV_EQUAL:
+    case tkn_type2::T_MUL_EQUAL:
+    case tkn_type2::T_PIPE_EQUAL:
+
     case T_COND_EQ:
     case T_AMPERSAND:
     case T_HAT:
@@ -1564,6 +1572,7 @@ void InsertIr(thread_ir_state *state, ir_rep &ir)
   if(ir.type == IR_BIN)
   {
     ASSERT(ir.bin.lhs.reg_sz <= 8 && ir.bin.rhs.reg_sz <= 8)
+    ASSERT(ir.bin.lhs.type != IR_NONE && ir.bin.rhs.type != IR_NONE)
   }
   state->cur_block->irs.emplace_back(ir);
 }
@@ -2986,7 +2995,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     if(rhs.kind == IR_VAL_ADDR)
     {
       LoadDerefs(lang_stat, &state->cur_block->irs, &rhs);
-      EnsureValue(lang_stat, state, &ir.bin.lhs);
+      EnsureValue(lang_stat, state, &rhs);
     }
     
     char reg=-1;
@@ -4304,8 +4313,15 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         UnspillReg(state, &unspill);
       }
     }break;
-    case T_PLUS_EQUAL:
-    case T_EQUAL:
+    case tkn_type2::T_MINUS_EQUAL:
+    case tkn_type2::T_PLUS_EQUAL:
+    case tkn_type2::T_NEG_EQUAL:
+    case tkn_type2::T_AMPERSAND_EQUAL:
+    case tkn_type2::T_MOD_EQUAL:
+    case tkn_type2::T_DIV_EQUAL:
+    case tkn_type2::T_MUL_EQUAL:
+    case tkn_type2::T_PIPE_EQUAL:
+    case tkn_type2::T_EQUAL: 
     {
       rhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[1], state, false);
 
@@ -4402,7 +4418,14 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         InsertIr(state, ir);
 
       }break;
-      case T_PLUS_EQUAL:
+      case tkn_type2::T_MINUS_EQUAL:
+      case tkn_type2::T_PLUS_EQUAL:
+      case tkn_type2::T_NEG_EQUAL:
+      case tkn_type2::T_AMPERSAND_EQUAL:
+      case tkn_type2::T_MOD_EQUAL:
+      case tkn_type2::T_DIV_EQUAL:
+      case tkn_type2::T_MUL_EQUAL:
+      case tkn_type2::T_PIPE_EQUAL:
       {
         if(lhs.is_float)
         {
@@ -4410,7 +4433,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           EnsureValue(lang_stat, state, &aux);
           LoadDerefs(lang_stat, &state->cur_block->irs, &aux);
           ir.type = IR_BIN;
-          ir.bin.op = T_PLUS;
+          ir.bin.op = ast->op;
           ir.bin.lhs = aux;
           ir.bin.rhs = rhs;
 
@@ -4423,7 +4446,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         else
         {
           ir.type = IR_BIN;
-          ir.bin.op = T_PLUS;
+          ir.bin.op = ast->op;
           ir.bin.lhs = lhs;
           ir.bin.rhs = rhs;
 

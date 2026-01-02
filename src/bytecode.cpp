@@ -519,6 +519,7 @@ void StoreMemToMem(byte_code *bc, int dst_offset, machine_code &ret)
 }
 void ResolveJmpInsts(machine_code *ret)
 {
+  int i = 0;
 	FOR_VEC(j, ret->jmp_rels)
 	{
 		unsigned int dst_offset = j->dst_bc->machine_code_idx;
@@ -538,6 +539,7 @@ void ResolveJmpInsts(machine_code *ret)
 		{
 			ASSERT(false)
 		}
+    i++;
 	}
 }
 void CreateSSEToSSEAVX(byte_code *bc, char op, machine_code *ret)
@@ -1691,7 +1693,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case JMP:
 		{
-			int jmp = (int)bc->val * 4;
+			int jmp = (int)bc->val * 8;
 			if ((unsigned int)jmp <= 0x80)
 			{
 				ret.jmp_rels.emplace_back(jmp_rel(1, ret.code.size() + 1, &*bc));

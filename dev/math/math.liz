@@ -133,25 +133,6 @@ normalize_quaternion::fn x64(out : *_vec, q : _vec) {
 
   val := q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z
   mag := sqrt(cast(f32)val)
-  __dbg_break
-  __dbg_break
-  __dbg_break
-  a := 0
-	if a == 0
-	{
-		out.x = 1.0
-		out.y = 0.0
-		out.z = 0.0
-		out.w = 0.0
-	}
-	else
-	{
-		out.x = q.x/mag
-		out.y = q.y/mag
-		out.z = q.z/mag
-		out.w = q.w/mag
-	}
-
 	if mag == 0.0
 	{
 		out.x = 1.0
@@ -220,7 +201,8 @@ operator * x64(self : *quaternion, rhs : *quaternion) !quaternion
 {
 	ret : quaternion = ?
 
-  __dbg_break;
+__dbg_break;
+__dbg_break;
 	multiply_quaternions(&ret.v, self.v, rhs.v)
 	return ret
 }

@@ -113,6 +113,7 @@ type_enum : enum
 	//
 
 	TYPE_INT,
+	TYPE_INT64,
 
 	TYPE_IMPORT,
 
@@ -129,8 +130,8 @@ type_enum : enum
 	TYPE_S64,
 
 	TYPE_F32,
-	TYPE_CHAR,
 	TYPE_F64,
+	TYPE_CHAR,
 	TYPE_BOOL,
 	TYPE_F32_RAW,
 	TYPE_F64_RAW,
@@ -277,6 +278,11 @@ num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
 	}
 	return written;
 }
+print_vec::fn(v : _vec)
+{
+	printf("x {v.x}, y {v.y}, z {v.z}, w {v.w}\n")
+	//printf("ang %, dt %\n", cast(s32)(ang * 100.0), cast(s32)(dt * 100.0))
+}
 sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_array(var_arg)) !u64
 {
 
@@ -382,7 +388,6 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 
 			}
 			else if cur_arg.type == type_enum.TYPE_F32
-
 			{
 				f := *cast(*f32)&cur_arg.val
 				lhs := cast(s32)f
@@ -401,20 +406,17 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 				
 
 				//if cast(s64)cur_arg.val == 32
-					//__dbg_break
 				num_ln: = num_2_str(cast(s64)lhs, &aux_num_buffer[0], 16);
 				if negative
 				{
 					*ptr_offset(buffer, buffer_idx, u8) = '-
 					buffer_idx++
 				}
-				*ptr_offset(aux_num_buffer[0], num_ln, u8) = '.
+				*ptr_offset(&aux_num_buffer[0], num_ln, u8) = '.
 				num_ln2: = num_2_str(cast(s64)rhs, &aux_num_buffer[num_ln + 1], 16);
 
 				memcpy(ptr_offset(buffer, buffer_idx, u8), &aux_num_buffer[0], num_ln + num_ln2 + 1);
 				buffer_idx += num_ln + num_ln2 + 1;
-
-
 			}
 			else if cur_arg.type == type_enum.TYPE_U32 || cur_arg.type == type_enum.TYPE_S32 ||
 					cur_arg.type == type_enum.TYPE_U8 || cur_arg.type == type_enum.TYPE_S8 ||
@@ -436,7 +438,6 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 			else
 			{
 				// type not handled
-				__dbg_break;
 			}
 			arg_idx++;
 		}

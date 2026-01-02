@@ -63,6 +63,9 @@ game_info:struct
   rman : render_manager
 
   cam_pos : vector
+  cam_rot : _vec
+
+  up : _vec
   player : *entity
   trn : *entity
 
@@ -74,6 +77,8 @@ game_info:struct
 
   terrain_shader   : *material_info
   to_screen_shader : *material_info
+
+  global_ubo : uniform_buffer
 
   near_plane : f32
   far_plane : f32
@@ -258,9 +263,42 @@ init_game::fn(g : *game_info)
     &g.depth_fbo.color_tex.id, 
     &g.offscreen_fbo.normal_tex.id, 
     &g.offscreen_fbo.color_tex.id, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
+
+  g.global_ubo = create_uniform_buffer(sizeof(global_ubo_uniform))
+
+  g.cam_rot.w = 1.0
 }
-draw_objects::fn(g : *game_info)
+update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
 {
+  up :=g.up
+  right :_vec
+  right.x = 1.0
+  crot :quaternion
+  crot.v = g.cam_rot
+
+  cam_right :_vec
+  rotate_vector(&cam_right, crot.v, right)
+
+  yaw := create_from_axis_angle(up.x, up.y, up.z, dx)
+  pitch := create_from_axis_angle(cam_right.x, cam_right.y, cam_right.z, dy)
+
+
+  g.cam_rot = (yaw * pitch * crot).v
+}
+draw_objects::fn(g : *game_info, rman : *render_manager)
+{
+  for i in 0..cast(s64)rman.cur_draws
+  {
+    cur := ptr_offset(rman.draws, i, draw_info);
+
+    on cur.type
+    {
+    draw_info.CHUNK
+    {
+
+    }
+    }
+  }
 }
 render::fn(g : *game_info, rman : *render_manager)
 {
@@ -272,7 +310,7 @@ render::fn(g : *game_info, rman : *render_manager)
   glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); // disable color writes
   glClearDepth(1.0f);          // depth clear value (1.0 = far)
   glClear(GL_DEPTH_BUFFER_BIT);
-  draw_objects(g)
+  draw_objects(g, &g.rman)
   //DrawObjects(thread_id, dbg, draw, true);
   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
@@ -285,7 +323,7 @@ render::fn(g : *game_info, rman : *render_manager)
   glClearDepth(1.0f);
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  draw_objects(g)
+  draw_objects(g, &g.rman)
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
   glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
@@ -338,6 +376,9 @@ run_game::fn(g : *game_info)
 {
   while true
   {
+    update_cam_rot(g, 0.0f, 0.0f)
+    __dbg_break
+    print_vec(g.cam_rot)
     render(g, &g.rman)
     swap_buffers(g)
   }

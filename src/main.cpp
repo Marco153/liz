@@ -11500,6 +11500,28 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       dbg->inst_addr_print_type = (dbg->inst_addr_print_type + 1) % 2;
     }
     int selected_print_mem_type = 0;
+    auto data_exp=TextFieldAcceptsCode(dbg, "data: ", data_text_field, 128, child_p, &regs, cur_f, cur_scp);
+    if(data_exp)
+    {
+      char *str = data_exp->exp_val_str.c_str();
+      char *end;
+      errno = 0;
+      unsigned long long result = strtoull(str, &end, 16);
+
+      if (result == 0 && end == str) 
+      {
+          // The string was not a valid number
+      }
+      else if (result == ULLONG_MAX && errno) 
+      {
+          // The value does not fit in an unsigned long long
+      }
+      else if (*end) 
+      {
+          // The string contains extra characters after the number
+      }
+      data_addr = result;
+    }
     switch(ch_state)
     {
     case child_process_state::INT3:
@@ -11608,28 +11630,6 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ImGui::InputScalar("INT3: ", ImGuiDataType_U64, &assembly_addr, nullptr, nullptr, "%016llX");
       //ImGui::InputScalar("data: ", ImGuiDataType_U64, &data_addr, nullptr, nullptr, "%016llX");
 
-      auto data_exp=TextFieldAcceptsCode(dbg, "data: ", data_text_field, 128, child_p, &regs, cur_f, cur_scp);
-      if(data_exp)
-      {
-        char *str = data_exp->exp_val_str.c_str();
-        char *end;
-        errno = 0;
-        unsigned long long result = strtoull(str, &end, 16);
-
-        if (result == 0 && end == str) 
-        {
-            // The string was not a valid number
-        }
-        else if (result == ULLONG_MAX && errno) 
-        {
-            // The value does not fit in an unsigned long long
-        }
-        else if (*end) 
-        {
-            // The string contains extra characters after the number
-        }
-        data_addr = result;
-      }
       //void TextFieldAcceptsCode(dbg_state *dbg, char *name, char *buffer, int size, int child_p, u64 rsp, func_decl *fdecl, scope *scp)
 
       PrintInsts(child_p, dbg, assembly_addr, (u64)code_start, cur_f, cur_st, center_inst, cur_scp, &regs);
@@ -11671,6 +11671,11 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ImGui::Text("SIGSEGV");
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       ImGui::Text("%p", regs.rip);
+      if(data_addr != 0)
+      {
+        ImGui::SameLine();
+        PrintMem(child_p, dbg, data_addr, &print_mem_type);
+      }
       PrintInsts(child_p, dbg, regs.rip, (u64)code_start, cur_f, cur_st, center_inst, cur_scp, &regs);
       PrintRegs(child_p, dbg, &regs, (float *)(xstate + 272));
       ImGui::SameLine();

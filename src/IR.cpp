@@ -2604,6 +2604,8 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
     EnsureValue(lang_stat, state, &ir.bin.rhs);
     LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs);
 
+    if(ir.bin.rhs.type == IR_TYPE_REG_MEM)
+      ir.bin.rhs.type = IR_TYPE_REG;
     if(i >= args_on_stack_start)
     {
       if(ir.bin.rhs.kind == IR_VAL_ADDR && ir.bin.rhs.deref > 0)
@@ -3364,6 +3366,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       auto prev = lang_stat->no_stmnt_of_conds;
       lang_stat->no_stmnt_of_conds = false;
       lhs = GetIRFromAst2(lang_stat, ast->cond.scope, state, false);
+
+      if (!lang_stat->ir_in_stmnt && !lang_stat->no_stmnt_of_conds)
+        stmnt_idx = IRCreateBeginBlock(lang_stat, &state->cur_block->irs, IR_BEGIN_STMNT,
+                                      (void *)(long long)ast->line_number);
       if(is_if_expr)
       {
         //HERE()
@@ -3385,6 +3391,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       if(ast->cond.elses.size() > 0)
         EmitJmp(lang_stat, state, merge);
       lang_stat->no_stmnt_of_conds = prev;
+
+      if (!lang_stat->ir_in_stmnt && !lang_stat->no_stmnt_of_conds)
+        IRCreateEndBlock(lang_stat, stmnt_idx, &state->cur_block->irs, IR_END_STMNT);
     }
 
     EmitBlockMakeCurrent(lang_stat, state, cond_false);

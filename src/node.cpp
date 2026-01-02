@@ -11200,6 +11200,21 @@ if (!is_correct_ovrld)
         HERE()
         rtp = DescendNode(lang_stat, n->r, scp);
       }
+
+      if (ltp.type == TYPE_F32 && rtp.type == TYPE_F64_RAW) {
+        n->r->type = N_FLOAT;
+        n->r->t->f = n->r->t->f64;
+        rtp.type = TYPE_F32;
+        rtp.f = n->r->t->f;
+        // GetExpressionVal(n);
+      }
+      if (ltp.type == TYPE_F64 && rtp.type == TYPE_F32_RAW) {
+        n->r->type = N_FLOAT64;
+        n->r->t->f64 = n->r->t->f;
+        rtp.type = TYPE_F64;
+        rtp.f64 = n->r->t->f;
+        // GetExpressionVal(n);
+      }
       MaybeConvertEtructEnumToStructType(rtp);
       ltp = DescendNode(lang_stat, n->l, scp);
 

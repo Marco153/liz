@@ -25,6 +25,6 @@ void main() {
   vec4 color  = texture(uScene, vUV);
   float d = dot(normal, sun_dir.xyz);
   d = clamp(d, 0.5, 1.0);
-  FragColor = color * sun_color * d;
+  FragColor = color;
   FragColor.w = 1.0;
 }

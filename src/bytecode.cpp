@@ -1012,7 +1012,6 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case CVT_SS_2_SI:
 		case CVT_SD_2_SI:
     {
-      //HERE()
       char ireg = bc->bin.lhs.reg;
       char freg = bc->bin.rhs.reg;
       char lhs = bc->bin.lhs.reg & 7;
@@ -1063,7 +1062,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         freg = bc->bin.rhs.reg;
         lhs = ireg;
         rhs = freg;
-        mod = MakeModRM(false, 0, rhs, lhs&7);
+        mod = MakeModRM(false, 0, rhs&7, lhs&7);
         is_rex = IS_FLAG_ON(ireg, 0x80);
 
         if(is_rex && freg > 7)

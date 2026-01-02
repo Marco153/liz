@@ -3,6 +3,7 @@ import "../typedefs/"
 import "../memory/"
 import "../os/"
 import "../asset/"
+import "../math/"
 
 draw_info:etruct
 {
@@ -18,6 +19,13 @@ draw_info:etruct
     sz : _vec
     model : u32
   )
+}
+global_ubo_uniform:struct
+{
+  view : mat4x4
+  proj : mat4x4
+  sun_dir : _vec
+  sun_color : _vec
 }
 
 render_manager:struct

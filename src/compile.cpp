@@ -11776,6 +11776,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
 
 	unsigned int stack_size = 0;
 	int total_args = 0;
+	int total_vec_args = 0;
 	int cur_line = 0;
 	int start = ret.size();
 
@@ -11951,7 +11952,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         int to_sum = GetTypeSize(&cur_ir->decl->type);
         if(cur_ir->decl->type.type == TYPE_VECTOR)
         {
-         stack_size = get_even_address_with(to_sum, stack_size);
+          stack_size = get_even_address_with(to_sum, stack_size);
         }
         cur_ir->decl->offset = stack_size;
         stack_size += to_sum <= 4 ? 4 : to_sum;
@@ -11960,8 +11961,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
       case IR_DECLARE_ARG:
       {
 #ifdef LINUX
-
-        cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + total_args * 8;
+        cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + (total_args + total_vec_args) * 8;
         if(IS_FLAG_ON(cur_ir->decl->flags, DECL_IS_VAR_ARG))
         {
           //HERE()
@@ -11973,7 +11973,11 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           // for the push rbx
           // and for the push rbp
           total_args += 3;
-          cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + total_args * 8;
+          cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + (total_args + total_vec_args) * 8;
+        }
+        if(cur_ir->decl->type.type == TYPE_VECTOR)
+        {
+          total_vec_args += cur_ir->decl->type.vec_type;
         }
         total_args++;
 #else

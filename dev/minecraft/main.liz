@@ -8,15 +8,8 @@ import "../math";
 import "../entity";
 import "../chunk";
 import "../render";
+import "../input";
 
-KEY_HELD:                const s32 = 0x01;
-KEY_DOWN:                const s32 = 0x02;
-KEY_UP:                  const s32 = 0x04;
-KEY_RECENTLY_DOWN:       const s32 = 0x08;
-KEY_REPEAT:              const s32 = 0x10;
-KEY_DOUBLE_CLICK:        const s32 = 0x20;
-DOUBLE_CLICK_MAX_TIME:   const f32 = 0.2;
-TOTAL_KEYS:              const s32 = (GLFW_KEY_LAST + 3);
 
 #if RENDER_API == OPENGL
 {
@@ -91,33 +84,42 @@ game_info:struct
 
   near_plane : f32
   far_plane : f32
+  iman : input_manager
 
-  buttons:[TOTAL_KEYS]u32;
-  time_pressed:[TOTAL_KEYS]f32;
 }
 key_callback::fn(window:*u8, _key : u32, scancode : u32, action : u32, mods:u32)
 {
   key:= cast(u64)_key
 
   g := cast(*game_info)glfwGetWindowUserPointer(window);
-  printf("somthing was pressed\n");
+  iman := &g.iman
+  //printf("game:somthing was pressed\n");
   if (action == GLFW_PRESS) {
-    g.buttons[key] |= (KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN);
+    //printf("PRESS event\n");
+    //printf("key {key}, prev val {&iman.buttons[key]}\n");
+    iman.buttons[key] |= (KEY_HELD | KEY_DOWN | KEY_RECENTLY_DOWN);
+    //printf("after val {iman.buttons[key]}\n");
 
     t := cast(f32)glfwGetTime();
 
-    if ((t - g.time_pressed[key]) < DOUBLE_CLICK_MAX_TIME)
-      g.buttons[key] |= KEY_DOUBLE_CLICK;
+    if ((t - iman.time_pressed[key]) < DOUBLE_CLICK_MAX_TIME)
+      iman.buttons[key] |= KEY_DOUBLE_CLICK;
 
-    g.time_pressed[key] = t;
-    // printf("key(%d) is %d", key, g.buttons[key]);
+    iman.time_pressed[key] = t;
+    //printf("PRESS event ended\n");
   } else if (action == GLFW_RELEASE) {
-    g.buttons[key] &= ~KEY_HELD;
-    g.buttons[key] |= KEY_UP;
-    // printf("key release(%d) is %d", key, g.buttons[key]);
-  } else if (action == GLFW_REPEAT) {
-    g.buttons[key] |= KEY_REPEAT;
+    //printf("RELEASE event\n");
+    iman.buttons[key] &= ~KEY_HELD;
+    iman.buttons[key] |= KEY_UP;
+    // printf("key release(%d) is %d", key, iman.buttons[key]);
+    //printf("RELEASE event ended\n");
   }
+  else if (action == GLFW_REPEAT) {
+    //printf("REPEAT event\n");
+    iman.buttons[key] |= KEY_REPEAT;
+    //printf("REPEAT event ended\n");
+  }
+  //printf("game: end of key_callback\n");
 }
 get_material_asset::fn(g : *game_info, name : str_lit)!u64
 {
@@ -305,7 +307,10 @@ init_game::fn(g : *game_info)
 
   g.up.y = 1.0
 
-  glfwSetWindowUserPointer(g.wnd, &g)
+  glfwSetWindowUserPointer(g.wnd, g)
+
+  glfwSetKeyCallback(g.wnd, cast(u64)key_callback)
+
 }
 update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
 {
@@ -410,14 +415,35 @@ clear_background_color::fn(gptr : *game_info, r : f32, g : f32, b : f32, a : f32
   glClearColor(r, g, b, a)
   glClear(GL_COLOR_BUFFER_BIT)
 }
+player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
+{
+  dt:= cast(f64)dt_
+  if is_key_held(&g.iman, key_enum.A)
+  {
+    player.pos.x += dt
+  }
+}
 run_game::fn(g : *game_info)
 {
+  prev_time : f64=glfwGetTime()
   while true
   {
+    dt := cast(f32)(glfwGetTime() - prev_time)
+
+    prev_time = glfwGetTime()
+
+    glfwPollEvents()
+
     update_cam_rot(g, 0.0f, 0.0f)
-    //print_vec(g.cam_rot)
+
+    player_mov(g, g.player, dt)
+
+    print_vec2(g.player.pos)
+
     render(g, &g.rman)
     swap_buffers(g)
+
+    io_globals.linear_cur = 0
   }
 }
 

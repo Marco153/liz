@@ -936,6 +936,7 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
           arg = ref;
         } else if (cur_arg->lhs_tp.type == TYPE_F32) {
 
+          /*
           ast_rep *ref = NewAst();
           ref->type = AST_ADDRESS_OF;
           ref->ast = cur_arg;
@@ -953,13 +954,16 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
           deref->deref.type = cast->cast.type;
 
           arg = deref;
+          */
+          var_arg_info.emplace_back(arg);
         }
-
-        ast_rep *cast_to_s64 = NewAst();
-        cast_to_s64->type = AST_CAST;
-        cast_to_s64->cast.casted = arg;
-        cast_to_s64->cast.type.type = TYPE_S64;
-        var_arg_info.emplace_back(cast_to_s64);
+        else{
+          ast_rep *cast_to_s64 = NewAst();
+          cast_to_s64->type = AST_CAST;
+          cast_to_s64->cast.casted = arg;
+          cast_to_s64->cast.type.type = TYPE_S64;
+          var_arg_info.emplace_back(cast_to_s64);
+        }
         auto a = 0;
       }
       ret->call.args = var_arg_info;
@@ -2583,7 +2587,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
 
   ir.type = IR_BIN;
   ir.bin.op = T_EQUAL;
-  if(ir.bin.rhs.is_float)
+  if(ir.bin.rhs.is_float && i < args_on_stack_start)
   {
     char free_reg = -1;
     char deref = ir.bin.rhs.deref;
@@ -2623,6 +2627,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
       ir.bin.lhs.type = IR_TYPE_REG_MEM;
       ir.bin.lhs.reg = (char)regs_enum::RSP;
       ir.bin.lhs.reg_sz = 8;
+      ir.bin.lhs.is_float = ir.bin.rhs.is_float;
       ir.bin.lhs.voffset = (i - args_on_stack_start) * 8;
 
     }
@@ -3650,6 +3655,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       InsertIr(state, ir);
 
       ret = ir.bin.lhs;
+      ret.ptr++;
+      ret.reg_sz = 8;
     }
     if (ast->goes_onto_stack && ret.is_packed_float) 
     {
@@ -3667,8 +3674,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
 
     ret.kind = IR_VAL_VALUE;
-    ret.reg_sz = 8;
-    ret.ptr++;
 
   }break;
   case AST_CAST:
@@ -3721,7 +3726,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         LoadDerefs(lang_stat, &state->cur_block->irs, &ret);
       }
       if (ast->cast.type.ptr == 0) {
-        if(cast_sz == 4 && ret.reg_sz == 8)
+        if(cast_sz == 4 && ret.reg_sz == 8 && !ret.is_float)
         {
           casted = true;
           ret.reg_sz = 4;
@@ -3746,6 +3751,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           InsertIr(state, ir);
 
           ret.kind = IR_VAL_VALUE;
+          ret.deref = 0;
+          ret.ptr = 0;
         }
         else if(!from_float && to_float)
         {

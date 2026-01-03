@@ -4,7 +4,7 @@
 #include "token.h"
 
 
-#define REGS_PUSHED 2
+#define REGS_PUSHED 4
 #ifdef LINUX
 #define MAX_CALL_REGS (6)
 #else

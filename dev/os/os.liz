@@ -278,6 +278,11 @@ num_2_str::fn(num : s64, in_buf : *u8, buffer_sz : u32) ! u64
 	}
 	return written;
 }
+print_vec2::fn(v : _vec2)
+{
+	printf("x {cast(f32)v.x}, y {cast(f32)v.y}, z {cast(f32)v.z}, w {cast(f32)v.w}\n")
+	//printf("ang %, dt %\n", cast(s32)(ang * 100.0), cast(s32)(dt * 100.0))
+}
 print_vec::fn(v : _vec)
 {
 	printf("x {v.x}, y {v.y}, z {v.z}, w {v.w}\n")

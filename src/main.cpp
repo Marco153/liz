@@ -10336,6 +10336,7 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwSetMouseButtonCallback"]    = (u64)glfwSetMouseButtonCallback;
     outsiders["glfwSetCursorPosCallback"]      = (u64)glfwSetCursorPosCallback;
     outsiders["glfwGetTime"]      = (u64)glfwGetTime;
+    outsiders["glfwPollEvents"]      = (u64)glfwPollEvents;
 
     outsiders["sinf"] = (u64)sinf;
     outsiders["cosf"] = (u64)cosf;
@@ -10624,6 +10625,9 @@ func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *of
 
     char *f_start = code_start + f->code_start_idx;
     char *f_end = code_start + f->code_end_idx;
+
+    //printf("func %s, start %p, end %p, offset %p\n", f->name.c_str(), f_start, f_end, offset);
+
     if(offset >= f_start && offset <= f_end) return f;
   }
   return nullptr;
@@ -11544,6 +11548,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
           //printf("DBG: trying rip %p\n", regs.rip);
           cur_f = GetFuncBasedOnAddr2(lang_stat, code_start, (char *)regs.rip);
         }
+        //HERE()
         ImGui::Text("in range");
         if(cur_f)
         {
@@ -12070,6 +12075,10 @@ void SpillDbgReg(thread_ir_state *state, char reg, int *cur, func_decl *fdecl)
 dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u64 rsp, func_decl *fdecl, scope *scp)
 {
   lang_state *lang_stat = dbg->lang_stat;
+  if(!scp)
+  {
+    scp = NewScope(lang_stat, nullptr);
+  }
 
 	dbg->lang_stat->flags |= PSR_FLAGS_ON_JMP_WHEN_ERROR;
 	void* prev_alloc = __lang_globals.data;

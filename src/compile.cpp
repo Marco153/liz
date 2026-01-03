@@ -11311,6 +11311,16 @@ void GenX64RetGroup(lang_state *lang_stat, int stack_size, own_std::vector<byte_
 
 	bc = {};
 	bc.type = POP_R;
+	bc.val = (char)regs_enum::R15;
+	ret.emplace_back(bc);
+
+	bc = {};
+	bc.type = POP_R;
+	bc.val = (char)regs_enum::R14;
+	ret.emplace_back(bc);
+
+	bc = {};
+	bc.type = POP_R;
 	bc.val = (char)regs_enum::RDI;
 	ret.emplace_back(bc);
 
@@ -11798,6 +11808,12 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
     
     bc.val = (long long)regs_enum::RDI;
     ret.emplace_back(bc);
+
+    bc.val = (long long)regs_enum::R14;
+    ret.emplace_back(bc);
+
+    bc.val = (long long)regs_enum::R15;
+    ret.emplace_back(bc);
   }
 
   int st_idx = 0;
@@ -11981,7 +11997,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           // 3 because, accounting for the ret address
           // for the push rbx
           // and for the push rbp
-          total_args += 3;
+          total_args += REGS_PUSHED + 1;
           cur_ir->decl->offset = (cur_func->stack_size - MAX_CALL_REGS * 8) + (total_args) * 8;
         }
 

@@ -2587,7 +2587,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
 
   ir.type = IR_BIN;
   ir.bin.op = T_EQUAL;
-  if(ir.bin.rhs.is_float && i < args_on_stack_start)
+  if(ir.bin.rhs.is_float && i < args_on_stack_start && ir.bin.rhs.ptr == 0)
   {
     char free_reg = -1;
     char deref = ir.bin.rhs.deref;
@@ -3681,6 +3681,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ast_rep *casted_ast = ast->cast.casted;
     ret = GetIRFromAst2(lang_stat, casted_ast, state, true);
 
+    //BREAK(ast->line_number == 515)
     char prev = ast->cast.type.ptr;
     int cast_sz = GetTypeSize(&ast->cast.type, 0);
     if(ast->cast.type.type == TYPE_VOID && ast->cast.type.ptr > 0)
@@ -3721,7 +3722,16 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       if (ret.ptr > 0 && ast->cast.type.ptr == 0) {
         // Need the pointed value
         if (ret.kind == IR_VAL_ADDR)
-          EnsureValue(lang_stat, state, &ret); // load pointer variable
+        {
+          if(ret.is_float && ret.ptr > 0 && !ast->cast.type.IsFloat())
+          {
+            ret.is_float = false;
+            EnsureValue(lang_stat, state, &ret); // load pointer variable
+            ret.is_float = from_float;
+          }
+          else
+            EnsureValue(lang_stat, state, &ret); // load pointer variable
+        }
 
         LoadDerefs(lang_stat, &state->cur_block->irs, &ret);
       }

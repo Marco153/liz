@@ -1,0 +1,5 @@
+mesh:struct
+{
+  vert_count : u32, // 3 per vertex
+  position : *f32 
+}

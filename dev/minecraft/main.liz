@@ -9,6 +9,7 @@ import "../entity";
 import "../chunk";
 import "../render";
 import "../input";
+import "../assimp";
 
 
 #if RENDER_API == OPENGL
@@ -295,6 +296,8 @@ init_game::fn(g : *game_info)
 
   create_ents(g)
 
+  init_render_man(&g.rman, &g.main_galloc, 64)
+
   create_framebuffers(&g.depth_fbo.fbo.id, 
     &g.offscreen_fbo.fbo.id, 
     &g.depth_fbo.color_tex.id, 
@@ -310,6 +313,9 @@ init_game::fn(g : *game_info)
   glfwSetWindowUserPointer(g.wnd, g)
 
   glfwSetKeyCallback(g.wnd, cast(u64)key_callback)
+
+  g.near_plane = 0.1
+  g.far_plane = 500.0
 
 }
 update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
@@ -330,6 +336,9 @@ update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
 }
 draw_objects::fn(g : *game_info, rman : *render_manager)
 {
+  
+  //update_uniform_buffer(&g.global_ubo, data : *void, data_size:s64)
+
   for i in 0..cast(s64)rman.cur_draws
   {
     cur := ptr_offset(rman.draws, i, draw_info);
@@ -343,8 +352,22 @@ draw_objects::fn(g : *game_info, rman : *render_manager)
     }
   }
 }
+add_objects_to_draw::fn(g : *game_info, rman : *render_manager)
+{
+
+}
+clear_objects_to_draw::fn(g : *game_info, rman : *render_manager)
+{
+
+}
 render::fn(g : *game_info, rman : *render_manager)
 {
+  aspect := cast(f32)g.wnd_height / cast(f32)g.wnd_width
+  g_ubo:global_ubo_uniform=?
+
+  identity(&g_ubo.view)
+  perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
+
   to_screen_shader := g.to_screen_shader.shader_id
 
   glBindFramebuffer(GL_FRAMEBUFFER, g.depth_fbo.fbo.id);
@@ -440,7 +463,10 @@ run_game::fn(g : *game_info)
 
     print_vec2(g.player.pos)
 
+    add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)
+    clear_objects_to_draw(g , &g.rman)
+
     swap_buffers(g)
 
     io_globals.linear_cur = 0

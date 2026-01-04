@@ -209,3 +209,12 @@ operator * x64(self : *quaternion, vec : *_vec) !_vec
 	rotate_vector(&ret, *vec, self.v)
 	return ret
 }
+identity::fn(m : *mat4x4)
+{
+  memset(m, 0, sizeof(*m))
+  m.vals[0] = 1.0
+  m.vals[5] = 1.0
+  m.vals[10] = 1.0
+  m.vals[15] = 1.0
+
+}

@@ -32,6 +32,7 @@ render_manager:struct
 {
   draws : *draw_info
   cur_draws : u32
+  max_draws : u32
 
   sun_color : _vec
   sun_dir   : _vec
@@ -450,6 +451,11 @@ create_storage_buffer::fn(size : u32)!storage_buffer
   return ret
 }
 }
+update_uniform_buffer::fn(u : *uniform_buffer, data : *void, data_size:s64)
+{
+  glBindBufferBase(GL_UNIFORM_BUFFER, 0, u.id)
+  glBufferSubData(GL_UNIFORM_BUFFER, 0, cast(u32)data_size, data);
+}
 update_storage_buffer::fn(storage : *storage_buffer, data : *void, data_size:s64)
 {
 #if RENDER_API == OPENGL
@@ -502,4 +508,21 @@ enable_shader_uniforms::fn(mat : *material_info, global_ubo : *uniform_buffer)
         1,
         mat.shader_id,
         &mat.model_uniform);
+}
+perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) 
+{
+  tanHalfFov:= tanf(fov / 2.0);
+	memset(mat, 0, 16)
+  *ptr_offset(mat, 0, f32) = 1.0 / (aspect * tanHalfFov);
+  *ptr_offset(mat, 5, f32) = 1.0 / tanHalfFov;
+  *ptr_offset(mat, 10, f32) = -(far + near) / (far - near);
+  *ptr_offset(mat, 11, f32) = -1.0;
+  *ptr_offset(mat, 14, f32) = -(2.0 * far * near) / (far - near);
+}
+init_render_man::fn(r : *render_manager, alloc : *generic_allocator, max_draws : u32)
+{
+  r.max_draws = max_draws
+  r.cur_draws = 0
+  r.draws     = cast(*draw_info)get_buffer_from_generic_alloc(alloc, max_draws * sizeof(draw_info))
+
 }

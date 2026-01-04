@@ -4040,6 +4040,14 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
         }
         ret_type.ptr--;
         break;
+      case enum_type2::TYPE_FUNC:
+        if (ret_type.ptr == 0) {
+          REPORT_ERROR(n->r->t->line, n->r->t->line_offset,
+                       VAR_ARGS("funcs cant be derefd\n"));
+          ExitProcess(1);
+        }
+        ret_type.ptr--;
+        break;
       case enum_type2::TYPE_TEMPLATE:
         ret_type.ptr++;
         break;

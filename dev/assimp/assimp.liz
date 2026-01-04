@@ -1,0 +1,131 @@
+aiVector3D : struct
+{
+  x : f32;
+  y : f32;
+  z : f32;
+}
+
+aiColor4D : struct
+{
+  r : f32;
+  g : f32;
+  b : f32;
+  a : f32;
+}
+
+aiMatrix4x4 : struct
+{
+  a1 : f32; a2 : f32; a3 : f32; a4 : f32;
+  b1 : f32; b2 : f32; b3 : f32; b4 : f32;
+  c1 : f32; c2 : f32; c3 : f32; c4 : f32;
+  d1 : f32; d2 : f32; d3 : f32; d4 : f32;
+}
+aiFace : struct
+{
+  mNumIndices : u32;
+  mIndices    : *u32;
+}
+aiMesh : struct
+{
+  mPrimitiveTypes : u32;
+
+  mNumVertices    : u32;
+  mVertices       : *aiVector3D;
+  mNormals        : *aiVector3D;
+  mTangents       : *aiVector3D;
+  mBitangents     : *aiVector3D;
+
+  mColors         : [8]*aiColor4D;
+  mTextureCoords  : [8]*aiVector3D;
+  mNumUVComponents: [8]u32;
+
+  mNumFaces       : u32;
+  mFaces          : *aiFace;
+
+  mNumBones       : u32;
+  mBones          : *aiBone;
+
+  mMaterialIndex  : u32;
+
+  mName           : str_lit;
+}
+aiNode : struct
+{
+  mName           : str_lit;
+
+  mTransformation : aiMatrix4x4;
+
+  mParent         : *aiNode;
+
+  mNumChildren    : u32;
+  mChildren       : *aiNode;
+
+  mNumMeshes      : u32;
+  mMeshes         : *u32;
+}
+aiMaterialProperty : struct
+{
+  mKey      : str_lit;
+  mSemantic : u32;
+  mIndex    : u32;
+
+  mDataLength : u32;
+  mType       : u32;
+  mData       : *u8;
+}
+aiVertexWeight : struct
+{
+  mVertexId : u32;
+  mWeight   : f32;
+}
+aiBone : struct
+{
+  mName           : str_lit;
+
+  mNumWeights     : u32;
+  mWeights        : *aiVertexWeight;
+
+  mOffsetMatrix   : aiMatrix4x4;
+}
+
+aiMaterial : struct
+{
+  mNumProperties : u32;
+  mProperties    : *aiMaterialProperty;
+
+  mNumAllocated  : u32;
+}
+aiScene : struct
+{
+  mFlags           : u32;
+
+  mRootNode        : *aiNode;
+
+  mNumMeshes       : u32;
+  mMeshes          : *aiMesh;
+
+  mNumMaterials    : u32;
+  mMaterials       : *aiMaterial;
+
+  mNumAnimations   : u32;
+  mAnimations      : *void;
+
+  mNumTextures     : u32;
+  mTextures        : *void;
+
+  mNumLights       : u32;
+  mLights          : *void;
+
+  mNumCameras      : u32;
+  mCameras         : *void;
+}
+aiPrimitiveType_POINT    : const u32 = 0x1;
+aiPrimitiveType_LINE     : const u32 = 0x2;
+aiPrimitiveType_TRIANGLE : const u32 = 0x4;
+
+aiProcess_Triangulate    : const u32 = 0x8;
+aiProcess_FlipUVs        : const u32 = 0x800000;
+aiProcess_GenNormals     : const u32 = 0x20;
+
+aiImportFile::fn(path: str_lit, flags: u32) ! *aiScene;
+aiReleaseImport::fn(scene: *aiScene) ! void;

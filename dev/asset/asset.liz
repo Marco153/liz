@@ -8,10 +8,17 @@ texture_info :struct
 }
 model_info :struct
 {
+  asset_idx : u32
+  mesh : mesh_info
+
+#if RENDER_API == OPENGL
+{
   model_id : u32
+}
 }
 material_info :struct
 {
+  asset_idx : u32
 #if RENDER_API == OPENGL
 {
 	shader_id : u32
@@ -23,6 +30,9 @@ asset_type:etruct
 {
     TEXTURE(
         id : texture_info
+    ),
+    MESH(
+        m : mesh_info
     ),
     MODEL(
         mod : model_info

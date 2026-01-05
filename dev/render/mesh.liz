@@ -1,5 +1,80 @@
-mesh:struct
+import "../array/"
+import "../memory/"
+
+vertex_semantic:enum
 {
-  vert_count : u32, // 3 per vertex
-  position : *f32 
+  POSITION,
+  NORMAL,
+  TANGENT,
+  TEXCOORD0,
+  TEXCOORD1,
+  COLOR0,
+  JOINTS0,
+  WEIGHTS0
+}
+vertex_format:enum
+{
+  F32x1,
+  F32x2,
+  F32x3,
+  F32x4,
+  U8x4_NORM,
+  S16x4_NORM,
+}
+vertex_attribute:struct
+{
+  sem    : vertex_semantic
+  format : vertex_format
+  data   : *void
+}
+
+mesh_info:struct
+{
+  vert_count : u32,
+
+  attrs : [4]vertex_attribute
+
+/*
+  position   : *f32,  // 3 per vertex
+  normals    : *f32,  // 3 per vertex
+  texcoords2 : *f32,  // 2 per vertex
+  colors0    : *f32,  // 4 per vertex
+*/
+}
+assign_v_format_and_sem:: fn(attr : *vertex_attribute, f:vertex_format, s :vertex_semantic, vert_count: u32, alloc :*generic_allocator)
+{
+  attr.format = f
+  attr.sem    = s
+
+  fsz := get_vformat_size(f)
+  attr.data = get_buffer_from_generic_alloc(alloc, vert_count * fsz)
+}
+
+get_vformat_size::fn(f : vertex_format) ! u32
+{
+  on f
+  {
+  vertex_format.F32x1 
+  {
+    return 4;
+  }
+  vertex_format.F32x2 
+  {
+    return 8;
+  }
+  vertex_format.F32x3 
+  {
+    return 12;
+  }
+  vertex_format.F32x4 
+  {
+    return 16;
+  }
+  default 
+  {
+    __dbg_break;
+  }
+  }
+  __dbg_break
+  return 0;
 }

@@ -8280,6 +8280,8 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
       if (n->r != nullptr && !rhs)
         return nullptr;
 
+      //BREAK(lhs && lhs != (decl2 *)1 && lhs->name == "_cur")
+
       if ((long long)lhs != 1) {
         if (lhs->type.is_const) {
           // assigin

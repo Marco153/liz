@@ -427,6 +427,7 @@ struct scope
 	}
 	void AddDecl(decl2 *d)
 	{
+    //BREAK(d->name == "_cur")
 		vars.emplace_back(d);
 	}
 	void CacheDecl(decl2 *d)

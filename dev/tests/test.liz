@@ -1762,8 +1762,12 @@ TESTS:const s32=0;
     if vec_test.x < 1.9f || vec_test.y > 2.1f
       debug_break();
 
+    __dbg_break
+    __dbg_break
+    __dbg_break
     vec_test = ret_vec(3.0f) - ret_vec(1.0f)
 
+    __dbg_break
     if vec_test.y < 1.9f || vec_test.y > 2.1f
       debug_break();
 

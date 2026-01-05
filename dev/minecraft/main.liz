@@ -87,6 +87,9 @@ game_info:struct
   far_plane : f32
   iman : input_manager
 
+
+  //chunk_128 : 
+
 }
 key_callback::fn(window:*u8, _key : u32, scancode : u32, action : u32, mods:u32)
 {
@@ -122,6 +125,52 @@ key_callback::fn(window:*u8, _key : u32, scancode : u32, action : u32, mods:u32)
   }
   //printf("game: end of key_callback\n");
 }
+get_mesh_asset::fn(g : *game_info, name : str_lit)!u64
+{
+  ret : u64
+  i :u64= 0
+  ln := str_ln(name)
+  ASSERT(ln < 15)
+  while i < TOTAL_ASSETS
+  {
+    cur := ptr_offset(g.assets, i, asset_info)
+    if !cur.in_use 
+    {
+      memcpy(&cur.name, name, 15)
+      cur.in_use = true
+      cur.MODEL.mod.asset_idx = cast(u32)i;
+      return i
+    }
+    i++
+  }
+
+  __dbg_break
+
+  return  -1
+}
+get_model_asset::fn(g : *game_info, name : str_lit)!u64
+{
+  ret : u64
+  i :u64= ASSET_MAT_START
+  ln := str_ln(name)
+  ASSERT(ln < 15)
+  while i < TOTAL_ASSETS
+  {
+    cur := ptr_offset(g.assets, i, asset_info)
+    if !cur.in_use 
+    {
+      memcpy(&cur.name, name, 15)
+      cur.in_use = true
+      cur.MODEL.mod.asset_idx = cast(u32)i;
+      return i
+    }
+    i++
+  }
+
+  __dbg_break
+
+  return  -1
+}
 get_material_asset::fn(g : *game_info, name : str_lit)!u64
 {
   ret : u64
@@ -135,6 +184,7 @@ get_material_asset::fn(g : *game_info, name : str_lit)!u64
     {
       memcpy(&cur.name, name, 15)
       cur.in_use = true
+      cur.MATERIAL.mat.asset_idx = cast(u32)i;
       return i
     }
     i++
@@ -205,6 +255,15 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
   mat.depth_only_id = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, empty_frag_str, empty_frag_strln)
 
   mat.model_uniform = create_uniform_buffer(64)
+}
+init_models::fn(g : *game_info)
+{
+  path := "{to_cstr(&g.work_dir, nil)}/models/_128.fbx"
+  idx := get_mesh_asset(g, path)
+
+  asset := ptr_offset(g.assets, idx, asset_info)
+
+  load_model(path, &asset.MESH.m, &g.main_galloc)
 }
 init_shaders::fn(g : *game_info)
 {
@@ -291,6 +350,8 @@ init_game::fn(g : *game_info)
   th := create_thread(thread, nil)
 
   init_shaders(g)
+
+  //init_models(g)
 
   init_ent_man(&g.ent_man, &g.main_galloc)
 

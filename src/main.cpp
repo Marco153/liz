@@ -10338,6 +10338,9 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwGetTime"]      = (u64)glfwGetTime;
     outsiders["glfwPollEvents"]      = (u64)glfwPollEvents;
 
+    outsiders["aiImportFile"]      = (u64)aiImportFile;
+    outsiders["aiReleaseImport"]      = (u64)aiReleaseImport;
+
     outsiders["sinf"] = (u64)sinf;
     outsiders["cosf"] = (u64)cosf;
     outsiders["tanf"] = (u64)tanf;
@@ -11207,7 +11210,7 @@ void PrintInsts(int child_p, dbg_state *dbg, u64 rip, u64 code_start, func_decl 
           col = selected_color;
         }
 
-        ImGui::TextColored(col, "%s", (*lines)[cur_st->line - 1]);
+        ImGui::TextColored(col, "%s", (*lines)[clamp(cur_st->line - 1, 0, 100000)]);
         stat_displayed = true;
       }
     }

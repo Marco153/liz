@@ -12465,6 +12465,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         if(ir->bin.lhs.type == IR_TYPE_DECL)
         {
           lhs_aux.voffset += ir->bin.lhs.decl->offset;
+
         }
         if(ir->bin.lhs.type == IR_TYPE_ON_STACK)
         {

@@ -1684,6 +1684,7 @@ char LoadDerefs(lang_state *lang_stat, own_std::vector<ir_rep> *out, ir_val *rhs
   else if (rhs->type == IR_TYPE_REG)
   {
     rhs->type = IR_TYPE_REG_MEM;
+    reg = rhs->reg;
   }
 
   bool prev_float = rhs->is_float;
@@ -2784,6 +2785,22 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     ir.bin.lhs.is_float = false;
   }
   InsertIr(state, ir);
+
+  i = state->spilled_regs.cur;
+
+  while(i > call_base)
+  {
+    ir_val *unspill = (state->spilled_regs.ptr + i - 1);
+
+    if(unspill->is_float)
+    {
+      AllocSpecificFloatReg(lang_stat, unspill->reg);
+    }
+    else
+      AllocSpecificReg(lang_stat, unspill->reg);
+
+    i--;
+  }
 
   ret.ptr = 0;
 
@@ -4121,18 +4138,48 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
         if(lhs.ptr > 0)
         {
+          //lhs.kind = IR_VAL_ADDR;
           bool prev_float = lhs.is_float;
           bool prev_is_packed = lhs.is_packed_float;
           lhs.is_float = false;
           lhs.is_packed_float = false;
 
           char prev_sz = lhs.reg_sz;
-          lhs.deref = lhs.ptr;
           lhs.reg_sz = 8;
-          LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
+          char deref = lhs.ptr;
+          char aux_reg = -1;
+          if(lhs.type == IR_TYPE_REG || lhs.type == IR_TYPE_REG_MEM)
+          {
+            aux_reg = lhs.reg;
+          }
+          while(deref > 0)
+          {
+            if(aux_reg == -1) aux_reg = GetAvailableReg(lang_stat);
+
+            ir.type = IR_BIN;
+            ir.bin.op = T_EQUAL;
+            ir.bin.rhs = lhs;
+
+            //ir.bin.rhs.type = IR_TYPE_REG_MEM;
+
+            ir.bin.lhs.type = IR_TYPE_REG;
+            ir.bin.lhs.reg = aux_reg;
+            ir.bin.lhs.reg_sz = 8;
+            ir.bin.lhs.is_float = false;
+            ir.bin.lhs.is_packed_float = false;
+
+            InsertIr(state, ir);
+
+            lhs = ir.bin.lhs;
+            lhs.type = IR_TYPE_REG_MEM;
+            deref--;
+
+          }
+          //EnsureValue(lang_stat, state, &lhs);
+          //lhs.deref = lhs.ptr - 1;
+          //LoadDerefs(lang_stat, &state->cur_block->irs, &lhs);
           lhs.reg_sz = prev_sz;
 
-          EnsureValue(lang_stat, state, &lhs);
 
           lhs.is_float = prev_float;
           lhs.is_packed_float = prev_is_packed;

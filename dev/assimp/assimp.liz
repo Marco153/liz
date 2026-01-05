@@ -1,3 +1,7 @@
+import "../render/"
+import "../memory/"
+import "../os/"
+
 aiVector3D : struct
 {
   x : f32;
@@ -30,6 +34,7 @@ aiMesh : struct
   mPrimitiveTypes : u32;
 
   mNumVertices    : u32;
+  mNumFaces       : u32;
   mVertices       : *aiVector3D;
   mNormals        : *aiVector3D;
   mTangents       : *aiVector3D;
@@ -39,7 +44,6 @@ aiMesh : struct
   mTextureCoords  : [8]*aiVector3D;
   mNumUVComponents: [8]u32;
 
-  mNumFaces       : u32;
   mFaces          : *aiFace;
 
   mNumBones       : u32;
@@ -102,7 +106,7 @@ aiScene : struct
   mRootNode        : *aiNode;
 
   mNumMeshes       : u32;
-  mMeshes          : *aiMesh;
+  mMeshes          : **aiMesh;
 
   mNumMaterials    : u32;
   mMaterials       : *aiMaterial;
@@ -125,7 +129,53 @@ aiPrimitiveType_TRIANGLE : const u32 = 0x4;
 
 aiProcess_Triangulate    : const u32 = 0x8;
 aiProcess_FlipUVs        : const u32 = 0x800000;
-aiProcess_GenNormals     : const u32 = 0x20;
+aiProcess_JoinIdenticalVertices : const u32 = 0x00000001;
+aiProcess_GenNormals            : const u32 = 0x00000020;
+aiProcess_ImproveCacheLocality  : const u32 = 0x00008000;
 
-aiImportFile::fn(path: str_lit, flags: u32) ! *aiScene;
-aiReleaseImport::fn(scene: *aiScene) ! void;
+aiImportFile::fn outsider(path: str_lit, flags: u32) ! *aiScene;
+aiReleaseImport::fn outsider(scene: *aiScene) ! void;
+
+
+load_model::fn(path : str_lit, out : *mesh_info, alloc : *generic_allocator)
+{
+  scene := aiImportFile(path, aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
+                       aiProcess_GenNormals | aiProcess_ImproveCacheLocality)
+
+  if scene == nil
+  {
+    printf("failed to load model {path}\n")
+    __dbg_break
+    __dbg_break
+    __dbg_break
+  }
+  a := 2
+
+  index_count:u32= 0;
+  vert_count :u32= 0;
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  for m in 0..cast(s64)scene.mNumMeshes
+  {
+    _cur := ptr_offset(scene.mMeshes, m, *aiMesh)
+    index_count += _cur.mNumFaces;
+    vert_count  += _cur.mNumVertices;
+  }
+
+  assign_v_format_and_sem(&out.attrs[0], vertex_format.F32x3, vertex_semantic.POSITION, vert_count, alloc)
+
+  pos_voffset :u32= 0
+  for m in 0..cast(s64)scene.mNumMeshes
+  {
+    cur := ptr_offset(scene.mMeshes, m, *aiMesh)
+
+    src := cur.mVertices
+    dst := ptr_offset(out.attrs[0].data, pos_voffset, u32)
+
+    cp_sz := cur.mNumVertices * sizeof(f32) * 3
+    memcpy(dst, src, cp_sz)
+    
+    pos_voffset += cp_sz
+  }
+}

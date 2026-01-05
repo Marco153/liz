@@ -421,16 +421,8 @@ clear_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
 
 }
-render::fn(g : *game_info, rman : *render_manager)
+draw_depth_buffer::fn(g : *game_info, rman : *render_manager)
 {
-  aspect := cast(f32)g.wnd_height / cast(f32)g.wnd_width
-  g_ubo:global_ubo_uniform=?
-
-  identity(&g_ubo.view)
-  perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
-
-  to_screen_shader := g.to_screen_shader.shader_id
-
   glBindFramebuffer(GL_FRAMEBUFFER, g.depth_fbo.fbo.id);
   glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
   glEnable(GL_DEPTH_TEST);
@@ -438,12 +430,12 @@ render::fn(g : *game_info, rman : *render_manager)
   glClearDepth(1.0f);          // depth clear value (1.0 = far)
   glClear(GL_DEPTH_BUFFER_BIT);
   draw_objects(g, &g.rman)
-  //DrawObjects(thread_id, dbg, draw, true);
-  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
+}
+draw_offscreen_buffer::fn(g : *game_info, rman : *render_manager)
+{
   glBindFramebuffer(GL_FRAMEBUFFER, g.offscreen_fbo.fbo.id);
+  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
   glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
   glEnable(GL_DEPTH_TEST);
   glClearColor(0.5f, 0.2f, 0.4f, 1.0f); // background color
@@ -452,7 +444,10 @@ render::fn(g : *game_info, rman : *render_manager)
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   draw_objects(g, &g.rman)
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
+}
+draw_toscreen_buffer::fn(g : *game_info, rman : *render_manager)
+{
+  to_screen_shader := g.to_screen_shader.shader_id
   glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
   //printf("to screen prog {to_screen_shader}\n")
   glUseProgram(to_screen_shader)
@@ -489,6 +484,21 @@ render::fn(g : *game_info, rman : *render_manager)
   glDrawArrays(GL_TRIANGLES, 0, 3);
   glEnable(GL_CULL_FACE);
 
+}
+render::fn(g : *game_info, rman : *render_manager)
+{
+  aspect := cast(f32)g.wnd_height / cast(f32)g.wnd_width
+  g_ubo:global_ubo_uniform=?
+
+  identity(&g_ubo.view)
+  perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
+
+
+  draw_depth_buffer(g, rman)
+
+  draw_offscreen_buffer(g, rman)
+
+  draw_toscreen_buffer(g, rman)
 }
 swap_buffers::fn(g : *game_info)
 {

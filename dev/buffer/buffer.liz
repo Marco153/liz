@@ -1,0 +1,92 @@
+import "../opengl/"
+import "../render/"
+import "../memory/"
+buffer_usage : enum
+{
+    VERTEX,
+    INDEX,
+    UNIFORM,
+    STORAGE,
+    STAGING,
+}
+
+memory_usage:enum
+{
+    GPU_ONLY,   // device local
+    CPU_TO_GPU, // upload
+    GPU_TO_CPU, // readback
+}
+
+buffer_desc:struct
+{
+    size:u32;
+    usage:buffer_usage;
+    memory:memory_usage;
+    initial_data:*void; // optional
+}
+
+buffer_info:struct
+{
+  idx : u32
+  in_use : bool
+  size:u32
+  usage : buffer_usage
+  memory : memory_usage
+
+  using u::union
+  {
+    gl::struct
+    {
+      id : u32
+      target :u32
+    }
+  }
+}
+GLBufferTarget::fn(usage:buffer_usage)!u32
+{
+    on usage 
+    {
+    buffer_usage.VERTEX{
+
+       return GL_ARRAY_BUFFER;
+    }
+    buffer_usage.INDEX {
+      return GL_ELEMENT_ARRAY_BUFFER;
+    }
+    buffer_usage.UNIFORM
+    {
+      return GL_UNIFORM_BUFFER;
+    }
+    buffer_usage.STORAGE
+    {
+      return GL_SHADER_STORAGE_BUFFER;
+    }
+    default
+    {
+      return GL_ARRAY_BUFFER;
+    }
+    }
+    return 0
+}
+create_buffer::fn(desc : *buffer_desc, rman : *render_manager, alloc : *generic_allocator) ! buffer_info
+{
+    buffer :*buffer_info= get_available_buffer(rman)
+
+    glGenBuffers(1, &buffer.gl.id);
+    glBindBuffer(GLBufferTarget(desc.usage), buffer.gl.id);
+
+    mem :u32= if desc.memory == memory_usage.GPU_ONLY  GL_STATIC_DRAW else GL_DYNAMIC_DRAW;
+
+    glBufferData(GLBufferTarget(desc.usage),
+        desc.size,
+        desc.initial_data,
+        mem);
+
+    buffer.gl.target = GLBufferTarget(desc.usage);
+
+    buffer.size = desc.size;
+    buffer.usage = desc.usage;
+    buffer.memory = desc.memory;
+
+    return *buffer;
+}

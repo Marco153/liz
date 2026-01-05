@@ -10,6 +10,7 @@ import "../chunk";
 import "../render";
 import "../input";
 import "../assimp";
+import "../buffer";
 
 
 #if RENDER_API == OPENGL

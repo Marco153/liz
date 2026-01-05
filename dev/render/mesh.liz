@@ -1,5 +1,6 @@
 import "../array/"
 import "../memory/"
+import "../typedefs/"
 
 vertex_semantic:enum
 {
@@ -21,6 +22,7 @@ vertex_format:enum
   U8x4_NORM,
   S16x4_NORM,
 }
+
 vertex_attribute:struct
 {
   sem    : vertex_semantic

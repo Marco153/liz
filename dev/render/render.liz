@@ -4,6 +4,7 @@ import "../memory/"
 import "../os/"
 import "../asset/"
 import "../math/"
+import "../buffer/"
 
 draw_info:etruct
 {
@@ -28,6 +29,7 @@ global_ubo_uniform:struct
   sun_color : _vec
 }
 
+TOTAL_BUFFERS:const s32= 256
 render_manager:struct
 {
   draws : *draw_info
@@ -36,6 +38,23 @@ render_manager:struct
 
   sun_color : _vec
   sun_dir   : _vec
+
+
+  buffers : *buffer_info
+}
+get_available_buffer::fn(rman : *render_manager)! *buffer_info
+{
+  for i in 0..TOTAL_BUFFERS
+  {
+    cur := ptr_offset(rman.buffers, i, buffer_info)
+    if !cur.in_use
+    {
+      cur.idx = cast(u32)i
+      cur.in_use = true
+      return cur;
+    }
+  }
+  return nil
 }
 shader_type_gl : enum
 {

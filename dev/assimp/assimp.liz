@@ -1,6 +1,7 @@
 import "../render/"
 import "../memory/"
 import "../os/"
+import "../buffer/"
 
 aiVector3D : struct
 {
@@ -137,7 +138,7 @@ aiImportFile::fn outsider(path: str_lit, flags: u32) ! *aiScene;
 aiReleaseImport::fn outsider(scene: *aiScene) ! void;
 
 
-load_model::fn(path : str_lit, out : *mesh_info, alloc : *generic_allocator)
+load_model::fn(path : str_lit, out : *mesh_info, rman : *render_manager, alloc : *generic_allocator)
 {
   scene := aiImportFile(path, aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
                        aiProcess_GenNormals | aiProcess_ImproveCacheLocality)
@@ -178,4 +179,12 @@ load_model::fn(path : str_lit, out : *mesh_info, alloc : *generic_allocator)
     
     pos_voffset += cp_sz
   }
+
+  desc:buffer_desc
+  desc.size  = vert_count
+  desc.usage = buffer_usage.VERTEX
+  desc.memory = memory_usage.GPU_ONLY
+  desc.initial_data = out.attrs[0].data
+
+  out.attrs[0].buffer = create_buffer(&desc, rman, alloc)
 }

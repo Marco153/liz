@@ -1,6 +1,7 @@
 import "../array/"
 import "../memory/"
 import "../typedefs/"
+import "../buffer/"
 
 vertex_semantic:enum
 {
@@ -23,10 +24,15 @@ vertex_format:enum
   S16x4_NORM,
 }
 
+attribute_desc:struct
+{
+  sem : vertex_semantic
+  format : vertex_format
+}
 vertex_attribute:struct
 {
-  sem    : vertex_semantic
-  format : vertex_format
+  using desc : attribute_desc
+  buffer : buffer_info
   data   : *void
 }
 
@@ -35,6 +41,9 @@ mesh_info:struct
   vert_count : u32,
 
   attrs : [4]vertex_attribute
+
+  vertex_buffer : buffer_info
+  index_buffer  : buffer_info
 
 /*
   position   : *f32,  // 3 per vertex
@@ -49,7 +58,11 @@ assign_v_format_and_sem:: fn(attr : *vertex_attribute, f:vertex_format, s :verte
   attr.sem    = s
 
   fsz := get_vformat_size(f)
-  attr.data = get_buffer_from_generic_alloc(alloc, vert_count * fsz)
+  total := vert_count * fsz
+  attr.data = get_buffer_from_generic_alloc(alloc, total)
+
+  desc:buffer_desc
+
 }
 
 get_vformat_size::fn(f : vertex_format) ! u32

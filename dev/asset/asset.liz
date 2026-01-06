@@ -1,5 +1,6 @@
 import "../typedefs/"
 import "../render/"
+import "../opengl/"
 TOTAL_ASSETS:const s32= 16
 ASSET_MAT_START:const s32= 8
 texture_info :struct
@@ -16,6 +17,11 @@ model_info :struct
   model_id : u32
 }
 }
+attribute_desc_shader:struct
+{
+  loc  : u32
+  desc : attribute_desc
+}
 material_info :struct
 {
   asset_idx : u32
@@ -23,7 +29,69 @@ material_info :struct
 {
 	shader_id : u32
   depth_only_id : u32
+}
   model_uniform : uniform_buffer
+
+  attrs : *attribute_desc_shader
+  total_attrs : u8
+}
+shader_mesh_contract:struct
+{
+#if RENDER_API == OPENGL
+{
+  vao : u32
+}
+}
+
+create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *shader_mesh_contract)
+{
+#if RENDER_API == OPENGL
+{
+  glGenVertexArrays(1, &out.vao)
+  glBindVertexArray(out.vao)
+
+  for mesh_at in mesh.attrs
+  {
+    if mesh_at.data == nil continue;
+
+    glBindBuffer(GL_ARRAY_BUFFER, mesh_at.buffer.gl.id);
+
+    for a in 0..cast(s64)mat.total_attributes
+    {
+      cur_sh_attr := ptr_offset(mat.attrs, i, attribute_desc_shader)
+
+      if cur_sh_attr.desc.sem != mesh_at.sem continue;
+
+      
+      type : u32
+      elements : u32
+      on cur_sh_attr.format
+      {
+      vertex_format.F32x1
+      {
+        type = GL_FLOAT
+        elements = 1
+      }
+      vertex_format.F32x2
+      {
+        type = GL_FLOAT
+        elements = 2
+      }
+      vertex_format.F32x3
+      {
+        type = GL_FLOAT
+        elements = 3
+      }
+      default
+      {
+        __dbg_break;
+      }
+      }
+
+      glVertexAttribPointer(cur_sh_attr.loc, elements, type, GL_FALSE, 0, 0);
+      glEnableVertexAttribArray(1);
+    }
+  }
 }
 }
 asset_type:etruct

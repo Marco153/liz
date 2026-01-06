@@ -35,9 +35,17 @@ file:struct
     sz :u64
     ret := GetFileSize(file_name, &sz)
 
-    if ret == -1 __dbg_break
+    if ret == -1 {
+      __dbg_break
+      __dbg_break
+      __dbg_break
+    }
 
-    if sz == 0 __dbg_break
+    if sz == 0 {
+      __dbg_break
+      __dbg_break
+      __dbg_break
+    }
 
     out.data = cast(*u8)get_buffer_from_generic_alloc(alloc, sz)
 

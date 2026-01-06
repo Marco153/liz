@@ -247,7 +247,7 @@ create_ents::fn(g : *game_info)
   printf("ents created\n")
 
 }
-create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : *file,mat : *material_info)
+create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : *file,mat : *material_info, alloc : *generic_allocator)
 {
   empty_frag_str := "#version 330 core \nvoid main()\{\};";
   empty_frag_strln := cast(u32)str_ln(empty_frag_str)
@@ -256,6 +256,14 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
   mat.depth_only_id = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, empty_frag_str, empty_frag_strln)
 
   mat.model_uniform = create_uniform_buffer(64)
+
+
+  mat.total_attrs = 1
+  mat.attrs = cast(*attribute_desc_shader)get_buffer_from_generic_alloc(alloc, mat.total_attrs * sizeof(attribute_desc_shader))
+
+  cur := ptr_offset(mat.attrs, 0, attribute_desc_shader)
+  cur.desc.sem    = vertex_semantic.POSITION
+  cur.desc.format = vertex_format.F32x3
 }
 init_models::fn(g : *game_info)
 {
@@ -264,7 +272,7 @@ init_models::fn(g : *game_info)
 
   asset := ptr_offset(g.assets, idx, asset_info)
 
-  load_model(path, &asset.MESH.m, &g.main_galloc)
+  load_model(path, &asset.MESH.m, &g.rman, &g.main_galloc)
 }
 init_shaders::fn(g : *game_info)
 {
@@ -286,7 +294,7 @@ init_shaders::fn(g : *game_info)
   mat_idx := get_material_asset(g, "chunk")
   mat := ptr_offset(g.assets, mat_idx, asset_info)
 
-  create_shader_and_depth_only(g, &t_vs_file, &t_fs_file, &mat.MATERIAL.mat)
+  create_shader_and_depth_only(g, &t_vs_file, &t_fs_file, &mat.MATERIAL.mat, &g.main_galloc)
 
   g.terrain_shader = &mat.MATERIAL.mat
 

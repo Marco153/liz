@@ -4322,9 +4322,15 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           {
             EnsureValue(lang_stat, state, &rhs);
             ASSERT(rhs.kind == IR_VAL_VALUE)
-            auto aux = lhs;
-            lhs = rhs;
-            rhs = aux;
+            ir.type = IR_BIN;
+            ir.bin.op = T_EQUAL;
+            ir.bin.lhs.type = IR_TYPE_REG;
+            ir.bin.lhs.reg  = GetAvailableReg(lang_stat);
+            ir.bin.lhs.reg_sz  = 4;
+            ir.bin.rhs = lhs;
+            InsertIr(state, ir);
+
+            lhs = ir.bin.lhs;
           }
           else
           {

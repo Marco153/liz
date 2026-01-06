@@ -1,4 +1,6 @@
 import "../render/"
+import "../typedefs/"
+import "../math/"
 FACE_RIGHT:const s32= 0
 FACE_LEFT:const s32= 1
 FACE_UP:const s32= 2
@@ -26,7 +28,56 @@ make_face_val::fn macro(assign_to : _expr, x : _expr, y: _expr, z : _expr, face_
   assign_to = assign_to | cast(u32)((tex_y) << 30)
 }
 
+
+chunk_info:struct
+{
+  pos : vector
+  lod : u8
+}
+
+CHUNK_WIDTH:const s32=7
+TOTAL_CHUNKS:const s32=CHUNK_WIDTH*CHUNK_WIDTH
+
+CHUNK_SIZE:const s32=128
+CHUNK_SIZE_HALF:const s32=CHUNK_SIZE/2
+
 terrain_info:struct
 {
   ubo : storage_buffer
+
+  chunks : [TOTAL_CHUNKS]chunk_info
+
+  prev_player_pos : vector
+}
+
+update_terrain_chunks::fn(trn : *terrain_info, player_pos : vector)
+{
+  p := trn.prev_player_pos - player_pos
+  l := len_vec(p)
+  if l < cast(f64)(CHUNK_SIZE / 4)
+  {
+    trn.prev_player_pos = player_pos
+  }
+
+  for i in 0..TOTAL_CHUNKS
+  {
+    cur_ch := &trn.chunks[cast(u64)i]
+    dir := cur_ch.pos - player_pos
+    l = len_vec(dir)
+
+    x := cast(s32)(dir.x / cast(f64)CHUNK_SIZE_HALF)
+    y := cast(s32)(dir.y / cast(f64)CHUNK_SIZE_HALF)
+    z := cast(s32)(dir.z / cast(f64)CHUNK_SIZE_HALF)
+
+    m := maxval(x, y)
+    m = maxval(m, z)
+
+    if cur_ch.lod != cast(u8)m
+    {
+
+    }
+  
+  }
+
+  //d := 
 }

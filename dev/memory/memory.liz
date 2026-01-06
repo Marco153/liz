@@ -567,11 +567,13 @@ heap_alloc::fn(alloc : *mem_alloc, size : u32) !*u8
 		
 
 		align_to_bytes_per_chunk:= (min_alloc_size % BYTES_PER_CHUNK);
+
 		// if we're not aligned yet
 		if (align_to_bytes_per_chunk != 0)
 			align_to_bytes_per_chunk = BYTES_PER_CHUNK - align_to_bytes_per_chunk;
 
 		min_alloc_size += align_to_bytes_per_chunk;
+    //if size == 0x14 __dbg_break;
 
 		other_chunk.addr = ptr_offset(cur.addr, min_alloc_size, u8);
 		other_chunk.size = cur.size - min_alloc_size / BYTES_PER_CHUNK;
@@ -705,14 +707,16 @@ string : struct
 }
 get_buffer_from_generic_alloc::fn(alloc : *generic_allocator, sz : u64)!*void
 {
+  ret : *void
   if alloc == nil
   {
-    return get_linear_ptr(cast(u32)sz);
+    ret = get_linear_ptr(cast(u32)sz);
   }
   else
-    return generic_alloc(alloc, sz);
+    ret = generic_alloc(alloc, sz);
 
-  return nil
+  memset(ret, 0, sz)
+  return ret
 }
 build_string::fn(src : *string, out : *string, alloc : *generic_allocator)
 {

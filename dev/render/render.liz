@@ -18,7 +18,8 @@ draw_info:etruct
   OBJECT(
     pos : _vec
     sz : _vec
-    model : u32
+    model : *model_info
+    sh_contract:shader_mesh_contract
   )
 }
 global_ubo_uniform:struct

@@ -12215,6 +12215,14 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
             bc.bin.rhs.reg = 0;
             ret.emplace_back(bc);
           }
+          else if (ir->call.fdecl->name == "__sqrt2")
+          {
+            bc.type = SQRT_SSE;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.lhs.reg = 0;
+            bc.bin.rhs.reg = 0;
+            ret.emplace_back(bc);
+          }
           else if (ir->call.fdecl->name == "_dot")
           {
             bc.type = MUL_PCKD_SSE_2_PCKD_SSE;

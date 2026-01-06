@@ -2,10 +2,13 @@ import "../typedefs/"
 import "../memory/"
 
 __sqrt::fn intrinsic(a : f32) !f32;
+__sqrt2::fn intrinsic(a : f64) !f64;
+
 sqrt::fn x64(a : f32) !f32
 {
   return __sqrt(a);
 }
+_dot::fn intrinsic(lhs : _vec2, rhs : _vec2) ! f64;
 sinf::fn outsider(f32) !f32;
 cosf::fn outsider(f32) !f32;
 tanf::fn outsider(f32) !f32;
@@ -202,6 +205,15 @@ operator * x64(self : *quaternion, rhs : *quaternion) !quaternion
 
 	multiply_quaternions(&ret.v, self.v, rhs.v)
 	return ret
+}
+maxval::fn{T}(a : T, b : T) ! T
+{
+	ret: = if a > b a else b;
+  return ret
+}
+len_vec::fn(a : vector) !float
+{
+	return __sqrt2(_dot(a, a));
 }
 operator * x64(self : *quaternion, vec : *_vec) !_vec
 {

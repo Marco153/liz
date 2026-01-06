@@ -18,7 +18,8 @@ draw_info:etruct
   OBJECT(
     pos : _vec
     sz : _vec
-    model : *model_info
+    mesh : *mesh_info
+    mat   : *material_info
     sh_contract:shader_mesh_contract
   )
 }
@@ -178,8 +179,10 @@ link_program :: fn(shaders    : **shader,
 	*out_prog = prog;
 	return shader_error.OK;
 }
-compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32) ! u32
+compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32) ! shader_info
 {
+  ret : shader_info
+
   log : [1024 * 4]u8
   vs_sh : shader
   fs_sh : shader
@@ -218,8 +221,9 @@ compile_shader_complete :: fn(vs : *u8, vs_len : u32, fs : *u8, fs_len :u32) ! u
     printf("shader linx error\n")
     printf("log: {cast(str_lit)log} \n")
   }
+  ret.id = prog
 
-  return prog
+  return ret
 }
 compile_shader :: fn(src : *u8,
 	src_len  : u32,
@@ -521,12 +525,12 @@ enable_shader_uniforms::fn(mat : *material_info, global_ubo : *uniform_buffer)
 {
     enable_shader_uniform("ubo",
         0,
-        mat.shader_id,
+        mat.offscreen_shader.id,
         global_ubo);
 
     enable_shader_uniform("_model",
         1,
-        mat.shader_id,
+        mat.offscreen_shader.id,
         &mat.model_uniform);
 }
 perspective::fn(mat : *f32, fov : f32, aspect : f32, near : f32, far : f32) 
@@ -545,4 +549,25 @@ init_render_man::fn(r : *render_manager, alloc : *generic_allocator, max_draws :
   r.cur_draws = 0
   r.draws     = cast(*draw_info)get_buffer_from_generic_alloc(alloc, max_draws * sizeof(draw_info))
 
+}
+bind_contract::fn(rman : *render_manager, sh : *shader_mesh_contract)
+{
+#if RENDER_API == OPENGL
+{
+  glBindVertexArray(sh.vao)
+}
+}
+bind_shader::fn(rman : *render_manager, sh : *shader_info)
+{
+#if RENDER_API == OPENGL
+{
+  glUseProgram(sh.id)
+}
+}
+draw_object_indexed::fn(rman : *render_manager, index_buffer:*buffer_info)
+{
+#if RENDER_API == OPENGL
+{
+  glDrawElements(GL_TRIANGLES, cast(s32)index_buffer.size / sizeof(u32), GL_UNSIGNED_INT, nil);
+}
 }

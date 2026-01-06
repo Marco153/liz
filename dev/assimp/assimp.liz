@@ -166,25 +166,47 @@ load_model::fn(path : str_lit, out : *mesh_info, rman : *render_manager, alloc :
 
   assign_v_format_and_sem(&out.attrs[0], vertex_format.F32x3, vertex_semantic.POSITION, vert_count, alloc)
 
+  indices := cast(*u32)get_buffer_from_generic_alloc(alloc, index_count * 3 * sizeof(u32))
+
+
+
   pos_voffset :u32= 0
+  pos_ioffset :u32= 0
   for m in 0..cast(s64)scene.mNumMeshes
   {
     cur := ptr_offset(scene.mMeshes, m, *aiMesh)
 
     src := cur.mVertices
-    dst := ptr_offset(out.attrs[0].data, pos_voffset, u32)
+    dst := ptr_offset(out.attrs[0].data, pos_voffset, u8)
 
-    cp_sz := cur.mNumVertices * sizeof(f32) * 3
+    src_i := cur.mFaces
+    dst_i := ptr_offset(indices, pos_ioffset, u8)
+
+    cp_i_sz := cur.mNumFaces * sizeof(u32) * 3
+    cp_sz   := cur.mNumVertices * sizeof(f32) * 3
+
     memcpy(dst, src, cp_sz)
     
+    memcpy(dst_i, src_i, cp_i_sz)
+
     pos_voffset += cp_sz
+
+    pos_ioffset += cp_i_sz
   }
 
   desc:buffer_desc
-  desc.size  = vert_count
+  desc.size  = vert_count * 3 * sizeof(f32)
   desc.usage = buffer_usage.VERTEX
   desc.memory = memory_usage.GPU_ONLY
   desc.initial_data = out.attrs[0].data
 
   out.attrs[0].buffer = create_buffer(&desc, rman, alloc)
+
+
+  desc.size  = index_count * 3 * sizeof(u32)
+  desc.usage = buffer_usage.INDEX
+  desc.memory = memory_usage.GPU_ONLY
+  desc.initial_data = indices
+
+  out.index_buffer = create_buffer(&desc, rman, alloc)
 }

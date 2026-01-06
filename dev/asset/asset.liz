@@ -1,7 +1,7 @@
 import "../typedefs/"
 import "../render/"
 import "../opengl/"
-TOTAL_ASSETS:const s32= 16
+TOTAL_ASSETS:const s32= 32
 ASSET_MAT_START:const s32= 8
 texture_info :struct
 {
@@ -22,14 +22,20 @@ attribute_desc_shader:struct
   loc  : u32
   desc : attribute_desc
 }
+shader_info:struct
+{
+#if RENDER_API == OPENGL
+{
+ id : u32
+}
+}
 material_info :struct
 {
   asset_idx : u32
-#if RENDER_API == OPENGL
-{
-	shader_id : u32
+  offscreen_shader : shader_info
+  depth_shader     : shader_info
+
   depth_only_id : u32
-}
   model_uniform : uniform_buffer
 
   attrs : *attribute_desc_shader
@@ -49,6 +55,7 @@ create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *
 {
   glGenVertexArrays(1, &out.vao)
   glBindVertexArray(out.vao)
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.index_buffer.gl.id);
 
   for mesh_at in mesh.attrs
   {
@@ -89,7 +96,7 @@ create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *
       }
 
       glVertexAttribPointer(cur_sh_attr.loc, elements, type, GL_FALSE, 0, 0);
-      glEnableVertexAttribArray(1);
+      glEnableVertexAttribArray(cur_sh_attr.loc);
     }
   }
 }
@@ -112,6 +119,7 @@ asset_type:etruct
 asset_info:struct
 {
   in_use : bool,
+  idx : u64
   name : [16]char
   using type : asset_type
 }

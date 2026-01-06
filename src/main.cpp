@@ -10246,6 +10246,30 @@ void _glActiveTexture(s32 texture)
 {
     glActiveTexture((GLenum)texture);
 }
+void _glDebugMessageCallback(u64 callback, void *user_param)
+{
+    glDebugMessageCallback(
+        (GLDEBUGPROC)callback,
+        user_param
+    );
+}
+
+void _glDebugMessageControl(u32 source,
+                            u32 type,
+                            u32 severity,
+                            s32 count,
+                            u32 *ids,
+                            u8 enabled)
+{
+    glDebugMessageControl(
+        source,
+        type,
+        severity,
+        count,
+        ids,
+        enabled ? GL_TRUE : GL_FALSE
+    );
+}
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -10337,6 +10361,11 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwSetCursorPosCallback"]      = (u64)glfwSetCursorPosCallback;
     outsiders["glfwGetTime"]      = (u64)glfwGetTime;
     outsiders["glfwPollEvents"]      = (u64)glfwPollEvents;
+
+    outsiders["glGetIntegerv"]      = (u64)glGetIntegerv;
+
+    outsiders["glDebugMessageCallback"] = (u64)_glDebugMessageCallback;
+    outsiders["glDebugMessageControl"]  = (u64)_glDebugMessageControl;
 
     outsiders["aiImportFile"]      = (u64)aiImportFile;
     outsiders["aiReleaseImport"]      = (u64)aiReleaseImport;

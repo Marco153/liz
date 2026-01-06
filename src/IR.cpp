@@ -4205,6 +4205,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           lhs.reg_sz = d->type.vec_type;
 
         lhs.voffset = offset;
+        lhs.ptr = d->type.ptr;
         lhs.is_float = tp->IsFloat();
         lhs.is_packed_float = tp->type == TYPE_VECTOR;
         lhs.deref = 0;

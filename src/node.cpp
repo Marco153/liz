@@ -1350,6 +1350,8 @@ node *node_iter::parse_expr() {
       ExpectTkn(T_OPEN_CURLY);
       get_tkn();
 
+
+
       cur_tkn = peek_tkn();
       while (cur_tkn->type != T_CLOSE_CURLY) {
         on_cond cur_cond = {};
@@ -1357,12 +1359,16 @@ node *node_iter::parse_expr() {
         cur_cond.cond = parse_until_head_is_word();
 
         cur_tkn = peek_tkn();
+        int line_start = cur_tkn->line;
         if (cur_tkn->type == T_OPEN_CURLY) {
           cur_cond.scp = parse_expr();
           lang_stat->flags &= ~PSR_FLAGS_IMPLICIT_SEMI_COLON;
         } else {
           cur_cond.scp = parse_(PREC_SEMI_COLON, parser_cond::EQUAL);
         }
+        cur_cond.scp->scope_line_end = peek_tkn()->line;
+        cur_cond.scp->scope_line_start = line_start;
+
 
         if (cur_cond.cond->type == N_IDENTIFIER &&
             cur_cond.cond->t->str == "default") {

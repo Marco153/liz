@@ -82,6 +82,8 @@ game_info:struct
   terrain_shader   : *material_info
   to_screen_shader : *material_info
 
+  terrain2_shader : *material_info
+
   global_ubo : uniform_buffer
 
   near_plane : f32
@@ -89,8 +91,8 @@ game_info:struct
   iman : input_manager
 
 
-  //chunk_128 : 
-
+  chunk_128 : *mesh_info
+  chunk_128_sh_contract : shader_mesh_contract
 }
 key_callback::fn(window:*u8, _key : u32, scancode : u32, action : u32, mods:u32)
 {
@@ -183,8 +185,10 @@ get_material_asset::fn(g : *game_info, name : str_lit)!u64
     cur := ptr_offset(g.assets, i, asset_info)
     if !cur.in_use 
     {
-      memcpy(&cur.name, name, 15)
+      memcpy(&cur.name, name, 16)
       cur.in_use = true
+      cur.idx = i
+      *cast(*u64)&cur.MATERIAL.mat = i
       cur.MATERIAL.mat.asset_idx = cast(u32)i;
       return i
     }
@@ -195,13 +199,105 @@ get_material_asset::fn(g : *game_info, name : str_lit)!u64
 
   return  -1
 }
+glDebugOutput::fn(source   : u32,
+    type     : u32,
+    id       : u32,
+    severity : u32,
+    length   : s32,
+    message  : *u8,
+    userParam: *void
+) ! void
+{
+    // Ignore non-significant messages
+    if id == 131169 || id == 131185 || id == 131218 || id == 131204
+    {
+        return;
+    }
 
+    src_str : str_lit;
+    type_str : str_lit;
+    severity_str : str_lit;
+
+    // ---- source string ----
+    get_source_str::fn(src : u32) ! str_lit
+    {
+        on cast(u32) src
+        {
+          GL_DEBUG_SOURCE_API               { return "API"; }
+          GL_DEBUG_SOURCE_WINDOW_SYSTEM    { return "Window System"; }
+          GL_DEBUG_SOURCE_SHADER_COMPILER  { return "Shader Compiler"; }
+          GL_DEBUG_SOURCE_THIRD_PARTY      { return "Third Party"; }
+          GL_DEBUG_SOURCE_APPLICATION      { return "Application"; }
+          default                          { return "Other"; }
+        }
+    }
+
+    // ---- type string ----
+    get_type_str::fn(tp : u32) ! str_lit
+    {
+        on cast(u32) tp
+        {
+            GL_DEBUG_TYPE_ERROR               { return "Error"; }
+            GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR { return "Deprecated"; }
+            GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR  { return "Undefined Behavior"; }
+            GL_DEBUG_TYPE_PORTABILITY         { return "Portability"; }
+            GL_DEBUG_TYPE_PERFORMANCE         { return "Performance"; }
+            GL_DEBUG_TYPE_MARKER              { return "Marker"; }
+            default                           { return "Other"; }
+        }
+    }
+
+    // ---- severity string ----
+    get_severity_str::fn(sev : u32) ! str_lit
+    {
+        on cast(u32) sev
+        {
+            GL_DEBUG_SEVERITY_HIGH         { return "High"; }
+            GL_DEBUG_SEVERITY_MEDIUM       { return "Medium"; }
+            GL_DEBUG_SEVERITY_LOW          { return "Low"; }
+            GL_DEBUG_SEVERITY_NOTIFICATION { return "Notification"; }
+            default                        { return ""; }
+        }
+    }
+
+    src_str      = get_source_str(source);
+    type_str     = get_type_str(type);
+    severity_str = get_severity_str(severity);
+
+    printf("[OpenGL DEBUG] {type_str}: {severity_str} ({id}) - {message}\n",
+        type_str,
+        severity_str,
+        id,
+        message);
+
+    // Break on high severity
+    if severity == GL_DEBUG_SEVERITY_HIGH
+    {
+        __dbg_break
+    }
+}
+enable_GL_debugging::fn() 
+{
+  
+  flags:u32;
+  glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
+  if (is_flag_on(flags, GL_CONTEXT_FLAG_DEBUG_BIT)) {
+    glEnable(GL_DEBUG_OUTPUT);
+    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+    glDebugMessageCallback(cast(*u8)glDebugOutput, nil);
+    glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nil,
+                          GL_TRUE);
+    printf("gl debug enable\n")
+  }
+}
 create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
 {
   glfwWindowHint(CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(CONTEXT_VERSION_MINOR, 3);
   glfwWindowHint(OPENGL_PROFILE, OPENGL_CORE_PROFILE);
   glfwWindowHint(OPENGL_DEBUG_CONTEXT, 1);
+
+  enable_GL_debugging();
 
   return glfwCreateWindow(w, h, name, nil, nil);
 }
@@ -252,8 +348,10 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
   empty_frag_str := "#version 330 core \nvoid main()\{\};";
   empty_frag_strln := cast(u32)str_ln(empty_frag_str)
 
-  mat.shader_id     = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz)
-  mat.depth_only_id = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, empty_frag_str, empty_frag_strln)
+  mat.offscreen_shader = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz)
+  mat.depth_shader     = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, empty_frag_str, empty_frag_strln)
+
+  printf("offscreen id {mat.offscreen_shader.id}, depth id {mat.depth_shader.id}\n")
 
   mat.model_uniform = create_uniform_buffer(64)
 
@@ -273,6 +371,10 @@ init_models::fn(g : *game_info)
   asset := ptr_offset(g.assets, idx, asset_info)
 
   load_model(path, &asset.MESH.m, &g.rman, &g.main_galloc)
+
+  g.chunk_128 = &asset.MESH.m
+
+  create_shader_mesh_contract(g.chunk_128, g.terrain2_shader, &g.chunk_128_sh_contract)
 }
 init_shaders::fn(g : *game_info)
 {
@@ -298,6 +400,21 @@ init_shaders::fn(g : *game_info)
 
   g.terrain_shader = &mat.MATERIAL.mat
 
+
+
+  read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/trn2vs.glsl", &t_vs_file, nil)
+  read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/trn2fs.glsl", &t_fs_file, nil)
+
+  mat_idx = get_material_asset(g, "trn")
+  mat = ptr_offset(g.assets, mat_idx, asset_info)
+
+
+  create_shader_and_depth_only(g, &t_vs_file, &t_fs_file, &mat.MATERIAL.mat, &g.main_galloc)
+
+  g.terrain2_shader = &mat.MATERIAL.mat
+
+  printf("trn shader addr {cast(u64) g.terrain2_shader}, offscreen id {g.terrain2_shader.offscreen_shader.id}, depth id {g.terrain2_shader.depth_shader.id}\n")
+
   io_globals.linear_cur = 0
 
   to_screen_vs:file
@@ -309,10 +426,10 @@ init_shaders::fn(g : *game_info)
   mat_idx = get_material_asset(g, "to_screen")
   mat = ptr_offset(g.assets, mat_idx, asset_info)
 
-  mat.MATERIAL.mat.shader_id     = compile_shader_complete(to_screen_vs.data, cast(u32)to_screen_vs.sz, to_screen_fs.data, cast(u32)to_screen_fs.sz)
+  mat.MATERIAL.mat.offscreen_shader     = compile_shader_complete(to_screen_vs.data, cast(u32)to_screen_vs.sz, to_screen_fs.data, cast(u32)to_screen_fs.sz)
   g.to_screen_shader = &mat.MATERIAL.mat
 
-  printf("to screen prog {g.to_screen_shader.shader_id}\n")
+  printf("to screen prog {g.to_screen_shader.offscreen_shader.id}\n")
 }
 
 init_game::fn(g : *game_info)
@@ -332,7 +449,9 @@ init_game::fn(g : *game_info)
   g.main_galloc.type = generic_allocator.HEAP_ALLOC
   g.main_galloc.HEAP_ALLOC.alloc = &g.main_alloc
 
-  g.assets = cast(*asset_info)heap_alloc(g.alloc, sizeof(asset_info) * TOTAL_ASSETS)
+  sz_a := cast(u32)sizeof(asset_info) * TOTAL_ASSETS
+  g.assets = cast(*asset_info)heap_alloc(g.alloc, sz_a)
+  memset(g.assets, 0, sz_a)
 
   aux := get_cwd() + "/dev"
   build_string(&aux, &g.work_dir, &g.main_galloc)
@@ -360,7 +479,7 @@ init_game::fn(g : *game_info)
 
   init_shaders(g)
 
-  //init_models(g)
+  init_models(g)
 
   init_ent_man(&g.ent_man, &g.main_galloc)
 
@@ -404,33 +523,87 @@ update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
 
   g.cam_rot = (yaw * pitch * crot).v
 }
-draw_objects::fn(g : *game_info, rman : *render_manager)
+draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uniform, depth_only : bool)
 {
-  
-  //update_uniform_buffer(&g.global_ubo, data : *void, data_size:s64)
+  update_uniform_buffer(&g.global_ubo, g_ubo, sizeof(*g_ubo))
 
   for i in 0..cast(s64)rman.cur_draws
   {
     cur := ptr_offset(rman.draws, i, draw_info);
 
+    
     on cur.type
     {
+    draw_info.OBJECT
+    {
+      //printf("2: trn shader addr {cast(u64) g.terrain2_shader}, offscreen id {g.terrain2_shader.offscreen_shader.id}, depth id {g.terrain2_shader.depth_shader.id}\n")
+      id := cur.OBJECT.mat.offscreen_shader.id
+      //printf("trn shader addr {cast(u64) cur.OBJECT.mat}, offscreen id {cur.OBJECT.mat.offscreen_shader.id}, depth id {cur.OBJECT.mat.depth_shader.id}\n")
+      model_mat : mat4x4=?
+
+      asset := ptr_offset(g.assets, cur.OBJECT.mat.asset_idx, asset_info)
+      if depth_only
+      {
+        bind_shader(rman, &cur.OBJECT.mat.depth_shader)
+      }
+      else
+      {
+        bind_shader(rman, &cur.OBJECT.mat.offscreen_shader)
+      }
+      bind_contract(rman, &cur.OBJECT.sh_contract)
+
+
+      update_uniform_buffer(&cur.OBJECT.mat.model_uniform, &model_mat, sizeof(model_mat))
+
+      
+      __dbg_break
+      __dbg_break
+      __dbg_break
+      ASSERT(cur.OBJECT.mesh != nil)
+      draw_object_indexed(rman, &cur.OBJECT.mesh.index_buffer)
+      
+    }
     draw_info.CHUNK
     {
 
     }
+    default
+    {
+      __dbg_break
+    }
     }
   }
 }
+add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_info)
+{
+  cur := ptr_offset(rman.draws, rman.cur_draws, draw_info)
+  
+  cur.type = draw_info.OBJECT
+  cur.OBJECT.pos = ch.pos
+  cur.OBJECT.sz.x = 1.0
+  cur.OBJECT.sz.y = 1.0
+  cur.OBJECT.sz.z = 1.0
+
+  cur.OBJECT.sh_contract = g.chunk_128_sh_contract
+  cur.OBJECT.mesh = g.chunk_128
+  asset := ptr_offset(g.assets, g.terrain2_shader.asset_idx, asset_info)
+  cur.OBJECT.mat = g.terrain2_shader
+
+  ASSERT(g.terrain2_shader != nil)
+
+  rman.cur_draws++
+  ASSERT(rman.cur_draws < rman.max_draws)
+
+}
 add_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
-
+  add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0])
 }
 clear_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
-
+  rman.cur_draws = 0
 }
-draw_depth_buffer::fn(g : *game_info, rman : *render_manager)
+draw_depth_buffer::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uniform)
 {
   glBindFramebuffer(GL_FRAMEBUFFER, g.depth_fbo.fbo.id);
   glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
@@ -438,10 +611,10 @@ draw_depth_buffer::fn(g : *game_info, rman : *render_manager)
   glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); // disable color writes
   glClearDepth(1.0f);          // depth clear value (1.0 = far)
   glClear(GL_DEPTH_BUFFER_BIT);
-  draw_objects(g, &g.rman)
+  draw_objects(g, &g.rman, g_ubo, true)
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
-draw_offscreen_buffer::fn(g : *game_info, rman : *render_manager)
+draw_offscreen_buffer::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uniform)
 {
   glBindFramebuffer(GL_FRAMEBUFFER, g.offscreen_fbo.fbo.id);
   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -451,12 +624,12 @@ draw_offscreen_buffer::fn(g : *game_info, rman : *render_manager)
   glClearDepth(1.0f);
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  draw_objects(g, &g.rman)
+  draw_objects(g, &g.rman, g_ubo, false)
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 draw_toscreen_buffer::fn(g : *game_info, rman : *render_manager)
 {
-  to_screen_shader := g.to_screen_shader.shader_id
+  to_screen_shader := g.to_screen_shader.offscreen_shader.id
   glViewport(0, 0, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
   //printf("to screen prog {to_screen_shader}\n")
   glUseProgram(to_screen_shader)
@@ -503,9 +676,9 @@ render::fn(g : *game_info, rman : *render_manager)
   perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
 
 
-  draw_depth_buffer(g, rman)
+  draw_depth_buffer(g, rman, &g_ubo)
 
-  draw_offscreen_buffer(g, rman)
+  draw_offscreen_buffer(g, rman, &g_ubo)
 
   draw_toscreen_buffer(g, rman)
 }
@@ -541,7 +714,7 @@ run_game::fn(g : *game_info)
 
     player_mov(g, g.player, dt)
 
-    print_vec2(g.player.pos)
+    //print_vec2(g.player.pos)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)

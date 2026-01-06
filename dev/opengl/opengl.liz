@@ -27,6 +27,18 @@ glBindBuffer::fn outsider(target: u32, buffer: u32) ! void;
 glBufferData::fn outsider(target: u32, size: u32, data: *void, usage: u32) ! void;
 glBufferSubData::fn outsider(target: u32, offset: u32, size: u32, data: *void) ! void;
 
+glGetIntegerv::fn outsider(a1 : u32, flags:*u32);
+
+glDebugMessageCallback ::fn outsider(callback : *u8,
+    user_param : *u8);
+
+glDebugMessageControl :: fn outsider(source    : u32,
+    type      : u32,
+    severity  : u32,
+    count     : s32,
+    ids       : *u32,
+    enabled   : u8);
+
 glGenVertexArrays::fn outsider(n: s32, arrays: *u32) ! void;
 glBindVertexArray::fn outsider(array: u32) ! void;
 glEnableVertexAttribArray::fn outsider(index: u32) ! void;
@@ -215,3 +227,30 @@ GL_INVALID_INDEX: const s32 = 0xFFFFFFFF;
 
 GL_TEXTURE0: const s32 = 0x84C0;
 GL_CULL_FACE: const s32 = 0xB44;
+
+GL_DEBUG_OUTPUT:             const s32 = 0x92E0;
+GL_DEBUG_OUTPUT_SYNCHRONOUS: const s32 = 0x8242;
+GL_DONT_CARE:               const s32 = 0x1100;
+
+GL_CONTEXT_FLAGS:            const s32 = 0x821E;
+GL_CONTEXT_FLAG_DEBUG_BIT:   const s32 = 0x00000002;
+
+GL_DEBUG_TYPE_ERROR:               const s32 = 0x824C;
+GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: const s32 = 0x824D;
+GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  const s32 = 0x824E;
+GL_DEBUG_TYPE_PORTABILITY:         const s32 = 0x824F;
+GL_DEBUG_TYPE_PERFORMANCE:         const s32 = 0x8250;
+GL_DEBUG_TYPE_OTHER:               const s32 = 0x8251;
+GL_DEBUG_TYPE_MARKER:              const s32 = 0x8268;
+
+GL_DEBUG_SEVERITY_HIGH:         const s32 = 0x9146;
+GL_DEBUG_SEVERITY_MEDIUM:       const s32 = 0x9147;
+GL_DEBUG_SEVERITY_LOW:          const s32 = 0x9148;
+GL_DEBUG_SEVERITY_NOTIFICATION: const s32 = 0x826B;
+
+GL_DEBUG_SOURCE_API:               const s32 = 0x8246;
+GL_DEBUG_SOURCE_WINDOW_SYSTEM:    const s32 = 0x8247;
+GL_DEBUG_SOURCE_SHADER_COMPILER:  const s32 = 0x8248;
+GL_DEBUG_SOURCE_THIRD_PARTY:      const s32 = 0x8249;
+GL_DEBUG_SOURCE_APPLICATION:      const s32 = 0x824A;
+GL_DEBUG_SOURCE_OTHER:            const s32 = 0x824B;

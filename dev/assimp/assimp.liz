@@ -141,7 +141,7 @@ aiReleaseImport::fn outsider(scene: *aiScene) ! void;
 load_model::fn(path : str_lit, out : *mesh_info, rman : *render_manager, alloc : *generic_allocator)
 {
   scene := aiImportFile(path, aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
-                       aiProcess_GenNormals | aiProcess_ImproveCacheLocality)
+                       aiProcess_ImproveCacheLocality)
 
   if scene == nil
   {
@@ -161,6 +161,7 @@ load_model::fn(path : str_lit, out : *mesh_info, rman : *render_manager, alloc :
     vert_count  += _cur.mNumVertices;
   }
 
+  memset(&out.attrs[0], 0, TOTAL_MESH_ATTRS * sizeof(out.attrs[0]))
   assign_v_format_and_sem(&out.attrs[0], vertex_format.F32x3, vertex_semantic.POSITION, vert_count, alloc)
 
   indices := cast(*u32)get_buffer_from_generic_alloc(alloc, index_count * 3 * sizeof(u32))
@@ -168,30 +169,41 @@ load_model::fn(path : str_lit, out : *mesh_info, rman : *render_manager, alloc :
 
   pos_voffset :u32= 0
   pos_ioffset :u32= 0
+
+  cur_vert :u32= 0
+  printf("total meshes {scene.mNumMeshes}\n")
   for m in 0..cast(s64)scene.mNumMeshes
   {
     cur := ptr_offset(scene.mMeshes, m, *aiMesh)
 
     src := cur.mVertices
     dst := ptr_offset(out.attrs[0].data, pos_voffset, u8)
+    cp_sz   := cur.mNumVertices * sizeof(f32) * 3
+    memcpy(dst, src, cp_sz)
+
+    cur_i := ptr_offset(indices, pos_ioffset, u8)
 
     cp_i_sz := cur.mNumFaces * sizeof(u32) * 3
-    cp_sz   := cur.mNumVertices * sizeof(f32) * 3
 
-    memcpy(dst, src, cp_sz)
-    
+    printf("total faces {cur.mNumFaces}\n")
+    printf("total vertices {cur.mNumVertices}\n")
+
     for t in 0..cast(s64)cur.mNumFaces
     {
       f := ptr_offset(cur.mFaces, t, aiFace)
 
-      src_i := ptr_offset(f.mIndices, 0, u32)
-      dst_i := ptr_offset(indices, t * 3, u32)
+      if  f.mNumIndices != 3 continue
 
-      memcpy(dst_i, src_i, sizeof(u32) * 3)
+      src_i := ptr_offset(f.mIndices, 0, u32)
+
+      *ptr_offset(cur_i, t * 3, u32) = *ptr_offset(f.mIndices, 0, u32) + cur_vert
+      *ptr_offset(cur_i, t * 3 + 1, u32) = *ptr_offset(f.mIndices, 1, u32) + cur_vert
+      *ptr_offset(cur_i, t * 3 + 2, u32) = *ptr_offset(f.mIndices, 2, u32) + cur_vert
     }
     pos_voffset += cp_sz
-
     pos_ioffset += cp_i_sz
+
+    cur_vert += cur.mNumVertices
   }
 
   desc:buffer_desc

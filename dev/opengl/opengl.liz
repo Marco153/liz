@@ -22,6 +22,8 @@ glGetProgramInfoLog::fn outsider(shader : u32, max_len : s32, ret_len : *s32, bu
 
 glDeleteProgram::fn outsider(program : u32);
 
+glPolygonMode::fn outsider(type : u32, type2 : u32);
+
 glGenBuffers::fn outsider(n: s32, buffers: *u32) ! void;
 glBindBuffer::fn outsider(target: u32, buffer: u32) ! void;
 glBufferData::fn outsider(target: u32, size: u32, data: *void, usage: u32) ! void;
@@ -81,6 +83,7 @@ glMapBufferRange::fn outsider(target : u32,
 glUnmapBuffer::fn outsider(target : u32
 ) ! u8;
 
+glFrontFace::fn outsider(program : u32);
 
 glGetUniformBlockIndex::fn outsider(program : u32,
     name    : str_lit
@@ -147,6 +150,8 @@ GL_TRUE:                      const s32 = 1;
 GL_COLOR_BUFFER_BIT:          const s32 = 0x4000;
 GL_DEPTH_BUFFER_BIT:          const s32 = 0x0100;
 GL_STENCIL_BUFFER_BIT:        const s32 = 0x0400;
+
+GL_LINE:                    const s32 = 0x1B01;
 
 GL_POINTS:                    const s32 = 0x0000;
 GL_LINES:                     const s32 = 0x0001;
@@ -254,3 +259,6 @@ GL_DEBUG_SOURCE_SHADER_COMPILER:  const s32 = 0x8248;
 GL_DEBUG_SOURCE_THIRD_PARTY:      const s32 = 0x8249;
 GL_DEBUG_SOURCE_APPLICATION:      const s32 = 0x824A;
 GL_DEBUG_SOURCE_OTHER:            const s32 = 0x824B;
+GL_CW:            const s32 = 0x900;
+GL_CCW:            const s32 = 0x901;
+GL_FRONT_AND_BACK:            const s32 = 0x408;

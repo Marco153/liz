@@ -91,8 +91,10 @@ game_info:struct
   iman : input_manager
 
 
-  chunk_128 : *mesh_info
-  chunk_128_sh_contract : shader_mesh_contract
+  chunk_128 : model_info
+  chunk_64 : model_info
+  chunk_32 : model_info
+  chunk_16 : model_info
 }
 key_callback::fn(window:*u8, _key : u32, scancode : u32, action : u32, mods:u32)
 {
@@ -141,7 +143,7 @@ get_mesh_asset::fn(g : *game_info, name : str_lit)!u64
     {
       memcpy(&cur.name, name, 15)
       cur.in_use = true
-      cur.MODEL.mod.asset_idx = cast(u32)i;
+      cur.MESH.m.asset_idx = cast(u32)i;
       return i
     }
     i++
@@ -350,7 +352,7 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
   mat.offscreen_shader = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, t_fs_file.data, cast(u32)t_fs_file.sz)
   mat.depth_shader     = compile_shader_complete(t_vs_file.data, cast(u32)t_vs_file.sz, empty_frag_str, empty_frag_strln)
 
-  printf("offscreen id {mat.offscreen_shader.id}, depth id {mat.depth_shader.id}\n")
+  //printf("offscreen id {mat.offscreen_shader.id}, depth id {mat.depth_shader.id}\n")
 
   mat.model_uniform = create_uniform_buffer(64)
 
@@ -364,19 +366,33 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
 
   enable_shader_uniforms(mat, &g.global_ubo)
 }
-init_models::fn(g : *game_info)
+create_trn_mesh::fn(g : *game_info, name : str_lit, mesh : **mesh_info, sh_contract : *shader_mesh_contract)
 {
-  path := "{to_cstr(&g.work_dir, nil)}/models/_128.fbx"
-  idx := get_mesh_asset(g, "_128")
+  io_globals.linear_cur = 0
+
+  path := "{to_cstr(&g.work_dir, nil)}/models/{name}"
+  idx := get_mesh_asset(g, name)
 
   asset := ptr_offset(g.assets, idx, asset_info)
 
   load_model(path, &asset.MESH.m, &g.rman, &g.main_galloc)
 
-  g.chunk_128 = &asset.MESH.m
+  *mesh = &asset.MESH.m
 
-  create_shader_mesh_contract(g.chunk_128, g.terrain2_shader, &g.chunk_128_sh_contract)
+  create_shader_mesh_contract(*mesh, g.terrain2_shader, sh_contract)
 
+  printf("model: {name}, vbufid {mesh.attrs[0].buffer.gl.id}, contract {sh_contract.vao}, index sz {mesh.index_buffer.size}, index id {mesh.index_buffer.gl.id}\n")
+
+}
+init_models::fn(g : *game_info)
+{
+  create_trn_mesh(g, "_128.fbx", &g.chunk_128.mesh, &g.chunk_128.contract)
+  create_trn_mesh(g, "_64.fbx", &g.chunk_64.mesh, &g.chunk_64.contract)
+  create_trn_mesh(g, "_32.fbx", &g.chunk_32.mesh, &g.chunk_32.contract)
+  create_trn_mesh(g, "_16.fbx", &g.chunk_16.mesh, &g.chunk_16.contract)
+
+  verts := &g.chunk_128.mesh.attrs[0].buffer
+  //inds := g.chunk_128.mesh.index_buffer.data
 }
 init_shaders::fn(g : *game_info)
 {
@@ -415,7 +431,7 @@ init_shaders::fn(g : *game_info)
 
   g.terrain2_shader = &mat.MATERIAL.mat
 
-  printf("trn shader addr {cast(u64) g.terrain2_shader}, offscreen id {g.terrain2_shader.offscreen_shader.id}, depth id {g.terrain2_shader.depth_shader.id}\n")
+  //printf("trn shader addr {cast(u64) g.terrain2_shader}, offscreen id {g.terrain2_shader.offscreen_shader.id}, depth id {g.terrain2_shader.depth_shader.id}\n")
 
   io_globals.linear_cur = 0
 
@@ -431,7 +447,7 @@ init_shaders::fn(g : *game_info)
   mat.MATERIAL.mat.offscreen_shader     = compile_shader_complete(to_screen_vs.data, cast(u32)to_screen_vs.sz, to_screen_fs.data, cast(u32)to_screen_fs.sz)
   g.to_screen_shader = &mat.MATERIAL.mat
 
-  printf("to screen prog {g.to_screen_shader.offscreen_shader.id}\n")
+  //printf("to screen prog {g.to_screen_shader.offscreen_shader.id}\n")
 }
 
 init_game::fn(g : *game_info)
@@ -442,7 +458,7 @@ init_game::fn(g : *game_info)
   printf("on main: {io_globals.linear_max}\n")
   PrintStr("mincraft start\n")
 
-  InitMemAlloc(&g.main_alloc, 160000)
+  InitMemAlloc(&g.main_alloc, 1600000)
 
   InitMemAlloc(&g.names_alloc, 1000)
 
@@ -544,7 +560,6 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
     {
       //printf("2: trn shader addr {cast(u64) g.terrain2_shader}, offscreen id {g.terrain2_shader.offscreen_shader.id}, depth id {g.terrain2_shader.depth_shader.id}\n")
       id := cur.OBJECT.mat.offscreen_shader.id
-      //printf("trn shader addr {cast(u64) cur.OBJECT.mat}, offscreen id {cur.OBJECT.mat.offscreen_shader.id}, depth id {cur.OBJECT.mat.depth_shader.id}\n")
 
       asset := ptr_offset(g.assets, cur.OBJECT.mat.asset_idx, asset_info)
       if depth_only
@@ -556,6 +571,7 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
         bind_shader(rman, &cur.OBJECT.mat.offscreen_shader)
       }
       bind_contract(rman, &cur.OBJECT.sh_contract)
+      //printf("draw mesh vbufid {cur.OBJECT.mesh.attrs[0].buffer.gl.id}, contract {cur.OBJECT.sh_contract.vao} index {cur.OBJECT.mesh.index_buffer.size}, index id {cur.OBJECT.mesh.index_buffer.gl.id}\n")
 
       model_mat : mat4x4=?
 
@@ -590,8 +606,15 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur.OBJECT.sz.y = 1.0
   cur.OBJECT.sz.z = 1.0
 
-  cur.OBJECT.sh_contract = g.chunk_128_sh_contract
-  cur.OBJECT.mesh = g.chunk_128
+  mod := &g.chunk_64
+  if is_key_held(&g.iman, key_enum.A)
+  {
+    mod = &g.chunk_128
+  }
+
+  cur.OBJECT.sh_contract = mod.contract
+  cur.OBJECT.mesh = mod.mesh
+
   asset := ptr_offset(g.assets, g.terrain2_shader.asset_idx, asset_info)
   cur.OBJECT.mat = g.terrain2_shader
 
@@ -721,7 +744,7 @@ run_game::fn(g : *game_info)
 
     player_mov(g, g.player, dt)
 
-    print_vec2(g.player.pos)
+    //print_vec2(g.player.pos)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)

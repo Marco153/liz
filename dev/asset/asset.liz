@@ -8,15 +8,18 @@ texture_info :struct
 {
   tex_id : u32
 }
+shader_mesh_contract:struct
+{
+#if RENDER_API == OPENGL
+{
+  vao : u32
+}
+}
 model_info :struct
 {
   asset_idx : u32
-  mesh : mesh_info
-
-#if RENDER_API == OPENGL
-{
-  model_id : u32
-}
+  mesh : *mesh_info
+  contract : shader_mesh_contract
 }
 attribute_desc_shader:struct
 {
@@ -41,13 +44,6 @@ material_info :struct
 
   attrs : *attribute_desc_shader
   total_attrs : u8
-}
-shader_mesh_contract:struct
-{
-#if RENDER_API == OPENGL
-{
-  vao : u32
-}
 }
 
 create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *shader_mesh_contract)
@@ -75,6 +71,8 @@ create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *
       
       type : u32
       elements : u32
+      tp_sz :u32= 0
+
       on cur_sh_attr.desc.format
       {
       vertex_format.F32x1
@@ -91,6 +89,7 @@ create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *
       {
         type = GL_FLOAT
         elements = 3
+        tp_sz = 12
       }
       default
       {
@@ -98,10 +97,12 @@ create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *
       }
       }
 
-      glVertexAttribPointer(cast(u32)cur_sh_attr.loc, cast(s32)elements, type, GL_FALSE, 0, nil);
+
+      glVertexAttribPointer(cast(u32)cur_sh_attr.loc, cast(s32)elements, type, GL_FALSE, tp_sz, nil);
       glEnableVertexAttribArray(cast(u32)cur_sh_attr.loc);
     }
   }
+  glBindVertexArray(0)
 }
 }
 asset_type:etruct

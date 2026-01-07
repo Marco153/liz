@@ -10364,6 +10364,8 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwPollEvents"]      = (u64)glfwPollEvents;
 
     outsiders["glGetIntegerv"]      = (u64)glGetIntegerv;
+    outsiders["glFrontFace"]      = (u64)glFrontFace;
+    outsiders["glPolygonMode"]      = (u64)glPolygonMode;
 
     outsiders["glDebugMessageCallback"] = (u64)_glDebugMessageCallback;
     outsiders["glDebugMessageControl"]  = (u64)_glDebugMessageControl;

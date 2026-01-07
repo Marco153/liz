@@ -574,6 +574,7 @@ draw_object_indexed::fn(rman : *render_manager, index_buffer:*buffer_info)
   count := cast(s32)index_buffer.size / sizeof(u32)
 #if RENDER_API == OPENGL
 {
+  //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
   glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nil);
 }
 }

@@ -475,9 +475,9 @@ create_storage_buffer::fn(size : u32)!storage_buffer
   return ret
 }
 }
-update_uniform_buffer::fn(u : *uniform_buffer, data : *void, data_size:s64)
+update_uniform_buffer::fn(u : *uniform_buffer, data : *void, data_size:s64, loc : u32)
 {
-  glBindBufferBase(GL_UNIFORM_BUFFER, 0, u.id)
+  glBindBufferBase(GL_UNIFORM_BUFFER, loc, u.id)
   glBufferSubData(GL_UNIFORM_BUFFER, 0, cast(u32)data_size, data);
 }
 update_storage_buffer::fn(storage : *storage_buffer, data : *void, data_size:s64)

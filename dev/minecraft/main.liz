@@ -361,6 +361,8 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
   cur := ptr_offset(mat.attrs, 0, attribute_desc_shader)
   cur.desc.sem    = vertex_semantic.POSITION
   cur.desc.format = vertex_format.F32x3
+
+  enable_shader_uniforms(mat, &g.global_ubo)
 }
 init_models::fn(g : *game_info)
 {
@@ -374,6 +376,7 @@ init_models::fn(g : *game_info)
   g.chunk_128 = &asset.MESH.m
 
   create_shader_mesh_contract(g.chunk_128, g.terrain2_shader, &g.chunk_128_sh_contract)
+
 }
 init_shaders::fn(g : *game_info)
 {
@@ -477,6 +480,8 @@ init_game::fn(g : *game_info)
 
   enable_GL_debugging();
 
+  g.global_ubo = create_uniform_buffer(sizeof(global_ubo_uniform))
+
   th := create_thread(thread, nil)
 
   init_shaders(g)
@@ -496,7 +501,6 @@ init_game::fn(g : *game_info)
     &g.offscreen_fbo.normal_tex.id, 
     &g.offscreen_fbo.color_tex.id, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
 
-  g.global_ubo = create_uniform_buffer(sizeof(global_ubo_uniform))
 
   g.cam_rot.w = 1.0
 
@@ -528,7 +532,6 @@ update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
 }
 draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uniform, depth_only : bool)
 {
-  update_uniform_buffer(&g.global_ubo, g_ubo, sizeof(*g_ubo))
 
   for i in 0..cast(s64)rman.cur_draws
   {
@@ -542,7 +545,6 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
       //printf("2: trn shader addr {cast(u64) g.terrain2_shader}, offscreen id {g.terrain2_shader.offscreen_shader.id}, depth id {g.terrain2_shader.depth_shader.id}\n")
       id := cur.OBJECT.mat.offscreen_shader.id
       //printf("trn shader addr {cast(u64) cur.OBJECT.mat}, offscreen id {cur.OBJECT.mat.offscreen_shader.id}, depth id {cur.OBJECT.mat.depth_shader.id}\n")
-      model_mat : mat4x4=?
 
       asset := ptr_offset(g.assets, cur.OBJECT.mat.asset_idx, asset_info)
       if depth_only
@@ -555,8 +557,12 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
       }
       bind_contract(rman, &cur.OBJECT.sh_contract)
 
+      model_mat : mat4x4=?
 
-      update_uniform_buffer(&cur.OBJECT.mat.model_uniform, &model_mat, sizeof(model_mat))
+      identity(&model_mat)
+
+      update_uniform_buffer(&g.global_ubo, g_ubo, sizeof(*g_ubo), 0)
+      update_uniform_buffer(&cur.OBJECT.mat.model_uniform, &model_mat, sizeof(model_mat), 1)
 
       
       ASSERT(cur.OBJECT.mesh != nil)
@@ -673,7 +679,8 @@ render::fn(g : *game_info, rman : *render_manager)
   g_ubo:global_ubo_uniform=?
 
   identity(&g_ubo.view)
-  perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
+  identity(&g_ubo.proj)
+  //perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
 
 
   draw_depth_buffer(g, rman, &g_ubo)

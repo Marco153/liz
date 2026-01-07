@@ -1350,9 +1350,8 @@ node *node_iter::parse_expr() {
       ExpectTkn(T_OPEN_CURLY);
       get_tkn();
 
-
-
       cur_tkn = peek_tkn();
+
       while (cur_tkn->type != T_CLOSE_CURLY) {
         on_cond cur_cond = {};
 
@@ -7241,6 +7240,7 @@ case node_type::N_SCOPE:
     switch (n->r->type) {
     case node_type::N_IF: {
       node *cur = n->r;
+      //BREAK(n->t->line == 560)
       do {
         if (cur->type == N_IF || cur->type == N_ELSE_IF) {
           auto a = CheckForHashtags(lang_stat, cur->l->l, fdecl, scp);
@@ -7270,7 +7270,7 @@ case node_type::N_SCOPE:
             node *from = cur->l->r;
             if (from->type == N_SCOPE)
               from = from->r;
-            if (from->type == N_STMNT && from->r && from->r->type != N_KEYWORD)
+            if (from->type != N_STMNT && from->r && from->r->type != N_KEYWORD)
               from = from->l;
             memcpy(n, from, sizeof(node));
           break;

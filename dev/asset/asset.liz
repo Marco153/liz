@@ -1,6 +1,7 @@
 import "../typedefs/"
 import "../render/"
 import "../opengl/"
+import "../memory/"
 TOTAL_ASSETS:const s32= 32
 ASSET_MAT_START:const s32= 8
 texture_info :struct
@@ -51,28 +52,30 @@ shader_mesh_contract:struct
 
 create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *shader_mesh_contract)
 {
-#if RENDER_API == OPENGL
+//#if RENDER_API == OPENGL
 {
   glGenVertexArrays(1, &out.vao)
   glBindVertexArray(out.vao)
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.index_buffer.gl.id);
+
 
   for mesh_at in mesh.attrs
   {
     if mesh_at.data == nil continue;
 
     glBindBuffer(GL_ARRAY_BUFFER, mesh_at.buffer.gl.id);
+    ASSERT(mesh_at.buffer.gl.id != 0)
 
-    for a in 0..cast(s64)mat.total_attributes
+    for a in 0..cast(s64)mat.total_attrs
     {
-      cur_sh_attr := ptr_offset(mat.attrs, i, attribute_desc_shader)
+      cur_sh_attr := ptr_offset(mat.attrs, a, attribute_desc_shader)
 
       if cur_sh_attr.desc.sem != mesh_at.sem continue;
 
       
       type : u32
       elements : u32
-      on cur_sh_attr.format
+      on cur_sh_attr.desc.format
       {
       vertex_format.F32x1
       {
@@ -95,8 +98,8 @@ create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *
       }
       }
 
-      glVertexAttribPointer(cur_sh_attr.loc, elements, type, GL_FALSE, 0, 0);
-      glEnableVertexAttribArray(cur_sh_attr.loc);
+      glVertexAttribPointer(cast(u32)cur_sh_attr.loc, cast(s32)elements, type, GL_FALSE, 0, nil);
+      glEnableVertexAttribArray(cast(u32)cur_sh_attr.loc);
     }
   }
 }

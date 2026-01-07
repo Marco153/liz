@@ -3221,6 +3221,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
 
       ret = GetIRFromAst2(lang_stat, ast->ret.ast, state, is_lhs);
 
+      LoadDerefs(lang_stat, &state->cur_block->irs, &ret);
 
       if(is_lhs)
       {

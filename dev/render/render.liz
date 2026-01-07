@@ -549,12 +549,16 @@ init_render_man::fn(r : *render_manager, alloc : *generic_allocator, max_draws :
   r.cur_draws = 0
   r.draws     = cast(*draw_info)get_buffer_from_generic_alloc(alloc, max_draws * sizeof(draw_info))
 
+  r.buffers     = cast(*buffer_info)get_buffer_from_generic_alloc(alloc, TOTAL_BUFFERS * sizeof(buffer_info))
+
 }
 bind_contract::fn(rman : *render_manager, sh : *shader_mesh_contract)
 {
 #if RENDER_API == OPENGL
 {
+  ASSERT(sh.vao != 0)
   glBindVertexArray(sh.vao)
+  //printf("contract bound {sh.vao}\n")
 }
 }
 bind_shader::fn(rman : *render_manager, sh : *shader_info)
@@ -562,12 +566,14 @@ bind_shader::fn(rman : *render_manager, sh : *shader_info)
 #if RENDER_API == OPENGL
 {
   glUseProgram(sh.id)
+  //printf("shader bound {sh.id}\n")
 }
 }
 draw_object_indexed::fn(rman : *render_manager, index_buffer:*buffer_info)
 {
+  count := cast(s32)index_buffer.size / sizeof(u32)
 #if RENDER_API == OPENGL
 {
-  glDrawElements(GL_TRIANGLES, cast(s32)index_buffer.size / sizeof(u32), GL_UNSIGNED_INT, nil);
+  glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nil);
 }
 }

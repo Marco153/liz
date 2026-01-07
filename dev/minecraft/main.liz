@@ -294,10 +294,9 @@ create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
 {
   glfwWindowHint(CONTEXT_VERSION_MAJOR, 4);
   glfwWindowHint(CONTEXT_VERSION_MINOR, 3);
-  glfwWindowHint(OPENGL_PROFILE, OPENGL_CORE_PROFILE);
-  glfwWindowHint(OPENGL_DEBUG_CONTEXT, 1);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, 1);
 
-  enable_GL_debugging();
 
   return glfwCreateWindow(w, h, name, nil, nil);
 }
@@ -366,7 +365,7 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
 init_models::fn(g : *game_info)
 {
   path := "{to_cstr(&g.work_dir, nil)}/models/_128.fbx"
-  idx := get_mesh_asset(g, path)
+  idx := get_mesh_asset(g, "_128")
 
   asset := ptr_offset(g.assets, idx, asset_info)
 
@@ -440,7 +439,7 @@ init_game::fn(g : *game_info)
   printf("on main: {io_globals.linear_max}\n")
   PrintStr("mincraft start\n")
 
-  InitMemAlloc(&g.main_alloc, 16000)
+  InitMemAlloc(&g.main_alloc, 160000)
 
   InitMemAlloc(&g.names_alloc, 1000)
 
@@ -471,21 +470,25 @@ init_game::fn(g : *game_info)
   glfwMakeContextCurrent(g.wnd)
 
 
+
   ret := glewInit()
 
   if ret != 0 __dbg_break
+
+  enable_GL_debugging();
 
   th := create_thread(thread, nil)
 
   init_shaders(g)
 
-  init_models(g)
 
   init_ent_man(&g.ent_man, &g.main_galloc)
 
   create_ents(g)
 
   init_render_man(&g.rman, &g.main_galloc, 64)
+
+  init_models(g)
 
   create_framebuffers(&g.depth_fbo.fbo.id, 
     &g.offscreen_fbo.fbo.id, 
@@ -556,9 +559,6 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
       update_uniform_buffer(&cur.OBJECT.mat.model_uniform, &model_mat, sizeof(model_mat))
 
       
-      __dbg_break
-      __dbg_break
-      __dbg_break
       ASSERT(cur.OBJECT.mesh != nil)
       draw_object_indexed(rman, &cur.OBJECT.mesh.index_buffer)
       
@@ -714,7 +714,7 @@ run_game::fn(g : *game_info)
 
     player_mov(g, g.player, dt)
 
-    //print_vec2(g.player.pos)
+    print_vec2(g.player.pos)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)

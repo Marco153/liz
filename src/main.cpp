@@ -7,6 +7,7 @@
 #include <assimp/material.h>
 #include <cmath>
 #include <csignal>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <sched.h>
@@ -11363,6 +11364,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     // Handle error
   }
   // int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+  
   enableGLDebugging();
 
   void *file_addr;
@@ -11849,8 +11851,28 @@ void test(void)
         __builtin_trap();
     }
 }
-int main(int argc, char *argv[]) {
+void test_mesh()
+{
+  HERE()
+  int offset = offsetof(aiMesh, mFaces);
 
+  const struct aiScene *scene =
+      aiImportFile("/home/marco/liz/dev/models/_128.fbx",
+                   aiProcess_Triangulate | aiProcess_JoinIdenticalVertices |
+                       aiProcess_GenNormals | aiProcess_ImproveCacheLocality);
+
+  if (!scene) {
+    printf("Failed to load FBX: %s\n", aiGetErrorString());
+    ASSERT(0)
+    return;
+  }
+
+  const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
+  auto a = 0;
+}
+int main(int argc, char *argv[]) {
+  //test_mesh();
+  
 #ifdef LINUX
   char path[1024];
   ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);

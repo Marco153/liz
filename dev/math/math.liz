@@ -226,6 +226,45 @@ operator * x64(self : *quaternion, rhs : *quaternion) !quaternion
 	multiply_quaternions(&ret.v, self.v, rhs.v)
 	return ret
 }
+
+quat_to_mat4::fn(out: *mat4x4, q: _vec) ! void
+{
+    xx: f32 = q.x * q.x;
+    yy: f32 = q.y * q.y;
+    zz: f32 = q.z * q.z;
+
+    xy: f32 = q.x * q.y;
+    xz: f32 = q.x * q.z;
+    yz: f32 = q.y * q.z;
+
+    wx: f32 = q.w * q.x;
+    wy: f32 = q.w * q.y;
+    wz: f32 = q.w * q.z;
+
+    // column 0
+    out.vals[0]  = 1.0 - 2.0 * (yy + zz);
+    out.vals[1]  = 2.0 * (xy + wz);
+    out.vals[2]  = 2.0 * (xz - wy);
+    out.vals[3]  = 0.0;
+
+    // column 1
+    out.vals[4]  = 2.0 * (xy - wz);
+    out.vals[5]  = 1.0 - 2.0 * (xx + zz);
+    out.vals[6]  = 2.0 * (yz + wx);
+    out.vals[7]  = 0.0;
+
+    // column 2
+    out.vals[8]  = 2.0 * (xz + wy);
+    out.vals[9]  = 2.0 * (yz - wx);
+    out.vals[10] = 1.0 - 2.0 * (xx + yy);
+    out.vals[11] = 0.0;
+
+    // column 3
+    out.vals[12] = 0.0;
+    out.vals[13] = 0.0;
+    out.vals[14] = 0.0;
+    out.vals[15] = 1.0;
+}
 maxval::fn{T}(a : T, b : T) ! T
 {
 	ret: = if a > b a else b;

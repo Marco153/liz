@@ -11577,6 +11577,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     {
     case child_process_state::INT3:
     {
+      //HERE()
       if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end || ! cur_f)
       {
         //printf("DBG: rip %p\n", regs.rip);

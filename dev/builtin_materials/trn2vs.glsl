@@ -13,5 +13,5 @@ layout(std140) uniform _model {
 in vec3 vpos;
 void main()
 {
-  gl_Position =  UBO.proj *  transpose(UBO.view) * transpose(MODEL.mod) * vec4(vpos.xyz * 0.5, 1.0);
+  gl_Position =  UBO.proj *  UBO.view * transpose(MODEL.mod) * vec4(vpos.xyz * 0.5, 1.0);
 }

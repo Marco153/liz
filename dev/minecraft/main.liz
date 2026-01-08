@@ -95,6 +95,29 @@ game_info:struct
   chunk_64 : model_info
   chunk_32 : model_info
   chunk_16 : model_info
+
+  mouse_vel_x: f32
+  mouse_vel_y: f32
+  mouse_last_x: f32
+  mouse_last_y: f32
+
+  mouse_sense_x :f32
+  mouse_sense_y :f32
+}
+cursor_position_callback::fn(window:*u8, xpos:f64, ypos:f64) {
+  g := cast(*game_info)glfwGetWindowUserPointer(window);
+  currentTime := glfwGetTime();
+
+  //double deltaTime = currentTime - g.last_time;
+  //g.mouse_vel_x = cast(f32)xpos
+  if (g.mouse_last_x != 0.0) 
+  {
+    g.mouse_vel_x = (cast(f32)xpos - g.mouse_last_x);
+    g.mouse_vel_y = (cast(f32)ypos - g.mouse_last_y);
+  }
+
+  g.mouse_last_x = cast(f32)xpos;
+  g.mouse_last_y = cast(f32)ypos;
 }
 key_callback::fn(window:*u8, _key : u32, scancode : u32, action : u32, mods:u32)
 {
@@ -525,10 +548,15 @@ init_game::fn(g : *game_info)
   glfwSetWindowUserPointer(g.wnd, g)
 
   glfwSetKeyCallback(g.wnd, cast(u64)key_callback)
+  glfwSetCursorPosCallback(g.wnd, cast(u64)cursor_position_callback)
 
   g.near_plane = 0.1
   g.far_plane = 500.0
 
+  g.player.forward.z = 1.0
+
+  g.mouse_sense_x = 4.0
+  g.mouse_sense_y = 4.0
 }
 update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
 {
@@ -539,12 +567,15 @@ update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
   crot.v = g.cam_rot
 
   cam_right :_vec
-  rotate_vector(&cam_right, crot.v, right)
+  rotate_vector(&cam_right, right, crot.v)
 
   yaw := create_from_axis_angle(up.x, up.y, up.z, dx)
   pitch := create_from_axis_angle(cam_right.x, cam_right.y, cam_right.z, dy)
 
   g.cam_rot = (yaw * pitch * crot).v
+
+
+	normalize_quaternion(&g.cam_rot, g.cam_rot)
 }
 draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uniform, depth_only : bool)
 {
@@ -602,12 +633,6 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur := ptr_offset(rman.draws, rman.cur_draws, draw_info)
   
   cur.type = draw_info.OBJECT
-  if is_key_held(&g.iman, key_enum.P)
-  {
-    __dbg_break
-    __dbg_break
-    __dbg_break
-  }
   cur.OBJECT.pos = cast(_vec)(ch.pos - g.cam_pos)
   //print_vec2(g.cam_pos)
   //print_vec(cur.OBJECT.pos)
@@ -717,8 +742,9 @@ render::fn(g : *game_info, rman : *render_manager)
 
   identity(&g_ubo.view)
   identity(&g_ubo.proj)
-  perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
-
+  perspective(cast(*f32)&g_ubo.proj, 40.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
+  
+  quat_to_mat4(&g_ubo.view, g.cam_rot)
 
   draw_depth_buffer(g, rman, &g_ubo)
 
@@ -761,10 +787,16 @@ player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
   }
 }
 
+end_frame::fn(g:*game_info)
+{
+  g.mouse_last_x = 0.0
+  g.mouse_last_y = 0.0
+  g.mouse_vel_x = 0.0
+  g.mouse_vel_y = 0.0
+}
 run_game::fn(g : *game_info)
 {
   prev_time : f64=glfwGetTime()
-  g.player.forward.z = 1.0
   while true
   {
     dt := cast(f32)(glfwGetTime() - prev_time)
@@ -773,17 +805,20 @@ run_game::fn(g : *game_info)
 
     glfwPollEvents()
 
-    update_cam_rot(g, 0.0f, 0.0f)
+    update_cam_rot(g, g.mouse_vel_x * 0.01 * g.mouse_sense_x, g.mouse_vel_y * 0.01 * g.mouse_sense_y)
 
     player_mov(g, g.player, dt)
 
-    //print_vec2(g.player.pos)
+
+    print_vec(g.cam_rot)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)
     clear_objects_to_draw(g , &g.rman)
 
     swap_buffers(g)
+
+    end_frame(g)
 
     io_globals.linear_cur = 0
   }

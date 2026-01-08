@@ -10189,7 +10189,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
   int st_idx = 0;
 
   lang_stat->cur_func = cur_func;
-  FOR_VEC(bl, cur_func->blocks)
+  FOR_VEC(bl, state->blocks)
   {
     block2 *cur_b = *bl;
     cur_b->generated = true;
@@ -10802,6 +10802,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
         break;
         case T_PLUS:
         case T_PLUS_EQUAL:
+          //BREAK(cur_line == 757)
           base_inst = ADD_M_2_M;
           base_inst_sse = ADD_SSE_2_SSE;
 
@@ -11210,6 +11211,7 @@ void CreateAstFromFunc(lang_state* lang_stat, func_decl* f)
 
   lang_stat->ir_states[0].cur_func = f;
   lang_stat->ir_states[0].blocks_cur = 0;
+  lang_stat->ir_states[0].blocks.clear();
 	GetIRFromAst2(lang_stat, ast, &lang_stat->ir_states[0], false);
 
   FromIRToBc(lang_stat, &lang_stat->ir_states[0], *lang_stat->mach, f);

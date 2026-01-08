@@ -609,7 +609,7 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
     __dbg_break
   }
   cur.OBJECT.pos = cast(_vec)(ch.pos - g.cam_pos)
-  print_vec2(g.cam_pos)
+  //print_vec2(g.cam_pos)
   //print_vec(cur.OBJECT.pos)
   cur.OBJECT.sz.x = 1.0
   cur.OBJECT.sz.y = 1.0
@@ -739,6 +739,8 @@ player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
 {
   dt:= cast(f64)dt_
   speed := 5.0
+
+  cam_right := cast(vector)cross_vec(g.up, player.forward)
   if is_key_held(&g.iman, key_enum.A)
   {
     g.cam_pos.x -= dt * speed
@@ -749,16 +751,20 @@ player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
   }
   if is_key_held(&g.iman, key_enum.W)
   {
-    g.cam_pos.z += dt * speed
+    g.cam_pos += cast(vector)player.forward * dt
+
+
   }
   if is_key_held(&g.iman, key_enum.S)
   {
-    g.cam_pos.z -= dt * speed
+    g.cam_pos -= cast(vector)player.forward * dt
   }
 }
+
 run_game::fn(g : *game_info)
 {
   prev_time : f64=glfwGetTime()
+  g.player.forward.z = 1.0
   while true
   {
     dt := cast(f32)(glfwGetTime() - prev_time)

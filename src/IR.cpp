@@ -1598,7 +1598,7 @@ void EmitJmp(lang_state *lang_stat, thread_ir_state *state, block2 * block)
 }
 void EmitBlock(lang_state *lang_stat, thread_ir_state *state, block2 * block)
 {
-  state->cur_func->blocks.emplace_back(block);
+  state->blocks.emplace_back(block);
   block->emitted = true;
 }
 void EmitBlockMakeCurrent(lang_state *lang_stat, thread_ir_state *state, block2 * block)
@@ -4502,12 +4502,14 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       {
         if(lhs.is_float)
         {
+          bool was_packed = lhs.is_packed_float;
           ir_val aux = lhs;
           EnsureValue(lang_stat, state, &aux);
           LoadDerefs(lang_stat, &state->cur_block->irs, &aux);
           ir.type = IR_BIN;
           ir.bin.op = ast->op;
           ir.bin.lhs = aux;
+          ir.bin.lhs.is_packed_float = was_packed;
           ir.bin.rhs = rhs;
 
           InsertIr(state, ir);

@@ -11,6 +11,8 @@ entity :struct
   pos : vector
   rot : _vec
 
+  forward : _vec
+
   using u :: union
   {
     trn : *terrain_info

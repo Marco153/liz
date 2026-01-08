@@ -376,7 +376,6 @@ struct func_decl
 	type2 ret_type;
 	node *func_node;
 
-  own_std::vector<block2 *> blocks;
 
 	scope *scp;
 	scope *wasm_scp;

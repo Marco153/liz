@@ -10682,7 +10682,7 @@ void PrintReg(char *name, u64 addr)
 
 }
 
-void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs)
+void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs, float *ymm_upper_halves)
 {
   ImGui::BeginChild("regs", ImVec2(250, 400));
   PrintReg("RAX", regs->rax);
@@ -10718,10 +10718,12 @@ void PrintRegs(int child_p, dbg_state *dbg, user_regs_struct *regs, float *fregs
     ImGui::Text("xmm%d: {%.4f, %.4f, %.4f, %.4f}", i, cur[0], cur[1], cur[2], cur[3]);
   }
   double *d = (double *)fregs;
+  double *d2 = (double *)ymm_upper_halves;
   for(int i = 0; i < 16; i ++)
   {
     double *cur = (double *)((float *)d + i * 4);
-    ImGui::Text("ymm%d: {%.4lf, %.4lf, %.4lf, %.4lf}", i, cur[0], cur[1], cur[2], cur[3]);
+    double *cur2 = (double *)((float *)d2 + i * 4);
+    ImGui::Text("ymm%d: {%.4lf, %.4lf, %.4lf, %.4lf}", i, cur[0], cur[1], cur2[0], cur[1]);
   }
   //ImGui::Text("xmm3: %.4f", fregs->xmm_space[3]);
   //ImGui::Text("xmm4: %.4f", fregs->xmm_space[4]);
@@ -11688,7 +11690,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         ImGui::SameLine();
         PrintMem(child_p, dbg, data_addr, &print_mem_type);
       }
-      PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160));
+      PrintRegs(child_p, dbg, &regs, (float *)(xstate + 160), (float *)(xstate + 0x240));
       ImGui::SameLine();
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);
 
@@ -11727,7 +11729,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         PrintMem(child_p, dbg, data_addr, &print_mem_type);
       }
       PrintInsts(child_p, dbg, regs.rip, (u64)code_start, cur_f, cur_st, center_inst, cur_scp, &regs);
-      PrintRegs(child_p, dbg, &regs, (float *)(xstate + 272));
+      PrintRegs(child_p, dbg, &regs, (float *)(xstate + 272), (float *)(xstate + 0x240));
       ImGui::SameLine();
       PrintLocals(child_p, dbg, regs.rsp, cur_scp);
     }break;
@@ -12168,7 +12170,7 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
     thread_ir_state *state = &lang_stat->ir_states[0];
     state->cur_func = fdecl;
     state->blocks_cur = 0;
-    fdecl->blocks.clear();
+    state->blocks.clear();
     auto block = CreateBlock(lang_stat, state);
     EmitBlockMakeCurrent(lang_stat, state, block);
 

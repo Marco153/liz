@@ -573,6 +573,8 @@ struct thread_ir_state
   int var_args_max_gotten;
   tracker_stack<block2 *> continue_start_block;
   tracker_stack<block2 *> break_end_block;
+
+  own_std::vector<block2 *> blocks;
 };
 void add_var_args(thread_ir_state *state, int sz)
 {

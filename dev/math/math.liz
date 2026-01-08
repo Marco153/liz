@@ -150,6 +150,26 @@ normalize_quaternion::fn x64(out : *_vec, q : _vec) {
 		out.w = q.w/mag
 	}
 }
+cross_vec2::fn(a : _vec2, b : _vec2) !_vec2
+{
+
+	ret :_vec2= ?
+	ret.x = a.y * b.z - a.z * b.y
+	ret.y = a.z * b.x - a.x * b.z
+	ret.z = a.x * b.y - a.y * b.x
+	ret.w = 0.0
+	return ret;
+}
+cross_vec::fn(a : _vec, b : _vec) !_vec
+{
+
+	ret :_vec= ?
+	ret.x = a.y * b.z - a.z * b.y
+	ret.y = a.z * b.x - a.x * b.z
+	ret.z = a.x * b.y - a.y * b.x
+	ret.w = 0.0
+	return ret;
+}
 create_from_axis_angle::fn(xx:f32, yy:f32, zz:f32, a:f32) ! quaternion
 {
 	q : quaternion=?

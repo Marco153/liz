@@ -605,11 +605,12 @@ bool CompareTypes(type2 *lhs, type2 *rhs, bool assert = false) {
       return false;
   } break;
   case enum_type2::TYPE_VECTOR: {
-    if(!(rhs->type == TYPE_VECTOR && lhs->type == TYPE_VECTOR && lhs->vec_type == rhs->vec_type)) return false;
 
     cond = rhs->type == lhs->type ||
            rhs->type == enum_type2::TYPE_VECTOR_TYPE ||
-           rhs->type == TYPE_F32_RAW || rhs->type == TYPE_F32;
+           rhs->type == TYPE_F32_RAW || rhs->type == TYPE_F32 ||
+           rhs->type == TYPE_F64 || rhs->type == TYPE_F64_RAW;
+    if(!cond && !(rhs->type == TYPE_VECTOR && lhs->type == TYPE_VECTOR && lhs->vec_type == rhs->vec_type)) return false;
   } break;
   case enum_type2::TYPE_STATIC_ARRAY: {
     bool rhs_type = rhs->type == enum_type2::TYPE_STATIC_ARRAY_TYPE ||
@@ -11077,7 +11078,6 @@ if(!decl)
           rtp.type != ltp.type)
         ltp.type = rtp.type;
 
-      //BREAK(n->t->line == 712)
       ModifyNodeIntOrFloat(ltp, n->l);
       ModifyNodeIntOrFloat(rtp, n->r);
 

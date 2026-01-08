@@ -1439,24 +1439,24 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       if(dst < 8 && src < 8)
       {
         ret.code.emplace_back(0xc5);
-        ret.code.emplace_back(0xf8);
+        ret.code.emplace_back(0xfc);
       }
       else if(dst >= 8 && src < 8)
       {
         ret.code.emplace_back(0xc5);
-        ret.code.emplace_back(0x78);
+        ret.code.emplace_back(0x7c);
       }
       else if(dst >= 8 && src >= 8)
       {
         ret.code.emplace_back(0xc4);
         ret.code.emplace_back(0x41);
-        ret.code.emplace_back(0x78);
+        ret.code.emplace_back(0x7c);
       }
       else if(dst < 8 && src >= 8)
       {
         ret.code.emplace_back(0xc4);
         ret.code.emplace_back(0xc1);
-        ret.code.emplace_back(0x78);
+        ret.code.emplace_back(0x7c);
       }
       dst &= 7;
       src &= 7;
@@ -2423,7 +2423,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case ADD_PCKD_SSE_2_PCKD_SSE:
 		{
-			CreateSSERegToSSEReg(&*bc, 0x58, &ret);
+			CreatePckdSSERegToPckdSSEReg(&*bc, 0x58, &ret);
 		}break;
 		case DIV_R_2_R:
 		{

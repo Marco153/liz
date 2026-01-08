@@ -68,6 +68,9 @@ game_info:struct
 
   cam_pos : vector
   cam_rot : _vec
+  cam_fw  : _vec
+  cam_rt  : _vec
+  cam_up  : _vec
 
   up : _vec
   player : *entity
@@ -553,30 +556,52 @@ init_game::fn(g : *game_info)
   g.near_plane = 0.1
   g.far_plane = 500.0
 
-  g.player.forward.z = 1.0
+  g.player.forward.z = -1.0
 
-  g.mouse_sense_x = 4.0
-  g.mouse_sense_y = 4.0
+  g.mouse_sense_x = 2.0
+  g.mouse_sense_y = 2.0
+
+  g.cam_pos.y = 0.2
 }
-update_cam_rot::fn(g : *game_info, dx : f32, dy : f32)
+update_cam_rot::fn(g : *game_info, dx : f32, dy : f32, dz : f32)
 {
-  up := g.up
-  right :_vec
-  right.x = 1.0
   crot :quaternion
   crot.v = g.cam_rot
 
-  cam_right :_vec
-  rotate_vector(&cam_right, right, crot.v)
+  base_fw :_vec = _vec{0.0f, 0.0f, -1.0f}
+  base_up :_vec = _vec{0.0f, 1.0f,  0.0f}
+  base_rt :_vec = _vec{1.0f, 0.0f,  0.0f}
 
-  yaw := create_from_axis_angle(up.x, up.y, up.z, dx)
-  pitch := create_from_axis_angle(cam_right.x, cam_right.y, cam_right.z, dy)
+  cam_fw :_vec
+  cam_up :_vec
+  cam_rt :_vec
 
-  g.cam_rot = (yaw * pitch * crot).v
+  rotate_vector(&cam_fw, base_fw, crot.v)
+  rotate_vector(&cam_up, base_up, crot.v)
+  rotate_vector(&cam_rt, base_rt, crot.v)
 
+  q_yaw   := create_from_axis_angle(base_up.x, base_up.y, base_up.z, dx)
+  q_pitch := create_from_axis_angle(cam_rt.x, cam_rt.y, cam_rt.z, dy)
+  q_roll  := create_from_axis_angle(cam_fw.x, cam_fw.y, cam_fw.z, dz)
 
-	normalize_quaternion(&g.cam_rot, g.cam_rot)
+  if is_key_held(&g.iman, key_enum.A)
+  {
+    __dbg_break
+    __dbg_break
+    __dbg_break
+  }
+  new_rot := q_yaw * q_pitch * crot
+  normalize_quaternion(&new_rot.v, new_rot.v)
+  g.cam_rot = new_rot.v
+
+  // recompute directions from final rotation
+  rotate_vector(&g.cam_fw, base_fw, g.cam_rot)
+  rotate_vector(&g.cam_up, base_up, g.cam_rot)
+  rotate_vector(&g.cam_rt, base_rt, g.cam_rot)
+
 }
+
+
 draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uniform, depth_only : bool)
 {
 
@@ -766,24 +791,38 @@ player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
   dt:= cast(f64)dt_
   speed := 5.0
 
-  cam_right := cast(vector)cross_vec(g.up, player.forward)
+  
+  cam_fw := g.cam_fw
+  cam_right := cast(vector)cross_vec(g.cam_up, cam_fw)
+
+  if is_key_held(&g.iman, key_enum.E)
+  {
+    //printf("A\n")
+    g.cam_pos.y += dt
+  }
+  if is_key_held(&g.iman, key_enum.Q)
+  {
+    //printf("D\n")
+    g.cam_pos.y -= dt
+  }
   if is_key_held(&g.iman, key_enum.A)
   {
-    g.cam_pos.x -= dt * speed
+    //printf("A\n")
+    g.cam_pos += cam_right * dt
   }
   if is_key_held(&g.iman, key_enum.D)
   {
-    g.cam_pos.x += dt * speed
+    //printf("D\n")
+    g.cam_pos -= cam_right * dt
   }
   if is_key_held(&g.iman, key_enum.W)
   {
-    g.cam_pos += cast(vector)player.forward * dt
-
+    g.cam_pos += cast(vector)cam_fw * dt
 
   }
   if is_key_held(&g.iman, key_enum.S)
   {
-    g.cam_pos -= cast(vector)player.forward * dt
+    g.cam_pos -= cast(vector)cam_fw * dt
   }
 }
 
@@ -805,12 +844,16 @@ run_game::fn(g : *game_info)
 
     glfwPollEvents()
 
-    update_cam_rot(g, g.mouse_vel_x * 0.01 * g.mouse_sense_x, g.mouse_vel_y * 0.01 * g.mouse_sense_y)
+    update_cam_rot(g, g.mouse_vel_x * 0.01 * g.mouse_sense_x, g.mouse_vel_y * 0.01 * g.mouse_sense_y, 0.0f)
 
     player_mov(g, g.player, dt)
 
 
+/*
+    printf("\n")
+    print_vec(g.cam_fw)
     print_vec(g.cam_rot)
+    */
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)
@@ -821,6 +864,7 @@ run_game::fn(g : *game_info)
     end_frame(g)
 
     io_globals.linear_cur = 0
+
   }
 }
 

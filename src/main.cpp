@@ -10271,6 +10271,10 @@ void _glDebugMessageControl(u32 source,
         enabled ? GL_TRUE : GL_FALSE
     );
 }
+int float_to_str(float f, char *buffer, int sz)
+{
+  return snprintf(buffer, sz, "%.3f", f);
+}
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -10362,6 +10366,8 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwSetCursorPosCallback"]      = (u64)glfwSetCursorPosCallback;
     outsiders["glfwGetTime"]      = (u64)glfwGetTime;
     outsiders["glfwPollEvents"]      = (u64)glfwPollEvents;
+
+    outsiders["float_to_str"]      = (u64)float_to_str;
 
     outsiders["glGetIntegerv"]      = (u64)glGetIntegerv;
     outsiders["glFrontFace"]      = (u64)glFrontFace;
@@ -10661,7 +10667,10 @@ func_decl *GetFuncBasedOnAddr2(lang_state *lang_stat, char *code_start, char *of
     char *f_start = code_start + f->code_start_idx;
     char *f_end = code_start + f->code_end_idx;
 
-    //printf("func %s, start %p, end %p, offset %p\n", f->name.c_str(), f_start, f_end, offset);
+    if(f->name == "update_cam_rot")
+    {
+      printf("func %s, start %p, end %p, offset %p\n", f->name.c_str(), f_start, f_end, offset);
+    }
 
     if(offset >= f_start && offset <= f_end) return f;
   }
@@ -11374,22 +11383,32 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   void *file_addr;
 
   //HERE()
+  int status = 0;
+  waitpid(child_p, NULL, 0);
+
+  printf("DEBBUGER:here0\n");
   read(pipes[0], &file_addr, 8);
   lang_stat->child_proc_dbg_serialize_addr = (dbg_file_seriealize *)file_addr;
   char buffer[1024];
-  read_bytes_from_child(child_p, (u64)file_addr, (u8 *)buffer, sizeof(dbg_file_seriealize));
+  memset(buffer, 0, 1024);
+  printf("DEBBUGER:here1\n");
 
+  read_bytes_from_child(child_p, (u64)file_addr, (u8 *)buffer, sizeof(dbg_file_seriealize));
+  printf("DEBBUGER:after read\n");
+
+  //ptrace(PTRACE_CONT, child_p, 0, 0);
 
   auto file = (dbg_file_seriealize *)buffer;
+
+  ASSERT(file->x64_code_sect > 0 && file->code_sect > 0)
 
   auto child_after_hdr = (char *)file_addr + sizeof(dbg_file_seriealize);
   char *code_start = (char *)child_after_hdr + file->x64_code_sect + file->x64_code_type_sect_size;
   char *code_end = (char *)child_after_hdr + file->x64_code_sect + file->code_sect;
   
-  ptrace(PTRACE_ATTACH, child_p, NULL, NULL);
-  waitpid(child_p, NULL, 0);
+  //ptrace(PTRACE_ATTACH, child_p, NULL, NULL);
+  //waitpid(child_p, NULL, 0);
   bool main_widow_open = true;
-  int status;
   child_process_state ch_state;
   struct user_regs_struct regs;
   struct user_fpregs_struct fregs;
@@ -11425,6 +11444,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   int selected_prent_mem_type;
   
   enum_type2 print_mem_type;
+  printf("DEBBUGER:here2\n");
   while(true)
   {
     pid_t r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
@@ -11577,6 +11597,7 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
     {
     case child_process_state::INT3:
     {
+
       //HERE()
       if(regs.rip >= (u64)code_start && regs.rip <= (u64)code_end || ! cur_f)
       {

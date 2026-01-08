@@ -10,6 +10,8 @@ ReadEntireFileMalloc::fn outsider(name : str_lit, file_sz : *u64) ! *u8;
 ReadEntireFileBuffer::fn outsider(name : str_lit, buffer : *void, bsz : u32);
 GetFileSize::fn outsider(name : str_lit, file_sz : *u64)!s32;
 
+float_to_str::fn outsider(f : f32, buffer : *u8, sz : u32) ! u32;
+
 
 file:struct
 {
@@ -403,33 +405,8 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 			else if cur_arg.type == type_enum.TYPE_F32
 			{
 				f := *cast(*f32)&cur_arg.val
-				lhs := cast(s32)f
-				rhs := cast(s32)((f - cast(f32)lhs)* 100.0f)
-
-				negative := false
-				if rhs < 0 && lhs == 0
-				{
-					negative = true
-				}
-				if rhs < 0
-				{
-					rhs = rhs * -1
-				}
-
-				
-
-				//if cast(s64)cur_arg.val == 32
-				num_ln: = num_2_str(cast(s64)lhs, &aux_num_buffer[0], 16);
-				if negative
-				{
-					*ptr_offset(buffer, buffer_idx, u8) = '-
-					buffer_idx++
-				}
-				*ptr_offset(&aux_num_buffer[0], num_ln, u8) = '.
-				num_ln2: = num_2_str(cast(s64)rhs, &aux_num_buffer[num_ln + 1], 16);
-
-				memcpy(ptr_offset(buffer, buffer_idx, u8), &aux_num_buffer[0], num_ln + num_ln2 + 1);
-				buffer_idx += num_ln + num_ln2 + 1;
+        len := float_to_str(f, ptr_offset(buffer, buffer_idx, u8), 8)
+				buffer_idx += 4
 			}
 			else if cur_arg.type == type_enum.TYPE_U32 || cur_arg.type == type_enum.TYPE_S32 ||
 					cur_arg.type == type_enum.TYPE_U8 || cur_arg.type == type_enum.TYPE_S8 ||

@@ -198,6 +198,26 @@ quaternion_conjugate::fn x64(out : *_vec, q : _vec) {
 	out.z = -q.z
 	out.w = q.w
 }
+normalize_vec2::fn x64(a : _vec2) ! _vec2
+{
+	dot: = _dot(a, a);
+	len: = __sqrt2(dot);
+	ret:_vec2 = a / len;
+	return ret;
+}
+dot_vec::fn x64(a : _vec, b : _vec) !f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	return ret;
+}
+normalize_vec::fn x64(a : _vec) ! _vec
+{
+	dot: = dot_vec(a, a);
+	len: = sqrt(dot);
+	//__dbg_break
+	ret:_vec = a / len;
+	return ret;
+}
 rotate_vector::fn x64(out : *_vec, v : _vec, q : _vec) {
 	aux : _vec
   normalize_quaternion(&aux, q)

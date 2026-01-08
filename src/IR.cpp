@@ -1456,6 +1456,9 @@ bool HasCall(lang_state *lang_stat, ast_rep *ast) {
   case AST_EMPTY: {
     return false;
   } break;
+  case AST_NEGATIVE: {
+    return HasCall(lang_stat, ast->ast);
+  } break;
   case AST_CALL: {
     return true;
   } break;
@@ -2572,7 +2575,7 @@ void FreeRegs2(lang_state *lang_stat)
     lang_stat->float_regs[i] = 0;
   }
 }
-void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start, bool is_sys_call)
+void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start, bool is_sys_call, bool *arg_is_float)
 {
   ir_rep ir={};
   ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
@@ -2611,6 +2614,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
     if(free_reg != -1)
       FreeReg(lang_stat, free_reg, true);
 
+    *arg_is_float = true;
   }
   else
   {
@@ -2709,6 +2713,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     }
     if(i >= 6) break;
   }
+  bool arg_is_float = false;
   //BREAK(ast->line_number == 1764)
   for(i = 0; i < 8; i++)
   {
@@ -2730,12 +2735,14 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   {
     if(HasCall(lang_stat, *arg))
     {
-      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall);
+      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall, &arg_is_float);
       (*arg)->ir_generated = true;
       FreeSomeRegs(lang_stat);
     }
 
-    i++;
+    if(!arg_is_float)
+      i++;
+    arg_is_float = false;
   }
 
 
@@ -2746,11 +2753,14 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
     if(!(*arg)->ir_generated)
     {
-      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall);
+      GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall, &arg_is_float);
       FreeSomeRegs(lang_stat);
     }
 
-    i++;
+    if(!arg_is_float)
+      i++;
+
+    arg_is_float = false;
   }
   ir.type = IR_CALL;
 

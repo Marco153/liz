@@ -175,11 +175,23 @@ load_model::fn(path : str_lit, out : *mesh_info, rman : *render_manager, alloc :
   for m in 0..cast(s64)scene.mNumMeshes
   {
     cur := ptr_offset(scene.mMeshes, m, *aiMesh)
-
-    src := cur.mVertices
-    dst := ptr_offset(out.attrs[0].data, pos_voffset, u8)
     cp_sz   := cur.mNumVertices * sizeof(f32) * 3
-    memcpy(dst, src, cp_sz)
+
+
+    for t in 0..cast(s64)cur.mNumVertices
+    {
+      src := ptr_offset(cur.mVertices, t * 3, f32)
+      idx := pos_voffset + cast(u32)t * 3 * sizeof(f32)
+
+      dst := ptr_offset(out.attrs[0].data, idx, u8)
+      v := *ptr_offset(src, 0, _vec)
+
+      *ptr_offset(dst, 0, f32) = v.x
+      *ptr_offset(dst, 1, f32) = v.z
+      *ptr_offset(dst, 2, f32) = -v.y
+
+
+    }
 
     cur_i := ptr_offset(indices, pos_ioffset, u8)
 

@@ -3943,7 +3943,7 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
 			bc.bin.lhs.voffset = offset + start;
 			bc.bin.lhs.reg_sz = 8;
 			bc.bin.lhs.var_size= 8;
-			bc.bin.rhs.reg = FromIdxToArgReg(normal_reg);
+			bc.bin.rhs.reg = FromIdxToArgReg(normal_reg - float_reg);
 
 			bc.bin.rhs.reg_sz = 8;
 

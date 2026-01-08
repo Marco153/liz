@@ -610,7 +610,7 @@ bool CompareTypes(type2 *lhs, type2 *rhs, bool assert = false) {
            rhs->type == enum_type2::TYPE_VECTOR_TYPE ||
            rhs->type == TYPE_F32_RAW || rhs->type == TYPE_F32 ||
            rhs->type == TYPE_F64 || rhs->type == TYPE_F64_RAW;
-    if(!cond && !(rhs->type == TYPE_VECTOR && lhs->type == TYPE_VECTOR && lhs->vec_type == rhs->vec_type)) return false;
+    if(!cond || rhs->type == TYPE_VECTOR && lhs->type == TYPE_VECTOR && lhs->vec_type != rhs->vec_type) return false;
   } break;
   case enum_type2::TYPE_STATIC_ARRAY: {
     bool rhs_type = rhs->type == enum_type2::TYPE_STATIC_ARRAY_TYPE ||
@@ -5576,6 +5576,7 @@ bool CallNode(lang_state *lang_stat, node *ncall, scope *scp, type2 *ret_type,
         auto f_arg = fdecl->args[fdecl_arg_idx];
         if (IS_FLAG_ON(f_arg->flags, DECL_IS_VAR_ARG))
           continue;
+        //BREAK(ncall->t->line == 812)
         bool comp_val = CompareTypes(&f_arg->type, &t->decl.type, false);
 
         // create implicit cast
@@ -10131,7 +10132,10 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
                      VAR_ARGS("cant have minus ptr"));
         ExitProcess(1);
       }
-      if (ret_type.type == TYPE_F32 || ret_type.type == TYPE_F32_RAW) {
+      if (ret_type.type == TYPE_F64 || ret_type.type == TYPE_F64_RAW) {
+        ret_type.f64 *= -1;
+        n->t->f64 *= -1;
+      } else if (ret_type.type == TYPE_F32 || ret_type.type == TYPE_F32_RAW) {
         ret_type.f *= -1;
         n->t->f *= -1;
       } else {

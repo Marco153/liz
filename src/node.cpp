@@ -605,6 +605,8 @@ bool CompareTypes(type2 *lhs, type2 *rhs, bool assert = false) {
       return false;
   } break;
   case enum_type2::TYPE_VECTOR: {
+    if(!(rhs->type == TYPE_VECTOR && lhs->type == TYPE_VECTOR && lhs->vec_type == rhs->vec_type)) return false;
+
     cond = rhs->type == lhs->type ||
            rhs->type == enum_type2::TYPE_VECTOR_TYPE ||
            rhs->type == TYPE_F32_RAW || rhs->type == TYPE_F32;
@@ -9983,7 +9985,7 @@ type2 DescendNode(lang_state *lang_stat, node *n, scope *given_scp) {
              rhs_type.type == TYPE_F32 || rhs_type.type == TYPE_F64);
     }
     if (rhs_type.IsFloat() && rhs_type.ptr == 0) {
-      ASSERT(lhs_type.type == TYPE_F64_TYPE || lhs_type.type == TYPE_F32_TYPE ||
+      ASSERT(lhs_type.type == TYPE_VECTOR_TYPE || lhs_type.type == TYPE_F64_TYPE || lhs_type.type == TYPE_F32_TYPE ||
              lhs_type.type == TYPE_U64_TYPE || lhs_type.type == TYPE_S64_TYPE || lhs_type.type == TYPE_S32_TYPE || lhs_type.type == TYPE_S32_TYPE ||
              lhs_type.type == TYPE_U32_TYPE);
     }
@@ -11075,11 +11077,12 @@ if(!decl)
           rtp.type != ltp.type)
         ltp.type = rtp.type;
 
+      //BREAK(n->t->line == 712)
       ModifyNodeIntOrFloat(ltp, n->l);
       ModifyNodeIntOrFloat(rtp, n->r);
 
-      ret_type = ltp;
 
+      ret_type = ltp;
       if (ltp.type == TYPE_INT && rtp.type == TYPE_INT) {
         n->type = N_INT;
         n->t->i = GetExpressionValT<int>(n->t->type, ltp.i, rtp.i);
@@ -11103,6 +11106,7 @@ if(!decl)
         n->l->t->f = n->l->t->f64;
         ltp.type = TYPE_F32;
         ltp.f = n->l->t->f;
+        ret_type = ltp;
         // GetExpressionVal(n);
       }
       if (ltp.type == TYPE_F32 && rtp.type == TYPE_F64_RAW) {
@@ -11112,6 +11116,7 @@ if(!decl)
         rtp.f = n->r->t->f;
         // GetExpressionVal(n);
       }
+
 
       // cannot perform this op on ptr
       if (ltp.ptr > 0 || rtp.ptr > 0) {

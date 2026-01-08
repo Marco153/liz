@@ -10422,21 +10422,24 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
       }break;
       case IR_CAST_FLOAT_TO_FLOAT:
       {
-        if(ir->bin.lhs.is_packed_float)
-        {
-          ASSERT(false)
-        }
-        else
         {
           ASSERT(ir->bin.lhs.type == IR_TYPE_REG && ir->bin.rhs.type == IR_TYPE_REG)
 
           if(ir->bin.lhs.reg_sz == 4 && ir->bin.rhs.reg_sz == 8)
           {
             bc.type = CVTSD_2_SS;
+            if(ir->bin.lhs.is_packed_float)
+            {
+              bc.type = CVTPD_2_PS;
+            }
           }
           else if(ir->bin.lhs.reg_sz == 8 && ir->bin.rhs.reg_sz == 4)
           {
             bc.type = CVTSS_2_SD;
+            if(ir->bin.lhs.is_packed_float)
+            {
+              bc.type = CVTPS_2_PD;
+            }
           }
           else ASSERT(false)
           

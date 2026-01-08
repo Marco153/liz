@@ -1028,6 +1028,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       rhs = freg;
       char mod = 0;
 
+      //BREAK(cur_line == 704)
       switch(bc->type)
       {
       case CVT_SI_2_SS:
@@ -1039,7 +1040,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         rhs = ireg;
         op = 0x2a;
 
-        mod = MakeModRM(false, 0, lhs&7, rhs&7);
+        mod = MakeModRM(false, 0, rhs&7, lhs&7);
 
         is_rex = IS_FLAG_ON(ireg, 0x80);
 
@@ -1430,6 +1431,82 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				CreateSSERegToSSEReg(&*bc, 0x10, &ret);
 			else
 				CreateSSERegToMem(&*bc, 0x11, &ret);
+		}break;
+		case CVTPS_2_PD:
+		{
+      char dst = bc->bin.lhs.reg;
+      char src = bc->bin.rhs.reg;
+      if(dst < 8 && src < 8)
+      {
+        ret.code.emplace_back(0xc5);
+        ret.code.emplace_back(0xf8);
+      }
+      else if(dst >= 8 && src < 8)
+      {
+        ret.code.emplace_back(0xc5);
+        ret.code.emplace_back(0x78);
+      }
+      else if(dst >= 8 && src >= 8)
+      {
+        ret.code.emplace_back(0xc4);
+        ret.code.emplace_back(0x41);
+        ret.code.emplace_back(0x78);
+      }
+      else if(dst < 8 && src >= 8)
+      {
+        ret.code.emplace_back(0xc4);
+        ret.code.emplace_back(0xc1);
+        ret.code.emplace_back(0x78);
+      }
+      dst &= 7;
+      src &= 7;
+			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(0xc0 | (dst << 3) | src);
+      /*
+      //HERE()
+			ret.code.emplace_back(0xc5);
+      ret.code.emplace_back(0xf3 | (bc->bin.rhs.reg & 0xf) << 3);
+			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(0xc0 | (bc->bin.lhs.reg << 3) | bc->bin.rhs.reg);
+      */
+		}break;
+		case CVTPD_2_PS:
+		{
+      char dst = bc->bin.lhs.reg;
+      char src = bc->bin.rhs.reg;
+      if(dst < 8 && src < 8)
+      {
+        ret.code.emplace_back(0xc5);
+        ret.code.emplace_back(0xfd);
+      }
+      else if(dst >= 8 && src < 8)
+      {
+        ret.code.emplace_back(0xc5);
+        ret.code.emplace_back(0x7d);
+      }
+      else if(dst >= 8 && src >= 8)
+      {
+        ret.code.emplace_back(0xc4);
+        ret.code.emplace_back(0x41);
+        ret.code.emplace_back(0x7d);
+      }
+      else if(dst < 8 && src >= 8)
+      {
+        ret.code.emplace_back(0xc4);
+        ret.code.emplace_back(0xc1);
+        ret.code.emplace_back(0x7d);
+      }
+      dst &= 7;
+      src &= 7;
+			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(0xc0 | (dst << 3) | src);
+      /*
+      //HERE()
+			ret.code.emplace_back(0xc5);
+      ret.code.emplace_back(0xf3 | (bc->bin.rhs.reg & 0xf) << 3);
+			ret.code.emplace_back(0x5a);
+			ret.code.emplace_back(0xc0 | (bc->bin.lhs.reg << 3) | bc->bin.rhs.reg);
+      */
 		}break;
 		case CVTSD_2_SS:
 		{

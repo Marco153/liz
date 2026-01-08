@@ -314,7 +314,12 @@ own_std::string TypeToString(type2 &tp)
 	case enum_type2::TYPE_VECTOR:
 	case enum_type2::TYPE_VECTOR_TYPE:
 	{
-		ret += "_vec";
+    if(tp.vec_type == 8)
+    {
+      ret += "_vec2";
+    }
+    else
+      ret += "_vec";
 	}break;
 	case enum_type2::TYPE_F64_RAW:
 	{

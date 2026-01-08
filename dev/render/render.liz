@@ -18,6 +18,7 @@ draw_info:etruct
   OBJECT(
     pos : _vec
     sz : _vec
+    rot : _vec
     mesh : *mesh_info
     mat   : *material_info
     sh_contract:shader_mesh_contract

@@ -285,6 +285,9 @@ enum byte_code_enum : unsigned short
 	CVTSS_2_SD,
 	CVTSD_2_SS,
 
+	CVTPS_2_PD,
+	CVTPD_2_PS,
+
 	CVTSS_MEM_2_SD,
 	CVTSD_MEM_2_SS,
 	CVTSS_REG_2_SD,

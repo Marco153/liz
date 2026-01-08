@@ -4293,6 +4293,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         CheckRegInUseMaybeSpill(lang_stat, state, (char)regs_enum::RDX);
       }
 
+
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, false);
 
       for(int i= 1; i < ast->e_holder.expr.size(); i++)

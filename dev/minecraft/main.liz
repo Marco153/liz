@@ -575,9 +575,10 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
 
       model_mat : mat4x4=?
 
-      identity(&model_mat)
+      build_model_matrix(cast(*f32)&model_mat, cur.OBJECT.pos, cast(*f32)&cur.OBJECT.rot, cur.OBJECT.sz)
 
       update_uniform_buffer(&g.global_ubo, g_ubo, sizeof(*g_ubo), 0)
+
       update_uniform_buffer(&cur.OBJECT.mat.model_uniform, &model_mat, sizeof(model_mat), 1)
 
       
@@ -601,10 +602,23 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur := ptr_offset(rman.draws, rman.cur_draws, draw_info)
   
   cur.type = draw_info.OBJECT
-  cur.OBJECT.pos = ch.pos
+  if is_key_held(&g.iman, key_enum.P)
+  {
+    __dbg_break
+    __dbg_break
+    __dbg_break
+  }
+  cur.OBJECT.pos = cast(_vec)(ch.pos - g.cam_pos)
+  print_vec2(g.cam_pos)
+  //print_vec(cur.OBJECT.pos)
   cur.OBJECT.sz.x = 1.0
   cur.OBJECT.sz.y = 1.0
   cur.OBJECT.sz.z = 1.0
+
+  cur.OBJECT.rot.x = 0.0;
+  cur.OBJECT.rot.y = 0.0;
+  cur.OBJECT.rot.z = 0.0;
+  cur.OBJECT.rot.w = 1.0;
 
   mod := &g.chunk_64
   if is_key_held(&g.iman, key_enum.A)
@@ -703,7 +717,7 @@ render::fn(g : *game_info, rman : *render_manager)
 
   identity(&g_ubo.view)
   identity(&g_ubo.proj)
-  //perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
+  perspective(cast(*f32)&g_ubo.proj, 70.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
 
 
   draw_depth_buffer(g, rman, &g_ubo)
@@ -724,9 +738,22 @@ clear_background_color::fn(gptr : *game_info, r : f32, g : f32, b : f32, a : f32
 player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
 {
   dt:= cast(f64)dt_
+  speed := 5.0
   if is_key_held(&g.iman, key_enum.A)
   {
-    player.pos.x += dt
+    g.cam_pos.x -= dt * speed
+  }
+  if is_key_held(&g.iman, key_enum.D)
+  {
+    g.cam_pos.x += dt * speed
+  }
+  if is_key_held(&g.iman, key_enum.W)
+  {
+    g.cam_pos.z += dt * speed
+  }
+  if is_key_held(&g.iman, key_enum.S)
+  {
+    g.cam_pos.z -= dt * speed
   }
 }
 run_game::fn(g : *game_info)

@@ -93,6 +93,7 @@ game_info:struct
   far_plane : f32
   iman : input_manager
 
+  cam_euler_rot : _vec
 
   chunk_128 : model_info
   chunk_64 : model_info
@@ -563,42 +564,37 @@ init_game::fn(g : *game_info)
 
   g.cam_pos.y = 0.2
 }
-update_cam_rot::fn(g : *game_info, dx : f32, dy : f32, dz : f32)
-{
-  crot :quaternion
-  crot.v = g.cam_rot
 
+update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
+{
   base_fw :_vec = _vec{0.0f, 0.0f, -1.0f}
   base_up :_vec = _vec{0.0f, 1.0f,  0.0f}
   base_rt :_vec = _vec{1.0f, 0.0f,  0.0f}
 
+  crot :quaternion
+  crot.v = g.cam_rot
+
+  // --- yaw (world space)
+  q_yaw := create_from_axis_angle(0.0f,1.0f,0.0f, rx)
+  rot1  := q_yaw
+
+  // --- get camera right after yaw
   cam_fw :_vec
-  cam_up :_vec
   cam_rt :_vec
+  rotate_vector(&cam_fw, base_fw, rot1.v)
+  rotate_vector(&cam_rt, base_rt, rot1.v)
 
-  rotate_vector(&cam_fw, base_fw, crot.v)
-  rotate_vector(&cam_up, base_up, crot.v)
-  rotate_vector(&cam_rt, base_rt, crot.v)
+  // --- pitch (local space)
+  q_pitch := create_from_axis_angle(base_rt.x, base_rt.y, base_rt.z, ry)
+  new_rot := q_pitch * rot1
 
-  q_yaw   := create_from_axis_angle(base_up.x, base_up.y, base_up.z, dx)
-  q_pitch := create_from_axis_angle(cam_rt.x, cam_rt.y, cam_rt.z, dy)
-  q_roll  := create_from_axis_angle(cam_fw.x, cam_fw.y, cam_fw.z, dz)
+  rotate_vector(&g.cam_fw, cam_fw, q_pitch.v)
 
-  if is_key_held(&g.iman, key_enum.A)
-  {
-    __dbg_break
-    __dbg_break
-    __dbg_break
-  }
-  new_rot := q_yaw * q_pitch * crot
   normalize_quaternion(&new_rot.v, new_rot.v)
   g.cam_rot = new_rot.v
 
-  // recompute directions from final rotation
-  rotate_vector(&g.cam_fw, base_fw, g.cam_rot)
-  rotate_vector(&g.cam_up, base_up, g.cam_rot)
-  rotate_vector(&g.cam_rt, base_rt, g.cam_rot)
-
+  g.cam_fw.x *= -1.0
+  g.cam_fw.y *= -1.0
 }
 
 
@@ -769,7 +765,9 @@ render::fn(g : *game_info, rman : *render_manager)
   identity(&g_ubo.proj)
   perspective(cast(*f32)&g_ubo.proj, 40.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
   
-  quat_to_mat4(&g_ubo.view, g.cam_rot)
+  zero:_vec
+
+  build_view_matrix_inverse(cast(*f32)&g_ubo.view, zero, cast(*f32)&g.cam_rot)
 
   draw_depth_buffer(g, rman, &g_ubo)
 
@@ -793,7 +791,7 @@ player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
 
   
   cam_fw := g.cam_fw
-  cam_right := cast(vector)cross_vec(g.cam_up, cam_fw)
+  cam_right := cast(vector)cross_vec(g.up, cam_fw)
 
   if is_key_held(&g.iman, key_enum.E)
   {
@@ -844,16 +842,19 @@ run_game::fn(g : *game_info)
 
     glfwPollEvents()
 
-    update_cam_rot(g, g.mouse_vel_x * 0.01 * g.mouse_sense_x, g.mouse_vel_y * 0.01 * g.mouse_sense_y, 0.0f)
+    g.cam_euler_rot.x += g.mouse_vel_x * 0.01 * g.mouse_sense_x
+    g.cam_euler_rot.y += g.mouse_vel_y * 0.01 * g.mouse_sense_y
+
+    update_cam_rot(g, g.cam_euler_rot.x, g.cam_euler_rot.y, g.cam_euler_rot.z)
 
     player_mov(g, g.player, dt)
 
 
 /*
     printf("\n")
-    print_vec(g.cam_fw)
     print_vec(g.cam_rot)
     */
+    print_vec(g.cam_fw)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)

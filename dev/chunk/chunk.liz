@@ -54,30 +54,9 @@ update_terrain_chunks::fn(trn : *terrain_info, player_pos : vector)
 {
   p := trn.prev_player_pos - player_pos
   l := len_vec(p)
-  if l < cast(f64)(CHUNK_SIZE / 4)
+  if l > cast(f64)(CHUNK_SIZE / 4)
   {
     trn.prev_player_pos = player_pos
+    trn.prev_player_pos.y = 0.0
   }
-
-  for i in 0..TOTAL_CHUNKS
-  {
-    cur_ch := &trn.chunks[cast(u64)i]
-    dir := cur_ch.pos - player_pos
-    l = len_vec(dir)
-
-    x := cast(s32)(dir.x / cast(f64)CHUNK_SIZE_HALF)
-    y := cast(s32)(dir.y / cast(f64)CHUNK_SIZE_HALF)
-    z := cast(s32)(dir.z / cast(f64)CHUNK_SIZE_HALF)
-
-    m := maxval(x, y)
-    m = maxval(m, z)
-
-    if cur_ch.lod != cast(u8)m
-    {
-
-    }
-  
-  }
-
-  //d := 
 }

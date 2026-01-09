@@ -664,8 +664,8 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur := ptr_offset(rman.draws, rman.cur_draws, draw_info)
   
   cur.type = draw_info.OBJECT
-  cur.OBJECT.pos = cast(_vec)(ch.pos - g.cam_pos)
-  //print_vec2(g.cam_pos)
+  cur.OBJECT.pos = cast(_vec)(g.trn.trn.prev_player_pos - g.cam_pos)
+  print_vec2(g.trn.trn.prev_player_pos)
   cur.OBJECT.sz.x = ch_sz
   cur.OBJECT.sz.y = ch_sz
   cur.OBJECT.sz.z = ch_sz
@@ -848,11 +848,30 @@ end_frame::fn(g:*game_info)
   g.mouse_vel_x = 0.0
   g.mouse_vel_y = 0.0
 }
+input_logic::fn(g : *game_info)
+{
+
+  if is_key_down(&g.iman, key_enum.F2)
+  {
+    if g.cursor_hidden
+    {
+      show_cursor(g.wnd)
+    }
+    else
+    {
+      disable_cursor(g.wnd)
+    }
+    g.cursor_hidden = !g.cursor_hidden
+  }
+
+}
 run_game::fn(g : *game_info)
 {
   prev_time : f64=glfwGetTime()
   disable_cursor(g.wnd)
   glfwSetInputMode(g.wnd, GLFW_RAW_MOUSE_MOTION, 1);
+  g.cursor_hidden = true
+
   while glfwWindowShouldClose(g.wnd) == 0
   {
     dt := cast(f32)(glfwGetTime() - prev_time)
@@ -861,18 +880,9 @@ run_game::fn(g : *game_info)
 
     glfwPollEvents()
 
-    if is_key_down(&g.iman, key_enum.F2)
-    {
-      if g.cursor_hidden
-      {
-        show_cursor(g.wnd)
-      }
-      else
-      {
-        disable_cursor(g.wnd)
-      }
-      g.cursor_hidden = !g.cursor_hidden
-    }
+    input_logic(g)
+
+    update_terrain_chunks(g.trn.trn, g.cam_pos)
 
     g.cam_euler_rot.x += g.mouse_vel_x * 0.01 * g.mouse_sense_x
     g.cam_euler_rot.y += g.mouse_vel_y * 0.01 * g.mouse_sense_y

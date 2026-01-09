@@ -11,6 +11,7 @@ layout(std140) uniform _model {
     mat4 mod;
 } MODEL;
 in vec3 vpos;
+uniform sampler2D heightmap;
 void main()
 {
   gl_Position =  UBO.proj *  UBO.view * MODEL.mod * vec4(vpos.xyz, 1.0);

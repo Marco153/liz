@@ -411,6 +411,10 @@ create_trn_mesh::fn(g : *game_info, name : str_lit, mesh : **mesh_info, sh_contr
   printf("model: {name}, vbufid {mesh.attrs[0].buffer.gl.id}, contract {sh_contract.vao}, index sz {mesh.index_buffer.size}, index id {mesh.index_buffer.gl.id}\n")
 
 }
+init_textures::fn(g : *game_info)
+{
+
+}
 init_models::fn(g : *game_info)
 {
   create_trn_mesh(g, "_128.fbx", &g.chunk_128.mesh, &g.chunk_128.contract)
@@ -657,9 +661,10 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur.OBJECT.pos = cast(_vec)(ch.pos - g.cam_pos)
   //print_vec2(g.cam_pos)
   //print_vec(cur.OBJECT.pos)
-  cur.OBJECT.sz.x = 1.0
-  cur.OBJECT.sz.y = 1.0
-  cur.OBJECT.sz.z = 1.0
+  ch_sz := 128.0f
+  cur.OBJECT.sz.x = ch_sz
+  cur.OBJECT.sz.y = ch_sz
+  cur.OBJECT.sz.z = ch_sz
 
   cur.OBJECT.rot.x = 0.0;
   cur.OBJECT.rot.y = 0.0;

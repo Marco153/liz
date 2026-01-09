@@ -153,6 +153,8 @@ GL_STENCIL_BUFFER_BIT:        const s32 = 0x0400;
 
 GL_LINE:                    const s32 = 0x1B01;
 
+GL_FILL:                    const s32 = 0x1B02;
+
 GL_POINTS:                    const s32 = 0x0000;
 GL_LINES:                     const s32 = 0x0001;
 GL_LINE_LOOP:                 const s32 = 0x0002;

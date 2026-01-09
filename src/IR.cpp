@@ -3993,6 +3993,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   case AST_OPPOSITE:
   {
     GetIRCondValue(lang_stat, ast->ast, state, 0, 1);
+    ret.type = IR_TYPE_REG;
+    ret.reg_sz = 1;
+    ret.reg = 0;
+    ret.kind = IR_VAL_VALUE;
   }break;
   case AST_ARRAY_COSTRUCTION:
   {

@@ -10366,6 +10366,8 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwSetCursorPosCallback"]      = (u64)glfwSetCursorPosCallback;
     outsiders["glfwGetTime"]      = (u64)glfwGetTime;
     outsiders["glfwPollEvents"]      = (u64)glfwPollEvents;
+    outsiders["glfwSetInputMode"]      = (u64)glfwSetInputMode;
+    outsiders["glfwWindowShouldClose"]      = (u64)glfwWindowShouldClose;
 
     outsiders["float_to_str"]      = (u64)float_to_str;
 
@@ -11445,9 +11447,13 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
   
   enum_type2 print_mem_type;
   printf("DEBBUGER:here2\n");
+  pid_t r = child_p;
+
+  bool first = true;
   while(true)
   {
-    pid_t r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
+    if(!first)
+      r = waitpid(child_p, &status, WSTOPPED | WNOHANG | WUNTRACED | WCONTINUED);
     if (r == 0) {
       //ch_state = child_process_state::RUNNING;
       //printf("Child: running (no state change)\n");
@@ -11770,6 +11776,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
 
     glViewport(0, 0, wnd_width, wnd_height);
     glfwSwapBuffers(window);
+
+    first = false;
   }
 }
 int thread_test(void *arg)

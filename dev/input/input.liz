@@ -162,6 +162,24 @@ input_manager:struct
   buttons:[TOTAL_KEYS]u32;
   time_pressed:[TOTAL_KEYS]f32;
 }
+
+clear_keys::fn(iman : *input_manager)
+{
+  for i in 0..TOTAL_KEYS
+  {
+    iman.buttons[cast(u64)i] &= ~(KEY_DOWN | KEY_UP | KEY_REPEAT | KEY_DOUBLE_CLICK);
+  }
+}
+is_key_down::fn(iman : *input_manager, key : key_enum ) ! bool
+{
+  idx := cast(u64)FromGameToGLFWKey(cast(s32)key);
+  //printf("key held {idx}, val {&iman.buttons[idx]}\n")
+  if (is_flag_on(iman.buttons[idx], KEY_DOWN)) 
+  {
+    return true;
+  }
+  return false;
+}
 is_key_held::fn(iman : *input_manager, key : key_enum ) ! bool
 {
   idx := cast(u64)FromGameToGLFWKey(cast(s32)key);

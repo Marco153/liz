@@ -4,6 +4,7 @@ glfwCreateWindow::fn outsider(width:u32, height : u32, title:str_lit, mon : *u32
 glfwMakeContextCurrent::fn outsider(wnd : *u8);
 glfwSwapBuffers::fn outsider(wnd : *u8);
 glfwGetTime::fn outsider() ! f64;
+glfwWindowShouldClose::fn outsider(wnd:*u8) ! s32;
 glfwPollEvents::fn outsider();
 
 glfwSetWindowUserPointer::fn outsider(window: *u8,
@@ -216,3 +217,42 @@ GLFW_KEY_RIGHT_SUPER:      const s32 = 347;
 
 GLFW_KEY_MENU:const s32= 348;
 GLFW_KEY_LAST:const s32= GLFW_KEY_MENU;
+
+GLFW_CURSOR                 : const s32 = 0x00033001;
+GLFW_STICKY_KEYS            : const s32 = 0x00033002;
+GLFW_STICKY_MOUSE_BUTTONS   : const s32 = 0x00033003;
+GLFW_LOCK_KEY_MODS          : const s32 = 0x00033004;
+GLFW_RAW_MOUSE_MOTION       : const s32 = 0x00033005
+
+// GLFW cursor state constants
+GLFW_CURSOR_NORMAL          : const s32 = 0x00034001;
+GLFW_CURSOR_HIDDEN          : const s32 = 0x00034002;
+GLFW_CURSOR_DISABLED        : const s32 = 0x00034003;
+GLFW_CURSOR_CAPTURED        : const s32 = 0x00034004;
+
+// Outsider binding to GLFW
+glfwSetInputMode::fn outsider(window : *u8, mode : s32, value : s32)!void;
+
+// Helper wrapper for cursor
+set_cursor_mode::fn(wnd : *u8, mode : s32)
+{
+  glfwSetInputMode(wnd, GLFW_CURSOR, mode)
+}
+
+// Show cursor
+show_cursor::fn(wnd : *u8)
+{
+    set_cursor_mode(wnd, GLFW_CURSOR_NORMAL)
+}
+
+// Hide cursor but allow movement
+hide_cursor::fn(wnd : *u8)
+{
+  set_cursor_mode(wnd, GLFW_CURSOR_HIDDEN)
+}
+
+// Lock cursor (FPS style)
+disable_cursor::fn(wnd : *u8)
+{
+  set_cursor_mode(wnd, GLFW_CURSOR_DISABLED)
+}

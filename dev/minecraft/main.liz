@@ -56,6 +56,8 @@ game_info:struct
   names_alloc : mem_alloc
   work_dir : string
 
+  cursor_hidden : bool
+
   empty_vao : u32
 
   main_galloc : generic_allocator
@@ -96,6 +98,8 @@ game_info:struct
   cam_euler_rot : _vec
 
   chunk_128 : model_info
+  chunk_128_patched : model_info
+
   chunk_64 : model_info
   chunk_32 : model_info
   chunk_16 : model_info
@@ -176,6 +180,7 @@ get_mesh_asset::fn(g : *game_info, name : str_lit)!u64
     i++
   }
 
+  printf("mesh asset not found\n")
   __dbg_break
 
   return  -1
@@ -400,12 +405,14 @@ create_trn_mesh::fn(g : *game_info, name : str_lit, mesh : **mesh_info, sh_contr
   path := "{to_cstr(&g.work_dir, nil)}/models/{name}"
   idx := get_mesh_asset(g, name)
 
+  printf("test\n")
   asset := ptr_offset(g.assets, idx, asset_info)
 
   load_model(path, &asset.MESH.m, &g.rman, &g.main_galloc)
 
   *mesh = &asset.MESH.m
 
+  
   create_shader_mesh_contract(*mesh, g.terrain2_shader, sh_contract)
 
   printf("model: {name}, vbufid {mesh.attrs[0].buffer.gl.id}, contract {sh_contract.vao}, index sz {mesh.index_buffer.size}, index id {mesh.index_buffer.gl.id}\n")
@@ -418,9 +425,7 @@ init_textures::fn(g : *game_info)
 init_models::fn(g : *game_info)
 {
   create_trn_mesh(g, "_128.fbx", &g.chunk_128.mesh, &g.chunk_128.contract)
-  create_trn_mesh(g, "_64.fbx", &g.chunk_64.mesh, &g.chunk_64.contract)
-  create_trn_mesh(g, "_32.fbx", &g.chunk_32.mesh, &g.chunk_32.contract)
-  create_trn_mesh(g, "_16.fbx", &g.chunk_16.mesh, &g.chunk_16.contract)
+  create_trn_mesh(g, "_128_p.fbx", &g.chunk_128_patched.mesh, &g.chunk_128_patched.contract)
 
   verts := &g.chunk_128.mesh.attrs[0].buffer
   //inds := g.chunk_128.mesh.index_buffer.data
@@ -559,14 +564,14 @@ init_game::fn(g : *game_info)
   glfwSetCursorPosCallback(g.wnd, cast(u64)cursor_position_callback)
 
   g.near_plane = 0.1
-  g.far_plane = 500.0
+  g.far_plane = 4000.0
 
   g.player.forward.z = -1.0
 
   g.mouse_sense_x = 2.0
   g.mouse_sense_y = 2.0
 
-  g.cam_pos.y = 0.2
+  //g.cam_pos.y = 0.2
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
@@ -632,6 +637,7 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
       model_mat : mat4x4=?
 
       build_model_matrix(cast(*f32)&model_mat, cur.OBJECT.pos, cast(*f32)&cur.OBJECT.rot, cur.OBJECT.sz)
+      //identity(&model_mat)
 
       update_uniform_buffer(&g.global_ubo, g_ubo, sizeof(*g_ubo), 0)
 
@@ -653,15 +659,13 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
     }
   }
 }
-add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_info)
+add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_info, ch_sz:f32, mod : *model_info)
 {
   cur := ptr_offset(rman.draws, rman.cur_draws, draw_info)
   
   cur.type = draw_info.OBJECT
   cur.OBJECT.pos = cast(_vec)(ch.pos - g.cam_pos)
   //print_vec2(g.cam_pos)
-  //print_vec(cur.OBJECT.pos)
-  ch_sz := 128.0f
   cur.OBJECT.sz.x = ch_sz
   cur.OBJECT.sz.y = ch_sz
   cur.OBJECT.sz.z = ch_sz
@@ -670,12 +674,6 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur.OBJECT.rot.y = 0.0;
   cur.OBJECT.rot.z = 0.0;
   cur.OBJECT.rot.w = 1.0;
-
-  mod := &g.chunk_64
-  if is_key_held(&g.iman, key_enum.A)
-  {
-    mod = &g.chunk_128
-  }
 
   cur.OBJECT.sh_contract = mod.contract
   cur.OBJECT.mesh = mod.mesh
@@ -691,7 +689,13 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
 }
 add_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
-  add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0])
+  start_sz := 64.0f
+  add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0], 64.0f, &g.chunk_128)
+  for i in 0..5
+  {
+    start_sz *= 2.0
+    add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0], start_sz, &g.chunk_128_patched)
+  }
 }
 clear_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
@@ -771,13 +775,16 @@ render::fn(g : *game_info, rman : *render_manager)
   perspective(cast(*f32)&g_ubo.proj, 40.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
   
   zero:_vec
+  //zero.z = -5.0
 
   build_view_matrix_inverse(cast(*f32)&g_ubo.view, zero, cast(*f32)&g.cam_rot)
+  //quat_to_mat4(&g_ubo.view, g.cam_rot)
 
   draw_depth_buffer(g, rman, &g_ubo)
 
   draw_offscreen_buffer(g, rman, &g_ubo)
 
+  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
   draw_toscreen_buffer(g, rman)
 }
 swap_buffers::fn(g : *game_info)
@@ -798,34 +805,39 @@ player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
   cam_fw := g.cam_fw
   cam_right := cast(vector)cross_vec(g.up, cam_fw)
 
+  if is_key_held(&g.iman, key_enum.SHIFT)
+  {
+    speed *= 32.0
+  }
+
   if is_key_held(&g.iman, key_enum.E)
   {
     //printf("A\n")
-    g.cam_pos.y += dt
+    g.cam_pos.y += dt * speed
   }
   if is_key_held(&g.iman, key_enum.Q)
   {
     //printf("D\n")
-    g.cam_pos.y -= dt
+    g.cam_pos.y -= dt * speed
   }
   if is_key_held(&g.iman, key_enum.A)
   {
     //printf("A\n")
-    g.cam_pos += cam_right * dt
+    g.cam_pos += cam_right * dt * speed
   }
   if is_key_held(&g.iman, key_enum.D)
   {
     //printf("D\n")
-    g.cam_pos -= cam_right * dt
+    g.cam_pos -= cam_right * dt * speed
   }
   if is_key_held(&g.iman, key_enum.W)
   {
-    g.cam_pos += cast(vector)cam_fw * dt
+    g.cam_pos += cast(vector)cam_fw * dt * speed
 
   }
   if is_key_held(&g.iman, key_enum.S)
   {
-    g.cam_pos -= cast(vector)cam_fw * dt
+    g.cam_pos -= cast(vector)cam_fw * dt * speed
   }
 }
 
@@ -839,13 +851,28 @@ end_frame::fn(g:*game_info)
 run_game::fn(g : *game_info)
 {
   prev_time : f64=glfwGetTime()
-  while true
+  disable_cursor(g.wnd)
+  glfwSetInputMode(g.wnd, GLFW_RAW_MOUSE_MOTION, 1);
+  while glfwWindowShouldClose(g.wnd) == 0
   {
     dt := cast(f32)(glfwGetTime() - prev_time)
 
     prev_time = glfwGetTime()
 
     glfwPollEvents()
+
+    if is_key_down(&g.iman, key_enum.F2)
+    {
+      if g.cursor_hidden
+      {
+        show_cursor(g.wnd)
+      }
+      else
+      {
+        disable_cursor(g.wnd)
+      }
+      g.cursor_hidden = !g.cursor_hidden
+    }
 
     g.cam_euler_rot.x += g.mouse_vel_x * 0.01 * g.mouse_sense_x
     g.cam_euler_rot.y += g.mouse_vel_y * 0.01 * g.mouse_sense_y
@@ -854,12 +881,7 @@ run_game::fn(g : *game_info)
 
     player_mov(g, g.player, dt)
 
-
-/*
-    printf("\n")
-    print_vec(g.cam_rot)
-    */
-    print_vec(g.cam_fw)
+    print_vec2(g.cam_pos)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)
@@ -868,6 +890,8 @@ run_game::fn(g : *game_info)
     swap_buffers(g)
 
     end_frame(g)
+    
+    clear_keys(&g.iman)
 
     io_globals.linear_cur = 0
 

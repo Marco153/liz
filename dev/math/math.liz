@@ -72,6 +72,7 @@ transpose::fn(out : *f32, m : *f32)
 		}
 	}
 }
+
 build_view_matrix_inverse ::fn x64(out_matrix : *f32,
     cam_pos    : _vec,
     q          : *f32)
@@ -81,12 +82,11 @@ build_view_matrix_inverse ::fn x64(out_matrix : *f32,
     y := *ptr_offset(q, 1, f32)
     z := *ptr_offset(q, 2, f32)
     w := *ptr_offset(q, 3, f32)
-
+    
     // --- quaternion products
     x2 := x + x
     y2 := y + y
     z2 := z + z
-
     xx := x * x2
     xy := x * y2
     xz := x * z2
@@ -96,43 +96,56 @@ build_view_matrix_inverse ::fn x64(out_matrix : *f32,
     wx := w * x2
     wy := w * y2
     wz := w * z2
-
-    // --- build rotation transpose (inverse)
-    r00 := 1.0 - (yy + zz)
-    r01 := xy + wz
-    r02 := xz - wy
-
-    r10 := xy - wz
-    r11 := 1.0 - (xx + zz)
-    r12 := yz + wx
-
-    r20 := xz + wy
-    r21 := yz - wx
-    r22 := 1.0 - (xx + yy)
-
+    
+    // --- build rotation matrix from quaternion (non-transposed)
+    m00 := 1.0 - (yy + zz)
+    m01 := xy - wz
+    m02 := xz + wy
+    
+    m10 := xy + wz
+    m11 := 1.0 - (xx + zz)
+    m12 := yz - wx
+    
+    m20 := xz - wy
+    m21 := yz + wx
+    m22 := 1.0 - (xx + yy)
+    
+    // --- build view matrix rotation (transpose for world-to-camera)
+    r00 := m00  
+    r01 := m10  
+    r02 := m20  
+    
+    r10 := m01  
+    r11 := m11  
+    r12 := m21  
+    
+    r20 := m02  
+    r21 := m12  
+    r22 := m22  
+    
     // --- column 0
     *ptr_offset(out_matrix, 0, f32) = r00
     *ptr_offset(out_matrix, 1, f32) = r01
     *ptr_offset(out_matrix, 2, f32) = r02
     *ptr_offset(out_matrix, 3, f32) = 0.0
-
+    
     // --- column 1
     *ptr_offset(out_matrix, 4, f32) = r10
     *ptr_offset(out_matrix, 5, f32) = r11
     *ptr_offset(out_matrix, 6, f32) = r12
     *ptr_offset(out_matrix, 7, f32) = 0.0
-
+    
     // --- column 2
     *ptr_offset(out_matrix, 8,  f32) = r20
     *ptr_offset(out_matrix, 9,  f32) = r21
     *ptr_offset(out_matrix, 10, f32) = r22
     *ptr_offset(out_matrix, 11, f32) = 0.0
-
-    // --- translation = -Rᵀ * cam_pos
-    tx := -(r00 * cam_pos.x + r10 * cam_pos.y + r20 * cam_pos.z)
-    ty := -(r01 * cam_pos.x + r11 * cam_pos.y + r21 * cam_pos.z)
-    tz := -(r02 * cam_pos.x + r12 * cam_pos.y + r22 * cam_pos.z)
-
+    
+    // --- translation = -R * cam_pos (use non-transposed rotation)
+    tx := -(m00 * cam_pos.x + m01 * cam_pos.y + m02 * cam_pos.z)
+    ty := -(m10 * cam_pos.x + m11 * cam_pos.y + m12 * cam_pos.z)
+    tz := -(m20 * cam_pos.x + m21 * cam_pos.y + m22 * cam_pos.z)
+    
     *ptr_offset(out_matrix, 12, f32) = tx
     *ptr_offset(out_matrix, 13, f32) = ty
     *ptr_offset(out_matrix, 14, f32) = tz

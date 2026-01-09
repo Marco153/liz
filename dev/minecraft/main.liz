@@ -868,9 +868,9 @@ input_logic::fn(g : *game_info)
 run_game::fn(g : *game_info)
 {
   prev_time : f64=glfwGetTime()
-  disable_cursor(g.wnd)
-  glfwSetInputMode(g.wnd, GLFW_RAW_MOUSE_MOTION, 1);
-  g.cursor_hidden = true
+  //disable_cursor(g.wnd)
+  //glfwSetInputMode(g.wnd, GLFW_RAW_MOUSE_MOTION, 1);
+  //g.cursor_hidden = true
 
   while glfwWindowShouldClose(g.wnd) == 0
   {

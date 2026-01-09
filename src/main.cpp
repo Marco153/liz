@@ -11465,6 +11465,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       }
       else if(WSTOPSIG(status) == SIGTRAP)
       {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+
         char maps_file[64];
         //sprintf(maps_file, "/proc/%d/maps", child_p);
         //system((std::string("cat ") + maps_file).c_str());

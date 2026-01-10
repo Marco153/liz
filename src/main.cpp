@@ -12309,21 +12309,21 @@ void make_mips()
       {
         sprintf(file_name, "%s/tile_%d_%d.data", folder_path, x, y);
 
-        int idx = x * cur_ch_sz * BYTES_PER_PIXEL + y * WIDTH * BYTES_PER_PIXEL;
+        int idx = x * cur_ch_sz * BYTES_PER_PIXEL + y * WIDTH * BYTES_PER_PIXEL * cur_ch_sz;
         cur_ptr = file + idx;
 
-        for(int i=0; i < cur_ch_sz_inv; i++)
+        for(int i=0; i < CHUNK_SZ; i++)
         {
-          for(int s = 0; s < cur_ch_sz_inv; s++)
+          for(int s = 0; s < CHUNK_SZ; s++)
           {
-            auto dst = &buffer[i * cur_ch_sz_inv * BYTES_PER_PIXEL];
-            auto src = file + s * stride + i * WIDTH * BYTES_PER_PIXEL;
+            auto dst = &buffer[i * CHUNK_SZ * BYTES_PER_PIXEL + s * BYTES_PER_PIXEL];
+            auto src = cur_ptr + s * stride * BYTES_PER_PIXEL + i * WIDTH * BYTES_PER_PIXEL * stride;
 
             *(u16*)dst = *(u16 *)src;
           }
         }
 
-        WriteFileLang(file_name, buffer, cur_ch_sz_inv * cur_ch_sz_inv * BYTES_PER_PIXEL);
+        WriteFileLang(file_name, buffer, CHUNK_SZ * CHUNK_SZ * BYTES_PER_PIXEL);
       }
     }
     cur_ch_sz *= 2;

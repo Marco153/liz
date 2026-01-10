@@ -1080,6 +1080,11 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         {
           val = 0x4c;
         }
+
+        if(sz == 8 && val != -1)
+        {
+          val += 8;
+        }
       }
       }
 

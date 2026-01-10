@@ -1,6 +1,7 @@
 import "../render/"
 import "../typedefs/"
 import "../math/"
+import "../os/"
 FACE_RIGHT:const s32= 0
 FACE_LEFT:const s32= 1
 FACE_UP:const s32= 2
@@ -56,11 +57,10 @@ update_terrain_chunks::fn(trn : *terrain_info, player_pos : vector)
   l := len_vec(p)
   if l > cast(f64)(CHUNK_SIZE / 4)
   {
-    __dbg_break;
-    __dbg_break;
-    __dbg_break;
+
     trn.prev_player_pos.x = cast(f64)cast(s64)player_pos.x
     trn.prev_player_pos.z = cast(f64)cast(s64)player_pos.z
     trn.prev_player_pos.y = 0.0
   }
+
 }

@@ -11906,9 +11906,12 @@ void test_mesh()
   const struct aiMesh *mesh = scene->mMeshes[0]; // Assume first mesh
   auto a = 0;
 }
+
+void make_mips();
 int main(int argc, char *argv[]) {
   //test_mesh();
   
+  make_mips();
 #ifdef LINUX
   char path[1024];
   ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
@@ -12260,4 +12263,72 @@ dbg_expr *CreateNewDbgExpr(dbg_state* dbg, own_std::string &str, int child_p, u6
 
   return exp;
 	//UpdateExprWindow(*dbg, stack_reg, line);
+}
+
+void make_mips()
+{
+#define CHUNK_SZ 128
+#define BYTES_PER_PIXEL 2
+  int WIDTH = 8192;
+
+  u32 file_sz;
+  HERE()
+
+  char *file = ReadEntireFileMalloc("/home/marco/terrain/map1.data", &file_sz);
+
+  ASSERT(file_sz == (WIDTH * WIDTH * BYTES_PER_PIXEL + 1))
+
+  char buffer[CHUNK_SZ * CHUNK_SZ * BYTES_PER_PIXEL + 1];
+
+  char folder_path[128];
+  char file_name[128];
+
+  int cur_ch_sz = CHUNK_SZ;
+  int cur_ch_sz_inv = CHUNK_SZ;
+  int stride = 1;
+  for(int m = 0; m < 5; m++)
+  {
+    if(cur_ch_sz_inv == 0) return;
+
+    int chunks_axis_total = WIDTH / cur_ch_sz;
+    sprintf(folder_path, "/home/marco/terrain/mip%d", m);
+
+    if (mkdir(folder_path, 0755) == 0) {
+        printf("Directory created\n");
+    } else if (errno == EEXIST) {
+        printf("Directory already exists\n");
+    } else {
+        perror("mkdir");
+        ASSERT(false)
+        return 1;
+    }
+    char *cur_ptr = file;
+    for(int y = 0; y < chunks_axis_total; y++)
+    {
+      for(int x = 0; x < chunks_axis_total; x++)
+      {
+        sprintf(file_name, "%s/tile_%d_%d.data", folder_path, x, y);
+
+        int idx = x * cur_ch_sz * BYTES_PER_PIXEL + y * WIDTH * BYTES_PER_PIXEL;
+        cur_ptr = file + idx;
+
+        for(int i=0; i < cur_ch_sz_inv; i++)
+        {
+          for(int s = 0; s < cur_ch_sz_inv; s++)
+          {
+            auto dst = &buffer[i * cur_ch_sz_inv * BYTES_PER_PIXEL];
+            auto src = file + s * stride + i * WIDTH * BYTES_PER_PIXEL;
+
+            *(u16*)dst = *(u16 *)src;
+          }
+        }
+
+        WriteFileLang(file_name, buffer, cur_ch_sz_inv * cur_ch_sz_inv * BYTES_PER_PIXEL);
+      }
+    }
+    cur_ch_sz *= 2;
+    cur_ch_sz_inv /= 2;
+    stride *= 2;
+  }
+  //WriteFileLang(vw, void *data, int size)
 }

@@ -1,0 +1,41 @@
+import "../array/"
+import "../memory/"
+import "../chunk/"
+import "../os/"
+
+work_done_info:etruct
+{
+  DONE_CREATE_TEX(
+    x : u32
+    y : u32
+    mip:u8
+    data : *void
+  ),
+}
+work_to_do_info:etruct
+{
+  CREATE_TEX(
+    x : u32
+    y : u32
+    mip:u8
+  ),
+}
+aux_tex_struct :struct
+{
+  data : [CHUNK_SIZE * CHUNK_SIZE * HEIGHTMAP_BYTES_PER_PIXEL]char
+}
+thread_work_info:struct
+{
+  work_to_do : linked_list_mutex(work_to_do_info)
+  work_done  : linked_list_mutex(work_done_info)
+
+  working_data_texs : linked_list_mutex(aux_tex_struct)
+
+}
+init_thread_work::fn(t : *thread_work_info, alloc : *generic_allocator)
+{
+  init_linked_list_mutex(&t.work_to_do, 16, alloc)
+  init_linked_list_mutex(&t.work_done, 16, alloc)
+
+  init_linked_list_mutex(&t.work_done, TEX_GRID_SIZE * TEX_GRID_SIZE, alloc)
+}

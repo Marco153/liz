@@ -11,6 +11,8 @@ import "../render";
 import "../input";
 import "../assimp";
 import "../buffer";
+import "../array";
+import "../work";
 
 
 #if RENDER_API == OPENGL
@@ -18,13 +20,6 @@ import "../buffer";
   import "../opengl";
 }
 
-thread :: fn(arg : *void)
-{
-  while true
-  {
-    //PrintStr("on thread \n")
-  }
-}
 
 framebuffer_handle:struct
 {
@@ -111,6 +106,22 @@ game_info:struct
 
   mouse_sense_x :f32
   mouse_sense_y :f32
+
+  thread_info : thread_work_info
+}
+thread :: fn(arg : *void)
+{
+  thread_info := cast(*thread_work_info)arg
+  while true
+  {
+    lock_mutex(&thread_info.work_to_do.mutex)
+    cur := thread_info.work_to_do.start
+    unlock_mutex(&thread_info.work_to_do.mutex)
+
+    if !cur continue
+
+    PrintStr("has work\n")
+  }
 }
 cursor_position_callback::fn(window:*u8, xpos:f64, ypos:f64) {
   g := cast(*game_info)glfwGetWindowUserPointer(window);
@@ -534,7 +545,7 @@ init_game::fn(g : *game_info)
 
   g.global_ubo = create_uniform_buffer(sizeof(global_ubo_uniform))
 
-  th := create_thread(thread, nil)
+  th := create_thread(thread, &g.thread_info)
 
   init_shaders(g)
 
@@ -572,6 +583,8 @@ init_game::fn(g : *game_info)
   g.mouse_sense_y = 2.0
 
   //g.cam_pos.y = 0.2
+
+  init_thread_work(&g.thread_info, &g.main_galloc)
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
@@ -665,7 +678,7 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   
   cur.type = draw_info.OBJECT
   cur.OBJECT.pos = cast(_vec)(g.trn.trn.prev_player_pos - g.cam_pos)
-  print_vec2(g.trn.trn.prev_player_pos)
+  //print_vec2(g.trn.trn.prev_player_pos)
   cur.OBJECT.sz.x = ch_sz
   cur.OBJECT.sz.y = ch_sz
   cur.OBJECT.sz.z = ch_sz
@@ -691,11 +704,13 @@ add_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
   start_sz := 64.0f
   add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0], 64.0f, &g.chunk_128)
+  /*
   for i in 0..5
   {
     start_sz *= 2.0
     add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0], start_sz, &g.chunk_128_patched)
   }
+  */
 }
 clear_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
@@ -864,6 +879,14 @@ input_logic::fn(g : *game_info)
     g.cursor_hidden = !g.cursor_hidden
   }
 
+  if is_key_down(&g.iman, key_enum.F1)
+  {
+    w : work_to_do_info
+
+    printf("will add work\n")
+    linked_add(&g.thread_info.work_to_do, &w, 0)
+    printf("work added\n")
+  }
 }
 run_game::fn(g : *game_info)
 {
@@ -891,7 +914,7 @@ run_game::fn(g : *game_info)
 
     player_mov(g, g.player, dt)
 
-    print_vec2(g.cam_pos)
+    //print_vec2(g.cam_pos)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)

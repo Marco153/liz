@@ -2,5 +2,20 @@ OPENGL :const s32= 0
 VULKAN :const s32= 1
 RENDER_API :const s32= OPENGL
 
+LINUX:const s32=0;
+
+OS:const s32=LINUX;
+
 typedef float as f64;
 typedef vector as _vec2;
+
+#if OS == LINUX
+{
+  mutex_info:struct
+  {
+    pad : [40]char
+  }
+}
+
+
+

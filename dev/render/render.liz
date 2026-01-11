@@ -32,6 +32,14 @@ global_ubo_uniform:struct
   sun_color : _vec
 }
 
+texture:struct
+{
+#if RENDER_API == OPENGL
+{
+  id : u32
+}
+}
+
 TOTAL_BUFFERS:const s32= 256
 render_manager:struct
 {

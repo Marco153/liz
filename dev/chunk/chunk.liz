@@ -2,6 +2,7 @@ import "../render/"
 import "../typedefs/"
 import "../math/"
 import "../os/"
+import "../work/"
 FACE_RIGHT:const s32= 0
 FACE_LEFT:const s32= 1
 FACE_UP:const s32= 2
@@ -36,12 +37,29 @@ chunk_info:struct
   lod : u8
 }
 
+TEX_GRID_SIZE:const s32=3
+MIP_LEVELS:const s32=1
+
 CHUNK_WIDTH:const s32=7
 TOTAL_CHUNKS:const s32=CHUNK_WIDTH*CHUNK_WIDTH
 
 CHUNK_SIZE:const s32=128
+HEIGHTMAP_BYTES_PER_PIXEL:const s32=2
+
 CHUNK_SIZE_HALF:const s32=CHUNK_SIZE/2
 
+
+mip_texture:struct
+{
+  x : u32
+  y : u32
+
+  tex : texture
+}
+mip_info:struct
+{
+  texs :[5]mip_texture
+}
 terrain_info:struct
 {
   ubo : storage_buffer

@@ -1,4 +1,7 @@
+import "../typedefs/"
 import "../memory/"
+import "../os/"
+
 rel_array: struct(T)
 {
 	data : *T,
@@ -272,4 +275,191 @@ sort_array::fn(ar : *dyn_array(RatedStuff))
       memcpy((*ar)[minIndex], &temp, sizeof(RatedStuff));
       i++
     }
+}
+
+pool_index:struct
+{
+  in_use : bool
+  idx : u32
+  ptr : *void
+
+}
+mutex_pool:struct(T)
+{
+  data  : *T
+  p : *pool_index
+  total : u32
+  available : u32
+  mutex : u32
+}
+
+get_from_pool::fn{T}(p : *mutex_pool(T), total : u32, alloc : *generic_allocator) ! *pool_index
+{
+  for i in 0..p.total
+  {
+    cur := ptr_offset(p.p, i, pool_index)
+    if !cur.in_use
+    {
+      cur.idx    = i
+      cur.ptr    = ptr_offset(p.data, i, T)
+      cur.in_use = true
+      return cur
+    }
+  }
+}
+init_pool::fn{T}(p : *mutex_pool(T), total : u32, alloc : *generic_allocator)
+{
+  p.data = get_buffer_from_generic_alloc(alloc, total * sizeof(T))
+  p.p    = get_buffer_from_generic_alloc(alloc, total * sizeof(pool_index))
+
+  p.total = total
+}
+
+linked_chunk : struct
+{
+  in_use : bool
+  idx : u32
+  ptr : *void
+  next : *linked_chunk
+  prev : *linked_chunk
+}
+linked_list_mutex:struct(T)
+{
+  buffer_data : *T
+  start : *linked_chunk
+  buffer_chunks : *linked_chunk
+  total_chunks : u32
+  used_chunks : u32
+  mutex : mutex_info
+}
+init_linked_list_mutex::fn{T}(l : *linked_list_mutex(T), total : u32, alloc : *generic_allocator)
+{
+  chunks_size := sizeof(linked_chunk) * total
+
+  l.buffer_chunks = cast(*linked_chunk)get_buffer_from_generic_alloc(alloc, total * sizeof(T))
+  l.buffer_data   = cast(*T)get_buffer_from_generic_alloc(alloc, total * sizeof(T))
+
+  memset(l.buffer_chunks, 0, chunks_size)
+  l.total_chunks = total
+
+  l.mutex = create_mutex()
+}
+linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_chunk
+{
+  lock_mutex(l.mutex)
+  aux := ptr
+  end := cast(u64)ptr_offset(l.buffer_chunks, l.total_chunks, linked_chunk)
+  if cast(u64)aux < cast(u64)l.buffer_chunks || cast(u64)aux > end
+  {
+    __dbg_break
+  }
+  prev := aux.prev
+  next := aux.next 
+  if prev != nil && next == nil
+  {
+    prev.next = nil
+  }
+  else if prev != nil && next != nil
+  {
+    prev.next = aux.next
+    next.prev = aux.prev
+  }
+  else if prev == nil && next != nil
+  {
+    next.prev = nil
+  }
+  if aux == l.start
+  {
+    ASSERT(aux.prev == nil)
+    if next != nil
+    {
+      l.start = next
+    }
+    else
+    {
+      l.start = nil
+    }
+  }
+  aux.in_use = false
+  l.used_chunks--
+
+  unlock_mutex(l.mutex)
+  return aux.next
+}
+linked_acquire_first::fn{T}(l : *linked_list_mutex(T), thread_id : u32) ! *linked_chunk
+{
+}
+linked_add_base::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  aux :*linked_chunk
+  PrintStr("will try to add\n")
+  for i in 0..cast(s64)l.total_chunks
+  {
+    cur := ptr_offset(l.buffer_chunks, i, linked_chunk)
+    if !cur.in_use
+    {
+      cur.next = nil
+      cur.prev = nil
+      cur.idx = cast(u32)i
+      cur.ptr = ptr_offset(l.buffer_data, i, T)
+      cur.in_use = true
+      aux = cur
+      break
+    }
+  }
+  if(aux == nil)
+  {
+      __dbg_break
+    }
+
+  if data != nil
+  {
+    memcpy(aux.ptr, data, sizeof(T));
+  }
+  
+  start := l.start
+  if start == nil
+  {
+    l.start = aux
+    start = aux
+  }
+  else
+  {
+    i:u32= 0
+    while start.next != nil
+    {
+      ASSERT(start.next != start)
+      start = start.next
+      i++
+      if i >= l.total_chunks{
+        __dbg_break;
+        return aux;
+      }
+    }
+    start.next = aux
+    aux.prev = start
+  }
+  l.used_chunks++
+
+  //SignalMutex(l.mutex)
+
+  return aux
+}
+linked_add_no_lock::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  if (l.used_chunks + 1) > l.total_chunks __dbg_break
+  return linked_add_base(l, data, line)
+
+}
+linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
+{
+  printf("locking \n")
+  lock_mutex(&l.mutex)
+
+  ret:=linked_add_base(l, data, line)
+
+  unlock_mutex(&l.mutex)
+  printf("unlockd \n")
+
+  return ret
 }

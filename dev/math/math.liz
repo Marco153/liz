@@ -456,3 +456,35 @@ identity::fn(m : *mat4x4)
   m.vals[15] = 1.0
 
 }
+
+fmix32::fn( h:u32)!u32
+{
+    aux := h >> 16
+    h = h ^ aux
+
+    aux = h * 0x85EBCA6B;
+    aux = aux >> 13;
+    h = aux ^h
+
+    aux = h * 0xC2B2AE35;
+    aux = aux * aux
+    aux = aux >> 16;
+    h = h ^aux
+    return h;
+}
+hash32_triplet::fn(x:u32,  y:u32, z:u32) !u32
+{
+    
+    h :u32= 0;
+
+    aux := x * 0x9E3779B9;
+    h = h ^ aux
+
+    aux = y * 0x85EBCA6B;
+    h = h ^ aux
+
+    aux = z * 0xC2B2AE35;
+    h = h ^ aux
+
+    return fmix32(h);
+}

@@ -1,9 +1,7 @@
 import "../memory/"
 import "../array/"
+import "../typedefs/"
 
-LINUX:const s32=0;
-
-OS:const s32=LINUX;
 
 PrintStr::fn outsider(str_lit);
 ReadEntireFileMalloc::fn outsider(name : str_lit, file_sz : *u64) ! *u8;
@@ -25,12 +23,33 @@ file:struct
 #if OS == LINUX
 {
   import "../linux"
-  create_thread::fn(f : fn(*void), arg : *void)!u64
+  create_thread::fn(f : fn(*void), arg : *void)!u32
   {
-    id : u64
+    id : u32
     ret := pthread_create(&id, f, nil, arg)
 
     return id
+  }
+  unlock_mutex::fn(m : *mutex_info) ! u32
+  {
+    return pthread_mutex_unlock(m)
+  }
+  lock_mutex::fn(m : *mutex_info) ! u32
+  {
+    return pthread_mutex_lock(m)
+  }
+  create_mutex::fn()!mutex_info
+  {
+    ret : mutex_info
+    err := pthread_mutex_init(&ret, nil)
+    if err != 0
+    {
+      printf("error in creating mutex\n")
+      __dbg_break
+      __dbg_break
+      __dbg_break
+    }
+    return ret
   }
   read_file::fn(file_name : str_lit, out : *file, alloc : *generic_allocator)
   {

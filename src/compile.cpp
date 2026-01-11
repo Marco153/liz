@@ -10716,7 +10716,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
       }break;
       case IR_CAST_FLOAT_TO_INT:
       {
-        if(ir->bin.lhs.reg_sz == 4)
+        if(ir->bin.rhs.reg_sz == 4)
         {
           bc.type = CVT_SS_2_SI;
         }

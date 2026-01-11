@@ -16,6 +16,7 @@ file:struct
   name : str_lit
   data : *u8
   sz : u64
+  add_name : bool
 }
 
 
@@ -57,12 +58,14 @@ file:struct
     ret := GetFileSize(file_name, &sz)
 
     if ret == -1 {
+      PrintStr("file not found\n")
       __dbg_break
       __dbg_break
       __dbg_break
     }
 
     if sz == 0 {
+      PrintStr("file is empty\n")
       __dbg_break
       __dbg_break
       __dbg_break
@@ -71,7 +74,8 @@ file:struct
     out.data = cast(*u8)get_buffer_from_generic_alloc(alloc, sz)
 
     ReadEntireFileBuffer(file_name, out.data, cast(u32)sz)
-    out.name = new_str_lit(alloc, file_name)
+    if out.add_name
+      out.name = new_str_lit(alloc, file_name);
     out.sz = sz
   }
   get_cwd::fn(alloc_type : u32 = 0, alloc : *void = nil) ! string

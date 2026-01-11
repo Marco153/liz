@@ -654,6 +654,9 @@ generic_allocator:etruct
   HEAP_ALLOC(
     alloc : *mem_alloc
   ),
+  ITSELF_IS_ADDRESS(
+    addr : *void
+  ),
   LINEAR_ALLOC(
 
   )
@@ -662,6 +665,10 @@ generic_free::fn(alloc : *generic_allocator, ptr : *void) ! *void
 {
   on *alloc
   {
+  ITSELF_IS_ADDRESS
+  {
+    return alloc.ITSELF_IS_ADDRESS.addr
+  }
   HEAP_ALLOC
   {
     return heap_free(alloc.HEAP_ALLOC.alloc, ptr)
@@ -682,6 +689,10 @@ generic_alloc::fn(alloc : *generic_allocator, sz : u64) ! *void
   HEAP_ALLOC
   {
     return heap_alloc(alloc.HEAP_ALLOC.alloc, cast(u32)sz)
+  }
+  ITSELF_IS_ADDRESS
+  {
+    return alloc.ITSELF_IS_ADDRESS.addr
   }
   default
     __dbg_break

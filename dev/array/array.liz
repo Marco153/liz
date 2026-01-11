@@ -346,7 +346,7 @@ init_linked_list_mutex::fn{T}(l : *linked_list_mutex(T), total : u32, alloc : *g
 }
 linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_chunk
 {
-  lock_mutex(l.mutex)
+  lock_mutex(&l.mutex)
   aux := ptr
   end := cast(u64)ptr_offset(l.buffer_chunks, l.total_chunks, linked_chunk)
   if cast(u64)aux < cast(u64)l.buffer_chunks || cast(u64)aux > end
@@ -383,7 +383,7 @@ linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_c
   aux.in_use = false
   l.used_chunks--
 
-  unlock_mutex(l.mutex)
+  unlock_mutex(&l.mutex)
   return aux.next
 }
 linked_acquire_first::fn{T}(l : *linked_list_mutex(T), thread_id : u32) ! *linked_chunk
@@ -392,7 +392,6 @@ linked_acquire_first::fn{T}(l : *linked_list_mutex(T), thread_id : u32) ! *linke
 linked_add_base::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
 {
   aux :*linked_chunk
-  PrintStr("will try to add\n")
   for i in 0..cast(s64)l.total_chunks
   {
     cur := ptr_offset(l.buffer_chunks, i, linked_chunk)
@@ -453,13 +452,11 @@ linked_add_no_lock::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *l
 }
 linked_add::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
 {
-  printf("locking \n")
   lock_mutex(&l.mutex)
 
   ret:=linked_add_base(l, data, line)
 
   unlock_mutex(&l.mutex)
-  printf("unlockd \n")
 
   return ret
 }

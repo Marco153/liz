@@ -1028,7 +1028,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       rhs = freg;
       char mod = 0;
 
-      //BREAK(cur_line == 704)
+      //BREAK(cur_line == 966)
+      char pre_op = 0xf3;
       switch(bc->type)
       {
       case CVT_SI_2_SS:
@@ -1055,6 +1056,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         else if(is_rex && freg <= 7)
         {
           val = 0x49;
+        }
+        if(bc->type == CVT_SI_2_SD)
+        {
+          pre_op = 0xf2;
         }
       }break;
       case CVT_SS_2_SI:
@@ -1085,12 +1090,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         {
           val += 8;
         }
+        if(bc->type == CVT_SD_2_SI)
+        {
+          pre_op = 0xf2;
+        }
       }
       }
 
       if(sz == 4)
       {
-        ret.code.emplace_back(0xf3);
+        ret.code.emplace_back(pre_op);
         if(val != -1)
         {
           val = val & ~(1<<3);
@@ -1099,7 +1108,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       }
       else
       {
-        ret.code.emplace_back(0xf2);
+        ret.code.emplace_back(pre_op);
         ret.code.emplace_back(val);
       }
       lhs &= 7;

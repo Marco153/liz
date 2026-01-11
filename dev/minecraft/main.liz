@@ -114,13 +114,51 @@ thread :: fn(arg : *void)
   thread_info := cast(*thread_work_info)arg
   while true
   {
+
     lock_mutex(&thread_info.work_to_do.mutex)
     cur := thread_info.work_to_do.start
     unlock_mutex(&thread_info.work_to_do.mutex)
 
     if !cur continue
 
+    data := cast(*work_to_do_info)cur.ptr
+
+    io_globals.linear_cur = 0
     PrintStr("has work\n")
+    on data.type
+    {
+    work_to_do_info.CREATE_TEX
+    {
+      mip := data.CREATE_TEX.mip
+      x   := data.CREATE_TEX.x
+      y   := data.CREATE_TEX.y
+
+      tex_lnk := linked_add(&thread_info.working_data_texs, nil, 0)
+
+      galloc : generic_allocator
+      galloc.type = generic_allocator.ITSELF_IS_ADDRESS
+      galloc.ITSELF_IS_ADDRESS.addr = tex_lnk.ptr
+
+      f : file
+
+      read_file("/home/marco/terrain/mip{mip}/tile_{x}_{y}.data", &f, &galloc)
+
+      printf("is_mip x {data.CREATE_TEX.x}, fsz {file.sz}\n")
+
+      done : work_done_info
+      done.type = work_done_info.DONE_CREATE_TEX
+      done.DONE_CREATE_TEX.x = x
+      done.DONE_CREATE_TEX.y = y
+      done.DONE_CREATE_TEX.mip = mip
+      done.DONE_CREATE_TEX.tex_lnk = tex_lnk
+
+      linked_add(&thread_info.work_done, nil, 0)
+
+      linked_remove(&thread_info.work_to_do, cur)
+
+      printf("work done\n")
+    }
+    }
   }
 }
 cursor_position_callback::fn(window:*u8, xpos:f64, ypos:f64) {
@@ -582,7 +620,9 @@ init_game::fn(g : *game_info)
   g.mouse_sense_x = 2.0
   g.mouse_sense_y = 2.0
 
-  //g.cam_pos.y = 0.2
+  g.cam_pos.x = cast(f64)TERRAIN_SIZE / 2.0
+  g.cam_pos.y = 0.2
+  g.cam_pos.z = cast(f64)TERRAIN_SIZE / 2.0
 
   init_thread_work(&g.thread_info, &g.main_galloc)
 }
@@ -882,11 +922,66 @@ input_logic::fn(g : *game_info)
   if is_key_down(&g.iman, key_enum.F1)
   {
     w : work_to_do_info
+    w.type = work_to_do_info.CREATE_TEX
+    w.CREATE_TEX.x = 10
 
     printf("will add work\n")
     linked_add(&g.thread_info.work_to_do, &w, 0)
     printf("work added\n")
   }
+}
+check_work_done::fn(g : *game_info)
+{
+  thread_info := &g.thread_info
+
+  trn := g.trn.trn
+  
+  while true
+  {
+    lock_mutex(&thread_info.work_done.mutex)
+    cur := thread_info.work_done.start
+    unlock_mutex(&thread_info.work_done.mutex)
+
+    if !cur return
+
+    data := cast(*work_done_info)cur.ptr
+
+    on *data
+    {
+    work_done_info.DONE_CREATE_TEX
+    {
+      x := cast(f64)data.DONE_CREATE_TEX.x
+      y := cast(f64)data.DONE_CREATE_TEX.y
+
+      
+      __dbg_break
+      __dbg_break
+      __dbg_break
+      diff_x := (x - g.cam_pos.x) / cast(f64)CHUNK_SIZE
+      diff_y := (y - g.cam_pos.y) / cast(f64)CHUNK_SIZE
+
+      diff_x += 1.0
+      diff_y += 1.0
+
+      diff_x_i := cast(s32)diff_x
+      diff_y_i := cast(s32)diff_y
+
+      printf("diffx {diff_x_i}, diffy {diff_y_i}\n")
+
+      defer linked_remove(&thread_info.work_done, cur)
+      if (diff_x_i < 0 || diff_y_i < 0)
+      {
+        // chunk is out of 5x5 grid
+        break;
+      }
+
+
+
+      printf("we have done create tex\n")
+    }
+    }
+  }
+
 }
 run_game::fn(g : *game_info)
 {
@@ -898,6 +993,8 @@ run_game::fn(g : *game_info)
   while glfwWindowShouldClose(g.wnd) == 0
   {
     dt := cast(f32)(glfwGetTime() - prev_time)
+
+    check_work_done(g)
 
     prev_time = glfwGetTime()
 

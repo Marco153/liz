@@ -37,6 +37,8 @@ chunk_info:struct
   lod : u8
 }
 
+TERRAIN_SIZE :const s32= 8192
+
 TEX_GRID_SIZE:const s32=3
 MIP_LEVELS:const s32=1
 
@@ -65,6 +67,8 @@ terrain_info:struct
   ubo : storage_buffer
 
   chunks : [TOTAL_CHUNKS]chunk_info
+
+  mips : [MIP_LEVELS]mip_info
 
   prev_player_pos : vector
 }

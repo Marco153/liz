@@ -108,6 +108,8 @@ game_info:struct
   mouse_sense_y :f32
 
   thread_info : thread_work_info
+
+  empty_chunk_img : *image
 }
 thread :: fn(arg : *void)
 {
@@ -306,12 +308,13 @@ get_material_asset::fn(g : *game_info, name : str_lit)!u64
 
   return  -1
 }
-create_image_asset::fn(g : *game_info, name : str_lit, desc : *image_desc)
+create_image_asset::fn(g : *game_info, name : str_lit, desc : *image_desc) ! *image
 {
   img_idx := get_image_asset(g, name)
   mat     := ptr_offset(g.assets, img_idx, asset_info)
 
   create_image(desc, &mat.IMAGE.img)
+  return &mat.IMAGE.img
 }
 glDebugOutput::fn(source   : u32,
     type     : u32,
@@ -378,15 +381,13 @@ glDebugOutput::fn(source   : u32,
     type_str     = get_type_str(type);
     severity_str = get_severity_str(severity);
 
-    printf("[OpenGL DEBUG] {type_str}: {severity_str} ({id}) - {message}\n",
-        type_str,
-        severity_str,
-        id,
-        message);
+    printf("[OpenGL DEBUG] {type_str}: {severity_str} ({id}) - {cast(str_lit)message}\n");
 
     // Break on high severity
     if severity == GL_DEBUG_SEVERITY_HIGH
     {
+        __dbg_break
+        __dbg_break
         __dbg_break
     }
 }
@@ -591,6 +592,24 @@ init_shaders::fn(g : *game_info)
 
   //printf("to screen prog {g.to_screen_shader.offscreen_shader.id}\n")
 }
+init_images::fn(g : *game_info)
+{
+  f : file
+
+  read_file("/home/marco/terrain/empty.data", &f, &g.main_galloc)
+  desc:image_desc
+
+  desc.width      = CHUNK_SIZE
+  desc.height     = CHUNK_SIZE
+  desc.mip_levels = 1
+  desc.format     = image_format.R16
+  desc.usage      = image_usage.STORAGE
+  desc.data       = f.data
+  desc.type       = image_type.TEX_2D
+
+  g.empty_chunk_img = create_image_asset(g, "empty_ch", &desc)
+}
+
 
 init_game::fn(g : *game_info)
 {
@@ -695,6 +714,9 @@ init_game::fn(g : *game_info)
   sdesc.min_filter = filter.LINEAR;
   sdesc.mag_filter = filter.LINEAR;
   create_sampler(&sdesc, &g.rman.linear_sampler)
+
+
+  init_images(g)
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
@@ -766,6 +788,10 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
 
       update_uniform_buffer(&cur.OBJECT.mat.model_uniform, &model_mat, sizeof(model_mat), 1)
 
+      for t in 0..cast(s64)cur.OBJECT.total_texs
+      {
+        bind_texture(&g.rman, &cur.OBJECT.texs[0], cast(u32)t)
+      }
       
       ASSERT(cur.OBJECT.mesh != nil)
       draw_object_indexed(rman, &cur.OBJECT.mesh.index_buffer)
@@ -803,11 +829,23 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
 
   texs := get_textures(&g.rman, TEX_GRID_SIZE_SQRD)
 
+  
   for i in 0..TEX_GRID_SIZE_SQRD
   {
-    curt := ptr_offset(texs, i, texture)
-    curt.img
+    img := ch.imgs[cast(u64)i]
+    if !img
+    {
+      //printf("no image {i}\n")
+      texs[cast(u64)i].img  = g.empty_chunk_img
+    }
+    else
+      texs[cast(u64)i].img  = img
+    texs[cast(u64)i].samp = &g.rman.nearest_sampler
+
   }
+
+  cur.OBJECT.texs = texs
+  cur.OBJECT.total_texs = TEX_GRID_SIZE_SQRD
 
   asset := ptr_offset(g.assets, g.terrain2_shader.asset_idx, asset_info)
   cur.OBJECT.mat = g.terrain2_shader
@@ -906,6 +944,10 @@ render::fn(g : *game_info, rman : *render_manager)
   identity(&g_ubo.view)
   identity(&g_ubo.proj)
   perspective(cast(*f32)&g_ubo.proj, 40.0f * (3.14159f / 180.0f), aspect, g.near_plane, g.far_plane)
+
+  g_ubo.snap_posx = cast(s32)g.cam_pos.x
+  g_ubo.snap_posy = cast(s32)g.cam_pos.y
+  g_ubo.snap_posz = cast(s32)g.cam_pos.z
   
   zero:_vec
   //zero.z = -5.0

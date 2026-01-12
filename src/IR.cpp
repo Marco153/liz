@@ -287,7 +287,6 @@ ast_rep *AstFromNode(lang_state *lang_stat, node *n, scope *scp) {
   } break;
   case node_type::N_INDEX: {
     ret->type = AST_INDEX;
-    BREAK(n->t->line == 18)
     ret->index.type = AST_INDEX_TP_NORMAL;
     ret->index.lhs_type = DescendNode(lang_stat, n->l, scp);
     ret->index.lhs = AstFromNode(lang_stat, n->l, scp);
@@ -3031,7 +3030,17 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     }
     
     char reg=-1;
-    u32 tp_sz = GetTypeSize(ast->index.lhs_type.tp);
+    type2 *tp;
+    if(ast->index.lhs_type.type == TYPE_STATIC_ARRAY)
+    {
+      tp = ast->index.lhs_type.tp;
+    }
+    else
+    {
+      tp = &ast->index.lhs_type;
+
+    }
+    u32 tp_sz = GetTypeSize(tp);
     if(rhs.type == IR_TYPE_INT)
     {
       rhs.i *= tp_sz;
@@ -3102,6 +3111,10 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       ir.bin.rhs = rhs;
 
       InsertIr(state, ir);
+      if(rhs.type == IR_TYPE_REG)
+      {
+        FreeSpecificReg(lang_stat, rhs.reg);
+      }
     }
 
     ret = lhs;

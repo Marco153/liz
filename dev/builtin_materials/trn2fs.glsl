@@ -4,6 +4,7 @@ layout(std140) uniform ubo {
     mat4 proj;
     vec4 sun_dir;
     vec4 sun_color;
+    ivec3 snap_pos;
 } UBO;
 
 layout(std140) uniform _model {

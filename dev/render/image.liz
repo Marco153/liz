@@ -1,5 +1,6 @@
 import "../opengl"
 import "../memory"
+import "../math"
 image_format : enum 
 {
     R8,
@@ -27,6 +28,12 @@ image_usage : enum
     TRANSFER_DST,
 }
 
+image_type : enum 
+{
+    TEX_2D,
+    TEX_2D_ARRAY,
+    TEX_3D,
+}
 image_desc : struct 
 {
     width      : u32
@@ -35,6 +42,9 @@ image_desc : struct
     mip_levels : u32
     format     : image_format
     usage      : image_usage
+    type       : image_type
+
+    data : *void
 }
 image : struct 
 {
@@ -132,7 +142,7 @@ gl_format :: fn(fmt : image_format) ! u32
 {
 	on fmt
 	{
-		image_format.R8
+		image_format.R8, image_format.R16
 		{
 			return GL_RED;
 		}
@@ -148,6 +158,12 @@ gl_format :: fn(fmt : image_format) ! u32
 		{
 			return GL_RGBA;
 		}
+    default
+    {
+      __dbg_break    
+      __dbg_break    
+      __dbg_break    
+    }
 	}
 
 	return 0;
@@ -212,6 +228,12 @@ create_image :: fn(desc : *image_desc,
     if desc.width == 0 || desc.height == 0 {
         return image_error.INVALID_DESC;
     }
+    if desc.type != image_type.TEX_2D && desc.depth == 0 {
+      __dbg_break
+      __dbg_break
+      __dbg_break
+        return image_error.INVALID_DESC;
+    }
 
     tex : u32 = 0;
     glGenTextures(1, &tex);
@@ -219,7 +241,6 @@ create_image :: fn(desc : *image_desc,
         return image_error.CREATE_FAILED;
     }
 
-    glBindTexture(GL_TEXTURE_2D, tex);
 
     // --- Apply Sampler Settings ---
     has_mips := desc.mip_levels > 1;
@@ -229,23 +250,97 @@ create_image :: fn(desc : *image_desc,
     w := cast(s32)desc.width;
     h := cast(s32)desc.height;
 
-    glTexImage2D(GL_TEXTURE_2D,
-        0, // Base level
-        gl_internal_format(desc.format),
-        w,
-        h,
-        0,
-        gl_format(desc.format),
-        gl_type(desc.format),
-        nil);
+    intern := gl_internal_format(desc.format)
+    format := gl_format(desc.format)
+    type   := gl_type(desc.format)
+    d      := cast(s32)maxval(desc.depth, 1);
+
+    on desc.type
+    {
+    image_type.TEX_2D
+    {
+        glBindTexture(GL_TEXTURE_2D, tex);
+
+        glTexImage2D(GL_TEXTURE_2D,
+            0,
+            intern,
+            w,
+            h,
+            0,
+            format,
+            type,
+            desc.data);
+
+/*
+        if has_mips {
+            glGenerateMipmap(GL_TEXTURE_2D);
+        }
+        */
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    image_type.TEX_2D_ARRAY
+    {
+        glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
+
+        glTexImage3D(GL_TEXTURE_2D_ARRAY,
+            0,
+            intern,
+            w,
+            h,
+            d,   
+            0,
+            cast(s32)format,
+            cast(s32)type,
+            cast(*u8)desc.data);
+
+/*
+        if has_mips {
+            glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+        }
+        */
+
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    }
+
+    image_type.TEX_3D
+    {
+        glBindTexture(GL_TEXTURE_3D, tex);
+
+        glTexStorage3D(GL_TEXTURE_3D,
+            1,
+            intern,
+            w,
+            h,
+            d);
+
+        glTexImage3D(GL_TEXTURE_3D,
+            0,
+            intern,
+            w,
+            h,
+            d,     // depth
+            0,
+            cast(s32)format,
+            cast(s32)type,
+            cast(*u8)desc.data);
+
+/*
+        if has_mips {
+            glGenerateMipmap(GL_TEXTURE_3D);
+        }
+        */
+
+        glBindTexture(GL_TEXTURE_3D, 0);
+    }
+    }
 
 /*
     if has_mips {
         glGenerateMipmap(GL_TEXTURE_2D);
     }
     */
-
-    glBindTexture(GL_TEXTURE_2D, 0);
 
     out_img.handle = cast(u64)tex;
     out_img.desc = *desc;

@@ -105,6 +105,40 @@ glBindTexture::fn outsider(target: u32, texture: u32) ! void;
 glTexParameteri::fn outsider(target: u32, pname: u32, param: s32) ! void;
 glTexImage2D::fn outsider( target: u32, level: s32, internalFormat: s32, width: s32, height: s32, border: s32, format: u32, type: u32, pixels: *void) ! void;
 
+glTexImage3D::fn outsider(target: s32,
+    level: s32,
+    internal_format: s32,
+    width: s32,
+    height: s32,
+    depth: s32,
+    border: s32,
+    format: s32,
+    type: s32,
+    pixels: *u8
+) ! void;
+
+glTexStorage3D::fn outsider(target: s32,
+    levels: s32,
+    internal_format: s32,
+    width: s32,
+    height: s32,
+    depth: s32
+) ! void;
+
+glTexSubImage3D::fn outsider(target: s32,
+    level: s32,
+    xoffset: s32,
+    yoffset: s32,
+    zoffset: s32,
+    width: s32,
+    height: s32,
+    depth: s32,
+    format: s32,
+    type: s32,
+    pixels: *u8
+) ! void;
+
+
 glDrawArrays::fn outsider(mode: u32, first: s32, count: s32) ! void;
 
 glDrawElements::fn outsider(    mode: u32,    count: s32,    type: u32,    indices: *void) ! void;
@@ -144,6 +178,9 @@ glUniformMatrix4fv::fn outsider(location: s32,
     value:    *f32
 ) ! void;
 
+glBindSampler :: fn outsider(n : u32,
+	sampler : u32
+);
 
 glGenSamplers :: fn outsider(n : s32,
 	samplers : *u32
@@ -166,6 +203,8 @@ GL_TRUE:                      const s32 = 1;
 GL_COLOR_BUFFER_BIT:          const s32 = 0x4000;
 GL_DEPTH_BUFFER_BIT:          const s32 = 0x0100;
 GL_STENCIL_BUFFER_BIT:        const s32 = 0x0400;
+
+GL_TEXTURE_2D_ARRAY:          const s32 = 0x8C1A;
 
 GL_LINE:                    const s32 = 0x1B01;
 
@@ -222,7 +261,7 @@ GL_RED:                       const s32 = 0x1903;
 GL_RGBA8:                     const s32 = 0x8058;
 GL_RGBA16F:                   const s32 = 0x881A;
 GL_R8:                        const s32 = 0x8229;
-GL_R16:                       const s32 = 0x8221;
+GL_R16:                       const s32 = 0x822A;
 GL_R16F:                      const s32 = 0x822D;
 GL_R32F:                      const s32 = 0x822E;
 

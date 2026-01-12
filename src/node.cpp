@@ -3848,21 +3848,31 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
         ret_type = *lhs_type.tp;
         //ret_type.ptr++;
       } break;
-      case enum_type2::TYPE_STRUCT: {
-        auto index_op =
-            lhs_type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n);
-        if (!index_op && IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS)) {
-          REPORT_ERROR(n->t->line, n->t->line_offset,
-                       VAR_ARGS("struct '%s' don't operator '[]' overload",
-                                lhs_type.strct->name.c_str()));
-          ExitProcess(1);
+      case enum_type2::TYPE_STRUCT: 
+      {
+        if(lhs_type.ptr == 0)
+        {
+          auto index_op =
+              lhs_type.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n);
+          if (!index_op && IS_PRS_FLAG_ON(PSR_FLAGS_REPORT_UNDECLARED_IDENTS)) {
+            REPORT_ERROR(n->t->line, n->t->line_offset,
+                        VAR_ARGS("struct '%s' don't operator '[]' overload",
+                                  lhs_type.strct->name.c_str()));
+            ExitProcess(1);
+          }
+          if (!index_op)
+            return false;
+
+          DescendNode(lang_stat, n, scp);
+
+          ret_type = index_op->ret_type;
         }
-        if (!index_op)
-          return false;
+        else
+        {
+          ret_type = lhs_type;
+          ret_type.ptr--;
 
-        DescendNode(lang_stat, n, scp);
-
-        ret_type = index_op->ret_type;
+        }
         // ret_type.ptr++;
       } break;
       default:
@@ -7949,35 +7959,28 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
         }
         NameFindingGetType(lang_stat, n->l, scp, lhs_type);
 
+        bool has_index_op = false;
         if (lhs_type.ptr > 0) {
-          bool has_index_op = false;
           if (lhs_type.type == TYPE_STRUCT) {
             own_std::vector<type2> tps;
             tps.emplace_back(DescendNode(lang_stat, n->r, scp));
             func_decl *found = lhs_type.strct->FindOpOverload(
                 lang_stat, overload_op::INDEX_OP, n, &tps);
-            if (!found) {
-              if (IS_FLAG_ON(lang_stat->flags,
-                             PSR_FLAGS_REPORT_UNDECLARED_IDENTS)) {
-                REPORT_ERROR(n->t->line, n->t->line,
-                             VAR_ARGS("struct '%s' doesnt have [] overload\n",
-                                      lhs_type.strct->name.c_str()));
-                ExitProcess(1);
-              } else
-                return nullptr;
+            if (found) 
+            {
+              node *deref_bottom = new_node(lang_stat, n->l);
+              node *deref_top = deref_bottom;
+              char ptr = lhs_type.ptr;
+              do {
+                deref_top = NewUnOpNode(lang_stat, T_MUL, deref_top, n->t);
+                ptr--;
+              } while (ptr > 0);
+              memcpy(n->l, deref_top, sizeof(node));
+              auto a = 0;
+              has_index_op = true;
+              DescendNameFinding(lang_stat, n, scp);
+              return (decl2 *)1;
             }
-            node *deref_bottom = new_node(lang_stat, n->l);
-            node *deref_top = deref_bottom;
-            char ptr = lhs_type.ptr;
-            do {
-              deref_top = NewUnOpNode(lang_stat, T_MUL, deref_top, n->t);
-              ptr--;
-            } while (ptr > 0);
-            memcpy(n->l, deref_top, sizeof(node));
-            auto a = 0;
-            has_index_op = true;
-            DescendNameFinding(lang_stat, n, scp);
-            return (decl2 *)1;
 
             // deref_bottom
           } else if (lhs_type.type == TYPE_STATIC_ARRAY &&
@@ -8101,7 +8104,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
 
         // creating an implicit deref for arrays that are ptrs
         //
-        if (lhs_type.ptr > 0 && lhs_type.type == TYPE_STRUCT) {
+        if (lhs_type.ptr > 0 && lhs_type.type == TYPE_STRUCT && has_index_op) {
           int ptr = lhs_type.ptr;
 
           node *top_nd = n->l;
@@ -8130,6 +8133,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
             return FromBuiltinTypeToDecl(lang_stat, lhs_type.tp->type);
         } break;
         case enum_type2::TYPE_STRUCT: {
+          /*
           auto op_func = lhs_type.strct->FindOpOverload(
               lang_stat, overload_op::INDEX_OP, n);
           if (!op_func) {
@@ -8144,6 +8148,7 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
             } else
               return nullptr;
           }
+          */
 
           NameFindingGetType(lang_stat, n, scp, ret_type);
         } break;
@@ -10827,6 +10832,7 @@ if(!decl)
                          (char *)TypeToString(rhs).c_str());
       }
 
+      bool create_ptr_offset = false;
       switch (lhs.type) {
       case enum_type2::TYPE_U8:
       case enum_type2::TYPE_U16:
@@ -10839,6 +10845,81 @@ if(!decl)
       case enum_type2::TYPE_VECTOR:
       {
         ASSERT(lhs.ptr > 0)
+        create_ptr_offset = true;
+      }break;
+      case enum_type2::TYPE_STATIC_ARRAY:
+      case enum_type2::TYPE_ARRAY:
+      case enum_type2::TYPE_ARRAY_DYN:
+        ret_type = *lhs.tp;
+        //ret_type.ptr++;
+        break;
+      case enum_type2::TYPE_STRUCT: {
+
+        if(lhs.ptr == 0)
+        {
+          // operator overload
+          auto op_func =
+              lhs.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n);
+          if (!op_func) {
+            REPORT_ERROR(
+                n->l->t->line, n->l->t->line_offset,
+                VAR_ARGS(
+                    "struct '%s' doesn't have an overload of operator index\n",
+                    lhs.strct->name.c_str()))
+            ExitProcess(1);
+          }
+          ASSERT(op_func)
+
+          ret_type = op_func->ret_type;
+          // ret_type.type = FromTypeToVarType(ret_type.type);
+
+          own_std::vector<node *> args;
+
+          auto ref_nd =
+              NewUnopNode(lang_stat, nullptr, tkn_type2::T_AMPERSAND, n->l);
+
+          ref_nd->t->line = n->t->line;
+
+          // if we have "&*var" it means we should just get the var, since
+          // it's already a ptr
+          if (IsNodeUnop(ref_nd->r, tkn_type2::T_MUL))
+            ref_nd = ref_nd->r->r;
+
+          args.emplace_back(ref_nd);
+          auto u64_nd =
+              CreateNodeFromType(lang_stat, &lang_stat->u64_decl->type, n->t);
+          auto casted = NewTypeNode(lang_stat, u64_nd, N_CAST, n->r, n->t);
+
+          args.emplace_back(casted);
+
+          auto call_nd =
+              MakeFuncCallArgs(lang_stat, op_func->name, nullptr, args, n->t);
+          call_nd->t = n->t;
+
+          if (lang_stat->is_lsp) {
+            call_nd->modified = true;
+            call_nd->original = n->NewTree(lang_stat);
+          }
+
+          memcpy(n, call_nd, sizeof(node));
+
+          if (!DescendNameFinding(lang_stat, n, scp))
+            ASSERT(false)
+          // return ret_type;
+        }
+        else
+        {
+          ret_type = lhs;
+          ret_type.ptr--;
+          create_ptr_offset = true;
+        }
+      } break;
+      default:
+        ASSERT(false)
+        break;
+      }
+      if(create_ptr_offset)
+      {
         ret_type = lhs;
 
         int cur_arg = 0;
@@ -10879,69 +10960,8 @@ if(!decl)
 
         n->flags = 0;
         ret_type.ptr--;
-
-      }break;
-      case enum_type2::TYPE_STATIC_ARRAY:
-      case enum_type2::TYPE_ARRAY:
-      case enum_type2::TYPE_ARRAY_DYN:
-        ret_type = *lhs.tp;
-        //ret_type.ptr++;
-        break;
-      case enum_type2::TYPE_STRUCT: {
-        // operator overload
-        auto op_func =
-            lhs.strct->FindOpOverload(lang_stat, overload_op::INDEX_OP, n);
-        if (!op_func) {
-          REPORT_ERROR(
-              n->l->t->line, n->l->t->line_offset,
-              VAR_ARGS(
-                  "struct '%s' doesn't have an overload of operator index\n",
-                  lhs.strct->name.c_str()))
-          ExitProcess(1);
-        }
-        ASSERT(op_func)
-
-        ret_type = op_func->ret_type;
-        // ret_type.type = FromTypeToVarType(ret_type.type);
-
-        own_std::vector<node *> args;
-
-        auto ref_nd =
-            NewUnopNode(lang_stat, nullptr, tkn_type2::T_AMPERSAND, n->l);
-
-        ref_nd->t->line = n->t->line;
-
-        // if we have "&*var" it means we should just get the var, since
-        // it's already a ptr
-        if (IsNodeUnop(ref_nd->r, tkn_type2::T_MUL))
-          ref_nd = ref_nd->r->r;
-
-        args.emplace_back(ref_nd);
-        auto u64_nd =
-            CreateNodeFromType(lang_stat, &lang_stat->u64_decl->type, n->t);
-        auto casted = NewTypeNode(lang_stat, u64_nd, N_CAST, n->r, n->t);
-
-        args.emplace_back(casted);
-
-        auto call_nd =
-            MakeFuncCallArgs(lang_stat, op_func->name, nullptr, args, n->t);
-        call_nd->t = n->t;
-
-        if (lang_stat->is_lsp) {
-          call_nd->modified = true;
-          call_nd->original = n->NewTree(lang_stat);
-        }
-
-        memcpy(n, call_nd, sizeof(node));
-
-        if (!DescendNameFinding(lang_stat, n, scp))
-          ASSERT(false)
-        // return ret_type;
-      } break;
-      default:
-        ASSERT(false)
-        break;
       }
+
       // ret_type.ptr++;
       // ret_type = *lhs.tp;
     }

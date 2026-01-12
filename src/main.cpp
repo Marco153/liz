@@ -7992,6 +7992,77 @@ int float_to_str(float f, char *buffer, int sz)
 {
   return snprintf(buffer, sz, "%.3f", f);
 }
+void _glTexImage3D(
+    int target,
+    int level,
+    int internal_format,
+    int width,
+    int height,
+    int depth,
+    int border,
+    int format,
+    int type,
+    const void *pixels
+) {
+    glTexImage3D(
+        target,
+        level,
+        internal_format,
+        width,
+        height,
+        depth,
+        border,
+        format,
+        type,
+        pixels
+    );
+}
+
+void _glTexStorage3D(
+    int target,
+    int levels,
+    int internal_format,
+    int width,
+    int height,
+    int depth
+) {
+    glTexStorage3D(
+        target,
+        levels,
+        internal_format,
+        width,
+        height,
+        depth
+    );
+}
+
+void _glTexSubImage3D(
+    int target,
+    int level,
+    int xoffset,
+    int yoffset,
+    int zoffset,
+    int width,
+    int height,
+    int depth,
+    int format,
+    int type,
+    const void *pixels
+) {
+    glTexSubImage3D(
+        target,
+        level,
+        xoffset,
+        yoffset,
+        zoffset,
+        width,
+        height,
+        depth,
+        format,
+        type,
+        pixels
+    );
+}
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -8112,7 +8183,10 @@ _pid ChildProcess(int pipes[2])
 
 
 
-    outsiders["glActiveTexture"] = (u64)glGenSamplers;
+    outsiders["glGenSamplers"]       = (u64)_glGenSamplers;
+    outsiders["glDeleteSamplers"]    = (u64)_glDeleteSamplers;
+    outsiders["glSamplerParameteri"] = (u64)_glSamplerParameteri;
+    outsiders["glBindSampler"]       = (u64)_glBindSampler;
 
     outsiders["glActiveTexture"] = (u64)_glActiveTexture;
     outsiders["glClearDepth"] = (u64)_glClearDepth;
@@ -8214,6 +8288,9 @@ _pid ChildProcess(int pipes[2])
     outsiders["glGenTextures"]            = (u64)glGenTextures;
     outsiders["glBindTexture"]            = (u64)glBindTexture;
     outsiders["glTexImage2D"]             = (u64)glTexImage2D;
+    outsiders["glTexImage3D"]             = (u64)_glTexImage3D;
+    outsiders["glTexStorage3D"]             = (u64)_glTexStorage3D;
+    outsiders["glTexSubImage3D"]             = (u64)_glTexSubImage3D;
     outsiders["glTexSubImage2D"]          = (u64)glTexSubImage2D;
     outsiders["glTexParameteri"]          = (u64)glTexParameteri;
     outsiders["glGenerateMipmap"]         = (u64)glGenerateMipmap;

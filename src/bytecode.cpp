@@ -1028,7 +1028,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       rhs = freg;
       char mod = 0;
 
-      //BREAK(cur_line == 966)
+      //BREAK(cur_line == 962)
       char pre_op = 0xf3;
       switch(bc->type)
       {
@@ -1056,6 +1056,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         else if(is_rex && freg <= 7)
         {
           val = 0x49;
+        }
+        if(bc->bin.rhs.reg_sz != 8 && val != -1)
+        {
+          val -= 8;
         }
         if(bc->type == CVT_SI_2_SD)
         {

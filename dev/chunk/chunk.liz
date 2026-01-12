@@ -35,11 +35,14 @@ chunk_info:struct
 {
   pos : vector
   lod : u8
+
+  imgs : [TEX_GRID_SIZE_SQRD]*image
 }
 
 TERRAIN_SIZE :const s32= 8192
 
 TEX_GRID_SIZE:const s32=3
+TEX_GRID_SIZE_SQRD:const s32= TEX_GRID_SIZE * TEX_GRID_SIZE
 MIP_LEVELS:const s32=1
 
 CHUNK_WIDTH:const s32=7

@@ -136,11 +136,27 @@ glUniform2f::fn outsider(location: s32, v0: f32, v1: f32) ! void;
 glUniform3f::fn outsider(location: s32, v0: f32, v1: f32, v2: f32) ! void;
 glUniform4f::fn outsider(location: s32, v0: f32, v1: f32, v2: f32, v3: f32) ! void;
 
+glUniform1iv::fn outsider(loc: s32, n: u32, ptr : *u32) ! void;
+
 glUniformMatrix4fv::fn outsider(location: s32,
     count:    s32,
     transpose: s32,
     value:    *f32
 ) ! void;
+
+
+glGenSamplers :: fn outsider(n : s32,
+	samplers : *u32
+);
+
+glDeleteSamplers :: fn outsider(n : s32,
+	samplers : *u32
+);
+
+glSamplerParameteri :: fn outsider(sampler : u32,
+	pname   : s32,
+	param   : s32
+);
 
 GL_NONE:                      const s32 = 0;
 
@@ -201,12 +217,28 @@ GL_DEPTH_TEST:                const s32 = 0x0B71;
 
 GL_DEPTH_COMPONENT24:         const s32 = 0x81A6;
 
+GL_RED:                       const s32 = 0x1903;
+
 GL_RGBA8:                     const s32 = 0x8058;
-GL_RGBA16F:                     const s32 = 0x881A;
+GL_RGBA16F:                   const s32 = 0x881A;
+GL_R8:                        const s32 = 0x8229;
+GL_R16:                       const s32 = 0x8221;
+GL_R16F:                      const s32 = 0x822D;
+GL_R32F:                      const s32 = 0x822E;
+
 GL_TEXTURE_MIN_FILTER:        const s32 = 0x2801;
 GL_TEXTURE_MAG_FILTER:        const s32 = 0x2800;
 
 GL_FRAMEBUFFER_COMPLETE:      const s32 = 0x8CD5;
+
+GL_NEAREST_MIPMAP_NEAREST : const s32 = 0x2700;
+GL_LINEAR_MIPMAP_NEAREST  : const s32 = 0x2701;
+GL_NEAREST_MIPMAP_LINEAR  : const s32 = 0x2702;
+
+GL_CLAMP_TO_EDGE : const s32 = 0x812F;
+
+GL_REPEAT : const s32 = 0x2901;
+GL_MIRRORED_REPEAT : const s32 = 0x8370;
 
 GL_NEAREST:                   const s32 = 0x2600;
 GL_LINEAR:                    const s32 = 0x2601;
@@ -264,3 +296,7 @@ GL_DEBUG_SOURCE_OTHER:            const s32 = 0x824B;
 GL_CW:            const s32 = 0x900;
 GL_CCW:            const s32 = 0x901;
 GL_FRONT_AND_BACK:            const s32 = 0x408;
+
+
+GL_TEXTURE_WRAP_S : const s32 = 0x2802;
+GL_TEXTURE_WRAP_T : const s32 = 0x2803;

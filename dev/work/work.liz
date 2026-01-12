@@ -6,8 +6,8 @@ import "../os/"
 work_done_info:etruct
 {
   DONE_CREATE_TEX(
-    x : u32
-    y : u32
+    x : s32
+    z : s32
     mip:u8
     tex_lnk : *linked_chunk
   ),
@@ -15,8 +15,8 @@ work_done_info:etruct
 work_to_do_info:etruct
 {
   CREATE_TEX(
-    x : u32
-    y : u32
+    x : s32
+    z : s32
     mip:u8
   ),
 }

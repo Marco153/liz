@@ -7602,6 +7602,10 @@ GLint _glGetUniformLocation(GLuint program, const GLchar *name)
     return glGetUniformLocation(program, name);
 }
 
+void _glUniform1iv(GLint location, GLint n, int * ptr)
+{
+    glUniform1iv(location, n, ptr);
+}
 void _glUniform1i(GLint location, GLint v0)
 {
     glUniform1i(location, v0);
@@ -7961,6 +7965,29 @@ void _glDebugMessageControl(u32 source,
         enabled ? GL_TRUE : GL_FALSE
     );
 }
+void _glGenSamplers(s32 n, u32 *samplers)
+{
+	glGenSamplers((GLsizei)n, samplers);
+}
+
+void _glDeleteSamplers(s32 n, const u32 *samplers)
+{
+	glDeleteSamplers((GLsizei)n, samplers);
+}
+
+void _glSamplerParameteri(u32 sampler, s32 pname, s32 param)
+{
+	glSamplerParameteri(
+		(GLuint)sampler,
+		(GLenum)pname,
+		(GLint)param
+	);
+}
+
+void _glBindSampler(u32 unit, u32 sampler)
+{
+	glBindSampler((GLuint)unit, (GLuint)sampler);
+}
 int float_to_str(float f, char *buffer, int sz)
 {
   return snprintf(buffer, sz, "%.3f", f);
@@ -8059,6 +8086,11 @@ _pid ChildProcess(int pipes[2])
     outsiders["glfwSetInputMode"]      = (u64)glfwSetInputMode;
     outsiders["glfwWindowShouldClose"]      = (u64)glfwWindowShouldClose;
 
+    outsiders["glGenSamplers"]       = (u64)_glGenSamplers;
+    outsiders["glDeleteSamplers"]    = (u64)_glDeleteSamplers;
+    outsiders["glSamplerParameteri"] = (u64)_glSamplerParameteri;
+    outsiders["glBindSampler"]       = (u64)_glBindSampler;
+
     outsiders["float_to_str"]      = (u64)float_to_str;
 
     outsiders["glGetIntegerv"]      = (u64)glGetIntegerv;
@@ -8079,6 +8111,8 @@ _pid ChildProcess(int pipes[2])
     outsiders["atan2f"] = (u64)atan2f;
 
 
+
+    outsiders["glActiveTexture"] = (u64)glGenSamplers;
 
     outsiders["glActiveTexture"] = (u64)_glActiveTexture;
     outsiders["glClearDepth"] = (u64)_glClearDepth;
@@ -8169,6 +8203,7 @@ _pid ChildProcess(int pipes[2])
     outsiders["glDeleteProgram"]          = (u64)_glDeleteProgram;
 
     outsiders["glGetUniformLocation"]     = (u64)_glGetUniformLocation;
+    outsiders["glUniform1iv"]              = (u64)_glUniform1iv;
     outsiders["glUniform1i"]              = (u64)_glUniform1i;
     outsiders["glUniform1f"]              = (u64)_glUniform1f;
     outsiders["glUniform2f"]              = (u64)_glUniform2f;

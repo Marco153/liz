@@ -22,6 +22,9 @@ draw_info:etruct
     mesh : *mesh_info
     mat   : *material_info
     sh_contract:shader_mesh_contract
+
+    texs : *texture
+    total_texs : u32
   )
 }
 global_ubo_uniform:struct
@@ -32,13 +35,6 @@ global_ubo_uniform:struct
   sun_color : _vec
 }
 
-texture:struct
-{
-#if RENDER_API == OPENGL
-{
-  id : u32
-}
-}
 
 TOTAL_BUFFERS:const s32= 256
 render_manager:struct
@@ -52,6 +48,13 @@ render_manager:struct
 
 
   buffers : *buffer_info
+
+  nearest_sampler : sampler
+  linear_sampler  : sampler
+
+  texs : *texture
+  cur_texs : u32
+  max_texs : u32
 }
 get_available_buffer::fn(rman : *render_manager)! *buffer_info
 {
@@ -560,6 +563,9 @@ init_render_man::fn(r : *render_manager, alloc : *generic_allocator, max_draws :
 
   r.buffers     = cast(*buffer_info)get_buffer_from_generic_alloc(alloc, TOTAL_BUFFERS * sizeof(buffer_info))
 
+  r.max_texs = 128;
+  r.cur_texs = 0;
+  r.texs = cast(*texture)get_buffer_from_generic_alloc(alloc, r.max_texs * sizeof(texture))
 }
 bind_contract::fn(rman : *render_manager, sh : *shader_mesh_contract)
 {
@@ -569,6 +575,13 @@ bind_contract::fn(rman : *render_manager, sh : *shader_mesh_contract)
   glBindVertexArray(sh.vao)
   //printf("contract bound {sh.vao}\n")
 }
+}
+get_textures::fn(rman : *render_manager, total : u32) ! *texture
+{
+  ret := ptr_offset(rman.texs, rman.cur_texs, texture)
+  rman.cur_texs += total
+  ASSERT(rman.cur_texs < rman.max_texs)
+  return ret
 }
 bind_shader::fn(rman : *render_manager, sh : *shader_info)
 {

@@ -107,8 +107,8 @@ create_shader_mesh_contract::fn(mesh : *mesh_info, mat : *material_info, out : *
 }
 asset_type:etruct
 {
-    TEXTURE(
-        id : texture_info
+    IMAGE(
+        img : image
     ),
     MESH(
         m : mesh_info

@@ -605,6 +605,8 @@ struct lang_state
 
 	node* zero_int_node;
 
+  func_decl * ptr_offset_macro;
+
 	char* GetCodeAddr(int offset)
 	{
 		return (char*)&code_sect[offset + type_sect.size()];

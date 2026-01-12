@@ -7999,11 +7999,76 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
             return (decl2 *)1;
           }
           if (!has_index_op) {
-            REPORT_ERROR(n->t->line, n->t->line,
-                         VAR_ARGS("variable '%s' is pointer, and pointers "
-                                  "cannot be indexed\n",
-                                  lhs->name.c_str()));
-            ExitProcess(1);
+            if(!lang_stat->ptr_offset_macro)
+            {
+              own_std::string str("ptr_offset");
+              decl2 *func = FindIdentifier(str, scp, &ret_type);
+              if (IS_FLAG_ON(lang_stat->flags,
+                            PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !func)
+              {
+                REPORT_ERROR(
+                    n->t->line, n->t->line_offset,
+                    VAR_ARGS("ptr_offset macro wasnt found/n"))
+                ExitProcess(1);
+
+              } else if(!func)
+                return nullptr;
+
+              lang_stat->ptr_offset_macro = func->type.fdecl;
+            }
+            /*
+            if(!lang_stat->ptr_offset_macro)
+            {
+              own_std::string str("ptr_offset");
+              decl2 *func = FindIdentifier(str, scp, &ret_type);
+              if (IS_FLAG_ON(lang_stat->flags,
+                            PSR_FLAGS_REPORT_UNDECLARED_IDENTS) && !func)
+              {
+                REPORT_ERROR(
+                    n->t->line, n->t->line_offset,
+                    VAR_ARGS("ptr_offset macro wasnt found/n"))
+                ExitProcess(1);
+
+              } else if(!func)
+                return nullptr;
+
+              lang_stat->ptr_offset_macro = func->type.fdecl;
+            }
+            int cur_arg = 0;
+            node *arg1 = n->l;
+            node *arg2 = n->r;
+            node *arg3 = nullptr;
+
+
+            if(lhs_type.type == TYPE_STRUCT )
+            {
+              arg3 = NewIdentNode(lang_stat, lhs_type.strct->name, n->t);
+            }
+            else
+            {
+              arg3= new_node(lang_stat, n->t);
+              arg3->type = N_TYPE;
+              arg3->decl_type = lhs_type;
+              arg3->decl_type.type = FromVarTypeToType(lhs_type.type);
+              arg3->decl_type.ptr--;
+              ASSERT(arg3->decl_type.ptr >= 0)
+            }
+
+            func_decl *fdecl=lang_stat->ptr_offset_macro;
+
+            fdecl->args[0]->type.nd = arg1;
+            fdecl->args[1]->type.nd = arg2;
+            fdecl->args[2]->type.nd = arg3;
+
+            auto new_tree = fdecl->func_node->r->r->NewTree(lang_stat);
+
+            BuildMacroTree(lang_stat, fdecl->scp, new_tree, n->t->line);
+            memcpy(n, new_tree, sizeof(node));
+
+            n->flags = 0;
+            if (!DescendNameFinding(lang_stat, n, scp))
+              return nullptr;
+              */
           }
         }
         if (!lhs_type.IsStrct(nullptr) && lhs_type.type != TYPE_STATIC_ARRAY) {
@@ -8035,7 +8100,8 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
         }
 
         // creating an implicit deref for arrays that are ptrs
-        if (lhs_type.ptr > 0) {
+        //
+        if (lhs_type.ptr > 0 && lhs_type.type == TYPE_STRUCT) {
           int ptr = lhs_type.ptr;
 
           node *top_nd = n->l;
@@ -8082,8 +8148,9 @@ decl2 *DescendNameFinding(lang_state *lang_stat, node *n, scope *given_scp) {
           NameFindingGetType(lang_stat, n, scp, ret_type);
         } break;
         default:
+          lhs_type.ptr--;
           // cannot index this type
-          ASSERT(false)
+          //ASSERT(false)
         }
       }
 
@@ -10770,10 +10837,50 @@ if(!decl)
       case enum_type2::TYPE_S32:
       case enum_type2::TYPE_S64:
       case enum_type2::TYPE_VECTOR:
+      {
         ASSERT(lhs.ptr > 0)
         ret_type = lhs;
 
-        break;
+        int cur_arg = 0;
+        node *arg1 = n->l;
+        node *arg2 = n->r;
+        node *arg3 = nullptr;
+
+
+        if(lhs.type == TYPE_STRUCT )
+        {
+          arg3 = NewIdentNode(lang_stat, lhs.strct->name, n->t);
+        }
+        else
+        {
+          arg3= new_node(lang_stat, n->t);
+          arg3->type = N_TYPE;
+          arg3->decl_type = lhs;
+          arg3->decl_type.type = FromVarTypeToType(lhs.type);
+          arg3->decl_type.ptr--;
+          ASSERT(arg3->decl_type.ptr >= 0)
+        }
+
+        func_decl *fdecl=lang_stat->ptr_offset_macro;
+
+        fdecl->args[0]->type.nd = arg1;
+        fdecl->args[1]->type.nd = arg2;
+        fdecl->args[2]->type.nd = arg3;
+
+        auto new_tree = fdecl->func_node->r->r->NewTree(lang_stat);
+
+
+        BuildMacroTree(lang_stat, fdecl->scp, new_tree, n->t->line);
+        node *deref =new_node(lang_stat, n->t);
+        deref->type = N_UNOP;
+        deref->t->type = T_MUL;
+        deref->r = new_tree;
+        memcpy(n, deref, sizeof(node));
+
+        n->flags = 0;
+        ret_type.ptr--;
+
+      }break;
       case enum_type2::TYPE_STATIC_ARRAY:
       case enum_type2::TYPE_ARRAY:
       case enum_type2::TYPE_ARRAY_DYN:

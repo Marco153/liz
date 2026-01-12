@@ -131,7 +131,7 @@ thread :: fn(arg : *void)
     {
       mip := data.CREATE_TEX.mip
       x   := data.CREATE_TEX.x
-      y   := data.CREATE_TEX.y
+      z   := data.CREATE_TEX.z
 
       tex_lnk := linked_add(&thread_info.working_data_texs, nil, 0)
 
@@ -141,18 +141,18 @@ thread :: fn(arg : *void)
 
       f : file
 
-      read_file("/home/marco/terrain/mip{mip}/tile_{x}_{y}.data", &f, &galloc)
+      read_file("/home/marco/terrain/mip{mip}/tile_{x}_{z}.data", &f, &galloc)
 
       printf("is_mip x {data.CREATE_TEX.x}, fsz {file.sz}\n")
 
       done : work_done_info
       done.type = work_done_info.DONE_CREATE_TEX
       done.DONE_CREATE_TEX.x = x
-      done.DONE_CREATE_TEX.y = y
+      done.DONE_CREATE_TEX.z = z
       done.DONE_CREATE_TEX.mip = mip
       done.DONE_CREATE_TEX.tex_lnk = tex_lnk
 
-      linked_add(&thread_info.work_done, nil, 0)
+      linked_add(&thread_info.work_done, &done, 0)
 
       linked_remove(&thread_info.work_to_do, cur)
 
@@ -257,6 +257,30 @@ get_model_asset::fn(g : *game_info, name : str_lit)!u64
 
   return  -1
 }
+get_image_asset::fn(g : *game_info, name : str_lit)!u64
+{
+  ret : u64
+  i :u64= ASSET_MAT_START
+  ln := str_ln(name)
+  ASSERT(ln < 15)
+  while i < TOTAL_ASSETS
+  {
+    cur := ptr_offset(g.assets, i, asset_info)
+    if !cur.in_use 
+    {
+      memcpy(&cur.name, name, 16)
+      cur.in_use = true
+      cur.idx = i
+      cur.IMAGE.img.asset_idx = cast(u32)i;
+      return i
+    }
+    i++
+  }
+
+  __dbg_break
+
+  return  -1
+}
 get_material_asset::fn(g : *game_info, name : str_lit)!u64
 {
   ret : u64
@@ -281,6 +305,13 @@ get_material_asset::fn(g : *game_info, name : str_lit)!u64
   __dbg_break
 
   return  -1
+}
+create_image_asset::fn(g : *game_info, name : str_lit, desc : *image_desc)
+{
+  img_idx := get_image_asset(g, name)
+  mat     := ptr_offset(g.assets, img_idx, asset_info)
+
+  create_image(desc, &mat.IMAGE.img)
 }
 glDebugOutput::fn(source   : u32,
     type     : u32,
@@ -479,6 +510,28 @@ init_models::fn(g : *game_info)
   verts := &g.chunk_128.mesh.attrs[0].buffer
   //inds := g.chunk_128.mesh.index_buffer.data
 }
+
+init_terrain_shader::fn(g : *game_info)
+{
+#if RENDER_API == OPENGL
+{
+  
+  slots : [TEX_GRID_SIZE_SQRD]u32
+  for i in 0..(TEX_GRID_SIZE_SQRD)
+  {
+    *ptr_offset(slots, i, u32) = cast(u32)i
+  }
+  glUseProgram(g.terrain2_shader.depth_shader.id);
+
+  loc := glGetUniformLocation(g.terrain2_shader.depth_shader.id, "heightmap");
+  glUniform1iv(loc, 9, &slots[0]);
+
+  glUseProgram(g.terrain2_shader.offscreen_shader.id);
+  loc = glGetUniformLocation(g.terrain2_shader.offscreen_shader.id, "heightmap");
+  glUniform1iv(loc, 9, &slots[0]);
+}
+}
+
 init_shaders::fn(g : *game_info)
 {
 #if RENDER_API == OPENGL
@@ -512,6 +565,8 @@ init_shaders::fn(g : *game_info)
   mat = ptr_offset(g.assets, mat_idx, asset_info)
 
 
+
+
   create_shader_and_depth_only(g, &t_vs_file, &t_fs_file, &mat.MATERIAL.mat, &g.main_galloc)
 
   g.terrain2_shader = &mat.MATERIAL.mat
@@ -531,6 +586,8 @@ init_shaders::fn(g : *game_info)
 
   mat.MATERIAL.mat.offscreen_shader     = compile_shader_complete(to_screen_vs.data, cast(u32)to_screen_vs.sz, to_screen_fs.data, cast(u32)to_screen_fs.sz)
   g.to_screen_shader = &mat.MATERIAL.mat
+
+  init_terrain_shader(g)
 
   //printf("to screen prog {g.to_screen_shader.offscreen_shader.id}\n")
 }
@@ -625,6 +682,19 @@ init_game::fn(g : *game_info)
   g.cam_pos.z = cast(f64)TERRAIN_SIZE / 2.0
 
   init_thread_work(&g.thread_info, &g.main_galloc)
+
+  
+  sdesc :sampler_desc
+  sdesc.min_filter = filter.NEAREST;
+  sdesc.mag_filter = filter.NEAREST;
+  sdesc.wrap_u = wrap.REPEAT;
+  sdesc.wrap_v = wrap.REPEAT;
+
+  create_sampler(&sdesc, &g.rman.nearest_sampler)
+
+  sdesc.min_filter = filter.LINEAR;
+  sdesc.mag_filter = filter.LINEAR;
+  create_sampler(&sdesc, &g.rman.linear_sampler)
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
@@ -730,6 +800,14 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
 
   cur.OBJECT.sh_contract = mod.contract
   cur.OBJECT.mesh = mod.mesh
+
+  texs := get_textures(&g.rman, TEX_GRID_SIZE_SQRD)
+
+  for i in 0..TEX_GRID_SIZE_SQRD
+  {
+    curt := ptr_offset(texs, i, texture)
+    curt.img
+  }
 
   asset := ptr_offset(g.assets, g.terrain2_shader.asset_idx, asset_info)
   cur.OBJECT.mat = g.terrain2_shader
@@ -902,6 +980,8 @@ end_frame::fn(g:*game_info)
   g.mouse_last_y = 0.0
   g.mouse_vel_x = 0.0
   g.mouse_vel_y = 0.0
+
+  g.rman.cur_texs = 0
 }
 input_logic::fn(g : *game_info)
 {
@@ -921,9 +1001,15 @@ input_logic::fn(g : *game_info)
 
   if is_key_down(&g.iman, key_enum.F1)
   {
+    x := (g.cam_pos.x) / cast(f64)CHUNK_SIZE
+    z := (g.cam_pos.z) / cast(f64)CHUNK_SIZE
+
+
     w : work_to_do_info
     w.type = work_to_do_info.CREATE_TEX
-    w.CREATE_TEX.x = 10
+    w.CREATE_TEX.x = cast(s32)x
+    w.CREATE_TEX.z = cast(s32)z
+    w.CREATE_TEX.mip = 0
 
     printf("will add work\n")
     linked_add(&g.thread_info.work_to_do, &w, 0)
@@ -951,25 +1037,24 @@ check_work_done::fn(g : *game_info)
     work_done_info.DONE_CREATE_TEX
     {
       x := cast(f64)data.DONE_CREATE_TEX.x
-      y := cast(f64)data.DONE_CREATE_TEX.y
+      z := cast(f64)data.DONE_CREATE_TEX.z
 
-      
-      __dbg_break
-      __dbg_break
-      __dbg_break
-      diff_x := (x - g.cam_pos.x) / cast(f64)CHUNK_SIZE
-      diff_y := (y - g.cam_pos.y) / cast(f64)CHUNK_SIZE
+      cam_idx_x := g.cam_pos.x / cast(f64)CHUNK_SIZE
+      cam_idx_z := g.cam_pos.z / cast(f64)CHUNK_SIZE
+
+      diff_x := x - cam_idx_x
+      diff_z := z - cam_idx_z
 
       diff_x += 1.0
-      diff_y += 1.0
+      diff_z += 1.0
 
       diff_x_i := cast(s32)diff_x
-      diff_y_i := cast(s32)diff_y
+      diff_z_i := cast(s32)diff_z
 
-      printf("diffx {diff_x_i}, diffy {diff_y_i}\n")
+      printf("diffx {diff_x_i}, diffy {diff_z_i}\n")
 
       defer linked_remove(&thread_info.work_done, cur)
-      if (diff_x_i < 0 || diff_y_i < 0)
+      if (diff_x_i < 0 || diff_z_i < 0 || diff_x_i > 2 || diff_z_i > 2)
       {
         // chunk is out of 5x5 grid
         break;

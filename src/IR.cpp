@@ -1207,7 +1207,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
       val->is_unsigned = IsUnsigned(ast->decl->type.type);
     else if (ast->decl->type.type == TYPE_STRUCT &&
              IS_FLAG_ON(ast->decl->type.strct->flags, TP_STRCT_ETRUCT)) {
-      val->reg_sz = GetTypeSize(&ast->decl->type.strct->vars[0]->type);
+      val->reg_sz = 4;
     }
     // if (ast->decl->type.ptr > 0)
     // val->is_unsigned = true;

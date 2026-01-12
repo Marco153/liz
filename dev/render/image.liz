@@ -1,0 +1,254 @@
+import "../opengl"
+import "../memory"
+image_format : enum 
+{
+    R8,
+    RG8,
+    RGB8,
+    RGBA8,
+
+    R16,
+    R16F,
+    R32F,
+
+    RG16F,
+    RG32F,
+
+    RGBA16F,
+    RGBA32F,
+}
+
+image_usage : enum 
+{
+    SAMPLED,
+    RENDER_TARGET,
+    STORAGE,
+    TRANSFER_SRC,
+    TRANSFER_DST,
+}
+
+image_desc : struct 
+{
+    width      : u32
+    height     : u32
+    depth      : u32   
+    mip_levels : u32
+    format     : image_format
+    usage      : image_usage
+}
+image : struct 
+{
+  asset_idx : u64
+  desc   : image_desc
+  handle : u64
+}
+sampler : struct
+{
+	id : u32;
+}
+
+filter : enum 
+{
+    NEAREST,
+    LINEAR
+}
+
+wrap : enum 
+{
+    CLAMP,
+    REPEAT,
+    MIRROR,
+}
+
+sampler_desc : struct 
+{
+    min_filter : filter
+    mag_filter : filter
+
+    wrap_u     : wrap
+    wrap_v     : wrap
+    wrap_w     : wrap
+
+    lod_bias   : f32
+    max_aniso  : f32
+}
+
+
+gl_internal_format :: fn(fmt : image_format) ! s32
+{
+	on fmt
+	{
+		image_format.R8
+		{
+			return GL_R8;
+		}
+		image_format.R16
+		{
+			return GL_R16;
+		}
+		image_format.R16F
+		{
+			return GL_R16F;
+		}
+		image_format.R32F
+		{
+			return GL_R32F;
+		}
+		image_format.RGBA8
+		{
+			return GL_RGBA8;
+		}
+	}
+
+	return 0;
+}
+
+gl_type :: fn(fmt : image_format) ! u32
+{
+	on fmt
+	{
+		image_format.R16
+		{
+			return GL_UNSIGNED_SHORT;
+		}
+		image_format.R8
+		{
+			return GL_UNSIGNED_BYTE;
+		}
+		image_format.R32F
+		{
+			return GL_FLOAT;
+		}
+		image_format.RGBA8
+		{
+			return GL_UNSIGNED_BYTE;
+		}
+	}
+
+	return 0;
+}
+
+gl_format :: fn(fmt : image_format) ! u32
+{
+	on fmt
+	{
+		image_format.R8
+		{
+			return GL_RED;
+		}
+		image_format.R16F
+		{
+			return GL_RED;
+		}
+		image_format.R32F
+		{
+			return GL_RED;
+		}
+		image_format.RGBA8
+		{
+			return GL_RGBA;
+		}
+	}
+
+	return 0;
+}
+gl_filter :: fn(f : filter, mip : bool) ! u32 {
+    on f {
+        filter.NEAREST {
+            return GL_NEAREST;
+        }
+        filter.LINEAR {
+            return GL_LINEAR;
+        }
+    }
+    return GL_LINEAR;
+}
+
+gl_wrap :: fn(w : wrap) ! u32 {
+    on w {
+        wrap.CLAMP  { return GL_CLAMP_TO_EDGE; }
+        wrap.REPEAT { return GL_REPEAT; }
+        wrap.MIRROR { return GL_MIRRORED_REPEAT; }
+    }
+    return GL_CLAMP_TO_EDGE;
+}
+
+texture:struct
+{
+  img  : *image
+  samp : *sampler
+}
+
+
+image_error : enum
+{
+	OK = 0,
+	CREATE_FAILED,
+	INVALID_DESC,
+}
+create_sampler :: fn(desc : *sampler_desc,
+	out  : *sampler
+) ! bool
+{
+	out.id = 0;
+	glGenSamplers(1, &out.id);
+
+	if out.id == 0
+	{
+		return false;
+	}
+
+	glSamplerParameteri(out.id, GL_TEXTURE_MIN_FILTER, cast(s32)gl_filter(desc.min_filter, false))
+	glSamplerParameteri(out.id, GL_TEXTURE_MAG_FILTER, cast(s32)gl_filter(desc.mag_filter, false))
+	glSamplerParameteri(out.id, GL_TEXTURE_WRAP_S,     cast(s32)gl_wrap(desc.wrap_u))
+	glSamplerParameteri(out.id, GL_TEXTURE_WRAP_T,     cast(s32)gl_wrap(desc.wrap_v))
+
+	return true;
+}
+create_image :: fn(desc : *image_desc, 
+    out_img : *image
+) ! image_error
+{
+    if desc.width == 0 || desc.height == 0 {
+        return image_error.INVALID_DESC;
+    }
+
+    tex : u32 = 0;
+    glGenTextures(1, &tex);
+    if tex == 0 {
+        return image_error.CREATE_FAILED;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    // --- Apply Sampler Settings ---
+    has_mips := desc.mip_levels > 1;
+
+
+    // --- Allocate Texture ---
+    w := cast(s32)desc.width;
+    h := cast(s32)desc.height;
+
+    glTexImage2D(GL_TEXTURE_2D,
+        0, // Base level
+        gl_internal_format(desc.format),
+        w,
+        h,
+        0,
+        gl_format(desc.format),
+        gl_type(desc.format),
+        nil);
+
+/*
+    if has_mips {
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+    */
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    out_img.handle = cast(u64)tex;
+    out_img.desc = *desc;
+
+    return image_error.OK;
+}

@@ -9,6 +9,7 @@ layout(std140) uniform ubo {
 
 layout(std140) uniform _model {
     mat4 mod;
+    int chunk_sz;
 } MODEL;
 
 out vec4 FragColor;

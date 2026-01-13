@@ -8018,6 +8018,23 @@ void _glTexImage3D(
     );
 }
 
+void _glTexStorage2D(
+    int target,
+    int levels,
+    int internal_format,
+    int width,
+    int height,
+    int depth
+) {
+    glTexStorage3D(
+        target,
+        levels,
+        internal_format,
+        width,
+        height,
+        depth
+    );
+}
 void _glTexStorage3D(
     int target,
     int levels,
@@ -8290,6 +8307,7 @@ _pid ChildProcess(int pipes[2])
     outsiders["glTexImage2D"]             = (u64)glTexImage2D;
     outsiders["glTexImage3D"]             = (u64)_glTexImage3D;
     outsiders["glTexStorage3D"]             = (u64)_glTexStorage3D;
+    outsiders["glTexStorage2D"]             = (u64)_glTexStorage2D;
     outsiders["glTexSubImage3D"]             = (u64)_glTexSubImage3D;
     outsiders["glTexSubImage2D"]          = (u64)glTexSubImage2D;
     outsiders["glTexParameteri"]          = (u64)glTexParameteri;

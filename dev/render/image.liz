@@ -1,6 +1,7 @@
 import "../opengl"
 import "../memory"
 import "../math"
+import "../typedefs"
 image_format : enum 
 {
     R8,
@@ -11,6 +12,7 @@ image_format : enum
     R16,
     R16F,
     R32F,
+    R32I,
 
     RG16F,
     RG32F,
@@ -31,6 +33,7 @@ image_usage : enum
 image_type : enum 
 {
     TEX_2D,
+    TEX_2D_STORAGE,
     TEX_2D_ARRAY,
     TEX_3D,
 }
@@ -92,6 +95,10 @@ gl_internal_format :: fn(fmt : image_format) ! s32
 		{
 			return GL_R8;
 		}
+		image_format.R32I
+		{
+			return GL_R32I;
+		}
 		image_format.R16
 		{
 			return GL_R16;
@@ -117,6 +124,10 @@ gl_type :: fn(fmt : image_format) ! u32
 {
 	on fmt
 	{
+		image_format.R32I
+		{
+			return GL_INT;
+		}
 		image_format.R16
 		{
 			return GL_UNSIGNED_SHORT;
@@ -142,7 +153,11 @@ gl_format :: fn(fmt : image_format) ! u32
 {
 	on fmt
 	{
-		image_format.R8, image_format.R16
+		image_format.R32I
+		{
+			return GL_RED_INTEGER;
+		}
+		image_format.R8, image_format.R16, image_format.R32I
 		{
 			return GL_RED;
 		}
@@ -257,6 +272,18 @@ create_image :: fn(desc : *image_desc,
 
     on desc.type
     {
+      /*
+    image_type.TEX_2D_STORAGE
+    {
+      glBindTexture(GL_TEXTURE_2D, tex);
+
+      glTexStorage2D(GL_TEXTURE_2D,
+          1,              
+          intern,
+          w, h);
+
+    }
+    */
     image_type.TEX_2D
     {
         glBindTexture(GL_TEXTURE_2D, tex);
@@ -346,4 +373,44 @@ create_image :: fn(desc : *image_desc,
     out_img.desc = *desc;
 
     return image_error.OK;
+}
+update_image::fn(rman : *render_manager, img : *image, data : *void)
+{
+#if RENDER_API == OPENGL
+{
+	glBindTexture(GL_TEXTURE_2D, cast(u32)img.handle);
+
+	glTexSubImage2D(GL_TEXTURE_2D,
+		0,
+		0, 0,
+		cast(s32)img.desc.width,
+		cast(s32)img.desc.height,
+		cast(s32)gl_format(img.desc.format),
+		cast(s32)gl_type(img.desc.format),
+		cast(*u8)data);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+}
+}
+update_image_layer :: fn(img    : *image,
+	layer  : u32,
+	data   : *void
+)
+{
+#if RENDER_API == OPENGL
+{
+	glBindTexture(GL_TEXTURE_2D_ARRAY, cast(u32)img.handle);
+
+	glTexSubImage3D(GL_TEXTURE_2D_ARRAY,
+		0,
+		0, 0, cast(s32)layer,
+		cast(s32)img.desc.width,
+		cast(s32)img.desc.height,
+		1,
+		cast(s32)gl_format(img.desc.format),
+		cast(s32)gl_type(img.desc.format),
+		cast(*u8)data);
+
+	glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+}
 }

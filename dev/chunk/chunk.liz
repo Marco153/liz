@@ -65,6 +65,18 @@ mip_info:struct
 {
   texs :[5]mip_texture
 }
+
+
+TOTAL_TEXS_IN_MAP :const s32= 512
+
+texture_map:struct
+{
+  in_use : bool
+
+  x : s32
+  y : s32
+  img : *image
+}
 terrain_info:struct
 {
   ubo : storage_buffer
@@ -74,6 +86,10 @@ terrain_info:struct
   mips : [MIP_LEVELS]mip_info
 
   prev_player_pos : vector
+
+  tex_map : [TOTAL_TEXS_IN_MAP]texture_map
+
+  page_table : [5500] u32
 }
 
 update_terrain_chunks::fn(trn : *terrain_info, player_pos : vector)

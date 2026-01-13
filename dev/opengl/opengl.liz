@@ -117,6 +117,13 @@ glTexImage3D::fn outsider(target: s32,
     pixels: *u8
 ) ! void;
 
+glTexStorage2D::fn outsider(target: s32,
+    levels: s32,
+    internal_format: s32,
+    width: s32,
+    height: s32,
+    depth: s32
+) ! void;
 glTexStorage3D::fn outsider(target: s32,
     levels: s32,
     internal_format: s32,
@@ -138,6 +145,16 @@ glTexSubImage3D::fn outsider(target: s32,
     pixels: *u8
 ) ! void;
 
+glTexSubImage2D::fn outsider(target: s32,
+    level: s32,
+    xoffset: s32,
+    yoffset: s32,
+    width: s32,
+    height: s32,
+    format: s32,
+    type: s32,
+    pixels: *u8
+) ! void;
 
 glDrawArrays::fn outsider(mode: u32, first: s32, count: s32) ! void;
 
@@ -258,12 +275,15 @@ GL_DEPTH_COMPONENT24:         const s32 = 0x81A6;
 
 GL_RED:                       const s32 = 0x1903;
 
+GL_RED_INTEGER:               const s32 = 0x8D94;
+
 GL_RGBA8:                     const s32 = 0x8058;
 GL_RGBA16F:                   const s32 = 0x881A;
 GL_R8:                        const s32 = 0x8229;
 GL_R16:                       const s32 = 0x822A;
 GL_R16F:                      const s32 = 0x822D;
 GL_R32F:                      const s32 = 0x822E;
+GL_R32I:                      const s32 = 0x8235;
 
 GL_TEXTURE_MIN_FILTER:        const s32 = 0x2801;
 GL_TEXTURE_MAG_FILTER:        const s32 = 0x2800;

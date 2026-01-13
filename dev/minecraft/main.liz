@@ -20,6 +20,11 @@ import "../work";
   import "../opengl";
 }
 
+model_ubo : struct
+{
+  model_mat : mat4x4=?
+  chunk_sz  : u32
+}
 
 framebuffer_handle:struct
 {
@@ -110,6 +115,13 @@ game_info:struct
   thread_info : thread_work_info
 
   empty_chunk_img : *image
+
+  tex_map_img : *image
+  page_map_img64 : *image
+  page_map_img32 : *image
+  page_map_img16 : *image
+  page_map_img8 : *image
+  page_map_img4 : *image
 }
 thread :: fn(arg : *void)
 {
@@ -467,7 +479,7 @@ create_shader_and_depth_only::fn(g : *game_info, t_vs_file : *file, t_fs_file : 
 
   //printf("offscreen id {mat.offscreen_shader.id}, depth id {mat.depth_shader.id}\n")
 
-  mat.model_uniform = create_uniform_buffer(64)
+  mat.model_uniform = create_uniform_buffer(sizeof(model_ubo))
 
 
   mat.total_attrs = 1
@@ -516,6 +528,7 @@ init_terrain_shader::fn(g : *game_info)
 {
 #if RENDER_API == OPENGL
 {
+/*
   
   slots : [TEX_GRID_SIZE_SQRD]u32
   for i in 0..(TEX_GRID_SIZE_SQRD)
@@ -530,6 +543,7 @@ init_terrain_shader::fn(g : *game_info)
   glUseProgram(g.terrain2_shader.offscreen_shader.id);
   loc = glGetUniformLocation(g.terrain2_shader.offscreen_shader.id, "heightmap");
   glUniform1iv(loc, 9, &slots[0]);
+  */
 }
 }
 
@@ -608,6 +622,50 @@ init_images::fn(g : *game_info)
   desc.type       = image_type.TEX_2D
 
   g.empty_chunk_img = create_image_asset(g, "empty_ch", &desc)
+
+  desc.width      = CHUNK_SIZE
+  desc.height     = CHUNK_SIZE
+  desc.mip_levels = 1
+  desc.format     = image_format.R16
+  desc.usage      = image_usage.STORAGE
+  desc.depth      = 256
+  desc.data       = nil
+  desc.type       = image_type.TEX_2D_ARRAY
+  printf("creating tex map\n")
+  g.tex_map_img = create_image_asset(g, "tex_map", &desc)
+
+
+  desc.width      = 64
+  desc.height     = 64
+  desc.mip_levels = 1
+  desc.format     = image_format.R32I
+  desc.usage      = image_usage.STORAGE
+  desc.data       = nil
+  desc.type       = image_type.TEX_2D
+  printf("creating page map 64\n")
+  g.page_map_img64 = create_image_asset(g, "tex_map", &desc)
+
+  desc.width      = 32
+  desc.height     = 32
+  printf("creating page map\n")
+  g.page_map_img32 = create_image_asset(g, "tex_map32", &desc)
+
+  desc.width      = 16
+  desc.height     = 16
+  printf("creating page map\n")
+  g.page_map_img16 = create_image_asset(g, "tex_map16", &desc)
+
+
+  desc.width      = 8
+  desc.height     = 8
+  printf("creating page map\n")
+  g.page_map_img8 = create_image_asset(g, "tex_map8", &desc)
+
+
+  desc.width      = 4
+  desc.height     = 4
+  printf("creating page map\n")
+  g.page_map_img4 = create_image_asset(g, "tex_map4", &desc)
 }
 
 
@@ -779,14 +837,15 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
       bind_contract(rman, &cur.OBJECT.sh_contract)
       //printf("draw mesh vbufid {cur.OBJECT.mesh.attrs[0].buffer.gl.id}, contract {cur.OBJECT.sh_contract.vao} index {cur.OBJECT.mesh.index_buffer.size}, index id {cur.OBJECT.mesh.index_buffer.gl.id}\n")
 
-      model_mat : mat4x4=?
+        
+      m_ubo : model_ubo=?
 
-      build_model_matrix(cast(*f32)&model_mat, cur.OBJECT.pos, cast(*f32)&cur.OBJECT.rot, cur.OBJECT.sz)
+      build_model_matrix(cast(*f32)&m_ubo.model_mat, cur.OBJECT.pos, cast(*f32)&cur.OBJECT.rot, cur.OBJECT.sz)
       //identity(&model_mat)
 
       update_uniform_buffer(&g.global_ubo, g_ubo, sizeof(*g_ubo), 0)
 
-      update_uniform_buffer(&cur.OBJECT.mat.model_uniform, &model_mat, sizeof(model_mat), 1)
+      update_uniform_buffer(&cur.OBJECT.mat.model_uniform, &m_ubo.model_mat, sizeof(model_ubo), 1)
 
       for t in 0..cast(s64)cur.OBJECT.total_texs
       {

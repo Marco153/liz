@@ -608,7 +608,12 @@ bind_texture::fn(rman : *render_manager, tex : *texture, loc : u32)
 #if RENDER_API == OPENGL
 {
   glActiveTexture(GL_TEXTURE0 + cast(s32)loc);
-  glBindTexture(GL_TEXTURE_2D, cast(u32)tex.img.handle);
+  if tex.img.desc.type == image_type.TEX_2D_ARRAY
+  {
+    glBindTexture(GL_TEXTURE_2D_ARRAY, cast(u32)tex.img.handle);
+  }
+  else
+    glBindTexture(GL_TEXTURE_2D, cast(u32)tex.img.handle);
   glBindSampler(loc, tex.samp.id);
 }
 }

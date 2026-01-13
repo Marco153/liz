@@ -10,9 +10,12 @@ layout(std140) uniform ubo {
 
 layout(std140) uniform _model {
     mat4 mod;
+    int chunk_sz;
 } MODEL;
 in vec3 vpos;
-uniform sampler2D heightmap[9];
+layout(binding=0)uniform sampler2DArray terrainTex;
+layout(binding=1)uniform isampler2D pageTable;
+
 float round_away_from_zero(float x)
 {
     return sign(x) * ceil(abs(x));
@@ -36,7 +39,8 @@ float sampleHeight(vec2 p)
   float orig_y = float(y) - 0.5;
   vec2 localUV = vec2(p.x - orig_x, p.y - orig_y);
 
-  return texture(heightmap[0], localUV).r;
+  //return texture(heightmap[0], localUV).r;
+  return 0.0;
 }
 void main()
 {

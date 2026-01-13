@@ -3742,7 +3742,6 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
   case node_type::N_INDEX: {
 
     auto rhs = DescendNameFinding(lang_stat, n->r, scp);
-    ;
 
     if (!rhs)
       return false;
@@ -3876,7 +3875,9 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
         // ret_type.ptr++;
       } break;
       default:
-        ASSERT(false)
+        //ASSERT(false)
+        ret_type = lhs_type;
+        ret_type.ptr--;
       }
       /*
       ASSERT(lhs->type.tp != nullptr)
@@ -3920,7 +3921,6 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
       if (!NameFindingGetType(lang_stat, n->r, scp, ret_type))
         return false;
 
-      //BREAK(n->t->line == 1098)
 
       if (IsNodeUnop(n->r, T_MUL))
         memcpy(n, n->r->r, sizeof(node));
@@ -3940,6 +3940,11 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
           ret_type.type = TYPE_FUNC_PTR;
           return true;
         } break;
+        case enum_type2::TYPE_STATIC_ARRAY:
+        case enum_type2::TYPE_STATIC_ARRAY_TYPE:
+        {
+          ret_type = *ret_type.tp;
+        }break;
         case enum_type2::TYPE_S64:
         case enum_type2::TYPE_S32:
         case enum_type2::TYPE_S16:
@@ -3958,8 +3963,6 @@ bool NameFindingGetType(lang_state *lang_stat, node *n, scope *scp,
         case enum_type2::TYPE_STR_LIT:
         case enum_type2::TYPE_ENUM:
         case enum_type2::TYPE_ARRAY:
-        case enum_type2::TYPE_STATIC_ARRAY:
-        case enum_type2::TYPE_STATIC_ARRAY_TYPE:
         case enum_type2::TYPE_VECTOR_TYPE:
           break;
         case enum_type2::TYPE_STRUCT_TYPE: {
@@ -11367,7 +11370,6 @@ if (!is_correct_ovrld)
     case tkn_type2::T_PIPE_EQUAL:
     case tkn_type2::T_EQUAL: 
     {
-      //BREAK(n->t->line == 7073)
       if (IS_PRS_FLAG_ON(PSR_FLAGS_ON_ENUM_DECL))
         break;
       // return ret_type;

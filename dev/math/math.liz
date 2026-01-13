@@ -488,3 +488,9 @@ hash32_triplet::fn(x:u32,  y:u32, z:u32) !u32
 
     return fmix32(h);
 }
+clamp ::fn{T}(v : T, _min :T, _max : T) ! T
+{
+	if v <= _min return _min;
+	if v >= _max return _max;
+	return v;
+}

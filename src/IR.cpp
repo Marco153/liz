@@ -4388,13 +4388,22 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         if(IsIrValLiteral(lhs.type) && !IsIrValLiteral(rhs.type))
         {
           // swap rhs and lhs, rhs should be a value, so this should be safe, we wouldnt be modifying any memory
-          if(ast->op == T_PLUS || ast->op == T_MUL || ast->op == T_MINUS)
+          if(ast->op == T_PLUS || ast->op == T_MUL || ast->op == T_MINUS || ast->op == T_DIV || ast->op == T_SHIFT_LEFT || ast->op == T_SHIFT_RIGHT)
           {
             EnsureValue(lang_stat, state, &rhs);
             ASSERT(rhs.kind == IR_VAL_VALUE)
             ir.type = IR_BIN;
             ir.bin.op = T_EQUAL;
             ir.bin.lhs.type = IR_TYPE_REG;
+            if(ast->op == T_SHIFT_LEFT || ast->op == T_SHIFT_RIGHT)
+            {
+              ir.bin.lhs.reg_sz  = rhs.reg_sz;
+              ir.bin.lhs.reg  = (char)regs_enum::RCX;
+              ir.bin.rhs      = rhs;
+              InsertIr(state, ir);
+              rhs = ir.bin.lhs;
+            }
+
             ir.bin.lhs.reg  = GetAvailableReg(lang_stat);
             ir.bin.lhs.reg_sz  = 4;
             ir.bin.rhs = lhs;

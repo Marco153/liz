@@ -3005,9 +3005,3 @@ FuzzyMatch::fn(to_match : str_lit, to_match_size:u64, src : str_lit, src_size : 
 
     return score;
 }
-clamp ::fn{T}(v : T, _min :T, _max : T) ! T
-{
-	if v <= _min return _min;
-	if v >= _max return _max;
-	return v;
-}

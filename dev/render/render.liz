@@ -25,6 +25,9 @@ draw_info:etruct
 
     texs : *texture
     total_texs : u32
+
+    chunk_sz : u32
+    trn_sz : u32
   )
 }
 global_ubo_uniform:struct

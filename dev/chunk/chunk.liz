@@ -74,8 +74,8 @@ texture_map:struct
   in_use : bool
 
   x : s32
-  y : s32
-  img : *image
+  z : s32
+  mip : u8
 }
 terrain_info:struct
 {
@@ -89,19 +89,31 @@ terrain_info:struct
 
   tex_map : [TOTAL_TEXS_IN_MAP]texture_map
 
-  page_table : [5500] u32
+  tex_map_img : *image
+
+  page_table64 : [64 * 64] u32
+  page_table32 : [32 * 32] u32
+  page_table16 : [16 * 16] u32
+  page_table8  : [8 * 8] u32
+  page_table4  : [4 * 4] u32
 }
 
-update_terrain_chunks::fn(trn : *terrain_info, player_pos : vector)
+get_and_assign_image_to_tex_map::fn(trn :*terrain_info, x : s32, y : s32, lod : s32, data : *void) ! s32
 {
-  p := trn.prev_player_pos - player_pos
-  l := len_vec(p)
-  if l > cast(f64)(CHUNK_SIZE / 4)
+  hash := x | (y << 16) | (lod << 29)
+  for i in 0..TOTAL_TEXS_IN_MAP
   {
+    idx := cast(u64)(cast(s64)hash + i)
+    cur := &trn.tex_map[idx]
 
-    trn.prev_player_pos.x = cast(f64)cast(s64)player_pos.x
-    trn.prev_player_pos.z = cast(f64)cast(s64)player_pos.z
-    trn.prev_player_pos.y = 0.0
+    if !cur.in_use
+    {
+      update_image_layer(trn.tex_map_img, 0, data)
+      cur.in_use = true;
+      return cast(s32)idx
+    }
   }
-
+  return -1
 }
+
+

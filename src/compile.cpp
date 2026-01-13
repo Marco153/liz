@@ -10737,6 +10737,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
       case IR_CMP:
       case IR_BIN:
       {
+        //BREAK(cur_line == 1216)
         if(cur_ir->type == IR_SPILL)
         {
           int offset = cur_ir->bin.lhs.reg;

@@ -24,6 +24,7 @@ model_ubo : struct
 {
   model_mat : mat4x4=?
   chunk_sz  : u32
+  trn_sz    : u32
 }
 
 framebuffer_handle:struct
@@ -115,6 +116,7 @@ game_info:struct
   thread_info : thread_work_info
 
   empty_chunk_img : *image
+  empty_chunk_img_data : *void
 
   tex_map_img : *image
   page_map_img64 : *image
@@ -122,6 +124,16 @@ game_info:struct
   page_map_img16 : *image
   page_map_img8 : *image
   page_map_img4 : *image
+}
+add_read_img::fn(g :*game_info, x : s32, z :s32, mip : u8)
+{
+  w : work_to_do_info
+  w.type = work_to_do_info.CREATE_TEX
+  w.CREATE_TEX.x = x
+  w.CREATE_TEX.z = z
+  w.CREATE_TEX.mip = mip
+
+  linked_add(&g.thread_info.work_to_do, &w, 0)
 }
 thread :: fn(arg : *void)
 {
@@ -613,6 +625,7 @@ init_images::fn(g : *game_info)
   read_file("/home/marco/terrain/empty.data", &f, &g.main_galloc)
   desc:image_desc
 
+
   desc.width      = CHUNK_SIZE
   desc.height     = CHUNK_SIZE
   desc.mip_levels = 1
@@ -621,6 +634,9 @@ init_images::fn(g : *game_info)
   desc.data       = f.data
   desc.type       = image_type.TEX_2D
 
+  empty_data := f.data;
+  g.empty_chunk_img_data = empty_data
+
   g.empty_chunk_img = create_image_asset(g, "empty_ch", &desc)
 
   desc.width      = CHUNK_SIZE
@@ -628,19 +644,21 @@ init_images::fn(g : *game_info)
   desc.mip_levels = 1
   desc.format     = image_format.R16
   desc.usage      = image_usage.STORAGE
-  desc.depth      = 256
+  desc.depth      = TOTAL_TEXS_IN_MAP
   desc.data       = nil
   desc.type       = image_type.TEX_2D_ARRAY
   printf("creating tex map\n")
   g.tex_map_img = create_image_asset(g, "tex_map", &desc)
 
+  aux_buffer := get_buffer_from_generic_alloc(nil, 64 * 64 * 4)
+  memset(aux_buffer, cast(u8)-1, 64 * 64 * 4)
 
   desc.width      = 64
   desc.height     = 64
   desc.mip_levels = 1
   desc.format     = image_format.R32I
   desc.usage      = image_usage.STORAGE
-  desc.data       = nil
+  desc.data       = aux_buffer
   desc.type       = image_type.TEX_2D
   printf("creating page map 64\n")
   g.page_map_img64 = create_image_asset(g, "page_map", &desc)
@@ -666,6 +684,9 @@ init_images::fn(g : *game_info)
   desc.height     = 4
   printf("creating page map\n")
   g.page_map_img4 = create_image_asset(g, "tex_map4", &desc)
+
+  update_image_layer(g.tex_map_img, 0, empty_data)
+
 }
 
 
@@ -775,6 +796,11 @@ init_game::fn(g : *game_info)
 
 
   init_images(g)
+
+  g.trn.trn.tex_map_img = g.tex_map_img
+
+
+  check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
@@ -839,6 +865,8 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
 
         
       m_ubo : model_ubo=?
+      m_ubo.chunk_sz = cur.OBJECT.chunk_sz
+      m_ubo.trn_sz = cur.OBJECT.trn_sz
 
       build_model_matrix(cast(*f32)&m_ubo.model_mat, cur.OBJECT.pos, cast(*f32)&cur.OBJECT.rot, cur.OBJECT.sz)
       //identity(&model_mat)
@@ -882,6 +910,9 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur.OBJECT.rot.y = 0.0;
   cur.OBJECT.rot.z = 0.0;
   cur.OBJECT.rot.w = 1.0;
+
+  cur.OBJECT.chunk_sz = cast(u32)cast(s32)(ch_sz * 2.0)
+  cur.OBJECT.trn_sz = TERRAIN_SIZE
 
   cur.OBJECT.sh_contract = mod.contract
   cur.OBJECT.mesh = mod.mesh
@@ -1157,6 +1188,82 @@ check_work_done::fn(g : *game_info)
     }
     }
   }
+}
+ 
+check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos : vector, mip : u8)
+{
+  pos := player_pos / cast(f64)CHUNK_SIZE
+  px := cast(s32)pos.x
+  pz := cast(s32)pos.z
+
+  start_x := px - 1
+  start_z := pz - 1
+  max_x := px + 1
+  max_z := pz + 1
+
+
+  max_ch_sz := TERRAIN_SIZE / CHUNK_SIZE
+
+  start_x = clamp(start_x, 0, max_ch_sz)
+  start_z = clamp(start_z, 0, max_ch_sz)
+  max_x   = clamp(max_x, 0, max_ch_sz)
+  max_z   = clamp(max_z, 0, max_ch_sz)
+
+      __dbg_break
+      __dbg_break
+      __dbg_break
+  pages := &trn.page_table64
+  mul := 2 << mip
+  div := (CHUNK_SIZE * cast(s32)mul)
+  w := TERRAIN_SIZE / div
+
+  printf("start_x {start_x}, start_z {start_z}, max_x {max_x}, max_z {max_z}, w {w}, mul {mul}, div {div}\n")
+
+
+
+  for z in start_z..max_z
+  {
+    for x in start_x..max_x
+    {
+      __dbg_break
+      __dbg_break
+      __dbg_break
+      val := pages[cast(u64)(x + z * w)]
+
+      should_add := false
+      if val == -1
+      {
+        should_add = true;
+      }
+      else
+      {
+        chunk_val := trn.tex_map[cast(u64)val]
+        chunk_val.in_use = false
+
+        if (chunk_val.x == x && chunk_val.z == z && chunk_val.mip == mip) == false
+        {
+          should_add = true
+        }
+      }
+      if should_add
+        add_read_img(g, cast(s32)x, cast(s32)z, mip);
+    }
+  }
+}
+update_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos : vector)
+{
+
+  p := trn.prev_player_pos - player_pos
+  l := len_vec(p)
+  if l > cast(f64)(CHUNK_SIZE / 4)
+  {
+
+
+
+    trn.prev_player_pos.x = cast(f64)cast(s64)player_pos.x
+    trn.prev_player_pos.z = cast(f64)cast(s64)player_pos.z
+    trn.prev_player_pos.y = 0.0
+  }
 
 }
 run_game::fn(g : *game_info)
@@ -1178,7 +1285,7 @@ run_game::fn(g : *game_info)
 
     input_logic(g)
 
-    update_terrain_chunks(g.trn.trn, g.cam_pos)
+    update_terrain_chunks(g, g.trn.trn, g.cam_pos)
 
     g.cam_euler_rot.x += g.mouse_vel_x * 0.01 * g.mouse_sense_x
     g.cam_euler_rot.y += g.mouse_vel_y * 0.01 * g.mouse_sense_y

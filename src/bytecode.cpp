@@ -2776,6 +2776,29 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case SHIFTR_R_2_R:
 		case SHIFTL_R_2_R:
 		{
+      char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
+      char is_rex = IS_FLAG_ON(dst, 0x80);
+
+      if(is_rex)
+      {
+        ret.code.emplace_back(0x49);
+      }
+      else
+        ret.code.emplace_back(0x48);
+      ret.code.emplace_back(0xd3);
+
+      char val = 0;
+      switch(bc->type)
+      {
+      case SHIFTR_R_2_R:
+      {
+        val = 1;
+      }break;
+      case SHIFTL_R_2_R:
+      {
+      }break;
+      }
+      ret.code.emplace_back(0xe0 | (val << 3) | (dst & 7));
 			//TODO
 		}break;
 		case DIV_I_2_R:

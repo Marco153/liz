@@ -11,6 +11,7 @@ layout(std140) uniform ubo {
 layout(std140) uniform _model {
     mat4 mod;
     int chunk_sz;
+    int trn_sz;
 } MODEL;
 in vec3 vpos;
 layout(binding=0)uniform sampler2DArray terrainTex;
@@ -24,23 +25,20 @@ int iround_away_from_zero(float x)
 {
     return int(sign(x) * ceil(abs(x)));
 }
-float sampleHeight(vec2 p)
+float sampleHeight(vec2 w)
 {
-  float chunk_sz = 128.0;
+  int trn_sz = MODEL.trn_sz;
+  int ch_sz  = MODEL.chunk_sz;
 
-  p /= chunk_sz;
+  ivec2 wi = ivec2(w.xy) / ch_sz;
 
-  int x = 1 + iround_away_from_zero(p.x);
-  int y = 1 + iround_away_from_zero(p.y);
+  int layer = texelFetch(pageTable, wi, 0).r;
 
-  if(x < 0 || y < 0 || x > 2 || y > 2) return 0.0;
+  if(layer == -1) return 0.0;
 
-  float orig_x = float(x) - 0.5;
-  float orig_y = float(y) - 0.5;
-  vec2 localUV = vec2(p.x - orig_x, p.y - orig_y);
+  vec2 local_uv = fract(w / float(ch_sz));
 
-  return texture(terrainTex, vec3(localUV, 0.0)).r;
-  //return 0.0;
+  return texture(terrainTex, vec3(local_uv, layer)).r;
 }
 void main()
 {

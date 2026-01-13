@@ -2577,6 +2577,7 @@ void FreeRegs2(lang_state *lang_stat)
 void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start, bool is_sys_call, bool *arg_is_float)
 {
   ir_rep ir={};
+  //BREAK(arg->line_number == 376)
   ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
   bool was_float = ir.bin.rhs.is_float;
 
@@ -2617,9 +2618,37 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
   }
   else
   {
+    //BREAK(arg->line_number == 376)
     char deref = ir.bin.rhs.deref;
+    char aux_reg = -1;
+    if(ir.bin.rhs.type == IR_TYPE_REG || ir.bin.rhs.type == IR_TYPE_REG_MEM)
+    {
+      aux_reg = ir.bin.rhs.reg;
+    }
+    while(deref > 0)
+    {
+      if(aux_reg == -1) aux_reg = GetAvailableReg(lang_stat);
+
+      ir.type = IR_BIN;
+      ir.bin.op = T_EQUAL;
+      ir.bin.rhs = ir.bin.rhs;
+
+      //ir.bin.rhs.type = IR_TYPE_REG_MEM;
+
+      ir.bin.lhs.type = IR_TYPE_REG;
+      ir.bin.lhs.reg = aux_reg;
+      ir.bin.lhs.reg_sz = 8;
+      ir.bin.lhs.is_float = false;
+      ir.bin.lhs.is_packed_float = false;
+
+      InsertIr(state, ir);
+
+      ir.bin.rhs = ir.bin.lhs;
+      ir.bin.rhs.type = IR_TYPE_REG_MEM;
+      deref--;
+
+    }
     EnsureValue(lang_stat, state, &ir.bin.rhs);
-    LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.rhs);
 
     if(ir.bin.rhs.type == IR_TYPE_REG_MEM)
       ir.bin.rhs.type = IR_TYPE_REG;
@@ -3686,6 +3715,8 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ret = GetIRFromAst2(lang_stat, addr, state, true);
     if(ret.kind == IR_VAL_ADDR)
     {
+      LoadDerefs(lang_stat, &state->cur_block->irs, &ret);
+
       ir.type = IR_ADDRESS_OF;
       if(ret.type == IR_TYPE_DECL && IS_FLAG_ON(ret.decl->flags, DECL_IS_GLOBAL))
       {
@@ -4147,6 +4178,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_POINT:
     {
       lhs = GetIRFromAst2(lang_stat, ast->points[0].exp, state, true);
+      //BREAK(ast->line_number == 332)
 
       /*
       if(lhs.ptr == 0 && lhs.type == IR_TYPE_DECL && IS_FLAG_ON(lhs.decl->flags, DECL_IS_GLOBAL))

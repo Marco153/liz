@@ -39,13 +39,13 @@ image_type : enum
 }
 image_desc : struct 
 {
+    type       : image_type
     width      : u32
     height     : u32
     depth      : u32   
     mip_levels : u32
     format     : image_format
     usage      : image_usage
-    type       : image_type
 
     data : *void
 }

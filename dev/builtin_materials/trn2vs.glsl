@@ -39,8 +39,8 @@ float sampleHeight(vec2 p)
   float orig_y = float(y) - 0.5;
   vec2 localUV = vec2(p.x - orig_x, p.y - orig_y);
 
-  //return texture(heightmap[0], localUV).r;
-  return 0.0;
+  return texture(terrainTex, vec3(localUV, 0.0)).r;
+  //return 0.0;
 }
 void main()
 {

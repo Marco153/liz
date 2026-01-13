@@ -643,23 +643,23 @@ init_images::fn(g : *game_info)
   desc.data       = nil
   desc.type       = image_type.TEX_2D
   printf("creating page map 64\n")
-  g.page_map_img64 = create_image_asset(g, "tex_map", &desc)
+  g.page_map_img64 = create_image_asset(g, "page_map", &desc)
 
   desc.width      = 32
   desc.height     = 32
   printf("creating page map\n")
-  g.page_map_img32 = create_image_asset(g, "tex_map32", &desc)
+  g.page_map_img32 = create_image_asset(g, "page_map32", &desc)
 
   desc.width      = 16
   desc.height     = 16
   printf("creating page map\n")
-  g.page_map_img16 = create_image_asset(g, "tex_map16", &desc)
+  g.page_map_img16 = create_image_asset(g, "page_map16", &desc)
 
 
   desc.width      = 8
   desc.height     = 8
   printf("creating page map\n")
-  g.page_map_img8 = create_image_asset(g, "tex_map8", &desc)
+  g.page_map_img8 = create_image_asset(g, "page_map8", &desc)
 
 
   desc.width      = 4
@@ -849,7 +849,7 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
 
       for t in 0..cast(s64)cur.OBJECT.total_texs
       {
-        bind_texture(&g.rman, &cur.OBJECT.texs[0], cast(u32)t)
+        bind_texture(&g.rman, &cur.OBJECT.texs[cast(u64)t], cast(u32)t)
       }
       
       ASSERT(cur.OBJECT.mesh != nil)
@@ -886,25 +886,15 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur.OBJECT.sh_contract = mod.contract
   cur.OBJECT.mesh = mod.mesh
 
-  texs := get_textures(&g.rman, TEX_GRID_SIZE_SQRD)
+  texs := get_textures(&g.rman, 2)
 
-  
-  for i in 0..TEX_GRID_SIZE_SQRD
-  {
-    img := ch.imgs[cast(u64)i]
-    if !img
-    {
-      //printf("no image {i}\n")
-      texs[cast(u64)i].img  = g.empty_chunk_img
-    }
-    else
-      texs[cast(u64)i].img  = img
-    texs[cast(u64)i].samp = &g.rman.nearest_sampler
-
-  }
+  texs[0].img  = g.tex_map_img
+  texs[0].samp = &g.rman.nearest_sampler
+  texs[1].img  = g.page_map_img64
+  texs[1].samp = &g.rman.nearest_sampler
 
   cur.OBJECT.texs = texs
-  cur.OBJECT.total_texs = TEX_GRID_SIZE_SQRD
+  cur.OBJECT.total_texs = 2
 
   asset := ptr_offset(g.assets, g.terrain2_shader.asset_idx, asset_info)
   cur.OBJECT.mat = g.terrain2_shader

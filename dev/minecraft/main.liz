@@ -133,11 +133,13 @@ add_read_img::fn(g :*game_info, x : s32, z :s32, mip : u8)
   w.CREATE_TEX.z = z
   w.CREATE_TEX.mip = mip
 
+  printf("adding CREATE_TEX {cast(u32)w.CREATE_TEX.type}, x {w.CREATE_TEX.x}, z {w.CREATE_TEX.z}, mip {w.CREATE_TEX.mip}\n")
   linked_add(&g.thread_info.work_to_do, &w, 0)
 }
 thread :: fn(arg : *void)
 {
   thread_info := cast(*thread_work_info)arg
+  first := true
   while true
   {
 
@@ -150,7 +152,6 @@ thread :: fn(arg : *void)
     data := cast(*work_to_do_info)cur.ptr
 
     io_globals.linear_cur = 0
-    PrintStr("has work\n")
     on data.type
     {
     work_to_do_info.CREATE_TEX
@@ -159,6 +160,8 @@ thread :: fn(arg : *void)
       x   := data.CREATE_TEX.x
       z   := data.CREATE_TEX.z
 
+      //printf("is_mip x {data.CREATE_TEX.x}, y {data.CREATE_TEX.x}, addr {cast(u64)data}\n")
+      /*
       tex_lnk := linked_add(&thread_info.working_data_texs, nil, 0)
 
       galloc : generic_allocator
@@ -169,7 +172,6 @@ thread :: fn(arg : *void)
 
       read_file("/home/marco/terrain/mip{mip}/tile_{x}_{z}.data", &f, &galloc)
 
-      printf("is_mip x {data.CREATE_TEX.x}, fsz {file.sz}\n")
 
       done : work_done_info
       done.type = work_done_info.DONE_CREATE_TEX
@@ -183,6 +185,17 @@ thread :: fn(arg : *void)
       linked_remove(&thread_info.work_to_do, cur)
 
       printf("work done\n")
+      */
+    }
+    default:
+    {
+      if first
+      {
+        printf("THREAD: work not recognized {cast(s32)data.type}, addr {cast(u64)data}\n")
+        first = false
+      }
+
+      //__dbg_break
     }
     }
   }
@@ -692,6 +705,7 @@ init_images::fn(g : *game_info)
 
 init_game::fn(g : *game_info)
 {
+  io_globals.mutex = create_mutex()
   io_globals.linear_max = 1024 * 32
   io_globals.linear_cur = 0
   io_globals.linear_data = cast(*u8)GetMem(io_globals.linear_max)
@@ -800,7 +814,8 @@ init_game::fn(g : *game_info)
   g.trn.trn.tex_map_img = g.tex_map_img
 
 
-  check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
+  //check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
+
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
@@ -1198,8 +1213,8 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
 
   start_x := px - 1
   start_z := pz - 1
-  max_x := px + 1
-  max_z := pz + 1
+  max_x := px + 2
+  max_z := pz + 2
 
 
   max_ch_sz := TERRAIN_SIZE / CHUNK_SIZE
@@ -1209,11 +1224,8 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
   max_x   = clamp(max_x, 0, max_ch_sz)
   max_z   = clamp(max_z, 0, max_ch_sz)
 
-      __dbg_break
-      __dbg_break
-      __dbg_break
   pages := &trn.page_table64
-  mul := 2 << mip
+  mul := 1 << mip
   div := (CHUNK_SIZE * cast(s32)mul)
   w := TERRAIN_SIZE / div
 
@@ -1225,9 +1237,6 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
   {
     for x in start_x..max_x
     {
-      __dbg_break
-      __dbg_break
-      __dbg_break
       val := pages[cast(u64)(x + z * w)]
 
       should_add := false
@@ -1313,6 +1322,14 @@ run_game::fn(g : *game_info)
 
 main::fn()
 {
+
+  test : u64= 6
+  expected : u64= 6
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  lock_cmpxchg(&test, expected, 1)
+  expected = lock_xchg(&test, 2)
   game : game_info
 
   init_game(&game)

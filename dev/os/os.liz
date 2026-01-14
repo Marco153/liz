@@ -7,6 +7,8 @@ PrintStr::fn outsider(str_lit);
 ReadEntireFileMalloc::fn outsider(name : str_lit, file_sz : *u64) ! *u8;
 ReadEntireFileBuffer::fn outsider(name : str_lit, buffer : *void, bsz : u32);
 GetFileSize::fn outsider(name : str_lit, file_sz : *u64)!s32;
+lock_cmpxchg::fn intrinsic(obj : *u64, expected : u64, desired:u64) ! bool;
+lock_xchg::fn intrinsic(ptr : *u64, val : u64) ! u64;
 
 float_to_str::fn outsider(f : f32, buffer : *u8, sz : u32) ! u32;
 
@@ -24,6 +26,9 @@ file:struct
 #if OS == LINUX
 {
   import "../linux"
+  FUTEX_WAIT:const s32= 0;
+  FUTEX_WAKE:const s32= 1;
+  futex::fn syscall 202(addr : *u64, op : s32, val : u32, timespec : *void, uaddr2 : *u32, val3 : u32);
   create_thread::fn(f : fn(*void), arg : *void)!u32
   {
     id : u32
@@ -33,15 +38,18 @@ file:struct
   }
   unlock_mutex::fn(m : *mutex_info) ! u32
   {
-    return pthread_mutex_unlock(m)
+    //return pthread_mutex_unlock(m)
+    return 0
   }
   lock_mutex::fn(m : *mutex_info) ! u32
   {
-    return pthread_mutex_lock(m)
+    //return pthread_mutex_lock(m)
+    return 0
   }
   create_mutex::fn()!mutex_info
   {
     ret : mutex_info
+    /*
     err := pthread_mutex_init(&ret, nil)
     if err != 0
     {
@@ -50,6 +58,7 @@ file:struct
       __dbg_break
       __dbg_break
     }
+    */
     return ret
   }
   read_file::fn(file_name : str_lit, out : *file, alloc : *generic_allocator)
@@ -65,7 +74,7 @@ file:struct
     }
 
     if sz == 0 {
-      PrintStr("file is empty\n")
+      printf("file is empty {file_name}\n")
       __dbg_break
       __dbg_break
       __dbg_break
@@ -97,6 +106,8 @@ io_globals_struct:struct
   linear_data : *u8
   linear_cur : u32
   linear_max : u32
+
+  mutex : mutex_info
 }
 
 io_globals:io_globals_struct
@@ -490,6 +501,7 @@ sprintf_temp::fn(format : str_lit, ...) !str_lit
 }
 printf::fn(format : str_lit, ...)
 {
+  lock_mutex(&io_globals.mutex)
 	prev_sz := io_globals.linear_cur
 
 	buffer : [1024 * 4]u8;
@@ -497,4 +509,5 @@ printf::fn(format : str_lit, ...)
 	PrintStr(cast(str_lit)buffer);
 
 	io_globals.linear_cur = prev_sz 
+  unlock_mutex(&io_globals.mutex)
 }

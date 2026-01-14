@@ -26,6 +26,7 @@
 #include <Zydis/Zydis.h>
 #ifdef LINUX
 #include <linux/elf.h>
+#include <linux/futex.h>
 #include <sys/prctl.h>
 #include <signal.h>
 #include <sys/ptrace.h>

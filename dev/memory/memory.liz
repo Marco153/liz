@@ -615,7 +615,10 @@ InitMemAlloc::fn(alloc : *mem_alloc, chunks_cap : u32)
 	if !alloc.all
 		alloc.all = cast(*mem_chunk)GetMem(cast(u64)all_chunks_sz);
 
+  
+  PrintStr("here1\n");
   memset(cast(*u8)alloc.all, 0, all_chunks_sz);
+  PrintStr("here2\n");
 	//__dbg_break;
 
 	unallocated_sz:u64 = UNALLOCATED_BUFFER_ITEMS * 8;

@@ -382,6 +382,8 @@ enum byte_code_enum : unsigned short
 	INST_RET,
 	INST_LEA,
 
+	LOCK_CMP_XCHG_R_2_M,
+
 	LOCK_XCHG_M_R,
 
 	SYSCALL,

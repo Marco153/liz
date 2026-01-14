@@ -10559,6 +10559,11 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
           bc.rel.offset += ir->bin.rhs.voffset;
           bc.rel.deref = true;
         }
+        else if(ir->bin.lhs.ptr == -1)
+        {
+          bc.rel.offset += ir->bin.rhs.voffset;
+          //bc.rel.deref = true;
+        }
 
         bc.rel.reg_sz = ir->bin.lhs.reg_sz;
         InsertBc(ret, bc);
@@ -10631,6 +10636,24 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
             bc.bin.rhs.reg = 1;
             ret.emplace_back(bc);
           }
+          else if (ir->call.fdecl->name == "lock_cmpxchg")
+          {
+            bc.type = MOV_R_2_R;
+            bc.bin.lhs.reg = 0;
+            bc.bin.lhs.voffset = 0;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.reg = (char)regs_enum::RSI;
+            bc.bin.rhs.reg_sz = 8;
+            ret.emplace_back(bc);
+
+            bc.type = LOCK_CMP_XCHG_R_2_M;
+            bc.bin.lhs.reg = (char)regs_enum::RDI;
+            bc.bin.lhs.voffset = 0;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.reg = (char)regs_enum::RDX;
+            bc.bin.rhs.reg_sz = 8;
+            ret.emplace_back(bc);
+          }
           else if (ir->call.fdecl->name == "lock_xchg")
           {
             bc.type = LOCK_XCHG_M_R;
@@ -10638,6 +10661,14 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
             bc.bin.lhs.voffset = 0;
             bc.bin.lhs.reg_sz = 8;
             bc.bin.rhs.reg = 1;
+            bc.bin.rhs.reg_sz = 8;
+            ret.emplace_back(bc);
+            
+            bc.type = MOV_R_2_R;
+            bc.bin.lhs.reg = 0;
+            bc.bin.lhs.voffset = 0;
+            bc.bin.lhs.reg_sz = 8;
+            bc.bin.rhs.reg = (char)regs_enum::RSI;
             bc.bin.rhs.reg_sz = 8;
             ret.emplace_back(bc);
           }

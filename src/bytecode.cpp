@@ -2198,20 +2198,30 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			ret.code.emplace_back(mod);
 
 		}break;
-
+		case LOCK_CMP_XCHG_R_2_M:
+    {
+			ret.code.emplace_back(0xf0);
+			ret.code.emplace_back(0x48);
+			ret.code.emplace_back(0x0f);
+			ret.code.emplace_back(0xb1);
+			ret.code.emplace_back(0x17);
+    }break;;
+		case DIV_R_2_R:
 		case MUL_R_2_R:
 		{
 			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
 			dst &= 0xf;
 			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
 			src &= 0xf;
+      //HERE()
 
+      char aux_reg = 1;
 			// push rax
-			ret.code.emplace_back(0x50);
+			ret.code.emplace_back(0x50 + aux_reg);
 			
 			// moving dst to rax
-			bc->bin.lhs.reg = 0;
-			bc->bin.rhs.reg = dst;
+			bc->bin.lhs.reg = aux_reg;
+			bc->bin.rhs.reg = src;
 
 			if (bc->bin.lhs.reg != bc->bin.rhs.reg)
 				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
@@ -2220,8 +2230,9 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			// multiplying rax by src
 			AddPreMemInsts(bc->bin.lhs.reg_sz, 0xf6, 0xf7, false, ret.code);
 
-			//  I'm not sure why the third byte reg should be 4
-			char mod = MakeModRM(false,0, src, 4);
+      char op = 4;
+      if(bc->type == DIV_R_2_R) op = 6;
+			char mod = MakeModRM(false,0, aux_reg, op);
 			ret.code.emplace_back(mod);
 		
 			// moving rax to dst
@@ -2230,7 +2241,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			if (bc->bin.lhs.reg != bc->bin.rhs.reg)
 				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
 			//pop rax
-			ret.code.emplace_back(0x58);
+			ret.code.emplace_back(0x58 + aux_reg);
 
 		}break;
 		case MUL_M_2_R:
@@ -2445,10 +2456,6 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case ADD_PCKD_SSE_2_PCKD_SSE:
 		{
 			CreatePckdSSERegToPckdSSEReg(&*bc, 0x58, &ret);
-		}break;
-		case DIV_R_2_R:
-		{
-			//TODO
 		}break;
 		case SHUFFLE_PCKED_SSE:
     {

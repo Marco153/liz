@@ -2577,7 +2577,6 @@ void FreeRegs2(lang_state *lang_stat)
 void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start, bool is_sys_call, bool *arg_is_float)
 {
   ir_rep ir={};
-  //BREAK(arg->line_number == 376)
   ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
   bool was_float = ir.bin.rhs.is_float;
 
@@ -3721,7 +3720,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       if(ret.type == IR_TYPE_DECL && IS_FLAG_ON(ret.decl->flags, DECL_IS_GLOBAL))
       {
         ir.type = IR_GET_GLOBAL;
-        ir.bin.lhs.ptr = 1;
+        ir.bin.lhs.ptr = -1;
       }
       ir.bin.lhs.type = IR_TYPE_REG;
       if(ret.type == IR_TYPE_REG || ret.type == IR_TYPE_REG_MEM )
@@ -4403,11 +4402,26 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
               InsertIr(state, ir);
               rhs = ir.bin.lhs;
             }
+            if(ast->op == T_DIV || ast->op == T_MUL)
+            {
+              ir.bin.lhs.reg_sz  = rhs.reg_sz;
+              ir.bin.lhs.reg  = (char)regs_enum::RBX;
+              ir.bin.rhs      = rhs;
+              InsertIr(state, ir);
+              rhs = ir.bin.lhs;
 
-            ir.bin.lhs.reg  = GetAvailableReg(lang_stat);
-            ir.bin.lhs.reg_sz  = 4;
-            ir.bin.rhs = lhs;
-            InsertIr(state, ir);
+              ir.bin.lhs.reg  = 0;
+              ir.bin.lhs.reg_sz  = lhs.reg_sz;
+              ir.bin.rhs = lhs;
+              InsertIr(state, ir);
+            }
+            else
+            {
+              ir.bin.lhs.reg  = GetAvailableReg(lang_stat);
+              ir.bin.lhs.reg_sz  = 4;
+              ir.bin.rhs = lhs;
+              InsertIr(state, ir);
+            }
 
             lhs = ir.bin.lhs;
           }

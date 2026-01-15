@@ -13,8 +13,13 @@ layout(std140) uniform _model {
     int trn_sz;
 } MODEL;
 
+in vec3 out_n;
 out vec4 FragColor;
 void main()
 {
-  FragColor = vec4(0.5, 0.4, 0.3, 1.0);
+  vec3 sun_dir = normalize(vec3(1.0, -0.6, 0.0));
+
+  float d = -dot(sun_dir, out_n);
+  FragColor = vec4(1.0) * d;
+  //FragColor = vec4(out_n.xyz, 1.0);
 }

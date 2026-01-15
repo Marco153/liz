@@ -133,8 +133,11 @@ add_read_img::fn(g :*game_info, x : s32, z :s32, mip : u8)
   w.CREATE_TEX.z = z
   w.CREATE_TEX.mip = mip
 
-  printf("adding CREATE_TEX {cast(u32)w.CREATE_TEX.type}, x {w.CREATE_TEX.x}, z {w.CREATE_TEX.z}, mip {w.CREATE_TEX.mip}\n")
+  sec := ((cast(*u32)g.thread_info.work_to_do.buffer_data)[1])[1]
+
+  printf("adding CREATE_TEX {cast(u32)w.CREATE_TEX.type}, x {w.CREATE_TEX.x}, z {w.CREATE_TEX.z}, mip {w.CREATE_TEX.mip}, sec val {sec}\n")
   linked_add(&g.thread_info.work_to_do, &w, 0)
+
 }
 thread :: fn(arg : *void)
 {
@@ -149,6 +152,8 @@ thread :: fn(arg : *void)
 
     if !cur continue
 
+    //PrintStr("--THREAD: has data\n")
+
     data := cast(*work_to_do_info)cur.ptr
 
     io_globals.linear_cur = 0
@@ -160,9 +165,16 @@ thread :: fn(arg : *void)
       x   := data.CREATE_TEX.x
       z   := data.CREATE_TEX.z
 
-      //printf("is_mip x {data.CREATE_TEX.x}, y {data.CREATE_TEX.x}, addr {cast(u64)data}\n")
-      /*
+      {
+        lock_mutex(&thread_info.working_data_texs.mutex)
+        defer unlock_mutex(&thread_info.working_data_texs.mutex)
+        used := thread_info.working_data_texs.used_chunks
+          if (used + 1) >= (thread_info.working_data_texs.total_chunks )
+            break;
+      }
+
       tex_lnk := linked_add(&thread_info.working_data_texs, nil, 0)
+      printf("##THREAD: x %, z %, mip %, addr %, tex_lnk addr %, ptr addr %,  ptr end %\n", data.CREATE_TEX.x, data.CREATE_TEX.z, data.CREATE_TEX.mip, cast(u64)data, cast(u64)tex_lnk, cast(u64)tex_lnk.ptr, cast(u64)tex_lnk.ptr + sizeof(aux_tex_struct))
 
       galloc : generic_allocator
       galloc.type = generic_allocator.ITSELF_IS_ADDRESS
@@ -170,7 +182,43 @@ thread :: fn(arg : *void)
 
       f : file
 
-      read_file("/home/marco/terrain/mip{mip}/tile_{x}_{z}.data", &f, &galloc)
+      buffer :[256]u8
+      snprintf(buffer, 256, "/home/marco/terrain/mip%/tile_%_%.data", mip, x, z)
+      //printf("--THREAD: will read file\n")
+      read_file(cast(str_lit)buffer, &f, &galloc)
+
+      fstart := cast(u64)f.data
+      fend   := (cast(u64)f.data + f.sz)
+      //printf("--THREAD: file read, file addr %, end %\n", fstart, fend)
+
+/*
+      start := cast(u64)thread_info.work_to_do.buffer_data
+      end   := cast(u64)thread_info.work_to_do.buffer_data + thread_info.work_to_do.total_chunks * sizeof(work_to_do_info)
+
+      printf("--THREAD: wortodo start %, worktodo end %\n", start, end)
+
+      printf("***THREAD: tex start %, tex end %\n", start, end)
+
+      if start > fstart && start < fend
+      {
+        printf("--THREAD: overrides work_to_do buffer_data\n")
+
+      }
+
+      start = cast(u64)tex_lnk.ptr
+      end   = cast(u64)tex_lnk.ptr + sizeof(aux_tex_struct)
+
+      printf("***THREAD: tex start %, tex end %\n", start, end)
+
+      if start > fstart && start < fend
+      {
+        printf("--THREAD: overrides work_to_do buffer_data\n")
+
+      }
+      */
+
+
+
 
 
       done : work_done_info
@@ -184,8 +232,7 @@ thread :: fn(arg : *void)
 
       linked_remove(&thread_info.work_to_do, cur)
 
-      printf("work done\n")
-      */
+      printf("--THREAD: work done\n")
     }
     default:
     {
@@ -454,35 +501,27 @@ create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
 }
 init_terrain::fn(g : *game_info, trn : *terrain_info)
 {
-  bsz := cast(u32)8 * 6
-  trn.ubo = create_storage_buffer(bsz)
+  trn.mip_page_table = cast(**u32)get_buffer_from_generic_alloc(&g.main_galloc, 8 * 8)
 
+  trn.mip_page_table[0] = cast(*u32)&trn.page_table64
+  trn.mip_page_table[1] = cast(*u32)&trn.page_table32
+  trn.mip_page_table[2] = cast(*u32)&trn.page_table16
+  trn.mip_page_table[3] = cast(*u32)&trn.page_table8
+  trn.mip_page_table[4] = cast(*u32)&trn.page_table4
 
-  block: [6]u64
-  val : u64
+  trn.mip_img_table = cast(**void)get_buffer_from_generic_alloc(&g.main_galloc, 8 * 8)
 
-  make_face_val(val, 0, 0, 0, FACE_RIGHT, 15, 0, 0)
-  block[0] = val
+  trn.mip_img_table[0] = g.page_map_img64;
+  trn.mip_img_table[1] = g.page_map_img32;
+  trn.mip_img_table[2] = g.page_map_img16;
+  trn.mip_img_table[3] = g.page_map_img8;
+  trn.mip_img_table[4] = g.page_map_img4;
 
-  make_face_val(val, 0, 0, 0, FACE_LEFT, 15, 0, 0)
-  block[1] = val
-
-  make_face_val(val, 0, 0, 0, FACE_UP, 15, 0, 0)
-  block[2] = val
-
-  make_face_val(val, 0, 0, 0, FACE_DOWN, 15, 0, 0)
-  block[3] = val
-
-  make_face_val(val, 0, 0, 0, FACE_FORWARD, 15, 0, 0)
-  block[4] = val
-
-  make_face_val(val, 0, 0, 0, FACE_BACK, 15, 0, 0)
-  block[5] = val
-
-
-  create_storage_buffer(bsz)
-
-
+  memset(trn.page_table64, cast(u8)-1, trn.page_table64.len * sizeof(u32))
+  memset(trn.page_table32, cast(u8)-1, trn.page_table32.len * sizeof(u32))
+  memset(trn.page_table16, cast(u8)-1, trn.page_table16.len * sizeof(u32))
+  memset(trn.page_table8,  cast(u8)-1, trn.page_table8.len * sizeof(u32))
+  memset(trn.page_table4,  cast(u8)-1, trn.page_table4.len * sizeof(u32))
 }
 create_ents::fn(g : *game_info)
 {
@@ -664,6 +703,7 @@ init_images::fn(g : *game_info)
   g.tex_map_img = create_image_asset(g, "tex_map", &desc)
 
   aux_buffer := get_buffer_from_generic_alloc(nil, 64 * 64 * 4)
+
   memset(aux_buffer, cast(u8)-1, 64 * 64 * 4)
 
   desc.width      = 64
@@ -705,7 +745,7 @@ init_images::fn(g : *game_info)
 
 init_game::fn(g : *game_info)
 {
-  io_globals.mutex = create_mutex()
+  io_globals.linear_alloc_mutex = create_mutex()
   io_globals.linear_max = 1024 * 32
   io_globals.linear_cur = 0
   io_globals.linear_data = cast(*u8)GetMem(io_globals.linear_max)
@@ -772,6 +812,9 @@ init_game::fn(g : *game_info)
     &g.offscreen_fbo.color_tex.id, cast(s32)g.wnd_width, cast(s32)g.wnd_height)
 
 
+  g.cam_rot.x = 0.0
+  g.cam_rot.y = 0.0
+  g.cam_rot.z = 0.0
   g.cam_rot.w = 1.0
 
   g.up.y = 1.0
@@ -813,8 +856,14 @@ init_game::fn(g : *game_info)
 
   g.trn.trn.tex_map_img = g.tex_map_img
 
+  init_terrain(g, g.trn.trn)
 
-  //check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
+  check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
+  check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 1)
+  check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 2)
+  check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 3)
+  check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 4)
+  //check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 5)
 
 }
 
@@ -910,7 +959,7 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
     }
   }
 }
-add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_info, ch_sz:f32, mod : *model_info)
+add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_info, ch_sz:f32, mod : *model_info, mip : u8)
 {
   cur := ptr_offset(rman.draws, rman.cur_draws, draw_info)
   
@@ -936,7 +985,17 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
 
   texs[0].img  = g.tex_map_img
   texs[0].samp = &g.rman.nearest_sampler
-  texs[1].img  = g.page_map_img64
+  //texs[1].img  = cast(*image)g.trn.trn.mip_img_table[cast(u64)mip]
+  if mip == 0
+    texs[1].img  = g.page_map_img64;
+  else if mip == 1
+    texs[1].img  = g.page_map_img32;
+  else if mip == 2
+    texs[1].img  = g.page_map_img16;
+  else if mip == 3
+    texs[1].img  = g.page_map_img8;
+  else
+    texs[1].img  = g.page_map_img4;
   texs[1].samp = &g.rman.nearest_sampler
 
   cur.OBJECT.texs = texs
@@ -954,14 +1013,13 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
 add_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
   start_sz := 64.0f
-  add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0], 64.0f, &g.chunk_128)
-  /*
-  for i in 0..5
+  mod := &g.chunk_128;
+  for i in 0..MIP_LEVELS
   {
+    add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0], start_sz, mod, cast(u8)i)
     start_sz *= 2.0
-    add_trn_chunk_to_draw(g, rman, &g.trn.trn.chunks[0], start_sz, &g.chunk_128_patched)
+    mod = &g.chunk_128_patched
   }
-  */
 }
 clear_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
@@ -1173,11 +1231,17 @@ check_work_done::fn(g : *game_info)
     {
     work_done_info.DONE_CREATE_TEX
     {
+      xs := data.DONE_CREATE_TEX.x
+      zs := data.DONE_CREATE_TEX.z
       x := cast(f64)data.DONE_CREATE_TEX.x
       z := cast(f64)data.DONE_CREATE_TEX.z
+      mip := data.DONE_CREATE_TEX.mip
+      tex_lnk := data.DONE_CREATE_TEX.tex_lnk
+      mul := 1 << mip
+      div := (CHUNK_SIZE * cast(s32)mul)
 
-      cam_idx_x := g.cam_pos.x / cast(f64)CHUNK_SIZE
-      cam_idx_z := g.cam_pos.z / cast(f64)CHUNK_SIZE
+      cam_idx_x := g.cam_pos.x / cast(f64)div
+      cam_idx_z := g.cam_pos.z / cast(f64)div
 
       diff_x := x - cam_idx_x
       diff_z := z - cam_idx_z
@@ -1191,15 +1255,52 @@ check_work_done::fn(g : *game_info)
       printf("diffx {diff_x_i}, diffy {diff_z_i}\n")
 
       defer linked_remove(&thread_info.work_done, cur)
+      defer linked_remove(&thread_info.working_data_texs, tex_lnk)
       if (diff_x_i < 0 || diff_z_i < 0 || diff_x_i > 2 || diff_z_i > 2)
       {
         // chunk is out of 5x5 grid
+        printf("THREAD: chunk lies outside of player pos window\n")
         break;
       }
 
+      
+      idx := get_and_assign_image_to_tex_map(g.trn.trn, xs, zs, mip, tex_lnk.ptr)
 
+      pages := &g.trn.trn.page_table64
+      if mip == 0
+        pages = &g.trn.trn.page_table64;
+      else if mip == 1
+        pages = &g.trn.trn.page_table32;
+      else if mip == 2
+        pages = &g.trn.trn.page_table16;
+      else if mip == 3
+        pages = &g.trn.trn.page_table8;
+      else if mip == 4
+        pages = &g.trn.trn.page_table4;
 
-      printf("we have done create tex\n")
+      w := TERRAIN_SIZE / div
+      page_idx := cast(u64)(xs + zs * w)
+      pages[page_idx] = cast(u32)idx
+      if mip == 0
+        update_image(&g.rman, g.page_map_img64, pages);
+      else if mip == 1
+        update_image(&g.rman, g.page_map_img32, pages);
+      else if mip == 2
+        update_image(&g.rman, g.page_map_img16, pages);
+      else if mip == 3
+        update_image(&g.rman, g.page_map_img8, pages);
+      else if mip == 4
+        update_image(&g.rman, g.page_map_img4, pages);
+
+      printf("&we have done create tex, idx {idx}, page_idx {page_idx}\n")
+    }
+    default
+    {
+      printf("work done not recognized {data.type}\n")
+      __dbg_break
+      __dbg_break
+      __dbg_break
+
     }
     }
   }
@@ -1207,7 +1308,23 @@ check_work_done::fn(g : *game_info)
  
 check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos : vector, mip : u8)
 {
-  pos := player_pos / cast(f64)CHUNK_SIZE
+  pages := &trn.page_table64
+  if mip == 0
+    pages = &g.trn.trn.page_table64;
+  else if mip == 1
+    pages = &g.trn.trn.page_table32;
+  else if mip == 2
+    pages = &g.trn.trn.page_table16;
+  else if mip == 3
+    pages = &g.trn.trn.page_table8;
+  else if mip == 4
+    pages = &g.trn.trn.page_table4;
+
+  mul := 1 << mip
+  div := (CHUNK_SIZE * cast(s32)mul)
+  w := TERRAIN_SIZE / div
+
+  pos := player_pos / cast(f64)div
   px := cast(s32)pos.x
   pz := cast(s32)pos.z
 
@@ -1224,10 +1341,6 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
   max_x   = clamp(max_x, 0, max_ch_sz)
   max_z   = clamp(max_z, 0, max_ch_sz)
 
-  pages := &trn.page_table64
-  mul := 1 << mip
-  div := (CHUNK_SIZE * cast(s32)mul)
-  w := TERRAIN_SIZE / div
 
   printf("start_x {start_x}, start_z {start_z}, max_x {max_x}, max_z {max_z}, w {w}, mul {mul}, div {div}\n")
 
@@ -1255,7 +1368,9 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
         }
       }
       if should_add
+      {
         add_read_img(g, cast(s32)x, cast(s32)z, mip);
+      }
     }
   }
 }
@@ -1263,15 +1378,15 @@ update_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos : vect
 {
 
   p := trn.prev_player_pos - player_pos
+  p.y = 0.0
   l := len_vec(p)
   if l > cast(f64)(CHUNK_SIZE / 4)
   {
-
-
-
     trn.prev_player_pos.x = cast(f64)cast(s64)player_pos.x
     trn.prev_player_pos.z = cast(f64)cast(s64)player_pos.z
     trn.prev_player_pos.y = 0.0
+
+    check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
   }
 
 }
@@ -1303,7 +1418,7 @@ run_game::fn(g : *game_info)
 
     player_mov(g, g.player, dt)
 
-    //print_vec2(g.cam_pos)
+    print_vec2(g.cam_pos)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)
@@ -1325,11 +1440,6 @@ main::fn()
 
   test : u64= 6
   expected : u64= 6
-  __dbg_break
-  __dbg_break
-  __dbg_break
-  lock_cmpxchg(&test, expected, 1)
-  expected = lock_xchg(&test, 2)
   game : game_info
 
   init_game(&game)

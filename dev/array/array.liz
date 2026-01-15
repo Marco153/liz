@@ -336,7 +336,7 @@ init_linked_list_mutex::fn{T}(l : *linked_list_mutex(T), total : u32, alloc : *g
 {
   chunks_size := sizeof(linked_chunk) * total
 
-  l.buffer_chunks = cast(*linked_chunk)get_buffer_from_generic_alloc(alloc, total * sizeof(T))
+  l.buffer_chunks = cast(*linked_chunk)get_buffer_from_generic_alloc(alloc, total * sizeof(linked_chunk))
   l.buffer_data   = cast(*T)get_buffer_from_generic_alloc(alloc, total * sizeof(T))
 
   memset(l.buffer_chunks, 0, chunks_size)
@@ -353,6 +353,9 @@ linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_c
   {
     __dbg_break
   }
+  //printf("LINKED REM: addr %, start %\n", cast(u64)ptr.ptr, cast(u64)l.buffer_data)
+  io_globals.linear_cur = 0
+  //printf("LINKED REM: next addr %, val x %\n", cast(u64)aux.next.ptr, (cast(*u32)aux.next.ptr)[2] & 0xfffff)
   prev := aux.prev
   next := aux.next 
   if prev != nil && next == nil
@@ -363,6 +366,7 @@ linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_c
   {
     prev.next = aux.next
     next.prev = aux.prev
+
   }
   else if prev == nil && next != nil
   {
@@ -370,7 +374,9 @@ linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_c
   }
   if aux == l.start
   {
+    //printf("LINKED REM: will try \n")
     ASSERT(aux.prev == nil)
+    //printf("LINKED REM: tried \n")
     if next != nil
     {
       l.start = next
@@ -383,6 +389,7 @@ linked_remove::fn{T}(l : *linked_list_mutex(T), ptr : *linked_chunk) ! *linked_c
   aux.in_use = false
   l.used_chunks--
 
+  //printf("LINKED REM: end \n")
   unlock_mutex(&l.mutex)
   return aux.next
 }
@@ -391,6 +398,8 @@ linked_acquire_first::fn{T}(l : *linked_list_mutex(T), thread_id : u32) ! *linke
 }
 linked_add_base::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *linked_chunk
 {
+  sec := &l.buffer_data[1]
+  //printf("LINKED ADD: START sec addr %, sec_val %, start %\n", cast(u64)sec, (cast(*u32)sec)[2], cast(u64)l.buffer_data)
   aux :*linked_chunk
   for i in 0..cast(s64)l.total_chunks
   {
@@ -408,12 +417,16 @@ linked_add_base::fn{T}(l : *linked_list_mutex(T), data : *T, line : u32) ! *link
   }
   if(aux == nil)
   {
+    printf("linked_add: not enough space\n")
       __dbg_break
-    }
+  }
 
   if data != nil
   {
+    sec = &l.buffer_data[1]
+    //printf("LINKED ADD: BEF first u32 %, addr %, sec addr %, sec_val %, start %\n", (cast(*u32)data)[1], cast(u64)aux.ptr, cast(u64)sec, (cast(*u32)sec)[2], cast(u64)l.buffer_data)
     memcpy(aux.ptr, data, sizeof(T));
+    //printf("LINKED ADD: AFT first u32 %, addr %, sec addr %, sec_val %, start %\n", (cast(*u32)data)[1], cast(u64)aux.ptr, cast(u64)sec, (cast(*u32)sec)[2], cast(u64)l.buffer_data)
   }
   
   start := l.start

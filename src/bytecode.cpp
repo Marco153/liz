@@ -1436,7 +1436,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			CHANGE_JMP_DST_BC
 			break;
 		case JMP_G:
-			AddJump(&*bc, 0x7d, ret);
+			AddJump(&*bc, 0x7f, ret);
 			CHANGE_JMP_DST_BC
 			break;
 		case JMP_GE:

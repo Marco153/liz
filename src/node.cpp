@@ -10845,6 +10845,7 @@ if(!decl)
       case enum_type2::TYPE_S16:
       case enum_type2::TYPE_S32:
       case enum_type2::TYPE_S64:
+      case enum_type2::TYPE_VOID:
       case enum_type2::TYPE_VECTOR:
       {
         ASSERT(lhs.ptr > 0)

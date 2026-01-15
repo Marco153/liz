@@ -17,6 +17,7 @@ in vec3 vpos;
 layout(binding=0)uniform sampler2DArray terrainTex;
 layout(binding=1)uniform isampler2D pageTable;
 
+out vec3 out_n;
 float round_away_from_zero(float x)
 {
     return sign(x) * ceil(abs(x));
@@ -27,24 +28,41 @@ int iround_away_from_zero(float x)
 }
 float sampleHeight(vec2 w)
 {
-  int trn_sz = MODEL.trn_sz;
-  int ch_sz  = MODEL.chunk_sz;
+  float ch = float(MODEL.chunk_sz);
 
-  ivec2 wi = ivec2(w.xy) / ch_sz;
+  vec2 cellf = floor(w / ch);
+  ivec2 wi = ivec2(cellf);
 
   int layer = texelFetch(pageTable, wi, 0).r;
+  if (layer < 0) return 0.0;
 
-  if(layer == -1) return 0.0;
+  vec2 local_uv = (w / ch) - cellf;
 
-  vec2 local_uv = fract(w / float(ch_sz));
+  return texture(terrainTex, vec3(local_uv, layer)).r * 14.0;
+}
+vec3 terrainNormal(vec2 w, float e )
+{
+    float hL = sampleHeight(w + vec2(-e, 0));
+    float hR = sampleHeight(w + vec2( e, 0));
+    float hD = sampleHeight(w + vec2(0, -e));
+    float hU = sampleHeight(w + vec2(0,  e));
 
-  return texture(terrainTex, vec3(local_uv, layer)).r;
+    return normalize(vec3(
+        hL - hR,
+        2.0 * e,
+        hD - hU
+    ));
 }
 void main()
 {
   vec4 pos = vec4(vpos.xyz, 1.0);
   vec4 p = MODEL.mod * pos;
-  float val = sampleHeight(p.xz);
+  vec4 sampl = vec4(UBO.snap_pos.xyz, 0.0) + p;
+  float val = sampleHeight(sampl.xz);
   p.y += val;
+
+  float step = float(MODEL.chunk_sz) / textureSize(terrainTex, 0).x;
+  out_n = terrainNormal(sampl.xz, step);
+
   gl_Position =  UBO.proj *  UBO.view * p;
 }

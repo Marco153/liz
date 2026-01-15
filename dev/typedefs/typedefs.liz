@@ -13,7 +13,7 @@ typedef vector as _vec2;
 {
   mutex_info:struct
   {
-    pad : [40]char
+    val : u64
   }
 }
 

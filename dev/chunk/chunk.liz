@@ -43,7 +43,7 @@ TERRAIN_SIZE :const s32= 8192
 
 TEX_GRID_SIZE:const s32=3
 TEX_GRID_SIZE_SQRD:const s32= TEX_GRID_SIZE * TEX_GRID_SIZE
-MIP_LEVELS:const s32=1
+MIP_LEVELS:const s32=7
 
 CHUNK_WIDTH:const s32=7
 TOTAL_CHUNKS:const s32=CHUNK_WIDTH*CHUNK_WIDTH
@@ -96,19 +96,23 @@ terrain_info:struct
   page_table16 : [16 * 16] u32
   page_table8  : [8 * 8] u32
   page_table4  : [4 * 4] u32
+
+  mip_page_table : **u32
+  mip_img_table : **void
 }
 
-get_and_assign_image_to_tex_map::fn(trn :*terrain_info, x : s32, y : s32, lod : s32, data : *void) ! s32
+get_and_assign_image_to_tex_map::fn(trn :*terrain_info, x : s32, y : s32, lod : u8, data : *void) ! s32
 {
-  hash := x | (y << 16) | (lod << 29)
+  hash := x | (y << 16) | (cast(s32)lod << 29)
   for i in 0..TOTAL_TEXS_IN_MAP
   {
     idx := cast(u64)(cast(s64)hash + i)
+    idx = idx % TOTAL_TEXS_IN_MAP
     cur := &trn.tex_map[idx]
 
     if !cur.in_use
     {
-      update_image_layer(trn.tex_map_img, 0, data)
+      update_image_layer(trn.tex_map_img, cast(u32)idx, data)
       cur.in_use = true;
       return cast(s32)idx
     }

@@ -10999,6 +10999,7 @@ void FromIRToBc(lang_state *lang_stat, thread_ir_state *state, machine_code& mac
 
         if(cur_ir->type == IR_CMP)
         {
+          //BREAK(cur_line == 1241)
           block2 *dst_block = &((block2 *)state->blocks_ptr)[cur_ir->bin.block_id];
           byte_code* cmp_inst = &ret.back();
           cmp_inst->bin.is_unsigned = ir->bin.lhs.is_unsigned;

@@ -691,10 +691,12 @@ generic_alloc::fn(alloc : *generic_allocator, sz : u64) ! *void
   }
   HEAP_ALLOC
   {
+    printf("GALLOC: HEAP_ALLOC\n")
     return heap_alloc(alloc.HEAP_ALLOC.alloc, cast(u32)sz)
   }
   ITSELF_IS_ADDRESS
   {
+    printf("GALLOC: ITSELF_IS_ADDRESS\n")
     return alloc.ITSELF_IS_ADDRESS.addr
   }
   default

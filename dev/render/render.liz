@@ -28,6 +28,10 @@ draw_info:etruct
 
     chunk_sz : u32
     trn_sz : u32
+
+    global_posx : s32
+    global_posy : s32
+    global_posz : s32
   )
 }
 global_ubo_uniform:struct
@@ -602,7 +606,7 @@ draw_object_indexed::fn(rman : *render_manager, index_buffer:*buffer_info)
   count := cast(s32)index_buffer.size / sizeof(u32)
 #if RENDER_API == OPENGL
 {
-  glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+  //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
   glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, nil);
 }
 }

@@ -14,6 +14,7 @@ layout(std140) uniform _model {
 } MODEL;
 
 in vec3 out_n;
+in vec4 out_col;
 out vec4 FragColor;
 void main()
 {
@@ -22,4 +23,5 @@ void main()
   float d = -dot(sun_dir, out_n);
   FragColor = vec4(1.0) * d;
   //FragColor = vec4(out_n.xyz, 1.0);
+  //FragColor = out_col;
 }

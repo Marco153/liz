@@ -96,6 +96,8 @@ terrain_info:struct
   page_table16 : [16 * 16] u32
   page_table8  : [8 * 8] u32
   page_table4  : [4 * 4] u32
+  page_table2  : [2 * 4] u32
+  page_table1  : [1 * 4] u32
 
   mip_page_table : **u32
   mip_img_table : **void

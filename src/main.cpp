@@ -10112,7 +10112,7 @@ void make_mips()
   int cur_ch_sz = CHUNK_SZ;
   int cur_ch_sz_inv = CHUNK_SZ;
   int stride = 1;
-  for(int m = 0; m < 5; m++)
+  for(int m = 0; m < 7; m++)
   {
     if(cur_ch_sz_inv == 0) return;
 

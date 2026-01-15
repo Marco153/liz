@@ -49,6 +49,7 @@ framebuffer_info:struct
   normal_tex : texture_handle
 }
 
+MAX_MIPS_IDXS:const s32= 1024
 game_info:struct
 {
   wnd:*u8
@@ -129,6 +130,8 @@ game_info:struct
   page_map_img4 : *image
   page_map_img2 : *image
   page_map_img1 : *image
+
+  mips_terrain_idxs : [MAX_MIPS_IDXS]u32
 }
 add_read_img::fn(g :*game_info, x : s32, z :s32, mip : u8)
 {
@@ -142,7 +145,7 @@ add_read_img::fn(g :*game_info, x : s32, z :s32, mip : u8)
 
   sec := ((cast(*u32)g.thread_info.work_to_do.buffer_data)[1])[1]
 
-  printf("adding CREATE_TEX {cast(u32)w.CREATE_TEX.type}, x {w.CREATE_TEX.x}, z {w.CREATE_TEX.z}, mip {w.CREATE_TEX.mip}, sec val {sec}\n")
+  //printf("adding CREATE_TEX {cast(u32)w.CREATE_TEX.type}, x {w.CREATE_TEX.x}, z {w.CREATE_TEX.z}, mip {w.CREATE_TEX.mip}, sec val {sec}\n")
   linked_add(&g.thread_info.work_to_do, &w, 0)
 
 }
@@ -181,7 +184,7 @@ thread :: fn(arg : *void)
       }
 
       tex_lnk := linked_add(&thread_info.working_data_texs, nil, 0)
-      printf("##THREAD: x %, z %, mip %, addr %, tex_lnk addr %, ptr addr %,  ptr end %\n", data.CREATE_TEX.x, data.CREATE_TEX.z, data.CREATE_TEX.mip, cast(u64)data, cast(u64)tex_lnk, cast(u64)tex_lnk.ptr, cast(u64)tex_lnk.ptr + sizeof(aux_tex_struct))
+      //printf("##THREAD: x %, z %, mip %, addr %, tex_lnk addr %, ptr addr %,  ptr end %\n", data.CREATE_TEX.x, data.CREATE_TEX.z, data.CREATE_TEX.mip, cast(u64)data, cast(u64)tex_lnk, cast(u64)tex_lnk.ptr, cast(u64)tex_lnk.ptr + sizeof(aux_tex_struct))
 
       galloc : generic_allocator
       galloc.type = generic_allocator.ITSELF_IS_ADDRESS
@@ -239,7 +242,7 @@ thread :: fn(arg : *void)
 
       linked_remove(&thread_info.work_to_do, cur)
 
-      printf("--THREAD: work done\n")
+      //printf("--THREAD: work done\n")
     }
     default:
     {
@@ -769,6 +772,8 @@ init_images::fn(g : *game_info)
 
 init_game::fn(g : *game_info)
 {
+  memset(&g.mips_terrain_idxs, cast(u8)-1, g.mips_terrain_idxs.len * 2)
+
   g.snap_cam = true
   io_globals.linear_alloc_mutex = create_mutex()
   io_globals.linear_max = 1024 * 32
@@ -1291,7 +1296,7 @@ check_work_done::fn(g : *game_info)
       diff_x_i := cast(s32)diff_x
       diff_z_i := cast(s32)diff_z
 
-      printf("diffx {diff_x_i}, diffy {diff_z_i}\n")
+      //printf("diffx {diff_x_i}, diffy {diff_z_i}\n")
 
       defer linked_remove(&thread_info.work_done, cur)
       defer linked_remove(&thread_info.working_data_texs, tex_lnk)
@@ -1314,7 +1319,21 @@ check_work_done::fn(g : *game_info)
 
       update_image(&g.rman, img, pages);
 
-      printf("&we have done create tex, x {xs}, z {zs}, mip {mip_clamp}, idx {idx}, page_idx {page_idx}\n")
+
+      cur_idx := &g.mips_terrain_idxs[(TEX_GRID_SIZE_SQRD * cast(u64)mip)]
+
+      at := *cur_idx
+
+      printf("actual {mip} at {at}\n")
+      if at != -1
+      {
+        cur_idx[cast(u64)at + 1] = cast(u32)idx
+        *cur_idx = *cur_idx + 1
+        printf("inc {mip} \n")
+      }
+
+      //if mip_clamp == 0
+        printf("&we have done create tex, x {xs}, z {zs}, mip {mip_clamp}, idx {idx}, page_idx {page_idx}\n")
     }
     default
     {
@@ -1363,7 +1382,7 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
   max_z   = clamp(max_z, 0, w - 1)
 
 
-  printf("start_x {start_x}, start_z {start_z}, max_x {max_x}, max_z {max_z}, w {w}, mul {mul}, div {div}\n")
+  //printf("start_x {start_x}, start_z {start_z}, max_x {max_x}, max_z {max_z}, w {w}, mul {mul}, div {div}\n")
 
   if w == 1
   {
@@ -1379,6 +1398,21 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
     return
   }
 
+  cur_idx := &g.mips_terrain_idxs[cast(u64)(TEX_GRID_SIZE_SQRD * cast(u64)mip)]
+  *cur_idx = 0
+  cur_idx = &g.mips_terrain_idxs[(TEX_GRID_SIZE_SQRD * cast(u64)mip + 1)]
+  for i in 0..TEX_GRID_SIZE_SQRD
+  {
+    if *cur_idx != cast(u16)-1
+    {
+      printf("mip{mip} have prev vals i {i}, val {*cur_idx}\n")
+      chunk_val := &trn.tex_map[cast(u64)*cur_idx]
+      chunk_val.in_use = false
+
+      *cur_idx = cast(u16)-1
+    }
+    cur_idx = &cur_idx[1]
+  }
 
 
   for z in start_z..max_z
@@ -1394,7 +1428,7 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
       }
       else
       {
-        chunk_val := trn.tex_map[cast(u64)val]
+        chunk_val := &trn.tex_map[cast(u64)val]
         chunk_val.in_use = false
 
         if (chunk_val.x == x && chunk_val.z == z && chunk_val.mip == mip) == false
@@ -1461,7 +1495,7 @@ run_game::fn(g : *game_info)
 
     player_mov(g, g.player, dt)
 
-    print_vec2(g.cam_pos)
+    //print_vec2(g.cam_pos)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)

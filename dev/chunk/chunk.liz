@@ -119,6 +119,7 @@ get_and_assign_image_to_tex_map::fn(trn :*terrain_info, x : s32, y : s32, lod : 
       return cast(s32)idx
     }
   }
+  __dbg_break
   return -1
 }
 

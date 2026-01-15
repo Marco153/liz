@@ -1421,10 +1421,10 @@ update_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos : vect
     trn.prev_player_pos.z = cast(f64)cast(s64)player_pos.z
     trn.prev_player_pos.y = 0.0
 
-/*
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 1)
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 2)
+/*
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 3)
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 4)
     */

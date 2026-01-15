@@ -22,7 +22,7 @@ work_to_do_info:etruct
 }
 aux_tex_struct :struct
 {
-  data : [CHUNK_SIZE * CHUNK_SIZE * HEIGHTMAP_BYTES_PER_PIXEL]char
+  data : [(CHUNK_SIZE + 1) * CHUNK_SIZE * HEIGHTMAP_BYTES_PER_PIXEL]char
 }
 thread_work_info:struct
 {

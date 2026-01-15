@@ -619,32 +619,43 @@ struct type_struct2;
 char* ReadEntireFileBuffer(char* name, char *buffer, u32 sz)
 {
 #ifdef LINUX
-	int fh, n;
-	struct stat v;
 
-	fh = open(name, O_RDONLY);
-	if (fh == -1) {
-		perror("open");
-		printf("file not found\"%s\"", name);
-		close(fh);
-		return nullptr;
-	}
+int fh;
+struct stat v;
 
-	/* first find the size of file .. use stat() system call */
-	stat(name, &v);
+fh = open(name, O_RDONLY);
+if (fh == -1) {
+    perror("open");
+    return nullptr;
+}
 
-	char* string = buffer;
-	ASSERT(string);
-	int res=read(fh, string, v.st_size);
-	if (res == -1) {
-		perror("read");
-		close(fh);
-		return nullptr;
-	}
-	close(fh);
+if (fstat(fh, &v) == -1) {
+    perror("fstat");
+    close(fh);
+    return nullptr;
+}
 
-	string[v.st_size] = 0;
-	return string;
+char* string = buffer;
+ASSERT(string);
+if(sz < (size_t)v.st_size + 1)
+{
+  printf("buffer is not big enough for file %s, required %d, it has %d\n", name, v.st_size + 1, sz);
+  ASSERT(false)
+
+}
+
+ssize_t res = read(fh, string, v.st_size);
+if (res == -1) {
+    perror("read");
+    close(fh);
+    return nullptr;
+}
+
+close(fh);
+
+string[res] = 0;
+return string;
+
 #else
 	HANDLE file = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
 	if (file == nullptr )
@@ -694,6 +705,7 @@ u32 _GetFileSize(char* name, unsigned int* read_out)
 	}
 	stat(name, &v);
   *read_out = v.st_size;
+  close(fh);
   return v.st_size;
 #else
 	HANDLE file = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);

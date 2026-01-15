@@ -57,6 +57,8 @@ game_info:struct
   names_alloc : mem_alloc
   work_dir : string
 
+  snap_cam : bool  
+
   cursor_hidden : bool
 
   empty_vao : u32
@@ -100,6 +102,7 @@ game_info:struct
 
   chunk_128 : model_info
   chunk_128_patched : model_info
+  chunk_128_final : model_info
 
   chunk_64 : model_info
   chunk_32 : model_info
@@ -583,6 +586,7 @@ init_models::fn(g : *game_info)
 {
   create_trn_mesh(g, "_128.fbx", &g.chunk_128.mesh, &g.chunk_128.contract)
   create_trn_mesh(g, "_128_p.fbx", &g.chunk_128_patched.mesh, &g.chunk_128_patched.contract)
+  //create_trn_mesh(g, "_128_final.fbx", &g.chunk_128_final.mesh, &g.chunk_128_final.contract)
 
   verts := &g.chunk_128.mesh.attrs[0].buffer
   //inds := g.chunk_128.mesh.index_buffer.data
@@ -745,6 +749,7 @@ init_images::fn(g : *game_info)
 
 init_game::fn(g : *game_info)
 {
+  g.snap_cam = true
   io_globals.linear_alloc_mutex = create_mutex()
   io_globals.linear_max = 1024 * 32
   io_globals.linear_cur = 0
@@ -752,7 +757,7 @@ init_game::fn(g : *game_info)
   printf("on main: {io_globals.linear_max}\n")
   PrintStr("mincraft start\n")
 
-  InitMemAlloc(&g.main_alloc, 1600000)
+  InitMemAlloc(&g.main_alloc, 2900000)
 
   InitMemAlloc(&g.names_alloc, 1000)
 
@@ -825,7 +830,7 @@ init_game::fn(g : *game_info)
   glfwSetCursorPosCallback(g.wnd, cast(u64)cursor_position_callback)
 
   g.near_plane = 0.1
-  g.far_plane = 4000.0
+  g.far_plane = 8000.0
 
   g.player.forward.z = -1.0
 
@@ -1181,6 +1186,14 @@ end_frame::fn(g:*game_info)
 input_logic::fn(g : *game_info)
 {
 
+  if is_key_down(&g.iman, key_enum.F1)
+  {
+    g.rman.wireframe = !g.rman.wireframe
+  }
+  if is_key_down(&g.iman, key_enum.F3)
+  {
+    g.snap_cam = !g.snap_cam
+  }
   if is_key_down(&g.iman, key_enum.F2)
   {
     if g.cursor_hidden
@@ -1376,7 +1389,7 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
 }
 update_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos : vector)
 {
-
+  if !g.snap_cam return 
   p := trn.prev_player_pos - player_pos
   p.y = 0.0
   l := len_vec(p)

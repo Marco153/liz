@@ -38,7 +38,7 @@ float sampleHeight(vec2 w)
 
   vec2 local_uv = (w / ch) - cellf;
 
-  return texture(terrainTex, vec3(local_uv, layer)).r * 14.0;
+  return texture(terrainTex, vec3(local_uv, layer)).r * 1000.0;
 }
 vec3 terrainNormal(vec2 w, float e )
 {

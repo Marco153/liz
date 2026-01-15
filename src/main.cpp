@@ -10098,7 +10098,7 @@ void make_mips()
   int WIDTH = 8192;
 
   u32 file_sz;
-  HERE()
+  //HERE()
 
   char *file = ReadEntireFileMalloc("/home/marco/terrain/map1.data", &file_sz);
 

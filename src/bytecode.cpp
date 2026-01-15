@@ -2218,6 +2218,14 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
       char aux_reg = 1;
 			// push rax
 			ret.code.emplace_back(0x50 + aux_reg);
+
+      // xor rdx, rdx
+      if(bc->type == DIV_R_2_R)
+      {
+        ret.code.emplace_back(0x48);
+        ret.code.emplace_back(0x31);
+        ret.code.emplace_back(0xd2);
+      }
 			
 			// moving dst to rax
 			bc->bin.lhs.reg = aux_reg;

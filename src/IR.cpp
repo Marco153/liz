@@ -3685,6 +3685,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
     ast_rep *df = ast->deref.exp;
 
+    BREAK(ast->line_number == 1296)
     rhs = GetIRFromAst2(lang_stat, df, state, is_lhs);
 
     rhs.deref += ast->deref.times;
@@ -3695,7 +3696,13 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       if(rhs.type == IR_TYPE_REG)
         rhs.type = IR_TYPE_REG_MEM;
       EnsureValue(lang_stat, state, &rhs);
+      char prev_sz = rhs.reg_sz;
+      if(rhs.ptr > 0)
+      {
+        rhs.reg_sz = 8;
+      }
       LoadDerefs(lang_stat, &state->cur_block->irs, &rhs);
+      rhs.reg_sz = prev_sz;
     }
     else
     {
@@ -3706,6 +3713,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
     }
     rhs.ptr--;
+
+    if(rhs.ptr > 0 && !is_lhs)
+      rhs.kind = IR_VAL_ADDR;
     ret = rhs;
   }break;
   case AST_ADDRESS_OF:
@@ -3760,7 +3770,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ast_rep *casted_ast = ast->cast.casted;
     ret = GetIRFromAst2(lang_stat, casted_ast, state, true);
 
-    //BREAK(ast->line_number == 515)
     char prev = ast->cast.type.ptr;
     int cast_sz = GetTypeSize(&ast->cast.type, 0);
     if(ast->cast.type.type == TYPE_VOID && ast->cast.type.ptr > 0)
@@ -3897,6 +3906,12 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     ret.is_unsigned = ir.bin.lhs.is_unsigned;
     ret.reg_sz = cast_sz;
     ret.ptr = ast->cast.type.ptr;
+
+    if(ret.deref > 0)
+    {
+      ret.kind = IR_VAL_ADDR;
+      ret.deref--;
+    }
 
   }break;
   case AST_STATS:

@@ -1577,7 +1577,7 @@ void InsertIr(thread_ir_state *state, ir_rep &ir)
 {
   if(ir.type == IR_BIN)
   {
-    ASSERT(ir.bin.lhs.reg_sz <= 8 && ir.bin.rhs.reg_sz <= 8)
+    ASSERT(ir.bin.lhs.reg_sz <= 8 && ir.bin.rhs.reg_sz <= 8 || ir.bin.lhs.is_packed_float && ir.bin.lhs.reg_sz >= 8)
     ASSERT(ir.bin.lhs.type != IR_NONE && ir.bin.rhs.type != IR_NONE)
   }
   state->cur_block->irs.emplace_back(ir);

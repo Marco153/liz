@@ -12,6 +12,7 @@ import "../input";
 import "../assimp";
 import "../buffer";
 import "../array";
+import "../physics";
 import "../work";
 
 
@@ -98,6 +99,7 @@ game_info:struct
   near_plane : f32
   far_plane : f32
   iman : input_manager
+  pman : physics_manager
 
   cam_euler_rot : _vec
 
@@ -137,6 +139,9 @@ add_read_img::fn(g :*game_info, x : s32, z :s32, mip : u8)
 {
   if (g.thread_info.work_to_do.used_chunks + 1) >= g.thread_info.work_to_do.total_chunks
     return
+
+  g.trn.trn.streaming_texs = true
+
   w : work_to_do_info
   w.type = work_to_do_info.CREATE_TEX
   w.CREATE_TEX.x = x
@@ -180,7 +185,10 @@ thread :: fn(arg : *void)
         defer unlock_mutex(&thread_info.working_data_texs.mutex)
         used := thread_info.working_data_texs.used_chunks
           if (used + 1) >= (thread_info.working_data_texs.total_chunks )
+          {
+            printf("THREAD: working texs is full\n")
             break;
+          }
       }
 
       tex_lnk := linked_add(&thread_info.working_data_texs, nil, 0)
@@ -511,6 +519,8 @@ create_window::fn(g : *game_info, name : str_lit, w : u32, h : u32) ! *u8
 }
 init_terrain::fn(g : *game_info, trn : *terrain_info)
 {
+  trn.for_col_tex_lnk_ptr = cast(*for_col_tex_lnk)get_buffer_from_generic_alloc(&g.main_galloc, sizeof(for_col_tex_lnk) * TEX_GRID_SIZE_SQRD)
+
   trn.mip_page_table = cast(**u32)get_buffer_from_generic_alloc(&g.main_galloc, 8 * 8)
 
   trn.mip_page_table[0] = cast(*u32)&trn.page_table64
@@ -520,6 +530,7 @@ init_terrain::fn(g : *game_info, trn : *terrain_info)
   trn.mip_page_table[4] = cast(*u32)&trn.page_table4
   trn.mip_page_table[5] = cast(*u32)&trn.page_table2
   trn.mip_page_table[6] = cast(*u32)&trn.page_table1
+
 
   trn.mip_img_table = cast(**void)get_buffer_from_generic_alloc(&g.main_galloc, 8 * 8)
 
@@ -888,7 +899,7 @@ init_game::fn(g : *game_info)
 
   init_terrain(g, g.trn.trn)
 
-  check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
+  //check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 1)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 2)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 3)
@@ -1171,7 +1182,7 @@ player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
 
   if is_key_held(&g.iman, key_enum.SHIFT)
   {
-    speed *= 128.0
+    speed *= 8.0
   }
 
   if is_key_held(&g.iman, key_enum.E)
@@ -1299,10 +1310,10 @@ check_work_done::fn(g : *game_info)
       //printf("diffx {diff_x_i}, diffy {diff_z_i}\n")
 
       defer linked_remove(&thread_info.work_done, cur)
-      defer linked_remove(&thread_info.working_data_texs, tex_lnk)
       if (diff_x_i < 0 || diff_z_i < 0 || diff_x_i > 2 || diff_z_i > 2)
       {
         printf("THREAD: chunk lies outside of player pos window\n")
+        linked_remove(&thread_info.working_data_texs, tex_lnk)
         break;
       }
 
@@ -1324,16 +1335,33 @@ check_work_done::fn(g : *game_info)
 
       at := *cur_idx
 
-      printf("actual {mip} at {at}\n")
+      //printf("actual {mip} at {at}\n")
       if at != -1
       {
         cur_idx[cast(u64)at + 1] = cast(u32)idx
         *cur_idx = *cur_idx + 1
-        printf("inc {mip} \n")
+        //printf("inc {mip} \n")
       }
 
-      //if mip_clamp == 0
-        printf("&we have done create tex, x {xs}, z {zs}, mip {mip_clamp}, idx {idx}, page_idx {page_idx}\n")
+      if mip_clamp == 0
+      {
+        i := trn.for_col_tex_lnk_ptr_count
+
+        ASSERT(i < TEX_GRID_SIZE_SQRD)
+        ptr := &trn.for_col_tex_lnk_ptr[cast(u64)i]
+
+        ptr.tex_lnk = tex_lnk
+        ptr.x       = xs
+        ptr.z       = zs
+
+
+        g.trn.trn.for_col_tex_lnk_ptr_count++
+        printf("&we have done create tex, x {xs}, z {zs}, mip {mip_clamp}, idx {idx}, page_idx {page_idx}, col idx {g.trn.trn.for_col_tex_lnk_ptr_count}\n")
+      }
+      else
+      {
+        linked_remove(&thread_info.working_data_texs, tex_lnk)
+      }
     }
     default
     {
@@ -1454,14 +1482,43 @@ update_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos : vect
     trn.prev_player_pos.x = cast(f64)cast(s64)player_pos.x
     trn.prev_player_pos.z = cast(f64)cast(s64)player_pos.z
     trn.prev_player_pos.y = 0.0
+    printf("****** new streaming")
+
+    if trn.for_col_tex_lnk_ptr_count != 0
+    {
+      for i in 0..cast(s64)trn.for_col_tex_lnk_ptr_count
+      {
+        cur := &trn.for_col_tex_lnk_ptr[cast(u64)i]
+        linked_remove(&g.thread_info.working_data_texs, cur.tex_lnk)
+      }
+      trn.for_col_tex_lnk_ptr_count = 0 
+    }
 
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 1)
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 2)
+    trn.streaming_texs = true
 /*
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 3)
     check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 4)
     */
+  }
+  if trn.streaming_texs && g.thread_info.work_to_do.used_chunks == 0
+  {
+    printf("done_updating\n")
+    trn.streaming_texs = false;
+    if trn.for_col_tex_lnk_ptr_count != 0
+    {
+      for i in 0..cast(s64)trn.for_col_tex_lnk_ptr_count
+      {
+        cur := &trn.for_col_tex_lnk_ptr[cast(u64)i]
+
+        trn.page_table_col[cast(u64)(cur.x + cur.z * CHUNKS_IN_TRN)].tex_data = cur.tex_lnk.ptr
+
+        //linked_remove(&g.thread_info.working_data_texs, cur.tex_lnk)
+      }
+      //trn.for_col_tex_lnk_ptr_count = 0 
+    }
   }
 
 }
@@ -1496,6 +1553,9 @@ run_game::fn(g : *game_info)
     player_mov(g, g.player, dt)
 
     //print_vec2(g.cam_pos)
+    //printf("streaming {g.trn.trn.streaming_texs}, count {g.thread_info.work_to_do.used_chunks}\n")
+
+    physics_update(&g.pman, dt)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)

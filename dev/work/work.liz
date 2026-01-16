@@ -38,6 +38,6 @@ init_thread_work::fn(t : *thread_work_info, alloc : *generic_allocator)
   printf("work buffer start {cast(u64)t.work_to_do.buffer_data}\n")
   init_linked_list_mutex(&t.work_done, 64, alloc)
 
-  init_linked_list_mutex(&t.working_data_texs, TEX_GRID_SIZE * TEX_GRID_SIZE, alloc)
+  init_linked_list_mutex(&t.working_data_texs, TEX_GRID_SIZE * TEX_GRID_SIZE + 16, alloc)
   printf("tex buffer start {cast(u64)t.working_data_texs.buffer_data}\n")
 }

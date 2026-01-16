@@ -432,6 +432,11 @@ quat_to_mat4::fn(out: *mat4x4, q: _vec) ! void
     out.vals[14] = 0.0;
     out.vals[15] = 1.0;
 }
+minval::fn{T}(a : T, b : T) ! T
+{
+	ret: = if a < b a else b;
+  return ret
+}
 maxval::fn{T}(a : T, b : T) ! T
 {
 	ret: = if a > b a else b;

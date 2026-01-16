@@ -3,6 +3,8 @@ import "../typedefs/"
 import "../math/"
 import "../os/"
 import "../work/"
+import "../array/"
+
 FACE_RIGHT:const s32= 0
 FACE_LEFT:const s32= 1
 FACE_UP:const s32= 2
@@ -77,8 +79,25 @@ texture_map:struct
   z : s32
   mip : u8
 }
+CHUNKS_IN_TRN :const s32= TERRAIN_SIZE / CHUNK_SIZE
+CHUNKS_IN_TRN_DIV_2 :const s32= CHUNKS_IN_TRN / 2
+CHUNKS_IN_TRN_DIV_4 :const s32= CHUNKS_IN_TRN / 4
+CHUNKS_IN_TRN_DIV_8 :const s32= CHUNKS_IN_TRN / 8
+
+for_col_tex_lnk:struct
+{
+  tex_lnk : *linked_chunk
+  x : s32
+  z : s32
+}
+col_chunk_info:struct
+{
+  tex_data : *void
+}
 terrain_info:struct
 {
+  streaming_texs : bool
+
   ubo : storage_buffer
 
   chunks : [TOTAL_CHUNKS]chunk_info
@@ -91,16 +110,21 @@ terrain_info:struct
 
   tex_map_img : *image
 
-  page_table64 : [64 * 64] u32
-  page_table32 : [32 * 32] u32
-  page_table16 : [16 * 16] u32
-  page_table8  : [8 * 8] u32
+  page_table_col : [CHUNKS_IN_TRN * CHUNKS_IN_TRN]col_chunk_info
+
+  page_table64 : [CHUNKS_IN_TRN * CHUNKS_IN_TRN] u32
+  page_table32 : [CHUNKS_IN_TRN_DIV_2 * CHUNKS_IN_TRN_DIV_2] u32
+  page_table16 : [CHUNKS_IN_TRN_DIV_4 * CHUNKS_IN_TRN_DIV_4] u32
+  page_table8  : [CHUNKS_IN_TRN_DIV_8 * CHUNKS_IN_TRN_DIV_8] u32
   page_table4  : [4 * 4] u32
   page_table2  : [2 * 4] u32
   page_table1  : [1 * 4] u32
 
   mip_page_table : **u32
   mip_img_table : **void
+
+  for_col_tex_lnk_ptr  : *for_col_tex_lnk
+  for_col_tex_lnk_ptr_count : u32
 }
 
 get_and_assign_image_to_tex_map::fn(trn :*terrain_info, x : s32, y : s32, lod : u8, data : *void) ! s32

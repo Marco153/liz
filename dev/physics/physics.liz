@@ -1,0 +1,380 @@
+import "../typedefs"
+import "../entity"
+import "../memory"
+import "../math"
+import "../chunk"
+
+EPA_TOLERANCE:const f32= 0.0001
+EPA_MAX_NUM_FACES:const s32= 64
+EPA_MAX_NUM_LOOSE_EDGES:const s32= 32
+EPA_MAX_NUM_ITERATIONS:const s32= 64
+FLOAT_MAX: const u32= 0x7f800000;
+FLOAT_MIN: const u32= 0xff800000;
+
+col_type : etruct
+{
+	SPHERE(
+		radius : f32
+		
+	),
+	CAPSULE(
+		radius : f32,
+		height : f32
+	),
+	TRIANGLE(
+		normal :vector
+		verts : [3]vector
+	),
+	CUBE(
+		verts : [8]vector
+	)
+}
+collider : struct
+{
+  in_use : bool
+  idx : u32
+	using type : col_type
+	ent : * entity
+	pos : vector
+	size : vector
+	_min : vector
+	_max : vector
+	rel_chunk_min : vector
+	rel_chunk_max : vector
+
+	trn_chunk_min_x : s32
+	trn_chunk_min_y : s32
+	trn_chunk_min_z : s32
+	trn_chunk_max_x : s32
+	trn_chunk_max_y : s32
+	trn_chunk_max_z : s32
+
+}
+gjk_state : struct
+{
+	simplex : [4]vector
+	simplex_verts : u32
+
+	epa_faces : [EPA_MAX_NUM_FACES][4]vector
+	epa_loose_edges : [EPA_MAX_NUM_LOOSE_EDGES][2]vector
+	num_faces : u64
+	num_loose_edges : u64
+	closest_face : u64
+	cur_face_facing_point : u64
+
+	col1 : *collider,
+	col2 : *collider,
+
+	sup1 : vector
+	sup2 : vector
+	dir  : vector
+
+	epa_new_sup : vector
+	//mink_diff : [64]vector
+	//mink_diff_vert : u64
+
+	aux_col : collider
+}
+find_support::fn( col1 : *collider, col2 : *collider, dir : vector) ! vector
+{
+		sup1 := find_furthest_point(col1, col1.ent.pos, dir)
+		sup2 := find_furthest_point(col2, col2.ent.pos, -dir)
+		//gjk.sup1 = sup1
+		//gjk.sup2 = sup2
+		return sup1 - sup2
+
+}
+find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) ! vector
+{
+	on col.type
+	{
+	CAPSULE
+	{
+		result := normalize_vec2(dir)*col.CAPSULE.radius;
+		
+		if dir.y > 0.0
+		{
+			result.y += cast(f64)(col.CAPSULE.height *0.5)
+		}
+		else
+			result.y -= cast(f64)(col.CAPSULE.height *0.5);
+
+        return result + (col.pos + world_pos); //convert support to world spac
+	}
+	SPHERE
+	{
+		result := normalize_vec2(dir)*col.SPHERE.radius;
+		return col.pos + result
+
+	}
+	TRIANGLE
+	{
+		//Find which triangle vertex is furthest along dir
+        dot0 := _dot(col.TRIANGLE.verts[0], dir);
+        dot1 := _dot(col.TRIANGLE.verts[1], dir);
+        dot2 := _dot(col.TRIANGLE.verts[2], dir);
+
+        furthest_point := col.TRIANGLE.verts[0]
+        if(dot1>dot0){
+            furthest_point = col.TRIANGLE.verts[1]
+            if(dot2>dot1) 
+                furthest_point = col.TRIANGLE.verts[2]
+        }
+        else if(dot2>dot0) {
+            furthest_point = col.TRIANGLE.verts[2]
+        }
+
+        //fake some depth behind triangle so we have volume
+		n := col.TRIANGLE.normal * 0.1
+        if(_dot(dir, n)<0.0)
+			furthest_point-= n;
+
+        return furthest_point;
+	}
+	CUBE
+	{
+		_max : f32
+		*cast(*s32)&_max = FLOAT_MIN;
+		max_idx :u64= 0
+		cur_idx :u64= 0
+		for v in col.CUBE.verts
+		{
+			aux := *v - (col.pos + world_pos)
+			proj:= _dot(dir, aux);
+			if proj > cast(f64)_max
+			{
+				max_idx = cur_idx
+				_max = cast(f32)proj
+			}
+			cur_idx++
+		}
+		return col.CUBE.verts[max_idx]
+	}
+	}
+	return _vec{0.0, 0.0, 0.0, 0.0}
+}
+simplex_push_front::fn x64(gjk : *gjk_state, pos : vector)
+{
+	aux : [4]vector= ?
+	memcpy(&aux[0], &gjk.simplex[0], 3 * 16)
+	gjk.simplex[0] = pos
+	memcpy(&gjk.simplex[1], &aux[0], 3 * 16)
+
+	gjk.simplex_verts = minval(gjk.simplex_verts + 1, 4)
+}
+GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
+{
+	//memset(gjk.simplex, 0, sizeof(gjk.simplex))
+
+	unitx :vector
+	unitx.x = 1.0
+	gjk.simplex_verts = 0
+	//__dbg_break
+	sup := find_support( col1, col2, unitx)
+
+	simplex_push_front(gjk, sup)
+
+	dir := -sup
+	//gjk.dir = dir
+	for it in 0..32
+	{
+		sup = find_support( col1, col2, dir)
+
+		//gjk.dir = dir
+
+		if(_dot(sup, dir) <= 0.0)
+		{
+			return false
+		}
+		simplex_push_front(gjk, sup)
+
+		if(gjk_next_simplex(gjk, &dir))
+		{
+			return true
+		}
+	}
+	return false;
+}
+
+gjk_next_simplex ::fn(gjk : *gjk_state, dir : *vector) ! bool
+{
+	on gjk.simplex_verts
+	{
+	2
+	{
+		return gjk_line(gjk, dir)
+	}
+	3
+	{
+		return gjk_triangle(gjk, dir)
+	}
+	4
+	{
+		return gjk_tetrahedron(gjk, dir)
+	}
+	}
+	return false;
+}
+same_direction ::fn x64(a : vector, b : vector) ! bool
+{
+	//printf("on same \n")
+	d := _dot(a, b)
+	//printf("d % \n end of same\n", cast(s32)(d * 100.0))
+	return d > 0.0
+}
+gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *vector) ! bool
+{
+	a := gjk.simplex[0]
+	b := gjk.simplex[1]
+	c := gjk.simplex[2]
+	d := gjk.simplex[3]
+
+	ab := b - a
+	ac := c - a
+	ad := d - a
+	ao := -a
+
+	abc := cross_vec2(ab,  ac)
+	acd := cross_vec2(ac,  ad)
+	adb := cross_vec2(ad,  ab)
+	if same_direction(abc, ao)
+	{
+		gjk.simplex[0] = a
+		gjk.simplex[1] = b
+		gjk.simplex[2] = c
+		gjk.simplex_verts = 3
+
+		return gjk_triangle(gjk, dir)
+	}
+	if same_direction(acd, ao)
+	{
+		gjk.simplex[0] = a
+		gjk.simplex[1] = c
+		gjk.simplex[2] = d
+		gjk.simplex_verts = 3
+
+		return gjk_triangle(gjk, dir)
+	}
+	if same_direction(adb, ao)
+	{
+		gjk.simplex[0] = a
+		gjk.simplex[1] = d
+		gjk.simplex[2] = b
+		gjk.simplex_verts = 3
+
+		return gjk_triangle(gjk, dir)
+	}
+	return true
+
+}
+gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
+{
+	a := gjk.simplex[0]
+	b := gjk.simplex[1]
+	c := gjk.simplex[2]
+
+	ab := b - a
+	ac := c - a
+	ao := -a
+
+	abc := cross_vec2(ab, ac)
+	if same_direction(cross_vec2(abc, ac), ao)
+	{
+		if same_direction(ac, ao)
+		{
+			gjk.simplex[0] = a
+			gjk.simplex[1] = c
+			gjk.simplex_verts = 2
+			*dir = cross_vec2(cross_vec2(ac, ao), ac)
+		}
+		else
+		{
+			gjk.simplex[0] = a
+			gjk.simplex[1] = b
+			gjk.simplex_verts = 2
+			return gjk_line(gjk, dir)
+		}
+	}
+	else
+	{
+		//__dbg_break
+		if same_direction(cross_vec2(ab, abc), ao)
+		{
+			gjk.simplex[0] = a
+			gjk.simplex[1] = b
+			gjk.simplex_verts = 2
+			return gjk_line(gjk, dir)
+		}
+		else
+		{
+			if same_direction(abc, ao)
+			{
+				*dir = abc
+			}
+			else
+			{
+				gjk.simplex[0] = a
+				gjk.simplex[1] = c
+				gjk.simplex[2] = b
+				gjk.simplex_verts = 3
+
+				*dir = -abc
+			}
+		}
+	}
+	return false
+}
+gjk_line ::fn x64(gjk : *gjk_state, dir : *vector) ! bool
+{
+	a := gjk.simplex[0]
+	b := gjk.simplex[1]
+
+	ab := b - a
+	ao := -a
+
+	if(same_direction(ab, ao))
+	{
+		*dir = cross_vec2(cross_vec2(ab, ao), ab)
+	}
+	else
+	{
+		gjk.simplex_verts = 1
+		*dir = ao
+	}
+	return false
+}
+physics_manager : struct
+{
+  gjk : gjk_state
+
+  bodies : *collider
+  max_bodies : u32
+  cur_bodies : u32
+}
+
+physics_get_body::fn(phy : *physics_manager, ent : *entity) ! *collider
+{
+  for i in 0..cast(s64)phy.max_bodies
+  {
+    cur := &phy.bodies[cast(u64)i]
+    if !cur.in_use continue
+
+      cur.in_use = true
+      cur.ent = ent
+      cur.idx = cast(u32)i
+      return cur.
+  }
+  return nil
+}
+physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_info)
+{
+
+}
+physics_step::fn(phy : *physics_manager, dt : f32)
+{
+
+}
+physics_update::fn(phy : *physics_manager, dt : f32)
+{
+
+}

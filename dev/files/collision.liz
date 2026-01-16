@@ -90,10 +90,6 @@ find_furthest_point::fn x64(col : *collider, world_pos : *_vec, dir : *_vec) ! _
 	}
 	return _vec{0.0, 0.0, 0.0, 0.0}
 }
-EPA_TOLERANCE:const f32= 0.0001
-EPA_MAX_NUM_FACES:const s32= 64
-EPA_MAX_NUM_LOOSE_EDGES:const s32= 32
-EPA_MAX_NUM_ITERATIONS:const s32= 64
 gjk_state : struct
 {
 	simplex : [4]_vec

@@ -92,6 +92,7 @@ game_info:struct
   terrain_shader   : *material_info
   to_screen_shader : *material_info
 
+
   terrain2_shader : *material_info
 
   global_ubo : uniform_buffer
@@ -186,7 +187,7 @@ thread :: fn(arg : *void)
         used := thread_info.working_data_texs.used_chunks
           if (used + 1) >= (thread_info.working_data_texs.total_chunks )
           {
-            printf("THREAD: working texs is full\n")
+            //printf("THREAD: working texs is full\n")
             break;
           }
       }
@@ -644,6 +645,7 @@ init_shaders::fn(g : *game_info)
 #if RENDER_API == OPENGL
 {
   glGenVertexArrays(1, &g.empty_vao);
+  g.rman.empty_vao = g.empty_vao
 }
   
   galloc :generic_allocator
@@ -695,6 +697,15 @@ init_shaders::fn(g : *game_info)
   g.to_screen_shader = &mat.MATERIAL.mat
 
   init_terrain_shader(g)
+
+
+
+  read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/s_quad_vs.glsl", &t_vs_file, nil)
+  read_file("{to_cstr(&g.work_dir, nil)}/builtin_materials/s_quad_fs.glsl", &t_fs_file, nil)
+  mat_idx = get_material_asset(g, "q_screen")
+  mat = ptr_offset(g.assets, mat_idx, asset_info)
+  create_shader_and_depth_only(g, &t_vs_file, &t_fs_file, &mat.MATERIAL.mat, &g.main_galloc)
+  g.rman.quad_screen_shader = &mat.MATERIAL.mat
 
   //printf("to screen prog {g.to_screen_shader.offscreen_shader.id}\n")
 }
@@ -898,6 +909,8 @@ init_game::fn(g : *game_info)
   g.trn.trn.tex_map_img = g.tex_map_img
 
   init_terrain(g, g.trn.trn)
+  init_physics(&g.pman, &g.main_galloc, g.trn.trn)
+
 
   //check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 0)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 1)
@@ -907,6 +920,8 @@ init_game::fn(g : *game_info)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 5)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 6)
 
+
+  physics_get_body(&g.pman, g.player)
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
@@ -952,6 +967,10 @@ draw_objects::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uni
     
     on cur.type
     {
+    draw_info.SCREEN_QUAD
+    {
+
+    }
     draw_info.OBJECT
     {
       //printf("2: trn shader addr {cast(u64) g.terrain2_shader}, offscreen id {g.terrain2_shader.offscreen_shader.id}, depth id {g.terrain2_shader.depth_shader.id}\n")
@@ -1020,6 +1039,11 @@ add_trn_chunk_to_draw::fn(g : *game_info, rman : *render_manager, ch : *chunk_in
   cur.OBJECT.chunk_sz = cast(u32)cast(s32)(ch_sz * 2.0)
   cur.OBJECT.trn_sz = TERRAIN_SIZE
 
+/*
+__dbg_break
+__dbg_break
+__dbg_break
+*/
   cur.OBJECT.sh_contract = mod.contract
   cur.OBJECT.mesh = mod.mesh
 
@@ -1071,6 +1095,7 @@ add_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 clear_objects_to_draw::fn(g : *game_info, rman : *render_manager)
 {
   rman.cur_draws = 0
+  rman.gui_cur_draws = 0
 }
 draw_depth_buffer::fn(g : *game_info, rman : *render_manager, g_ubo : *global_ubo_uniform)
 {
@@ -1138,6 +1163,12 @@ draw_toscreen_buffer::fn(g : *game_info, rman : *render_manager)
 }
 render::fn(g : *game_info, rman : *render_manager)
 {
+  tex : texture=?
+  tex.img = g.pman.cur_tex
+  tex.samp = &rman.nearest_sampler
+
+  draw_quad_tex(rman, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, &tex)
+
   aspect := cast(f32)g.wnd_height / cast(f32)g.wnd_width
   g_ubo:global_ubo_uniform=?
 
@@ -1161,6 +1192,8 @@ render::fn(g : *game_info, rman : *render_manager)
 
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
   draw_toscreen_buffer(g, rman)
+
+  draw_gui(&g.rman)
 }
 swap_buffers::fn(g : *game_info)
 {
@@ -1214,6 +1247,7 @@ player_mov::fn(g : *game_info, player : *entity, dt_ : f32)
   {
     g.cam_pos -= cast(vector)cam_fw * dt * speed
   }
+  g.player.pos = g.cam_pos
 }
 
 end_frame::fn(g:*game_info)
@@ -1224,6 +1258,8 @@ end_frame::fn(g:*game_info)
   g.mouse_vel_y = 0.0
 
   g.rman.cur_texs = 0
+
+  clear_objects_to_draw(g , &g.rman)
 }
 input_logic::fn(g : *game_info)
 {
@@ -1513,8 +1549,20 @@ update_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos : vect
       {
         cur := &trn.for_col_tex_lnk_ptr[cast(u64)i]
 
-        trn.page_table_col[cast(u64)(cur.x + cur.z * CHUNKS_IN_TRN)].tex_data = cur.tex_lnk.ptr
+        cur_page := &trn.page_table_col[cast(u64)(cur.x + cur.z * CHUNKS_IN_TRN)]
+        cur_page.tex_data = cur.tex_lnk.ptr
+        desc:image_desc
 
+
+        desc.width      = CHUNK_SIZE
+        desc.height     = CHUNK_SIZE
+        desc.mip_levels = 1
+        desc.format     = image_format.R16
+        desc.usage      = image_usage.STORAGE
+        desc.data       = cur.tex_lnk.ptr
+        desc.type       = image_type.TEX_2D
+
+        create_image(&desc, &cur_page.img)
         //linked_remove(&g.thread_info.working_data_texs, cur.tex_lnk)
       }
       //trn.for_col_tex_lnk_ptr_count = 0 
@@ -1559,7 +1607,6 @@ run_game::fn(g : *game_info)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)
-    clear_objects_to_draw(g , &g.rman)
 
     swap_buffers(g)
 
@@ -1576,9 +1623,6 @@ run_game::fn(g : *game_info)
 
 main::fn()
 {
-
-  test : u64= 6
-  expected : u64= 6
   game : game_info
 
   init_game(&game)

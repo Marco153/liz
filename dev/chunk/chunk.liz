@@ -93,6 +93,7 @@ for_col_tex_lnk:struct
 col_chunk_info:struct
 {
   tex_data : *void
+  img : image
 }
 terrain_info:struct
 {

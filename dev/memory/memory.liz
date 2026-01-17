@@ -168,6 +168,13 @@ memcmp::fn x64(dst : *void, src : *void, sz : u64) !bool
 //memcpy::fn outsider(dst : *void, src : *void, sz : u64) !void;
 memcpy::fn x64(dst : *void, src : *void, sz : u64) !void
 {
+  if cast(u64)src == 0x10
+  {
+    __dbg_break
+    __dbg_break
+    __dbg_break
+    return
+  }
 	//ASSERT(cast(u64)dst > 128 && cast(u64)src > 128) ;
 	i:u64 = 0;
 	if (sz % 16) == 0

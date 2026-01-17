@@ -3989,20 +3989,27 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
 			
     int normal_reg = 0;
     int i = 0;
-		for(int normal_reg = 0; normal_reg < MAX_CALL_REGS; normal_reg++)
+    int general_purpose_reg = 0;
+    int not_vector_types = 0;
+		for(int normal_reg = 0; normal_reg < fdecl->args.size(); normal_reg++)
 		{
-			
+
+
 			decl2* a = nullptr;
 			if(i < fdecl->args.size())
 				a = fdecl->args[i];
+      //if(a->name == "tex") HERE()
 
+      if(not_vector_types == MAX_CALL_REGS)
+          offset += (REGS_PUSHED + 1) * 8;
 			byte_code bc;
 			bc.type = byte_code_enum::MOV_R_2_M;
 			bc.bin.lhs.reg = (char)regs_enum::RSP;
 			bc.bin.lhs.voffset = offset + start;
 			bc.bin.lhs.reg_sz = 8;
 			bc.bin.lhs.var_size= 8;
-			bc.bin.rhs.reg = FromIdxToArgReg(normal_reg - float_reg);
+      if(general_purpose_reg < MAX_CALL_REGS)
+        bc.bin.rhs.reg = FromIdxToArgReg(general_purpose_reg);
 
 			bc.bin.rhs.reg_sz = 8;
 
@@ -4016,6 +4023,8 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
 
 				float_reg++;
 			}
+      else
+        general_purpose_reg++;
       //else
         //normal_reg++;
 
@@ -4034,7 +4043,10 @@ void ParametersToStack(func_decl *fdecl, own_std::vector<byte_code> *out, int st
         bc.bin.rhs.reg_sz = a->type.vec_type;
       }
       else
+      {
+        not_vector_types++;
         offset += 8;
+      }
 
 			out->emplace_back(bc);
       i++;

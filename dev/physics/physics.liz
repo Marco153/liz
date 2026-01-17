@@ -3,6 +3,8 @@ import "../entity"
 import "../memory"
 import "../math"
 import "../chunk"
+import "../os"
+import "../render"
 
 EPA_TOLERANCE:const f32= 0.0001
 EPA_MAX_NUM_FACES:const s32= 64
@@ -347,34 +349,85 @@ physics_manager : struct
 {
   gjk : gjk_state
 
+  trn : *terrain_info
+
   bodies : *collider
   max_bodies : u32
   cur_bodies : u32
+
+  cur_tex : *image
 }
 
+init_physics::fn(phy : *physics_manager, alloc :*generic_allocator, trn : *terrain_info)
+{
+  phy.max_bodies = 16
+  phy.trn = trn
+  phy.bodies = cast(*collider)get_buffer_from_generic_alloc(alloc,  phy.max_bodies * sizeof(collider));
+}
 physics_get_body::fn(phy : *physics_manager, ent : *entity) ! *collider
 {
   for i in 0..cast(s64)phy.max_bodies
   {
     cur := &phy.bodies[cast(u64)i]
-    if !cur.in_use continue
 
-      cur.in_use = true
-      cur.ent = ent
-      cur.idx = cast(u32)i
-      return cur.
+    if cur.in_use continue
+
+    cur.in_use = true
+    cur.ent = ent
+    cur.idx = cast(u32)i
+    return cur
   }
+  ASSERT(false)
   return nil
 }
 physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_info)
 {
+  ASSERT(trn)
+  p := col.ent.pos
+  p = p / cast(f64)CHUNK_SIZE
 
+  pix := floori64(p.x)
+  piz := floori64(p.z)
+
+  tex := &trn.page_table_col[cast(u64)(pix + piz * CHUNKS_IN_TRN)]
+  tex_data := tex.tex_data
+
+  if tex_data != nil
+  {
+    phy.cur_tex = &tex.img
+    fract_z := (p.x - cast(f64)pix)
+    fract_x := (p.z - cast(f64)piz)
+
+//    if fract_z != 0.0
+      fract_z = cast(f64) 1.0 - fract_z
+
+    //if fract_x != 0.0
+      fract_x = cast(f64) 1.0 - fract_x
+
+
+
+    x_pixel := cast(s64)(fract_x * cast(f64)CHUNK_SIZE)
+    z_pixel := cast(s64)(fract_z * cast(f64)CHUNK_SIZE)
+    idx := x_pixel * HEIGHTMAP_BYTES_PER_PIXEL + z_pixel * CHUNK_SIZE * HEIGHTMAP_BYTES_PER_PIXEL
+    pixel   := *ptr_offset(tex_data, idx, u16)
+
+  }
 }
 physics_step::fn(phy : *physics_manager, dt : f32)
 {
+  for i in 0..cast(s64)phy.max_bodies
+  {
+    cur := &phy.bodies[cast(u64)i]
 
+    if !cur.in_use continue
+    ASSERT(cur.ent)
+
+    physics_terrain_col(phy, cur, phy.trn)
+    
+  }
 }
 physics_update::fn(phy : *physics_manager, dt : f32)
 {
-
+  physics_step(phy, dt)
+  printf("physics: cur ptex {cast(u64)phy.cur_tex}\n")
 }

@@ -432,6 +432,20 @@ quat_to_mat4::fn(out: *mat4x4, q: _vec) ! void
     out.vals[14] = 0.0;
     out.vals[15] = 1.0;
 }
+floorf64::fn(f : f64) ! f64
+{
+  trunc := cast(s64)f
+  if trunc > cast(s64)f
+    return cast(f64)(trunc - 1);
+  return cast(f64)trunc
+}
+floori64::fn(f : f64) ! s64
+{
+  trunc := cast(s64)f
+  if trunc > cast(s64)f
+    return trunc - 1;
+  return trunc
+}
 minval::fn{T}(a : T, b : T) ! T
 {
 	ret: = if a < b a else b;

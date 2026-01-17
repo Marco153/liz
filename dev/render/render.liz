@@ -15,6 +15,16 @@ draw_info:etruct
     pos : _vec
     ubo : storage_buffer
   ),
+  SCREEN_QUAD(
+    pos : _vec
+    sz : _vec
+    rot : _vec
+    mat   : *material_info
+    sh_contract:shader_mesh_contract
+
+    texs : *texture
+    total_texs : u32
+  ),
   OBJECT(
     pos : _vec
     sz : _vec
@@ -53,6 +63,12 @@ render_manager:struct
   cur_draws : u32
   max_draws : u32
 
+  gui_draws : *draw_info
+  gui_cur_draws : u32
+  gui_max_draws : u32
+
+  empty_vao : u32
+
   sun_color : _vec
   sun_dir   : _vec
 
@@ -67,6 +83,8 @@ render_manager:struct
   max_texs : u32
 
   wireframe : bool
+
+  quad_screen_shader : *material_info
 }
 get_available_buffer::fn(rman : *render_manager)! *buffer_info
 {
@@ -573,6 +591,10 @@ init_render_man::fn(r : *render_manager, alloc : *generic_allocator, max_draws :
   r.cur_draws = 0
   r.draws     = cast(*draw_info)get_buffer_from_generic_alloc(alloc, max_draws * sizeof(draw_info))
 
+  r.gui_max_draws = 128
+  r.gui_cur_draws = 0
+  r.gui_draws     = cast(*draw_info)get_buffer_from_generic_alloc(alloc, r.gui_max_draws * sizeof(draw_info))
+
   r.buffers     = cast(*buffer_info)get_buffer_from_generic_alloc(alloc, TOTAL_BUFFERS * sizeof(buffer_info))
 
   r.max_texs = 128;
@@ -628,4 +650,63 @@ bind_texture::fn(rman : *render_manager, tex : *texture, loc : u32)
     glBindTexture(GL_TEXTURE_2D, cast(u32)tex.img.handle);
   glBindSampler(loc, tex.samp.id);
 }
+}
+
+draw_quad_tex :: fn(rman : *render_manager, px : f32, py : f32, sx : f32, sy : f32, rot : f32, tex : *texture)
+{
+  cur := ptr_offset(rman.gui_draws, rman.gui_cur_draws, draw_info)
+  memset(cur, 0, sizeof(*cur))
+
+  cur.type = draw_info.SCREEN_QUAD
+  cur.SCREEN_QUAD.pos.x = px
+  cur.SCREEN_QUAD.pos.y = py
+  cur.SCREEN_QUAD.sz.x = sx
+  cur.SCREEN_QUAD.sz.y  = sy
+  cur.SCREEN_QUAD.sz.z  = 1.0
+  cur.SCREEN_QUAD.rot.w   = 1.0
+
+  texs := get_textures(rman, 1)
+  texs[0].img = tex.img
+  texs[0].samp = tex.samp
+
+  cur.SCREEN_QUAD.texs = texs
+  cur.SCREEN_QUAD.total_texs = 1
+
+  printf("quad_tex: tex {cast(u64)tex.img}\n")
+  rman.gui_cur_draws++
+  ASSERT(rman.gui_cur_draws < rman.gui_max_draws)
+}
+draw_gui::fn(rman : *render_manager)
+{
+#if RENDER_API == OPENGL
+{
+  glBindVertexArray(rman.empty_vao);
+}
+
+  for i in 0..cast(s64)rman.gui_cur_draws
+  {
+    cur := ptr_offset(rman.gui_draws, i, draw_info);
+    mat := &rman.quad_screen_shader
+    bind_shader(rman, &mat.offscreen_shader)
+
+    m_ubo : mat4x4
+
+    build_model_matrix(cast(*f32)&m_ubo, cur.SCREEN_QUAD.pos, cast(*f32)&cur.SCREEN_QUAD.rot, cur.SCREEN_QUAD.sz)
+
+    update_uniform_buffer(&mat.model_uniform, &m_ubo, sizeof(mat4x4), 1)
+
+    for t in 0..cast(s64)cur.SCREEN_QUAD.total_texs
+    {
+      tex := &cur.SCREEN_QUAD.texs[cast(u64)t]
+      if tex.img == nil continue
+      printf("draw: cur ptex {cast(u64)tex.img}\n")
+      bind_texture(rman, tex, cast(u32)t)
+    }
+#if RENDER_API == OPENGL
+{
+  glBindVertexArray(rman.empty_vao);
+  glDrawArrays(GL_TRIANGLES, 0, 6);
+}
+  }
+
 }

@@ -279,8 +279,8 @@ gjk_state : struct
 }
 find_support::fn( col1 : *collider, col2 : *collider, dir : vector) ! vector
 {
-		sup1 := find_furthest_point(col1, col1.ent.pos, dir)
-		sup2 := find_furthest_point(col2, col2.ent.pos, -dir)
+		sup1 := find_furthest_point(col1, col1.pos, dir)
+		sup2 := find_furthest_point(col2, col2.pos, -dir)
 		//gjk.sup1 = sup1
 		//gjk.sup2 = sup2
 		return sup1 - sup2
@@ -311,7 +311,6 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
 	}
 	TRIANGLE
 	{
-    printf("is TRIANGLE\n")
 //Find which triangle vertex is furthest along dir
     dot0 := _dot(col.TRIANGLE.verts[0], dir);
     dot1 := _dot(col.TRIANGLE.verts[1], dir);
@@ -331,7 +330,6 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
     n := col.TRIANGLE.normal * 0.1
     if(_dot(dir, n)<0.0)
     furthest_point-= n;
-    printf("TRIANGEL end\n")
     return furthest_point;
 	}
 	CUBE
@@ -351,7 +349,6 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
 			}
 			cur_idx++
 		}
-    __dbg_break
 		return col.CUBE.verts[max_idx]
 	}
   default
@@ -748,6 +745,7 @@ physics_step::fn(phy : *physics_manager, dt : f32)
     m_aabb :aabb = ?
     p_aabb :aabb = ?
     CopyVerts(phy, cur, &p_aabb._min, &p_aabb._max)
+    cur.pos = cur.ent.pos
     //print_vec2(cur.ent.pos)
 
     physics_terrain_col(phy, cur, phy.trn)

@@ -16,6 +16,16 @@ asinf::fn outsider(f32) !f32;
 acosf::fn outsider(f32) !f32;
 atan2f::fn outsider(f32, f32) !f32;
 
+sin::fn outsider(f64) !f64;
+cos::fn outsider(f64) !f64;
+tan::fn outsider(f64) !f64;
+asin::fn outsider(f64) !f64;
+acos::fn outsider(f64) !f64;
+atan2::fn outsider(f64, f64) !f64;
+mat4x4_ : struct
+{
+	vals : [4 * 4] f64,
+}
 mat4x4 : struct
 {
 	vals : [4 * 4] f32,
@@ -220,6 +230,56 @@ mat4_inverse ::fn x64(out : *f32, m : *f32)
     *ptr_offset(out, 15, f32) =
          (m00*(m11*m22 - m12*m21) - m10*(m01*m22 - m02*m21) + m20*(m01*m12 - m02*m11)) * inv_det
 }
+build_model_matrix ::fn x64(out_matrix : *float, position : vector, q : *float, scale : vector) 
+{
+    x := *ptr_offset(q, 0, float)
+    y := *ptr_offset(q, 1, float)
+    z := *ptr_offset(q, 2, float)
+    w := *ptr_offset(q, 3, float)
+
+    x2 := x + x
+    y2 := y + y
+    z2 := z + z
+
+    xx := x * x2
+    xy := x * y2
+    xz := x * z2
+    yy := y * y2
+    yz := y * z2
+    zz := z * z2
+    wx := w * x2
+    wy := w * y2
+    wz := w * z2
+
+    sx := scale.x
+    sy := scale.y
+    sz := scale.z
+
+    // -------- column 0 (X axis)
+    *ptr_offset(out_matrix, 0,  float) = (cast(f64)1.0 - (yy + zz)) * sx
+    *ptr_offset(out_matrix, 1,  float) = (xy + wz) * sx
+    *ptr_offset(out_matrix, 2,  float) = (xz - wy) * sx
+    *ptr_offset(out_matrix, 3,  float) = 0.0
+
+    // -------- column 1 (Y axis)
+    *ptr_offset(out_matrix, 4,  float) = (xy - wz) * sy
+    *ptr_offset(out_matrix, 5,  float) = (cast(f64)1.0 - (xx + zz)) * sy
+    *ptr_offset(out_matrix, 6,  float) = (yz + wx) * sy
+    *ptr_offset(out_matrix, 7,  float) = 0.0
+
+    // -------- column 2 (Z axis)
+    *ptr_offset(out_matrix, 8,  float) = (xz + wy) * sz
+    *ptr_offset(out_matrix, 9,  float) = (yz - wx) * sz
+    *ptr_offset(out_matrix, 10, float) = (cast(f64)1.0 - (xx + yy)) * sz
+    *ptr_offset(out_matrix, 11, float) = 0.0
+
+    // -------- column 3 (translation)
+    *ptr_offset(out_matrix, 12, float) = position.x
+    *ptr_offset(out_matrix, 13, float) = position.y
+    *ptr_offset(out_matrix, 14, float) = position.z
+    *ptr_offset(out_matrix, 15, float) = 1.0
+
+}
 build_model_matrix ::fn x64(out_matrix : *f32, position : _vec, q : *f32, scale : _vec) 
 {
     x := *ptr_offset(q, 0, f32)
@@ -279,24 +339,6 @@ quaternion : struct
 {
 	v : _vec
 }
-normalize_quaternion::fn x64(out : *_vec, q : _vec) {
-  val := q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z
-  mag := sqrt(cast(f32)val)
-	if mag == 0.0
-	{
-		out.x = 1.0
-		out.y = 0.0
-		out.z = 0.0
-		out.w = 0.0
-	}
-	else
-	{
-		out.x = q.x/mag
-		out.y = q.y/mag
-		out.z = q.z/mag
-		out.w = q.w/mag
-	}
-}
 cross_vec2::fn(a : _vec2, b : _vec2) !_vec2
 {
 
@@ -316,6 +358,44 @@ cross_vec::fn(a : _vec, b : _vec) !_vec
 	ret.z = a.x * b.y - a.y * b.x
 	ret.w = 0.0
 	return ret;
+}
+normalize_vec2::fn x64(a : _vec2) ! _vec2
+{
+	dot: = _dot(a, a);
+	len: = __sqrt2(dot);
+	ret:_vec2 = a / len;
+	return ret;
+}
+dot_vec::fn x64(a : _vec, b : _vec) !f32
+{
+	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+	return ret;
+}
+normalize_vec::fn x64(a : _vec) ! _vec
+{
+	dot: = dot_vec(a, a);
+	len: = sqrt(dot);
+	//__dbg_break
+	ret:_vec = a / len;
+	return ret;
+}
+normalize_quaternion::fn x64(out : *_vec, q : _vec) {
+  val := q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z
+  mag := sqrt(cast(f32)val)
+	if mag == 0.0
+	{
+		out.x = 1.0
+		out.y = 0.0
+		out.z = 0.0
+		out.w = 0.0
+	}
+	else
+	{
+		out.x = q.x/mag
+		out.y = q.y/mag
+		out.z = q.z/mag
+		out.w = q.w/mag
+	}
 }
 create_from_axis_angle::fn(xx:f32, yy:f32, zz:f32, a:f32) ! quaternion
 {
@@ -345,27 +425,7 @@ quaternion_conjugate::fn x64(out : *_vec, q : _vec) {
 	out.z = -q.z
 	out.w = q.w
 }
-normalize_vec2::fn x64(a : _vec2) ! _vec2
-{
-	dot: = _dot(a, a);
-	len: = __sqrt2(dot);
-	ret:_vec2 = a / len;
-	return ret;
-}
-dot_vec::fn x64(a : _vec, b : _vec) !f32
-{
-	ret := a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
-	return ret;
-}
-normalize_vec::fn x64(a : _vec) ! _vec
-{
-	dot: = dot_vec(a, a);
-	len: = sqrt(dot);
-	//__dbg_break
-	ret:_vec = a / len;
-	return ret;
-}
-rotate_vector::fn x64(out : *_vec, v : _vec, q : _vec) {
+rotate_vector::fn(out : *_vec, v : _vec, q : _vec) {
 	aux : _vec
   normalize_quaternion(&aux, q)
   p :_vec
@@ -446,6 +506,16 @@ floori64::fn(f : f64) ! s64
     return trunc - 1;
   return trunc
 }
+minf::fn(a : f64, b : f64) ! f64
+{
+	ret: = if a < b a else b;
+  return ret
+}
+maxf::fn(a : f64, b : f64) ! f64
+{
+	ret: = if a > b a else b;
+  return ret
+}
 minval::fn{T}(a : T, b : T) ! T
 {
 	ret: = if a < b a else b;
@@ -512,4 +582,140 @@ clamp ::fn{T}(v : T, _min :T, _max : T) ! T
 	if v <= _min return _min;
 	if v >= _max return _max;
 	return v;
+}
+
+normalize_quaternion64::fn x64(out : *vector, q : vector) {
+  val := q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z
+  mag := __sqrt2(val)
+	if mag == 0.0
+	{
+		out.x = 1.0
+		out.y = 0.0
+		out.z = 0.0
+		out.w = 0.0
+	}
+	else
+	{
+		out.x = q.x/mag
+		out.y = q.y/mag
+		out.z = q.z/mag
+		out.w = q.w/mag
+	}
+}
+create_from_axis_angle::fn(xx:f64, yy:f64, zz:f64, a:f64) ! quaternion64
+{
+	q : quaternion64=?
+  // Here we calculate the sinf( theta / 2) once for optimization
+  factor: = sin( a / 2.0 );
+
+  // Calculate the x, y and z of the quaternion64
+  q.v.x = xx * factor;
+  q.v.y = yy * factor;
+  q.v.z = zz * factor;
+
+  // Calcualte the w value by cos( theta / 2 )
+  q.v.w = cos( a / 2.0 );
+	normalize_quaternion64(&q.v, q.v)
+  return q
+}
+multiply_quaternion64s::fn x64(out : *vector, q1 : vector, q2 : vector) {
+	out.x = q1.w*q2.x + q1.x*q2.w + q1.y*q2.z - q1.z*q2.y
+	out.y = q1.w*q2.y - q1.x*q2.z + q1.y*q2.w + q1.z*q2.x
+	out.z = q1.w*q2.z + q1.x*q2.y - q1.y*q2.x + q1.z*q2.w
+	out.w = q1.w*q2.w - q1.x*q2.x - q1.y*q2.y - q1.z*q2.z 
+}
+quaternion64_conjugate::fn x64(out : *vector, q : vector) { 
+    out.x = -q.x
+	out.y = -q.y
+	out.z = -q.z
+	out.w = q.w
+}
+rotate_vector64::fn(out : *vector, v : vector, q : vector) {
+	aux : vector
+  normalize_quaternion64(&aux, q)
+  p :vector
+	p.x = v.x
+	p.y = v.y
+	p.z = v.z
+	p.w = 0.0
+  q_conj:vector
+  rotated:vector
+  mul:vector
+	quaternion64_conjugate(&q_conj, q);
+
+	multiply_quaternion64s(&mul, q, p)
+
+  multiply_quaternion64s(&rotated, mul, q_conj);
+  out.x = rotated.x
+	out.y = rotated.y
+	out.z = rotated.z
+
+}
+operator * x64(self : *quaternion64, rhs : *quaternion64) !quaternion64
+{
+	ret : quaternion64 = ?
+
+	multiply_quaternion64s(&ret.v, self.v, rhs.v)
+	return ret
+}
+operator * x64(self : *quaternion64, vec : *vector) !vector
+{
+	ret :vector
+	rotate_vector64(&ret, *vec, self.v)
+	return ret
+}
+
+mul_mat_vec::fn x64(self : *mat4x4_, vec : _vec2) !_vec2
+{
+  ret: _vec2;
+	aux := *cast(*_vec2)&self.vals[0]
+	ret.x = _dot(vec, aux)
+
+	aux = *cast(*_vec2)&self.vals[4]
+	ret.y = _dot(vec, aux)
+
+	aux = *cast(*_vec2)&self.vals[8]
+	ret.z = _dot(vec, aux)
+			
+	aux = *cast(*_vec2)&self.vals[12]
+	ret.w = _dot(vec, aux)
+	return ret;
+}
+quat_to_mat4::fn(out: *mat4x4_, q: vector) ! void
+{
+    xx: f64 = q.x * q.x;
+    yy: f64 = q.y * q.y;
+    zz: f64 = q.z * q.z;
+
+    xy: f64 = q.x * q.y;
+    xz: f64 = q.x * q.z;
+    yz: f64 = q.y * q.z;
+
+    wx: f64 = q.w * q.x;
+    wy: f64 = q.w * q.y;
+    wz: f64 = q.w * q.z;
+
+    // column 0
+    out.vals[0]  = cast(f64)1.0 - cast(f64)2.0 * (yy + zz);
+    out.vals[1]  = cast(f64)2.0 * (xy + wz);
+    out.vals[2]  = cast(f64)2.0 * (xz - wy);
+    out.vals[3]  = 0.0;
+
+    // column 1
+    out.vals[4]  = cast(f64)2.0 * (xy - wz);
+    out.vals[5]  = cast(f64)1.0 - cast(f64)2.0 * (xx + zz);
+    out.vals[6]  = cast(f64)2.0 * (yz + wx);
+    out.vals[7]  = 0.0;
+
+    // column 2
+    out.vals[8]  =cast(f64)2.0 * (xz + wy);
+    out.vals[9]  =cast(f64)2.0 * (yz - wx);
+    out.vals[10] =cast(f64)1.0 - cast(f64)2.0 * (xx + yy);
+    out.vals[11] = 0.0;
+
+    // column 3
+    out.vals[12] = 0.0;
+    out.vals[13] = 0.0;
+    out.vals[14] = 0.0;
+    out.vals[15] = 1.0;
 }

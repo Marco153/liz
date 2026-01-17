@@ -8081,6 +8081,35 @@ void _glTexSubImage3D(
         pixels
     );
 }
+double _sin(double x)
+{
+    return sin(x);
+}
+
+double _cos(double x)
+{
+    return cos(x);
+}
+
+double _tan(double x)
+{
+    return tan(x);
+}
+
+double _asin(double x)
+{
+    return asin(x);
+}
+
+double _acos(double x)
+{
+    return acos(x);
+}
+
+double _atan2(double y, double x)
+{
+    return atan2(y, x);
+}
 _pid ChildProcess(int pipes[2])
 {
 //#define ON_PARENT
@@ -8199,6 +8228,14 @@ _pid ChildProcess(int pipes[2])
     outsiders["acosf"] = (u64)acosf;
     outsiders["atan2f"] = (u64)atan2f;
 
+
+
+    outsiders["sin"]   = (u64)_sin;
+    outsiders["cos"]   = (u64)_cos;
+    outsiders["tan"]   = (u64)_tan;
+    outsiders["asin"]  = (u64)_asin;
+    outsiders["acos"]  = (u64)_acos;
+    outsiders["atan2"] = (u64)_atan2;
 
 
     outsiders["glGenSamplers"]       = (u64)_glGenSamplers;

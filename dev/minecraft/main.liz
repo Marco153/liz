@@ -921,7 +921,8 @@ init_game::fn(g : *game_info)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 6)
 
 
-  physics_get_body(&g.pman, g.player)
+  col := physics_get_body(&g.pman, g.player)
+  col.type = col_type.CUBE
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)
@@ -1167,7 +1168,24 @@ render::fn(g : *game_info, rman : *render_manager)
   tex.img = g.pman.cur_tex
   tex.samp = &rman.nearest_sampler
 
-  draw_quad_tex(rman, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, &tex)
+  quad_px := -0.5f
+  quad_py := 0.5f
+
+  quad_sx := 0.5f
+  quad_sy := 0.5f
+
+  draw_quad_tex(rman, quad_px, quad_py, quad_sx, quad_sy, 1.0f, &tex)
+
+  //printf("ox {g.pman.fract_chunk_px}, oz {g.pman.fract_chunk_pz}\n")
+
+  px := quad_px + quad_sx * g.pman.fract_chunk_px
+  py := quad_py + quad_sy * g.pman.fract_chunk_pz
+  px -= quad_sx * 0.5
+  py -= quad_sy * 0.5
+
+  //printf("ax {px}, ay {py}\n")
+
+  draw_quad_tex(rman, px, py, 0.1f, 0.1f, 1.0f, &tex)
 
   aspect := cast(f32)g.wnd_height / cast(f32)g.wnd_width
   g_ubo:global_ubo_uniform=?

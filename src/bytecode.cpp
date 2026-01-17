@@ -1981,6 +1981,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case STORE_R_2_M:
 		case MOV_R_2_M:
 		{
+      BREAK(cur_line == 346)
 
 			CreateRegToMem(&*bc, 0x88, 0x89, ret);
 
@@ -1988,6 +1989,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case MOV_I_2_M:
 		case STORE_I_2_M:
 		{
+      //BREAK(bc->bin.rhs.i == 0x800)
 			CreateStoreImmToMem(&*bc, ret);
 		}break;
 		case REP_B:

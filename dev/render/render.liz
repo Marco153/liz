@@ -672,7 +672,7 @@ draw_quad_tex :: fn(rman : *render_manager, px : f32, py : f32, sx : f32, sy : f
   cur.SCREEN_QUAD.texs = texs
   cur.SCREEN_QUAD.total_texs = 1
 
-  printf("quad_tex: tex {cast(u64)tex.img}\n")
+  //printf("quad_tex: tex {cast(u64)tex.img}\n")
   rman.gui_cur_draws++
   ASSERT(rman.gui_cur_draws < rman.gui_max_draws)
 }
@@ -699,7 +699,7 @@ draw_gui::fn(rman : *render_manager)
     {
       tex := &cur.SCREEN_QUAD.texs[cast(u64)t]
       if tex.img == nil continue
-      printf("draw: cur ptex {cast(u64)tex.img}\n")
+      //printf("draw: cur ptex {cast(u64)tex.img}\n")
       bind_texture(rman, tex, cast(u32)t)
     }
 #if RENDER_API == OPENGL

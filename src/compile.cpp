@@ -9224,9 +9224,9 @@ int GetOnStackOffsetWithIrVal(lang_state* lang_stat, ir_val* ir)
 #pragma optimize("", off)
 void InsertBc(own_std::vector<byte_code> &ret, byte_code &bc)
 {
-  if(bc.type == MOV_I_2_RM)
+  if(bc.type == MOV_I_2_M)
   {
-    HERE()
+    BREAK(bc.bin.rhs.i == 0x800)
   }
   ret.emplace_back(bc);
 }

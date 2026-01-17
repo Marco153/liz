@@ -1846,6 +1846,11 @@ void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
 {
   //BREAK(ast->line_number == 764)
   ir_rep ir={};
+
+  bool was_float = aux->is_float;
+  if(aux->ptr > 0)
+    aux->is_float = false;
+
   if(aux->kind == IR_VAL_ADDR)
   {
     char reg = -1;
@@ -1913,6 +1918,7 @@ void EnsureValue(lang_state *lang_stat, thread_ir_state *state, ir_val *aux)
     aux->reg = reg;
     aux->voffset = 0;
   }
+  aux->is_float = was_float;
 }
 void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, tkn_type2 op, block2 *dst) 
 {
@@ -1925,6 +1931,12 @@ void GetIRComparison(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   ir.bin.block_id = dst->id;
 
   ir.bin.lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, true);
+  if(ir.bin.lhs.ptr > 0)
+  {
+    ir.bin.lhs.reg_sz = 8;
+    ir.bin.lhs.is_float = false;
+    ir.bin.lhs.is_packed_float = false;
+  }
   EnsureValue(lang_stat, state, &ir.bin.lhs);
   LoadDerefs(lang_stat, &state->cur_block->irs, &ir.bin.lhs);
   if(ir.bin.lhs.kind == IR_VAL_ADDR)
@@ -2577,12 +2589,12 @@ void FreeRegs2(lang_state *lang_stat)
 void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start, bool is_sys_call, bool *arg_is_float)
 {
   ir_rep ir={};
+  //BREAK(arg->line_number == 142)
   ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
   bool was_float = ir.bin.rhs.is_float;
 
   char reg = -1;
 
-  //BREAK(arg->line_number == 1388)
   if(ir.bin.rhs.type == IR_TYPE_REG) 
   {
     reg = ir.bin.rhs.reg;
@@ -2590,6 +2602,7 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
 
   ir.type = IR_BIN;
   ir.bin.op = T_EQUAL;
+
   if(ir.bin.rhs.is_float && i < args_on_stack_start && ir.bin.rhs.ptr == 0)
   {
     char free_reg = -1;
@@ -2617,7 +2630,6 @@ void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, i
   }
   else
   {
-    //BREAK(arg->line_number == 376)
     char deref = ir.bin.rhs.deref;
     char aux_reg = -1;
     if(ir.bin.rhs.type == IR_TYPE_REG || ir.bin.rhs.type == IR_TYPE_REG_MEM)
@@ -2741,7 +2753,6 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     if(i >= 6) break;
   }
   bool arg_is_float = false;
-  //BREAK(ast->line_number == 1764)
   for(i = 0; i < 8; i++)
   {
     ir.type = IR_SPILL;
@@ -2846,7 +2857,6 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
 
   if(callf->ret_type.type == TYPE_STRUCT && callf->ret_type.ptr == 0)
   {
-    //BREAK(ast->line_number == 72)
     int st_size = GetTypeSize(&callf->ret_type);
     int offset = get_strct_ret(state);
     add_strct_ret(state, st_size);
@@ -3048,7 +3058,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
   case AST_INDEX: 
   {
-    //BREAK(ast->line_number == 1424)
     rhs = GetIRFromAst2(lang_stat, ast->index.rhs, state, false);
 
     if(rhs.kind == IR_VAL_ADDR)
@@ -3084,7 +3093,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       InsertIr(state, ir);
     }
 
-    //BREAK(ast->line_number == 1098)
     lhs = GetIRFromAst2(lang_stat, ast->index.lhs, state, true);
 
     bool can_do_plus = true;
@@ -3263,7 +3271,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
     if(ast->ret.ast){
       bool is_lhs = false;
-      //BREAK(ast->line_number == 2045)
 
       if(lang_stat->cur_func->ret_type.type == TYPE_STRUCT && lang_stat->cur_func->ret_type.ptr == 0)
       {
@@ -3685,7 +3692,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
   {
     ast_rep *df = ast->deref.exp;
 
-    BREAK(ast->line_number == 1296)
     rhs = GetIRFromAst2(lang_stat, df, state, is_lhs);
 
     rhs.deref += ast->deref.times;
@@ -3739,8 +3745,13 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
       else
         ir.bin.lhs.reg = GetAvailableReg(lang_stat);
+      ret.is_float = false;
+      ret.is_packed_float = false;
+
       ir.bin.lhs.reg_sz = 8;
       ir.bin.rhs = ret;
+      ir.bin.rhs.is_float = false;
+      ir.bin.rhs.is_packed_float = false;
       InsertIr(state, ir);
 
       ret = ir.bin.lhs;
@@ -3805,7 +3816,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       bool from_float = ret.is_float;
       bool to_float = ast->cast.type.IsFloat();
 
-      //BREAK(ast->line_number == 425)
       bool casted = false;
       //BREAK(ast->line_number == 1410)
       if (ret.ptr > 0 && ast->cast.type.ptr == 0) {
@@ -3821,7 +3831,6 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           else
             EnsureValue(lang_stat, state, &ret); // load pointer variable
         }
-
       }
       if (ast->cast.type.ptr == 0) {
         if(cast_sz == 4 && ret.reg_sz == 8 && !ret.is_float)
@@ -3829,6 +3838,12 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
           casted = true;
           ret.reg_sz = 4;
         }
+        /*
+        if(ret.is_float && ret.ptr > 0)
+        {
+          ret.is_float = false;
+        }
+        */
         EnsureValue(lang_stat, state, &ret);
         LoadDerefs(lang_stat, &state->cur_block->irs, &ret);
       }
@@ -4530,6 +4545,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
         lhs.reg_sz = 8;
         rhs.reg_sz = 8;
         lhs.is_float = false;
+        lhs.is_packed_float = false;
         lhs.is_unsigned = true;
         rhs.is_unsigned = true;
       }

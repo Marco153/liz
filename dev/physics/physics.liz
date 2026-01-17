@@ -13,15 +13,213 @@ EPA_MAX_NUM_ITERATIONS:const s32= 64
 FLOAT_MAX: const u32= 0x7f800000;
 FLOAT_MIN: const u32= 0xff800000;
 
+minPerComponent::fn x64(a: vector, b: vector) ! vector
+{
+	ret : vector
+	ret.x = minf(a.x, b.x)
+	ret.y = minf(a.y, b.y)
+	ret.z = minf(a.z, b.z)
+	ret.w = minf(a.w, b.w)
+    return ret
+}
+
+// Returns component-wise maximum of two vectors
+maxPerComponent::fn x64(a: vector, b: vector) ! vector
+{
+	ret : vector
+	ret.x = maxf(a.x, b.x)
+	ret.y = maxf(a.y, b.y)
+	ret.z = maxf(a.z, b.z)
+	ret.w = maxf(a.w, b.w)
+    return ret
+}
+CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *vector, _max : *vector, mesh_verts : *vector)
+{
+	p := col.pos
+	p.x = p.x * e.size.x
+	p.y = p.y * e.size.y
+	p.z = p.z * e.size.z
+	q :quaternion64=?
+	q.v = cast(vector)e.rot
+
+	p = q * p
+
+
+	sz := col.size
+	sz.x = sz.x * e.size.x
+	sz.y = sz.y * e.size.y
+	sz.z = sz.z * e.size.z
+	final_pos := (e.pos + p)
+
+	final_size := sz
+	mat : mat4x4_=?
+
+	on col.type 
+	{
+	col_type.TRIANGLE
+	{
+		
+	}
+	col_type.CAPSULE
+	{
+		r := col.CAPSULE.radius * 4.0
+		h := col.CAPSULE.height * 4.0
+		_min.x = e.pos.x - r
+		_min.y = e.pos.y - h * 0.5
+		_min.z = e.pos.z - r
+		_min.w = 0.0
+
+		_max.x = e.pos.x + r
+		_max.y = e.pos.y + h * 0.5
+		_max.z = e.pos.z + r
+		_max.w = 0.0
+	}
+	col_type.SPHERE
+	{
+
+		r := col.SPHERE.radius * 1.2
+		_min.x = e.pos.x - r
+		_min.y = e.pos.y - r
+		_min.z = e.pos.z - r
+		_min.w = 0.0
+
+		_max.x = e.pos.x + r
+		_max.y = e.pos.y + r
+		_max.z = e.pos.z + r
+		_max.w = 0.0
+	}
+	col_type.MESH
+	{
+    /*
+		a := cast(*f32)&mat
+		c := cast(*f32)&q.v
+		//build_model_matrix(a, &final_pos, c, &final_size)
+
+		minfo := col.MESH.info
+		start := mesh_verts
+		//prev_ptr := minfo.tris
+		//prev_val := *minfo.tris
+		for i in 0..minfo.verts_count
+		{
+			v := ptr_offset(start, i, _vec)
+			v.w = 1.0
+			*v = mul_mat_vec(&mat, v)
+			v.w = 0.0
+			*_min = minPerComponent(_min, v)
+			*_max = maxPerComponent(_max, v)
+		}
+    */
+		
+	}
+	col_type.CUBE
+	{
+		start := &col.CUBE.verts[0]
+
+		if col.no_rotation_ent
+		{
+			for i in 0..8
+			{
+				v := ptr_offset(start, i, vector)
+				*v = *v * final_size
+        v.x += final_pos.x
+        v.y += final_pos.y
+        v.z += final_pos.z
+				*_min = minPerComponent(*_min, *v)
+				*_max = maxPerComponent(*_max, *v)
+			}
+		}
+		else
+		{
+			a := cast(*float)&mat
+			c := cast(*float)&q.v
+			build_model_matrix(a, final_pos, c, final_size)
+
+			for i in 0..8
+			{
+				v := ptr_offset(start, i, vector)
+				v.w = 1.0
+				*v = mul_mat_vec(&mat, *v)
+				v.w = 0.0
+				*_min = minPerComponent(*_min, *v)
+				*_max = maxPerComponent(*_max, *v)
+			}
+		}
+	}
+	default
+	{
+		__dbg_break
+	}
+	}
+
+	col._min = *_min
+	col._max = *_max
+}
+CopyVerts::fn(phy : *physics_manager, col : *collider, _min : *vector, _max : *vector)
+{
+	if col.data_ready
+	{
+		*_min = col._min
+		*_max = col._max
+		return;
+	}
+
+	if col.ent.is_static
+	{
+		col.data_ready = true
+		//col.pos = col.ent.pos
+	}
+
+	mesh_verts : *vector
+
+	if col.type == col_type.MESH
+	{
+    /*
+		minfo := &col.MESH.info
+		//printf("is mesh copyverts\n")
+		m := get_model_ptr(cast(*asset_index)&minfo.model_idx)
+		
+		CopyDataFromModel(cast(u32)m.model, minfo.verts, minfo.verts_count, minfo.tris, minfo.tris_count, &minfo.verts_count, &minfo.tris_count)
+
+		mesh_verts = col.MESH.info.verts
+    */
+	}
+	_min.x = 9999.9
+	_min.y = 9999.9
+	_min.z = 9999.9
+	
+	_max.x = -9999.9
+	_max.y = -9999.9
+	_max.z = -9999.9
+	if col.type == col_type.CUBE
+	{
+		memcpy(&col.CUBE.verts[0], &phy.cube_verts[0], 16 * 8)
+	}
+	CopyVertsActual(col, col.ent, _min, _max, mesh_verts)
+}
+aabb : struct 
+{
+    _min : vector
+    _max : vector
+}
+verts_and_tris:struct
+{
+	verts : *_vec
+	verts_count : u32
+	tris : *u32
+	tris_count : u32
+}
 col_type : etruct
 {
 	SPHERE(
-		radius : f32
+		radius : f64
 		
 	),
 	CAPSULE(
-		radius : f32,
-		height : f32
+		radius : f64,
+		height : f64
+	),
+	MESH(
+		info : verts_and_tris
 	),
 	TRIANGLE(
 		normal :vector
@@ -51,6 +249,8 @@ collider : struct
 	trn_chunk_max_y : s32
 	trn_chunk_max_z : s32
 
+	data_ready : bool
+	no_rotation_ent : bool
 }
 gjk_state : struct
 {
@@ -111,27 +311,28 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
 	}
 	TRIANGLE
 	{
-		//Find which triangle vertex is furthest along dir
-        dot0 := _dot(col.TRIANGLE.verts[0], dir);
-        dot1 := _dot(col.TRIANGLE.verts[1], dir);
-        dot2 := _dot(col.TRIANGLE.verts[2], dir);
+    printf("is TRIANGLE\n")
+//Find which triangle vertex is furthest along dir
+    dot0 := _dot(col.TRIANGLE.verts[0], dir);
+    dot1 := _dot(col.TRIANGLE.verts[1], dir);
+    dot2 := _dot(col.TRIANGLE.verts[2], dir);
 
-        furthest_point := col.TRIANGLE.verts[0]
-        if(dot1>dot0){
-            furthest_point = col.TRIANGLE.verts[1]
-            if(dot2>dot1) 
-                furthest_point = col.TRIANGLE.verts[2]
-        }
-        else if(dot2>dot0) {
-            furthest_point = col.TRIANGLE.verts[2]
-        }
+    furthest_point := col.TRIANGLE.verts[0]
+    if(dot1>dot0){
+      furthest_point = col.TRIANGLE.verts[1]
+      if(dot2>dot1) 
+          furthest_point = col.TRIANGLE.verts[2]
+    }
+    else if(dot2>dot0) {
+      furthest_point = col.TRIANGLE.verts[2]
+    }
 
-        //fake some depth behind triangle so we have volume
-		n := col.TRIANGLE.normal * 0.1
-        if(_dot(dir, n)<0.0)
-			furthest_point-= n;
-
-        return furthest_point;
+    //fake some depth behind triangle so we have volume
+    n := col.TRIANGLE.normal * 0.1
+    if(_dot(dir, n)<0.0)
+    furthest_point-= n;
+    printf("TRIANGEL end\n")
+    return furthest_point;
 	}
 	CUBE
 	{
@@ -150,8 +351,16 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
 			}
 			cur_idx++
 		}
+    __dbg_break
 		return col.CUBE.verts[max_idx]
 	}
+  default
+  {
+    printf("find furthest_point col type not handled {cast(u32)col.type}\n")
+    __dbg_break
+    __dbg_break
+    __dbg_break
+  }
 	}
 	return _vec{0.0, 0.0, 0.0, 0.0}
 }
@@ -356,6 +565,12 @@ physics_manager : struct
   cur_bodies : u32
 
   cur_tex : *image
+
+  fract_chunk_px : f32
+  fract_chunk_pz : f32
+
+	cube_verts : [8]vector
+	cube_tris : [36]s32
 }
 
 init_physics::fn(phy : *physics_manager, alloc :*generic_allocator, trn : *terrain_info)
@@ -363,6 +578,43 @@ init_physics::fn(phy : *physics_manager, alloc :*generic_allocator, trn : *terra
   phy.max_bodies = 16
   phy.trn = trn
   phy.bodies = cast(*collider)get_buffer_from_generic_alloc(alloc,  phy.max_bodies * sizeof(collider));
+
+
+	phy.cube_verts[0] = vector{-0.5, -0.5, -0.5, 0.0}
+	phy.cube_verts[1] = vector{0.5, -0.5, -0.5, 0.0}
+	phy.cube_verts[2] = vector{0.5,  0.5, -0.5, 0.0}
+	phy.cube_verts[3] = vector{-0.5,  0.5, -0.5, 0.0}
+	phy.cube_verts[4] = vector{-0.5, -0.5,  0.5, 0.0}
+	phy.cube_verts[5] = vector{0.5, -0.5,  0.5, 0.0}
+	phy.cube_verts[6] = vector{0.5,  0.5,  0.5, 0.0}
+	phy.cube_verts[7] = vector{-0.5,  0.5,  0.5, 0.0};
+
+	phy.cube_tris = [36]s32{
+		// Bottom face
+		0, 4, 5,
+		0, 5, 1,
+
+		// Front face
+		0, 1, 2,
+		0, 2, 3,
+		
+		// Back face
+		4, 6, 5,
+		4, 7, 6,
+		
+		// Left face
+		0, 3, 7,
+		0, 7, 4,
+		
+		// Right face
+		1, 5, 6,
+		1, 6, 2,
+		
+		// Top face
+		3, 2, 6,
+		3, 6, 7
+	};
+
 }
 physics_get_body::fn(phy : *physics_manager, ent : *entity) ! *collider
 {
@@ -380,10 +632,9 @@ physics_get_body::fn(phy : *physics_manager, ent : *entity) ! *collider
   ASSERT(false)
   return nil
 }
-physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_info)
+sample_terrain_height::fn(phy : *physics_manager, trn : *terrain_info, world_pos : vector) ! f32
 {
-  ASSERT(trn)
-  p := col.ent.pos
+  p := world_pos
   p = p / cast(f64)CHUNK_SIZE
 
   pix := floori64(p.x)
@@ -395,23 +646,95 @@ physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_
   if tex_data != nil
   {
     phy.cur_tex = &tex.img
-    fract_z := (p.x - cast(f64)pix)
-    fract_x := (p.z - cast(f64)piz)
+    fract_x := (p.x - cast(f64)pix)
+    fract_z := (p.z - cast(f64)piz)
 
+/*
 //    if fract_z != 0.0
       fract_z = cast(f64) 1.0 - fract_z
 
     //if fract_x != 0.0
       fract_x = cast(f64) 1.0 - fract_x
+      */
+
+    phy.fract_chunk_px = cast(f32)fract_x
+    phy.fract_chunk_pz = cast(f32)fract_z
 
 
 
     x_pixel := cast(s64)(fract_x * cast(f64)CHUNK_SIZE)
     z_pixel := cast(s64)(fract_z * cast(f64)CHUNK_SIZE)
     idx := x_pixel * HEIGHTMAP_BYTES_PER_PIXEL + z_pixel * CHUNK_SIZE * HEIGHTMAP_BYTES_PER_PIXEL
-    pixel   := *ptr_offset(tex_data, idx, u16)
+    pixel   := *cast(*u16)ptr_offset(tex_data, idx, u8)
+    return (cast(f32)cast(s32)pixel) / cast(f32)0xffff
+
 
   }
+  return 0.0f
+}
+physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_info)
+{
+  ASSERT(trn)
+
+  wnd := 4
+  p := col.ent.pos
+  w := cast(f64)(wnd /2)
+  p.x = floorf64(p.x)
+  p.z = floorf64(p.z)
+
+  p.x -= w
+  p.z -= w
+
+  terrain_max_height := 1000.0f
+  tri_col :collider=?
+  tri_col.type = col_type.TRIANGLE
+
+  wnd -= 1
+  for y in 0..cast(s64)wnd
+  {
+    p.z += 1.0
+    for x in 0..cast(s64)wnd
+    {
+      a := p
+      h1 := sample_terrain_height(phy, trn, a) * terrain_max_height
+      v1 := a
+      v1.y = cast(f64)h1
+
+      a.x += 1.0f
+      h2 := sample_terrain_height(phy, trn, a) * terrain_max_height
+      v2 := a
+      v2.y = cast(f64)h2
+
+      a.z += 1.0f
+      h3 := sample_terrain_height(phy, trn, a) * terrain_max_height
+      v3 := a
+      v3.y = cast(f64)h3
+
+      a.x -= 1.0f
+      h4 := sample_terrain_height(phy, trn, a) * terrain_max_height
+      v4 := a
+      v4.y = cast(f64)h4
+
+      tri_col.TRIANGLE.verts[0] = v1
+      tri_col.TRIANGLE.verts[1] = v2
+      tri_col.TRIANGLE.verts[2] = v3
+      ab := v2 - v1
+      ac := v3 - v1
+      tri_col.TRIANGLE.normal = cross_vec2(ab, ac)
+
+
+      if GJK(&phy.gjk, col, &tri_col)
+      {
+        printf("in col\n")
+      }
+
+      //c1.pos = e.pos
+
+
+      p.x += 1.0
+    }
+  }
+  //p := col.ent.pos
 }
 physics_step::fn(phy : *physics_manager, dt : f32)
 {
@@ -422,6 +745,11 @@ physics_step::fn(phy : *physics_manager, dt : f32)
     if !cur.in_use continue
     ASSERT(cur.ent)
 
+    m_aabb :aabb = ?
+    p_aabb :aabb = ?
+    CopyVerts(phy, cur, &p_aabb._min, &p_aabb._max)
+    //print_vec2(cur.ent.pos)
+
     physics_terrain_col(phy, cur, phy.trn)
     
   }
@@ -429,5 +757,5 @@ physics_step::fn(phy : *physics_manager, dt : f32)
 physics_update::fn(phy : *physics_manager, dt : f32)
 {
   physics_step(phy, dt)
-  printf("physics: cur ptex {cast(u64)phy.cur_tex}\n")
+  //printf("physics: cur ptex {cast(u64)phy.cur_tex}\n")
 }

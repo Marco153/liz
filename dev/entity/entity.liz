@@ -9,7 +9,10 @@ entity :struct
   idx : u32
   flags : u32
   pos : vector
+  size : vector
   rot : _vec
+
+  is_static : bool
 
   forward : _vec
 

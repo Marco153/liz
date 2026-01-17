@@ -1,10 +1,4 @@
 import "../../core";
-
-EPA_TOLERANCE:const f32= 0.0001
-EPA_MAX_NUM_FACES:const s32= 64
-EPA_MAX_NUM_LOOSE_EDGES:const s32= 32
-EPA_MAX_NUM_ITERATIONS:const s32= 64
-
 aabb : struct 
 {
     _min : _vec  
@@ -63,8 +57,6 @@ verts_and_tris:struct
 	verts_count : u32
 	tris : *u32
 	tris_count : u32
-	model_idx : asset_index
-  tris_info : dyn_array(triangle_info)
 }
 
 col_type : etruct

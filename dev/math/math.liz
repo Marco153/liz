@@ -731,3 +731,16 @@ quat_to_mat4::fn(out: *mat4x4_, q: vector) ! void
     out.vals[14] = 0.0;
     out.vals[15] = 1.0;
 }
+absf::fn(a : float) ! float
+{
+  if a < 0.0 return -a
+  return a
+}
+cmpf::fn macro(a : _expr, b : _expr)
+{
+	absf(a - b) < 0.0001
+}
+equal_vec::fn(a : vector, b : vector) ! bool
+{
+	return cmpf(a.x, b.x) && cmpf(a.y, b.y) && cmpf(a.z, b.z) && cmpf(a.w, b.w)
+}

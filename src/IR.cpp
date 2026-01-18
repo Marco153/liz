@@ -1255,6 +1255,7 @@ void GetIRVal(lang_state *lang_stat, ast_rep *ast, ir_val *val) {
   } break;
   case AST_CHAR:
   case AST_INT: {
+    //BREAK(ast->num == 669)
     val->type = IR_TYPE_INT;
     val->val = ast->num;
     val->is_unsigned = ast->num < 0 ? false : true;
@@ -1395,7 +1396,7 @@ void FreeSpecificReg(lang_state *lang_stat, char idx) {
   // ASSERT(IS_FLAG_ON(lang_stat->regs[idx], REG_FREE_FLAG));
   lang_stat->regs[idx] &= ~REG_USED_FLAG;
 }
-void AllocSpecificReg(lang_state *lang_stat, char idx, bool is_float = false) {
+int AllocSpecificReg(lang_state *lang_stat, char idx, bool is_float = false) {
   if(is_float)
   {
     lang_stat->float_regs[idx] |= REG_USED_FLAG;
@@ -1408,6 +1409,7 @@ void AllocSpecificReg(lang_state *lang_stat, char idx, bool is_float = false) {
   if (lang_stat->track_alloc_regs) {
     lang_stat->tracked_regs.emplace_back(idx);
   }
+  return idx;
 }
 char AllocReg2(lang_state *lang_stat, bool on_func_call, int start = 0) {
   if(on_func_call)
@@ -1622,19 +1624,19 @@ block2 *CreateBlock(lang_state *lang_stat, thread_ir_state *state)
   ret->emitted = false;
   return ret;
 }
-char GetAvailableReg(lang_state *lang_stat)
+char GetAvailableReg(lang_state *lang_stat, int start = 0)
 {
-  if (IS_FLAG_OFF(lang_stat->regs[0], REG_USED_FLAG)) 
+  if (IS_FLAG_OFF(lang_stat->regs[0], REG_USED_FLAG) && 0 >= start) 
   {
     lang_stat->regs[0] |= REG_USED_FLAG;
     return 0;
   }
-  else if (IS_FLAG_OFF(lang_stat->regs[3], REG_USED_FLAG)) 
+  else if (IS_FLAG_OFF(lang_stat->regs[3], REG_USED_FLAG) && 3>= start) 
   {
     lang_stat->regs[3] |= REG_USED_FLAG;
     return 3;
   }
-  else if (IS_FLAG_OFF(lang_stat->regs[14], REG_USED_FLAG)) 
+  else if (IS_FLAG_OFF(lang_stat->regs[14], REG_USED_FLAG) && 14 >= start) 
   {
     lang_stat->regs[14] |= REG_USED_FLAG;
     return 14;
@@ -4386,7 +4388,7 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
     case T_SHIFT_RIGHT:
     case T_PLUS:
     {
-      //BREAK(ast->line_number == 612)
+      //BREAK(ast->line_number == 1493)
       u32 spill_base = state->spilled_regs.cur;
 
       if(ast->op == T_DIV)
@@ -4396,7 +4398,9 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
       }
 
 
+      //BREAK(ast->line_number == 802 && ast->op == T_MUL)
       lhs = GetIRFromAst2(lang_stat, ast->e_holder.expr[0], state, false);
+
 
       for(int i= 1; i < ast->e_holder.expr.size(); i++)
       {
@@ -4441,15 +4445,19 @@ ir_val GetIRFromAst2(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state
             if(ast->op == T_DIV || ast->op == T_MUL)
             {
               ir.bin.lhs.reg_sz  = rhs.reg_sz;
-              ir.bin.lhs.reg  = (char)regs_enum::RBX;
+              ir.bin.lhs.reg  = AllocSpecificReg(lang_stat, (char)regs_enum::RBX);
               ir.bin.rhs      = rhs;
               InsertIr(state, ir);
               rhs = ir.bin.lhs;
 
-              ir.bin.lhs.reg  = 0;
+              if(IsRegInUse(lang_stat, (char)regs_enum::RAX))
+                ir.bin.lhs.reg  = GetAvailableReg(lang_stat);
+              else
+                ir.bin.lhs.reg  = 0;
               ir.bin.lhs.reg_sz  = lhs.reg_sz;
               ir.bin.rhs = lhs;
               InsertIr(state, ir);
+              FreeSpecificReg(lang_stat, (char)regs_enum::RBX);
             }
             else
             {

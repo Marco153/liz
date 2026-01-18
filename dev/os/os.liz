@@ -442,8 +442,8 @@ sprintf_base::fn(buffer : *u8, bsz : u32, format : str_lit, __var_args : *rel_ar
 			else if cur_arg.type == type_enum.TYPE_F32
 			{
 				f := *cast(*f32)&cur_arg.val
-        len := float_to_str(f, ptr_offset(buffer, buffer_idx, u8), 8)
-				buffer_idx += 4
+        len := float_to_str(f, ptr_offset(buffer, buffer_idx, u8), 32)
+				buffer_idx += len
 			}
 			else if cur_arg.type == type_enum.TYPE_U32 || cur_arg.type == type_enum.TYPE_S32 ||
 					cur_arg.type == type_enum.TYPE_U8 || cur_arg.type == type_enum.TYPE_S8 ||

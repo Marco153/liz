@@ -15,6 +15,31 @@ EPA_MAX_NUM_ITERATIONS:const s32= 64
 FLOAT_MAX: const u32= 0x7f800000;
 FLOAT_MIN: const u32= 0xff800000;
 
+MAX_CONTACTS:const s32= 4;
+
+contact_point :struct
+{
+    position:vector;     // world-space contact point
+    penetration:float; // penetration depth (positive)
+    
+    // solver data (can be added later)
+    normalImpulse:float;
+    tangentImpulse:float;  // lambda_t
+};
+
+manifold:struct {
+    A:*collider;
+    B:*collider;
+
+    normal:vector;          // from A -> B (world space)
+    contact_count:u32;     // 0..MAX_CONTACTS
+
+    contacts:[MAX_CONTACTS]contact_point;
+
+    // material
+    restitution:float;
+    friction:float;       // combined friction
+};
 minPerComponent::fn x64(a: vector, b: vector) ! vector
 {
 	ret : vector
@@ -51,7 +76,7 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *vector, _max : *ve
 	sz.x = sz.x * e.size.x
 	sz.y = sz.y * e.size.y
 	sz.z = sz.z * e.size.z
-	final_pos := (e.pos + p)
+	final_pos := (col.pos + p)
 
 	final_size := sz
 	mat : mat4x4_=?
@@ -256,9 +281,15 @@ collider : struct
 	data_ready : bool
 	no_rotation_ent : bool
 }
+support_info:struct
+{
+  sup : vector
+  av : vector
+  bv : vector
+}
 gjk_state : struct
 {
-	simplex : [4]vector
+	simplex : [4]support_info
 	simplex_verts : u32
 
 	epa_faces : [EPA_MAX_NUM_FACES][4]vector
@@ -281,17 +312,15 @@ gjk_state : struct
 
 	aux_col : collider
 }
-find_support::fn( col1 : *collider, col2 : *collider, dir : vector) ! vector
+
+find_support::fn( col1 : *collider, col2 : *collider, dir : vector, aout: *vector, bout : *vector) ! vector
 {
 		sup1 := find_furthest_point(col1, col1.pos, dir)
 		sup2 := find_furthest_point(col2, col2.pos, -dir)
 		//gjk.sup1 = sup1
 		//gjk.sup2 = sup2
-    /*
-    printf("\n**")
-    print_vec2(sup1)
-    print_vec2(sup2)
-    */
+    *aout = sup1
+    *bout = sup2
 		return sup1 - sup2
 
 }
@@ -320,25 +349,46 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
 	}
 	TRIANGLE
 	{
+    //printf("TRIANGLE")
 //Find which triangle vertex is furthest along dir
     dot0 := _dot(col.TRIANGLE.verts[0], dir);
     dot1 := _dot(col.TRIANGLE.verts[1], dir);
     dot2 := _dot(col.TRIANGLE.verts[2], dir);
 
+/*
+    print_vec2(col.TRIANGLE.verts[0])
+    print_vec2(col.TRIANGLE.verts[1])
+    print_vec2(col.TRIANGLE.verts[2])
+    printf("d0 {cast(f32)dot0}, d1 {cast(f32)dot1}, d2 {cast(f32)dot2}\n")
+    */
+
     furthest_point := col.TRIANGLE.verts[0]
     if(dot1>dot0){
       furthest_point = col.TRIANGLE.verts[1]
       if(dot2>dot1) 
-          furthest_point = col.TRIANGLE.verts[2]
+      {
+        furthest_point = col.TRIANGLE.verts[2]
+      }
+      else
+      {
+      }
     }
     else if(dot2>dot0) {
       furthest_point = col.TRIANGLE.verts[2]
+    }
+    else
+    {
+        //printf("vert0\n")
     }
 
     //fake some depth behind triangle so we have volume
     n := col.TRIANGLE.normal * 0.1
     if(_dot(dir, n)<0.0)
-    furthest_point-= n;
+    {
+      furthest_point-= n;
+    }
+
+
     return furthest_point;
 	}
 	CUBE
@@ -371,12 +421,16 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
 	}
 	return _vec2{0.0, 0.0, 0.0, 0.0}
 }
-simplex_push_front::fn x64(gjk : *gjk_state, pos : vector)
+
+simplex_push_front::fn x64(gjk : *gjk_state, pos : vector, avert : vector, bvert : vector)
 {
-	aux : [4]vector= ?
-	memcpy(&aux[0], &gjk.simplex[0], 3 * sizeof(vector))
-	gjk.simplex[0] = pos
-	memcpy(&gjk.simplex[1], &aux[0], 3 * sizeof(vector))
+	aux : [4]support_info= ?
+	memcpy(&aux[0], &gjk.simplex[0], 3 * sizeof(support_info))
+  //temp := gjk.simplex[0]
+	gjk.simplex[0].sup = pos
+	gjk.simplex[0].av  = avert
+	gjk.simplex[0].bv  = bvert
+	memcpy(&gjk.simplex[1], &aux[0], 3 * sizeof(support_info))
 
 	gjk.simplex_verts = minval(gjk.simplex_verts + 1, 4)
 }
@@ -388,15 +442,17 @@ GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 	unitx.x = 1.0
 	gjk.simplex_verts = 0
 	//__dbg_break
-	sup := find_support( col1, col2, unitx)
+  avert : vector
+  bvert : vector
+	sup := find_support( col1, col2, unitx, &avert, &bvert)
 
-	simplex_push_front(gjk, sup)
+	simplex_push_front(gjk, sup, avert, bvert)
 
 	dir := -sup
 	//gjk.dir = dir
 	for it in 0..32
 	{
-		sup = find_support( col1, col2, dir)
+		sup = find_support( col1, col2, dir, &avert, &bvert)
 
 		//gjk.dir = dir
 
@@ -404,13 +460,7 @@ GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 		{
 			return false
 		}
-    /*
-    printf("\n---")
-    print_vec2(sup)
-    print_vec2(dir)
-    printf("it {it}, d {cast(f32)_dot(sup, dir)}, simpl verts {gjk.simplex_verts}\n")
-    */
-		simplex_push_front(gjk, sup)
+		simplex_push_front(gjk, sup, avert, bvert)
 
 		if(gjk_next_simplex(gjk, &dir))
 		{
@@ -448,10 +498,10 @@ same_direction ::fn x64(a : vector, b : vector) ! bool
 }
 gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *vector) ! bool
 {
-	a := gjk.simplex[0]
-	b := gjk.simplex[1]
-	c := gjk.simplex[2]
-	d := gjk.simplex[3]
+	a := gjk.simplex[0].sup
+	b := gjk.simplex[1].sup
+	c := gjk.simplex[2].sup
+	d := gjk.simplex[3].sup
 
 	ab := b - a
 	ac := c - a
@@ -463,27 +513,27 @@ gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *vector) ! bool
 	adb := cross_vec2(ad,  ab)
 	if same_direction(abc, ao)
 	{
-		gjk.simplex[0] = a
-		gjk.simplex[1] = b
-		gjk.simplex[2] = c
+		gjk.simplex[0].sup = a
+		gjk.simplex[1].sup = b
+		gjk.simplex[2].sup = c
 		gjk.simplex_verts = 3
 
 		return gjk_triangle(gjk, dir)
 	}
 	if same_direction(acd, ao)
 	{
-		gjk.simplex[0] = a
-		gjk.simplex[1] = c
-		gjk.simplex[2] = d
+		gjk.simplex[0].sup = a
+		gjk.simplex[1].sup = c
+		gjk.simplex[2].sup = d
 		gjk.simplex_verts = 3
 
 		return gjk_triangle(gjk, dir)
 	}
 	if same_direction(adb, ao)
 	{
-		gjk.simplex[0] = a
-		gjk.simplex[1] = d
-		gjk.simplex[2] = b
+		gjk.simplex[0].sup = a
+		gjk.simplex[1].sup = d
+		gjk.simplex[2].sup = b
 		gjk.simplex_verts = 3
 
 		return gjk_triangle(gjk, dir)
@@ -493,9 +543,9 @@ gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *vector) ! bool
 }
 gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 {
-	a := gjk.simplex[0]
-	b := gjk.simplex[1]
-	c := gjk.simplex[2]
+	a := gjk.simplex[0].sup
+	b := gjk.simplex[1].sup
+	c := gjk.simplex[2].sup
 
 	ab := b - a
 	ac := c - a
@@ -506,15 +556,15 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 	{
 		if same_direction(ac, ao)
 		{
-			gjk.simplex[0] = a
-			gjk.simplex[1] = c
+			gjk.simplex[0].sup = a
+			gjk.simplex[1].sup = c
 			gjk.simplex_verts = 2
 			*dir = cross_vec2(cross_vec2(ac, ao), ac)
 		}
 		else
 		{
-			gjk.simplex[0] = a
-			gjk.simplex[1] = b
+			gjk.simplex[0].sup = a
+			gjk.simplex[1].sup = b
 			gjk.simplex_verts = 2
 			return gjk_line(gjk, dir)
 		}
@@ -524,8 +574,8 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 		//__dbg_break
 		if same_direction(cross_vec2(ab, abc), ao)
 		{
-			gjk.simplex[0] = a
-			gjk.simplex[1] = b
+			gjk.simplex[0].sup = a
+			gjk.simplex[1].sup = b
 			gjk.simplex_verts = 2
 			return gjk_line(gjk, dir)
 		}
@@ -537,9 +587,9 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 			}
 			else
 			{
-				gjk.simplex[0] = a
-				gjk.simplex[1] = c
-				gjk.simplex[2] = b
+				gjk.simplex[0].sup = a
+				gjk.simplex[1].sup = c
+				gjk.simplex[2].sup = b
 				gjk.simplex_verts = 3
 
 				*dir = -abc
@@ -550,8 +600,8 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 }
 gjk_line ::fn x64(gjk : *gjk_state, dir : *vector) ! bool
 {
-	a := gjk.simplex[0]
-	b := gjk.simplex[1]
+	a := gjk.simplex[0].sup
+	b := gjk.simplex[1].sup
 
 	ab := b - a
 	ao := -a
@@ -585,8 +635,13 @@ physics_manager : struct
 	cube_verts : [8]vector
 	cube_tris : [36]s32
 
+  manifolds:*manifold
+  cur_manifolds:u32
+  max_manifolds:u32
+
   iman : *input_manager
 }
+
 
 init_physics::fn(phy : *physics_manager, alloc :*generic_allocator, trn : *terrain_info)
 {
@@ -594,6 +649,8 @@ init_physics::fn(phy : *physics_manager, alloc :*generic_allocator, trn : *terra
   phy.trn = trn
   phy.bodies = cast(*collider)get_buffer_from_generic_alloc(alloc,  phy.max_bodies * sizeof(collider));
 
+  phy.max_manifolds = 16
+  phy.manifolds = cast(*manifold)get_buffer_from_generic_alloc(alloc,  phy.max_manifolds * sizeof(manifold));
 
 	phy.cube_verts[0] = vector{-0.5, -0.5, -0.5, 0.0}
 	phy.cube_verts[1] = vector{0.5, -0.5, -0.5, 0.0}
@@ -687,6 +744,184 @@ sample_terrain_height::fn(phy : *physics_manager, trn : *terrain_info, world_pos
   }
   return 0.0f
 }
+get_manifold::fn(phy : *physics_manager)!*manifold
+{
+  ret := &phy.manifolds[cast(u64)phy.cur_manifolds]
+  phy.cur_manifolds++
+  ASSERT(phy.cur_manifolds < phy.max_manifolds)
+  return ret
+}
+
+EPA::fn(gjk : *gjk_state, a : vector, b: vector, c : vector, d : vector, col1 : *collider, col2 : *collider, out : * manifold) ! vector
+{
+	cur_i : u64
+  faces := &gjk.epa_faces
+  loose_edges := &gjk.epa_loose_edges
+    
+	ba := b-a
+	ca := c-a
+	da := d-a
+	cb := c-b
+	db := d-b
+  //Init with final simplex from GJK
+  faces[0] = a;
+  faces[1] = b;
+  faces[2] = c;
+  faces[3] = normalize_vec2(cross_vec2(ba, ca)); //ABC
+  faces[1][0] = a;
+  faces[1][1] = c;
+  faces[1][2] = d;
+  faces[1][3] = normalize_vec2(cross_vec2(ca, da)); //ACD
+  faces[2][0] = a;
+  faces[2][1] = d;
+  faces[2][2] = b;
+  faces[2][3] = normalize_vec2(cross_vec2(da, ba)); //ADB
+  faces[3][0] = b;
+  faces[3][1] = d;
+  faces[3][2] = c;
+  faces[3][3] = normalize_vec2(cross_vec2(db, cb)); //BDC
+
+  num_faces:u64=4;
+	gjk.num_faces = num_faces
+	//__dbg_break
+  closest_face:u64;
+	cur_k := 0
+
+  dummy_vec : vector
+  for iterations in 0.. EPA_MAX_NUM_ITERATIONS
+	{
+		io_globals.linear_cur = 0
+    //Find face that's closest to origin
+    min_dist:= _dot(faces[0][0], faces[0][3]);
+    closest_face = 0;
+    for i in 1..cast(s64)num_faces
+		{
+      dist := _dot(faces[cast(u64)i][0], faces[cast(u64)i][3]);
+      if(dist<min_dist)
+			{
+        min_dist = dist;
+        closest_face = cast(u32)i;
+      }
+    }
+		//gjk.closest_face = closest_face
+
+    //search normal to face that's closest to origin
+    search_dir := faces[cast(u64)closest_face][3]; 
+    p := find_support(col1, col2, search_dir, &dummy_vec, &dummy_vec)
+
+		dot := _dot(p, search_dir)
+		dist := dot-min_dist
+    if((dist)<cast(f64)EPA_TOLERANCE){
+        //Convergence (new point is not significantly further from origin)
+			//__dbg_break
+			out.normal = faces[cast(u64)closest_face][3]
+      return faces[cast(u64)closest_face][3] * _dot(p, search_dir); //dot vertex with normal to resolve collision along normal!
+    }
+
+        num_loose_edges:u64 = 0;
+
+		//printf("here\n")
+        //Find all triangles that are facing p
+		for i2 in 0..cast(s64)num_faces
+    {
+			i := cast(u64)i2
+			//printf("i {i}\n")
+			to_point := p-faces[i][0] 
+      if(_dot(faces[i][3], to_point)>0.0) //triangle i faces p, remove it
+      {
+				n := faces[i][3]
+				//gjk.cur_face_facing_point = i
+				//gjk.epa_new_sup = p
+				//__dbg_break
+				//view_collision(1)
+
+                //Add removed triangle's edges to loose edge list.
+                //If it's already there, remove it (both triangles it belonged to are gone)
+				for j2 in 0..3
+        {
+					j:=cast(u64)j2
+					//printf("j {j}\n")
+          current_edge:[2]vector=?
+					current_edge[0] = faces[i][j];
+					current_edge[1] = faces[i][(j+1)%3];
+                    found_edge := false;
+
+					for k2 in 0..cast(s64)num_loose_edges
+          {
+						k := cast(u64)k2
+						//printf("k {k}\n")
+            if(equal_vec(loose_edges[k][1], current_edge[0]) && 
+							equal_vec(loose_edges[k][0], current_edge[1]))
+						{
+              //Edge is already in the list, remove it
+              //THIS ASSUMES EDGE CAN ONLY BE SHARED BY 2 TRIANGLES (which should be true)
+              //THIS ALSO ASSUMES SHARED EDGE WILL BE REVERSED IN THE TRIANGLES (which 
+              //should be true provided every triangle is wound CCW)
+              loose_edges[k][0] = loose_edges[num_loose_edges-1][0]; //Overwrite current edge
+              loose_edges[k][1] = loose_edges[num_loose_edges-1][1]; //with last edge in list
+              num_loose_edges--;
+              found_edge = true;
+              k2=cast(s64)num_loose_edges; //exit loop because edge can only be shared once
+              }
+          }//endfor loose_edges
+
+          if(!found_edge){ //add current edge to list
+            // assert(num_loose_edges<EPA_MAX_NUM_LOOSE_EDGES);
+            if(num_loose_edges>=EPA_MAX_NUM_LOOSE_EDGES) break;
+  //__dbg_break
+            loose_edges[num_loose_edges][0] = current_edge[0];
+            loose_edges[num_loose_edges][1] = current_edge[1];
+            num_loose_edges++;
+          }
+					//gjk.num_loose_Iedges = num_loose_edges
+          }
+				//gjk.num_loose_edges = num_loose_edges
+				//printf("k loop end")
+
+          //Remove triangle i from list
+          faces[i][0] = faces[num_faces-1][0];
+          faces[i][1] = faces[num_faces-1][1];
+          faces[i][2] = faces[num_faces-1][2];
+          faces[i][3] = faces[num_faces-1][3];
+          num_faces--;
+          i2--;
+          }//endif p can see triangle i
+        }//endfor num_faces
+        
+		//__dbg_break
+        //Reconstruct polytope with p added
+        for i2 in 0..cast(s64)num_loose_edges
+        {
+          i := cast(u64)i2
+          // assert(num_faces<EPA_MAX_NUM_FACES);
+          if(num_faces>=EPA_MAX_NUM_FACES) break;
+
+          faces[num_faces][0] = loose_edges[i][0];
+          faces[num_faces][1] = loose_edges[i][1];
+          faces[num_faces][2] = p;
+          a_dir := loose_edges[i][0]-loose_edges[i][1]
+          b_dir := loose_edges[i][0]-p
+          cross := cross_vec2(a_dir, b_dir)
+
+          faces[num_faces][3] = normalize_vec2(cross);
+
+          //Check for wrong normal to maintain CCW winding
+          bias:= 0.000001; //in case dot result is only slightly < 0 (because origin is on face)
+          if(_dot(faces[num_faces][0], faces[num_faces][3])+bias < 0.0){
+              temp := faces[num_faces][0];
+              faces[num_faces][0] = faces[num_faces][1];
+              faces[num_faces][1] = temp;
+              faces[num_faces][3] = -faces[num_faces][3];
+          }
+          num_faces++;
+        }
+    } //End for iterations
+    //printf("EPA did not converge\n");
+    //Return most recent closest point
+	//__dbg_break
+	out.normal = faces[cast(u64)closest_face][3]
+  return faces[closest_face][3] * _dot(faces[closest_face][0], faces[closest_face][3]);
+}
 physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_info)
 {
   ASSERT(trn)
@@ -704,10 +939,14 @@ physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_
   tri_col :collider=?
   tri_col.type = col_type.TRIANGLE
 
-  wnd -= 1
+  i := 0
+
+  start_x := p.x
   for y in 0..cast(s64)wnd
   {
     p.z += 1.0
+    p.x = start_x
+
     for x in 0..cast(s64)wnd
     {
       a := p
@@ -730,12 +969,14 @@ physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_
       v4 := a
       v4.y = cast(f64)h4
 
+
       tri_col.TRIANGLE.verts[0] = v1
       tri_col.TRIANGLE.verts[1] = v2
       tri_col.TRIANGLE.verts[2] = v3
+
       ab := v2 - v1
       ac := v3 - v1
-      tri_col.TRIANGLE.normal = -cross_vec2(ab, ac)
+      tri_col.TRIANGLE.normal = cross_vec2(ab, ac)
 
       if is_key_down(phy.iman, key_enum.P)
       {
@@ -746,11 +987,18 @@ physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_
       
       if GJK(&phy.gjk, col, &tri_col)
       {
+        gjk := &phy.gjk
         printf("in col {cast(f32)glfwGetTime()}\n")
+        m := get_manifold(phy)
+        m.contact_count = 1
+        m.contacts[0].position = EPA(gjk, gjk.simplex[0].sup, gjk.simplex[1].sup, gjk.simplex[2].sup, gjk.simplex[3].sup, col, &gjk.aux_col, m)
+        //m.penetration
+        return
       }
 
       //c1.pos = e.pos
 
+      i++
 
       p.x += 1.0
     }
@@ -759,6 +1007,7 @@ physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_
 }
 physics_step::fn(phy : *physics_manager, dt : f32)
 {
+  phy.cur_manifolds = 0
   for i in 0..cast(s64)phy.max_bodies
   {
     cur := &phy.bodies[cast(u64)i]
@@ -770,6 +1019,8 @@ physics_step::fn(phy : *physics_manager, dt : f32)
     p_aabb :aabb = ?
     cur.pos = cur.ent.pos
     cur.size = cur.ent.size
+    //cur.pos.x = 4000.0
+    //cur.pos.z = 4095.0
     CopyVerts(phy, cur, &p_aabb._min, &p_aabb._max)
 
     physics_terrain_col(phy, cur, phy.trn)

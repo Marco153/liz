@@ -9409,7 +9409,6 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
       ptrace(PTRACE_SINGLESTEP, child_p, NULL, 0);
       waitpid(child_p, NULL, 0);
       stepped = true;
-      center_inst = true;
       ptrace(PTRACE_GETREGS, child_p, NULL, &regs);
       int offset = regs.rip - (u64)code_start;
       cur_st = nullptr;
@@ -9419,6 +9418,8 @@ void RunDebugger(lang_state *lang_stat, int child_p, int pipes[2])
         cur_f = nullptr;
         cur_scp = nullptr;
       }
+      if(cur_st && (offset < cur_st->start || offset > cur_st->end))
+        center_inst = true;
     }
 
     ImGui::SameLine();

@@ -151,7 +151,7 @@ add_read_img::fn(g :*game_info, x : s32, z :s32, mip : u8)
 
   sec := ((cast(*u32)g.thread_info.work_to_do.buffer_data)[1])[1]
 
-  //printf("adding CREATE_TEX {cast(u32)w.CREATE_TEX.type}, x {w.CREATE_TEX.x}, z {w.CREATE_TEX.z}, mip {w.CREATE_TEX.mip}, sec val {sec}\n")
+  printf("adding CREATE_TEX {cast(u32)w.CREATE_TEX.type}, x {w.CREATE_TEX.x}, z {w.CREATE_TEX.z}, mip {w.CREATE_TEX.mip}, sec val {sec}\n")
   linked_add(&g.thread_info.work_to_do, &w, 0)
 
 }
@@ -921,21 +921,15 @@ init_game::fn(g : *game_info)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 6)
 
 
-  g.player.size.x = 5.0
-  g.player.size.y = 2.0
-  g.player.size.z = 5.0
+  g.player.size.x = 1.0
+  g.player.size.y = 1.0
+  g.player.size.z = 1.0
   g.player.rot.w  = 1.0
   col := physics_get_body(&g.pman, g.player)
   col.type = col_type.CUBE
   g.pman.iman = &g.iman
 
 /*
-  m_aabb :aabb = ?
-  p_aabb :aabb = ?
-  col.pos  = col.ent.pos
-  col.size = col.ent.size
-  CopyVerts(&g.pman, col, &p_aabb._min, &p_aabb._max)
-
   tri : collider
   tri.type = col_type.TRIANGLE
   tri.TRIANGLE.verts[0].x = -2.0
@@ -950,16 +944,26 @@ init_game::fn(g : *game_info)
   v1 := tri.TRIANGLE.verts[0]
   v2 := tri.TRIANGLE.verts[1]
   v3 := tri.TRIANGLE.verts[2]
+
   ab := v2 - v1
   ac := v3 - v1
-  tri.TRIANGLE.normal = cross_vec2(ab, ac)
-  print_vec2(g.player.pos)
-  __dbg_break
-  __dbg_break
-  __dbg_break
-  if GJK(&g.pman.gjk, col, &tri)
+  i := 0
+  while i < 32
   {
-    printf("in col\n")
+    tri.TRIANGLE.normal = cross_vec2(ab, ac)
+    m_aabb :aabb = ?
+    p_aabb :aabb = ?
+    col.ent.pos.y += 0.1
+    col.pos  = col.ent.pos
+    col.size = col.ent.size
+    CopyVerts(&g.pman, col, &p_aabb._min, &p_aabb._max)
+
+    print_vec2(g.player.pos)
+    if GJK(&g.pman.gjk, col, &tri)
+    {
+      printf("in col\n")
+    }
+    i++
   }
   __dbg_break
   */
@@ -1504,7 +1508,7 @@ check_and_add_terrain_chunks::fn(g : *game_info, trn : *terrain_info, player_pos
   max_z   = clamp(max_z, 0, w - 1)
 
 
-  //printf("start_x {start_x}, start_z {start_z}, max_x {max_x}, max_z {max_z}, w {w}, mul {mul}, div {div}\n")
+  printf("start_x {start_x}, start_z {start_z}, max_x {max_x}, max_z {max_z}, w {w}, mul {mul}, div {div}\n")
 
   if w == 1
   {
@@ -1658,13 +1662,18 @@ run_game::fn(g : *game_info)
 
     player_mov(g, g.player, dt)
 
-    //print_vec2(g.cam_pos)
     //printf("streaming {g.trn.trn.streaming_texs}, count {g.thread_info.work_to_do.used_chunks}\n")
 
     physics_update(&g.pman, dt)
 
     add_objects_to_draw(g , &g.rman)
     render(g, &g.rman)
+
+/*
+    printf("\n***")
+    print_vec2(g.cam_pos)
+    printf("***\n")
+    */
 
     swap_buffers(g)
 

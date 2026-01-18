@@ -2119,6 +2119,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case MOD_I_2_R:
 		{
+      if(bc->bin.lhs.reg != 0)
+        ret.code.emplace_back(0x50);
 			// xor rdx, rdx
 			byte_code aux;
 			aux.bin.lhs.reg = 2;
@@ -2154,6 +2156,8 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			aux.bin.lhs.reg = bc->bin.lhs.reg;
 			aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
 			CreateRegToReg(&aux, 0x88, 0x89, &ret);
+      if(bc->bin.lhs.reg != 0)
+        ret.code.emplace_back(0x58);
 		}break;
 		case DIV_R:
 		{
@@ -2209,14 +2213,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		case DIV_R_2_R:
 		case MUL_R_2_R:
 		{
-			char dst = FromBCRegToAsmReg(bc->bin.lhs.reg);
-			dst &= 0xf;
-			char src = FromBCRegToAsmReg(bc->bin.rhs.reg);
-			src &= 0xf;
+			char dst = bc->bin.lhs.reg;
+			//dst &= 0xf;
+			char src = bc->bin.rhs.reg;
+			//src &= 0xf;
       //HERE()
 
+			ret.code.emplace_back(0x90);
       char aux_reg = 1;
 			// push rax
+			ret.code.emplace_back(0x50);
 			ret.code.emplace_back(0x50 + aux_reg);
 
       // xor rdx, rdx
@@ -2225,6 +2231,16 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         ret.code.emplace_back(0x48);
         ret.code.emplace_back(0x31);
         ret.code.emplace_back(0xd2);
+      }
+
+      if(dst != 0)
+      {
+        byte_code aux;
+        aux.bin.lhs.reg = 0;
+        aux.bin.lhs.reg_sz = 8;
+        aux.bin.rhs = bc->bin.lhs;
+				CreateRegToReg(&aux, 0x88, 0x89, &ret);
+
       }
 			
 			// moving dst to rax
@@ -2250,6 +2266,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 				CreateRegToReg(&*bc, 0x88, 0x89, &ret);
 			//pop rax
 			ret.code.emplace_back(0x58 + aux_reg);
+			ret.code.emplace_back(0x58);
 
 		}break;
 		case MUL_M_2_R:
@@ -2819,6 +2836,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 		}break;
 		case DIV_I_2_R:
 		{
+      if(bc->bin.lhs.reg != 0)
+			// push rax
+        ret.code.emplace_back(0x50);
+
 			// xor rdx, rdx
 			byte_code aux;
 			aux.bin.lhs.reg = 2;
@@ -2854,6 +2875,9 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			aux.bin.lhs.reg = bc->bin.lhs.reg;
 			aux.bin.lhs.reg_sz = bc->bin.lhs.reg_sz;
 			CreateRegToReg(&aux, 0x88, 0x89, &ret);
+
+      if(bc->bin.lhs.reg != 0)
+        ret.code.emplace_back(0x58);
 			//TODO
 		}break;
 		case DIV_M_2_R:

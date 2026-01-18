@@ -2589,7 +2589,6 @@ void FreeRegs2(lang_state *lang_stat)
 void GetIRCallArg(lang_state *lang_stat, ast_rep *arg, thread_ir_state *state, int i, int *float_args, int args_on_stack_start, bool is_sys_call, bool *arg_is_float)
 {
   ir_rep ir={};
-  //BREAK(arg->line_number == 142)
   ir.bin.rhs = GetIRFromAst2(lang_stat, arg, state, true);
   bool was_float = ir.bin.rhs.is_float;
 
@@ -2769,6 +2768,7 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
   }
   i = 0;
   int f_args = 0;
+  //BREAK(ast->line_number == 505 && callf->name == "same_direction")
   FOR_VEC(arg, ast->call.args)
   {
     if(HasCall(lang_stat, *arg))
@@ -2793,6 +2793,11 @@ ir_val GetIRCall(lang_state *lang_stat, ast_rep *ast, thread_ir_state *state, bo
     {
       GetIRCallArg(lang_stat, *arg, state, i, &f_args, start_on_regs, is_syscall, &arg_is_float);
       FreeSomeRegs(lang_stat);
+    }
+    else
+    {
+      if(i < callf->args.size() && callf->args[i]->type.IsFloat())
+        f_args++;
     }
 
     if(!arg_is_float)

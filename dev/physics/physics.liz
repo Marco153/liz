@@ -6,6 +6,7 @@ import "../chunk"
 import "../os"
 import "../render"
 import "../input"
+import "../glfw"
 
 EPA_TOLERANCE:const f32= 0.0001
 EPA_MAX_NUM_FACES:const s32= 64
@@ -286,9 +287,11 @@ find_support::fn( col1 : *collider, col2 : *collider, dir : vector) ! vector
 		sup2 := find_furthest_point(col2, col2.pos, -dir)
 		//gjk.sup1 = sup1
 		//gjk.sup2 = sup2
+    /*
     printf("\n**")
     print_vec2(sup1)
     print_vec2(sup2)
+    */
 		return sup1 - sup2
 
 }
@@ -401,11 +404,12 @@ GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 		{
 			return false
 		}
+    /*
     printf("\n---")
     print_vec2(sup)
     print_vec2(dir)
     printf("it {it}, d {cast(f32)_dot(sup, dir)}, simpl verts {gjk.simplex_verts}\n")
-
+    */
 		simplex_push_front(gjk, sup)
 
 		if(gjk_next_simplex(gjk, &dir))
@@ -489,7 +493,6 @@ gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *vector) ! bool
 }
 gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 {
-  printf("TRIANGLE:")
 	a := gjk.simplex[0]
 	b := gjk.simplex[1]
 	c := gjk.simplex[2]
@@ -499,9 +502,6 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 	ao := -a
 
 	abc := cross_vec2(ab, ac)
-  __dbg_break
-  __dbg_break
-  __dbg_break
 	if same_direction(cross_vec2(abc, ac), ao)
 	{
 		if same_direction(ac, ao)
@@ -550,7 +550,6 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 }
 gjk_line ::fn x64(gjk : *gjk_state, dir : *vector) ! bool
 {
-  printf("LINE:\n")
 	a := gjk.simplex[0]
 	b := gjk.simplex[1]
 
@@ -560,11 +559,9 @@ gjk_line ::fn x64(gjk : *gjk_state, dir : *vector) ! bool
 	if(same_direction(ab, ao))
 	{
 		*dir = cross_vec2(cross_vec2(ab, ao), ab)
-    printf("same dir\n")
 	}
 	else
 	{
-    printf("not in same dir\n")
 		gjk.simplex_verts = 1
 		*dir = ao
 	}
@@ -749,7 +746,7 @@ physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_
       
       if GJK(&phy.gjk, col, &tri_col)
       {
-        printf("in col\n")
+        printf("in col {cast(f32)glfwGetTime()}\n")
       }
 
       //c1.pos = e.pos

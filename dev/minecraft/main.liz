@@ -921,14 +921,15 @@ init_game::fn(g : *game_info)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 6)
 
 
-  g.player.size.x = 1.0
-  g.player.size.y = 1.0
-  g.player.size.z = 1.0
+  g.player.size.x = 5.0
+  g.player.size.y = 2.0
+  g.player.size.z = 5.0
   g.player.rot.w  = 1.0
   col := physics_get_body(&g.pman, g.player)
   col.type = col_type.CUBE
   g.pman.iman = &g.iman
 
+/*
   m_aabb :aabb = ?
   p_aabb :aabb = ?
   col.pos  = col.ent.pos
@@ -961,6 +962,7 @@ init_game::fn(g : *game_info)
     printf("in col\n")
   }
   __dbg_break
+  */
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)

@@ -2698,6 +2698,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         rm = src;
         reg = dst;
         op = 0x10;
+        is_rex = IS_FLAG_ON(rm, 0x80);
       }break;
       case MOV_PCKD_SSE_2_MEM:{
         src =  bc->bin.rhs.reg;
@@ -2707,10 +2708,10 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
         rm = dst;
         reg = src;
         op = 0x11;
+        is_rex = IS_FLAG_ON(reg, 0x80);
         //HERE()
       }break;
       }
-      is_rex = IS_FLAG_ON(reg, 0x80);
       if(reg_sz == 4)
       {
         if(reg > 7 && !is_rex)

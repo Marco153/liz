@@ -921,8 +921,46 @@ init_game::fn(g : *game_info)
   check_and_add_terrain_chunks(g, g.trn.trn, g.cam_pos, 6)
 
 
+  g.player.size.x = 1.0
+  g.player.size.y = 1.0
+  g.player.size.z = 1.0
+  g.player.rot.w  = 1.0
   col := physics_get_body(&g.pman, g.player)
   col.type = col_type.CUBE
+  g.pman.iman = &g.iman
+
+  m_aabb :aabb = ?
+  p_aabb :aabb = ?
+  col.pos  = col.ent.pos
+  col.size = col.ent.size
+  CopyVerts(&g.pman, col, &p_aabb._min, &p_aabb._max)
+
+  tri : collider
+  tri.type = col_type.TRIANGLE
+  tri.TRIANGLE.verts[0].x = -2.0
+  tri.TRIANGLE.verts[0].z = 2.0
+
+  tri.TRIANGLE.verts[1].x = 2.0
+  tri.TRIANGLE.verts[1].z = 2.0
+
+  tri.TRIANGLE.verts[2].x = 2.0
+  tri.TRIANGLE.verts[2].z = -2.0
+
+  v1 := tri.TRIANGLE.verts[0]
+  v2 := tri.TRIANGLE.verts[1]
+  v3 := tri.TRIANGLE.verts[2]
+  ab := v2 - v1
+  ac := v3 - v1
+  tri.TRIANGLE.normal = cross_vec2(ab, ac)
+  print_vec2(g.player.pos)
+  __dbg_break
+  __dbg_break
+  __dbg_break
+  if GJK(&g.pman.gjk, col, &tri)
+  {
+    printf("in col\n")
+  }
+  __dbg_break
 }
 
 update_cam_rot::fn(g : *game_info, rx : f32, ry : f32, rz : f32)

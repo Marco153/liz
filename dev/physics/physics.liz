@@ -5,6 +5,7 @@ import "../math"
 import "../chunk"
 import "../os"
 import "../render"
+import "../input"
 
 EPA_TOLERANCE:const f32= 0.0001
 EPA_MAX_NUM_FACES:const s32= 64
@@ -35,7 +36,7 @@ maxPerComponent::fn x64(a: vector, b: vector) ! vector
 }
 CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *vector, _max : *vector, mesh_verts : *vector)
 {
-	p := col.pos
+	p := col.local_pos
 	p.x = p.x * e.size.x
 	p.y = p.y * e.size.y
 	p.z = p.z * e.size.z
@@ -134,6 +135,7 @@ CopyVertsActual::fn x64(col : *collider, e : *entity, _min : *vector, _max : *ve
 			c := cast(*float)&q.v
 			build_model_matrix(a, final_pos, c, final_size)
 
+      //print_vec2((cast(*vector)a)[0])
 			for i in 0..8
 			{
 				v := ptr_offset(start, i, vector)
@@ -192,7 +194,7 @@ CopyVerts::fn(phy : *physics_manager, col : *collider, _min : *vector, _max : *v
 	_max.z = -9999.9
 	if col.type == col_type.CUBE
 	{
-		memcpy(&col.CUBE.verts[0], &phy.cube_verts[0], 16 * 8)
+		memcpy(&col.CUBE.verts[0], &phy.cube_verts[0], sizeof(vector) * 8)
 	}
 	CopyVertsActual(col, col.ent, _min, _max, mesh_verts)
 }
@@ -236,6 +238,7 @@ collider : struct
 	using type : col_type
 	ent : * entity
 	pos : vector
+	local_pos : vector
 	size : vector
 	_min : vector
 	_max : vector
@@ -283,6 +286,9 @@ find_support::fn( col1 : *collider, col2 : *collider, dir : vector) ! vector
 		sup2 := find_furthest_point(col2, col2.pos, -dir)
 		//gjk.sup1 = sup1
 		//gjk.sup2 = sup2
+    printf("\n**")
+    print_vec2(sup1)
+    print_vec2(sup2)
 		return sup1 - sup2
 
 }
@@ -334,13 +340,14 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
 	}
 	CUBE
 	{
+
 		_max : f32
 		*cast(*s32)&_max = FLOAT_MIN;
 		max_idx :u64= 0
 		cur_idx :u64= 0
 		for v in col.CUBE.verts
 		{
-			aux := *v - (col.pos + world_pos)
+			aux := *v - (col.local_pos + world_pos)
 			proj:= _dot(dir, aux);
 			if proj > cast(f64)_max
 			{
@@ -359,14 +366,14 @@ find_furthest_point::fn x64(col : *collider, world_pos : vector, dir : vector) !
     __dbg_break
   }
 	}
-	return _vec{0.0, 0.0, 0.0, 0.0}
+	return _vec2{0.0, 0.0, 0.0, 0.0}
 }
 simplex_push_front::fn x64(gjk : *gjk_state, pos : vector)
 {
 	aux : [4]vector= ?
-	memcpy(&aux[0], &gjk.simplex[0], 3 * 16)
+	memcpy(&aux[0], &gjk.simplex[0], 3 * sizeof(vector))
 	gjk.simplex[0] = pos
-	memcpy(&gjk.simplex[1], &aux[0], 3 * 16)
+	memcpy(&gjk.simplex[1], &aux[0], 3 * sizeof(vector))
 
 	gjk.simplex_verts = minval(gjk.simplex_verts + 1, 4)
 }
@@ -394,6 +401,11 @@ GJK::fn(gjk : *gjk_state, col1 : *collider, col2 : *collider) ! bool
 		{
 			return false
 		}
+    printf("\n---")
+    print_vec2(sup)
+    print_vec2(dir)
+    printf("it {it}, d {cast(f32)_dot(sup, dir)}, simpl verts {gjk.simplex_verts}\n")
+
 		simplex_push_front(gjk, sup)
 
 		if(gjk_next_simplex(gjk, &dir))
@@ -477,6 +489,7 @@ gjk_tetrahedron ::fn(gjk : *gjk_state, dir : *vector) ! bool
 }
 gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 {
+  printf("TRIANGLE:")
 	a := gjk.simplex[0]
 	b := gjk.simplex[1]
 	c := gjk.simplex[2]
@@ -486,6 +499,9 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 	ao := -a
 
 	abc := cross_vec2(ab, ac)
+  __dbg_break
+  __dbg_break
+  __dbg_break
 	if same_direction(cross_vec2(abc, ac), ao)
 	{
 		if same_direction(ac, ao)
@@ -534,6 +550,7 @@ gjk_triangle ::fn(gjk : *gjk_state, dir : *vector) ! bool
 }
 gjk_line ::fn x64(gjk : *gjk_state, dir : *vector) ! bool
 {
+  printf("LINE:\n")
 	a := gjk.simplex[0]
 	b := gjk.simplex[1]
 
@@ -543,9 +560,11 @@ gjk_line ::fn x64(gjk : *gjk_state, dir : *vector) ! bool
 	if(same_direction(ab, ao))
 	{
 		*dir = cross_vec2(cross_vec2(ab, ao), ab)
+    printf("same dir\n")
 	}
 	else
 	{
+    printf("not in same dir\n")
 		gjk.simplex_verts = 1
 		*dir = ao
 	}
@@ -568,6 +587,8 @@ physics_manager : struct
 
 	cube_verts : [8]vector
 	cube_tris : [36]s32
+
+  iman : *input_manager
 }
 
 init_physics::fn(phy : *physics_manager, alloc :*generic_allocator, trn : *terrain_info)
@@ -717,9 +738,15 @@ physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_
       tri_col.TRIANGLE.verts[2] = v3
       ab := v2 - v1
       ac := v3 - v1
-      tri_col.TRIANGLE.normal = cross_vec2(ab, ac)
+      tri_col.TRIANGLE.normal = -cross_vec2(ab, ac)
 
-
+      if is_key_down(phy.iman, key_enum.P)
+      {
+        __dbg_break
+        __dbg_break
+        __dbg_break
+      }
+      
       if GJK(&phy.gjk, col, &tri_col)
       {
         printf("in col\n")
@@ -744,9 +771,9 @@ physics_step::fn(phy : *physics_manager, dt : f32)
 
     m_aabb :aabb = ?
     p_aabb :aabb = ?
-    CopyVerts(phy, cur, &p_aabb._min, &p_aabb._max)
     cur.pos = cur.ent.pos
-    //print_vec2(cur.ent.pos)
+    cur.size = cur.ent.size
+    CopyVerts(phy, cur, &p_aabb._min, &p_aabb._max)
 
     physics_terrain_col(phy, cur, phy.trn)
     

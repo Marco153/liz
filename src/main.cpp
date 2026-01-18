@@ -8902,6 +8902,7 @@ void PrintMem(int child_p, dbg_state *dbg, u64 addr, enum_type2 *byte_type)
     case TYPE_S64:
     case TYPE_U64:
       column_size = 8;
+      column_max = 4;
       break;
     case TYPE_S16:
     case TYPE_U16:

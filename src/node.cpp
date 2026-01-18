@@ -10840,6 +10840,7 @@ if(!decl)
       case enum_type2::TYPE_U8:
       case enum_type2::TYPE_U16:
       case enum_type2::TYPE_U32:
+      case enum_type2::TYPE_F64:
       case enum_type2::TYPE_U64:
       case enum_type2::TYPE_S8:
       case enum_type2::TYPE_S16:

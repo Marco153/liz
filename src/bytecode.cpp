@@ -2219,7 +2219,7 @@ void GenX64(lang_state *lang_stat, own_std::vector<byte_code> &bcodes, machine_c
 			//src &= 0xf;
       //HERE()
 
-			ret.code.emplace_back(0x90);
+			//ret.code.emplace_back(0x90);
       char aux_reg = 1;
 			// push rax
 			ret.code.emplace_back(0x50);

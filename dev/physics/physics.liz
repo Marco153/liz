@@ -755,8 +755,8 @@ get_manifold::fn(phy : *physics_manager)!*manifold
 EPA::fn(gjk : *gjk_state, a : vector, b: vector, c : vector, d : vector, col1 : *collider, col2 : *collider, out : * manifold) ! vector
 {
 	cur_i : u64
-  faces := &gjk.epa_faces
-  loose_edges := &gjk.epa_loose_edges
+  faces :[EPA_MAX_NUM_FACES][4]vector
+  loose_edges :[EPA_MAX_NUM_LOOSE_EDGES][2]vector
     
 	ba := b-a
 	ca := c-a
@@ -792,7 +792,9 @@ EPA::fn(gjk : *gjk_state, a : vector, b: vector, c : vector, d : vector, col1 : 
 	{
 		io_globals.linear_cur = 0
     //Find face that's closest to origin
+    
     min_dist:= _dot(faces[0][0], faces[0][3]);
+    printf("min dist {cast(f32)min_dist}\n")
     closest_face = 0;
     for i in 1..cast(s64)num_faces
 		{
@@ -806,24 +808,26 @@ EPA::fn(gjk : *gjk_state, a : vector, b: vector, c : vector, d : vector, col1 : 
 		//gjk.closest_face = closest_face
 
     //search normal to face that's closest to origin
-    search_dir := faces[cast(u64)closest_face][3]; 
+    search_dir := faces[cast(u64)closest_face][cast(u64)cur_k]; 
+
+    search_dir = faces[cast(u64)closest_face][3]; 
     p := find_support(col1, col2, search_dir, &dummy_vec, &dummy_vec)
 
 		dot := _dot(p, search_dir)
 		dist := dot-min_dist
     if((dist)<cast(f64)EPA_TOLERANCE){
         //Convergence (new point is not significantly further from origin)
-			//__dbg_break
 			out.normal = faces[cast(u64)closest_face][3]
       return faces[cast(u64)closest_face][3] * _dot(p, search_dir); //dot vertex with normal to resolve collision along normal!
     }
 
-        num_loose_edges:u64 = 0;
+    num_loose_edges:u64 = 0;
 
 		//printf("here\n")
         //Find all triangles that are facing p
 		for i2 in 0..cast(s64)num_faces
     {
+      io_globals.linear_cur = 0
 			i := cast(u64)i2
 			//printf("i {i}\n")
 			to_point := p-faces[i][0] 
@@ -835,13 +839,16 @@ EPA::fn(gjk : *gjk_state, a : vector, b: vector, c : vector, d : vector, col1 : 
 				//__dbg_break
 				//view_collision(1)
 
-                //Add removed triangle's edges to loose edge list.
-                //If it's already there, remove it (both triangles it belonged to are gone)
+        //Add removed triangle's edges to loose edge list.
+        //If it's already there, remove it (both triangles it belonged to are gone)
 				for j2 in 0..3
         {
 					j:=cast(u64)j2
 					//printf("j {j}\n")
           current_edge:[2]vector=?
+          __dbg_break
+          __dbg_break
+          __dbg_break
 					current_edge[0] = faces[i][j];
 					current_edge[1] = faces[i][(j+1)%3];
                     found_edge := false;
@@ -862,13 +869,16 @@ EPA::fn(gjk : *gjk_state, a : vector, b: vector, c : vector, d : vector, col1 : 
               num_loose_edges--;
               found_edge = true;
               k2=cast(s64)num_loose_edges; //exit loop because edge can only be shared once
-              }
+            }
           }//endfor loose_edges
 
           if(!found_edge){ //add current edge to list
             // assert(num_loose_edges<EPA_MAX_NUM_LOOSE_EDGES);
             if(num_loose_edges>=EPA_MAX_NUM_LOOSE_EDGES) break;
-  //__dbg_break
+            //__dbg_break
+            __dbg_break
+            __dbg_break
+            __dbg_break
             loose_edges[num_loose_edges][0] = current_edge[0];
             loose_edges[num_loose_edges][1] = current_edge[1];
             num_loose_edges++;
@@ -992,6 +1002,8 @@ physics_terrain_col::fn(phy : *physics_manager, col : *collider, trn : *terrain_
         m := get_manifold(phy)
         m.contact_count = 1
         m.contacts[0].position = EPA(gjk, gjk.simplex[0].sup, gjk.simplex[1].sup, gjk.simplex[2].sup, gjk.simplex[3].sup, col, &gjk.aux_col, m)
+        print_vec2(m.normal)
+        printf("pen {cast(f32)m.contacts[0].penetration}\n")
         //m.penetration
         return
       }

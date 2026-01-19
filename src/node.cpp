@@ -10799,7 +10799,8 @@ if(!decl)
         new_index->type = N_BINOP;
         new_index->t->type = T_PLUS;
 
-        int i = lhs.dims.size();
+        //BREAK(n->t->line == 868)
+        int i = lhs.dims.size() - 1;
         do {
 
           int val = 1;
